@@ -553,7 +553,7 @@ function handleStatsCommand({ json = false, days = null, global: useGlobal = fal
 /**
  * Handles `doflow discover` — missed opportunities.
  * @param {Object} options
- * @param {Object} [options.providerHealth] injected for tests; probed from `health.js` otherwise
+ * @param {Object} [options.providerHealth] injected for tests; probed from `health.ts` otherwise
  * @returns {number} process exit code — 1 when there is a finding to act on
  */
 function handleDiscoverCommand({ json = false, days = null, global: useGlobal = false, projectRoot, providerHealth }: any = {}): number {
@@ -565,7 +565,7 @@ function handleDiscoverCommand({ json = false, days = null, global: useGlobal = 
   let health = providerHealth;
   if (health === undefined) {
     try {
-      health = require('../health').probeProviders({ ids: Object.values(PROVIDER) });
+      health = require('../health.ts').probeProviders({ ids: Object.values(PROVIDER) });
     } catch {
       health = null;
     }

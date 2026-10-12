@@ -11,7 +11,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch, inheritedEnv } = require('../helper/scratch-env');
 const store = require('../../src/runtime/failure/store.ts');
 const { ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture.ts');
-const { buildOverview } = require('../../src/runtime/lifecycle/overview');
+const { buildOverview } = require('../../src/runtime/lifecycle/overview.ts');
 
 const BIN = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const scratch = createScratch('doflow-failure-verb-');
@@ -377,7 +377,7 @@ describe('failure --action settle', () => {
     m.markDoflowRepo();
     writeEvents(m, [line()]);
     const preload = path.join(m.dir, 'locked-preload.js');
-    fs.writeFileSync(preload, `const store = require(${JSON.stringify(path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store'))});
+    fs.writeFileSync(preload, `const store = require(${JSON.stringify(path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store.ts'))});
 store.readFold = () => { throw new store.StoreLockedError("Could not lock 'events' after 5s. Nothing was written."); };
 `);
     const r = spawnSync(process.execPath, ['-r', preload, BIN, 'failure', '--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });

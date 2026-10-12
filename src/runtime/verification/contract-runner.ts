@@ -290,7 +290,7 @@ class VerificationContractRunner {
 
     // Defect fix (3): an empty contract reported PASS, which is a verdict over no evidence — the
     // single failure mode a verification gate exists to prevent, and the same fail-closed reasoning
-    // `readiness.js` already applies to a requirement with no evaluator. It is not FAIL either,
+    // `readiness.ts` already applies to a requirement with no evaluator. It is not FAIL either,
     // since nothing failed; the caller (task C.2 owns tier selection) decides what an empty
     // contract means for its risk level.
     if (checks.length === 0) {

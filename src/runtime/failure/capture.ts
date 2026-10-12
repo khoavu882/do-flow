@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { normaliseMessage, maskLine } = require('../mask');
+const { normaliseMessage, maskLine } = require('../mask.ts');
 const { isProgrammingError, errorKind } = require('./classifier.ts');
 const { failureHome, captureIsOff, eventsPath } = require('./home.ts');
 

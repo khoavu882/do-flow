@@ -13,6 +13,7 @@ declare var process: {
   features?: { typescript?: false | 'strip' | 'transform' };
   env: Record<string, string | undefined>;
   platform: string;
+  execPath: string;
   version: string;
   pid: number;
   argv: string[];
@@ -42,10 +43,26 @@ declare var console: {
 interface Buffer extends Uint8Array {
   toString(encoding?: string, start?: number, end?: number): string;
   equals(other: Uint8Array): boolean;
+  subarray(begin?: number, end?: number): Buffer;
 }
 declare var Buffer: {
   alloc(size: number): Buffer;
   from(data: any, encoding?: string): Buffer;
   byteLength(string: string, encoding?: string): number;
   isBuffer(value: any): boolean;
+  allocUnsafe(size: number): Buffer;
+  concat(list: Uint8Array[], totalLength?: number): Buffer;
 };
+
+// Timers and WHATWG URL, as the migrated .ts modules use them (opaque handle; parsed URL fields only).
+declare function setTimeout(callback: (...args: any[]) => void, ms?: number, ...args: any[]): any;
+declare function clearTimeout(handle: any): void;
+declare var URL: {
+  new (input: string, base?: string): { protocol: string; username: string; password: string; hostname: string; [key: string]: any };
+};
+
+// High-resolution clock (storage engine pass budget).
+declare var performance: { now(): number };
+
+// structuredClone (workflow-orchestrator previewHandoff deep-copies a run program).
+declare function structuredClone<T>(value: T): T;

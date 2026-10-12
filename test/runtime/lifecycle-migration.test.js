@@ -11,8 +11,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync, spawn, spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const store = require('../../src/runtime/lifecycle/event-store');
-const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL, MARKER_REL } = require('../../src/runtime/lifecycle/store-upkeep');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
+const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL, MARKER_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';
@@ -373,7 +373,7 @@ test('marker: an unlistable old folder refuses with store-migration-failed befor
 /** A preload that makes every store read time out on the lock, as a long pass by another verb would. */
 function lockedPreload() {
   const file = path.join(scratch.dir, 'locked-preload.js');
-  const storePath = path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store');
+  const storePath = path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store.ts');
   fs.writeFileSync(file, `const store = require(${JSON.stringify(storePath)});
 const locked = () => { throw new store.StoreLockedError("Could not lock 'events' after 5s. Nothing was written."); };
 store.readEvents = locked;

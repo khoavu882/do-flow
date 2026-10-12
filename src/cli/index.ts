@@ -11,11 +11,11 @@
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
-} = require('../runtime/cli');
+} = require('../runtime/cli.ts');
 const { pkg } = require('./shared.ts');
 const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets.ts');
 const { dispatchRuntimeCommand } = require('./runtime-commands.ts');
-const { usageError } = require('../runtime/cli-result');
+const { usageError } = require('../runtime/cli-result.ts');
 
 const cmdInstall = require('./commands/install.ts');
 const cmdUpdate = require('./commands/update.ts');
@@ -55,7 +55,7 @@ function parseArgs(argv: string[]): any {
     tools: null, action: 'status', days: null, slug: null,
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
     // `'default'`, and a JavaScript default parameter fires on `undefined` — so an *absent* key
-    // silently reinstated exactly the identity defect readiness.js fixed by failing closed.
+    // silently reinstated exactly the identity defect readiness.ts fixed by failing closed.
     taskClass: null, taskId: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -329,7 +329,7 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
   const name = eq === -1 ? arg : arg.slice(0, eq);
   // A score-shaped flag is refused by name rather than falling through to "unknown flag", which
   // reads as "not built yet" and invites someone to build it. The name set and the reason both
-  // come from the evidence write boundary (src/runtime/cli.js), so argv and a --batch JSON file
+  // come from the evidence write boundary (src/runtime/cli.ts), so argv and a --batch JSON file
   // are refused by one rule with two enforcement points rather than two rules.
   const camel = name.replace(/^--/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
   if (EVIDENCE_SCORE_FIELDS.has(camel)) { console.error(`doflow: ${scoreFieldRefusal(name)}`); process.exit(2); }

@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { tempDir } = require('../helper/tmp');
 const fs = require('node:fs');
-const { EvidenceLedger, VALID_EVIDENCE_KINDS } = require('../../src/runtime/evidence-ledger');
+const { EvidenceLedger, VALID_EVIDENCE_KINDS } = require('../../src/runtime/evidence-ledger.ts');
 
 test('EvidenceLedger records evidence with valid kinds and locators', () => {
   const ledger = new EvidenceLedger();

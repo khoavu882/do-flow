@@ -190,15 +190,15 @@ test('G12: the path the locator searches for is where the registry projects the 
 // The doctor's reach check stats the same path the locator and the skill resolver look for. A
 // fourth spelling that drifts would make doctor report REACHED for a tree no skill can find.
 test('G12: the reach evaluator, the locator and the skill resolver search for the same dispatcher path (IC-011 4b)', () => {
-  const { REACH_DISPATCHER_REL } = require('../../src/runtime/reach');
+  const { REACH_DISPATCHER_REL } = require('../../src/runtime/reach.ts');
   const [, locatorRel] = locatorText.match(/^REL='([^']+)'$/m) || [];
-  assert.equal(REACH_DISPATCHER_REL, locatorRel, 'src/runtime/reach.js and the locator shim name different dispatcher paths');
+  assert.equal(REACH_DISPATCHER_REL, locatorRel, 'src/runtime/reach.ts and the locator shim name different dispatcher paths');
 
   const skill = fs.readFileSync(path.join(REPO, 'core', 'shared', 'skills', 'do-git', 'SKILL.md'), 'utf8');
   const spelled = [...skill.matchAll(/\.doflow\/(scripts\/[^"\s]+)/g)].map((match) => match[1]);
   assert.ok(spelled.length >= 3, `the resolver block spells the dispatcher path ${spelled.length} time(s); expected the walk, the DOFLOW assignment and the home fallback`);
   assert.deepEqual([...new Set(spelled)], [REACH_DISPATCHER_REL],
-    'the skill resolver block searches a different dispatcher path than src/runtime/reach.js');
+    'the skill resolver block searches a different dispatcher path than src/runtime/reach.ts');
 });
 
 // ------------------------------------------------------------------- 4. verb-table integrity
@@ -685,8 +685,8 @@ test('G12: every discover analysis declares which ledger fields its verdict rest
 // class that does not exist. It surfaces later, in the recovery path, as an unrouted failure —
 // which is the moment the system is least able to absorb a second problem.
 test('G12: every failureClass in verification.json is a declared recovery class (FR-010)', () => {
-  const { parseYamlFile } = require('../../src/runtime/capability-router');
-  const { FAILURE_CLASSES } = require('../../src/runtime/recovery');
+  const { parseYamlFile } = require('../../src/runtime/capability-router.ts');
+  const { FAILURE_CLASSES } = require('../../src/runtime/recovery.ts');
   const doc = parseYamlFile(path.join(REPO, 'core', 'registry', 'verification.json'), fs);
 
   assert.ok(Array.isArray(doc.tiers) && doc.tiers.length > 0, 'verification.json must declare tiers');

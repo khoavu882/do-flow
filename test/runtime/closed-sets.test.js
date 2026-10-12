@@ -21,11 +21,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { tempDir } = require('../helper/tmp');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { renderPolicy } = require('../../src/lifecycle/policies.ts');
-const { describeResolution, RESOLUTION_REASONS } = require('../../src/runtime/locator-resolve');
-const { DERIVATIONS } = require('../../src/runtime/command-detect');
-const { RUN_STATES } = require('../../src/runtime/workflow-orchestrator');
+const { describeResolution, RESOLUTION_REASONS } = require('../../src/runtime/locator-resolve.ts');
+const { DERIVATIONS } = require('../../src/runtime/command-detect.ts');
+const { RUN_STATES } = require('../../src/runtime/workflow-orchestrator.ts');
 
 const SRC = path.resolve(__dirname, '../../src');
 
@@ -134,7 +134,7 @@ test('RUN_STATES: every write to run.state goes through the validator', () => {
   // No input can carry a bad run state into this module — every write is a literal in the file — so
   // the threat is an edit adding a sixth write that skips the check. That is a property of the
   // source, and this is where it is enforced.
-  const source = fs.readFileSync(path.join(SRC, 'runtime/workflow-orchestrator.js'), 'utf8');
+  const source = fs.readFileSync(path.join(SRC, 'runtime/workflow-orchestrator.ts'), 'utf8');
 
   // `=(?!=)` so the five `run.state === '...'` comparisons are not mistaken for assignments.
   const bare = [...source.matchAll(/run\.state\s*=(?!=)\s*(?!runState\()(\S+)/g)].map((m) => m[0]);
@@ -152,7 +152,7 @@ test('DERIVATIONS: every derivation literal in the detectors is a member of the 
   // `derivation` is written as a literal at more than twenty sites across the per-language
   // detectors. The runtime check in detectCommands covers whatever a run reaches; this covers every
   // site whether a test exercises that language's detector or not.
-  const source = fs.readFileSync(path.join(SRC, 'runtime/command-detect.js'), 'utf8');
+  const source = fs.readFileSync(path.join(SRC, 'runtime/command-detect.ts'), 'utf8');
   const literals = [...source.matchAll(/derivation:\s*'([a-z-]+)'/g)].map((m) => m[1]);
 
   assert.ok(literals.length >= 20, `expected the detectors to set derivation many times, found ${literals.length}`);

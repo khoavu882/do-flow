@@ -58,8 +58,8 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
-const { finishRuntime } = require('../cli-result');
-const { resolveActiveFeature } = require('../feature-resolve');
+const { finishRuntime } = require('../cli-result.ts');
+const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { parseRequirement, parseDesign, parsePlan } = require('./artifacts.ts');
 const {
   EXTENSION_LANGUAGE,
@@ -424,7 +424,7 @@ function planTestStubs({ requirement, componentsForRequirement, language, slug, 
           `requirement:   ${id}${req ? ` — ${req.summary}` : ' — not present in the requirement index'}`,
           ...(comps.length ? comps.map((c: any) => `component:     ${c.id} — ${c.name} (design.md §3)`) : []),
           `criteria:      ${cases.length} from requirement.md §6`,
-          `language:      ${language.id} (detected from ${language.signal} by command-detect.js)`,
+          `language:      ${language.id} (detected from ${language.signal} by command-detect.ts)`,
         ];
         const name = emitter.testName(id);
         planned.set(path.join('test', name) + STUB_SUFFIX, {

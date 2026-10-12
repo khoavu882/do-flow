@@ -391,8 +391,8 @@ test('X11 fail-open: a corrupt brief record, an unreadable evidence ledger and a
 });
 
 test('X11 fail-open: a registry that will not load stores no record and the handoff completes', (t) => {
-  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
-  const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+  const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
   const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
   const p = project(t);
   const broken = path.join(p.scratch.dir, 'broken-repo');
@@ -409,7 +409,7 @@ test('X11 fail-open: a registry that will not load stores no record and the hand
 });
 
 test('X11 retry: evidence saved before a refused completion is found again, not added twice', (t) => {
-  const { ResearchRequestStore } = require('../../src/runtime/research-request');
+  const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
   const p = project(t);
   start(p);
   const report = writeBrief(p);

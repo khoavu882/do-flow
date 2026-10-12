@@ -7,15 +7,15 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const registry = require('../../core/registry/storage.json');
-const engine = require('../../src/runtime/storage/engine');
+const engine = require('../../src/runtime/storage/engine.ts');
 const { RunLedger } = require('../../src/runtime/trace/ledger.ts');
-const { resolveRoots } = require('../../src/runtime/storage/roots');
+const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const REPO = path.resolve(__dirname, '../..');
 const RUN = path.join(REPO, 'core/shared/scripts/doflow/bin/doflow-run');
 const NOW = Date.parse('2026-10-10T12:00:00Z');
 const DAY = 86400000;
 const IGNORE = `${registry.settings.ignoreFile.lines.join('\n')}\n`;
-const upkeep = () => require('../../src/runtime/storage/upkeep');
+const upkeep = () => require('../../src/runtime/storage/upkeep.ts');
 
 function fixture(t, rootIds = ['project-state']) {
   const dir = tempDir(t, 'doflow-upkeep-');

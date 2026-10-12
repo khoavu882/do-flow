@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const state = require('../../src/state/index.ts');
-const { storageAfterInstall } = require('../../src/runtime/storage/upkeep');
+const { storageAfterInstall } = require('../../src/runtime/storage/upkeep.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 function install(project, env) {

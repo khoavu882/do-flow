@@ -89,7 +89,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -107,8 +107,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/readiness-record.js",
-        "src/runtime/task-state.js"
+        "src/runtime/readiness-record.ts",
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -126,7 +126,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -144,7 +144,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/outcome.js"
+        "src/runtime/outcome.ts"
       ]
     },
     {
@@ -162,7 +162,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/retrieval-plan.js"
+        "src/runtime/retrieval-plan.ts"
       ]
     },
     {
@@ -180,7 +180,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -198,8 +198,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js",
-        "src/runtime/workflow-orchestrator.js"
+        "src/runtime/task-state.ts",
+        "src/runtime/workflow-orchestrator.ts"
       ]
     },
     {
@@ -255,7 +255,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/advice/record.js"
+        "src/runtime/advice/record.ts"
       ]
     },
     {
@@ -273,7 +273,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/advice/record.js"
+        "src/runtime/advice/record.ts"
       ]
     },
     {
@@ -328,7 +328,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/lifecycle/event-store.js"
+        "src/runtime/lifecycle/event-store.ts"
       ]
     },
     {
@@ -347,8 +347,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/lifecycle/report-store.js",
-        "src/runtime/storage/engine.js"
+        "src/runtime/lifecycle/report-store.ts",
+        "src/runtime/storage/engine.ts"
       ]
     },
     {
@@ -584,10 +584,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/lifecycle/store-upkeep.js"
+        "src/runtime/lifecycle/store-upkeep.ts"
       ],
       "source": {
-        "file": "src/runtime/lifecycle/store-upkeep.js",
+        "file": "src/runtime/lifecycle/store-upkeep.ts",
         "pattern": "MIGRATING_PREFIX"
       }
     },
@@ -605,11 +605,11 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/storage/engine.js",
-        "src/runtime/task-state.js"
+        "src/runtime/storage/engine.ts",
+        "src/runtime/task-state.ts"
       ],
       "source": {
-        "file": "src/runtime/task-state.js",
+        "file": "src/runtime/task-state.ts",
         "pattern": "LOCK_STALE_MS = 10_000"
       }
     },
@@ -714,10 +714,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/worktree.js"
+        "src/runtime/worktree.ts"
       ],
       "source": {
-        "file": "src/runtime/worktree.js",
+        "file": "src/runtime/worktree.ts",
         "pattern": "worktree"
       }
     },
@@ -734,7 +734,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.js"
+        "src/runtime/advice/config.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
@@ -754,7 +754,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.js"
+        "src/runtime/advice/config.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
@@ -776,7 +776,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -794,7 +794,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -812,7 +812,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -830,7 +830,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -848,7 +848,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -866,7 +866,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -884,7 +884,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -902,7 +902,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -920,7 +920,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -1038,15 +1038,15 @@
       "reason": "maintainer release tool: rewrites the repo plugin manifests (no DoFlow root)"
     },
     {
-      "file": "src/runtime/decision-register.js",
+      "file": "src/runtime/decision-register.ts",
       "reason": "agent-docs deliverable (decisions register of a feature)"
     },
     {
-      "file": "src/runtime/history-compactor.js",
+      "file": "src/runtime/history-compactor.ts",
       "reason": "agent-docs deliverable (decisions/history archive and artifact stub)"
     },
     {
-      "file": "src/runtime/lifecycle/intent-writer.js",
+      "file": "src/runtime/lifecycle/intent-writer.ts",
       "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
     },
     {

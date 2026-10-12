@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { CapabilityRouter } = require('../../src/runtime/capability-router');
+const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 

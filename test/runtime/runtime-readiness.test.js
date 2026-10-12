@@ -6,11 +6,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
-const { ClaimsManager } = require('../../src/runtime/claims');
-const { FreshnessValidator } = require('../../src/runtime/freshness');
-const { ContextPackCompiler } = require('../../src/runtime/context-pack');
-const { ReadinessEngine } = require('../../src/runtime/readiness');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
+const { FreshnessValidator } = require('../../src/runtime/freshness.ts');
+const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
+const { ReadinessEngine } = require('../../src/runtime/readiness.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 
@@ -61,7 +61,7 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
   const ev2 = ledger.addEvidence({
     taskId: 'task_bug_ready',
     kind: 'exact-search',
-    locator: { file: 'src/runtime/readiness.js', lineRange: [45, 60] },
+    locator: { file: 'src/runtime/readiness.ts', lineRange: [45, 60] },
     content: 'function processPayment()',
     establishes: ['affected_code'],
   });
@@ -70,7 +70,7 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
   const ev3 = ledger.addEvidence({
     taskId: 'task_bug_ready',
     kind: 'structural',
-    locator: { file: 'src/runtime/claims.js' },
+    locator: { file: 'src/runtime/claims.ts' },
     content: 'CheckoutController -> PaymentService',
     establishes: ['blast_radius'],
   });
@@ -153,12 +153,12 @@ test('ContextPackCompiler compiles compact structured context within budget', ()
   const ev1 = ledger.addEvidence({
     taskId: 'task_cpack',
     kind: 'exact-search',
-    locator: { file: 'src/runtime/cli.js' },
+    locator: { file: 'src/runtime/cli.ts' },
   });
   const ev2 = ledger.addEvidence({
     taskId: 'task_cpack',
     kind: 'exact-search',
-    locator: { file: 'src/runtime/evidence-ledger.js' },
+    locator: { file: 'src/runtime/evidence-ledger.ts' },
   });
 
   const claim1 = claims.addClaim({ taskId: 'task_cpack', statement: 'Claim 1' });
@@ -234,7 +234,7 @@ test('a stale item alone forces NEEDS_EVIDENCE even when every requirement is ot
     taskId: 'task_supersede',
     kind: 'structural',
     provenance: 'extracted',
-    locator: { file: 'src/runtime/readiness.js', line: 1 },
+    locator: { file: 'src/runtime/readiness.ts', line: 1 },
     content: 'use strict',
     establishes: ['affected_components'],
   });
@@ -244,8 +244,8 @@ test('a stale item alone forces NEEDS_EVIDENCE even when every requirement is ot
     taskId: 'task_supersede',
     kind: 'structural',
     provenance: 'extracted',
-    locator: { file: 'src/runtime/evidence-ledger.js', line: 1 },
-    content: 'a fact recorded before evidence-ledger.js changed',
+    locator: { file: 'src/runtime/evidence-ledger.ts', line: 1 },
+    content: 'a fact recorded before evidence-ledger.ts changed',
   });
   ledger.getEvidence(staleId).freshness.status = 'STALE';
 
@@ -279,8 +279,8 @@ test('a stale item alone forces NEEDS_EVIDENCE even when every requirement is ot
 
 test('supersedeEvidence refuses a missing replacement, self-supersession, and re-superseding', () => {
   const ledger = new EvidenceLedger();
-  const a = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/readiness.js' } });
-  const b = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/claims.js' } });
+  const a = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/readiness.ts' } });
+  const b = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/claims.ts' } });
 
   assert.throws(() => ledger.supersedeEvidence(a, 'no-such-id'), /No evidence 'no-such-id' is recorded/);
   assert.throws(() => ledger.supersedeEvidence(a, a), /cannot supersede itself/);
@@ -305,7 +305,7 @@ test('FR-005: an unresolvable supporting locator keeps the gate off READY and na
     taskId: 'task_unresolvable',
     kind: 'exact-search',
     provenance: 'extracted',
-    locator: { file: 'src/runtime/readiness.js', line: 99999 },
+    locator: { file: 'src/runtime/readiness.ts', line: 99999 },
     content: 'a line that is not there',
   });
 
@@ -359,7 +359,7 @@ test('FR-005: resolvable evidence leaves the verdict untouched', () => {
     taskId: 'task_resolvable',
     kind: 'structural',
     provenance: 'extracted',
-    locator: { file: 'src/runtime/readiness.js', line: 1 },
+    locator: { file: 'src/runtime/readiness.ts', line: 1 },
     content: 'use strict',
     establishes: ['affected_components'],
   });
@@ -402,9 +402,9 @@ test('FR-003: items sharing a recorded commit cost one diff, not one each', () =
   const calls = [];
   const mockGit = (args) => {
     calls.push(args.join(' '));
-    if (args[0] === 'status') return ' M src/runtime/cli.js';
+    if (args[0] === 'status') return ' M src/runtime/cli.ts';
     if (args[0] === 'rev-parse') return 'commit_shared';
-    if (args[0] === 'diff') return 'src/runtime/cli.js';
+    if (args[0] === 'diff') return 'src/runtime/cli.ts';
     return '';
   };
   const validator = new FreshnessValidator({ gitRunner: mockGit });
@@ -416,7 +416,7 @@ test('FR-003: items sharing a recorded commit cost one diff, not one each', () =
       taskId: 't_memo',
       kind: 'exact-search',
       provenance: 'extracted',
-      locator: { file: 'src/runtime/cli.js' },
+      locator: { file: 'src/runtime/cli.ts' },
       content: `item ${i}`,
     });
   }
@@ -434,7 +434,7 @@ test('FR-003: distinct recorded commits each get their own diff', () => {
   const mockGit = (args) => {
     calls.push(args.join(' '));
     if (args[0] === 'status') return '';
-    if (args[0] === 'diff') return 'src/runtime/cli.js';
+    if (args[0] === 'diff') return 'src/runtime/cli.ts';
     return '';
   };
   const validator = new FreshnessValidator({ gitRunner: mockGit });
@@ -444,7 +444,7 @@ test('FR-003: distinct recorded commits each get their own diff', () => {
       taskId: 't_memo2',
       kind: 'exact-search',
       provenance: 'extracted',
-      locator: { file: 'src/runtime/cli.js' },
+      locator: { file: 'src/runtime/cli.ts' },
       content: 'x',
     });
     ledger.getEvidence(id).freshness.gitCommit = sha;

@@ -3,7 +3,7 @@
 // Covers the `rejected` claim status introduced when claim_builder.py was absorbed into claims.js
 // (plan task B.3, decision D3 — don't discard working discrimination the Python had).
 //
-// This exists because that port deliberately LOOSENED a gate and nothing covered it. readiness.js
+// This exists because that port deliberately LOOSENED a gate and nothing covered it. readiness.ts
 // blocks on `conflicted` claims only, so splitting contradiction-only claims out of `conflicted`
 // into `rejected` means they no longer force BLOCKED. That is the intended behaviour — `conflicted`
 // means evidence disagrees and a human must reconcile, `rejected` means the evidence agrees and the
@@ -11,8 +11,8 @@
 // the same split would silently unblock real conflicts. These tests pin the boundary.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { ClaimsManager } = require('../../src/runtime/claims');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 
 /** A ledger plus manager wired together, with one fresh evidence item per requested role. */
 function setup() {
@@ -57,7 +57,7 @@ test('a claim with both support and contradiction stays conflicted', () => {
 });
 
 test('conflicted claims block readiness; rejected claims do not', () => {
-  const { ReadinessEngine } = require('../../src/runtime/readiness');
+  const { ReadinessEngine } = require('../../src/runtime/readiness.ts');
   const engine = new ReadinessEngine();
 
   const build = (kind) => {
@@ -76,7 +76,7 @@ test('conflicted claims block readiness; rejected claims do not', () => {
 
   const conflicted = build('conflicted');
   const rejected = build('rejected');
-  // `taskId`, not `id` — readiness.js reads taskProfile.taskId and silently falls back to
+  // `taskId`, not `id` — readiness.ts reads taskProfile.taskId and silently falls back to
   // 'default', which finds no claims and reports NEEDS_EVIDENCE instead of BLOCKED.
   const profile = { taskId: 'task_claims', taskClass: 'trivial-edit' };
 

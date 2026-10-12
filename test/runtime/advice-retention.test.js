@@ -6,8 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { loadStorageRegistry } = require('../../src/runtime/storage/registry');
-const { resolveRoots } = require('../../src/runtime/storage/roots');
+const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
+const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const DOFLOW_RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');

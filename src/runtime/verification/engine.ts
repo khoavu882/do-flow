@@ -24,19 +24,19 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect');
+const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect.ts');
 const { selectChangedTests } = require('./test-selection.ts');
-const { RecoveryManager } = require('../recovery');
-const { finishRuntime, usageError } = require('../cli-result');
+const { RecoveryManager } = require('../recovery.ts');
+const { finishRuntime, usageError } = require('../cli-result.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const {
   resolveScopeBound, resolveIntegrationBase, resolveExplicitBaseline, parseDeclaredScope, scopeReasonText, boundSourcesText,
 } = require('./scope-bound.ts');
 const nodeCrypto = require('node:crypto');
-const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
-const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate');
-const { assertSafeTaskId } = require('../evidence-ledger');
-const { upkeepAfterVerify } = require('../storage/upkeep');
+const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record.ts');
+const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate.ts');
+const { assertSafeTaskId } = require('../evidence-ledger.ts');
+const { upkeepAfterVerify } = require('../storage/upkeep.ts');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -179,7 +179,7 @@ class VerificationEngine {
    * @returns {Object} the contract
    */
   compileContract(input: any = {}): any {
-    // A contract with no task is the readiness.js `taskId || 'default'` defect in a new place: a
+    // A contract with no task is the readiness.ts `taskId || 'default'` defect in a new place: a
     // confident verdict filed against the wrong subject. Refuse instead of inventing an id.
     if (typeof input.taskId !== 'string' || input.taskId.trim() === '') {
       throw new Error('compileContract requires a non-empty taskId');

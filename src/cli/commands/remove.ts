@@ -7,7 +7,7 @@ const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { loadRegistry } = require('../../registry/index.ts');
-const { storageForgetScope } = require('../../runtime/storage/upkeep');
+const { storageForgetScope } = require('../../runtime/storage/upkeep.ts');
 const { removeLifecycle, retentionSummary } = require('../../lifecycle/index.ts');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES,

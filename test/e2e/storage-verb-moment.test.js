@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { createScratch } = require('../helper/scratch-env');
 const registry = require('../../core/registry/storage.json');
-const { resolveRoots } = require('../../src/runtime/storage/roots');
+const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const REPO = path.resolve(__dirname, '../..');
 const RUN = path.join(REPO, 'core/shared/scripts/doflow/bin/doflow-run');
 const CLI = path.join(REPO, 'bin/doflow.js');
@@ -36,7 +36,7 @@ for (const args of [ ['evidence', '--action', 'list', '--task-id', 'idle'], ['tr
     }
     // Observe the real pass result without adding a production test seam or installing hooks.
     const output = path.join(scratch.dir, 'passes.jsonl'), preload = path.join(scratch.dir, 'observe.cjs');
-    fs.writeFileSync(preload, `const fs = require('node:fs');\nconst engine = require(${JSON.stringify(path.join(REPO, 'src/runtime/storage/engine.js'))});\nconst runPass = engine.runPass;\nengine.runPass = options => { const result = runPass(options); fs.appendFileSync(${JSON.stringify(output)}, JSON.stringify(result) + '\\n'); return result; };\n`);
+    fs.writeFileSync(preload, `const fs = require('node:fs');\nconst engine = require(${JSON.stringify(path.join(REPO, 'src/runtime/storage/engine.ts'))});\nconst runPass = engine.runPass;\nengine.runPass = options => { const result = runPass(options); fs.appendFileSync(${JSON.stringify(output)}, JSON.stringify(result) + '\\n'); return result; };\n`);
     const result = spawnSync('/bin/bash', [RUN, ...args, '--json'], {
       cwd: projectRoot, env: { ...env, NODE_OPTIONS: `--require=${preload}` }, encoding: 'utf8',
     });
@@ -92,7 +92,7 @@ test('IC-009: early process.exit usage error runs no upkeep moment', { skip: pro
 test('CLI async dispatcher failures stay inside main error boundary', t => {
   const scratch = createScratch('doflow-verb-error-'); t.after(() => scratch.remove());
   const preload = path.join(scratch.dir, 'throw.cjs');
-  fs.writeFileSync(preload, `require(${JSON.stringify(path.join(REPO, 'src/runtime/cli.js'))}).handleEvidenceCommand = () => { throw new Error('verb boundary regression'); };\n`);
+  fs.writeFileSync(preload, `require(${JSON.stringify(path.join(REPO, 'src/runtime/cli.ts'))}).handleEvidenceCommand = () => { throw new Error('verb boundary regression'); };\n`);
   const result = spawnSync(process.execPath, ['--require', preload, CLI, 'evidence', '--action', 'list', '--task-id', 'idle'], {
     cwd: scratch.dir, env: scratch.env(), encoding: 'utf8',
   });

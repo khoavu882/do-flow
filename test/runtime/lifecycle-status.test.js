@@ -7,9 +7,9 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, featureBranch, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
-const { foldEvents } = require('../../src/runtime/lifecycle/fold');
-const store = require('../../src/runtime/lifecycle/event-store');
-const { deriveStatuses, readGitFacts, resolveGitStateHelper, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status');
+const { foldEvents } = require('../../src/runtime/lifecycle/fold.ts');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
+const { deriveStatuses, readGitFacts, resolveGitStateHelper, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status.ts');
 
 const scratch = createScratch('doflow-status-');
 test.before(() => scratch.apply());

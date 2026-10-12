@@ -108,7 +108,7 @@ test('G2: a hotfix merged only into the tag\'s branch (develop is the integratio
 test('G2: the evidence uses the full merge commit, so a 7-character abbreviation that is ambiguous cannot misresolve it', () => {
   const { repo } = FIXTURES.deletedBranch(scratch);
   track(repo, SLUG);
-  const { deriveStatuses } = require('../../src/runtime/lifecycle/status');
+  const { deriveStatuses } = require('../../src/runtime/lifecycle/status.ts');
   const derived = deriveStatuses({ root: repo.dir, fold: store.readFold(repo.dir, { now: CLOCK }) });
   assert.match(derived.evidenceCommits[SLUG], /^[0-9a-f]{40}$/);
   assert.equal(derived.evidenceCommits[SLUG].slice(0, 7), derived.statuses[SLUG].evidence.ref);
@@ -151,7 +151,7 @@ test('G3: a feature whose only merge is after the tag stays notDetected for that
 test('G4: the preview is bound to the commit the status view pinned, with the same ref name', () => {
   const repo = makeRepo(scratch, 'g4');
   track(repo, SLUG);
-  const { deriveStatuses } = require('../../src/runtime/lifecycle/status');
+  const { deriveStatuses } = require('../../src/runtime/lifecycle/status.ts');
   const derived = deriveStatuses({ root: repo.dir, fold: store.readFold(repo.dir, { now: CLOCK }) });
   assert.equal(derived.integrationRef, 'develop');
   assert.equal(derived.integrationSha, repo.git('rev-parse', 'develop'));

@@ -72,8 +72,8 @@ feature_dir=$(printf '%s' "$resolved_json" | jq -r '.feature_dir // empty')
 # The projector lives in the JS runtime, not beside the helpers: G12 keeps this repo to one runtime
 # implementation, and Python in core/ is how a shadow tree grew the first time, one individually
 # defensible module at a time. render-audit.sh already shells out to node for the same reason.
-PROJECTOR="$repo_root/src/runtime/c4-project.js"
-[ -f "$PROJECTOR" ] || PROJECTOR="${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/src/runtime/c4-project.js"
+PROJECTOR="$repo_root/src/runtime/c4-project.ts"
+[ -f "$PROJECTOR" ] || PROJECTOR="${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/src/runtime/c4-project.ts"
 design_rel=$(printf '%s' "$resolved_json" | jq -r '.design // empty')
 [ -n "$feature_slug" ] || note "no-active-feature"
 [ -n "$feature_dir" ] || note "resolver-missing-feature-dir"

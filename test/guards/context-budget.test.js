@@ -282,7 +282,7 @@ function skillLoadedBytes(skillName, loadedReferences = new Set()) {
 }
 
 test('G13: every task class stays within its loaded-context rail', () => {
-  const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+  const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
   const REPO = path.resolve(__dirname, '..', '..');
   const workflows = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'workflows.json'), 'utf8'));
   const engine = new WorkflowEngine({ workflows, readinessTemplates: false });

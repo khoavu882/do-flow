@@ -6,11 +6,11 @@
  * Language selection and emitters — everything `scaffold.js`'s generator needs to know about a
  * target language: which extension maps to which language, which extensions are content rather
  * than code, which source languages have no emitter yet, the per-language identifier-casing rules,
- * the emitters themselves, and `repoLanguage()`, which asks `command-detect.js` what toolchain the
+ * the emitters themselves, and `repoLanguage()`, which asks `command-detect.ts` what toolchain the
  * repository itself uses (for test stubs, which have no file extension of their own to read).
  */
 
-const { detectCommands } = require('../command-detect');
+const { detectCommands } = require('../command-detect.ts');
 
 /**
  * Per-file language comes from the file's own extension, because `plan.md` already states it:
@@ -19,7 +19,7 @@ const { detectCommands } = require('../command-detect');
  *
  * Repository-wide detection is still needed for the test stubs, which derive from acceptance
  * criteria and therefore have no path to read an extension from. That question — "what toolchain
- * is this repository" — is `command-detect.js`'s, so it is asked there rather than answered a
+ * is this repository" — is `command-detect.ts`'s, so it is asked there rather than answered a
  * second time here. See `repoLanguage()` for the one place its output is interpreted.
  */
 const EXTENSION_LANGUAGE: Readonly<Record<string, string>> = Object.freeze({
@@ -205,7 +205,7 @@ const EMITTERS: Readonly<Record<string, any>> = Object.freeze({
 });
 
 /**
- * The repository's own toolchain, asked of `command-detect.js` rather than re-derived here.
+ * The repository's own toolchain, asked of `command-detect.ts` rather than re-derived here.
  *
  * Partial fit, stated rather than papered over: that module answers "which manifests are present",
  * which pins the toolchain but not the dialect inside it — `package.json` alone does not say
@@ -215,7 +215,7 @@ const EMITTERS: Readonly<Record<string, any>> = Object.freeze({
 function repoLanguage(repoRoot: string, fsImpl: any): any {
   const detected = detectCommands({ projectRoot: repoRoot, fsImpl });
   if (!detected.manifestFound) {
-    return { id: null, signal: 'none', why: 'no build manifest found by command-detect.js' };
+    return { id: null, signal: 'none', why: 'no build manifest found by command-detect.ts' };
   }
   const has = (name: string) => detected.manifests.includes(name);
   if (has('package.json')) {
@@ -228,7 +228,7 @@ function repoLanguage(repoRoot: string, fsImpl: any): any {
   return {
     id: null,
     signal: detected.manifests.join(', ') || 'none',
-    why: `command-detect.js resolved only ${detected.manifests.join(', ') || 'nothing'}, which names no source language`,
+    why: `command-detect.ts resolved only ${detected.manifests.join(', ') || 'nothing'}, which names no source language`,
   };
 }
 

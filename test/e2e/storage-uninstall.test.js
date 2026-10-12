@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadStorageRegistry } = require('../../src/runtime/storage/registry');
+const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 const TARGETS = 'claude,codex,gemini,antigravity,opencode,pi,copilot,kiro';

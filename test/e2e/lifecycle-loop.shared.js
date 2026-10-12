@@ -36,8 +36,8 @@ if (spec) {
   if (spec.cls) mod[spec.cls].prototype[spec.method] = fail; else mod[spec.method] = fail;
 }
 `);
-const FAULT_READINESS = { module: 'src/runtime/readiness.js', method: 'evaluateTaskReadiness' };
-const FAULT_WORKFLOW = { module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow' };
+const FAULT_READINESS = { module: 'src/runtime/readiness.ts', method: 'evaluateTaskReadiness' };
+const FAULT_WORKFLOW = { module: 'src/runtime/workflow-engine.ts', cls: 'WorkflowEngine', method: 'resolveWorkflow' };
 const READINESS_ARGS = ['readiness', '--task-class', 'feature', '--task-id', 't1', '--json'];
 const WORKFLOW_ARGS = ['workflow', '--task-class', 'feature', '--json'];
 

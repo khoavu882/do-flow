@@ -7,11 +7,11 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, featureBranch, FIXTURES, twoReleases, failingGit, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
-const store = require('../../src/runtime/lifecycle/event-store');
-const { buildOverview, featureStatus } = require('../../src/runtime/lifecycle/overview');
-const { addFollowups, takeFollowups, loadFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup');
-const { releaseFeatures, recordMerged } = require('../../src/runtime/lifecycle/release');
-const { readGitFacts } = require('../../src/runtime/lifecycle/status');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
+const { buildOverview, featureStatus } = require('../../src/runtime/lifecycle/overview.ts');
+const { addFollowups, takeFollowups, loadFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
+const { releaseFeatures, recordMerged } = require('../../src/runtime/lifecycle/release.ts');
+const { readGitFacts } = require('../../src/runtime/lifecycle/status.ts');
 
 
 const REPO = path.resolve(__dirname, '..', '..');

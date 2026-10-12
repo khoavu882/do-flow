@@ -12,14 +12,14 @@
  */
 
 const fs = require('node:fs');
-const { finishRuntime, usageError } = require('../cli-result');
-const { maskLine, printSafe } = require('../mask');
+const { finishRuntime, usageError } = require('../cli-result.ts');
+const { maskLine, printSafe } = require('../mask.ts');
 const { failureHome, captureSwitch, sentinelPath } = require('./home.ts');
 const { rotateIfDue } = require('./capture.ts');
 const store = require('./store.ts');
-const { projectRoot } = require('../lifecycle/root');
-const { appendEvents, readFold, randomChars, StoreUnsafeError, StoreLockedError } = require('../lifecycle/event-store');
-const { prepareStore } = require('../lifecycle/store-upkeep');
+const { projectRoot } = require('../lifecycle/root.ts');
+const { appendEvents, readFold, randomChars, StoreUnsafeError, StoreLockedError } = require('../lifecycle/event-store.ts');
+const { prepareStore } = require('../lifecycle/store-upkeep.ts');
 
 const ACTIONS = ['list', 'settle', 'capture'];
 const STATEMENT_MAX = 280;

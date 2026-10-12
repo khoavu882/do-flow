@@ -15,7 +15,7 @@ const { writeManifest } = require('../../install/manifest.ts');
 const { stateRoot, ledgerPath } = require('../../state/index.ts');
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
-const { captureCaught } = require('../../runtime/cli-result');
+const { captureCaught } = require('../../runtime/cli-result.ts');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, installPaths, printBackupTable, holdRunLock, checkpointRunLock,
 } = require('../shared.ts');

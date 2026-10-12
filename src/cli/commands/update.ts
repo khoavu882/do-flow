@@ -16,7 +16,7 @@ const { sourceCommit } = require('../../helper/git.ts');
 const { chmodHooksExecutable } = require('../../helper/settings-scope.ts');
 const { resolveMcpSelections } = require('../../install/mcp.ts');
 const { loadRegistry } = require('../../registry/index.ts');
-const { storageAfterInstall } = require('../../runtime/storage/upkeep');
+const { storageAfterInstall } = require('../../runtime/storage/upkeep.ts');
 const { applyLifecycle, recordMcpOwnership, retentionSummary } = require('../../lifecycle/index.ts');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,

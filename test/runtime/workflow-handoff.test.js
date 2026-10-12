@@ -5,7 +5,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { createScratch } = require('../helper/scratch-env');
 const { spawnSync } = require('node:child_process');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
+const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const root = path.resolve(__dirname, '../..');
 function fixture(t) {
   const dir = tempDir(t, 'doflow-workflow-handoff-');

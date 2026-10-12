@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server');
-const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor');
+const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');

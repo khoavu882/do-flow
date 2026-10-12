@@ -8,9 +8,9 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { makeRepo } = require('../helper/lifecycle-git-fixtures');
-const store = require('../../src/runtime/lifecycle/event-store');
-const { reportFollowup, listFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup');
-const reportStore = require('../../src/runtime/lifecycle/report-store');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
+const { reportFollowup, listFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
+const reportStore = require('../../src/runtime/lifecycle/report-store.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -282,7 +282,7 @@ test('R1: a run with no whitespace at all keeps nothing but the marker; a mask f
   const repo = newRepo();
   const out = report(repo, { input: { text: 'A'.repeat(2 * MiB) } });
   assert.equal(fs.readFileSync(bodyFile(repo, out.created[0].id), 'utf8'), '\n[truncated by doflow at 1 MiB]');
-  const maskModule = require('../../src/runtime/mask');
+  const maskModule = require('../../src/runtime/mask.ts');
   const original = maskModule.maskBody;
   maskModule.maskBody = () => { throw new RangeError('Maximum call stack size exceeded'); };
   try {

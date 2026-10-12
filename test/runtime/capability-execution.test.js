@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { CapabilityRouter } = require('../../src/runtime/capability-router');
+const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 const HOSTILE_QUERY = '$(printf DOFLOW_REVIEW_EXPANSION)';

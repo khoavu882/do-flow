@@ -11,7 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildIndex, loadIndex, isFresh } = require('./index-store.ts');
-const { finishRuntime, usageError, captureCaught } = require('../cli-result');
+const { finishRuntime, usageError, captureCaught } = require('../cli-result.ts');
 const { resolveRunsLocation } = require('../trace/ledger.ts');
 
 const BM25_K1 = 1.5;

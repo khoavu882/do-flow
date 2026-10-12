@@ -23,46 +23,46 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
-} = require('../runtime/cli');
-// `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
+} = require('../runtime/cli.ts');
+// `doctor` comes from the health module rather than src/runtime/cli.ts: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
-const { handleDoctorCommand } = require('../runtime/health');
+const { handleDoctorCommand } = require('../runtime/health.ts');
 const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand, resolveRunsLocation } = require('../runtime/trace/ledger.ts');
 const { handleIndicatorsCommand } = require('../runtime/trace/indicators.ts');
 // The rest of the verb surface design §4.2 declares. `classify`, `workflow`, `route`, `claim`,
 // `context-pack`, `verify`, `recover` and `scaffold` each have exactly one implementation, in the
 // engine module named on the right; this file only dispatches to them.
-const { ReadinessEngine } = require('../runtime/readiness');
-const { handleClaimCommand } = require('../runtime/claims');
-const { handleClassifyCommand } = require('../runtime/task-classifier');
-const { handleWorkflowCommand } = require('../runtime/workflow-engine');
-const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator');
-const { handleResearchRequestCommand } = require('../runtime/research-request');
-const { handleTaskAttemptCommand } = require('../runtime/task-attempts');
+const { ReadinessEngine } = require('../runtime/readiness.ts');
+const { handleClaimCommand } = require('../runtime/claims.ts');
+const { handleClassifyCommand } = require('../runtime/task-classifier.ts');
+const { handleWorkflowCommand } = require('../runtime/workflow-engine.ts');
+const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator.ts');
+const { handleResearchRequestCommand } = require('../runtime/research-request.ts');
+const { handleTaskAttemptCommand } = require('../runtime/task-attempts.ts');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval.ts');
-const { handleModelRoleCommand } = require('../runtime/model-router');
-const { handleRouteCommand } = require('../runtime/capability-router');
-const { handleContextPackCommand } = require('../runtime/context-pack');
-const { handleRetrievalPlanCommand } = require('../runtime/retrieval-plan');
-const { handleOutcomeCommand } = require('../runtime/outcome');
+const { handleModelRoleCommand } = require('../runtime/model-router.ts');
+const { handleRouteCommand } = require('../runtime/capability-router.ts');
+const { handleContextPackCommand } = require('../runtime/context-pack.ts');
+const { handleRetrievalPlanCommand } = require('../runtime/retrieval-plan.ts');
+const { handleOutcomeCommand } = require('../runtime/outcome.ts');
 const { handleVerifyCommand } = require('../runtime/verification/engine.ts');
-const { handleLeakScanCommand } = require('../runtime/leak-scan');
-const { handleRecoverCommand } = require('../runtime/recovery');
+const { handleLeakScanCommand } = require('../runtime/leak-scan.ts');
+const { handleRecoverCommand } = require('../runtime/recovery.ts');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate.ts');
-const { handleDecisionCommand } = require('../runtime/decision-register');
-const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli');
-const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root');
-const { upkeepAfterVerb } = require('../runtime/storage/upkeep');
-const { handleStorageCommand } = require('../runtime/storage/cli');
+const { handleDecisionCommand } = require('../runtime/decision-register.ts');
+const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli.ts');
+const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
+const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
+const { handleStorageCommand } = require('../runtime/storage/cli.ts');
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
-const { finishRuntime, usageError } = require('../runtime/cli-result');
-const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');
-const { listCheckouts } = require('../runtime/checkouts');
-const { featureSlugFor } = require('../runtime/implementation-gate');
-const { handleBriefToolsCommand } = require('../runtime/brief-tools');
-const { handleAdviseCommand } = require('../runtime/advice/cli');
+const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
+const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
+const { listCheckouts } = require('../runtime/checkouts.ts');
+const { featureSlugFor } = require('../runtime/implementation-gate.ts');
+const { handleBriefToolsCommand } = require('../runtime/brief-tools.ts');
+const { handleAdviseCommand } = require('../runtime/advice/cli.ts');
 const { REPO_ROOT, buildAdapterRegistry } = require('./shared.ts');
 
 /** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
@@ -75,7 +75,7 @@ function evidenceRoot(o: any): string {
 /**
  * The task class the caller named, or exit 2 naming the valid set.
  *
- * `readiness` previously read `o.taskClass || 'feature'`. That is the identity defect readiness.js
+ * `readiness` previously read `o.taskClass || 'feature'`. That is the identity defect readiness.ts
  * fixed this morning, reinstated one layer up: omitting `--task-class` produced a confident
  * READY/NEEDS_EVIDENCE verdict computed from the wrong contract, and nothing in the output said so.
  * The valid set comes from the readiness registry rather than a list written here, so it cannot
@@ -202,7 +202,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // caller's evidence, which follows the same scope rules as every other command: -g means
     // $HOME, otherwise the positional project root (default cwd).
     // `o.taskClass || 'feature'` and `o.taskId || 'default'` used to sit here. Both re-created
-    // the identity defect readiness.js fails closed on: omitting either argument produced a
+    // the identity defect readiness.ts fails closed on: omitting either argument produced a
     // confident verdict about a task or a contract the caller never named. Required now, and the
     // valid class set is named in the refusal.
     // The task-profile arguments are the caller's own statements and are forwarded only when

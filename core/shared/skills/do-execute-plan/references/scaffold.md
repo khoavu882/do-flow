@@ -107,7 +107,7 @@ What the generator does, so you can read its output rather than guess at it:
 5. **Emits test stubs** from `requirement.md`'s acceptance criteria, one file per requirement. Each
    stub fails until implemented, deliberately: a stub that passes asserts nothing and reads as
    coverage. The stub language comes from the repository's own manifest, detected by
-   `command-detect.js` — the same detector the verification engine uses, not a second one.
+   `command-detect.ts` — the same detector the verification engine uses, not a second one.
 6. **Protects hand edits.** Every generated file carries a fingerprint of its own body. A body that
    no longer matches, or a file with no fingerprint at all, is treated as hand-authored: reported
    under **Preserved**, never rewritten. This includes `MANIFEST.md` — delete it to refresh it.

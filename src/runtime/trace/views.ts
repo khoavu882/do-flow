@@ -277,7 +277,7 @@ function providerAvailable(providerHealth: any, id: string): boolean | null {
  *
  * @param {Object} read result of `RunLedger#read`
  * @param {Object} [options]
- * @param {Object} [options.providerHealth] map of provider id -> {status}, from `health.js`
+ * @param {Object} [options.providerHealth] map of provider id -> {status}, from `health.ts`
  * @param {number} [options.gapMs]
  * @returns {Object} view model
  */

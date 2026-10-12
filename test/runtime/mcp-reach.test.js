@@ -11,7 +11,7 @@ const { tempDir } = require('../helper/tmp');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
-const { mcpReach } = require('../../src/runtime/mcp-reach');
+const { mcpReach } = require('../../src/runtime/mcp-reach.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send Pi's user-scope MCP file outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;

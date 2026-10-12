@@ -6,9 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createScratch } = require('../helper/scratch-env');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const followup = require('../../src/runtime/lifecycle/followup');
-const store = require('../../src/runtime/lifecycle/event-store');
-const { INTENT_SECTIONS, kebabTitle, renderIntent } = require('../../src/runtime/lifecycle/intent-writer');
+const followup = require('../../src/runtime/lifecycle/followup.ts');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
+const { INTENT_SECTIONS, kebabTitle, renderIntent } = require('../../src/runtime/lifecycle/intent-writer.ts');
 
 const scratch = createScratch('doflow-promote-');
 test.before(() => scratch.apply());
