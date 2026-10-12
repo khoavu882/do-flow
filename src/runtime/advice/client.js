@@ -11,7 +11,7 @@ const { appendPick, appendMiss } = require('./record');
 
 // Keep this map literal: module reachability must be auditable without dynamic require paths.
 const ADAPTERS = Object.freeze({
-  'ollama-systemone': require('./providers/ollama-systemone'),
+  'ollama-systemone': require('./providers/ollama-systemone.ts'),
 });
 
 function durationSince(startedAt) {

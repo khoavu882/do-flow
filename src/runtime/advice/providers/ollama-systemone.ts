@@ -1,11 +1,13 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const SYSTEMONE_PATH = '/v1/systemone';
 const VERSION_PATH = '/api/version';
 const TAGS_PATH = '/api/tags';
 const SHOW_PATH = '/api/show';
 
-function parseJson(bodyText) {
+function parseJson(bodyText: any): any {
   if (typeof bodyText !== 'string') return null;
   try {
     const value = JSON.parse(bodyText);
@@ -15,12 +17,12 @@ function parseJson(bodyText) {
   }
 }
 
-function failure(reason, detail) {
+function failure(reason: string, detail: string): { ok: false; reason: string; detail: string } {
   return { ok: false, reason, detail };
 }
 
-function buildRequest(questionSet, { model } = {}) {
-  const questions = Object.fromEntries(questionSet.questions.map((question) => {
+function buildRequest(questionSet: any, { model }: any = {}): { method: string; path: string; body: any } {
+  const questions = Object.fromEntries(questionSet.questions.map((question: any) => {
     if (question.type === 'choice') {
       return [question.name, {
         type: 'choice',
@@ -50,19 +52,19 @@ function buildRequest(questionSet, { model } = {}) {
 
 const SCORE_TOLERANCE = 1e-6;
 
-function inUnit(value) {
+function inUnit(value: any): boolean {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
-function parseScore(question, value) {
-  const bad = (detail) => failure('malformed-reply', detail);
+function parseScore(question: any, value: any): any {
+  const bad = (detail: string) => failure('malformed-reply', detail);
   const { criteria, name } = question;
   const last = criteria.length - 1;
   if (value.type !== 'score') return bad(`answer for ${name} is not a score`);
-  const keys = criteria.map((criterion, index) => String(index));
-  const exact = (object) => object && typeof object === 'object' && !Array.isArray(object)
+  const keys: string[] = criteria.map((criterion: any, index: number) => String(index));
+  const exact = (object: any) => object && typeof object === 'object' && !Array.isArray(object)
     && Object.keys(object).length === keys.length && keys.every((key) => Object.hasOwn(object, key));
-  if (!exact(value.legend) || keys.some((key, index) => value.legend[key] !== criteria[index])) {
+  if (!exact(value.legend) || keys.some((key: string, index: number) => value.legend[key] !== criteria[index])) {
     return bad(`legend for ${name} does not match its criteria`);
   }
   if (!exact(value.probabilities)) return bad(`probabilities for ${name} do not match its criteria`);
@@ -87,7 +89,7 @@ function parseScore(question, value) {
   };
 }
 
-function parseReply(status, bodyText, questionSet) {
+function parseReply(status: number, bodyText: any, questionSet: any): any {
   if (status === 400) {
     const parsed = parseJson(bodyText);
     return failure('endpoint-rejected', typeof parsed?.error === 'string' ? parsed.error : 'Ollama rejected the request');
@@ -106,7 +108,7 @@ function parseReply(status, bodyText, questionSet) {
     return failure('malformed-reply', 'reply has no answers object');
   }
 
-  const answers = [];
+  const answers: any[] = [];
   for (const question of questionSet.questions) {
     const value = parsed.answers[question.name];
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -157,7 +159,7 @@ function versionRequest() {
   return { method: 'GET', path: VERSION_PATH };
 }
 
-function parseVersion(status, bodyText) {
+function parseVersion(status: number, bodyText: any): { version: string } | null {
   const parsed = status === 200 ? parseJson(bodyText) : null;
   return typeof parsed?.version === 'string' && parsed.version.trim() ? { version: parsed.version.trim() } : null;
 }
@@ -166,31 +168,31 @@ function listRequest() {
   return { method: 'GET', path: TAGS_PATH };
 }
 
-function parseList(status, bodyText) {
+function parseList(status: number, bodyText: any): any[] {
   const parsed = status === 200 ? parseJson(bodyText) : null;
   if (!Array.isArray(parsed?.models)) return [];
   return parsed.models
-    .filter((model) => model && typeof model.name === 'string' && model.name.trim())
-    .map((model) => ({
+    .filter((model: any) => model && typeof model.name === 'string' && model.name.trim())
+    .map((model: any) => ({
       name: model.name,
-      capabilities: Array.isArray(model.capabilities) && model.capabilities.every((capability) => typeof capability === 'string')
+      capabilities: Array.isArray(model.capabilities) && model.capabilities.every((capability: any) => typeof capability === 'string')
         ? model.capabilities : null,
     }));
 }
 
-function showRequest(name) {
+function showRequest(name: string): { method: string; path: string; body: any } {
   return { method: 'POST', path: SHOW_PATH, body: { model: name } };
 }
 
-function parseShow(status, bodyText) {
+function parseShow(status: number, bodyText: any): { capabilities: string[] } | null {
   const parsed = status === 200 ? parseJson(bodyText) : null;
-  return Array.isArray(parsed?.capabilities) && parsed.capabilities.every((capability) => typeof capability === 'string')
+  return Array.isArray(parsed?.capabilities) && parsed.capabilities.every((capability: any) => typeof capability === 'string')
     ? { capabilities: parsed.capabilities }
     : null;
 }
 
 /** A configured name without a tag also matches Ollama's listed `<name>:latest` form. */
-function modelMatches(configured, listed) {
+function modelMatches(configured: any, listed: any): boolean {
   return configured === listed || (typeof configured === 'string' && !configured.includes(':') && listed === `${configured}:latest`);
 }
 

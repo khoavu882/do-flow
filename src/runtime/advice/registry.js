@@ -105,7 +105,7 @@ function validateAdviceRegistry(registry, { repoRoot = REPO_ROOT, models, fsImpl
         if (!/^[a-z][a-z0-9-]*$/.test(provider.adapter)) {
           addError(errors, `${base}.adapter`, 'must be a safe adapter id');
         } else {
-          const adapterFile = path.resolve(adapterRoot, `${provider.adapter}.js`);
+          const adapterFile = path.resolve(adapterRoot, `${provider.adapter}.ts`);
           if (!adapterFile.startsWith(`${adapterRoot}${path.sep}`) || !fsImpl.existsSync(adapterFile)) {
             addError(errors, `${base}.adapter`, `must name a file under ${ADAPTER_DIR}`);
           }
