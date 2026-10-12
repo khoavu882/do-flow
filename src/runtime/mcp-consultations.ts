@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * MCP consultation resolver (062 CH4, IC-005 and IC-007 to IC-011).
  *
@@ -18,7 +20,7 @@ const OUTCOME_STATES = Object.freeze(['consulted-used', 'consulted-nothing-usabl
 
 /** Five distinct labels (NFR-007). `no-outcome` is derived, never stored. A skipped outcome's
  * text surfaces append its reason: see `outcomeLabel`. */
-const OUTCOME_LABELS = Object.freeze({
+const OUTCOME_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'consulted-used': 'consulted, used',
   'consulted-nothing-usable': 'consulted, nothing usable',
   skipped: 'skipped',
@@ -26,7 +28,7 @@ const OUTCOME_LABELS = Object.freeze({
   'no-outcome': 'no outcome recorded',
 });
 
-const FLAG_TOKEN_STATE = Object.freeze({
+const FLAG_TOKEN_STATE: Readonly<Record<string, string>> = Object.freeze({
   used: 'consulted-used',
   'nothing-usable': 'consulted-nothing-usable',
   unavailable: 'unavailable',
@@ -39,11 +41,11 @@ const CONTENT_LIMIT = 500;
 const SCHEMA = 1;
 
 // used > nothing usable > unavailable > skipped (IC-008 rule 2).
-const PRECEDENCE = Object.freeze({
+const PRECEDENCE: Readonly<Record<string, number>> = Object.freeze({
   'consulted-used': 4, 'consulted-nothing-usable': 3, unavailable: 2, skipped: 1,
 });
 
-function outcomeLabel(outcome) {
+function outcomeLabel(outcome: any): string {
   const label = OUTCOME_LABELS[outcome.state];
   return outcome.state === 'skipped' && outcome.reason ? `${label}: ${outcome.reason}` : label;
 }
@@ -52,7 +54,7 @@ function outcomeLabel(outcome) {
  * Parse one outcome token (IC-005 flag token). Returns `{ state, reason? }` or `{ error }`.
  * @param {string} token
  */
-function parseOutcomeToken(token) {
+function parseOutcomeToken(token: any): any {
   const text = String(token ?? '').trim();
   if (Object.hasOwn(FLAG_TOKEN_STATE, text)) return { state: FLAG_TOKEN_STATE[text] };
   if (text === 'skipped' || text === 'skipped:') return { error: 'skipped needs a reason: skipped:<reason>' };
@@ -70,10 +72,10 @@ function parseOutcomeToken(token) {
  * @param {string[]|string|undefined} values
  * @returns {{ outcomes: Map<string, {state: string, reason?: string}>, ignored: Array<{value: string, reason: string}> }}
  */
-function parseMcpOutcomeFlags(values) {
-  const list = values === undefined || values === null ? [] : [].concat(values);
-  const outcomes = new Map();
-  const ignored = [];
+function parseMcpOutcomeFlags(values?: string[] | string | null): { outcomes: Map<string, any>; ignored: Array<{ value: string; reason: string }> } {
+  const list: any[] = values === undefined || values === null ? [] : ([] as any[]).concat(values);
+  const outcomes = new Map<string, any>();
+  const ignored: Array<{ value: string; reason: string }> = [];
   for (const raw of list) {
     const value = String(raw);
     const at = value.indexOf('=');
@@ -92,7 +94,7 @@ function parseMcpOutcomeFlags(values) {
 
 /** Strip a leading `- `, `**...**` emphasis and a line-wide pair of backticks, so
  * `- **Tools used:** a` and `` `Tools used: a` `` both read as `Tools used: a`. */
-function plainLine(line) {
+function plainLine(line: string): string {
   let text = line.trim().replace(/^-\s+/, '');
   if (text.startsWith('**')) text = text.slice(2).replace('**', '');
   if (text.startsWith('`Tools used:') && text.endsWith('`')) text = text.slice(1, -1);
@@ -100,8 +102,8 @@ function plainLine(line) {
 }
 
 /** Split on commas outside parentheses, so a note like `(a, b)` stays with its entry. */
-function splitEntries(body) {
-  const pieces = [];
+function splitEntries(body: string): string[] {
+  const pieces: string[] = [];
   let depth = 0;
   let current = '';
   for (const char of body) {
@@ -114,7 +116,7 @@ function splitEntries(body) {
 }
 
 /** One entry with a trailing ` (note)` and a surrounding pair of backticks removed. */
-function plainEntry(piece) {
+function plainEntry(piece: string): string {
   let text = piece.trim().replace(/\s+\([^()]*\)$/, '').trim();
   if (text.length > 1 && text.startsWith('`') && text.endsWith('`')) text = text.slice(1, -1).trim();
   return text;
@@ -125,7 +127,7 @@ function plainEntry(piece) {
  * @param {string} text report text
  * @returns {null | { line: number, raw: string, entries: Array<{name: string, state?: string, reason?: string, raw: string, valid: boolean}> }}
  */
-function parseToolsUsed(text) {
+function parseToolsUsed(text: any): any {
   const lines = String(text ?? '').split('\n');
   let found = -1;
   for (let i = 0; i < lines.length; i += 1) {
@@ -134,7 +136,7 @@ function parseToolsUsed(text) {
   if (found === -1) return null;
   const raw = lines[found].replace(/\s+$/, '').trim();
   const body = plainLine(lines[found]).slice('Tools used:'.length).trim();
-  const entries = [];
+  const entries: any[] = [];
   if (body !== '' && body !== 'none') {
     for (const piece of splitEntries(body)) {
       const entry = plainEntry(piece);
@@ -152,9 +154,9 @@ function parseToolsUsed(text) {
 }
 
 /** Server ids the registry knows: `mcp` servers plus every provider's `mcp.server`. */
-function knownServerIds(registry) {
-  const ids = new Set((registry?.mcp || []).map((server) => server.id));
-  for (const capability of Object.values(registry?.capabilities || {})) {
+function knownServerIds(registry: any): Set<string> {
+  const ids = new Set<string>((registry?.mcp || []).map((server: any) => server.id));
+  for (const capability of Object.values(registry?.capabilities || {}) as any[]) {
     for (const provider of capability?.providers || []) {
       if (provider?.mcp?.server) ids.add(provider.mcp.server);
     }
@@ -166,17 +168,17 @@ function knownServerIds(registry) {
  * Servers a stage run names (IC-001 meaning). Sorted.
  * @param {{registry: object, skill: string, stageId?: string, taskId?: string, requests?: {list: Function}}} input
  */
-function namedServers({ registry, skill, stageId, taskId, requests }) {
-  let researchRequested;
-  const hasRequest = () => {
+function namedServers({ registry, skill, stageId, taskId, requests }: any): string[] {
+  let researchRequested: boolean | undefined;
+  const hasRequest = (): boolean => {
     if (researchRequested === undefined) {
-      let list = [];
+      let list: any = [];
       try { list = requests && taskId ? requests.list(taskId) : []; } catch { list = []; }
-      researchRequested = Array.isArray(list) && list.some((request) => request && request.stageId === stageId);
+      researchRequested = Array.isArray(list) && list.some((request: any) => request && request.stageId === stageId);
     }
     return researchRequested;
   };
-  const named = new Set();
+  const named = new Set<string>();
   for (const server of registry?.mcp || []) {
     for (const step of server.steps || []) {
       if (step.expectedWhen === 'research-request') {
@@ -189,7 +191,7 @@ function namedServers({ registry, skill, stageId, taskId, requests }) {
   return [...named].sort();
 }
 
-const bySortKey = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const bySortKey = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * Resolve a stage run's MCP consultations (IC-008).
@@ -211,11 +213,11 @@ const bySortKey = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 function resolveConsultations({
   taskId = null, stageId = null, skill, flags, registry, ledger, requests,
   briefRecords = [], readReport, reach, addCommand, harnessName, since = null,
-} = {}) {
-  const warnings = [];
-  const notices = [];
-  const evidenceToAdd = [];
-  const registered = new Set((registry?.mcp || []).map((server) => server.id));
+}: any = {}): { record: any; warnings: any[]; notices: any[]; evidenceToAdd: any[] } {
+  const warnings: any[] = [];
+  const notices: any[] = [];
+  const evidenceToAdd: any[] = [];
+  const registered = new Set((registry?.mcp || []).map((server: any) => server.id));
   const known = knownServerIds(registry);
   const named = namedServers({ registry, skill, stageId, taskId, requests });
 
@@ -230,28 +232,28 @@ function resolveConsultations({
 
   // Rule 2: Tools used lines in the reports of this run's briefs. Records with no stage are never
   // ingested (design A6).
-  const toolsUsed = [];
-  const fromReports = new Map();
+  const toolsUsed: any[] = [];
+  const fromReports = new Map<string, any[]>();
   const records = (Array.isArray(briefRecords) ? briefRecords : [])
-    .filter((record) => record && stageId && taskId && record.stage === stageId && record.runTaskId === taskId);
-  const reports = [];
+    .filter((record: any) => record && stageId && taskId && record.stage === stageId && record.runTaskId === taskId);
+  const reports: Array<{ id: string; report: string }> = [];
   for (const record of records) {
     for (const task of record.tasks || []) {
       if (task && typeof task.id === 'string' && typeof task.report === 'string') reports.push({ id: task.id, report: task.report });
     }
   }
   reports.sort((a, b) => bySortKey(a.id, b.id) || bySortKey(a.report, b.report));
-  const existing = new Map();
-  const existingFor = (id) => {
+  const existing = new Map<string, any[]>();
+  const existingFor = (id: string): any[] => {
     if (!existing.has(id)) {
-      let items = [];
+      let items: any[] = [];
       try { items = ledger ? ledger.queryEvidence({ taskId: id }) : []; } catch { items = []; }
-      existing.set(id, items.filter((item) => item && item.status === 'active'));
+      existing.set(id, items.filter((item: any) => item && item.status === 'active'));
     }
-    return existing.get(id);
+    return existing.get(id) as any[];
   };
   for (const { id, report } of reports) {
-    let text = null;
+    let text: any = null;
     try { text = typeof readReport === 'function' ? readReport(report) : null; } catch { text = null; }
     if (typeof text !== 'string') {
       toolsUsed.push({ taskId: id, status: 'no-report', report });
@@ -272,9 +274,9 @@ function resolveConsultations({
     }
     const source = { provider: 'dispatched-agent', capability: 'tools-used' };
     const content = parsed.raw.slice(0, CONTENT_LIMIT);
-    const duplicate = existingFor(id).find((item) => item.source?.provider === source.provider
+    const duplicate = existingFor(id).find((item: any) => item.source?.provider === source.provider
       && item.source?.capability === source.capability && item.content === content);
-    const inBatch = evidenceToAdd.some((item) => item.taskId === id && item.content === content);
+    const inBatch = evidenceToAdd.some((item: any) => item.taskId === id && item.content === content);
     if (duplicate) {
       toolsUsed.push({ taskId: id, status: 'already-recorded', evidenceId: duplicate.id });
     } else if (inBatch) {
@@ -299,10 +301,10 @@ function resolveConsultations({
 
   // Rule 3: evidence attributed to a server by `source.provider`, observed during this stage run:
   // after `since` (the previous stage's completion or the run start) when the caller knows it.
-  const evidenceServers = new Set();
-  const inThisStage = (item) => since === null || (typeof item.freshness?.observedAt === 'string' && item.freshness.observedAt > since);
+  const evidenceServers = new Set<string>();
+  const inThisStage = (item: any): boolean => since === null || (typeof item.freshness?.observedAt === 'string' && item.freshness.observedAt > since);
   if (ledger && taskId) {
-    let items = [];
+    let items: any[] = [];
     try { items = ledger.queryEvidence({ taskId }); } catch { items = []; }
     for (const item of items) {
       if (item && item.status === 'active' && known.has(item.source?.provider) && inThisStage(item)) evidenceServers.add(item.source.provider);
@@ -311,8 +313,8 @@ function resolveConsultations({
 
   // Rule 4: a brief record for this stage that expected the server and found it unreachable. The
   // brief writes `unreachable` only where every config the harness merges was read (IC-017).
-  const unreachable = new Map();
-  const reachableOn = new Map();
+  const unreachable = new Map<string, any>();
+  const reachableOn = new Map<string, any>();
   for (const record of records) {
     for (const expected of record.expected || []) {
       if (!expected || typeof expected.server !== 'string') continue;
@@ -322,16 +324,16 @@ function resolveConsultations({
   }
 
   /** Who has a server the run asserted unavailable: the brief's harness, else an installed one. */
-  const nameOf = (id) => (typeof harnessName === 'function' && harnessName(id)) || id;
-  const contradiction = (server) => {
+  const nameOf = (id: any): string => (typeof harnessName === 'function' && harnessName(id)) || id;
+  const contradiction = (server: string): string | null => {
     if (reachableOn.has(server)) {
       const id = reachableOn.get(server);
       return id ? nameOf(id) : 'an installed harness';
     }
-    let has = null;
+    let has: any = null;
     try { has = reach && typeof reach.anyHarnessHas === 'function' ? reach.anyHarnessHas(server) : null; } catch { has = null; }
     if (has !== true) return null;
-    let name = null;
+    let name: any = null;
     try { name = typeof reach.harnessWith === 'function' ? reach.harnessWith(server) : null; } catch { name = null; }
     return name || 'an installed harness';
   };
@@ -339,14 +341,14 @@ function resolveConsultations({
   const candidates = new Set([
     ...named, ...parsedFlags.outcomes.keys(), ...fromReports.keys(), ...evidenceServers, ...unreachable.keys(),
   ]);
-  const outcomes = [];
+  const outcomes: any[] = [];
   for (const server of [...candidates].sort()) {
-    let outcome = null;
+    let outcome: any = null;
     const flag = parsedFlags.outcomes.get(server);
     if (flag) {
       outcome = { server, state: flag.state, ...(flag.reason ? { reason: flag.reason } : {}), source: 'flag' };
     } else if (fromReports.has(server)) {
-      const best = fromReports.get(server).reduce((a, b) => (PRECEDENCE[b.state] > PRECEDENCE[a.state] ? b : a));
+      const best = (fromReports.get(server) as any[]).reduce((a: any, b: any) => (PRECEDENCE[b.state] > PRECEDENCE[a.state] ? b : a));
       outcome = {
         server, state: best.state, ...(best.reason ? { reason: best.reason } : {}), source: 'tools-used', taskId: best.taskId,
       };

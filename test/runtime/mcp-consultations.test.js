@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   OUTCOME_STATES, OUTCOME_LABELS, outcomeLabel, parseMcpOutcomeFlags, parseToolsUsed, resolveConsultations,
-} = require('../../src/runtime/mcp-consultations');
+} = require('../../src/runtime/mcp-consultations.ts');
 
 const registry = {
   mcp: [
@@ -334,7 +334,7 @@ test('a fixture registry with an extra server resolves with no code change', () 
 });
 
 test('the module is pure: no write call, no network module, no shipped server id', () => {
-  const text = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'runtime', 'mcp-consultations.js'), 'utf8');
+  const text = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'runtime', 'mcp-consultations.ts'), 'utf8');
   assert.doesNotMatch(text, /\b(?:writeFile|appendFile|mkdir|rename|unlink|rm)Sync\b|\bfs\.(?:write|append|mkdir|rename|unlink|rm)/);
   assert.doesNotMatch(text, /node:(?:http|https|net|dns)/);
   const shipped = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'mcp.json'), 'utf8'));

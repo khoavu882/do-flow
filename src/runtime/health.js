@@ -23,7 +23,7 @@ const { CapabilityRouter } = require('./capability-router');
 const { loadRegistry } = require('../registry/index.ts');
 const { evaluateReach } = require('./reach');
 const { mcpReach } = require('./mcp-reach');
-const { OUTCOME_LABELS } = require('./mcp-consultations');
+const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 /** Answered a probe. */
