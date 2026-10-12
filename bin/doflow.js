@@ -5,6 +5,14 @@
 // so the `doflow` binary path and the doflow-run dispatcher seam
 // (core/shared/scripts/doflow/bin/doflow-run, which execs `node <repoRoot>/bin/doflow.js`)
 // keep resolving to this exact location.
+// Refuse clearly on a Node that cannot strip types: src/ is TypeScript, and without stripping
+// loading a .ts module dies with a SyntaxError on the first annotation. Stripping is on by
+// default from Node 22.18.0 / 23.6.0 and off under --no-experimental-strip-types. This file stays
+// plain JavaScript so it can say so. Exit 2 is the doflow-run usage/resolution-error code.
+if (!process.features || !process.features.typescript) {
+  process.stderr.write(`doflow: Node ${process.versions.node} cannot strip TypeScript types; doflow needs Node ^22.18.0 || >=23.6.0 with type-stripping enabled (it is off under --no-experimental-strip-types, including via NODE_OPTIONS).\n`);
+  process.exit(2);
+}
 // Enable Node's module compile cache before any ../src require. Type stripping makes the first load
 // of each .ts module cost a transform; the cache turns that into a one-time cost per Node version
 // and file content. Called without options so an explicit NODE_COMPILE_CACHE directory is honoured
