@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -31,10 +33,10 @@ const RESOLUTION_REASONS = new Set([
  * every language in the repository, and a parser per language is a far larger thing than the
  * question being asked.
  */
-function findSymbolLines(lines, symbol) {
+function findSymbolLines(lines: string[], symbol: string): number[] {
   const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`(?:^|[^A-Za-z0-9_$])${escaped}(?:[^A-Za-z0-9_$]|$)`);
-  const hits = [];
+  const hits: number[] = [];
   for (let i = 0; i < lines.length; i += 1) {
     if (pattern.test(lines[i])) hits.push(i + 1);
   }
@@ -50,10 +52,10 @@ function findSymbolLines(lines, symbol) {
  *
  * @returns {{lines: string[]}|{missing: true}}
  */
-function readTargetLines(locator, root, impl) {
+function readTargetLines(locator: any, root: string, impl: any): { lines: string[] } | { missing: true } {
   const target = path.isAbsolute(locator.file) ? locator.file : path.join(root, locator.file);
 
-  let content;
+  let content: string;
   try {
     if (!impl.existsSync(target)) return { missing: true };
     content = impl.readFileSync(target, 'utf8');
@@ -76,7 +78,7 @@ function readTargetLines(locator, root, impl) {
  * already reports. Only absence is unresolvable — that distinction is the whole of this function
  * and is easier to see with nothing else around it.
  */
-function checkSymbol(lines, symbol) {
+function checkSymbol(lines: string[], symbol: string): any {
   const symbolLines = findSymbolLines(lines, symbol);
   if (symbolLines.length === 0) {
     return { resolved: false, reason: 'symbol-absent', actual: { lines: lines.length, symbolLines: [] } };
@@ -103,13 +105,13 @@ const NOT_CHECKABLE = { resolved: true, reason: 'not-checkable', actual: null };
  *   `actual` names what the file does offer, so a caller can build a message the writer can act on:
  *   `{ lines }` for a line miss, `{ symbolLines }` for a symbol miss.
  */
-function resolveLocator({ locator, repoRoot, fsImpl } = {}) {
+function resolveLocator({ locator, repoRoot, fsImpl }: any = {}): { resolved: boolean; reason: string | null; actual: any } {
   if (!locator || typeof locator !== 'object' || Array.isArray(locator)) return { ...NOT_CHECKABLE };
   // A uri-only locator, or an empty locator on a non-extracted item. Nothing readable here.
   if (!locator.file) return { ...NOT_CHECKABLE };
 
   const read = readTargetLines(locator, repoRoot || process.cwd(), fsImpl || fs);
-  if (read.missing) return { resolved: false, reason: 'file-missing', actual: null };
+  if ('missing' in read) return { resolved: false, reason: 'file-missing', actual: null };
 
   const { lines } = read;
   if (locator.line !== undefined && locator.line > lines.length) {
@@ -128,7 +130,7 @@ function resolveLocator({ locator, repoRoot, fsImpl } = {}) {
  * @param {{resolved: boolean, reason: (string|null), actual: (Object|null)}} result
  * @returns {string|null}
  */
-function describeResolution(locator, result) {
+function describeResolution(locator: any, result: any): string | null {
   if (!result || result.resolved) return null;
   const file = (locator && locator.file) || '(no file)';
   switch (result.reason) {

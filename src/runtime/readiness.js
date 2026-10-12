@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router');
-const { resolveLocator, describeResolution } = require('./locator-resolve');
+const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 const READINESS_STATES = new Set([

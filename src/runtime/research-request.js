@@ -8,7 +8,7 @@ const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
 const { ClaimsManager } = require('./claims');
 const { taskStoreDir } = require('./task-scope');
 const { FreshnessValidator } = require('./freshness');
-const { resolveLocator } = require('./locator-resolve');
+const { resolveLocator } = require('./locator-resolve.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 
 const STATES = new Set(['OPEN', 'ANSWERED', 'UNRESOLVED']);
