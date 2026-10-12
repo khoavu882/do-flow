@@ -13,7 +13,7 @@
 // error thrown while it loads is recorded under the command name `unknown`.
 let cli = null;
 try {
-  const { captureError } = require('../src/runtime/failure/capture');
+  const { captureError } = require('../src/runtime/failure/capture.ts');
   process.on('uncaughtExceptionMonitor', (error) => {
     try {
       const argv = process.argv.slice(2);

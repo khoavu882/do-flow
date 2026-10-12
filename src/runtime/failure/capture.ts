@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The Node failure writer (IC-011, IC-014, IC-015, DEC-019, DEC-020). Records one line per internal
  * error in the machine-wide `events.jsonl`. Capture is a side channel and must never be noticed by
@@ -17,8 +19,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { normaliseMessage, maskLine } = require('../mask');
-const { isProgrammingError, errorKind } = require('./classifier');
-const { failureHome, captureIsOff, eventsPath } = require('./home');
+const { isProgrammingError, errorKind } = require('./classifier.ts');
+const { failureHome, captureIsOff, eventsPath } = require('./home.ts');
 
 const MAX_LINE_BYTES = 2048;
 const MAX_RAW_MESSAGE = 4096;
@@ -31,24 +33,24 @@ const COMMAND_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 /** Errors already recorded in this process, so one error caught at two points counts once. */
 const recorded = new WeakSet();
 
-let cachedVersion = null;
+let cachedVersion: string | null = null;
 /** The package version; the projected runtime ships no package.json, so a tolerant read. */
-function packageVersion() {
+function packageVersion(): string {
   if (cachedVersion === null) {
     try { cachedVersion = String(require('../../../package.json').version); } catch { cachedVersion = 'unknown'; }
   }
   return cachedVersion;
 }
 
-function harnessName(env) {
+function harnessName(env: any): string {
   const raw = env.DOFLOW_AGENT;
   return typeof raw === 'string' && /^[A-Za-z0-9._-]{1,40}$/.test(raw) ? raw : 'none';
 }
 
 /** The absolute, non-root homes to compare a working directory with: HOME as given, its real path, and `os.homedir()`. */
-function homeCandidates(env) {
-  const out = [];
-  const add = (value) => {
+function homeCandidates(env: any): string[] {
+  const out: string[] = [];
+  const add = (value: any) => {
     if (typeof value !== 'string' || !path.isAbsolute(value)) return;
     const home = value.replace(/\/+$/, '');
     if (home.length > 1 && !out.includes(home)) out.push(home);
@@ -65,8 +67,8 @@ function homeCandidates(env) {
  * directory under no known home, when `HOME` itself is not usable, is stored as its folder name only,
  * so an absolute path with a user name in it never reaches the file.
  */
-function projectName(env) {
-  let cwd;
+function projectName(env: any): string {
+  let cwd: string;
   try { cwd = process.cwd(); } catch { return ''; }
   const home = homeCandidates(env).find((h) => cwd === h || cwd.startsWith(`${h}/`));
   if (home) return maskLine(`~${cwd.slice(home.length)}`, { home: null }).text.slice(0, 200);
@@ -75,7 +77,7 @@ function projectName(env) {
   return maskLine(cwd, { home: env.HOME }).text.slice(0, 200);
 }
 
-function commandName(command) {
+function commandName(command: any): string {
   return typeof command === 'string' && COMMAND_NAME.test(command) ? command : 'unknown';
 }
 
@@ -86,8 +88,8 @@ function commandName(command) {
  * @param {*} error
  * @returns {string|null}
  */
-function doflowFrame(error) {
-  let stack;
+function doflowFrame(error: any): string | null {
+  let stack: string;
   try { stack = typeof error.stack === 'string' ? error.stack : ''; } catch { return null; }
   const root = REPO_ROOT + path.sep;
   for (const line of stack.split('\n')) {
@@ -95,15 +97,15 @@ function doflowFrame(error) {
     if (!match) continue;
     const file = match[2].replace(/^file:\/\//, '');
     if (!file.startsWith(root) || file.includes(`${path.sep}node_modules${path.sep}`)) continue;
-    const fn = (match[1] || '').replace(/^new /, '').split('.').pop().replace(/\s.*$/, '') || '<anonymous>';
+    const fn = (match[1] || '').replace(/^new /, '').split('.').pop()!.replace(/\s.*$/, '') || '<anonymous>';
     return `${path.relative(REPO_ROOT, file).split(path.sep).join('/')}:${fn}`;
   }
   return null;
 }
 
 /** One line at or under MAX_LINE_BYTES including the newline: shorten `message`, then `project`. */
-function buildLine(record) {
-  const bytes = (r) => Buffer.byteLength(JSON.stringify(r), 'utf8') + 1;
+function buildLine(record: any): string | null {
+  const bytes = (r: any) => Buffer.byteLength(JSON.stringify(r), 'utf8') + 1;
   const out = { ...record };
   for (const field of ['message', 'project']) {
     while (bytes(out) > MAX_LINE_BYTES && out[field].length > 0) {
@@ -113,23 +115,23 @@ function buildLine(record) {
   return bytes(out) > MAX_LINE_BYTES ? null : `${JSON.stringify(out)}\n`;
 }
 
-const stamp = (date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+const stamp = (date: Date): string => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
 /** Rotated files with their size and modification time, oldest last-modified first (names alone tie inside one second). */
-function rotatedFiles(home) {
-  return fs.readdirSync(home).filter((name) => ROTATED.test(name)).map((name) => {
+function rotatedFiles(home: string): Array<{ name: string; size: number; mtime: number }> {
+  return fs.readdirSync(home).filter((name: string) => ROTATED.test(name)).map((name: string) => {
     let size = 0;
     let mtime = 0;
     try { const st = fs.statSync(path.join(home, name)); size = st.size; mtime = st.mtimeMs; } catch { /* gone */ }
     return { name, size, mtime };
-  }).sort((a, b) => a.mtime - b.mtime || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }).sort((a: any, b: any) => a.mtime - b.mtime || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
 /**
  * Removes rotated files beyond the newest four full ones, and partial ones (see rotateIfDue) once
  * they are an hour old. A partial file never counts toward the four, so it cannot push a real one out.
  */
-function prune(home, now = Date.now()) {
+function prune(home: string, now = Date.now()): void {
   const files = rotatedFiles(home);
   const full = files.filter((f) => f.size >= ROTATE_AT_BYTES);
   const doomed = [
@@ -155,7 +157,7 @@ function prune(home, now = Date.now()) {
  * @param {string} home the failure home
  * @returns {boolean} whether this call rotated a full file
  */
-function rotateIfDue(home) {
+function rotateIfDue(home: string): boolean {
   const live = eventsPath(home);
   try {
     if (fs.statSync(live).size < ROTATE_AT_BYTES) return false;
@@ -186,9 +188,9 @@ function rotateIfDue(home) {
  * descriptor is checked before the write, so a file swapped in after any earlier check is still safe.
  * @returns {boolean} whether the line was written
  */
-function appendRegular(file, line) {
+function appendRegular(file: string, line: string): boolean {
   const c = fs.constants;
-  let fd;
+  let fd: number | undefined;
   try {
     fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
     if (!fs.fstatSync(fd).isFile()) return false;
@@ -206,7 +208,7 @@ function appendRegular(file, line) {
  * @param {Object} [env] defaults to process.env
  * @returns {boolean} whether a line was written
  */
-function captureFailure(fields, env = process.env) {
+function captureFailure(fields: any, env = process.env): boolean {
   try {
     const home = failureHome(env);
     if (!home || captureIsOff(home, env)) return false;
@@ -233,7 +235,7 @@ function captureFailure(fields, env = process.env) {
 }
 
 /** The error's message cut to 4096 characters before any masking, so no input makes the rules do unbounded work. */
-function rawMessage(error) {
+function rawMessage(error: any): string {
   try {
     const message = error.message;
     return typeof message === 'string' ? message.slice(0, MAX_RAW_MESSAGE) : '';
@@ -249,7 +251,7 @@ function rawMessage(error) {
  * @param {Object} [env]
  * @returns {boolean} whether a line was written
  */
-function captureError(error, context = {}, env = process.env) {
+function captureError(error: any, context: any = {}, env = process.env): boolean {
   try {
     if (!isProgrammingError(error) || recorded.has(error)) return false;
     recorded.add(error);

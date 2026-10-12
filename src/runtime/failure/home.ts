@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Where DoFlow's own failures are kept on this machine, and whether capture is on (IC-011, IC-014).
  * One folder per machine, shared by every project (DEC-007). Node and the bash writers resolve the
@@ -16,7 +18,7 @@ const OFF_VALUES = new Set(['off', '0', 'false', 'no']);
 
 /** @param {Object} [env] defaults to process.env
  * @returns {string|null} the failure home, an absolute path, or null when none can be resolved */
-function failureHome(env = process.env) {
+function failureHome(env: any = process.env): string | null {
   const xdg = env.XDG_CONFIG_HOME;
   if (typeof xdg === 'string' && xdg !== '') {
     return path.isAbsolute(xdg) ? path.join(xdg, 'doflow', 'failures') : null;
@@ -26,11 +28,11 @@ function failureHome(env = process.env) {
   return null;
 }
 
-const sentinelPath = (home) => path.join(home, 'off');
-const eventsPath = (home) => path.join(home, 'events.jsonl');
+const sentinelPath = (home: string): string => path.join(home, 'off');
+const eventsPath = (home: string): string => path.join(home, 'events.jsonl');
 
 /** The value of `DOFLOW_FAILURE_CAPTURE` when it is set to anything, else null. */
-function envSetting(env = process.env) {
+function envSetting(env: any = process.env): string | null {
   const raw = env.DOFLOW_FAILURE_CAPTURE;
   return typeof raw === 'string' && raw !== '' ? raw : null;
 }
@@ -42,7 +44,7 @@ function envSetting(env = process.env) {
  * @param {Object} [env]
  * @returns {{effective: 'on'|'off', sentinel: boolean, env: string|null}}
  */
-function captureSwitch(home, env = process.env) {
+function captureSwitch(home: string | null, env: any = process.env): { effective: 'on' | 'off'; sentinel: boolean; env: string | null } {
   let sentinel = false;
   if (home) {
     try { sentinel = fs.statSync(sentinelPath(home)).isFile(); } catch { sentinel = false; }
@@ -53,7 +55,7 @@ function captureSwitch(home, env = process.env) {
 }
 
 /** The hot-path check a writer makes: the environment first, then one `stat` of the sentinel. */
-function captureIsOff(home, env = process.env) {
+function captureIsOff(home: string, env: any = process.env): boolean {
   const setting = envSetting(env);
   if (setting !== null && OFF_VALUES.has(setting.trim().toLowerCase())) return true;
   try { return fs.statSync(sentinelPath(home)).isFile(); } catch { return false; }

@@ -11,9 +11,9 @@ const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { suiteTempDir } = require('../helper/tmp');
-const { isProgrammingError, errorKind } = require('../../src/runtime/failure/classifier');
-const { failureHome, captureSwitch, captureIsOff } = require('../../src/runtime/failure/home');
-const { captureFailure, captureError, rotateIfDue, MAX_LINE_BYTES, ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture');
+const { isProgrammingError, errorKind } = require('../../src/runtime/failure/classifier.ts');
+const { failureHome, captureSwitch, captureIsOff } = require('../../src/runtime/failure/home.ts');
+const { captureFailure, captureError, rotateIfDue, MAX_LINE_BYTES, ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const scratch = createScratch('doflow-failure-capture-');
@@ -187,7 +187,7 @@ describe('Node writer (IC-011, IC-015)', () => {
     const { env } = freshEnv('project');
     fs.mkdirSync(path.join(env.HOME, 'work', 'app'), { recursive: true });
     const result = spawnSync(process.execPath, ['-e', `
-      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture'))});
+      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture.ts'))});
       captureError(new TypeError('x'), { command: 'verify', exit: 1 });
     `], { cwd: path.join(env.HOME, 'work', 'app'), env, encoding: 'utf8' });
     assert.equal(result.status, 0);
@@ -197,7 +197,7 @@ describe('Node writer (IC-011, IC-015)', () => {
   /** The project label a capture from `cwd` stores, under `env`. */
   function projectFrom(cwd, env) {
     const result = spawnSync(process.execPath, ['-e', `
-      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture'))});
+      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture.ts'))});
       captureError(new TypeError('x'), { command: 'verify', exit: 1 });
     `], { cwd, env, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
@@ -274,7 +274,7 @@ describe('Node writer (IC-011, IC-015)', () => {
     const longProject = path.join(env.HOME, 'p'.repeat(150));
     fs.mkdirSync(longProject, { recursive: true });
     const result = spawnSync(process.execPath, ['-e', `
-      const { captureFailure } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture'))});
+      const { captureFailure } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture.ts'))});
       captureFailure({ source: 'cli', command: 'verify', kind: 'TypeError', message: 'm'.repeat(5000), frame: 'f'.repeat(300) });
     `], { cwd: longProject, env, encoding: 'utf8' });
     assert.equal(result.status, 0);
@@ -314,7 +314,7 @@ describe('Node writer (IC-011, IC-015)', () => {
     const broken = { ...env, XDG_CONFIG_HOME: blocker };
     assert.equal(captureError(new TypeError('x'), { command: 'verify', exit: 1 }, broken), false);
     const result = spawnSync(process.execPath, ['-e', `
-      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture'))});
+      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture.ts'))});
       captureError(new TypeError('x'), { command: 'verify', exit: 1 });
     `], { env: broken, encoding: 'utf8' });
     assert.equal(result.status, 0);
@@ -325,7 +325,7 @@ describe('Node writer (IC-011, IC-015)', () => {
   test('a successful capture also writes no byte to stdout or stderr', () => {
     const { env } = freshEnv('silent');
     const result = spawnSync(process.execPath, ['-e', `
-      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture'))});
+      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture.ts'))});
       captureError(new TypeError('x'), { command: 'verify', exit: 1 });
     `], { env, encoding: 'utf8' });
     assert.equal(result.status, 0);
@@ -393,7 +393,7 @@ describe('rotation and retention (IC-015)', () => {
 });
 
 describe('rotation under concurrency (IC-015)', () => {
-  const MODULE = process.env.DOFLOW_TEST_CAPTURE_MODULE || path.join(REPO, 'src/runtime/failure/capture');
+  const MODULE = process.env.DOFLOW_TEST_CAPTURE_MODULE || path.join(REPO, 'src/runtime/failure/capture.ts');
   // Each worker loads the module, reports ready and spins until the start file exists, so all of them
   // meet the full live file at the same moment.
   const big = (file) => { fs.writeFileSync(file, ''); fs.truncateSync(file, ROTATE_AT_BYTES); };
@@ -559,7 +559,7 @@ describe('hostile errors and big messages', () => {
 });
 
 describe('one fingerprint for one bug (normalise before masking)', () => {
-  const { fingerprint } = require('../../src/runtime/failure/store');
+  const { fingerprint } = require('../../src/runtime/failure/store.ts');
   const { normaliseMessage } = require('../../src/runtime/mask');
   const fpFor = (message) => {
     const { env } = freshEnv('fp');

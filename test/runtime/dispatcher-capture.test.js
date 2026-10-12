@@ -14,7 +14,7 @@ const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { suiteTempDir } = require('../helper/tmp');
-const { captureIsOff } = require('../../src/runtime/failure/home');
+const { captureIsOff } = require('../../src/runtime/failure/home.ts');
 
 const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';

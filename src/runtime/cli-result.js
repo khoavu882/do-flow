@@ -28,7 +28,7 @@ function finishRuntime(code) {
  * @param {number} exit the exit status the caller is about to produce
  */
 function captureCaught(error, command, exit) {
-  try { require('./failure/capture').captureError(error, { command, exit }); } catch { /* capture is best-effort */ }
+  try { require('./failure/capture.ts').captureError(error, { command, exit }); } catch { /* capture is best-effort */ }
 }
 
 /**

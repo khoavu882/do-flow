@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The `failure` verb (IC-019): `list`, `settle` and `capture` over the machine-wide failure store
  * (IC-011 to IC-015). The store is per machine, so the verb ignores `-g` and works from any
@@ -12,9 +14,9 @@
 const fs = require('node:fs');
 const { finishRuntime, usageError } = require('../cli-result');
 const { maskLine, printSafe } = require('../mask');
-const { failureHome, captureSwitch, sentinelPath } = require('./home');
-const { rotateIfDue } = require('./capture');
-const store = require('./store');
+const { failureHome, captureSwitch, sentinelPath } = require('./home.ts');
+const { rotateIfDue } = require('./capture.ts');
+const store = require('./store.ts');
 const { projectRoot } = require('../lifecycle/root');
 const { appendEvents, readFold, randomChars, StoreUnsafeError, StoreLockedError } = require('../lifecycle/event-store');
 const { prepareStore } = require('../lifecycle/store-upkeep');
@@ -27,10 +29,10 @@ const CONTROL = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u20
 /** A caller mistake (exit 2). */
 class FailureUsageError extends Error {}
 
-const refusal = (action, finding, message) => ({ ok: false, action, finding, message });
+const refusal = (action: string, finding: string, message: string) => ({ ok: false, action, finding, message });
 
 /** A one-line reason, masked like any other free text, or null when none was given. */
-function cleanReason(raw) {
+function cleanReason(raw: any): string | null {
   if (raw === undefined) return null;
   const rawLength = String(raw).length;
   if (rawLength > STATEMENT_MAX * 4) throw new FailureUsageError(`--reason is ${rawLength} characters; the limit is ${STATEMENT_MAX}`);
@@ -42,19 +44,19 @@ function cleanReason(raw) {
 }
 
 /** `DoFlow <command> <kind>: <message>`, built only from stored fields, masked and cut to 280 characters. */
-function importedStatement(entry) {
+function importedStatement(entry: any): string {
   const raw = `DoFlow ${entry.command} ${entry.kind}${entry.message ? `: ${entry.message}` : ''}`;
   return maskLine(raw.replace(CONTROL, ' ')).text.replace(/\s+/g, ' ').trim().slice(0, STATEMENT_MAX);
 }
 
 // ── list ───────────────────────────────────────────────────────────────────────────────────────
 
-function listFailures({ all = false, env = process.env } = {}) {
+function listFailures({ all = false, env = process.env } = {}): any {
   const home = failureHome(env);
   if (home) rotateIfDue(home);
   const loaded = store.loadEntries({ env });
-  const shown = loaded.entries.filter((entry) => all || store.SHOWN_BY_DEFAULT.has(entry.status)).map(store.listedEntry);
-  const result = { ok: true, action: 'list', capture: loaded.capture };
+  const shown = loaded.entries.filter((entry: any) => all || store.SHOWN_BY_DEFAULT.has(entry.status)).map(store.listedEntry);
+  const result: any = { ok: true, action: 'list', capture: loaded.capture };
   if (loaded.home === null) result.home = null;
   result.entries = shown;
   result.counts = loaded.counts;
@@ -68,7 +70,7 @@ function listFailures({ all = false, env = process.env } = {}) {
 
 // ── settle ─────────────────────────────────────────────────────────────────────────────────────
 
-function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date() }) {
+function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date() }: any): any {
   if (typeof fp !== 'string' || !FP.test(fp)) throw new FailureUsageError('--fp is required: the 16 hex characters of an entry from `failure --action list`');
   if (!store.SETTLE_AS.includes(as)) throw new FailureUsageError(`--as must be one of ${store.SETTLE_AS.join(', ')}${as ? ` (got '${as}')` : ''}`);
   const cleaned = cleanReason(reason);
@@ -86,7 +88,7 @@ function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date(
     for (const text of prepared.lines) console.error(printSafe(`doflow failure: ${text}`));
     if (!prepared.ok) return refusal('settle', prepared.finding, prepared.message);
   }
-  const entry = store.loadEntries({ env }).entries.find((e) => e.fp === fp);
+  const entry = store.loadEntries({ env }).entries.find((e: any) => e.fp === fp);
   if (!entry) return refusal('settle', 'unknown-fp', `${fp} is not a failure entry on this machine; list them with doflow-run failure --action list. Nothing was written.`);
 
   if (as !== 'imported') {
@@ -96,10 +98,10 @@ function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date(
   // Deduplicated on the project's own follow-ups, whatever the settlements say: a follow-up that
   // already comes from this fingerprint is never created twice, even after a noise or fixed settlement.
   const followups = readFold(root, { now }).followups;
-  const existing = followups.find((f) => f.source && f.source.kind === 'failure' && f.source.ref === fp);
+  const existing = followups.find((f: any) => f.source && f.source.kind === 'failure' && f.source.ref === fp);
   if (existing) return refusal('settle', 'already-imported', `${fp} was already imported as ${existing.id}. Nothing was written.`);
-  const taken = new Set(followups.map((f) => f.id));
-  let id;
+  const taken = new Set(followups.map((f: any) => f.id));
+  let id: string;
   do { id = `FU-${randomChars(6)}`; } while (taken.has(id));
   const statement = importedStatement(entry);
   const source = { kind: 'failure', ref: fp };
@@ -111,13 +113,13 @@ function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date(
   return {
     ok: true, action: 'settle', fp, as,
     followup: { id, statement, source, state: 'open' },
-    events: out.written.map((w) => w.file),
+    events: out.written.map((w: any) => w.file),
   };
 }
 
 // ── capture ────────────────────────────────────────────────────────────────────────────────────
 
-function captureState({ set, env = process.env, now = new Date() }) {
+function captureState({ set, env = process.env, now = new Date() }: any = {}): any {
   if (set !== undefined && set !== 'on' && set !== 'off') throw new FailureUsageError(`--set must be on or off (got '${set}')`);
   const home = failureHome(env);
   if (home !== null && set === 'off') {
@@ -128,21 +130,21 @@ function captureState({ set, env = process.env, now = new Date() }) {
   }
   const state = captureSwitch(home, env);
   // With no failure home nothing is captured, whatever the switch says.
-  const result = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, sentinel: state.sentinel, env: state.env };
+  const result: any = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, sentinel: state.sentinel, env: state.env };
   if (home === null) result.home = null;
   return result;
 }
 
 // ── verb ───────────────────────────────────────────────────────────────────────────────────────
 
-function lines(result) {
+function lines(result: any): string[] {
   if (result.home === null) return ['home: none (capture skipped)', 'capture: off'];
   if (result.action === 'list') {
     const out = [`capture ${result.capture}: ${result.entries.length} entr${result.entries.length === 1 ? 'y' : 'ies'} listed (new ${result.counts.new}, regressed ${result.counts.regressed}, noise ${result.counts.noise}, fixed ${result.counts.fixed}, imported ${result.counts.imported})`];
     for (const e of result.entries) out.push(`${e.fp}  ${e.status}  x${e.count}  ${e.command} ${e.kind}${e.message ? `: ${e.message}` : ''}  (last seen ${e.lastSeen}, ${e.lastVersion})`);
     if (result.unreadable.length) out.push(`unreadable failure files (not read): ${result.unreadable.join(', ')}`);
     if (result.skippedLines) out.push(`${result.skippedLines} unreadable line${result.skippedLines === 1 ? '' : 's'} skipped`);
-    return [...out, ...result.next.map((n) => `next: ${n}`)];
+    return [...out, ...result.next.map((n: string) => `next: ${n}`)];
   }
   if (result.action === 'settle') return [`${result.fp} settled as ${result.as}${result.followup ? `, follow-up ${result.followup.id}` : ''}`];
   return [`capture ${result.effective}${result.sentinel ? ' (switched off on this machine)' : ''}${result.env ? ` (DOFLOW_FAILURE_CAPTURE=${result.env})` : ''}`];
@@ -155,17 +157,17 @@ function lines(result) {
  * @param {boolean} [options.all] `list`: every status, not just new and regressed
  * @param {Object} [options.flags] fp, as, reason, set
  */
-function handleFailureCommand({ action, cwd, json = false, all = false, flags = {} } = {}) {
-  let result;
+function handleFailureCommand({ action, cwd, json = false, all = false, flags = {} }: any = {}): any {
+  let result: any;
   try {
     if (!ACTIONS.includes(action)) throw new FailureUsageError(`--action is required: one of ${ACTIONS.join(', ')}${action ? ` (got '${action}')` : ''}`);
     if (action === 'list') result = listFailures({ all });
-    else if (action === 'settle') result = settleFailure({ fp: flags.fp, as: flags.as, reason: flags.reason, cwd });
-    else result = captureState({ set: flags.set });
+    else if (action === 'settle') result = settleFailure({ fp: (flags as any).fp, as: (flags as any).as, reason: (flags as any).reason, cwd });
+    else result = captureState({ set: (flags as any).set });
   } catch (error) {
-    if (error instanceof FailureUsageError || error instanceof StoreUnsafeError) return usageError('failure', error.message, json);
+    if (error instanceof FailureUsageError || error instanceof StoreUnsafeError) return usageError('failure', (error as Error).message, json);
     if (!(error instanceof StoreLockedError)) throw error;
-    result = refusal(action, 'store-locked', error.message);
+    result = refusal(action, 'store-locked', (error as Error).message);
   }
   if (json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok === false) console.log(printSafe(`${result.finding}: ${result.message}`));

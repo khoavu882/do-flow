@@ -17,7 +17,7 @@ const { FollowupUsageError, parseIds } = require('./followup');
 
 /** The failure store, or null when its module cannot be loaded: the overview then reports no failures. */
 function failureStoreOrNull() {
-  try { return require('../failure/store'); } catch { return null; }
+  try { return require('../failure/store.ts'); } catch { return null; }
 }
 
 const DISCOVERY_SHOWN = 15;

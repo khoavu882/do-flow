@@ -9,8 +9,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch, inheritedEnv } = require('../helper/scratch-env');
-const store = require('../../src/runtime/failure/store');
-const { ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture');
+const store = require('../../src/runtime/failure/store.ts');
+const { ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture.ts');
 const { buildOverview } = require('../../src/runtime/lifecycle/overview');
 
 const BIN = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
@@ -426,7 +426,7 @@ store.readFold = () => { throw new store.StoreLockedError("Could not lock 'event
     assert.deepEqual(fs.readdirSync(events), []);
   });
   test('the statement of an entry with no message has no trailing colon, and is cut to 280 characters', () => {
-    const { importedStatement } = require('../../src/runtime/failure/cli');
+    const { importedStatement } = require('../../src/runtime/failure/cli.ts');
     assert.equal(importedStatement({ command: 'mcp-tool-guard', kind: 'policy-file-missing', message: '' }), 'DoFlow mcp-tool-guard policy-file-missing');
     assert.equal(importedStatement({ command: 'x', kind: 'TypeError', message: 'm'.repeat(500) }).length, 280);
     assert.equal(importedStatement({ command: 'x', kind: 'TypeError', message: 'a\nb\u202Ec' }), 'DoFlow x TypeError: a b c');

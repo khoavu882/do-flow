@@ -522,12 +522,12 @@
         "core/harnesses/shared/hooks/policies/capture-failure.sh",
         "core/harnesses/shared/hooks/stream-hook-runner.js",
         "core/shared/scripts/doflow/bin/doflow-run",
-        "src/runtime/failure/capture.js",
-        "src/runtime/failure/cli.js",
-        "src/runtime/failure/store.js"
+        "src/runtime/failure/capture.ts",
+        "src/runtime/failure/cli.ts",
+        "src/runtime/failure/store.ts"
       ],
       "source": {
-        "file": "src/runtime/failure/capture.js",
+        "file": "src/runtime/failure/capture.ts",
         "pattern": "KEEP_ROTATED = {value}"
       }
     },

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The programming-error classifier (IC-010, DEC-013, DEC-031). Decides whether a caught error is a
  * bug in DoFlow worth recording, as opposed to a finding, a refusal, a bad flag or a fault in the
@@ -12,12 +14,12 @@
 const CLASS_NAMES = new Set(['TypeError', 'RangeError', 'ReferenceError']);
 
 /** Reads one property without ever throwing: a throwing getter reads as undefined. */
-function read(error, key) {
+function read(error: any, key: string): any {
   try { return error[key]; } catch { return undefined; }
 }
 
 /** `error instanceof Class`, never throwing. */
-function isA(error, Class) {
+function isA(error: any, Class: any): boolean {
   try { return error instanceof Class; } catch { return false; }
 }
 
@@ -27,7 +29,7 @@ function isA(error, Class) {
  * @param {*} error
  * @returns {boolean}
  */
-function isProgrammingError(error) {
+function isProgrammingError(error: any): boolean {
   try {
     if (error === null || typeof error !== 'object') return false;
     const code = read(error, 'code');
@@ -51,7 +53,7 @@ function isProgrammingError(error) {
  * @param {*} error
  * @returns {string}
  */
-function errorKind(error) {
+function errorKind(error: any): string {
   for (const Class of [TypeError, RangeError, ReferenceError]) {
     if (isA(error, Class)) return Class.name;
   }

@@ -55,7 +55,7 @@ const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep');
 const { handleStorageCommand } = require('../runtime/storage/cli');
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
-function handleFailureCommand(options: any): any { return require('../runtime/failure/cli').handleFailureCommand(options); }
+function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
 const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');

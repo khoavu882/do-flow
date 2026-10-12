@@ -253,7 +253,7 @@ test('an empty XDG_CONFIG_HOME falls back to HOME/.config (the scratch HOME, nev
 });
 
 test('the reports home sits beside the failure home for every environment shape (IC-005 resolves as IC-011 does)', () => {
-  const { failureHome } = require('../../src/runtime/failure/home');
+  const { failureHome } = require('../../src/runtime/failure/home.ts');
   const envs = [{}, { HOME: '/h' }, { HOME: 'rel' }, { XDG_CONFIG_HOME: '/x' }, { XDG_CONFIG_HOME: 'rel', HOME: '/h' }, { XDG_CONFIG_HOME: '', HOME: '/h' }];
   for (const env of envs) {
     const failures = failureHome(env);
