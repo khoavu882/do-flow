@@ -17,7 +17,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { acquireLock } = require('./task-state.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
-const { compactHistory } = require('./history-compactor');
+const { compactHistory } = require('./history-compactor.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 
 const REGISTER_VERSION = 1;

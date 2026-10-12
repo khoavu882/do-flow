@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * History compactor (IC-005, IC-009). Moves the body of an artifact's `## <n>. History` section into
  * `decisions/history/<artifact>.md` and leaves a comment-and-pointer stub behind, so the live
@@ -35,9 +37,9 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
  *   are true when a fence or an HTML comment is never closed, so everything after it was swallowed;
  *   `openAt` is the line index where that construct opened (-1 when none is left open)
  */
-function scan(lines) {
-  const kinds = new Array(lines.length);
-  let fence = null;
+function scan(lines: string[]): { kinds: string[]; openFence: boolean; openComment: boolean; openAt: number } {
+  const kinds: string[] = new Array(lines.length);
+  let fence: { ch: string; len: number } | null = null;
   let comment = false;
   let openedAt = -1;
   for (let i = 0; i < lines.length; i += 1) {
@@ -71,14 +73,14 @@ function scan(lines) {
  * exact canonical pointer for this artifact is the pointer; any other line, including one that
  * merely looks like a pointer, moves, so no text is dropped.
  */
-function classify(bodyLines, kinds, canonicalPointer) {
-  const comments = [];
-  const moved = [];
-  let pointer = null;
-  let block = null;
+function classify(bodyLines: string[], kinds: string[], canonicalPointer: string): { comments: string[][]; moved: string[]; pointer: string | null } {
+  const comments: string[][] = [];
+  const moved: string[] = [];
+  let pointer: string | null = null;
+  let block: string[] | null = null;
   bodyLines.forEach((line, i) => {
     const kind = kinds[i];
-    if (kind === 'comment-cont') { block.push(line); return; }
+    if (kind === 'comment-cont') { (block as string[]).push(line); return; }
     block = null;
     if (kind === 'comment') { block = [line]; comments.push(block); return; }
     if (kind === 'fence') { moved.push(line); return; }
@@ -91,19 +93,19 @@ function classify(bodyLines, kinds, canonicalPointer) {
   return { comments, moved, pointer };
 }
 
-function writeAtomic(fsImpl, file, content) {
+function writeAtomic(fsImpl: any, file: string, content: string): void {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   try {
     fsImpl.writeFileSync(tmp, content, 'utf8');
     fsImpl.renameSync(tmp, file);
-  } catch (error) {
+  } catch (error: any) {
     try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
     throw error;
   }
 }
 
-function toPosix(p) {
+function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
@@ -117,7 +119,7 @@ function toPosix(p) {
  * a line inside a code fence, and that must not be read as the start of a chunk. The dedupe and the
  * post-write confirmation both use this one predicate.
  */
-function lastChunkIs(archiveText, blockLF) {
+function lastChunkIs(archiveText: string, blockLF: string): boolean {
   const lines = archiveText.replace(/\r\n/g, '\n').split('\n');
   const { kinds } = scan(lines);
   let header = -1;
@@ -133,25 +135,25 @@ function lastChunkIs(archiveText, blockLF) {
  * @returns {{artifact:string, path:string, archive:string, lines:number}|null} null when there was
  *   nothing to move
  */
-function compactArtifact({ fsImpl, featureDir, file, date }) {
+function compactArtifact({ fsImpl, featureDir, file, date }: { fsImpl: any; featureDir: string; file: string; date: string }): { artifact: string; path: string; archive: string; lines: number } | null {
   const text = fsImpl.readFileSync(file, 'utf8');
   const crlf = text.includes('\r\n');
   const lines = text.split('\n');
   const { kinds, openFence, openComment, openAt } = scan(lines);
-  const unclosed = openFence ? 'a code fence' : openComment ? 'an HTML comment' : null;
-  const refuse = () => {
+  const unclosed: string | null = openFence ? 'a code fence' : openComment ? 'an HTML comment' : null;
+  const refuse = (): never => {
     throw new Error(`${unclosed} is never closed, so the end of the History section cannot be told`);
   };
-  const start = lines.findIndex((l, i) => kinds[i] === 'text' && HISTORY_HEADING.test(l));
+  const start = lines.findIndex((l: string, i: number) => kinds[i] === 'text' && HISTORY_HEADING.test(l));
   // An unclosed construct swallows everything after it. It matters only when it opens before the
   // History section ends (FR-001): then the section's end cannot be told. A History heading it
   // swallowed is such a case; one that simply is not there, or that closed before the construct
   // opened, is not, and the construct is treated as absent.
   if (start === -1) {
-    if (unclosed && lines.some((l, i) => i > openAt && HISTORY_HEADING.test(l))) refuse();
+    if (unclosed && lines.some((l: string, i: number) => i > openAt && HISTORY_HEADING.test(l))) refuse();
     return null;
   }
-  const section = Number(HISTORY_HEADING.exec(lines[start])[1]);
+  const section = Number((HISTORY_HEADING.exec(lines[start]) as RegExpExecArray)[1]);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i += 1) {
     if (kinds[i] === 'text' && ANY_H2.test(lines[i])) { end = i; break; }
@@ -170,7 +172,7 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
   // Chunks are built with LF and converted to the artifact's own line ending on write, so a CRLF
   // artifact gets a CRLF archive and no file ends up mixed.
   const eol = crlf ? '\r\n' : '\n';
-  const toEol = (t) => (crlf ? t.replace(/\n/g, '\r\n') : t);
+  const toEol = (t: string) => (crlf ? t.replace(/\n/g, '\r\n') : t);
   const blockLF = moved.map((l) => l.replace(/\r$/, '')).join('\n');
   const chunk = `## Compacted ${date} from ${rel} §${section}\n\n${blockLF}\n`;
   const existing = fsImpl.existsSync(archiveFile) ? fsImpl.readFileSync(archiveFile, 'utf8') : null;
@@ -211,18 +213,18 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
  * @returns {{status:'compacted'|'unchanged'|'partial', moved:Object[], failed:Array<{artifact:string, path:string, message:string}>}}
  *   `partial` means at least one artifact failed
  */
-function compactHistory({ repoRoot, featureDir, paths, date, fsImpl = nodeFs }) {
+function compactHistory({ repoRoot, featureDir, paths, date, fsImpl = nodeFs }: { repoRoot: string; featureDir: string; paths: any; date?: string; fsImpl?: any }): { status: 'compacted' | 'unchanged' | 'partial'; moved: any[]; failed: Array<{ artifact: string; path: string; message: string }> } {
   const stamp = date || new Date().toISOString().slice(0, 10);
-  const moved = [];
-  const failed = [];
+  const moved: any[] = [];
+  const failed: any[] = [];
   for (const key of TARGET_KEYS) {
     if (!paths || !paths[key]) continue;
     const file = path.resolve(repoRoot, paths[key]);
     if (!fsImpl.existsSync(file)) continue;
-    let result;
+    let result: any;
     try {
       result = compactArtifact({ fsImpl, featureDir, file, date: stamp });
-    } catch (error) {
+    } catch (error: any) {
       const name = toPosix(path.relative(featureDir, file));
       failed.push({ artifact: path.basename(file), path: name, message: `could not compact ${name}: ${error.message}; the artifact was left unchanged` });
       continue;
