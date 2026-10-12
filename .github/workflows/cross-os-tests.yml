@@ -32,13 +32,13 @@ jobs:
       matrix:
         # `inputs` (and its default) exists only for workflow_call; on pull_request/push it is empty.
         os: ${{ fromJSON(inputs.os_matrix || '["ubuntu-latest","macos-latest","windows-latest"]') }}
-        node: ["20"]
-        # package.json declares engines.node >=18, so the floor is exercised too — otherwise the
+        node: ["24"]
+        # package.json declares engines.node ^22.18.0 || >=23.6.0, so its lowest release (22.18.0) is exercised too — otherwise the
         # supported minimum is only asserted, never tested. One OS is enough for a version sweep;
         # the OS matrix above already covers the portability axis.
         include:
           - os: ubuntu-latest
-            node: "18"
+            node: "22.18.0"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -75,7 +75,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install dependencies
         run: npm install
