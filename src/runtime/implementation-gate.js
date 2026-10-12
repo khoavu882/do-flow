@@ -5,7 +5,7 @@ const path = require('node:path');
 const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readiness-record');
 const { listCheckouts } = require('./checkouts');
 const { readTaskState } = require('./task-state');
-const { resolveActiveFeature } = require('./feature-resolve');
+const { resolveActiveFeature } = require('./feature-resolve.ts');
 const { isSafeSlug } = require('./task-scope');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 

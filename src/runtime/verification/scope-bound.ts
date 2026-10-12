@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resolveActiveFeature } = require('../feature-resolve');
+const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { resolveBashHelper } = require('../../helper/bash-helper.ts');
 const { listCheckouts } = require('../checkouts');
 

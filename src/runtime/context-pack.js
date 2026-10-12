@@ -4,7 +4,7 @@ const { EvidenceLedger } = require('./evidence-ledger');
 const { ClaimsManager } = require('./claims');
 const { ResearchRequestStore } = require('./research-request');
 const { finishRuntime, usageError } = require('./cli-result.ts');
-const { resolveActiveFeature } = require('./feature-resolve');
+const { resolveActiveFeature } = require('./feature-resolve.ts');
 const { readRegister } = require('./decision-register');
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });

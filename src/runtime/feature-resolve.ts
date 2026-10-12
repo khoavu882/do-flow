@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { resolveBashHelper } = require('../helper/bash-helper.ts');
@@ -29,18 +31,18 @@ const PATHS_HELPER = resolveBashHelper('do-paths.sh');
  *   `paths` is the resolver's own parsed JSON (repo-root-relative artifact paths and has_* flags),
  *   so a caller needs no second resolver call.
  */
-function resolveActiveFeature({ projectRoot, slug = null }) {
+function resolveActiveFeature({ projectRoot, slug = null }: { projectRoot: string; slug?: string | null }): any {
   const helper = resolveBashHelper('do-paths.sh');
   if (!helper) {
     return { error: 'resolver-missing', message: 'the feature resolver (do-paths.sh) is missing from this install' };
   }
-  const args = [helper, '--json', '--require', 'feature'];
+  const args: string[] = [helper, '--json', '--require', 'feature'];
   if (slug) args.push(`--slug=${slug}`);
 
-  let stdout;
+  let stdout: string;
   try {
     stdout = execFileSync('bash', args, { cwd: projectRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (error) {
+  } catch (error: any) {
     // Exit 2 is the resolver's one non-zero path (no active feature, or an ambiguous one) and it
     // still prints its error object on stdout — that object carries the hint the user needs, so
     // it is read rather than replaced with a generic message. Anything else (no bash, NFR-003)
@@ -54,7 +56,7 @@ function resolveActiveFeature({ projectRoot, slug = null }) {
     }
   }
 
-  let paths;
+  let paths: any;
   try {
     paths = JSON.parse(stdout);
   } catch {

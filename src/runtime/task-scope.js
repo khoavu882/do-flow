@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { resolveActiveFeature } = require('./feature-resolve');
+const { resolveActiveFeature } = require('./feature-resolve.ts');
 
 // Which feature a task record belongs to (feature 045, IC-001/IC-002).
 //

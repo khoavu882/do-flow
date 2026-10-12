@@ -59,7 +59,7 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const { finishRuntime } = require('../cli-result.ts');
-const { resolveActiveFeature } = require('../feature-resolve');
+const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { parseRequirement, parseDesign, parsePlan } = require('./artifacts.ts');
 const {
   EXTENSION_LANGUAGE,
