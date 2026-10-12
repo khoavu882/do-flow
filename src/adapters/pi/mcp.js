@@ -5,7 +5,7 @@
 // DoFlow last verified there. A same-named entry DoFlow holds no row for is the user's and is never
 // touched; an owned entry whose value no longer matches its row was edited by the user and is
 // released, not overwritten or removed. The file itself is edited by splicing members into its
-// original text (./json-members.js), so every byte DoFlow does not own survives.
+// original text (./json-members.ts), so every byte DoFlow does not own survives.
 //
 // Plan changes carry DoFlow's own entry and a hash of the text plan read, never the file's text:
 // the lifecycle copies every change into the recovery record, and a user's mcp.json may hold secrets.
@@ -14,7 +14,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const { fingerprint } = require('../copy-tree');
-const { SKELETON, readDocument, insertMember, replaceValue, removeMember, replaceInner, renderNewDocument } = require('./json-members');
+const { SKELETON, readDocument, insertMember, replaceValue, removeMember, replaceInner, renderNewDocument } = require('./json-members.ts');
 
 const HARNESS = 'pi';
 const ASSET_ID = 'guidance.codex-pointer';
