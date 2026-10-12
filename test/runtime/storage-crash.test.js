@@ -8,7 +8,7 @@ const { tempDir } = require('../helper/tmp');
 const { inheritedEnv } = require('../helper/scratch-env');
 const registry = require('../../core/registry/storage.json');
 const { runPass } = require('../../src/runtime/storage/engine');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { ClaimsManager } = require('../../src/runtime/claims');
 const NOW = Date.parse('2026-10-10T12:00:00Z'), DAY = 86400000;
 const CLI = path.resolve(__dirname, '../../bin/doflow.js');

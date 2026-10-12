@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { ClaimsManager } = require('../../src/runtime/claims');
 const { acquireLock, tryAcquireLock, readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state.ts');
 

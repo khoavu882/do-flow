@@ -21,7 +21,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { tempDir } = require('../helper/tmp');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { renderPolicy } = require('../../src/lifecycle/policies.ts');
 const { describeResolution, RESOLUTION_REASONS } = require('../../src/runtime/locator-resolve.ts');
 const { DERIVATIONS } = require('../../src/runtime/command-detect.ts');

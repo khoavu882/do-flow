@@ -39,7 +39,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { CapabilityRouter } = require('./capability-router.ts');
-const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
+const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { taskStoreDir } = require('./task-scope.ts');
 const { probeFreshness } = require('./health');
 // One definition of the score refusal, applied at a second boundary. See the note on

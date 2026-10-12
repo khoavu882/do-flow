@@ -12,7 +12,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { ClaimsManager } = require('../../src/runtime/claims');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 
 /** A ledger plus manager wired together, with one fresh evidence item per requested role. */
 function setup() {

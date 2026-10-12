@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { ClaimsManager } = require('../../src/runtime/claims');
 const { FreshnessValidator } = require('../../src/runtime/freshness.ts');
 const { ContextPackCompiler } = require('../../src/runtime/context-pack');
@@ -158,7 +158,7 @@ test('ContextPackCompiler compiles compact structured context within budget', ()
   const ev2 = ledger.addEvidence({
     taskId: 'task_cpack',
     kind: 'exact-search',
-    locator: { file: 'src/runtime/evidence-ledger.js' },
+    locator: { file: 'src/runtime/evidence-ledger.ts' },
   });
 
   const claim1 = claims.addClaim({ taskId: 'task_cpack', statement: 'Claim 1' });
@@ -244,8 +244,8 @@ test('a stale item alone forces NEEDS_EVIDENCE even when every requirement is ot
     taskId: 'task_supersede',
     kind: 'structural',
     provenance: 'extracted',
-    locator: { file: 'src/runtime/evidence-ledger.js', line: 1 },
-    content: 'a fact recorded before evidence-ledger.js changed',
+    locator: { file: 'src/runtime/evidence-ledger.ts', line: 1 },
+    content: 'a fact recorded before evidence-ledger.ts changed',
   });
   ledger.getEvidence(staleId).freshness.status = 'STALE';
 

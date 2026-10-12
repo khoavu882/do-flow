@@ -40,7 +40,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
+const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { taskStoreDir } = require('./task-scope.ts');
 // The two verdict vocabularies, imported from the modules that own them rather than respelled
 // here. A second copy would let this file accept a readiness state readiness itself has retired.

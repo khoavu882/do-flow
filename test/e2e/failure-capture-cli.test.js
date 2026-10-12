@@ -111,8 +111,8 @@ describe('error-to-usage catch sites record a programming error and keep the usa
   const T = 'TypeError';
   const sites = [
     ['readiness', ['readiness', '--task-class', 'feature', '--task-id', 't1', '--json'], { kind: 'export', module: 'src/runtime/readiness.js', method: 'evaluateTaskReadiness' }],
-    ['evidence list (ledger load)', ['evidence', '--task-id', 't1', '--action', 'list', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.js', cls: 'EvidenceLedger', method: 'load' }],
-    ['evidence supersede', ['evidence', '--task-id', 't1', '--action', 'supersede', '--evidence-id', 'E1', '--replaced-by', 'E2', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.js', cls: 'EvidenceLedger', method: 'supersedeEvidence' }],
+    ['evidence list (ledger load)', ['evidence', '--task-id', 't1', '--action', 'list', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.ts', cls: 'EvidenceLedger', method: 'load' }],
+    ['evidence supersede', ['evidence', '--task-id', 't1', '--action', 'supersede', '--evidence-id', 'E1', '--replaced-by', 'E2', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.ts', cls: 'EvidenceLedger', method: 'supersedeEvidence' }],
     ['route', ['route', '--intent', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.ts', cls: 'CapabilityRouter', method: 'resolveIntent' }],
     ['claim', ['claim', '--task-id', 't1', '--action', 'add', '--statement', 'x', '--json'], { kind: 'proto', module: 'src/runtime/claims.js', cls: 'ClaimsManager', method: 'addClaim' }],
     ['inventory', ['inventory', '--json'], { kind: 'export', module: 'src/registry/index.ts', method: 'loadRegistry' }],

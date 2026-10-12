@@ -22,7 +22,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
-const { EvidenceLedger } = require('./evidence-ledger');
+const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { isSafeSlug } = require('./task-scope.ts');
 

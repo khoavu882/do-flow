@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -45,7 +47,7 @@ const EVIDENCE_STATUSES = new Set(['active', 'superseded']);
  * @param {string} file the ledger path, so the message says which file to look at
  * @returns {object} the same item, once its status is one of the two
  */
-function assertKnownStatus(item, file) {
+function assertKnownStatus(item: any, file: string) {
   const status = item?.status;
   if (!EVIDENCE_STATUSES.has(status)) {
     throw new Error(
@@ -64,7 +66,7 @@ function assertKnownStatus(item, file) {
  * @param {string} taskId
  * @returns {string} the validated id, for use in an expression
  */
-function assertSafeTaskId(taskId) {
+function assertSafeTaskId(taskId: string): string {
   if (typeof taskId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId) || taskId.includes('..')) {
     throw new Error(`Invalid task id '${taskId}': expected letters, digits, dot, dash or underscore, and no path separators`);
   }
@@ -72,6 +74,14 @@ function assertSafeTaskId(taskId) {
 }
 
 class EvidenceLedger {
+  declare fsImpl: any;
+  declare repoRoot: any;
+  declare fixedStateDir: any;
+  declare slug: any;
+  declare stateDir: any;
+  declare evidenceMap: Map<any, any>;
+  declare baseline: Map<any, any>;
+  declare seq: number;
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot]
@@ -79,7 +89,7 @@ class EvidenceLedger {
    * @param {string} [options.slug] feature whose namespace the records live under (see task-scope.js)
    * @param {Object} [options.fsImpl]
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.fixedStateDir = options.stateDir || null;
@@ -91,7 +101,7 @@ class EvidenceLedger {
   }
 
   /** Where this task's evidence file lives: the feature's namespace when it has one (IC-002). */
-  fileFor(taskId) {
+  fileFor(taskId: any) {
     const dir = this.fixedStateDir
       || taskStoreDir({ projectRoot: this.repoRoot, store: 'evidence', taskId, slug: this.slug });
     return path.join(dir, `${assertSafeTaskId(taskId)}.json`);
@@ -105,7 +115,7 @@ class EvidenceLedger {
    * scheme. The random component carries that burden; timestamp and sequence stay for readability.
    * @returns {string}
    */
-  generateId() {
+  generateId(): string {
     this.seq += 1;
     return `ev_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}_${this.seq.toString(36)}`;
   }
@@ -115,7 +125,7 @@ class EvidenceLedger {
    * @param {Object} item
    * @returns {string} evidenceId
    */
-  addEvidence(item) {
+  addEvidence(item: any): string {
     if (!item || typeof item !== 'object') {
       throw new Error('Evidence item must be an object');
     }
@@ -180,7 +190,7 @@ class EvidenceLedger {
    * @param {string} id
    * @returns {Object|null}
    */
-  getEvidence(id) {
+  getEvidence(id: string) {
     return this.evidenceMap.get(id) || null;
   }
 
@@ -189,7 +199,7 @@ class EvidenceLedger {
    * @param {Object} [filter={}]
    * @returns {Array<Object>}
    */
-  queryEvidence(filter = {}) {
+  queryEvidence(filter: any = {}) {
     const results = [];
     for (const item of this.evidenceMap.values()) {
       if (filter.taskId && item.taskId !== filter.taskId) continue;
@@ -215,7 +225,7 @@ class EvidenceLedger {
    * @param {string} replacedBy the id of the item that supersedes it; must already exist
    * @returns {string} the new status
    */
-  supersedeEvidence(evidenceId, replacedBy) {
+  supersedeEvidence(evidenceId: string, replacedBy: string): string {
     if (!replacedBy) {
       throw new Error('supersede requires the id of the evidence item that replaces this one');
     }
@@ -244,7 +254,7 @@ class EvidenceLedger {
    * @param {Array<string>} modifiedFiles
    * @returns {number} count of invalidated items
    */
-  invalidateFiles(modifiedFiles) {
+  invalidateFiles(modifiedFiles: any): number {
     if (!Array.isArray(modifiedFiles) || modifiedFiles.length === 0) return 0;
     const fileSet = new Set(modifiedFiles);
     let count = 0;
@@ -273,12 +283,12 @@ class EvidenceLedger {
    * @param {string} [taskId='default']
    * @returns {string} filePath
    */
-  save(taskId = 'default') {
+  save(taskId = 'default'): string {
     const targetFile = this.fileFor(taskId);
-    let merged;
+    let merged: any;
     const file = updateTaskState({
       fsImpl: this.fsImpl, file: targetFile,
-      build: disk => {
+      build: (disk: any) => {
         merged = mergeRecords(this.queryEvidence({ taskId }), disk?.evidence || [], this.baseline);
         return { taskId, updatedAt: new Date().toISOString(), evidenceCount: merged.length, evidence: merged };
       },
@@ -295,7 +305,7 @@ class EvidenceLedger {
    * @param {string} [taskId='default']
    * @returns {number} count of loaded items
    */
-  load(taskId = 'default') {
+  load(taskId = 'default'): number {
     const targetFile = this.fileFor(taskId);
     const data = readTaskState(this.fsImpl, targetFile);
     if (data && Array.isArray(data.evidence)) {

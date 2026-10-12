@@ -405,7 +405,7 @@ function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot 
   if (!EXECUTION_MODES.has(mode)) {
     throw new Error(`Unknown execution mode '${mode}'. Valid: ${[...EXECUTION_MODES].join(', ')} — the standalone exemption is declared, never inferred.`);
   }
-  const { EvidenceLedger } = require('./evidence-ledger');
+  const { EvidenceLedger } = require('./evidence-ledger.ts');
   const { ClaimsManager } = require('./claims');
   const { FreshnessValidator } = require('./freshness.ts');
   const ledger = new EvidenceLedger({ repoRoot: projectRoot });

@@ -35,7 +35,7 @@ const {
 const nodeCrypto = require('node:crypto');
 const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
 const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate');
-const { assertSafeTaskId } = require('../evidence-ledger');
+const { assertSafeTaskId } = require('../evidence-ledger.ts');
 const { upkeepAfterVerify } = require('../storage/upkeep');
 const {
   VerificationContractRunner,

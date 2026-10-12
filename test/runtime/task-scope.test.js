@@ -214,7 +214,7 @@ test('readiness resolves the feature from the branch when no --slug is given', (
 
 test('an ambient --slug default routes a store, and clearing it restores the branch lookup', () => {
   const root = project('ambient');
-  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
   setDefaultSlug(WITH);
   assert.equal(resolveTaskScope({ projectRoot: root, taskId: 'A.1' }).namespace, WITH);
   const ledger = new EvidenceLedger({ repoRoot: root });
