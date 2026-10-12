@@ -71,7 +71,7 @@ interface ToolDirsOptions {
  *               is.
  *   pi       -> Global config is `~/.pi/agent` — note the `agent/` segment; `~/.pi/settings.json`
  *               is not a location Pi reads. Project scope is `.pi` (see
- *               src/adapters/pi/index.js's own `nativePaths()`, which this mirrors exactly).
+ *               src/adapters/pi/index.ts's own `nativePaths()`, which this mirrors exactly).
  */
 function toolDirs(opts: ToolDirsOptions = {}): Record<string, string> {
   const { global = false, projectRoot = '.' } = opts;

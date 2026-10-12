@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createPiAdapter, nativePaths } = require('../../../src/adapters/pi');
+const { createPiAdapter, nativePaths } = require('../../../src/adapters/pi/index.ts');
 const { assertAdapter } = require('../../../src/adapters');
 const { MARKER_START } = require('../../../src/helper/marker-merge.ts');
 

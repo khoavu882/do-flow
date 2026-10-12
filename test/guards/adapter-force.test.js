@@ -53,13 +53,19 @@ function planTreeCalls(source) {
   return calls;
 }
 
+/** An adapter's entry module: `index.ts` once converted, else `index.js`. */
+function adapterIndex(name) {
+  const ts = path.join(ADAPTERS_DIR, name, 'index.ts');
+  return fs.existsSync(ts) ? ts : path.join(ADAPTERS_DIR, name, 'index.js');
+}
+
 test('G18: every adapter forwards force into planTree', () => {
   const offenders = [];
   const checked = [];
 
   for (const entry of fs.readdirSync(ADAPTERS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const file = path.join(ADAPTERS_DIR, entry.name, 'index.js');
+    const file = adapterIndex(entry.name);
     if (!fs.existsSync(file)) continue;
 
     const source = fs.readFileSync(file, 'utf8');
@@ -102,7 +108,7 @@ test('G18: forwarding is gated so a forced removal never deletes a hand-edited f
   const ungated = [];
   for (const entry of fs.readdirSync(ADAPTERS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const file = path.join(ADAPTERS_DIR, entry.name, 'index.js');
+    const file = adapterIndex(entry.name);
     if (!fs.existsSync(file)) continue;
     for (const call of planTreeCalls(fs.readFileSync(file, 'utf8'))) {
       if (!/\bforce\b/.test(call)) continue;

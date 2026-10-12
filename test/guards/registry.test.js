@@ -121,7 +121,7 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
   const { VALID } = require('../../src/install/targets.ts');
   const offenders = [];
   for (const harness of registry.harnesses) {
-    const dirAdapter = path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');
+    const dirAdapter = ['index.ts', 'index.js'].map((n) => path.join(REPO, 'src', 'adapters', harness.adapter, n)).find((p) => fs.existsSync(p)) ?? path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');
     const fileAdapter = path.join(REPO, 'src', 'adapters', `${harness.adapter}.js`);
     if (!fs.existsSync(dirAdapter) && !fs.existsSync(fileAdapter)) {
       offenders.push(`${harness.id}: no adapter module at src/adapters/${harness.adapter}/index.js or src/adapters/${harness.adapter}.js`);

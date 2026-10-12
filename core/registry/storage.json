@@ -1022,7 +1022,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/pi/index.js",
+      "file": "src/adapters/pi/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
