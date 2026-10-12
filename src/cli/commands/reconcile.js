@@ -1,9 +1,9 @@
 'use strict';
 // `doflow reconcile` — converge observed state onto the doflow.lock pin: report drift, then heal
 // it on confirmation. Never re-prompts for MCP; selections ride exactly as pinned.
-const { toolDirs } = require('../../install/targets');
-const { resolveContext, printContext } = require('../../install/context');
-const { writeManifest } = require('../../install/manifest');
+const { toolDirs } = require('../../install/targets.ts');
+const { resolveContext, printContext } = require('../../install/context.ts');
+const { writeManifest } = require('../../install/manifest.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { loadRegistry } = require('../../registry');
@@ -11,7 +11,7 @@ const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');
 const {
   registryLifecycleView, assertSafeRegistryPlan,
 } = require('../../lifecycle/view');
-const { recordedMcpSelections } = require('../../install/mcp');
+const { recordedMcpSelections } = require('../../install/mcp.ts');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, printRecordedMcpOwnership, buildAdapterRegistry,
   refuseHomeRootedProject, holdRunLock, checkpointRunLock,

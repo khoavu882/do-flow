@@ -10,6 +10,11 @@
 //
 // Backups from DoFlow 1.19 stay readable and restorable: a full backup is a tar.gz per tool, a
 // partial backup a plain copy tree per tool. Nothing writes those layouts any more.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../install/backup.ts')` keeps working while the tree is still `.js`. The
+// `./paths` require already carries `.ts` (paths migrated first); `../helper/git.ts` is `.ts` too.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -18,7 +23,7 @@ const { execFileSync } = require('node:child_process');
 const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');
 const {
   legacyBackupReadRoot, isLegacyBackupReadRoot, scopeRootFromCanonicalBackupRoot,
-} = require('./paths');
+} = require('./paths.ts');
 
 /** Where a listed/restorable backup was found. 'current' = the canonical `.doflow/backups` root the
  * installer writes to; 'legacy' = the pre-7de6d5f `.claude/backups` root, readable only. Callers
@@ -28,7 +33,7 @@ const BACKUP_ORIGIN_LEGACY = 'legacy';
 
 /** The roots a READ (list/restore) consults for a scope, canonical first, legacy second.
  * Order is the precedence rule too: an id present in both resolves to the canonical copy. */
-function backupReadRoots(backupRoot) {
+function backupReadRoots(backupRoot: string): Array<{ root: string; origin: string }> {
   const roots = [{ root: path.resolve(backupRoot), origin: BACKUP_ORIGIN_CURRENT }];
   const scopeRoot = scopeRootFromCanonicalBackupRoot(backupRoot);
   if (scopeRoot) {
@@ -41,16 +46,16 @@ function backupReadRoots(backupRoot) {
 /** Writes and deletes are canonical-only. The legacy root holds restore points DoFlow no longer
  * manages and may be a user's sole recovery material, so a mutating call aimed at it is a bug to
  * surface, not a path to follow. */
-function assertMutableBackupRoot(backupRoot, operation) {
+function assertMutableBackupRoot(backupRoot: string, operation: string): void {
   if (isLegacyBackupReadRoot(backupRoot)) {
     throw new Error(`Refusing to ${operation} in the legacy backup root (read-only): ${backupRoot}`);
   }
 }
 
-function pad2(n) { return String(n).padStart(2, '0'); }
+function pad2(n: number): string { return String(n).padStart(2, '0'); }
 
 /** `<op>_YYYY-MM-DD_HH-MM-SS`, using a caller-supplied Date (never `new Date()` internally — keeps this testable/deterministic). */
-function backupId(op, date) {
+function backupId(op: string, date: Date): string {
   const y = date.getFullYear();
   const mo = pad2(date.getMonth() + 1);
   const d = pad2(date.getDate());
@@ -72,7 +77,8 @@ const DEFAULT_BACKUP_RETENTION = 3;
 
 /** A backup could not be written completely. The caller stops before changing anything. */
 class BackupError extends Error {
-  constructor(message) {
+  code: string;
+  constructor(message: string) {
     super(message);
     this.name = 'BackupError';
     this.code = 'backup-failed';
@@ -80,14 +86,14 @@ class BackupError extends Error {
 }
 
 /** POSIX path of `p` relative to `scopeRoot`, or null when `p` is not strictly inside it. */
-function scopeRelative(scopeRoot, p) {
+function scopeRelative(scopeRoot: string, p: string): string | null {
   const rel = path.relative(scopeRoot, p);
   if (!rel || path.isAbsolute(rel) || rel.split(path.sep)[0] === '..') return null;
   return rel.split(path.sep).join('/');
 }
 
 /** Manifest JSON: two-space indentation, except one compact line per `files` and `excluded` element. */
-function serializeManifest(manifest) {
+function serializeManifest(manifest: Record<string, any>): string {
   const body = Object.entries(manifest).map(([key, value]) => {
     if ((key === 'files' || key === 'excluded') && Array.isArray(value) && value.length > 0) {
       return `  ${JSON.stringify(key)}: [\n${value.map((v) => `    ${JSON.stringify(v)}`).join(',\n')}\n  ]`;
@@ -97,27 +103,24 @@ function serializeManifest(manifest) {
   return `{\n${body.join(',\n')}\n}\n`;
 }
 
-function errorCode(err) { return err.code || err.message; }
+function errorCode(err: any): string { return err.code || err.message; }
 
 /**
  * Copy the files of a backup set into `<backupRoot>/<id>/` (format 2). Returns null for an empty
  * set, without touching the disk. Every failure removes the temp directory and throws BackupError,
  * so a backup either exists complete, manifest included, or does not exist at all.
- * @param {{operation:string, set:object, backupRoot:string, repoRoot:string, sourceCommit?:string,
- *          version:string, date:Date, restores?:string|null, fsImpl?:object, randomHex?:Function}} p
- * @returns {null|{id:string, dir:string, files:number, existed:number, absent:number, bytes:number}}
  */
 function createFileBackup({
   operation, set, backupRoot, repoRoot, sourceCommit, version, date, restores = null,
   fsImpl = fs, randomHex = () => crypto.randomBytes(4).toString('hex'),
-}) {
+}: any): null | { id: string; dir: string; files: number; existed: number; absent: number; bytes: number } {
   assertMutableBackupRoot(backupRoot, 'create a backup');
   if (set.entries.length === 0) return null;
 
   const base = backupId(operation, date);
   const tmpDir = path.join(backupRoot, `${TEMP_PREFIX}${base}-${process.pid}-${randomHex()}`);
   let tmpCreated = false;
-  const writeFailure = (err) => new BackupError(`could not write ${backupRoot}: ${errorCode(err)}`);
+  const writeFailure = (err: any) => new BackupError(`could not write ${backupRoot}: ${errorCode(err)}`);
 
   try {
     try {
@@ -133,11 +136,11 @@ function createFileBackup({
     const summary = { files: 0, existed: 0, absent: 0, bytes: 0 };
     let external = 0;
     for (const entry of set.entries) {
-      const record = entry.rel !== null ? { path: entry.rel } : { path: entry.path, outside: true };
+      const record: any = entry.rel !== null ? { path: entry.rel } : { path: entry.path, outside: true };
       let stat = null;
       try {
         stat = fsImpl.statSync(entry.path);
-      } catch (err) {
+      } catch (err: any) {
         if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
           throw new BackupError(`could not read ${entry.path}: ${errorCode(err)}`);
         }
@@ -168,21 +171,21 @@ function createFileBackup({
       files.push(record);
     }
 
-    const manifest = {
+    const manifest: any = {
       id: base,
       operation,
       timestamp: date.toISOString(),
       source_path: repoRoot,
       source_commit: sourceCommit ?? gitSourceCommit(repoRoot),
       type: 'files',
-      tools_affected: [...new Set(set.entries.flatMap((e) => e.harnesses))].sort(),
+      tools_affected: [...new Set(set.entries.flatMap((e: any) => e.harnesses))].sort(),
       format: 2,
       doflow_version: version,
       scope: set.scope,
       scope_root: set.scopeRoot,
       restores,
       summary,
-      excluded: set.excluded.map((x) => {
+      excluded: set.excluded.map((x: any) => {
         const rel = scopeRelative(set.scopeRoot, x.path);
         return rel !== null ? { path: rel, reason: x.reason } : { path: x.path, outside: true, reason: x.reason };
       }),
@@ -205,7 +208,7 @@ function createFileBackup({
           fsImpl.writeFileSync(manifestPath, serializeManifest(manifest));
         }
         fsImpl.renameSync(tmpDir, dir);
-      } catch (err) {
+      } catch (err: any) {
         if (RENAME_COLLISION_CODES.has(err.code) && fsImpl.existsSync(dir)) continue;
         throw writeFailure(err);
       }
@@ -220,17 +223,17 @@ function createFileBackup({
   }
 }
 
-function defaultIsAlive(pid) {
+function defaultIsAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch (err) {
+  } catch (err: any) {
     return err.code === 'EPERM';
   }
 }
 
-function isStaleTemp(dir, { now, fsImpl, isAlive, hostname }) {
+function isStaleTemp(dir: string, { now, fsImpl, isAlive, hostname }: any): boolean {
   let owner = null;
   try { owner = JSON.parse(fsImpl.readFileSync(path.join(dir, OWNER_FILE), 'utf8')); } catch { /* no owner */ }
   if (!owner || typeof owner !== 'object') {
@@ -244,7 +247,7 @@ function isStaleTemp(dir, { now, fsImpl, isAlive, hostname }) {
  * Remove `.tmp-*` directories left in `backupRoot` by runs that died: the owner process is gone on
  * this host, or the temp is older than 24 hours. Returns how many were removed.
  */
-function sweepStaleTemps(backupRoot, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname() } = {}) {
+function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname() }: any = {}): number {
   assertMutableBackupRoot(backupRoot, 'clean up backups');
   if (!fsImpl.existsSync(backupRoot)) return 0;
   let removed = 0;
@@ -265,8 +268,8 @@ function sweepStaleTemps(backupRoot, { now = Date.now(), fsImpl = fs, isAlive = 
  * not know), 'full' or 'partial' (1.19, typed the way restoreBackup reads them), or 'incomplete'
  * (no manifest, or one that does not parse). `manifest` is the parsed object, or null.
  */
-function classifyBackupDir(dir, { fsImpl = fs } = {}) {
-  let manifest = null;
+function classifyBackupDir(dir: string, { fsImpl = fs }: any = {}): { kind: string; manifest: any } {
+  let manifest: any = null;
   try { manifest = JSON.parse(fsImpl.readFileSync(path.join(dir, MANIFEST_FILE), 'utf8')); } catch { /* incomplete */ }
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return { kind: 'incomplete', manifest: null };
   const { format } = manifest;
@@ -282,7 +285,7 @@ const ID_TIME = /^.+?_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:-(\d+))?
  * Ordering key of a backup directory: the manifest timestamp, else the time in its id (local
  * time, as backupId writes it), else its mtime. Retention and listing share it.
  */
-function sortKey(dir, { fsImpl = fs, manifest } = {}) {
+function sortKey(dir: string, { fsImpl = fs, manifest }: any = {}): { id: string; time: number; suffix: number } {
   const id = path.basename(dir);
   const m = manifest === undefined ? classifyBackupDir(dir, { fsImpl }).manifest : manifest;
   const match = ID_TIME.exec(id);
@@ -299,7 +302,7 @@ function sortKey(dir, { fsImpl = fs, manifest } = {}) {
 }
 
 /** Newest first; ties go to the larger `-n` suffix, then the id in descending order. */
-function compareSortKeys(a, b) {
+function compareSortKeys(a: { id: string; time: number; suffix: number }, b: { id: string; time: number; suffix: number }): number {
   if (a.time !== b.time) return b.time - a.time;
   if (a.suffix !== b.suffix) return b.suffix - a.suffix;
   if (a.id === b.id) return 0;
@@ -307,7 +310,7 @@ function compareSortKeys(a, b) {
 }
 
 /** Bytes of the regular files under `dir`, never following a link; null when any read fails. */
-function backupSize(dir, { fsImpl = fs } = {}) {
+function backupSize(dir: string, { fsImpl = fs }: any = {}): number | null {
   try {
     let total = 0;
     const pending = [dir];
@@ -329,7 +332,7 @@ function backupSize(dir, { fsImpl = fs } = {}) {
 const BYTE_UNITS = ['KiB', 'MiB', 'GiB', 'TiB'];
 
 /** `?` for an unknown size, `<n> B` below 1 KiB, otherwise one decimal in 1024-based units. */
-function formatBytes(n) {
+function formatBytes(n: number | null | undefined): string {
   if (n === null || n === undefined) return '?';
   if (n < 1024) return `${n} B`;
   let value = n / 1024;
@@ -342,14 +345,14 @@ function formatBytes(n) {
 }
 
 /** Security guard: a backup id is a directory *name*, never a path — reject traversal/absolute ids. */
-function assertSafeBackupId(bid) {
+function assertSafeBackupId(bid: string): void {
   if (!bid || bid.includes('/') || bid.includes('\\') || bid === '..' || bid.includes('..')) {
     throw new Error(`Invalid backup id: '${bid}'`);
   }
 }
 
 /** Restore a 1.19 backup id into the given tool dirs. dirs = {tool: absDstDir}. */
-function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
+function restoreBackup({ bid, backupRoot, dirs, dryRun = false }: any): void {
   assertSafeBackupId(bid);
   // An id the user picked from `list-backups` may live in either root, so resolve it the same way
   // the listing found it. Restoring reads the backup and writes only into the tool dirs, so a
@@ -393,24 +396,24 @@ function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
 
 /** Raw member lines of a tar.gz archive. A whole-home archive can list far more than the default
  * 1 MiB of output, so the buffer is unbounded. */
-function defaultListTar(archive) {
+function defaultListTar(archive: string): string[] {
   return execFileSync('tar', ['-tzf', archive], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: Infinity })
     .split(/\r?\n/);
 }
 
 /** File members of an archive listing, relative to the archive root, without any `..` member. */
-function archiveMembers(lines) {
+function archiveMembers(lines: string[]): string[] {
   return lines
     .map((line) => line.replace(/^\.\//, ''))
     .filter((m) => m && m !== '.' && !m.endsWith('/') && !m.split('/').includes('..'));
 }
 
 /** Paths, relative to `root`, of the regular files under it; links are not followed. */
-function regularFilesUnder(root, fsImpl) {
-  const files = [];
+function regularFilesUnder(root: string, fsImpl: any): string[] {
+  const files: string[] = [];
   const pending = [''];
   while (pending.length > 0) {
-    const rel = pending.pop();
+    const rel = pending.pop() as string;
     for (const e of fsImpl.readdirSync(path.join(root, rel), { withFileTypes: true })) {
       const child = path.join(rel, e.name);
       if (e.isDirectory()) pending.push(child);
@@ -421,7 +424,7 @@ function regularFilesUnder(root, fsImpl) {
 }
 
 /** Why a format-2 entry cannot be restored, or null when it can. */
-function refusalOf(entry, target, { scope, scopeRoot, bkDir, fsImpl }) {
+function refusalOf(entry: any, target: string, { scope, scopeRoot, bkDir, fsImpl }: any): string | null {
   const raw = entry.path;
   if (entry.outside === true) {
     if (!path.isAbsolute(raw)) return 'unsafe path';
@@ -447,7 +450,7 @@ function refusalOf(entry, target, { scope, scopeRoot, bkDir, fsImpl }) {
  * tool through restoreBackup; its snapshot lists the files that restore will overwrite.
  * Reads only.
  */
-function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTargets, dirs, fsImpl = fs, listTar = defaultListTar }) {
+function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTargets, dirs, fsImpl = fs, listTar = defaultListTar }: any): any {
   assertSafeBackupId(bid);
   const found = backupReadRoots(backupRoot).find((r) => fsImpl.existsSync(path.join(r.root, bid)));
   if (!found) throw new Error(`Backup not found: ${bid}`);
@@ -457,7 +460,7 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
     throw new Error(`Backup ${bid} was made by a newer DoFlow (format ${manifest.format}); this version cannot restore it`);
   }
 
-  const plan = {
+  const plan: any = {
     bid,
     origin: found.origin,
     bkDir,
@@ -475,7 +478,7 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
   if (plan.format === 2) {
     for (const entry of Array.isArray(manifest.files) ? manifest.files : []) {
       const harnesses = Array.isArray(entry.harnesses) ? entry.harnesses : [];
-      if (explicitTargets && !harnesses.some((h) => wanted.has(h))) {
+      if (explicitTargets && !harnesses.some((h: string) => wanted.has(h))) {
         plan.untargeted += 1;
         continue;
       }
@@ -496,12 +499,12 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
       }
       plan.restore.push({ path: target, stored: path.resolve(bkDir, entry.stored), mode: entry.mode, size: entry.size, harnesses });
     }
-    plan.snapshot = plan.restore.map((item) => ({ path: item.path, harnesses: item.harnesses }));
+    plan.snapshot = plan.restore.map((item: any) => ({ path: item.path, harnesses: item.harnesses }));
     return plan;
   }
 
   const tools = [];
-  for (const tool of wanted) {
+  for (const tool of wanted as Set<string>) {
     const dstDir = dirs[tool];
     if (!dstDir) continue;
     if (plan.type === 'full') {
@@ -526,11 +529,11 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
  * reported and the rest continue. It never deletes a file and never writes outside `plan.restore`.
  * A 1.19 plan goes through restoreBackup unchanged.
  */
-function executeRestore(plan, { backupRoot, dryRun = false, fsImpl = fs }) {
+function executeRestore(plan: any, { backupRoot, dryRun = false, fsImpl = fs }: any): any {
   if (plan.format !== 2) {
-    const toolDirs = Object.fromEntries(plan.v1.tools.map((t) => [t.tool, t.dstDir]));
+    const toolDirs = Object.fromEntries(plan.v1.tools.map((t: any) => [t.tool, t.dstDir]));
     restoreBackup({ bid: plan.bid, backupRoot, dirs: toolDirs, dryRun });
-    return { restored: plan.v1.tools.map((t) => t.tool), failed: [], absent: [], refused: [], untargeted: 0, legacy: true };
+    return { restored: plan.v1.tools.map((t: any) => t.tool), failed: [], absent: [], refused: [], untargeted: 0, legacy: true };
   }
 
   const restored = [];
@@ -548,7 +551,7 @@ function executeRestore(plan, { backupRoot, dryRun = false, fsImpl = fs }) {
       let isLink = false;
       try {
         isLink = fsImpl.lstatSync(item.path).isSymbolicLink();
-      } catch (err) {
+      } catch (err: any) {
         if (err.code !== 'ENOENT') throw err;
       }
       if (isLink) {
@@ -573,11 +576,11 @@ function executeRestore(plan, { backupRoot, dryRun = false, fsImpl = fs }) {
 
 /** One `{ row, key }` per backup dir under `root`, tagged with where it came from. Dot-named
  * directories (temps of a run in progress) and symlinks are not backups. */
-function readBackupRows(root, origin) {
+function readBackupRows(root: string, origin: string): Array<{ key: any; row: any }> {
   if (!fs.existsSync(root)) return [];
   return fs.readdirSync(root, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-    .map((e) => {
+    .filter((e: any) => e.isDirectory() && !e.name.startsWith('.'))
+    .map((e: any) => {
       const bkDir = path.join(root, e.name);
       const { kind, manifest: m } = classifyBackupDir(bkDir);
       const key = sortKey(bkDir, { manifest: m });
@@ -601,7 +604,7 @@ function readBackupRows(root, origin) {
  * manifest is missing), `complete` and `bytes` (null when unreadable), and are ordered by the
  * same key retention uses.
  */
-function listBackups(backupRoot) {
+function listBackups(backupRoot: string): any[] {
   const found = [];
   const seen = new Set();
   for (const { root, origin } of backupReadRoots(backupRoot)) {
@@ -622,13 +625,11 @@ function listBackups(backupRoot) {
  * sortKey; other directories are left alone. Ids in `protect` (the run's own backup) are always kept. A dry run removes and sweeps
  * nothing; `reserve` makes room for a backup the real run would add, and `kept` then counts it.
  * Never reaches the legacy `.claude/backups` root: those may be a user's only restore points.
- * @returns {{keep:number, kept:number, removed:string[], wouldRemove:string[],
- *            failed:Array<{id:string, error:string}>, sweptTemps:number}}
  */
-function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = false, now = Date.now(), fsImpl = fs }) {
+function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = false, now = Date.now(), fsImpl = fs }: any): any {
   assertMutableBackupRoot(backupRoot, 'prune backups');
   if (!Number.isInteger(keep) || keep < 0) throw new Error(`Backup retention must be a non-negative whole number, got ${keep}`);
-  const result = { keep, kept: 0, removed: [], wouldRemove: [], failed: [], sweptTemps: 0 };
+  const result: any = { keep, kept: 0, removed: [], wouldRemove: [], failed: [], sweptTemps: 0 };
 
   // Only DoFlow backups count: a directory with a readable manifest, or one named like a backup id
   // (a 1.19 or interrupted backup can lack a manifest). Anything else in the root is not ours to
@@ -663,7 +664,7 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
     try {
       fsImpl.rmSync(dir, { recursive: true, force: true });
       result.removed.push(id);
-    } catch (err) {
+    } catch (err: any) {
       result.failed.push({ id, error: err.message });
     }
   }
@@ -672,7 +673,7 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
 }
 
 /** The parenthesised end of a retention line: the `--prune` value given, or the default. */
-function retentionNote(prune, keep) {
+function retentionNote(prune: number | null | undefined, keep: number): string {
   if (prune === null || prune === undefined) return `keeping the newest ${keep}; --prune N changes this`;
   if (prune === 0) return '--prune 0 keeps every backup';
   return `--prune ${keep}`;

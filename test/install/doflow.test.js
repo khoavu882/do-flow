@@ -5,9 +5,9 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const { tempDir } = require('../helper/tmp');
-const { resolveTargets, VALID, toolDirs } = require('../../src/install/targets');
-const { writeManifest, readManifest, manifestPath } = require('../../src/install/manifest');
-const { resolveContext } = require('../../src/install/context');
+const { resolveTargets, VALID, toolDirs } = require('../../src/install/targets.ts');
+const { writeManifest, readManifest, manifestPath } = require('../../src/install/manifest.ts');
+const { resolveContext } = require('../../src/install/context.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 

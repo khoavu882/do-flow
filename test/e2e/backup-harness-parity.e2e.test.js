@@ -12,7 +12,7 @@ const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const { IS_WIN } = require('../helper-platform');
 const { createScratch } = require('../helper/scratch-env');
-const { toolDirs } = require('../../src/install/targets');
+const { toolDirs } = require('../../src/install/targets.ts');
 const { harnesses } = require('../../core/registry/harnesses.json');
 
 const SCRATCHES = [];

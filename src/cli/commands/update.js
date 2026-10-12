@@ -3,16 +3,16 @@
 // and apply only what changed. Never re-prompts for MCP (reuses each harness's recorded selection).
 const os = require('node:os');
 const path = require('node:path');
-const { resolveTargets, toolDirs } = require('../../install/targets');
-const { resolveContext, printContext } = require('../../install/context');
-const { DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, retentionNote } = require('../../install/backup');
-const { backupSetFromPlan } = require('../../install/backup-set');
+const { resolveTargets, toolDirs } = require('../../install/targets.ts');
+const { resolveContext, printContext } = require('../../install/context.ts');
+const { DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, retentionNote } = require('../../install/backup.ts');
+const { backupSetFromPlan } = require('../../install/backup-set.ts');
 const { backupStep, reportBackup, printBackupDryRun, applyBackupRetention } = require('./install');
-const { writeManifest, readInstallManifest } = require('../../install/manifest');
+const { writeManifest, readInstallManifest } = require('../../install/manifest.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { chmodHooksExecutable } = require('../../helper/settings-scope.ts');
-const { resolveMcpSelections } = require('../../install/mcp');
+const { resolveMcpSelections } = require('../../install/mcp.ts');
 const { loadRegistry } = require('../../registry');
 const { storageAfterInstall } = require('../../runtime/storage/upkeep');
 const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');

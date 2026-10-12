@@ -3,12 +3,12 @@
 // lifecycle verification. Must stay usable even when the local registry is invalid (--json for
 // scripting).
 const path = require('node:path');
-const { resolveTargets, toolDirs } = require('../../install/targets');
-const { resolveContext, printContext } = require('../../install/context');
-const { readInstallManifest } = require('../../install/manifest');
+const { resolveTargets, toolDirs } = require('../../install/targets.ts');
+const { resolveContext, printContext } = require('../../install/context.ts');
+const { readInstallManifest } = require('../../install/manifest.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { loadRegistry, mcpCapable } = require('../../registry');
-const { recordedMcpSelections } = require('../../install/mcp');
+const { recordedMcpSelections } = require('../../install/mcp.ts');
 const { pinnedSelections } = require('../../state/lockfile');
 const { readLedger } = require('../../state');
 const { verifyLifecycle } = require('../../lifecycle');

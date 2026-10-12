@@ -1,7 +1,7 @@
 'use strict';
 // `doflow list-backups` — the backup table for this scope. Takes no project-path positional
 // (rollback's one positional slot is the backup id); scope is -g/--global vs cwd-rooted project.
-const { listBackups } = require('../../install/backup');
+const { listBackups } = require('../../install/backup.ts');
 const { installPaths, printBackupTable } = require('../shared');
 
 function cmdListBackups(o) {

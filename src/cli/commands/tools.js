@@ -3,7 +3,7 @@
 // --force is deliberately unavailable: every mutation gets its own confirmation.
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { loadRegistry } = require('../../registry');
-const { commandText, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle');
+const { commandText, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle.ts');
 const { REPO_ROOT } = require('../shared');
 
 function selectExternalTools(registry, o) {

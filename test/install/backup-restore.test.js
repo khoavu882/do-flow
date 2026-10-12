@@ -8,7 +8,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const {
   createFileBackup, planRestore, executeRestore, restoreBackup,
-} = require('../../src/install/backup');
+} = require('../../src/install/backup.ts');
 const { plantFullBackup, plantPartialBackup } = require('../helper/backup-v1-fixture');
 const { IS_WIN } = require('../helper-platform');
 

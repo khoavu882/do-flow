@@ -3,27 +3,33 @@
 // External-tool lifecycle coordination deliberately uses execFile-style argument vectors.
 // Commands in the registry are data, never shell snippets, so neither inspection nor mutation
 // needs interpolation or a shell process.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../install/tool-lifecycle.ts')` keeps working while the tree is still `.js`.
 const { execFileSync } = require('node:child_process');
 
 const SUPPORTED_PLATFORMS = new Set(['darwin', 'linux']);
 
-function isSupportedPlatform(platform = process.platform) {
+type ExecFileSyncImpl = (file: string, args: string[], opts: any) => any;
+
+function isSupportedPlatform(platform: string = process.platform): boolean {
   return SUPPORTED_PLATFORMS.has(platform);
 }
 
-function commandText(command) {
+function commandText(command: string[]): string {
   return command.map((part) => JSON.stringify(part)).join(' ');
 }
 
-function failureKind(error) {
+function failureKind(error: any): 'absent' | 'failed' {
   return error?.code === 'ENOENT' ? 'absent' : 'failed';
 }
 
-function runInspection(command, execFileSyncImpl) {
+function runInspection(command: string[], execFileSyncImpl: ExecFileSyncImpl): any {
   try {
     const output = execFileSyncImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe' });
     return { command: [...command], result: 'succeeded', output: output == null ? '' : String(output) };
-  } catch (error) {
+  } catch (error: any) {
     return {
       command: [...command], result: failureKind(error),
       error: error?.message || String(error),
@@ -32,26 +38,26 @@ function runInspection(command, execFileSyncImpl) {
 }
 
 /** Reduce every status command result to a safe tool state. */
-function normalizeToolState(inspections) {
+function normalizeToolState(inspections: any[]): string {
   if (inspections.every((inspection) => inspection.result === 'succeeded')) return 'installed';
   if (inspections.every((inspection) => inspection.result === 'absent')) return 'absent';
   if (inspections.some((inspection) => inspection.result === 'succeeded')) return 'unknown';
   return 'inspection-failed';
 }
 
-function inspectTool(tool, { execFileSyncImpl = execFileSync } = {}) {
-  const inspections = tool.status.commands.map((command) => runInspection(command, execFileSyncImpl));
+function inspectTool(tool: any, { execFileSyncImpl = execFileSync }: { execFileSyncImpl?: ExecFileSyncImpl } = {}): any {
+  const inspections = tool.status.commands.map((command: string[]) => runInspection(command, execFileSyncImpl));
   return { state: normalizeToolState(inspections), inspections };
 }
 
-function inspectPrerequisites(tool, { execFileSyncImpl = execFileSync } = {}) {
-  return (tool.prerequisites || []).map((name) => {
+function inspectPrerequisites(tool: any, { execFileSyncImpl = execFileSync }: { execFileSyncImpl?: ExecFileSyncImpl } = {}): any[] {
+  return (tool.prerequisites || []).map((name: string) => {
     const inspection = runInspection([name, '--version'], execFileSyncImpl);
     return { name, available: inspection.result === 'succeeded', inspection };
   });
 }
 
-function actionEligibility(tool, state, action, prerequisites) {
+function actionEligibility(tool: any, state: string, action: string, prerequisites: any[]): any {
   if (action === 'status') return { applicable: false, reason: 'status inspection only' };
   const contract = tool[action];
   if (!contract) return { applicable: false, reason: `no verified ${action} command is registered` };
@@ -73,12 +79,12 @@ function actionEligibility(tool, state, action, prerequisites) {
  * Inspect all status command vectors, then create a non-mutating action plan.
  * The registry can be the loaded registry or an { externalTools } fixture.
  */
-function planToolLifecycle({ registry, action = 'status', platform = process.platform, execFileSyncImpl = execFileSync } = {}) {
+function planToolLifecycle({ registry, action = 'status', platform = process.platform, execFileSyncImpl = execFileSync }: { registry?: any; action?: string; platform?: string; execFileSyncImpl?: ExecFileSyncImpl } = {}): any {
   if (!['install', 'update', 'uninstall', 'status'].includes(action)) {
     throw new Error(`Unsupported external-tool action '${action}'`);
   }
   const supported = isSupportedPlatform(platform);
-  const tools = (registry?.externalTools || []).map((tool) => {
+  const tools = (registry?.externalTools || []).map((tool: any) => {
     if (!supported) {
       return {
         tool, state: 'unknown', inspections: [], prerequisites: [],
@@ -92,19 +98,19 @@ function planToolLifecycle({ registry, action = 'status', platform = process.pla
   return { action, platform, supported, tools };
 }
 
-function defaultDisplay(command) { console.error(`[INFO]  ${commandText(command)}`); }
+function defaultDisplay(command: string[]): void { console.error(`[INFO]  ${commandText(command)}`); }
 
 /**
  * Display and separately confirm every planned mutation.  A failed command never prevents later
  * commands from being independently offered and executed.
  */
-function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCommand = defaultDisplay, confirmCommand } = {}) {
+function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCommand = defaultDisplay, confirmCommand }: { plan?: any; execFileSyncImpl?: ExecFileSyncImpl; displayCommand?: (command: string[], tool?: any, action?: string) => void; confirmCommand?: (command: string[], tool?: any, action?: string) => boolean } = {}): any {
   if (!plan) throw new Error('executeToolLifecycle requires a plan');
   if (typeof confirmCommand !== 'function') throw new Error('executeToolLifecycle requires confirmCommand');
 
   const notAttempted = plan.tools
-    .filter((item) => item.action.applicable)
-    .map((item) => ({ tool: item.tool.id, status: 'not-attempted', command: [...item.action.command] }));
+    .filter((item: any) => item.action.applicable)
+    .map((item: any) => ({ tool: item.tool.id, status: 'not-attempted', command: [...item.action.command] }));
   const results = [];
   for (const item of plan.tools) {
     const action = item.action;
@@ -121,7 +127,7 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
     try {
       const output = execFileSyncImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe' });
       results.push({ tool: item.tool.id, status: 'succeeded', command: [...command], output: output == null ? '' : String(output) });
-    } catch (error) {
+    } catch (error: any) {
       results.push({ tool: item.tool.id, status: 'failed', command: [...command], error: error?.message || String(error) });
     }
   }

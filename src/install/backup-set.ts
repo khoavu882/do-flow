@@ -5,23 +5,28 @@
 // their ledger row, not a file copy, is how an entry is recovered, and the same file can hold the
 // harness's own state, which a rollback must never restore over. DoFlow's own records stay out too.
 // Reads only: it stats files and creates nothing.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../install/backup-set.ts')` keeps working while the tree is still `.js`. The
+// `./backup` require carries `.ts` because backup migrated in the same slice.
 const fs = require('node:fs');
 const path = require('node:path');
-const { BackupError, scopeRelative } = require('./backup');
+const { BackupError, scopeRelative } = require('./backup.ts');
 
 const REASON_ORDER = ['change', 'companion', 'relocated-from', 'tombstone', 'snapshot'];
 
-function byCodePoint(a, b) {
+function byCodePoint(a: string, b: string): number {
   if (a === b) return 0;
   return a < b ? -1 : 1;
 }
 
 /** What a set entry is on disk now, following links. */
-function statEntry(file, fsImpl) {
+function statEntry(file: string, fsImpl: any): { kind: string; size: number | null; mode: number | null } {
   let stat;
   try {
     stat = fsImpl.statSync(file);
-  } catch (err) {
+  } catch (err: any) {
     if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return { kind: 'absent', size: null, mode: null };
     throw new BackupError(`could not read ${file}: ${err.code || err.message}`);
   }
@@ -29,17 +34,17 @@ function statEntry(file, fsImpl) {
   return { kind: 'other', size: null, mode: null };
 }
 
-function isAtOrUnder(file, root) {
+function isAtOrUnder(file: string, root: string): boolean {
   const resolved = path.resolve(root);
   return file === resolved || file.startsWith(resolved.endsWith(path.sep) ? resolved : resolved + path.sep);
 }
 
 /** Candidates (absolute path -> harnesses and reasons) into a BackupSet, after the exclusions. */
-function toBackupSet(candidates, { scope, scopeRoot, exclude, excluded, fsImpl }) {
+function toBackupSet(candidates: Map<string, any>, { scope, scopeRoot, exclude, excluded, fsImpl }: any): any {
   const root = path.resolve(scopeRoot);
   const entries = [];
   for (const file of [...candidates.keys()].sort(byCodePoint)) {
-    if (exclude.some((x) => isAtOrUnder(file, x))) {
+    if (exclude.some((x: string) => isAtOrUnder(file, x))) {
       excluded.push({ path: file, reason: 'doflow-state' });
       continue;
     }
@@ -57,15 +62,15 @@ function toBackupSet(candidates, { scope, scopeRoot, exclude, excluded, fsImpl }
     scope,
     scopeRoot: root,
     entries,
-    excluded: excluded.sort((a, b) => byCodePoint(a.path, b.path)),
+    excluded: excluded.sort((a: any, b: any) => byCodePoint(a.path, b.path)),
     count: entries.length,
     existing: files.length,
     absent: entries.filter((e) => e.kind === 'absent').length,
-    bytes: files.reduce((sum, e) => sum + e.size, 0),
+    bytes: files.reduce((sum, e) => sum + (e.size as number), 0),
   };
 }
 
-function addCandidate(candidates, file, harness, reason) {
+function addCandidate(candidates: Map<string, any>, file: string, harness: string | null, reason: string): void {
   const key = path.resolve(file);
   if (!candidates.has(key)) candidates.set(key, { harnesses: new Set(), reasons: new Set() });
   const item = candidates.get(key);
@@ -78,13 +83,13 @@ function addCandidate(candidates, file, harness, reason) {
  * `exclude` lists DoFlow's own paths (the backup root, the state root, the install manifest, the
  * lock); an entry at or under one of them is reported in `excluded`, not backed up.
  */
-function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], fsImpl = fs }) {
+function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], fsImpl = fs }: any): any {
   const candidates = new Map();
   const mcpOnly = new Map();
   const resources = plan.ledger?.resources ?? [];
   const tombstones = plan.ledger?.tombstones ?? [];
   // A retained or released change gives up a ledger row and touches no file.
-  const changes = plan.changes.filter((change) => change.retained !== true && change.release !== true);
+  const changes = plan.changes.filter((change: any) => change.retained !== true && change.release !== true);
 
   for (const change of changes) {
     const target = path.resolve(change.target);
@@ -107,7 +112,7 @@ function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], fsImpl = fs }
     }
   }
 
-  const owned = new Set(resources.filter((r) => typeof r.target === 'string').map((r) => path.resolve(r.target)));
+  const owned = new Set(resources.filter((r: any) => typeof r.target === 'string').map((r: any) => path.resolve(r.target)));
   for (const tombstone of tombstones) {
     if (tombstone.sweptAt || typeof tombstone.fromTarget !== 'string') continue;
     if (owned.has(path.resolve(tombstone.fromTarget)) || !fsImpl.existsSync(tombstone.fromTarget)) continue;
@@ -121,7 +126,7 @@ function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], fsImpl = fs }
 }
 
 /** A BackupSet of the given absolute paths, for the pre-rollback snapshot. */
-function backupSetFromPaths({ items, scope, scopeRoot, exclude = [], fsImpl = fs }) {
+function backupSetFromPaths({ items, scope, scopeRoot, exclude = [], fsImpl = fs }: any): any {
   const candidates = new Map();
   for (const item of items) {
     if (item.harnesses.length === 0) addCandidate(candidates, item.path, null, 'snapshot');

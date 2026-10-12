@@ -8,7 +8,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const {
   BackupError, createFileBackup, sweepStaleTemps, listBackups, formatBytes, backupId,
-} = require('../../src/install/backup');
+} = require('../../src/install/backup.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const DATE = new Date('2026-03-15T10:20:30');

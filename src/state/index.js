@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { manifestPath, readManifest } = require('../install/manifest');
+const { manifestPath, readManifest } = require('../install/manifest.ts');
 
 const STATE_VERSION = 1;
 // Ledger document version. v1 ledgers (no tombstones) remain readable forever; writers produce

@@ -4,13 +4,13 @@
 // --no-backup), then restores. A per-file backup restores every file it holds unless --target
 // narrows it; a backup from an earlier DoFlow restores per tool, as it always did.
 const path = require('node:path');
-const { resolveTargets, toolDirs } = require('../../install/targets');
-const { resolveContext, printContext } = require('../../install/context');
+const { resolveTargets, toolDirs } = require('../../install/targets.ts');
+const { resolveContext, printContext } = require('../../install/context.ts');
 const {
   BackupError, createFileBackup, planRestore, executeRestore, listBackups, formatBytes,
-} = require('../../install/backup');
-const { backupSetFromPaths } = require('../../install/backup-set');
-const { writeManifest } = require('../../install/manifest');
+} = require('../../install/backup.ts');
+const { backupSetFromPaths } = require('../../install/backup-set.ts');
+const { writeManifest } = require('../../install/manifest.ts');
 const { stateRoot } = require('../../state');
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');

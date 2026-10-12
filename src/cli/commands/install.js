@@ -3,17 +3,17 @@
 // pin what was chosen in doflow.lock. Supports --dry-run previews and MCP selection.
 const os = require('node:os');
 const path = require('node:path');
-const { resolveTargets, toolDirs } = require('../../install/targets');
-const { resolveContext, printContext } = require('../../install/context');
+const { resolveTargets, toolDirs } = require('../../install/targets.ts');
+const { resolveContext, printContext } = require('../../install/context.ts');
 const {
   BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, formatBytes, retentionNote,
-} = require('../../install/backup');
-const { backupSetFromPlan } = require('../../install/backup-set');
-const { writeManifest, readInstallManifest } = require('../../install/manifest');
+} = require('../../install/backup.ts');
+const { backupSetFromPlan } = require('../../install/backup-set.ts');
+const { writeManifest, readInstallManifest } = require('../../install/manifest.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { chmodHooksExecutable } = require('../../helper/settings-scope.ts');
-const { promptMcpCheckbox, resolveMcpSelections } = require('../../install/mcp');
+const { promptMcpCheckbox, resolveMcpSelections } = require('../../install/mcp.ts');
 const { loadRegistry } = require('../../registry');
 const { storageAfterInstall } = require('../../runtime/storage/upkeep');
 const { applyLifecycle, applyMcpIndex, recordMcpOwnership } = require('../../lifecycle');

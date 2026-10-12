@@ -42,8 +42,8 @@ const os = require('node:os');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/view');
 const { readLock } = require('../../state/lockfile');
 const { stateRoot, readLedger } = require('../../state');
-const { recordedMcpSelections } = require('../../install/mcp');
-const { readInstallManifest } = require('../../install/manifest');
+const { recordedMcpSelections } = require('../../install/mcp.ts');
+const { readInstallManifest } = require('../../install/manifest.ts');
 
 /**
  * @typedef {Object} ScopeSnapshot The `SCOPE_SNAPSHOT` entity of the feature's data model.

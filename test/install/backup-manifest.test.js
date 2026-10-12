@@ -7,11 +7,11 @@ const { suiteTempDir } = require('../helper/tmp');
 const {
   backupId, createFileBackup, restoreBackup, listBackups, applyRetention, assertSafeBackupId,
   backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
-} = require('../../src/install/backup');
-const { backupSetFromPaths } = require('../../src/install/backup-set');
+} = require('../../src/install/backup.ts');
+const { backupSetFromPaths } = require('../../src/install/backup-set.ts');
 const { plantFullBackup } = require('../helper/backup-v1-fixture');
-const { writeManifest, readManifest, readInstallManifest, canonicalManifestPath, manifestPath } = require('../../src/install/manifest');
-const { legacyBackupReadRoot, scopeRootFromCanonicalBackupRoot } = require('../../src/install/paths');
+const { writeManifest, readManifest, readInstallManifest, canonicalManifestPath, manifestPath } = require('../../src/install/manifest.ts');
+const { legacyBackupReadRoot, scopeRootFromCanonicalBackupRoot } = require('../../src/install/paths.ts');
 // `installPaths` is the exact expression install.js/update.js/rollback.js use to pick a backup root,
 // so the tests below derive the write side from the installer's own resolver rather than restating a
 // literal path that could silently drift from it.

@@ -1,5 +1,8 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../install/paths.ts')` keeps working while the rest of the tree is still `.js`.
 const path = require('node:path');
 
 const DOFLOW_DIR_NAME = '.doflow';
@@ -16,14 +19,26 @@ const INSTALL_MANIFEST_FILE_NAME = '.install-manifest.json';
 // material and DoFlow no longer owns their lifecycle.
 const LEGACY_BACKUP_ANCHOR_DIR_NAME = '.claude';
 
+interface ScopeInput {
+  scopeRoot: string;
+}
+
+interface DoflowPaths {
+  scopeRoot: string;
+  doflowRoot: string;
+  backupRoot: string;
+  legacyBackupReadRoot: string;
+  manifestPath: string;
+}
+
 /** Read-only legacy backup location for a scope. Never a write or prune target — see the note above. */
-function legacyBackupReadRoot({ scopeRoot }) {
+function legacyBackupReadRoot({ scopeRoot }: ScopeInput): string {
   if (typeof scopeRoot !== 'string' || !scopeRoot) throw new Error('scopeRoot is required');
   return path.join(path.resolve(scopeRoot), LEGACY_BACKUP_ANCHOR_DIR_NAME, BACKUP_DIR_NAME);
 }
 
 /** True for `<anything>/.claude/backups` — used to refuse writes/prunes against the legacy root. */
-function isLegacyBackupReadRoot(candidate) {
+function isLegacyBackupReadRoot(candidate: unknown): boolean {
   if (typeof candidate !== 'string' || !candidate) return false;
   const resolved = path.resolve(candidate);
   return path.basename(resolved) === BACKUP_DIR_NAME
@@ -34,7 +49,7 @@ function isLegacyBackupReadRoot(candidate) {
  * read path handed only that root can still derive the legacy one. Returns null for any path that
  * is not shaped `<scopeRoot>/.doflow/backups` (a test fixture, a hand-passed directory) — the
  * bridge then stays inert rather than inventing a sibling `.claude` next to an arbitrary path. */
-function scopeRootFromCanonicalBackupRoot(backupRoot) {
+function scopeRootFromCanonicalBackupRoot(backupRoot: unknown): string | null {
   if (typeof backupRoot !== 'string' || !backupRoot) return null;
   const resolved = path.resolve(backupRoot);
   if (path.basename(resolved) !== BACKUP_DIR_NAME) return null;
@@ -44,7 +59,7 @@ function scopeRootFromCanonicalBackupRoot(backupRoot) {
 }
 
 /** Resolve DoFlow-owned lifecycle metadata without anchoring it to a harness directory. */
-function doflowPaths({ scopeRoot }) {
+function doflowPaths({ scopeRoot }: ScopeInput): DoflowPaths {
   if (typeof scopeRoot !== 'string' || !scopeRoot) throw new Error('scopeRoot is required');
   const root = path.resolve(scopeRoot);
   const doflowRoot = path.join(root, DOFLOW_DIR_NAME);

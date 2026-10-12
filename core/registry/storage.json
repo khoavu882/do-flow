@@ -427,10 +427,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/install/backup.js"
+        "src/install/backup.ts"
       ],
       "source": {
-        "file": "src/install/backup.js",
+        "file": "src/install/backup.ts",
         "pattern": "DEFAULT_BACKUP_RETENTION = {value}"
       }
     },
@@ -448,10 +448,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/install/backup.js"
+        "src/install/backup.ts"
       ],
       "source": {
-        "file": "src/install/backup.js",
+        "file": "src/install/backup.ts",
         "pattern": "DEFAULT_BACKUP_RETENTION = {value}"
       }
     },
@@ -628,7 +628,7 @@
       "writers": [
         "src/adapters/antigravity/index.js",
         "src/adapters/copy-tree.js",
-        "src/install/manifest.js",
+        "src/install/manifest.ts",
         "src/lifecycle/index.js",
         "src/state/index.js"
       ],
@@ -652,7 +652,7 @@
       "writers": [
         "src/adapters/antigravity/index.js",
         "src/adapters/copy-tree.js",
-        "src/install/manifest.js",
+        "src/install/manifest.ts",
         "src/lifecycle/index.js",
         "src/state/index.js"
       ],

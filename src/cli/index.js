@@ -12,7 +12,7 @@ const {
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
 } = require('../runtime/cli');
 const { pkg } = require('./shared');
-const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets');
+const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets.ts');
 const { dispatchRuntimeCommand } = require('./runtime-commands');
 const { usageError } = require('../runtime/cli-result');
 

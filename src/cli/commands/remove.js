@@ -3,7 +3,7 @@
 // and what remains standing (shared destinations) is reported, not implied.
 const os = require('node:os');
 const path = require('node:path');
-const { resolveTargets, toolDirs } = require('../../install/targets');
+const { resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { loadRegistry } = require('../../registry');
 const { storageForgetScope } = require('../../runtime/storage/upkeep');
@@ -12,7 +12,7 @@ const {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES,
   assertSafeRegistryPlan, lockDocument, recordLock,
 } = require('../../lifecycle/view');
-const { recordedMcpSelections } = require('../../install/mcp');
+const { recordedMcpSelections } = require('../../install/mcp.ts');
 const {
   REPO_ROOT, scopeOf, scopeSelectionState, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,
 } = require('../shared');

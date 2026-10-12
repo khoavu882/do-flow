@@ -8,6 +8,10 @@
 // Scope is explicit, never inferred: -g/--global -> $HOME-based (sync.sh parity); default (no -g) ->
 // rooted at an explicit project path, defaulting to cwd ('.') when no path is given. The parity
 // harness must pass -g for doflow, since sync.sh has no project mode to compare against.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../install/targets.ts')` keeps working while the rest of the tree is still `.js`.
 const os = require('node:os');
 const path = require('node:path');
 
@@ -20,12 +24,12 @@ const VALID = ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi',
  * rest explicitly with `--target claude,codex,gemini`. */
 const DEFAULT_TARGETS = ['claude'];
 
-const TARGET_ALIASES = {
+const TARGET_ALIASES: Record<string, string> = {
   agy: 'antigravity',
 };
 
 /** Default to DEFAULT_TARGETS; validate any explicitly requested. */
-function resolveTargets(requested) {
+function resolveTargets(requested: string[] | undefined): string[] {
   const rawTargets = requested && requested.length ? requested : [...DEFAULT_TARGETS];
   const targets = rawTargets.map((t) => TARGET_ALIASES[t] || t);
   for (const t of targets) {
@@ -36,9 +40,13 @@ function resolveTargets(requested) {
   return [...new Set(targets)];
 }
 
+interface ToolDirsOptions {
+  global?: boolean;
+  projectRoot?: string;
+}
+
 /**
  * Map tool -> install root.
- * @param {{global?: boolean, projectRoot?: string}} [opts]
  *   global=true         -> $HOME/.{claude,codex,gemini,copilot,kiro,pi}, $HOME/.config/opencode
  *                          (sync.sh parity for claude/codex/gemini; the four new harnesses follow
  *                          each one's own documented global root — see below)
@@ -65,7 +73,7 @@ function resolveTargets(requested) {
  *               is not a location Pi reads. Project scope is `.pi` (see
  *               src/adapters/pi/index.js's own `nativePaths()`, which this mirrors exactly).
  */
-function toolDirs(opts = {}) {
+function toolDirs(opts: ToolDirsOptions = {}): Record<string, string> {
   const { global = false, projectRoot = '.' } = opts;
   const root = global ? os.homedir() : path.resolve(projectRoot);
   return {
