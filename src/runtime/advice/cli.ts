@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { finishRuntime, usageError } = require('../cli-result.ts');
@@ -13,8 +15,8 @@ const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('
 const { findPick, appendOutcome } = require('./record.ts');
 const { strengthWords } = require('./strength.ts');
 
-function loadSources(repoRoot) {
-  const read = (name) => JSON.parse(fs.readFileSync(path.join(repoRoot, 'core/registry', name), 'utf8'));
+function loadSources(repoRoot: any) {
+  const read = (name: any) => JSON.parse(fs.readFileSync(path.join(repoRoot, 'core/registry', name), 'utf8'));
   return {
     workflows: read('workflows.json'),
     verification: read('verification.json'),
@@ -22,7 +24,7 @@ function loadSources(repoRoot) {
   };
 }
 
-function loadRuntime({ projectRoot, global = false } = {}) {
+function loadRuntime({ projectRoot, global = false }: any = {}) {
   const advice = loadAdviceRegistry({ repoRoot: REPO_ROOT });
   const storage = loadStorageRegistry({ repoRoot: REPO_ROOT });
   const roots = resolveRoots({ registry: storage, projectRoot, global });
@@ -31,7 +33,7 @@ function loadRuntime({ projectRoot, global = false } = {}) {
   return { adviceRegistry, adviceError: advice.ok ? null : advice.detail, storage, roots, sources };
 }
 
-function emitResult(result, { json, kind }) {
+function emitResult(result: any, { json, kind }: any) {
   if (result.reason === 'over-limit') {
     return usageError('advise', result.detail || 'request exceeds an advice limit', json);
   }
@@ -48,11 +50,11 @@ function emitResult(result, { json, kind }) {
   return finishRuntime(0);
 }
 
-function isPresent(value) {
+function isPresent(value: any) {
   return value !== undefined && value !== null;
 }
 
-function readState({ state, stateFile, json }) {
+function readState({ state, stateFile, json }: any) {
   if (isPresent(state) === isPresent(stateFile)) {
     usageError('advise', 'provide exactly one of --state or --state-file', json);
     return null;
@@ -62,26 +64,26 @@ function readState({ state, stateFile, json }) {
     const content = fs.readFileSync(stateFile, 'utf8');
     if (!content.length) throw new Error('file is empty');
     return content;
-  } catch (error) {
+  } catch (error: any) {
     usageError('advise', `cannot read state file ${stateFile}: ${error.message}`, json);
     return null;
   }
 }
 
-function readQuestions(file, json) {
+function readQuestions(file: any, json: any) {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.questions)) {
       throw new Error('expected an object with a questions array');
     }
     return parsed.questions;
-  } catch (error) {
+  } catch (error: any) {
     usageError('advise', `cannot read questions file ${file}: ${error.message}`, json);
     return null;
   }
 }
 
-function parseAskInput(options) {
+function parseAskInput(options: any) {
   const hasKind = typeof options.kind === 'string' && options.kind.length > 0;
   const hasQuestionsFile = isPresent(options.questionsFile);
   if (hasKind === hasQuestionsFile) {
@@ -101,7 +103,7 @@ function parseAskInput(options) {
   return { state, hasKind, hasQuestionsFile };
 }
 
-function endpointSource(userSetting, endpoint) {
+function endpointSource(userSetting: any, endpoint: any) {
   if (userSetting?.decidedBy?.user) {
     try {
       const file = JSON.parse(fs.readFileSync(userSetting.decidedBy.user, 'utf8'));
@@ -111,7 +113,7 @@ function endpointSource(userSetting, endpoint) {
   return 'provider default';
 }
 
-function inspectFailure(inspected, { endpoint, model, provider }) {
+function inspectFailure(inspected: any, { endpoint, model, provider }: any) {
   if (inspected.endpoint.state === 'refused') return inspected.endpoint.message;
   if (inspected.endpoint.state !== 'reached') {
     return `advise: Ollama did not answer at ${endpoint}; start it yourself and re-run. Nothing was written.`;
@@ -124,21 +126,21 @@ function inspectFailure(inspected, { endpoint, model, provider }) {
   }
   if (!inspected.model.decisionCapable) {
     const capable = inspected.models
-      .filter((entry) => Array.isArray(entry.capabilities) && entry.capabilities.includes(provider.capability))
-      .map((entry) => entry.name);
+      .filter((entry: any) => Array.isArray(entry.capabilities) && entry.capabilities.includes(provider.capability))
+      .map((entry: any) => entry.name);
     return `advise: model ${model} is not decision-capable; decision-capable here: ${capable.length ? capable.join(', ') : 'none'}. Nothing was written.`;
   }
   return null;
 }
 
-function writeFailure(message, json) {
+function writeFailure(message: any, json: any) {
   if (json) console.log(JSON.stringify({ ok: false, error: 'write-failed', message }, null, 2));
   else if (message.startsWith('decision model: endpoint ') || message.startsWith('advise:')) console.error(message);
   else console.error(`advise: ${message}`);
   return finishRuntime(1);
 }
 
-async function handleConfigure(options, runtime) {
+async function handleConfigure(options: any, runtime: any) {
   const { adviceRegistry, adviceError, roots, sources } = runtime;
   const { json, project, global, force } = options;
   const hasModel = typeof options.model === 'string' && options.model.length > 0;
@@ -171,7 +173,7 @@ async function handleConfigure(options, runtime) {
     return writeFailure('turn the decision model on at user level first; a project cannot enable it', json);
   }
   const providerId = userSetting.provider || 'ollama';
-  const provider = adviceRegistry.providers.find((entry) => entry.id === providerId);
+  const provider = adviceRegistry.providers.find((entry: any) => entry.id === providerId);
   if (!provider) return writeFailure(`provider '${providerId}' is not in core/registry/advice.json`, json);
   const endpoint = project
     ? userSetting.endpoint
@@ -195,7 +197,7 @@ async function handleConfigure(options, runtime) {
   return finishRuntime(0);
 }
 
-async function handleAsk(options, runtime) {
+async function handleAsk(options: any, runtime: any) {
   const parsed = parseAskInput(options);
   if (!parsed) return finishRuntime(2);
   const { adviceRegistry, adviceError, roots, sources } = runtime;
@@ -241,7 +243,7 @@ async function handleAsk(options, runtime) {
   return emitResult(result, { json: options.json, kind });
 }
 
-function handleOutcome(options, runtime) {
+function handleOutcome(options: any, runtime: any) {
   const { json } = options;
   if (typeof options.pickId !== 'string' || !options.pickId) return usageError('advise', '--pick-id is required', json);
   if (typeof options.actual !== 'string' || !options.actual) return usageError('advise', '--actual is required', json);
@@ -263,7 +265,7 @@ function handleOutcome(options, runtime) {
   return finishRuntime(0);
 }
 
-async function handleAdviseCommand(options = {}) {
+async function handleAdviseCommand(options: any = {}) {
   const action = options.actionGiven ? options.action : 'ask';
   if (!['ask', 'outcome', 'configure'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
   try {
@@ -273,7 +275,7 @@ async function handleAdviseCommand(options = {}) {
     if (action === 'configure') return await handleConfigure(shaped, runtime);
     if (action === 'outcome') return handleOutcome(shaped, runtime);
     return await handleAsk(shaped, runtime);
-  } catch (error) {
+  } catch (error: any) {
     return writeFailure(error?.message || 'advice command failed', options.json);
   }
 }

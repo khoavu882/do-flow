@@ -62,7 +62,7 @@ const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../r
 const { listCheckouts } = require('../runtime/checkouts.ts');
 const { featureSlugFor } = require('../runtime/implementation-gate');
 const { handleBriefToolsCommand } = require('../runtime/brief-tools');
-const { handleAdviseCommand } = require('../runtime/advice/cli');
+const { handleAdviseCommand } = require('../runtime/advice/cli.ts');
 const { REPO_ROOT, buildAdapterRegistry } = require('./shared.ts');
 
 /** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
