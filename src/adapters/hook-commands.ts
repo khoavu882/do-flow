@@ -2,7 +2,7 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
-// Shared hook-command verification — the one piece of codex/hooks.ts and gemini/hooks.js that
+// Shared hook-command verification — the one piece of codex/hooks.ts and gemini/hooks.ts that
 // proved byte-identical on inspection (unlike SUPPORTED_EVENTS, validateHooksConfig, and
 // classifyClaudeGuardrails, which encode genuine per-harness differences and stay in each
 // adapter). verifyHookCommands and the two private helpers it calls, commandScriptNames and

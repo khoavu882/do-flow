@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
-const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('./hooks');
+const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('./hooks.ts');
 
 const MARKER_START = '<!-- doflow:start -->';
 const MARKER_END = '<!-- doflow:end -->';
@@ -230,7 +230,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
   /** Plan the hooks pseudo-component's single change (or none), mirroring the {changes, conflicts}
    * shape planCopyTreeAssets already returns so plan() can fold it in the same way. The hook
    * scripts directory beside settings.json is declared (paths.hooksDirectory); the merge/remove
-   * planning itself lives in ./hooks.js. */
+   * planning itself lives in ./hooks.ts. */
   function planHooksChange({ removing, found, context, assets, fsImpl }) {
     if (found.settings.error) return { changes: [], conflicts: [] };
     const hooksPlan = removing

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Gemini hook planning. Unlike Codex (which owns a standalone hooks.json file), Gemini's hooks
 // live as a "hooks" key inside settings.json — a file DoFlow does not fully own (it commonly
 // pre-exists with unrelated content: mcpServers, ui, telemetry, model, etc.). planGeminiHooks
@@ -25,7 +27,7 @@ const SUPPORTED_EVENTS = new Set([
 // Stop, SubagentStart/Stop, and ConfigChange have no correct Gemini equivalent and are
 // intentionally omitted rather than approximated onto BeforeAgent/AfterAgent (design.md §7/§8 —
 // no false parity).
-const CLAUDE_TO_GEMINI_EVENT = {
+const CLAUDE_TO_GEMINI_EVENT: Record<string, string> = {
   SessionStart: 'SessionStart',
   SessionEnd: 'SessionEnd',
   PreToolUse: 'BeforeTool',
@@ -33,10 +35,10 @@ const CLAUDE_TO_GEMINI_EVENT = {
   PreCompact: 'PreCompress',
 };
 
-function validationError(errors, message) { errors.push(message); }
+function validationError(errors: string[], message: string): void { errors.push(message); }
 
-function validateHooksConfig(config) {
-  const errors = [];
+function validateHooksConfig(config: any): { ok: boolean, errors: string[], events: string[] } {
+  const errors: string[] = [];
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     return { ok: false, errors: ['Hook configuration must be an object'], events: [] };
   }
@@ -52,7 +54,7 @@ function validateHooksConfig(config) {
       validationError(errors, `Hook event '${event}' requires a non-empty array of matcher groups`);
       continue;
     }
-    groups.forEach((group, groupIndex) => {
+    groups.forEach((group: any, groupIndex: number) => {
       if (!group || typeof group !== 'object' || Array.isArray(group)) {
         validationError(errors, `Hook event '${event}' group ${groupIndex} must be an object`);
         return;
@@ -64,7 +66,7 @@ function validateHooksConfig(config) {
         validationError(errors, `Hook event '${event}' group ${groupIndex} requires a non-empty hooks array`);
         return;
       }
-      group.hooks.forEach((handler, handlerIndex) => {
+      group.hooks.forEach((handler: any, handlerIndex: number) => {
         const label = `Hook event '${event}' group ${groupIndex} handler ${handlerIndex}`;
         if (!handler || typeof handler !== 'object' || Array.isArray(handler)) {
           validationError(errors, `${label} must be an object`); return;
@@ -83,9 +85,9 @@ function validateHooksConfig(config) {
 }
 
 /** Maps Claude guardrail intent, never fabricating a Gemini equivalent for unavailable events. */
-function classifyClaudeGuardrails(claudeHooks = {}) {
-  const supported = [];
-  const unsupported = [];
+function classifyClaudeGuardrails(claudeHooks: any = {}): { supported: any[], unsupported: any[] } {
+  const supported: any[] = [];
+  const unsupported: any[] = [];
   for (const [event, groups] of Object.entries(claudeHooks || {})) {
     const targetEvent = CLAUDE_TO_GEMINI_EVENT[event] || null;
     const item = { sourceEvent: event, targetEvent, groups: Array.isArray(groups) ? groups.length : 0 };
@@ -101,22 +103,22 @@ function classifyClaudeGuardrails(claudeHooks = {}) {
  * exists but fails to parse is a hard error, not silently treated as empty (this path merges
  * into content DoFlow does not own — a malformed-file work-around here risks losing it).
  */
-function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, destinationHooksDir: declaredHooksDir, trusted = false, fsImpl = fs } = {}) {
+function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, destinationHooksDir: declaredHooksDir, trusted = false, fsImpl = fs }: any = {}): any {
   let desired = config;
   try {
     if (!desired && sourceFile) desired = JSON.parse(fsImpl.readFileSync(sourceFile, 'utf8'));
-  } catch (error) {
+  } catch (error: any) {
     return { ok: false, status: 'malformed', changes: [], errors: [`Could not parse ${sourceFile}: ${error.message}`] };
   }
   if (!settingsFile) return { ok: false, status: 'invalid-request', changes: [], errors: ['settingsFile is required'] };
   const schema = validateHooksConfig(desired);
   const commands = verifyHookCommands(desired || {}, { scriptsDir: sourceHooksDir, trusted, fsImpl });
-  const errors = [...schema.errors, ...commands.checks.filter((check) => !check.ok).map((check) => `${check.event}: ${check.reason}${check.script ? ` (${check.script})` : ''}`)];
+  const errors = [...schema.errors, ...commands.checks.filter((check: any) => !check.ok).map((check: any) => `${check.event}: ${check.reason}${check.script ? ` (${check.script})` : ''}`)];
 
-  let existing = {};
+  let existing: any = {};
   if (fsImpl.existsSync(settingsFile)) {
     try { existing = JSON.parse(fsImpl.readFileSync(settingsFile, 'utf8')); }
-    catch (error) { return { ok: false, status: 'malformed', changes: [], errors: [`Refusing to touch malformed ${settingsFile}: ${error.message}`] }; }
+    catch (error: any) { return { ok: false, status: 'malformed', changes: [], errors: [`Refusing to touch malformed ${settingsFile}: ${error.message}`] }; }
   }
   if (errors.length) return { ok: false, status: 'invalid-request', settingsFile, existing, changes: [], errors, commands };
 
@@ -129,18 +131,18 @@ function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, des
   const destinationHooksDir = declaredHooksDir || path.join(path.dirname(settingsFile), 'hooks');
   // The scripts deployGeminiHooks copies beside settings.json, so a backup of this change holds them too.
   const shipped = sourceHooksDir && fsImpl.existsSync(sourceHooksDir)
-    ? fsImpl.readdirSync(sourceHooksDir).filter((name) => !name.endsWith('.json') && fsImpl.statSync(path.join(sourceHooksDir, name)).isFile())
+    ? fsImpl.readdirSync(sourceHooksDir).filter((name: string) => !name.endsWith('.json') && fsImpl.statSync(path.join(sourceHooksDir, name)).isFile())
     : [];
   const companionTargets = [...new Set([
-    ...commands.checks.map((check) => path.join(destinationHooksDir, check.script)),
-    ...shipped.map((name) => path.join(destinationHooksDir, name)),
+    ...commands.checks.map((check: any) => path.join(destinationHooksDir, check.script)),
+    ...shipped.map((name: string) => path.join(destinationHooksDir, name)),
   ])].sort();
   return { ok: true, status: changed ? 'change' : 'unchanged', settingsFile, existing, merged,
     changes: changed ? [{ type: fsImpl.existsSync(settingsFile) ? 'update' : 'create', file: settingsFile, key: 'hooks' }] : [],
     errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir, destinationHooksDir, companionTargets };
 }
 
-function deployGeminiHooks(plan, { dryRun = false, fsImpl = fs } = {}) {
+function deployGeminiHooks(plan: any, { dryRun = false, fsImpl = fs }: { dryRun?: boolean, fsImpl?: any } = {}): any {
   if (!plan.ok) return { ...plan, applied: false };
   if (dryRun || plan.status === 'unchanged') return { ...plan, applied: false };
   fsImpl.mkdirSync(path.dirname(plan.settingsFile), { recursive: true });
@@ -152,7 +154,7 @@ function deployGeminiHooks(plan, { dryRun = false, fsImpl = fs } = {}) {
   } finally {
     if (fsImpl.existsSync(temporary)) fsImpl.unlinkSync(temporary);
   }
-  const deployed = new Set();
+  const deployed = new Set<string>();
   for (const check of plan.commands.checks) {
     const target = path.join(plan.destinationHooksDir, check.script);
     fsImpl.mkdirSync(path.dirname(target), { recursive: true });
@@ -180,18 +182,18 @@ function deployGeminiHooks(plan, { dryRun = false, fsImpl = fs } = {}) {
  * cross-check): if the key isn't present, there's nothing to do; otherwise propose removing only
  * that key, leaving every other key in the shared file untouched (FR-002).
  */
-function planRemoveGeminiHooks({ settingsFile, fsImpl = fs } = {}) {
+function planRemoveGeminiHooks({ settingsFile, fsImpl = fs }: { settingsFile?: string, fsImpl?: any } = {}): any {
   if (!settingsFile) return { ok: false, status: 'invalid-request', changes: [], errors: ['settingsFile is required'] };
   if (!fsImpl.existsSync(settingsFile)) return { ok: true, status: 'unchanged', settingsFile, changes: [] };
   let existing;
   try { existing = JSON.parse(fsImpl.readFileSync(settingsFile, 'utf8')); }
-  catch (error) { return { ok: false, status: 'malformed', changes: [], errors: [`Could not parse ${settingsFile}: ${error.message}`] }; }
+  catch (error: any) { return { ok: false, status: 'malformed', changes: [], errors: [`Could not parse ${settingsFile}: ${error.message}`] }; }
   if (existing.hooks === undefined) return { ok: true, status: 'unchanged', settingsFile, changes: [] };
   const { hooks: _dropped, ...merged } = existing;
   return { ok: true, status: 'change', settingsFile, merged, changes: [{ type: 'update', file: settingsFile, key: 'hooks', operation: 'remove' }] };
 }
 
-function deployRemoveGeminiHooks(plan, { dryRun = false, fsImpl = fs } = {}) {
+function deployRemoveGeminiHooks(plan: any, { dryRun = false, fsImpl = fs }: { dryRun?: boolean, fsImpl?: any } = {}): any {
   if (!plan.ok || plan.status !== 'change' || dryRun) return { ...plan, applied: false };
   fsImpl.mkdirSync(path.dirname(plan.settingsFile), { recursive: true });
   const content = `${JSON.stringify(plan.merged, null, 2)}\n`;
