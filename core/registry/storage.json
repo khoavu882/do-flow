@@ -990,7 +990,7 @@
       "reason": "agent context file (AGENTS.md or CLAUDE.md) managed block, owned by the install ledger"
     },
     {
-      "file": "src/adapters/claude/index.js",
+      "file": "src/adapters/claude/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {

@@ -365,7 +365,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
 
 /** Write every create/update change. Preserves the source file's mode (so a hook script's +x
  * bit survives the copy without a separate chmod pass) and mtime, matching this codebase's
- * general convention for a lifecycle-owned write (see src/adapters/claude/index.js's
+ * general convention for a lifecycle-owned write (see src/adapters/claude/index.ts's
  * applySettingsAsset for the same pattern applied to a transformed-content file). */
 function applyTree({ changes = [], fsImpl = fs, transform }: any): { applied: number } {
   const mapContent = typeof transform === 'function' ? transform : resolveTransform(transform);

@@ -12,7 +12,7 @@ const { loadRegistry } = require('../../src/registry/index.ts');
 const { createAdapterRegistry } = require('../../src/adapters/index.ts');
 const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/lifecycle');
 const { stateRoot, readLedger, recoveryRoot } = require('../../src/state/index.ts');
-const claude = require('../../src/adapters/claude');
+const claude = require('../../src/adapters/claude/index.ts');
 const codex = require('../../src/adapters/codex');
 const { createGeminiAdapter } = require('../../src/adapters/gemini/index.ts');
 
