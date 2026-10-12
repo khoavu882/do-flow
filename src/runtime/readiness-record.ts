@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { updateTaskState } = require('./task-state.ts');
@@ -24,19 +26,19 @@ const STORE = path.join('.doflow', 'state', 'readiness');
  * @param {string|null} slug the task's feature slug, when one is known
  * @returns {Array<string>} paths relative to a checkout root
  */
-function recordCandidates(taskId, slug) {
+function recordCandidates(taskId: string, slug: any) {
   const flat = path.join(STORE, `${taskId}.json`);
   return slug && slug !== taskId ? [path.join(STORE, slug, `${taskId}.json`), flat] : [flat];
 }
 
 /** A record version this runtime cannot read because a newer DoFlow wrote it, else null. */
-function newerVersionOf(record) {
+function newerVersionOf(record: any) {
   const v = record && typeof record === 'object' ? record.version : undefined;
   return Number.isInteger(v) && v > RECORD_VERSION ? v : null;
 }
 
 /** The refusal for a record a newer DoFlow wrote: it names the file and is never overwritten. */
-function newerRecordText(file, version) {
+function newerRecordText(file: any, version: any) {
   return `the readiness record ${file} was written by a newer DoFlow (record version ${version}; this runtime reads ${RECORD_VERSION}), `
     + 'so it was left as it is. Run this command with the DoFlow that wrote the record, or upgrade DoFlow here.';
 }
@@ -46,11 +48,11 @@ function newerRecordText(file, version) {
  * wrote, or bytes no evaluation can be read from.
  * @returns {{kind: 'none'|'record'|'newer'|'unreadable', version?: number}}
  */
-function priorRecord(file, fsImpl) {
+function priorRecord(file: any, fsImpl: any) {
   let text;
   try {
     text = fsImpl.readFileSync(file, 'utf8');
-  } catch (error) {
+  } catch (error: any) {
     if (error.code === 'ENOENT') return { kind: 'none' };
     throw error;
   }
@@ -84,7 +86,7 @@ function priorRecord(file, fsImpl) {
  * @returns {{file: string, record: Object, replacedUnreadable: string|null}} the `.unreadable` path when
  *   a previous file was set aside
  */
-function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, declaredScope = null, mode, now = new Date(), fsImpl = fs }) {
+function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, declaredScope = null, mode, now = new Date(), fsImpl = fs }: any) {
   const scope = resolveTaskScope({ projectRoot: stateRoot, taskId, slug });
   const recordSlug = scope.slug || slug || null;
   // The record a reader would find in this checkout is the one replaced; with none, the record goes
@@ -102,7 +104,7 @@ function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, 
     executionMode: mode,
     inputs: { ...inputs },
     declaredScope: Array.isArray(declaredScope) ? [...declaredScope] : null,
-    unmet: (report.requirements || []).filter((r) => r.required && !r.satisfied).map((r) => r.id),
+    unmet: (report.requirements || []).filter((r: any) => r.required && !r.satisfied).map((r: any) => r.id),
     evidenceCount: Number.isInteger(report.evidenceCount) ? report.evidenceCount : 0,
     evaluatedAt: now.toISOString(),
   };
@@ -134,13 +136,13 @@ function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, 
  * @returns {{status: 'found'|'missing'|'ambiguous'|'unreadable', record: Object|null, file: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>, detail: string|null}}
  */
-function readReadinessRecord({ stateRoot, taskId, slug = null, exec, fsImpl = fs }) {
+function readReadinessRecord({ stateRoot, taskId, slug = null, exec, fsImpl = fs }: any) {
   const found = findStateFile({ stateRoot, relPath: recordCandidates(taskId, slug), ...(exec ? { exec } : {}), fsImpl });
   const base = { record: null, file: found.file, origin: found.origin, candidates: found.candidates, detail: null };
   if (found.status !== 'found') return { ...base, status: found.status };
   try {
     return { ...base, status: 'found', record: JSON.parse(fsImpl.readFileSync(found.file, 'utf8')) };
-  } catch (error) {
+  } catch (error: any) {
     return { ...base, status: 'unreadable', detail: `unparsable JSON: ${error.message}` };
   }
 }

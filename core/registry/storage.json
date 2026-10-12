@@ -107,7 +107,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/readiness-record.js",
+        "src/runtime/readiness-record.ts",
         "src/runtime/task-state.ts"
       ]
     },

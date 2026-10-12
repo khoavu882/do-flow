@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readiness-record');
+const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readiness-record.ts');
 const { listCheckouts } = require('./checkouts.ts');
 const { readTaskState } = require('./task-state.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');

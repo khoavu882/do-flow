@@ -33,7 +33,7 @@ const {
   resolveScopeBound, resolveIntegrationBase, resolveExplicitBaseline, parseDeclaredScope, scopeReasonText, boundSourcesText,
 } = require('./scope-bound.ts');
 const nodeCrypto = require('node:crypto');
-const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
+const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record.ts');
 const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate');
 const { assertSafeTaskId } = require('../evidence-ledger.ts');
 const { upkeepAfterVerify } = require('../storage/upkeep');
