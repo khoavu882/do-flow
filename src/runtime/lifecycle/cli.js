@@ -13,7 +13,7 @@ const followup = require('./followup.ts');
 const { StoreUnsafeError, StoreLockedError } = require('./event-store.ts');
 const { prepareStore } = require('./store-upkeep.ts');
 const { printSafe } = require('../mask.ts');
-const { buildOverview, initFeature, featureStatus } = require('./overview');
+const { buildOverview, initFeature, featureStatus } = require('./overview.ts');
 const { releaseFeatures, recordMerged } = require('./release');
 const goal = require('./goal');
 

@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { buildOverview, initFeature, featureStatus } = require('../../src/runtime/lifecycle/overview');
+const { buildOverview, initFeature, featureStatus } = require('../../src/runtime/lifecycle/overview.ts');
 const { FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

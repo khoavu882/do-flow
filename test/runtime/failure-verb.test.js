@@ -11,7 +11,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch, inheritedEnv } = require('../helper/scratch-env');
 const store = require('../../src/runtime/failure/store.ts');
 const { ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture.ts');
-const { buildOverview } = require('../../src/runtime/lifecycle/overview');
+const { buildOverview } = require('../../src/runtime/lifecycle/overview.ts');
 
 const BIN = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const scratch = createScratch('doflow-failure-verb-');

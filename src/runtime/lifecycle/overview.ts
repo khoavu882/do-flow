@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * `lifecycle --action overview | init | status` (IC-007, IC-008, IC-021): the project's open
  * follow-ups, intents, goals and feature statuses, and the writes that tie a new feature to them.
@@ -25,29 +27,29 @@ const MAINTAIN_SHOWN = 50;
 /** Slugs shown per finished or awaiting-release bucket: those lists only grow, and the overview runs on every brainstorm. */
 const FEATURES_SHOWN = 10;
 
-const refusal = (action, finding, message) => ({ ok: false, action, finding, message });
+const refusal = (action: any, finding: any, message: any) => ({ ok: false, action, finding, message });
 
-function statusMap(derived) {
-  return Object.fromEntries(Object.entries(derived.statuses).map(([slug, entry]) => [slug, entry.status]));
+function statusMap(derived: any) {
+  return Object.fromEntries(Object.entries(derived.statuses).map(([slug, entry]: [string, any]) => [slug, entry.status]));
 }
 
 /** The new and regressed failure entries inside the DoFlow repository, else null. */
-function failureEntries(root) {
+function failureEntries(root: any) {
   const failureStore = failureStoreOrNull();
   if (failureStore === null || !failureStore.isDoflowRepo(root)) return null;
-  return failureStore.loadEntries().entries.filter((e) => failureStore.SHOWN_BY_DEFAULT.has(e.status)).map(failureStore.listedEntry);
+  return failureStore.loadEntries().entries.filter((e: any) => failureStore.SHOWN_BY_DEFAULT.has(e.status)).map(failureStore.listedEntry);
 }
 
 /** Reports first, then the oldest first; the id keeps equal instants in a stable order. */
-function byDiscoveryOrder(a, b) {
-  const report = (b.source.kind === 'report') - (a.source.kind === 'report');
+function byDiscoveryOrder(a: any, b: any) {
+  const report = Number(b.source.kind === 'report') - Number(a.source.kind === 'report');
   if (report !== 0) return report;
   const delta = Date.parse(a.history[0].at) - Date.parse(b.history[0].at);
   return delta !== 0 ? delta : (a.id < b.id ? -1 : 1);
 }
 
-function shownItem(item, pending) {
-  const shown = {
+function shownItem(item: any, pending: any) {
+  const shown: any = {
     id: item.id, statement: item.statement, source: item.source, state: item.state,
     promoted: Boolean(item.intent), intent: item.intent, added: item.added,
   };
@@ -56,7 +58,7 @@ function shownItem(item, pending) {
 }
 
 /** A bucket for display: the true count and the most recently tracked slugs, in tracking order. */
-function shownBucket(slugs) {
+function shownBucket(slugs: any) {
   const shown = slugs.slice(-FEATURES_SHOWN);
   return { count: slugs.length, shown, more: slugs.length - shown.length };
 }
@@ -68,11 +70,11 @@ function shownBucket(slugs) {
  * whose text the goal now holds (the user re-added it) is no longer reported.
  * @returns {Map<string, Array<Object>>}
  */
-function goalConflicts(root, fold, fsImpl = nodeFs) {
+function goalConflicts(root: any, fold: any, fsImpl = nodeFs) {
   const byGoal = new Map();
-  const raised = fold.conflicts.filter((c) => typeof c.type === 'string' && c.type.startsWith('goal.'));
+  const raised = fold.conflicts.filter((c: any) => typeof c.type === 'string' && c.type.startsWith('goal.'));
   if (raised.length === 0) return byGoal;
-  const events = new Map(readEvents(root, { fsImpl }).events.map((e) => [e.id, e]));
+  const events = new Map<any, any>(readEvents(root, { fsImpl }).events.map((e: any) => [e.id, e]));
   for (const c of raised) {
     const event = events.get(c.event);
     const goal = event && event.data && event.data.goal;
@@ -80,8 +82,8 @@ function goalConflicts(root, fold, fsImpl = nodeFs) {
     const entry = { ...c };
     if (c.type === 'goal.item-added' && event.data.item) {
       // Event files are never removed, so the dropped item is resolved once the goal holds an item with that text.
-      const held = fold.goals.find((g) => g.goal === goal);
-      if (held && held.items.some((i) => i.text === String(event.data.item.text ?? ''))) continue;
+      const held = fold.goals.find((g: any) => g.goal === goal);
+      if (held && held.items.some((i: any) => i.text === String(event.data.item.text ?? ''))) continue;
       Object.assign(entry, { item: event.data.item.id, text: event.data.item.text });
     }
     if (!byGoal.has(goal)) byGoal.set(goal, []);
@@ -91,29 +93,29 @@ function goalConflicts(root, fold, fsImpl = nodeFs) {
 }
 
 /** One `next` line per kind of goal conflict, telling the user how to resolve it. */
-function goalConflictNext(goalId, conflicts) {
+function goalConflictNext(goalId: any, conflicts: any) {
   const next = [];
-  if (conflicts.some((c) => c.type === 'goal.item-added')) {
+  if (conflicts.some((c: any) => c.type === 'goal.item-added')) {
     next.push(`An item added to ${goalId} from another clone was dropped because its id was already taken; re-add it under a new text: doflow-run goal --action item --goal ${goalId} --text "<the item>"`);
   }
-  if (conflicts.some((c) => c.type === 'goal.added')) {
+  if (conflicts.some((c: any) => c.type === 'goal.added')) {
     next.push(`Another clone added goal ${goalId} first and its record won; re-add yours under a different goal id: doflow-run goal --action add --goal <new-id> --statement "<outcome>"`);
   }
-  if (conflicts.some((c) => c.type !== 'goal.item-added' && c.type !== 'goal.added')) {
+  if (conflicts.some((c: any) => c.type !== 'goal.item-added' && c.type !== 'goal.added')) {
     next.push(`An event for ${goalId} from another clone was dropped (see conflicts); redo it with doflow-run goal --action list as the current state`);
   }
   return next;
 }
 
 /** Progress, linked features by status and the nudges of one open goal (IC-022). */
-function goalView(goal, features, statuses, conflicts = []) {
-  const linked = features.filter((f) => f.goal === goal.goal).map((f) => f.slug);
-  const buckets = bucketize(Object.fromEntries(linked.map((slug) => [slug, statuses.statuses[slug] || { status: 'unknown' }])), linked);
-  const met = goal.items.filter((i) => i.met).length;
+function goalView(goal: any, features: any, statuses: any, conflicts: any = []) {
+  const linked = features.filter((f: any) => f.goal === goal.goal).map((f: any) => f.slug);
+  const buckets = bucketize(Object.fromEntries(linked.map((slug: any) => [slug, statuses.statuses[slug] || { status: 'unknown' }])), linked);
+  const met = goal.items.filter((i: any) => i.met).length;
   const nudges = [];
   if (buckets.finished.length) {
     const who = buckets.finished.length === 1 ? `linked feature ${buckets.finished[0]} is finished` : `linked features ${buckets.finished.join(', ')} are finished`;
-    for (const item of goal.items.filter((i) => !i.met)) nudges.push(`${item.id} is unchecked and ${who}`);
+    for (const item of goal.items.filter((i: any) => !i.met)) nudges.push(`${item.id} is unchecked and ${who}`);
   }
   return {
     goal: goal.goal, outcome: goal.outcome,
@@ -125,7 +127,7 @@ function goalView(goal, features, statuses, conflicts = []) {
   };
 }
 
-function nextLines({ shown, open, items, intents, goals, maintain, pendingItems, failures }) {
+function nextLines({ shown, open, items, intents, goals, maintain, pendingItems, failures }: any) {
   const next = [];
   if (shown < open) next.push('List the rest: doflow-run followup --action list');
   if (items.length) next.push(`Take items into the new feature when its folder exists: doflow-run lifecycle --action init --slug <slug> --take ${items[0].id}`);
@@ -133,10 +135,10 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems,
     next.push(`Start from a promoted intent: /do-brainstorm --intent ${intents[0].path}, then doflow-run lifecycle --action init --slug <slug> --intent ${intents[0].path}`);
   }
   if (goals.length) next.push(`Link the new feature to a goal: add --goal ${goals[0].goal} to the init line`);
-  for (const g of goals.filter((x) => x.conflicts)) next.push(...goalConflictNext(g.goal, g.conflicts));
+  for (const g of goals.filter((x: any) => x.conflicts)) next.push(...goalConflictNext(g.goal, g.conflicts));
   if (maintain && pendingItems.length) {
     const id = pendingItems[0].id;
-    const unpromoted = pendingItems.find((i) => !i.promoted);
+    const unpromoted = pendingItems.find((i: any) => !i.promoted);
     next.push(
       `Keep open: doflow-run followup --action settle --ids ${id} --as kept --reason "<why it stays>" --channel question`,
       `Dismiss: doflow-run followup --action settle --ids ${id} --as dismissed --reason "<why>" --channel question`,
@@ -149,7 +151,7 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems,
     next.push('Settle a failure entry: doflow-run failure --action settle --fp <fp> --as noise|fixed|imported --reason "<why>"');
   }
   if (maintain) {
-    for (const goal of goals.filter((g) => g.proposeDone)) {
+    for (const goal of goals.filter((g: any) => g.proposeDone)) {
       next.push(`Every item of ${goal.goal} is met; ask the user, then: doflow-run goal --action done --goal ${goal.goal} --channel question`);
     }
   }
@@ -163,7 +165,7 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems,
  * @param {boolean} [options.maintain] the `/do maintain` view: up to 50 items and `pending`
  * @param {string} [options.since] ISO time; with `maintain`, an open item with no settlement at or after it is pending
  */
-function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl = nodeFs }) {
+function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl = nodeFs }: any) {
   let sinceMs = null;
   if (since !== undefined && since !== null) {
     sinceMs = Date.parse(since);
@@ -172,25 +174,25 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
   const fold = readFold(root, { fsImpl, now });
   const derived = deriveStatuses({ root, fold });
   const followups = withDerivedDone(fold.followups, statusMap(derived));
-  const open = followups.filter((item) => item.state === 'open');
+  const open = followups.filter((item: any) => item.state === 'open');
   const limit = maintain ? MAINTAIN_SHOWN : DISCOVERY_SHOWN;
   // A promotion settles an item for the maintain loop as much as a settlement does: it stays open with an intent.
-  const settledSince = (item) => item.history.some((h) => (h.type === 'followup.settled' || h.type === 'followup.promoted') && (sinceMs === null || Date.parse(h.at) >= sinceMs));
-  const pendingOf = (item) => !settledSince(item);
+  const settledSince = (item: any) => item.history.some((h: any) => (h.type === 'followup.settled' || h.type === 'followup.promoted') && (sinceMs === null || Date.parse(h.at) >= sinceMs));
+  const pendingOf = (item: any) => !settledSince(item);
   // Maintain shows pending items first (IC-007), so a loop over more than MAINTAIN_SHOWN items reaches the rest.
-  const ordered = [...open].sort((a, b) => (maintain ? pendingOf(b) - pendingOf(a) : 0) || byDiscoveryOrder(a, b));
+  const ordered = [...open].sort((a, b) => (maintain ? Number(pendingOf(b)) - Number(pendingOf(a)) : 0) || byDiscoveryOrder(a, b));
   const items = ordered.slice(0, limit).map((item) => shownItem(item, maintain ? pendingOf(item) : undefined));
 
   const intentGroups = new Map();
-  for (const item of open.filter((i) => i.intent)) {
+  for (const item of open.filter((i: any) => i.intent)) {
     if (!intentGroups.has(item.intent)) intentGroups.set(item.intent, []);
     intentGroups.get(item.intent).push(item.id);
   }
   const intents = [...intentGroups].map(([intentPath, ids]) => ({ path: intentPath, items: ids }));
   const conflictsByGoal = goalConflicts(root, fold, fsImpl);
-  const goals = fold.goals.filter((g) => g.status === 'open').map((g) => goalView(g, fold.features, derived, conflictsByGoal.get(g.goal)));
+  const goals = fold.goals.filter((g: any) => g.status === 'open').map((g: any) => goalView(g, fold.features, derived, conflictsByGoal.get(g.goal)));
 
-  const result = {
+  const result: any = {
     ok: true,
     mode: maintain ? 'maintain' : 'discovery',
     releaseMode: derived.releaseMode,
@@ -226,7 +228,7 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
  * The feature folder is looked for under the IC-001 root itself, never in the current worktree, so a
  * folder that exists only in a linked worktree is refused.
  */
-function initFeature({ root, slug, take, intent, goal, now = new Date(), fsImpl = nodeFs }) {
+function initFeature({ root, slug, take, intent, goal, now = new Date(), fsImpl = nodeFs }: any) {
   if (!slug) throw new FollowupUsageError('--slug is required for --action init');
   const bad = invalidSlugRefusal(slug);
   if (bad) throw new FollowupUsageError(bad.message);
@@ -238,7 +240,7 @@ function initFeature({ root, slug, take, intent, goal, now = new Date(), fsImpl 
   }
   const wanted = take === undefined || take === null ? [] : parseIds(take, '--take');
   const fold = readFold(root, { fsImpl, now });
-  const tracked = fold.features.find((f) => f.slug === slug);
+  const tracked = fold.features.find((f: any) => f.slug === slug);
   const ids = [...wanted];
   if (intent) {
     for (const item of fold.followups) if (item.state === 'open' && item.intent === intent && !ids.includes(item.id)) ids.push(item.id);
@@ -260,7 +262,7 @@ function initFeature({ root, slug, take, intent, goal, now = new Date(), fsImpl 
       const code = out.conflict && ['unknown-id', 'untracked-feature', 'goal-already-linked', 'unknown-goal'].includes(out.conflict.code) ? out.conflict.code : out.finding;
       return refusal('init', code, out.message);
     }
-    events = out.written.map((w) => w.file);
+    events = out.written.map((w: any) => w.file);
   }
   return { ok: true, action: 'init', slug, tracked: tracked ? 'already' : 'new', taken: ids, goal: goal || (tracked && tracked.goal) || null, events, next };
 }
@@ -268,19 +270,19 @@ function initFeature({ root, slug, take, intent, goal, now = new Date(), fsImpl 
 // ── status ─────────────────────────────────────────────────────────────────────────────────────
 
 /** IC-021 `status`: the derived status of one tracked feature. */
-function featureStatus({ root, slug, now = new Date(), fsImpl = nodeFs }) {
+function featureStatus({ root, slug, now = new Date(), fsImpl = nodeFs }: any) {
   if (!slug) throw new FollowupUsageError('--slug is required for --action status');
   if (!isSafeSlug(slug)) throw new FollowupUsageError(invalidSlugRefusal(slug).message);
   const fold = readFold(root, { fsImpl, now });
-  if (!fold.features.some((f) => f.slug === slug)) {
+  if (!fold.features.some((f: any) => f.slug === slug)) {
     return refusal('status', 'untracked-feature', `${slug} is not a tracked feature, so no status is derived for it; run doflow-run lifecycle --action init --slug ${slug} first.`);
   }
   const derived = deriveStatuses({ root, fold });
   const entry = derived.statuses[slug];
-  const result = {
+  const result: any = {
     ok: true, action: 'status', slug, status: entry.status, integrationRef: derived.integrationRef,
     evidence: entry.evidence, release: entry.release,
-    takenItems: fold.followups.filter((item) => item.takenBy === slug && item.state === 'taken').map((item) => item.id),
+    takenItems: fold.followups.filter((item: any) => item.takenBy === slug && item.state === 'taken').map((item: any) => item.id),
   };
   if (derived.reason) result.reason = derived.reason;
   if (derived.integrationBehind > 0) Object.assign(result, { integrationBehind: derived.integrationBehind, note: behindNote(derived.integrationRef, derived.integrationBehind) });

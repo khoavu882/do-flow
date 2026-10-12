@@ -13,7 +13,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const goals = require('../../src/runtime/lifecycle/goal');
-const { buildOverview } = require('../../src/runtime/lifecycle/overview');
+const { buildOverview } = require('../../src/runtime/lifecycle/overview.ts');
 const { FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
