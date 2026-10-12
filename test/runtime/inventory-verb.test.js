@@ -37,9 +37,9 @@ const { suiteTempDir } = require('../helper/tmp');
 const { stateRoot, defaultLedger, writeLedger } = require('../../src/state');
 const { defaultLock } = require('../../src/state/lockfile');
 const { loadRegistry } = require('../../src/registry');
-const { readScopes } = require('../../src/runtime/inventory/read-scopes');
-const { buildInventoryReport, printReport, FINDING_KINDS, RECONCILE, MANUAL } = require('../../src/runtime/inventory');
-const { REPAIR_REASONS } = require('../../src/runtime/inventory/coverage');
+const { readScopes } = require('../../src/runtime/inventory/read-scopes.ts');
+const { buildInventoryReport, printReport, FINDING_KINDS, RECONCILE, MANUAL } = require('../../src/runtime/inventory/index.ts');
+const { REPAIR_REASONS } = require('../../src/runtime/inventory/coverage.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * C7 — report assembler and the `inventory` verb (FR-005, FR-008, FR-009; IC-001, IC-002).
  *
@@ -58,11 +60,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { harnessFor, loadRegistry } = require('../../registry');
-const { readScopes } = require('./read-scopes');
-const { deriveAssetIdentity } = require('./identity');
-const { resolveShadowVerdict } = require('./precedence');
-const { inspectSiblings } = require('./siblings');
-const { repairCoverage, readScopeLocks } = require('./coverage');
+const { readScopes } = require('./read-scopes.ts');
+const { deriveAssetIdentity } = require('./identity.ts');
+const { resolveShadowVerdict } = require('./precedence.ts');
+const { inspectSiblings } = require('./siblings.ts');
+const { repairCoverage, readScopeLocks } = require('./coverage.ts');
 const { finishRuntime, usageError } = require('../cli-result');
 
 /** The three currency values of IC-002, and never a fourth. The third is not a weaker second: a
@@ -108,14 +110,14 @@ const RECONCILE = 'reconcile';
 const MANUAL = 'manual';
 
 /** Report vocabulary -> registry vocabulary (`scopePrecedence.order` names the global scope `user`). */
-function toRegistryScope(scope) { return scope === 'global' ? 'user' : scope; }
+function toRegistryScope(scope: any): any { return scope === 'global' ? 'user' : scope; }
 /** Registry vocabulary -> report vocabulary. The inverse of the above, applied to every scope name
  * `precedence.js` hands back, so a verdict never names a scope the rest of the report does not. */
-function toReportScope(scope) { return scope === 'user' ? 'global' : scope; }
+function toReportScope(scope: any): any { return scope === 'user' ? 'global' : scope; }
 
 /** The four fields that identify one recorded resource, and the same four an adapter change carries.
  * Not `ownershipKey` from src/state: that one includes the scope, and a plan change has none. */
-function recordKey(record) {
+function recordKey(record: any): string {
   return [record?.harness, record?.assetId, record?.target, record?.ownershipIdentity].join('\u0000');
 }
 
@@ -139,7 +141,7 @@ function recordKey(record) {
  * component boundaries here. A prerequisite is deliberately *not* disqualifying — it says the change
  * cannot yet be applied, not that the plan could not determine it.
  */
-function planBasis(snapshot) {
+function planBasis(snapshot: any): any {
   const changes = new Map();
   for (const change of snapshot?.plan?.changes ?? []) {
     if (change && typeof change === 'object') changes.set(recordKey(change), change);
@@ -179,7 +181,7 @@ function planBasis(snapshot) {
  * @returns {boolean} false whenever the destination cannot be read, or the change names no
  *   fingerprint — an absent or unreadable file is no evidence that its content is current.
  */
-function contentAlreadyCurrent(change, fsImpl) {
+function contentAlreadyCurrent(change: any, fsImpl: any): boolean {
   const intended = change?.fingerprint;
   if (typeof intended !== 'string' || intended === '') return false;
   let observed;
@@ -229,7 +231,7 @@ function contentAlreadyCurrent(change, fsImpl) {
  *   `null` for the other two values — a copy that was judged needs no basis, and a diverged one's
  *   remedy is the restore `remedyFor` already states.
  */
-function currencyOf(resource, basis, fsImpl = fs) {
+function currencyOf(resource: any, basis: any, fsImpl: any = fs): any {
   const recorded = resource?.fingerprint;
   if (typeof recorded !== 'string' || recorded === '') {
     return {
@@ -292,13 +294,13 @@ function currencyOf(resource, basis, fsImpl = fs) {
 }
 
 /** The literal command that would converge one scope. Text only — this verb never runs it. */
-function reconcileCommand(scope, projectRoot) {
+function reconcileCommand(scope: any, projectRoot: any): string {
   return scope === 'global' ? 'doflow reconcile -g' : `doflow reconcile ${projectRoot}`;
 }
 
 /** One copy of a logical asset, as IC-002 requires: where it is, and how current it is — plus, where
  * it could not be judged at all, what would give a later run a basis for judging it. */
-function copyEntry(resource, scope, basis, fsImpl) {
+function copyEntry(resource: any, scope: any, basis: any, fsImpl: any): any {
   const currency = currencyOf(resource, basis, fsImpl);
   return {
     scope,
@@ -319,9 +321,9 @@ function copyEntry(resource, scope, basis, fsImpl) {
  * @returns {{groups: Map<string, Object>, unidentified: Array<Object>}} `unidentified` holds one
  *   row per resource whose identity could not be derived — never grouped, since `null` is not a key.
  */
-function groupByIdentity(snapshots, fsImpl) {
+function groupByIdentity(snapshots: any, fsImpl: any): any {
   const groups = new Map();
-  const unidentified = [];
+  const unidentified: any[] = [];
   for (const snapshot of snapshots) {
     const basis = planBasis(snapshot);
     for (const resource of snapshot.resources ?? []) {
@@ -349,15 +351,15 @@ function groupByIdentity(snapshots, fsImpl) {
 /** The harness's recorded precedence block, or `null` when it declares none — the fifth IC-003
  * state (the question has not been asked), which `precedence.js` must see as an absence rather than
  * as an empty object it could misread as a block with no mode. */
-function precedenceFor(registry, harness) {
+function precedenceFor(registry: any, harness: any): any {
   try { return harnessFor(registry, harness).scopePrecedence ?? null; }
   catch { return null; }
 }
 
 /** Every unmanaged entry sharing a directory with one of this asset's copies, attributed to the
  * scope whose copy put it in view. Never carries a currency (data model: `UNMANAGED_CANDIDATE`). */
-function unmanagedFor(copies, candidatesByTarget) {
-  const found = [];
+function unmanagedFor(copies: any, candidatesByTarget: any): any[] {
+  const found: any[] = [];
   for (const copy of copies) {
     for (const candidate of candidatesByTarget[copy.location] ?? []) {
       found.push({ ...candidate, scope: copy.scope });
@@ -369,8 +371,8 @@ function unmanagedFor(copies, candidatesByTarget) {
 /** The literal actions that would resolve this asset's findings, in the order a reader should take
  * them. One object per asset (IC-002's "the remedy"), holding every step rather than the first, so
  * an asset that is both diverged and shadowed does not have half its remedy silently dropped. */
-function remedyFor({ copies, verdict, unmanaged, projectRoot }) {
-  const actions = [];
+function remedyFor({ copies, verdict, unmanaged, projectRoot }: any): any {
+  const actions: any[] = [];
   for (const copy of copies) {
     if (copy.currency === CURRENCY.DIVERGED) {
       actions.push({
@@ -391,7 +393,7 @@ function remedyFor({ copies, verdict, unmanaged, projectRoot }) {
     }
   }
   if (verdict?.shadowed && verdict.winner) {
-    const losers = copies.filter((copy) => copy.scope !== verdict.winner).map((copy) => copy.location);
+    const losers = copies.filter((copy: any) => copy.scope !== verdict.winner).map((copy: any) => copy.location);
     actions.push({
       finding: FINDING_KINDS.SHADOW,
       action: `edit the copy the harness actually loads — the ${verdict.winner} one — or delete the `
@@ -402,7 +404,7 @@ function remedyFor({ copies, verdict, unmanaged, projectRoot }) {
   if (verdict?.shadowed && !verdict.winner) {
     actions.push({
       finding: FINDING_KINDS.WITHHELD_VERDICT,
-      action: `keep exactly one copy — ${copies.map((copy) => copy.location).join(' or ')} — because `
+      action: `keep exactly one copy — ${copies.map((copy: any) => copy.location).join(' or ')} — because `
         + `${verdict.withheldReason}, so which one takes effect cannot be stated`,
       command: null,
     });
@@ -447,8 +449,8 @@ function remedyFor({ copies, verdict, unmanaged, projectRoot }) {
  *   finding about it. The harness is in the key because a directory two harnesses both load
  *   wholesale makes the same file operative twice, which is two facts.
  */
-function findingsFor({ identity, harness, copies, verdict, unmanaged }, seenUnmanaged) {
-  const findings = [];
+function findingsFor({ identity, harness, copies, verdict, unmanaged }: any, seenUnmanaged: any): any[] {
+  const findings: any[] = [];
   for (const copy of copies) {
     if (copy.currency === CURRENCY.DIVERGED) {
       findings.push({ id: identity, kind: FINDING_KINDS.DIVERGENCE, harness, scope: copy.scope, repairPath: RECONCILE });
@@ -482,7 +484,7 @@ function findingsFor({ identity, harness, copies, verdict, unmanaged }, seenUnma
  * A restriction to named harnesses is named in the sentence, because the sentence is where a reader
  * decides whether to act. "nothing requires attention" read off a run restricted to one harness — or
  * to a harness that is not installed — would otherwise be taken for a statement about the install. */
-function summarize({ findings, assets, unidentified, targets }) {
+function summarize({ findings, assets, unidentified, targets }: any): string {
   const counts = new Map();
   for (const finding of findings) counts.set(finding.kind, (counts.get(finding.kind) ?? 0) + 1);
   const subject = `${assets.length} logical asset(s)${targets ? ` recorded for ${targets.join(', ')}` : ''}`;
@@ -529,7 +531,7 @@ function summarize({ findings, assets, unidentified, targets }) {
  *   exists but cannot be read is the same class as a ledger that cannot: the report would have to
  *   invent the selection the plan is computed from.
  */
-function buildInventoryReport({ repoRoot, projectRoot, targets, registry, locks, fsImpl } = {}) {
+function buildInventoryReport({ repoRoot, projectRoot, targets, registry, locks, fsImpl }: any = {}): any {
   const loaded = registry ?? loadRegistry({ repoRoot });
   const requested = Array.isArray(targets) && targets.length > 0 ? targets : undefined;
   // Validated before anything is read, so an unknown harness fails as the argument error it is
@@ -548,12 +550,12 @@ function buildInventoryReport({ repoRoot, projectRoot, targets, registry, locks,
 
   const { groups, unidentified } = groupByIdentity(scopes, fsImpl ?? fs);
   const siblings = inspectSiblings({
-    resources: scopes.flatMap((snapshot) => snapshot.resources ?? []),
+    resources: scopes.flatMap((snapshot: any) => snapshot.resources ?? []),
     ...(fsImpl ? { fsImpl } : {}),
   });
 
-  const assets = [];
-  const findings = [];
+  const assets: any[] = [];
+  const findings: any[] = [];
   // One finding per unmanaged file across the whole report, not per asset that lists it (FR-007;
   // see the header's note 3). Assets are walked in identity order, so which entry carries the
   // finding is deterministic.
@@ -561,7 +563,7 @@ function buildInventoryReport({ repoRoot, projectRoot, targets, registry, locks,
   for (const identity of [...groups.keys()].sort()) {
     const { harness, assetId, copies } = groups.get(identity);
     // Both crossings of the vocabulary seam, in one place: in, then straight back out.
-    const raw = resolveShadowVerdict(copies.map((copy) => toRegistryScope(copy.scope)), precedenceFor(loaded, harness));
+    const raw = resolveShadowVerdict(copies.map((copy: any) => toRegistryScope(copy.scope)), precedenceFor(loaded, harness));
     const verdict = raw && {
       presentAt: raw.presentAt.map(toReportScope),
       shadowed: raw.shadowed,
@@ -601,7 +603,7 @@ function buildInventoryReport({ repoRoot, projectRoot, targets, registry, locks,
     status: findings.length === 0 ? 'CLEAN' : 'FINDINGS',
     exitCode: findings.length === 0 ? 0 : 1,
     summary: summarize({ findings, assets, unidentified, targets: requested }),
-    scopes: scopes.map((snapshot) => ({
+    scopes: scopes.map((snapshot: any) => ({
       scope: snapshot.scope,
       root: snapshot.scopeRoot,
       present: snapshot.recorded,
@@ -616,7 +618,7 @@ function buildInventoryReport({ repoRoot, projectRoot, targets, registry, locks,
 
 /** Human rendering. The same facts as `--json`, in the same order, so neither shape is the one that
  * tells the truth. */
-function printReport(report) {
+function printReport(report: any): void {
   console.log('\nDoFlow cross-scope inventory:');
   console.log('═'.repeat(78));
   console.log(report.summary);
@@ -677,7 +679,7 @@ function printReport(report) {
  *   question from the one the caller asked.
  * @returns {number} the exit status, already set on the process
  */
-function handleInventoryCommand({ repoRoot, projectRoot, targets, json = false, global: globalScope = false } = {}) {
+function handleInventoryCommand({ repoRoot, projectRoot, targets, json = false, global: globalScope = false }: any = {}): any {
   if (globalScope) {
     return usageError('inventory', '-g/--global is not accepted: this verb reads both scopes in one '
       + 'invocation, which is its entire purpose. Re-run without the flag.', json);
@@ -689,7 +691,7 @@ function handleInventoryCommand({ repoRoot, projectRoot, targets, json = false, 
   } catch (error) {
     // IC-001 assigns an unreadable registry, an unparseable ledger and an undeclared harness alike
     // to exit 2. A scope with nothing recorded never reaches here — `readScopes` returns it empty.
-    return usageError('inventory', error.message, json, error);
+    return usageError('inventory', (error as any).message, json, error);
   }
 
   if (json) console.log(JSON.stringify(report, null, 2));

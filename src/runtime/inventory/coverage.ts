@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * C6 — repair-coverage annotator (FR-006, design §3 C6, entity `REPAIR_COVERAGE`).
  *
@@ -109,9 +111,9 @@ const REPAIR_REASONS = Object.freeze({
 
 /** The harnesses a lock document pins, and how it pins them. Mirrors `reconcile`'s own reading:
  * a missing lock and a lock with an empty `targets` array are equally unable to repair anything. */
-function scopePin(scope, lock) {
+function scopePin(scope: any, lock: any): any {
   const targets = Array.isArray(lock?.targets)
-    ? lock.targets.map((entry) => entry?.harness).filter((harness) => typeof harness === 'string' && harness !== '')
+    ? lock.targets.map((entry: any) => entry?.harness).filter((harness: any) => typeof harness === 'string' && harness !== '')
     : [];
   const state = !lock ? 'absent' : (targets.length === 0 ? 'empty' : 'present');
   return { scope, lock: state, pinned: state === 'present', targets, findings: 0, repairable: 0 };
@@ -120,7 +122,7 @@ function scopePin(scope, lock) {
 /** Decide one finding against the pins. Repair-path reach is tested before lock reach: a finding
  * no command performs is unreachable for a more fundamental reason than a narrow pin, and naming
  * the pin would imply widening it is the fix. */
-function classify(finding, pins) {
+function classify(finding: any, pins: any): any {
   const pin = pins[finding?.scope];
   if (!pin) return { repairable: false, reason: REPAIR_REASONS.UNKNOWN_SCOPE };
   const declared = finding.repairPath;
@@ -137,7 +139,7 @@ function classify(finding, pins) {
 
 /** One sentence a reader meets before the detail, so the gap cannot be missed by someone who does
  * not read the counts. States what is repairable and by what; never suggests a way to widen it. */
-function summarize(total, repairable) {
+function summarize(total: number, repairable: number): string {
   if (total === 0) return 'No findings — repair coverage does not arise.';
   if (repairable === total) {
     return `All ${total} finding(s) are repairable by \`doflow reconcile\`.`;
@@ -162,7 +164,7 @@ function summarize(total, repairable) {
  * @throws when a lock file exists but cannot be parsed or validated. Propagated deliberately:
  *   `reconcile` would fail on the same document, so guessing its reach would be fiction.
  */
-function readScopeLocks({ projectRoot, homeDir = os.homedir() }, { fsImpl } = {}) {
+function readScopeLocks({ projectRoot, homeDir = os.homedir() }: any, { fsImpl }: any = {}): any {
   return {
     global: readLock({ scope: 'global', homeDir }, { fsImpl }),
     project: readLock({ scope: 'project', projectRoot }, { fsImpl }),
@@ -178,12 +180,12 @@ function readScopeLocks({ projectRoot, homeDir = os.homedir() }, { fsImpl } = {}
  *   as `readScopeLocks` returns them. A missing or `null` entry is an unpinned scope.
  * @returns {RepairCoverage}
  */
-function repairCoverage({ findings = [], locks = {} } = {}) {
+function repairCoverage({ findings = [], locks = {} }: any = {}): any {
   const rows = Array.isArray(findings) ? findings : [];
   const pins = Object.fromEntries(SCOPES.map((scope) => [scope, scopePin(scope, locks?.[scope] ?? null)]));
 
-  const reasons = {};
-  const details = rows.map((finding) => {
+  const reasons: any = {};
+  const details = rows.map((finding: any) => {
     const { repairable, reason } = classify(finding, pins);
     const pin = pins[finding?.scope];
     if (pin) {
@@ -200,7 +202,7 @@ function repairCoverage({ findings = [], locks = {} } = {}) {
     };
   });
 
-  const repairable = details.filter((row) => row.repairable).length;
+  const repairable = details.filter((row: any) => row.repairable).length;
   return {
     findings: details.length,
     repairable,

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The precedence resolver (design C4, contract IC-003 consumer, FR-004).
  *
@@ -61,9 +63,9 @@
  * @returns {ShadowVerdict|null} `null` when `presentScopes` carries no usable scope name — there is
  *   no asset to resolve a verdict for. Otherwise a `ShadowVerdict`.
  */
-function resolveShadowVerdict(presentScopes, precedence) {
+function resolveShadowVerdict(presentScopes: any, precedence: any): any {
   const scopes = Array.isArray(presentScopes)
-    ? [...new Set(presentScopes.filter((scope) => typeof scope === 'string' && scope !== ''))]
+    ? [...new Set(presentScopes.filter((scope: any) => typeof scope === 'string' && scope !== ''))]
     : [];
   if (scopes.length === 0) return null;
 

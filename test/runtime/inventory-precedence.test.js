@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveShadowVerdict } = require('../../src/runtime/inventory/precedence');
+const { resolveShadowVerdict } = require('../../src/runtime/inventory/precedence.ts');
 
 // Fixtures below are the actual `scopePrecedence` blocks recorded on `core/registry/harnesses.json`
 // for the named harness, trimmed to the fields this module reads (`mode`, `order`). Recorded there

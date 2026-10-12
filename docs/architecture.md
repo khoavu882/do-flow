@@ -559,7 +559,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   scan covers the verify and remove sites the behavioral half never reaches.
 - **G21** (`wholesale-assets.test.js`) — `doflow inventory` reports an unmanaged neighbouring file
   only in a directory the harness loads *wholesale*, and nothing in the registry records load
-  semantics, so `WHOLESALE_ASSETS` in `src/runtime/inventory/siblings.js` is derived by hand. This
+  semantics, so `WHOLESALE_ASSETS` in `src/runtime/inventory/siblings.ts` is derived by hand. This
   pins it to what adapters actually do, so a harness that gains an apply-to-everything transform
   cannot silently stop being inspected. The derived half runs every entry of `copy-tree.js`'s
   `TRANSFORMS` table over a probe file and reads the frontmatter it produces — a projection whose

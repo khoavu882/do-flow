@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { deriveAssetIdentity } = require('../../src/runtime/inventory/identity');
+const { deriveAssetIdentity } = require('../../src/runtime/inventory/identity.ts');
 
 // Every ownership identity below is a real shape, copied from a resource recorded by the adapters
 // (`doflow:<harness>:<role>[:<discriminator>]`, or a harness-prefixed variant). Inventing a shape

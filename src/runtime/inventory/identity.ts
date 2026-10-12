@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The cross-scope logical-asset identity (design C3, contract IC-004).
  *
@@ -51,7 +53,7 @@
  *   user can hand-edit. `null` is a signal to the caller to report the row as unresolved, never a
  *   value to join or compare against another `null`.
  */
-function deriveAssetIdentity(resource) {
+function deriveAssetIdentity(resource: any): string | null {
   if (!resource || typeof resource !== 'object') return null;
   const { harness, ownershipIdentity } = resource;
   if (typeof harness !== 'string' || harness === '') return null;

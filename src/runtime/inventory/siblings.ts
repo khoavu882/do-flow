@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -86,8 +88,8 @@ const WHOLESALE_ASSETS = Object.freeze({
 
 /** Whether this harness loads this asset's native directory wholesale. `Array.isArray` also guards
  * a harness id that collides with an `Object.prototype` key. */
-function loadsWholesale(harness, assetId) {
-  const assets = WHOLESALE_ASSETS[harness];
+function loadsWholesale(harness: any, assetId: any): boolean {
+  const assets = (WHOLESALE_ASSETS as any)[harness];
   return Array.isArray(assets) && assets.includes(assetId);
 }
 
@@ -96,7 +98,7 @@ function loadsWholesale(harness, assetId) {
  * subdirectory holding managed assets is recognised as structure, not as a foreign entry); only
  * resources whose harness loads them wholesale contribute a `wholesale` target, and only a
  * directory with at least one of those is ever read. */
-function groupByParentDir(resources) {
+function groupByParentDir(resources: any): any {
   const byDir = new Map();
   const managedDirs = new Set();
   for (const resource of resources ?? []) {
@@ -117,10 +119,10 @@ function groupByParentDir(resources) {
 /** Whether a directory entry is part of the managed tree's own structure — it is, or contains at
  * some depth, the parent directory of a managed resource. Scans `managedDirs`, which is bounded by
  * the number of managed resources rather than by directory size (R6). */
-function holdsManagedAsset(candidatePath, managedDirs) {
+function holdsManagedAsset(candidatePath: any, managedDirs: any): boolean {
   const prefix = candidatePath + path.sep;
   for (const dir of managedDirs) {
-    if (dir === candidatePath || dir.startsWith(prefix)) return true;
+    if (dir === candidatePath || (dir as string).startsWith(prefix)) return true;
   }
   return false;
 }
@@ -150,13 +152,13 @@ function holdsManagedAsset(candidatePath, managedDirs) {
  * beside eight reported siblings invited the reading that eight more had been hidden. IC-002's
  * final field is dropped with it (task F.3); see `index.js#buildInventoryReport`.
  */
-function inspectSiblings({ resources, fsImpl = fs } = {}) {
+function inspectSiblings({ resources, fsImpl = fs }: any = {}): any {
   const { byDir, managedDirs } = groupByParentDir(resources);
-  const candidatesByTarget = {};
+  const candidatesByTarget: any = {};
   let directoriesInspected = 0;
 
   for (const [dir, { basenames, wholesale }] of byDir) {
-    if (wholesale.length === 0) continue; // name-resolved: never read, not even to count.
+    if ((wholesale as any[]).length === 0) continue; // name-resolved: never read, not even to count.
 
     let entries;
     try {
@@ -166,12 +168,12 @@ function inspectSiblings({ resources, fsImpl = fs } = {}) {
     }
     directoriesInspected += 1;
 
-    const unmanaged = [];
+    const unmanaged: any[] = [];
     for (const entry of entries) {
-      const name = entry.name;
-      if (basenames.has(name)) continue; // the managed file itself.
-      const entryPath = path.join(dir, name);
-      const isDirectory = entry.isDirectory?.() === true;
+      const name = (entry as any).name;
+      if ((basenames as Set<string>).has(name)) continue; // the managed file itself.
+      const entryPath = path.join(dir as string, name);
+      const isDirectory = (entry as any).isDirectory?.() === true;
       if (isDirectory && holdsManagedAsset(entryPath, managedDirs)) continue; // managed structure.
       unmanaged.push({ name, path: entryPath, parentDir: dir, kind: isDirectory ? 'directory' : 'file' });
     }
@@ -179,8 +181,8 @@ function inspectSiblings({ resources, fsImpl = fs } = {}) {
 
     // Attributed per managed target rather than shared, so each candidate names the harness and
     // asset whose wholesale load is the reason it is operative at all.
-    for (const { target, harness, assetId } of wholesale) {
-      candidatesByTarget[target] = unmanaged.map((found) => ({ ...found, harness, assetId }));
+    for (const { target, harness, assetId } of (wholesale as any[])) {
+      candidatesByTarget[target] = unmanaged.map((found: any) => ({ ...found, harness, assetId }));
     }
   }
 

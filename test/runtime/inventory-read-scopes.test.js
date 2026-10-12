@@ -12,8 +12,8 @@ const { loadRegistry } = require('../../src/registry');
 const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state');
 const { defaultLock, writeLock, lockPath } = require('../../src/state/lockfile');
 const { LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
-const { readScopes } = require('../../src/runtime/inventory/read-scopes');
-const { buildInventoryReport } = require('../../src/runtime/inventory');
+const { readScopes } = require('../../src/runtime/inventory/read-scopes.ts');
+const { buildInventoryReport } = require('../../src/runtime/inventory/index.ts');
 
 // A developer's PI_CODING_AGENT_DIR would point this file's global Pi MCP plans at their real agent dir.
 delete process.env.PI_CODING_AGENT_DIR;

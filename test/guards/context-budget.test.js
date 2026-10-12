@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared');
 const { resolveTransform } = require('../../src/adapters/copy-tree');
-const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings');
+const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 const ROOT_FILE = path.join(GUIDANCE, 'DOFLOW_CORE.md');
 

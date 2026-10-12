@@ -46,7 +46,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { TRANSFORMS } = require('../../src/adapters/copy-tree');
-const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings');
+const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 const ASSETS = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'assets.json'), 'utf8'));
 const HARNESSES = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));

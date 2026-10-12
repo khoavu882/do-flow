@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * C2 — dual-scope reader (FR-002, NFR-002).
  *
@@ -66,7 +68,7 @@ const { readInstallManifest } = require('../../install/manifest.ts');
  */
 
 /** @returns {ScopeSnapshot} */
-function snapshot(scope, view, targets) {
+function snapshot(scope: any, view: any, targets: any): any {
   const { ledger } = view;
   const wanted = new Set(targets);
   return {
@@ -75,7 +77,7 @@ function snapshot(scope, view, targets) {
     stateRoot: view.stateRoot,
     recorded: ledger.resources.length > 0 || Object.keys(ledger.targets).length > 0,
     targets,
-    resources: ledger.resources.filter((resource) => wanted.has(resource?.harness)),
+    resources: ledger.resources.filter((resource: any) => wanted.has(resource?.harness)),
     ledger,
     plan: view.plan,
   };
@@ -102,7 +104,7 @@ function snapshot(scope, view, targets) {
  *   computed from a selection nobody can read, so a currency judgement derived from it would be
  *   fiction. `reconcile` fails on the same document.
  */
-function readScopes({ registry, repoRoot, projectRoot, targets = LIFECYCLE_HARNESSES, locks }) {
+function readScopes({ registry, repoRoot, projectRoot, targets = LIFECYCLE_HARNESSES, locks }: any): any {
   const wanted = [...new Set(targets)];
   const resolved = locks ?? {
     // The global lock root is the home directory, the same root design R7 keeps out of this
@@ -110,7 +112,7 @@ function readScopes({ registry, repoRoot, projectRoot, targets = LIFECYCLE_HARNE
     global: readLock({ scope: 'global' }),
     project: readLock({ scope: 'project', projectRoot }),
   };
-  const read = (scope) => {
+  const read = (scope: any) => {
     // Each scope's own ledger, at the root the view itself reads it from.
     const ledger = readLedger(scope === 'global'
       ? stateRoot({ scope: 'global', homeDir: os.homedir() }) : stateRoot({ scope: 'project', projectRoot }));
