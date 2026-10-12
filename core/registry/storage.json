@@ -1026,7 +1026,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/pi/mcp.js",
+      "file": "src/adapters/pi/mcp.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {

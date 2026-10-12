@@ -41,6 +41,7 @@ declare var console: {
 
 interface Buffer extends Uint8Array {
   toString(encoding?: string, start?: number, end?: number): string;
+  equals(other: Uint8Array): boolean;
 }
 declare var Buffer: {
   alloc(size: number): Buffer;
