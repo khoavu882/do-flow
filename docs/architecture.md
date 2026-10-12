@@ -616,12 +616,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   appears only under `core/shared/skills/`; a sentence naming an `optional` server with "always",
   "no flag" or "unconditionally" fails; a sentence holding `ToolSearch(` must say "Claude Code". Each
   marker in a skill file needs a matching `steps` entry in `mcp.json`, and each `steps` entry's file
-  must exist and hold its server's marker. `mcp-consultations.ts`, `mcp-reach.ts`, `brief-tools.js`
+  must exist and hold its server's marker. `mcp-consultations.ts`, `mcp-reach.ts`, `brief-tools.ts`
   and `do-task-brief.sh` contain no `mcp.json` id as a literal, and the first three require none of
   `http`, `https`, `net` or `dns`. `docs/setup.md` holds each stepped server's `trigger` verbatim. The
   checks are one function over injected files, and fixture tests run it over bad trees.
 - **G29** (`brief-tools-registry.test.js`) — the tier, tools and report-format block of a generated
-  brief follows the registries. `src/runtime/brief-tools.js` and `do-task-brief.sh` contain no
+  brief follows the registries. `src/runtime/brief-tools.ts` and `do-task-brief.sh` contain no
   capability id, provider id or binary, route intent, `mcp.json` id or provider `mcp.server` as a
   literal. The block rendered over the shipped registries has one row per route intent and names
   only providers `capabilities.json` declares, and over a fixture registry with one more intent and

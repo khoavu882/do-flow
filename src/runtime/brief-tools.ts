@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The tier, tools and report-format block of a generated brief (062 CH7, IC-016 to IC-018).
  *
@@ -33,30 +35,30 @@ const REACHABLE = new Set(['selected', 'configured']);
 
 /** The state of `server` on a harness: selected or configured on any of its scopes wins; absent
  * only when every scope says so from a complete view (IC-013); else unknown. */
-function stateOn(reach, harnessId, server) {
-  const rows = (reach?.harnesses || []).filter((row) => row.id === harnessId);
-  if (rows.some((row) => row.servers[server] === 'selected')) return 'selected';
-  if (rows.some((row) => row.servers[server] === 'configured')) return 'configured';
-  const states = rows.map((row) => row.servers[server] ?? 'unknown');
+function stateOn(reach: any, harnessId: any, server: any) {
+  const rows = (reach?.harnesses || []).filter((row: any) => row.id === harnessId);
+  if (rows.some((row: any) => row.servers[server] === 'selected')) return 'selected';
+  if (rows.some((row: any) => row.servers[server] === 'configured')) return 'configured';
+  const states = rows.map((row: any) => row.servers[server] ?? 'unknown');
   return states.length && !states.includes('unknown') ? states[0] : 'unknown';
 }
 
 /** Whether `server` is selected or configured on the target harness, or on any harness without one. */
-function hasServer(reach, harnessId, server) {
+function hasServer(reach: any, harnessId: any, server: any) {
   if (!reach) return false;
-  return harnessId ? REACHABLE.has(stateOn(reach, harnessId, server)) : reach.harnesses.some((row) => REACHABLE.has(row.servers[server]));
+  return harnessId ? REACHABLE.has(stateOn(reach, harnessId, server)) : reach.harnesses.some((row: any) => REACHABLE.has(row.servers[server]));
 }
 
 /** The target harness: a registry id named by the caller, else the one harness installed at the
  * project scope (the global scope when the project has none), else none. */
-function chooseTarget({ registry, reach, harness, missing }) {
+function chooseTarget({ registry, reach, harness, missing }: any) {
   if (harness) {
-    if (registry.harnesses.some((item) => item.id === harness)) return harness;
+    if (registry.harnesses.some((item: any) => item.id === harness)) return harness;
     missing.push(`harness '${harness}' is not a registry harness; ignored`);
   }
   const rows = reach?.harnesses || [];
   for (const scope of ['project', 'global']) {
-    const ids = [...new Set(rows.filter((row) => row.scope === scope).map((row) => row.id))];
+    const ids = [...new Set(rows.filter((row: any) => row.scope === scope).map((row: any) => row.id))];
     if (ids.length) return ids.length === 1 ? ids[0] : null;
   }
   return null;
@@ -64,7 +66,7 @@ function chooseTarget({ registry, reach, harness, missing }) {
 
 /** Tier for a dispatch: the task line's tier when valid, else the owner's, else the default (IC-004).
  * A registry without `dispatchTiers` (the key is optional) gives `standard` with a note. */
-function resolveTier({ dispatchTiers, owner, tier, missing }) {
+function resolveTier({ dispatchTiers, owner, tier, missing }: any) {
   if (!dispatchTiers) {
     missing.push('models.json has no dispatchTiers; tier standard assumed');
     return { tier: 'standard', source: 'default', note: 'models.json has no dispatchTiers' };
@@ -79,14 +81,14 @@ function resolveTier({ dispatchTiers, owner, tier, missing }) {
 }
 
 /** The first provider of a capability whose probe status is `status`, in registry order, or null. */
-function firstWith(router, capabilityId, probes, status) {
-  return (router.capabilities[capabilityId]?.providers || []).find((provider) => probes[provider.id]?.status === status) || null;
+function firstWith(router: any, capabilityId: any, probes: any, status: any) {
+  return (router.capabilities[capabilityId]?.providers || []).find((provider: any) => probes[provider.id]?.status === status) || null;
 }
 
 /** What answers one route intent on this machine: a healthy provider of the primary capability,
  * else of the route's fallback capabilities in order; failing those, a provider that has no probe
  * (UNVERIFIED) in the same order; else nothing. An unhealthy provider is never chosen. */
-function resolveRoute(router, route, probes) {
+function resolveRoute(router: any, route: any, probes: any) {
   const chain = [route.capability, ...(route.fallback || [])];
   for (const status of [HEALTHY, UNVERIFIED]) {
     for (const capability of chain) {
@@ -99,8 +101,8 @@ function resolveRoute(router, route, probes) {
   return { capability: route.capability, provider: null, status: 'NONE', via: null };
 }
 
-const cell = (text) => String(text).replace(/\|/g, '\\|').replace(/\s+/g, ' ');
-const trigger = (server) => server.trigger.replace(/\.$/, '');
+const cell = (text: any) => String(text).replace(/\|/g, '\\|').replace(/\s+/g, ' ');
+const trigger = (server: any) => server.trigger.replace(/\.$/, '');
 
 /**
  * @param {Object} input
@@ -115,18 +117,18 @@ const trigger = (server) => server.trigger.replace(/\.$/, '');
  * @param {{feature:?string, runTaskId:?string, stageId:?string, skill:?string}|null} [input.stage]
  * @returns {{markdown: string, record: Object}} the record is IC-018 without `tasks`
  */
-function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, headingLevel = 2, stage = null }) {
-  const missing = [];
+function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, headingLevel = 2, stage = null }: any) {
+  const missing: any = [];
   const hashes = '#'.repeat(Number(headingLevel) === 3 ? 3 : 2);
   const target = chooseTarget({ registry, reach, harness, missing });
-  const targetHarness = target ? registry.harnesses.find((item) => item.id === target) : null;
+  const targetHarness = target ? registry.harnesses.find((item: any) => item.id === target) : null;
   const resolved = resolveTier({ dispatchTiers: registry.dispatchTiers, owner, tier, missing });
   const sourceText = resolved.source === 'owner' ? `owner ${owner}`
     : resolved.source === 'task' ? 'task line' : `default; ${resolved.note || `owner ${owner} has no tier`}`;
 
   const tools = [];
   const rows = [];
-  for (const [intent, route] of Object.entries(router.routes)) {
+  for (const [intent, route] of Object.entries<any>(router.routes)) {
     const found = resolveRoute(router, route, probes);
     if (!found.provider) {
       rows.push(`| ${cell(intent)} | no healthy provider and no fallback | - |`);
@@ -161,9 +163,9 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
 
   const skill = stage?.skill || null;
   const expectedServers = skill
-    ? registry.mcp.filter((server) => (server.steps || []).some((step) => step.skill === skill && !step.expectedWhen)) : [];
-  const expectedIds = new Set(expectedServers.map((server) => server.id));
-  const expected = expectedServers.map((server) => {
+    ? registry.mcp.filter((server: any) => (server.steps || []).some((step: any) => step.skill === skill && !step.expectedWhen)) : [];
+  const expectedIds = new Set(expectedServers.map((server: any) => server.id));
+  const expected = expectedServers.map((server: any) => {
     let state;
     if (target) state = stateOn(reach, target, server.id);
     else state = reach ? reach.anyHarnessHas(server.id) ?? 'unknown' : 'unknown';
@@ -171,8 +173,8 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
       : (state === true ? 'reachable' : state === false ? 'unreachable' : 'unknown');
     return { server: server.id, reach: reachState, detail: target ? state : `any-harness:${state}` };
   });
-  const also = registry.mcp.filter((server) => !expectedIds.has(server.id) && hasServer(reach, target, server.id));
-  const list = (servers) => (servers.length ? servers.map((server) => `\`${server.id}\` (${trigger(server)})`).join('; ') : 'none');
+  const also = registry.mcp.filter((server: any) => !expectedIds.has(server.id) && hasServer(reach, target, server.id));
+  const list = (servers: any) => (servers.length ? servers.map((server: any) => `\`${server.id}\` (${trigger(server)})`).join('; ') : 'none');
   const targetName = targetHarness ? targetHarness.displayName || targetHarness.id : 'any installed harness';
 
   const lines = [
@@ -216,7 +218,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     tierSource: resolved.source,
     harness: target,
     expected,
-    optional: also.map((server) => server.id),
+    optional: also.map((server: any) => server.id),
     tools,
     missing,
   };
@@ -224,7 +226,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
 }
 
 /** The stage a feature's run is at, or null when there is no readable run or it is not at a stage. */
-function currentStageOf({ repoRoot = REPO_ROOT, projectRoot, taskId }) {
+function currentStageOf({ repoRoot = REPO_ROOT, projectRoot, taskId }: any) {
   try {
     const run = new WorkflowOrchestrator({ repoRoot, projectRoot }).readRun(taskId);
     const node = run && run.cursor < run.program.length ? run.program[run.cursor] : null;
@@ -233,7 +235,7 @@ function currentStageOf({ repoRoot = REPO_ROOT, projectRoot, taskId }) {
 }
 
 /** The feature (`--slug`, else the resolved one) and its current stage, with a note for what is missing. */
-function stageFor({ repoRoot, projectRoot, slug, missing }) {
+function stageFor({ repoRoot, projectRoot, slug, missing }: any) {
   let feature = slug || null;
   if (!feature) {
     const resolved = resolveActiveFeature({ projectRoot });
@@ -256,18 +258,18 @@ function stageFor({ repoRoot, projectRoot, slug, missing }) {
  * @param {Function} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs through
  * @param {Function} [options.probe] injection seam for `probeProviders`
  */
-function taskLinesForAdvice({ projectRoot, feature, tasks }) {
+function taskLinesForAdvice({ projectRoot, feature, tasks }: any) {
   if (!feature || !Array.isArray(tasks) || tasks.length === 0) throw new Error('feature or task ids are unavailable');
   const planPath = path.join(projectRoot, 'agent-docs', 'doflow', feature, 'plan.md');
   const plan = fs.readFileSync(planPath, 'utf8');
   return tasks.map((id) => {
-    const line = plan.split(/\r?\n/).find((candidate) => candidate.match(/^- \[[ x]\] (\S+)/)?.[1] === id);
+    const line = plan.split(/\r?\n/).find((candidate: any) => candidate.match(/^- \[[ x]\] (\S+)/)?.[1] === id);
     if (!line) throw new Error(`task '${id}' was not found in ${planPath}`);
     return line;
   });
 }
 
-function adviceRecord(result) {
+function adviceRecord(result: any) {
   if (result?.status === 'answered' && result.answers?.[0]) {
     const answer = result.answers[0];
     return {
@@ -283,7 +285,7 @@ function adviceRecord(result) {
 /**
  * The tier renderer remains synchronous/pure; optional local advice is requested afterward.
  */
-async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, tasks, json = false, repoRoot = REPO_ROOT, projectRoot = process.cwd(), buildAdapters = null, probe = probeProviders, adviceClient = null } = {}) {
+async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, tasks, json = false, repoRoot = REPO_ROOT, projectRoot = process.cwd(), buildAdapters = null, probe = probeProviders, adviceClient = null }: any = {}) {
   if (!owner) return usageError('brief-tools', '--owner is required (the agent type the brief is for)', json);
   const level = headingLevel === undefined ? 2 : Number(headingLevel);
   if (level !== 2 && level !== 3) return usageError('brief-tools', `--heading-level must be 2 or 3, got '${headingLevel}'`, json);
@@ -297,7 +299,7 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
     const stage = stageFor({ repoRoot, projectRoot, slug, missing: notes });
     const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, headingLevel: level, stage });
     let markdown = rendered.markdown;
-    const record = rendered.record;
+    const record: any = rendered.record;
     record.missing.push(...notes);
 
     const taskIds = Array.isArray(tasks) ? tasks : typeof tasks === 'string' ? tasks.split(',').filter(Boolean) : [];
@@ -323,14 +325,14 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
             }
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         record.advice = { kind: 'tier', status: 'unavailable', reason: error?.reason || 'config-invalid' };
       }
     }
     if (json) console.log(JSON.stringify({ markdown, record }, null, 2));
     else process.stdout.write(markdown);
     return finishRuntime(0);
-  } catch (error) {
+  } catch (error: any) {
     captureCaught(error, 'brief-tools', 1);
     console.error(`[ERROR] brief-tools: ${error.message}`);
     return finishRuntime(1);

@@ -16,7 +16,7 @@ const SKILLS_PREFIX = 'core/shared/skills/';
 const CODE_FILES = [
   'src/runtime/mcp-consultations.ts',
   'src/runtime/mcp-reach.ts',
-  'src/runtime/brief-tools.js',
+  'src/runtime/brief-tools.ts',
   'core/shared/scripts/doflow/bash/do-task-brief.sh',
 ];
 const OFFLINE_FILES = CODE_FILES.slice(0, 3);

@@ -61,7 +61,7 @@ const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
 const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
 const { listCheckouts } = require('../runtime/checkouts.ts');
 const { featureSlugFor } = require('../runtime/implementation-gate.ts');
-const { handleBriefToolsCommand } = require('../runtime/brief-tools');
+const { handleBriefToolsCommand } = require('../runtime/brief-tools.ts');
 const { handleAdviseCommand } = require('../runtime/advice/cli.ts');
 const { REPO_ROOT, buildAdapterRegistry } = require('./shared.ts');
 

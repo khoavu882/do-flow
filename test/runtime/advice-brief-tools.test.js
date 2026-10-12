@@ -10,7 +10,7 @@ const { spawnFakeServer } = require('../helper/fake-decision-server');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
-const { handleBriefToolsCommand, renderBriefTools } = require('../../src/runtime/brief-tools');
+const { handleBriefToolsCommand, renderBriefTools } = require('../../src/runtime/brief-tools.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin/doflow.js');
 const RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
