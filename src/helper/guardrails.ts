@@ -32,7 +32,7 @@ interface DestructiveCommandGlobsOptions {
 /** Read the canonical blocklist as bare command globs, e.g. `git push --force*`. Throws when the
  * authored file is missing or malformed — a silent empty blocklist would look like success while
  * projecting no protection at all. */
-function destructiveCommandGlobs({ repoRoot, fsImpl = fs }: DestructiveCommandGlobsOptions): string[] {
+function destructiveCommandGlobs({ repoRoot, fsImpl = fs }: DestructiveCommandGlobsOptions = {} as DestructiveCommandGlobsOptions): string[] {
   const file = path.join(repoRoot, 'core', 'harnesses', 'claude', 'settings', 'settings.json');
   const parsed = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
   const deny = parsed?.permissions?.deny;

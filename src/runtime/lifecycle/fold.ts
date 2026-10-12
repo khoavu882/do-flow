@@ -315,7 +315,7 @@ function foldInto(events: any[], options: any = {}): any {
 }
 
 /** The result of a fold, as plain data. `hasBody(item)` tells a report whose body is on this machine. */
-function finalize(state: any, { hasBody = (_item: any) => false }: any = {}): any {
+function finalize(state: any, { hasBody = () => false }: any = {}): any {
   const followups = [...state.items.values()].map((item: any) => (
     item.source.kind === 'report' ? { ...item, body: hasBody(item) ? 'on-this-machine' : 'not-on-this-machine' } : item));
   const releases = [...state.releases.values()].map((r: any) => {

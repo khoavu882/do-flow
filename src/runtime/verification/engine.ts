@@ -1261,7 +1261,7 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
  * @returns {number} exit code
  */
 function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null }: {
-  taskId: any;
+  taskId?: any;
   action?: string;
   risk?: any;
   planPath?: any;
@@ -1272,7 +1272,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   verificationInput?: string | null;
   verificationPhase?: string | null;
   baselineRef?: string | null;
-}): number {
+} = {}): number {
   // The task id names state files here, so it obeys the rule every other task verb applies.
   try {
     assertSafeTaskId(taskId);

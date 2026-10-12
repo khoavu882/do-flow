@@ -78,7 +78,7 @@ const DEFAULT_BACKUP_RETENTION = 3;
 
 /** A backup could not be written completely. The caller stops before changing anything. */
 class BackupError extends Error {
-  code: string;
+  declare code: string;
   constructor(message: string) {
     super(message);
     this.name = 'BackupError';
