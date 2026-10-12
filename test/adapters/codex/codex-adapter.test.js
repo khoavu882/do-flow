@@ -6,7 +6,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
 const { harnessFor } = require('../../../src/registry/index.ts');
-const { projectAdapterInput } = require('../../../src/adapters');
+const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 const { normalizeContext, discover, render, plan, apply, remove, verify } = require('../../../src/adapters/codex');
 
 const REPO = path.resolve(__dirname, "../../..");

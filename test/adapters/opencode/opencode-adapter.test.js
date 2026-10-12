@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_START } = require('../../../src/adapters/opencode/index.ts');
-const { assertAdapter } = require('../../../src/adapters');
+const { assertAdapter } = require('../../../src/adapters/index.ts');
 
 function scratch() { return suiteTempDir('doflow-opencode-'); }
 const instructionAssets = [{ id: 'guidance.codex-pointer', capability: 'instructions', source: 'source.md' }];

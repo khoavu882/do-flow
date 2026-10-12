@@ -21,7 +21,7 @@ function fixture() {
   return { repoRoot, projectRoot, instructions, homeDir };
 }
 
-// Shape matches what src/adapters/index.js#projectAdapterInput actually hands the adapter at
+// Shape matches what src/adapters/index.ts#projectAdapterInput actually hands the adapter at
 // runtime (flat renderer/capability), not the registry's raw nested asset.projection.claude.
 const asset = {
   id: 'guidance.core', source: 'core/CLAUDE.md',

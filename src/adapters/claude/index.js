@@ -422,7 +422,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
 
   /** Render native Claude input without writing it.
    * `asset` is the lifecycle-projected shape (flat `renderer`/`capability` fields — see
-   * src/adapters/index.js#projectAdapterInput), not the raw registry asset's nested
+   * src/adapters/index.ts#projectAdapterInput), not the raw registry asset's nested
    * `asset.projection.claude`. Every adapter method below shares that same expectation. */
   function render({ asset, scope, scopeRoot, context = {} }) {
     const paths = nativePaths({ scope, scopeRoot });

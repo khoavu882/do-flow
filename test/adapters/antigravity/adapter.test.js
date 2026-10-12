@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
-const { projectAdapterInput } = require('../../../src/adapters');
+const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 const adapter = require('../../../src/adapters/antigravity/index.ts');
 const { expectExecutable } = require('../../helper-platform');
 

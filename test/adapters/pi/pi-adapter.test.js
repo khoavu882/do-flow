@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { createPiAdapter, nativePaths } = require('../../../src/adapters/pi/index.ts');
-const { assertAdapter } = require('../../../src/adapters');
+const { assertAdapter } = require('../../../src/adapters/index.ts');
 const { MARKER_START } = require('../../../src/helper/marker-merge.ts');
 
 function scratch() { return suiteTempDir('doflow-pi-'); }
@@ -172,7 +172,7 @@ test('Pi adapter refuses to remove a copy-tree file that was modified outside Do
 
 test('assets.json routes skills.doflow to the pi adapter as a copy-tree asset', () => {
   const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry/index.ts');
-  const { projectAdapterInput } = require('../../../src/adapters');
+  const { projectAdapterInput } = require('../../../src/adapters/index.ts');
   const repoRoot = path.resolve(__dirname, "../../..");
   const registry = loadRegistry({ repoRoot });
   const harness = harnessFor(registry, 'pi');

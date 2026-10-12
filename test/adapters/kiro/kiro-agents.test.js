@@ -12,7 +12,7 @@ const { suiteTempDir } = require('../../helper/tmp');
 const { createKiroAdapter } = require('../../../src/adapters/kiro/index.ts');
 const { TRANSFORMS, LAYOUTS, resolveLayout, kiroPreToolUseHooks, kiroHook } = require('../../../src/adapters/copy-tree.ts');
 const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
-const { projectAdapterInput } = require('../../../src/adapters');
+const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SPECS_DIR = path.join(REPO_ROOT, 'core', 'shared', 'agent-specs');
