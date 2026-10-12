@@ -595,6 +595,438 @@
         "verifiedOn": "2026-10-12"
       },
       "sameNameNotAssumed": true
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:4",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"Session or subagent starts\"; the matcher filters source (startup, resume, clear, compact)",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionEnd",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:110",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: fires \"When the main thread ends\"; the matcher filters reason (currently only other)",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "UserPromptSubmit",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:15",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; \"matcher isn't currently used for this event\"",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Stop",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:99",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; \"matcher isn't currently used for this event\"",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:45",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; the matcher filters tool_name; can deny or rewrite calls",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PostToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:77",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; the matcher filters tool_name; can block with feedback",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SubagentStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:25",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"When session or subagent starts\"; the matcher filters agent_type",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SubagentStop",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:35",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; the matcher filters agent_type; can continue the subagent",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreCompact",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:88",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; the matcher filters trigger (manual, auto)",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:4",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a session begins (startup, resume, clear)",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionEnd",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:14",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a session ends (exit, clear)",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "BeforeTool",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:25",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: Before a tool executes",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "AfterTool",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:54",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: After a tool executes",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreCompress",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:65",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: Before context compression",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "kiro",
+      "installedVersion": {
+        "value": "kiro-cli 2.29.1",
+        "source": "kiro-cli --version → kiro-cli 2.29.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/kiro/hooks/doflow.json:6",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: \"Triggers when a new chat session starts in the IDE or CLI V3\"; availability on the page: IDE, CLI V3",
+        "source": "https://kiro.dev/docs/hooks/types/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "doflow.json is read by the Kiro IDE and CLI V3; CLI 2.x reads hooks from the agent config JSON instead (core/registry/harnesses.json:1699), and the installed kiro-cli is 2.29.1"
+    },
+    {
+      "harness": "kiro",
+      "installedVersion": {
+        "value": "kiro-cli 2.29.1",
+        "source": "kiro-cli --version → kiro-cli 2.29.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/kiro/hooks/doflow.json:15",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: \"Triggers when the agent is about to invoke a tool. Can validate and block tool usage\"; availability on the page: IDE, CLI",
+        "source": "https://kiro.dev/docs/hooks/types/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "doflow.json is read by the Kiro IDE and CLI V3; CLI 2.x reads hooks from the agent config JSON instead (core/registry/harnesses.json:1699), and the installed kiro-cli is 2.29.1"
+    },
+    {
+      "harness": "kiro",
+      "installedVersion": {
+        "value": "kiro-cli 2.29.1",
+        "source": "kiro-cli --version → kiro-cli 2.29.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Stop",
+      "wired": true,
+      "wiredSource": "core/harnesses/kiro/hooks/doflow.json:44",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: the page names this trigger AgentStop: \"Triggers when the agent has completed its turn and finished responding to the user\"; it lists no trigger named Stop, so the DoFlow name and the documented name are not assumed to be the same; availability on the page: IDE, CLI",
+        "source": "https://kiro.dev/docs/hooks/types/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "doflow.json is read by the Kiro IDE and CLI V3; CLI 2.x reads hooks from the agent config JSON instead (core/registry/harnesses.json:1699), and the installed kiro-cli is 2.29.1"
+    },
+    {
+      "harness": "antigravity",
+      "installedVersion": {
+        "value": "1.3.3",
+        "source": "agy --version → 1.3.3",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreToolUse",
+      "wired": true,
+      "wiredSource": "src/adapters/antigravity/index.ts:59",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: \"Fires before a tool is executed.\"; the matcher is honoured",
+        "source": "https://antigravity.google/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "DoFlow writes the group to a project-scope hooks.json only; a user-scope install wires nothing (src/adapters/antigravity/index.ts:68-75)"
+    },
+    {
+      "harness": "antigravity",
+      "installedVersion": {
+        "value": "1.3.3",
+        "source": "agy --version → 1.3.3",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Stop",
+      "wired": true,
+      "wiredSource": "src/adapters/antigravity/index.ts:60",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: \"Fires when the execution loop terminates.\"; the page says the matcher is ignored for this event",
+        "source": "https://antigravity.google/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "DoFlow writes the group to a project-scope hooks.json only; a user-scope install wires nothing (src/adapters/antigravity/index.ts:68-75)"
+    },
+    {
+      "harness": "opencode",
+      "installedVersion": {
+        "value": "1.18.30",
+        "source": "opencode --version → 1.18.30",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "*",
+      "wired": false,
+      "wiredSource": "core/registry/harnesses.json:902: DoFlow installs no OpenCode plugin and wires no hook",
+      "registryClaim": "different",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: a plugin is a JavaScript/TypeScript module that exports plugin functions returning a hooks object, placed in .opencode/plugins/ or ~/.config/opencode/plugins/; hooks include tool.execute.before, tool.execute.after, session.created, session.idle and others. These are not the shell hooks DoFlow ships",
+        "source": "https://opencode.ai/docs/plugins",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "pi",
+      "installedVersion": {
+        "value": "1.1.0",
+        "source": "pi --version → 1.1.0",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "*",
+      "wired": false,
+      "wiredSource": "core/registry/harnesses.json:1169: DoFlow installs no Pi extension and wires no hook",
+      "registryClaim": "different",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: extensions subscribe with pi.on(); event names include session_start, before_agent_start, tool_call, tool_result, agent_end and turn_end; extensions are TypeScript or JavaScript files loaded from user or project extension directories. These are not the shell hooks DoFlow ships",
+        "source": "https://pi.dev/docs/latest/extensions",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "copilot",
+      "installedVersion": {
+        "value": "GitHub Copilot CLI 1.0.78.",
+        "source": "copilot --version → GitHub Copilot CLI 1.0.78.",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "*",
+      "wired": false,
+      "wiredSource": "core/registry/harnesses.json:1455: the registry records that DoFlow wires none of the documented Copilot hooks",
+      "registryClaim": "different",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: hooks load from .github/hooks/*.json and user, policy and plugin sources; event names are camelCase (sessionStart, sessionEnd, userPromptSubmitted, preToolUse, postToolUse, agentStop, subagentStart, subagentStop, preCompact and others); \"Prompt hooks fire only for new interactive sessions\" and not in non-interactive prompt mode (-p)",
+        "source": "https://docs.github.com/en/copilot/reference/hooks-reference",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
     }
   ]
 }
