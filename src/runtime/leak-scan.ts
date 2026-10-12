@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { finishRuntime, usageError } = require('./cli-result.ts');
@@ -42,7 +44,7 @@ const DEFAULT_EXCLUDED_SEGMENTS = ['agent-docs'];
 // here as an exported Set that nothing read, including no test: a second place to keep the list
 // correct, with nothing to notice when the two disagreed.
 
-function isExcluded(relPath, excludedSegments) {
+function isExcluded(relPath: string, excludedSegments: string[]): boolean {
   const segments = relPath.split(path.sep);
   return excludedSegments.some((seg) => segments.includes(seg));
 }
@@ -56,7 +58,7 @@ function isExcluded(relPath, excludedSegments) {
  *
  * @returns {{relative: string, content: string}|{relative: string, reason: string}}
  */
-function readScannable(target, root, excluded, impl) {
+function readScannable(target: string, root: string, excluded: string[], impl: any): { relative: string; content?: string; reason?: string } {
   const absolute = path.isAbsolute(target) ? target : path.join(root, target);
   const relative = path.relative(root, absolute);
 
@@ -75,8 +77,8 @@ function readScannable(target, root, excluded, impl) {
 }
 
 /** Every pattern match in one file's lines, as finding records. */
-function findLeaksInLines(lines, relative) {
-  const findings = [];
+function findLeaksInLines(lines: string[], relative: string): any[] {
+  const findings: any[] = [];
   for (let i = 0; i < lines.length; i += 1) {
     for (const rule of LEAK_PATTERNS) {
       const match = lines[i].match(rule.pattern);
@@ -102,14 +104,14 @@ function findLeaksInLines(lines, relative) {
  * @param {Object} [options.fsImpl] injectable fs, for tests
  * @returns {{findings: Array, scanned: string[], unscanned: Array}}
  */
-function scanPaths({ paths: targets, repoRoot, excludedSegments, fsImpl } = {}) {
+function scanPaths({ paths: targets, repoRoot, excludedSegments, fsImpl }: any = {}): { findings: any[]; scanned: string[]; unscanned: any[] } {
   const impl = fsImpl || fs;
   const root = repoRoot || process.cwd();
   const excluded = excludedSegments || DEFAULT_EXCLUDED_SEGMENTS;
 
-  const findings = [];
-  const scanned = [];
-  const unscanned = [];
+  const findings: any[] = [];
+  const scanned: string[] = [];
+  const unscanned: any[] = [];
 
   for (const target of targets || []) {
     if (typeof target !== 'string' || target.trim() === '') continue;
@@ -121,7 +123,7 @@ function scanPaths({ paths: targets, repoRoot, excludedSegments, fsImpl } = {}) 
     }
 
     scanned.push(read.relative);
-    findings.push(...findLeaksInLines(read.content.split('\n'), read.relative));
+    findings.push(...findLeaksInLines((read.content as string).split('\n'), read.relative));
   }
 
   return { findings, scanned, unscanned };
@@ -138,14 +140,14 @@ function scanPaths({ paths: targets, repoRoot, excludedSegments, fsImpl } = {}) 
  * @param {string} [options.repoRoot]
  * @returns {number} exit code
  */
-function handleLeakScanCommand({ paths: targets, exclude, json = false, repoRoot } = {}) {
+function handleLeakScanCommand({ paths: targets, exclude, json = false, repoRoot }: any = {}): number {
   if (!Array.isArray(targets) || targets.length === 0) {
     return usageError('leak-scan', '--path is required (repeatable): the files to scan', json);
   }
 
   // `--exclude` extends the built-in artifact-directory exclusion rather than replacing it: a
   // caller narrowing the scan should not be able to accidentally widen it back over agent-docs/.
-  const extra = Array.isArray(exclude) ? exclude.filter((e) => typeof e === 'string' && e.trim() !== '') : [];
+  const extra = Array.isArray(exclude) ? exclude.filter((e: any) => typeof e === 'string' && e.trim() !== '') : [];
   const excludedSegments = [...DEFAULT_EXCLUDED_SEGMENTS, ...extra];
 
   const result = scanPaths({ paths: targets, repoRoot, excludedSegments });
