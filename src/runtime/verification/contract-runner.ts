@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Deterministic check execution — the JavaScript port of
  * `core/shared/scripts/doflow/verification/contract_runner.py` (plan task B.3, component C7).
@@ -44,7 +46,7 @@ const TIMEOUT_EXIT_CODE = 124;
  * @param {*} value
  * @returns {string}
  */
-function truncate(value) {
+function truncate(value: any): string {
   if (typeof value !== 'string') return '';
   if (value.length <= MAX_STREAM_CHARS) return value;
   // Keep the TAIL, not the head, and say so.
@@ -75,8 +77,8 @@ const TAP_NOT_OK = /^\s*not ok\b(?:\s+\d+)?(?:\s*-\s*)?(.*)$/gm;
  * @param {string} text
  * @returns {Array<string>} unique identifiers, bounded by MAX_FAILED_TESTS
  */
-function extractFailedTests(text) {
-  const seen = new Set();
+function extractFailedTests(text: string): string[] {
+  const seen = new Set<string>();
   for (const match of text.matchAll(TAP_NOT_OK)) {
     const name = match[1].trim();
     if (name === '' || /#\s*(?:SKIP|TODO)\b/i.test(name)) continue;
@@ -87,6 +89,13 @@ function extractFailedTests(text) {
 }
 
 class VerificationContractRunner {
+  cwd: string;
+  defaultTimeoutMs: number;
+  exec: any;
+  fsImpl: any;
+  logDir: string;
+  logWriteWarned?: boolean;
+
   /**
    * @param {Object|string} [options] a string is accepted for parity with the Python's positional
    *   `cwd` argument
@@ -94,7 +103,7 @@ class VerificationContractRunner {
    * @param {number} [options.defaultTimeoutMs=60000]
    * @param {Function} [options.exec] injection seam for tests; same contract as `spawnSync`
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     const opts = typeof options === 'string' ? { cwd: options } : options;
     this.cwd = opts.cwd || process.cwd();
     this.defaultTimeoutMs = opts.defaultTimeoutMs || DEFAULT_TIMEOUT_MS;
@@ -114,7 +123,7 @@ class VerificationContractRunner {
    * @param {string} stderr
    * @returns {string|null} the log path, or null when the log could not be written
    */
-  persistLog(name, command, stdout, stderr) {
+  persistLog(name: string, command: string, stdout: string, stderr: string): string | null {
     try {
       this.fsImpl.mkdirSync(this.logDir, { recursive: true });
       const safe = name.replace(/[^A-Za-z0-9._-]+/g, '_');
@@ -123,7 +132,7 @@ class VerificationContractRunner {
         `# check: ${name}\n# command: ${command}\n--- stdout ---\n${stdout || ''}\n--- stderr ---\n${stderr || ''}\n`,
         'utf8');
       return file;
-    } catch (error) {
+    } catch (error: any) {
       // An unwritable log directory must not turn a completed check into an error — the check's
       // verdict stands; only the pointer is missing, and its null says so. But a chronic
       // permissions problem should not be invisible either: say so once per runner, on stderr so
@@ -145,7 +154,7 @@ class VerificationContractRunner {
    * @param {string} [stdout]
    * @param {string} [stderr]
    */
-  decorate(result, command, stdout, stderr) {
+  decorate(result: any, command: string, stdout?: string, stderr?: string): void {
     const full = `${stdout || ''}\n${stderr || ''}`;
     if (result.status === 'FAIL') {
       const failedTests = extractFailedTests(full);
@@ -153,7 +162,7 @@ class VerificationContractRunner {
     }
     const truncated = (stdout || '').length > MAX_STREAM_CHARS || (stderr || '').length > MAX_STREAM_CHARS;
     if ((result.status === 'FAIL' || truncated) && full.trim() !== '') {
-      result.logPath = this.persistLog(result.name, command, stdout, stderr);
+      result.logPath = this.persistLog(result.name, command, stdout as string, stderr as string);
     }
   }
 
@@ -168,7 +177,7 @@ class VerificationContractRunner {
    *   evaluations — a recovery retry must observe live behaviour, so each pass passes a fresh map.
    * @returns {Object} check result
    */
-  runCheck(name, command, timeoutMs = this.defaultTimeoutMs, dedupeCache = null) {
+  runCheck(name: string, command: any, timeoutMs: number = this.defaultTimeoutMs, dedupeCache: Map<string, any> | null = null): any {
     const checkName = name || 'unnamed_check';
 
     // Defect fix (1): the Python defaulted a missing command to `true`, so a typo in a contract
@@ -187,12 +196,12 @@ class VerificationContractRunner {
     if (dedupeCache && dedupeCache.has(dedupeKey)) {
       return { ...dedupeCache.get(dedupeKey), name: checkName, deduplicated: true };
     }
-    const remember = (result) => {
+    const remember = (result: any) => {
       if (dedupeCache) dedupeCache.set(dedupeKey, result);
       return result;
     };
 
-    let res;
+    let res: any;
     try {
       res = this.exec(command, {
         shell: true,
@@ -205,7 +214,7 @@ class VerificationContractRunner {
         // past anything a check legitimately prints. Only the first 2,000 chars are ever kept.
         maxBuffer: 64 * 1024 * 1024,
       });
-    } catch (error) {
+    } catch (error: any) {
       // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a
       // thrown error that aborts the whole contract.
       return remember({
@@ -254,7 +263,7 @@ class VerificationContractRunner {
     const exitCode = res.status === null || res.status === undefined ? 1 : res.status;
     const passed = res.status === 0;
 
-    const result = {
+    const result: any = {
       name: checkName,
       command,
       status: passed ? 'PASS' : 'FAIL',
@@ -274,7 +283,7 @@ class VerificationContractRunner {
    * @param {Array<{name?: string, command?: string, timeoutMs?: number}>} checks
    * @returns {{ status: string, checks: Array<Object>, failedChecks: Array<string>, timestamp: string, reason?: string }}
    */
-  evaluateContract(checks) {
+  evaluateContract(checks: any[]): any {
     if (!Array.isArray(checks)) {
       throw new Error('evaluateContract expects an array of checks');
     }
@@ -294,10 +303,10 @@ class VerificationContractRunner {
       };
     }
 
-    const results = [];
-    const failedChecks = [];
+    const results: any[] = [];
+    const failedChecks: string[] = [];
     let overallStatus = 'PASS';
-    const dedupeCache = new Map(); // one evaluation, one cache — a retry pass starts fresh
+    const dedupeCache = new Map<string, any>(); // one evaluation, one cache — a retry pass starts fresh
 
     for (const chk of checks) {
       const name = (chk && chk.name) || 'unnamed_check';

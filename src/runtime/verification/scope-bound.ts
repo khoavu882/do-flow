@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -34,13 +36,13 @@ const NONE_FIELD = /^none(?=$|[\s(;,`])/i;
  * @param {string} planText
  * @returns {Array<string>}
  */
-function taskFilesFromPlan(planText) {
+function taskFilesFromPlan(planText: any): string[] {
   const lines = String(planText || '').split('\n');
-  const paths = [];
+  const paths: string[] = [];
   for (let i = 0; i < lines.length; i += 1) {
     if (!TASK_LINE.test(lines[i])) continue;
     let at = -1;
-    for (const m of lines[i].matchAll(FILES_FIELD)) at = m.index + m[0].length;
+    for (const m of lines[i].matchAll(FILES_FIELD)) at = (m.index as number) + m[0].length;
     if (at === -1) continue;
     let rest = lines[i].slice(at);
     // `files: none (...)` states that a task changes no file; its words are not paths.
@@ -63,9 +65,9 @@ function taskFilesFromPlan(planText) {
   return [...new Set(paths)];
 }
 
-const folderOf = (slug) => (slug ? `agent-docs/doflow/${slug}/` : null);
+const folderOf = (slug: string | null) => (slug ? `agent-docs/doflow/${slug}/` : null);
 
-function isFile(file) {
+function isFile(file: string): boolean {
   try {
     return fs.statSync(file).isFile();
   } catch {
@@ -73,7 +75,7 @@ function isFile(file) {
   }
 }
 
-function isDirectory(dir) {
+function isDirectory(dir: string): boolean {
   try {
     return fs.statSync(dir).isDirectory();
   } catch {
@@ -82,7 +84,7 @@ function isDirectory(dir) {
 }
 
 /** Why no other checkout was consulted, in the words a reason text lists. */
-function noMainCheckout(checkouts) {
+function noMainCheckout(checkouts: any): string {
   if (!checkouts.ok) {
     if (checkouts.reason === 'not-a-git-repository') return 'not a git repository';
     if (checkouts.reason === 'git-unavailable') return 'git is not available';
@@ -108,15 +110,20 @@ function noMainCheckout(checkouts) {
  * @returns {{plan: string|null, planRel: string|null, origin: string|null, root: string|null, slug: string|null,
  *   folderRel: string|null, hasRegister: boolean, searched: Array<{place: string, result: string}>, reason: string|null}}
  */
-function resolvePlanSource({ projectRoot, slug = null, planPath = null, exec = spawnSync }) {
-  const searched = [];
-  const result = (fields) => ({
+function resolvePlanSource({ projectRoot, slug = null, planPath = null, exec = spawnSync }: {
+  projectRoot: string;
+  slug?: string | null;
+  planPath?: string | null;
+  exec?: any;
+}): any {
+  const searched: any[] = [];
+  const result = (fields: any) => ({
     plan: null, planRel: null, origin: null, root: null, slug: null, folderRel: null, hasRegister: false, searched, reason: null, ...fields,
   });
-  const resolve = (s) => {
+  const resolve = (s: string | null) => {
     try {
       return resolveActiveFeature({ projectRoot, slug: s });
-    } catch (error) {
+    } catch (error: any) {
       return { error: 'resolver-failed', message: `could not run the feature resolver: ${error.message}` };
     }
   };
@@ -144,7 +151,7 @@ function resolvePlanSource({ projectRoot, slug = null, planPath = null, exec = s
   }
   const s = found.paths.feature_slug;
   const folderRel = folderOf(s);
-  const withFolder = (fields) => {
+  const withFolder = (fields: any) => {
     const plan = path.resolve(fields.root, fields.planRel);
     let reason = null;
     if (!isFile(plan)) reason = 'no-plan';
@@ -175,7 +182,7 @@ function resolvePlanSource({ projectRoot, slug = null, planPath = null, exec = s
 }
 
 /** Why a declared-scope token is refused, or null when it is a repository-relative path. */
-function refusedToken(token) {
+function refusedToken(token: string): string | null {
   if (token === '') return 'it is empty';
   if (/[\s\\\0]/.test(token)) return 'it contains whitespace';
   if (token.startsWith('/') || token.startsWith('~') || /^[A-Za-z]:/.test(token)) return 'it is absolute';
@@ -193,8 +200,8 @@ function refusedToken(token) {
  * @param {string} text
  * @returns {{paths: Array<string>, reason: null}|{paths: null, reason: string}}
  */
-function parseDeclaredScope(text) {
-  const paths = [];
+function parseDeclaredScope(text: any): any {
+  const paths: string[] = [];
   for (const raw of String(text).trim().split(',')) {
     const written = raw.trim();
     const token = written.replace(/^(\.\/)+/, '');
@@ -218,13 +225,20 @@ function parseDeclaredScope(text) {
  * @param {Function} [options.exec]
  * @returns {{bound: Object|null, reason: string|null, searched: Array<Object>, planSource: Object}}
  */
-function resolveScopeBound({ projectRoot, slug = null, planPath = null, declared = null, baselineRef = null, exec = spawnSync }) {
+function resolveScopeBound({ projectRoot, slug = null, planPath = null, declared = null, baselineRef = null, exec = spawnSync }: {
+  projectRoot: string;
+  slug?: string | null;
+  planPath?: string | null;
+  declared?: any;
+  baselineRef?: string | null;
+  exec?: any;
+}): any {
   const planSource = resolvePlanSource({ projectRoot, slug, planPath, exec });
   let reason = planSource.reason;
-  const allowed = [];
-  const sources = [];
+  const allowed: string[] = [];
+  const sources: any[] = [];
   if (reason === null) {
-    let text = null;
+    let text: string | null = null;
     try {
       text = fs.readFileSync(planSource.plan, 'utf8');
     } catch {
@@ -243,7 +257,7 @@ function resolveScopeBound({ projectRoot, slug = null, planPath = null, declared
     sources.push({ kind: 'declared', paths: [...declared.paths], origin: declared.origin, ...(declared.record ? { record: declared.record } : {}) });
   }
 
-  let baseline = null;
+  let baseline: any = null;
   if (baselineRef !== null && baselineRef !== undefined) {
     const res = resolveExplicitBaseline({ cwd: projectRoot, ref: baselineRef, exec });
     if (!res.ok) {
@@ -280,12 +294,12 @@ function resolveScopeBound({ projectRoot, slug = null, planPath = null, declared
  * @param {string|null} [options.slug]
  * @returns {{allowedPaths: Array<string>, source: string}|null}
  */
-function buildScopeBound({ projectRoot, slug = null }) {
+function buildScopeBound({ projectRoot, slug = null }: { projectRoot: string; slug?: string | null }): any {
   const { bound } = resolveScopeBound({ projectRoot, slug });
   return bound ? { allowedPaths: bound.allowedPaths, source: bound.source } : null;
 }
 
-function originText(origin, root) {
+function originText(origin: string | null, root: string | null): string {
   if (origin === 'main-checkout') return `main checkout ${root}`;
   if (origin === 'plan-path') return '--plan-path';
   return 'current checkout';
@@ -300,8 +314,8 @@ function originText(origin, root) {
  * @param {Object} options.planSource the `resolvePlanSource` result
  * @returns {string}
  */
-function scopeReasonText({ reason, taskId, planSource }) {
-  const places = planSource.searched.map((s) => `${s.place}: ${s.result}`).join('; ');
+function scopeReasonText({ reason, taskId, planSource }: { reason: string; taskId: string; planSource: any }): string {
+  const places = planSource.searched.map((s: any) => `${s.place}: ${s.result}`).join('; ');
   const where = `${planSource.folderRel} (${originText(planSource.origin, planSource.root)})`;
   switch (reason) {
     case 'no-plan':
@@ -322,8 +336,8 @@ function scopeReasonText({ reason, taskId, planSource }) {
  * @param {Array<Object>} sources a bound's `sources`
  * @returns {string}
  */
-function boundSourcesText(sources) {
-  return sources.map((s) => (s.kind === 'plan'
+function boundSourcesText(sources: any[]): string {
+  return sources.map((s: any) => (s.kind === 'plan'
     ? `plan ${s.path} (${originText(s.origin, s.root)})`
     : `declared ${s.paths.join(',')} (${s.origin === 'readiness-record' ? `readiness record ${s.record}` : '--scope'})`)).join(' + ');
 }
@@ -337,17 +351,17 @@ function boundSourcesText(sources) {
  * @param {Function} [options.exec] spawnSync-compatible
  * @returns {{ref: string, mergeBase: string}|{reason: string}}
  */
-function resolveIntegrationBase({ cwd, exec = spawnSync }) {
-  const run = (cmd, args) => {
+function resolveIntegrationBase({ cwd, exec = spawnSync }: { cwd: string; exec?: any }): any {
+  const run = (cmd: string, args: string[]) => {
     try {
       return exec(cmd, args, { cwd, encoding: 'utf8', timeout: 30000 });
-    } catch (error) {
+    } catch (error: any) {
       return { error };
     }
   };
   const gitState = resolveBashHelper('do-git-state.sh');
   const state = gitState ? run('bash', [gitState, '--json']) : null;
-  let ref = null;
+  let ref: string | null = null;
   if (state && !state.error && state.status === 0) {
     try { ref = JSON.parse(state.stdout).integration_ref || null; } catch { /* reported below */ }
   }
@@ -372,13 +386,13 @@ function resolveIntegrationBase({ cwd, exec = spawnSync }) {
  * @param {Function} [options.exec] spawnSync-compatible
  * @returns {{ok: true, ref: string, sha: string}|{ok: false, ref: string, reason: string}}
  */
-function resolveExplicitBaseline({ cwd, ref, exec = spawnSync }) {
-  const fail = (reason) => ({ ok: false, ref, reason });
+function resolveExplicitBaseline({ cwd, ref, exec = spawnSync }: { cwd: string; ref: string; exec?: any }): any {
+  const fail = (reason: string) => ({ ok: false, ref, reason });
   if (typeof ref !== 'string' || ref.trim() === '' || ref.startsWith('-')) {
     return fail(`baseline ref '${ref}' is not a usable commit or ref`);
   }
-  const run = (args) => {
-    try { return exec('git', args, { cwd, encoding: 'utf8', timeout: 30000 }); } catch (error) { return { error }; }
+  const run = (args: string[]) => {
+    try { return exec('git', args, { cwd, encoding: 'utf8', timeout: 30000 }); } catch (error: any) { return { error }; }
   };
   const parsed = run(['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`]);
   const sha = parsed && !parsed.error && parsed.status === 0 ? String(parsed.stdout || '').trim() : '';

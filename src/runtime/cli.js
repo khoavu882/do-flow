@@ -11,7 +11,7 @@ const { ClaimsManager } = require('./claims');
 const { measureFreshness } = require('./freshness');
 const { evaluateTaskReadiness } = require('./readiness');
 const { writeReadinessRecord } = require('./readiness-record');
-const { parseDeclaredScope } = require('./verification/scope-bound');
+const { parseDeclaredScope } = require('./verification/scope-bound.ts');
 const { loadRegistry } = require('../registry');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 // One definition of the exit and usage helpers (design §4.2); `finish` is the local spelling of `finishRuntime`.

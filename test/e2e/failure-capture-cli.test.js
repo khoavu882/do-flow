@@ -119,7 +119,7 @@ describe('error-to-usage catch sites record a programming error and keep the usa
     ['outcome record', ['outcome', '--action', 'record', '--task-id', 't1', '--task-class', 'feature', '--state', 'INCONCLUSIVE', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
     ['research-request', ['research-request', '--action', 'list', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/research-request.js', cls: 'ResearchRequestStore', method: 'list' }],
     ['retrieval-plan declare', ['retrieval-plan', '--action', 'declare', '--task-id', 't1', '--stage', 'design', '--need', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.js', cls: 'CapabilityRouter', method: 'resolveIntent' }],
-    ['verify', ['verify', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/verification/engine.js', cls: 'VerificationEngine', method: 'compileContract' }],
+    ['verify', ['verify', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/verification/engine.ts', cls: 'VerificationEngine', method: 'compileContract' }],
     ['workflow', ['workflow', '--task-class', 'feature', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
   ];
   for (const [name, args, spec] of sites) {

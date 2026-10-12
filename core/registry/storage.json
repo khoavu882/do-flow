@@ -71,7 +71,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/verification/contract-runner.js"
+        "src/runtime/verification/contract-runner.ts"
       ]
     },
     {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Verification check tiers, their fixed ordering, and which tiers each risk level requires. Plain JSON, matching capabilities.json and routes.json. Consumed by src/runtime/verification/engine.js.",
+  "description": "Verification check tiers, their fixed ordering, and which tiers each risk level requires. Plain JSON, matching capabilities.json and routes.json. Consumed by src/runtime/verification/engine.ts.",
   "policy": {
     "defaultRiskLevel": "MEDIUM",
     "emptyContractStatus": "INCONCLUSIVE",

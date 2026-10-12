@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Changed-test selector (feature 071, design C3): builds the `{pattern}` for a scopable targeted
  * test command from the tests a feature changed, so a LOW verification runs a few files instead of
@@ -38,18 +40,18 @@ const WIN32_UNQUOTABLE = /[%!]/;
  * @param {string} [platform]
  * @returns {string}
  */
-function quotePath(file, platform = process.platform) {
+function quotePath(file: string, platform: string = process.platform): string {
   if (SAFE_WORD.test(file)) return file;
   if (platform === 'win32') return `"${file.replace(/"/g, '""')}"`;
   return `'${file.replace(/'/g, `'\\''`)}'`;
 }
 
 /** Normalises a repository-relative path: forward slashes, no leading `./`, no trailing `/`. */
-function normalize(file) {
+function normalize(file: any): string {
   return String(file).replace(/\\/g, '/').replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
 }
 
-function statOf(fsImpl, file) {
+function statOf(fsImpl: any, file: string): any {
   try {
     return fsImpl.statSync(file);
   } catch {
@@ -58,14 +60,14 @@ function statOf(fsImpl, file) {
 }
 
 /** Repository-relative paths of every file under `rel` (a file counts as itself). */
-function walkFiles(fsImpl, root, rel) {
+function walkFiles(fsImpl: any, root: string, rel: string): string[] {
   const abs = path.join(root, rel);
   const stat = statOf(fsImpl, abs);
   if (!stat) return [];
   if (stat.isFile()) return [normalize(rel)];
   if (!stat.isDirectory()) return [];
-  const out = [];
-  let entries;
+  const out: string[] = [];
+  let entries: any[];
   try {
     entries = fsImpl.readdirSync(abs, { withFileTypes: true });
   } catch {
@@ -86,19 +88,19 @@ function walkFiles(fsImpl, root, rel) {
  * @param {{ source?: string, testDirs?: Array<string> }} found the detected `testTargeted` entry
  * @returns {null|{ basis: string, isTest: Function, roots: Array<string>, guardDir: string|null }}
  */
-function conventionFor(found) {
+function conventionFor(found: any): any {
   if (found && found.source === 'package.json' && Array.isArray(found.testDirs) && found.testDirs.length > 0) {
     const roots = found.testDirs.map(normalize).filter(Boolean);
-    const underRoot = (file) => roots.some((r) => file === r || file.startsWith(`${r}/`));
+    const underRoot = (file: string) => roots.some((r: string) => file === r || file.startsWith(`${r}/`));
     return {
       basis: 'changed-test-files',
       roots,
-      isTest: (file) => NODE_TEST_FILE.test(file) && underRoot(file),
-      guardDir: roots.some((r) => GUARD_DIR === r || GUARD_DIR.startsWith(`${r}/`)) ? GUARD_DIR : null,
+      isTest: (file: string) => NODE_TEST_FILE.test(file) && underRoot(file),
+      guardDir: roots.some((r: string) => GUARD_DIR === r || GUARD_DIR.startsWith(`${r}/`)) ? GUARD_DIR : null,
     };
   }
   if (found && found.source === 'pyproject.toml') {
-    return { basis: 'changed-test-files', roots: ['.'], isTest: (file) => PYTEST_FILE.test(file), guardDir: null };
+    return { basis: 'changed-test-files', roots: ['.'], isTest: (file: string) => PYTEST_FILE.test(file), guardDir: null };
   }
   return null;
 }
@@ -114,16 +116,22 @@ function conventionFor(found) {
  * @returns {null|{ pattern: string|null, selection: { basis: string, selectedCount: number|null,
  *   totalCount: number|null, fallback: string|null } }} null when no convention applies to the toolchain
  */
-function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platform = process.platform }) {
+function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platform = process.platform }: {
+  found: any;
+  observation: any;
+  root: string;
+  fsImpl?: any;
+  platform?: string;
+}): any {
   const convention = conventionFor(found);
   if (!convention) return null;
 
-  const total = new Set();
+  const total = new Set<string>();
   for (const r of convention.roots) {
     for (const file of walkFiles(fsImpl, root, r)) if (convention.isTest(file)) total.add(file);
   }
   const totalCount = total.size;
-  const fallback = (reason, selectedCount = 0) => ({
+  const fallback = (reason: string, selectedCount: number | null = 0) => ({
     pattern: null,
     selection: { basis: convention.basis, selectedCount, totalCount, fallback: reason },
   });
@@ -133,22 +141,22 @@ function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platfor
   const guardDir = convention.guardDir && statOf(fsImpl, path.join(root, convention.guardDir))?.isDirectory()
     ? convention.guardDir
     : null;
-  const underGuard = (file) => guardDir !== null && file.startsWith(`${guardDir}/`);
+  const underGuard = (file: string) => guardDir !== null && file.startsWith(`${guardDir}/`);
 
-  const changed = [...new Set(observation.files.map(normalize))]
-    .filter((file) => convention.isTest(file))
-    .filter((file) => statOf(fsImpl, path.join(root, file))?.isFile())
+  const changed = [...new Set<string>(observation.files.map(normalize))]
+    .filter((file: string) => convention.isTest(file))
+    .filter((file: string) => statOf(fsImpl, path.join(root, file))?.isFile())
     .sort();
   if (changed.length === 0) return fallback('no-changed-tests');
 
   // A changed guard file is already covered by running the guard directory itself.
-  const files = changed.filter((file) => !underGuard(file));
+  const files = changed.filter((file: string) => !underGuard(file));
   const guardFiles = guardDir ? [...total].filter(underGuard).length : 0;
   // `cmd.exe` expands `%` and `!` even inside quotes, so such a path cannot be passed safely there.
-  if (platform === 'win32' && files.some((file) => WIN32_UNQUOTABLE.test(file))) return fallback('unsafe-path');
+  if (platform === 'win32' && files.some((file: string) => WIN32_UNQUOTABLE.test(file))) return fallback('unsafe-path');
   // A relative path starting with `-` would be read as a runner option, so it gets a directory prefix.
-  const asArgument = (file) => (file.startsWith('-') ? `./${file}` : file);
-  const words = [...files.map((file) => quotePath(asArgument(file), platform))];
+  const asArgument = (file: string) => (file.startsWith('-') ? `./${file}` : file);
+  const words = [...files.map((file: string) => quotePath(asArgument(file), platform))];
   if (guardDir) words.push(quotePath(`${guardDir}/`, platform));
   return {
     pattern: words.join(' '),

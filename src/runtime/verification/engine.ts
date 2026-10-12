@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Registry-driven verification layer (plan task C.2, design C7): `VerificationEngine` compiles a
  * contract **before** implementation and a report **after**, scaling required tiers to risk,
@@ -23,13 +25,13 @@ const path = require('node:path');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect');
-const { selectChangedTests } = require('./test-selection');
+const { selectChangedTests } = require('./test-selection.ts');
 const { RecoveryManager } = require('../recovery');
 const { finishRuntime, usageError } = require('../cli-result');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const {
   resolveScopeBound, resolveIntegrationBase, resolveExplicitBaseline, parseDeclaredScope, scopeReasonText, boundSourcesText,
-} = require('./scope-bound');
+} = require('./scope-bound.ts');
 const nodeCrypto = require('node:crypto');
 const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
 const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate');
@@ -40,14 +42,14 @@ const {
   FATAL_CHECK_MARKERS,
   TIMEOUT_EXIT_CODE,
   MAX_STREAM_CHARS,
-} = require('./contract-runner');
+} = require('./contract-runner.ts');
 const {
   loadVerificationRegistry,
   TIER_RESOLUTIONS,
   TIER_STATUSES,
   RECOVERY_OUTCOMES,
   REGISTRY_FILENAME,
-} = require('./registry');
+} = require('./registry.ts');
 
 // `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
 // SCRIPT_DIR is bin/, so its repo root is path.dirname(SCRIPT_DIR). This module takes the same root
@@ -67,12 +69,12 @@ const BROAD_TIER_ID = 'broad-tests';
  */
 /** A stderr excerpt for a message. (Referenced by the observation errors below without ever being
  * defined, so a non-zero `git status` with no spawn error threw a ReferenceError instead of reporting.) */
-function truncate(text, max = 200) {
+function truncate(text: any, max: number = 200): string {
   const flat = String(text || '').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
-function toStringArray(value) {
+function toStringArray(value: any): string[] {
   return Array.isArray(value) ? value.filter((v) => typeof v === 'string' && v !== '') : [];
 }
 
@@ -81,8 +83,8 @@ function toStringArray(value) {
  * @param {string} stdout
  * @returns {Array<string>}
  */
-function parsePorcelain(stdout) {
-  const files = [];
+function parsePorcelain(stdout: any): string[] {
+  const files: string[] = [];
   for (const line of String(stdout || '').split('\n')) {
     if (line.trim() === '') continue;
     const body = line.slice(3);
@@ -94,6 +96,15 @@ function parsePorcelain(stdout) {
 }
 
 class VerificationEngine {
+  cwd: string;
+  fsImpl: any;
+  exec: any;
+  clock: any;
+  registry: any;
+  policy: any;
+  runner: any;
+  recoveryOverride: any;
+
   /**
    * @param {Object} [options]
    * @param {string} [options.cwd] directory checks run in
@@ -104,7 +115,7 @@ class VerificationEngine {
    * @param {Function} [options.clock] injection seam returning epoch milliseconds
    * @param {RecoveryManager} [options.recovery] overrides the per-risk-level manager
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.cwd = options.cwd || process.cwd();
     this.fsImpl = options.fsImpl || nodeFs;
     this.exec = options.exec || spawnSync;
@@ -122,7 +133,7 @@ class VerificationEngine {
   }
 
   /** @returns {string} ISO timestamp from the injected clock */
-  timestamp() {
+  timestamp(): string {
     return new Date(this.clock()).toISOString();
   }
 
@@ -130,7 +141,7 @@ class VerificationEngine {
    * @param {string} riskLevel
    * @returns {Object} the risk-level definition
    */
-  riskDefinition(riskLevel) {
+  riskDefinition(riskLevel: string): any {
     const def = this.registry.riskLevels[riskLevel];
     if (!def) {
       // Never coerce to the default: a caller that mistyped CRITICAL would silently get MEDIUM's
@@ -167,7 +178,7 @@ class VerificationEngine {
    *   tier's generic reason and `searched` lists the places looked.
    * @returns {Object} the contract
    */
-  compileContract(input = {}) {
+  compileContract(input: any = {}): any {
     // A contract with no task is the readiness.js `taskId || 'default'` defect in a new place: a
     // confident verdict filed against the wrong subject. Refuse instead of inventing an id.
     if (typeof input.taskId !== 'string' || input.taskId.trim() === '') {
@@ -190,8 +201,8 @@ class VerificationEngine {
     let requirements = Array.isArray(input.requirements) ? input.requirements : [];
     const scope = input.scope && typeof input.scope === 'object' ? input.scope : {};
     const phase = input.phase === 'postimplementation' ? 'postimplementation' : 'unknown';
-    const declaredNone = new Set(detection.declaredNone || []);
-    const absent = new Set(detection.absent || []);
+    const declaredNone = new Set<string>(detection.declaredNone || []);
+    const absent = new Set<string>(detection.absent || []);
     let provenance = input.provenance && typeof input.provenance === 'object' ? { ...input.provenance } : null;
 
     if (input.verificationInput !== undefined && input.verificationInput !== null) {
@@ -205,7 +216,7 @@ class VerificationEngine {
       provenance = { ...(provenance || {}), baselineSha: scope.baselineSha };
     }
 
-    const tiers = this.registry.tiers.map((tier) => {
+    const tiers = this.registry.tiers.map((tier: any) => {
       const required = requiredTiers.has(tier.id);
       const advisory = advisoryTiers.has(tier.id);
       const base = {
@@ -252,11 +263,11 @@ class VerificationEngine {
 
     // Subsumption is a second pass because it depends on how a *later* tier resolved: parse is
     // covered by build only if build actually has a command.
-    const byId = new Map(tiers.map((t) => [t.id, t]));
+    const byId = new Map<string, any>(tiers.map((t: any) => [t.id, t]));
     for (const tier of this.registry.tiers) {
-      const resolved = byId.get(tier.id);
+      const resolved: any = byId.get(tier.id);
       if (!resolved || resolved.resolution !== 'UNRESOLVED') continue;
-      const cover = toStringArray(tier.subsumedBy).find((id) => byId.get(id) && byId.get(id).resolution === 'RESOLVED');
+      const cover = toStringArray(tier.subsumedBy).find((id: string) => { const e: any = byId.get(id); return e && e.resolution === 'RESOLVED'; });
       if (cover) {
         resolved.resolution = 'SUBSUMED';
         resolved.subsumedBy = cover;
@@ -266,11 +277,11 @@ class VerificationEngine {
 
     // A targeted tier that would run the very command a required broad tier runs is that tier's
     // duplicate, not a cheaper check: it is reported SUBSUMED and never executed (FR-001).
-    const targeted = byId.get(TARGETED_TIER_ID);
-    const broad = byId.get(BROAD_TIER_ID);
+    const targeted: any = byId.get(TARGETED_TIER_ID);
+    const broad: any = byId.get(BROAD_TIER_ID);
     if (targeted && broad && targeted.resolution === 'RESOLVED' && broad.required && broad.resolution === 'RESOLVED') {
-      const broadCommands = new Set(broad.checks.map((c) => c.command));
-      if (targeted.checks.length > 0 && targeted.checks.every((c) => broadCommands.has(c.command))) {
+      const broadCommands = new Set<string>(broad.checks.map((c: any) => c.command as string));
+      if (targeted.checks.length > 0 && targeted.checks.every((c: any) => broadCommands.has(c.command))) {
         targeted.resolution = 'SUBSUMED';
         targeted.subsumedBy = BROAD_TIER_ID;
         targeted.checks = [];
@@ -279,8 +290,8 @@ class VerificationEngine {
     }
 
     const unresolvedRequiredTiers = tiers
-      .filter((t) => t.required && t.resolution === 'UNRESOLVED')
-      .map((t) => ({ tier: t.id, reason: t.reason }));
+      .filter((t: any) => t.required && t.resolution === 'UNRESOLVED')
+      .map((t: any) => ({ tier: t.id, reason: t.reason }));
 
     return {
       version: this.registry.version,
@@ -311,7 +322,7 @@ class VerificationEngine {
       },
       tiers,
       unresolvedRequiredTiers,
-      runnableCheckCount: tiers.reduce((n, t) => n + t.checks.length, 0),
+      runnableCheckCount: tiers.reduce((n: number, t: any) => n + t.checks.length, 0),
     };
   }
 
@@ -320,7 +331,7 @@ class VerificationEngine {
    * `command-detect` lands here.
    * @private
    */
-  resolveCommandTier(tier, detection, declaredNone, absent, targetPattern, selectorContext = null) {
+  resolveCommandTier(tier: any, detection: any, declaredNone: Set<string>, absent: Set<string>, targetPattern: any, selectorContext: any = null): any {
     if (!detection.usable) {
       return {
         resolution: 'UNRESOLVED',
@@ -330,9 +341,9 @@ class VerificationEngine {
 
     const roles = toStringArray(tier.commandRoles);
     const selectAll = tier.commandRoleSelection === 'all';
-    const checks = [];
-    const notes = [];
-    let selection = null;
+    const checks: any[] = [];
+    const notes: string[] = [];
+    let selection: any = null;
 
     for (const role of roles) {
       const found = detection.commands[role];
@@ -396,7 +407,7 @@ class VerificationEngine {
 
     // Explicit human declaration outranks everything: the plan said this project has no such
     // command, which is a statement, not a detection miss.
-    if (roles.every((role) => declaredNone.has(role))) {
+    if (roles.every((role: string) => declaredNone.has(role))) {
       return {
         resolution: 'NOT_APPLICABLE',
         reason: `plan.md declares this project has no ${roles.join('/')} command.`,
@@ -406,7 +417,7 @@ class VerificationEngine {
     // A manifest was read and does not declare the role. For build or lint that is real evidence
     // the project has no such step; for a test command it is not, and `absenceIsEvidence: false`
     // in the registry is what keeps that case UNRESOLVED and off PASS.
-    if (tier.absenceIsEvidence && detection.manifestFound && roles.every((role) => absent.has(role) || declaredNone.has(role))) {
+    if (tier.absenceIsEvidence && detection.manifestFound && roles.every((role: string) => absent.has(role) || declaredNone.has(role))) {
       return {
         resolution: 'NOT_APPLICABLE',
         reason: `${detection.manifests.join(', ')} declares no ${roles.join('/')} step.`,
@@ -423,7 +434,7 @@ class VerificationEngine {
   }
 
   /** @private */
-  resolveStructuralTier(tier, structuralChecks) {
+  resolveStructuralTier(tier: any, structuralChecks: any[]): any {
     const checks = structuralChecks
       .filter((c) => c && typeof c.command === 'string' && c.command.trim() !== '')
       .map((c, i) => ({
@@ -445,9 +456,9 @@ class VerificationEngine {
   }
 
   /** @private */
-  resolveRequirementTier(tier, requirements) {
-    const checks = [];
-    const unevaluated = [];
+  resolveRequirementTier(tier: any, requirements: any[]): any {
+    const checks: any[] = [];
+    const unevaluated: any[] = [];
     for (const req of requirements) {
       if (!req || typeof req.id !== 'string' || req.id === '') continue;
       if (typeof req.command === 'string' && req.command.trim() !== '') {
@@ -485,7 +496,7 @@ class VerificationEngine {
   }
 
   /** @private */
-  resolveScopeTier(tier, scope) {
+  resolveScopeTier(tier: any, scope: any): any {
     const maxFiles = Number.isFinite(scope.maxFiles) ? scope.maxFiles : null;
     const allowedPaths = toStringArray(scope.allowedPaths);
     if (maxFiles === null && allowedPaths.length === 0) {
@@ -518,14 +529,14 @@ class VerificationEngine {
    *   merge base with the integration ref to the working tree's
    * @returns {{ files: Array<string>|null, reason: string|null, baseline?: Object }}
    */
-  observeChangedFiles(changedFiles, bound = null) {
+  observeChangedFiles(changedFiles: any, bound: any = null): any {
     // An explicit baseline observes git itself: a caller's file list cannot stand in for what changed.
     if (bound && bound.baseline === 'explicit') return this.observeSince(bound.baselineSha, { kind: 'pinned', ref: bound.baselineRef, sha: bound.baselineSha });
-    if (Array.isArray(changedFiles)) return { files: changedFiles.filter((f) => typeof f === 'string'), reason: null };
+    if (Array.isArray(changedFiles)) return { files: changedFiles.filter((f: any) => typeof f === 'string'), reason: null };
 
     if (bound && bound.baseline === 'integration') return this.observeFromBase();
 
-    let res;
+    let res: any;
     try {
       res = this.exec('git status --porcelain', {
         shell: true,
@@ -533,7 +544,7 @@ class VerificationEngine {
         encoding: 'utf8',
         timeout: 30000,
       });
-    } catch (error) {
+    } catch (error: any) {
       return { files: null, reason: `Could not observe the changed files: ${error.message}` };
     }
     if (!res || res.error || res.status !== 0) {
@@ -549,7 +560,7 @@ class VerificationEngine {
    * untracked directories expanded, so a non-ASCII name or a new directory of tests is not dropped.
    * @private
    */
-  observeForSelection(changedFiles, bound = null) {
+  observeForSelection(changedFiles: any, bound: any = null): any {
     const hasBaseline = bound && (bound.baseline === 'explicit' || bound.baseline === 'integration');
     if (!Array.isArray(changedFiles) && !hasBaseline) return this.observeSince(null, null);
     return this.observeChangedFiles(changedFiles, bound);
@@ -562,7 +573,7 @@ class VerificationEngine {
    * reports both where it was and where it went.
    * @private
    */
-  observeFromBase() {
+  observeFromBase(): any {
     const base = resolveIntegrationBase({ cwd: this.cwd, exec: this.exec });
     if (base.reason) {
       const working = this.observeSince(null, null);
@@ -578,12 +589,12 @@ class VerificationEngine {
    * DoFlow's own `.doflow/` state is excluded.
    * @private
    */
-  observeSince(commit, baseline) {
-    const git = (args) => {
-      let res;
+  observeSince(commit: string | null, baseline: any): any {
+    const git = (args: string[]) => {
+      let res: any;
       try {
         res = this.exec('git', ['-c', 'core.quotePath=false', ...args], { cwd: this.cwd, encoding: 'utf8', timeout: 30000 });
-      } catch (error) {
+      } catch (error: any) {
         return { reason: `Could not observe the changed files: ${error.message}` };
       }
       if (!res || res.error || res.status !== 0) {
@@ -597,13 +608,13 @@ class VerificationEngine {
     // `-z` porcelain entries are `XY <path>` separated by NUL.
     // `.doflow/` is DoFlow's own state (records, journals): writing it is not changing the project,
     // and a repo that does not ignore it would otherwise fail its own scope after any record.
-    const counts = (f) => f !== '.doflow' && !f.startsWith('.doflow/');
-    const working = status.out.split('\0').filter(Boolean).map((entry) => entry.slice(3)).filter(Boolean).filter(counts);
+    const counts = (f: string) => f !== '.doflow' && !f.startsWith('.doflow/');
+    const working = status.out!.split('\0').filter(Boolean).map((entry: string) => entry.slice(3)).filter(Boolean).filter(counts);
     if (commit === null) return { files: working, reason: null };
 
     const diff = git(['diff', '--name-only', '--no-renames', '-z', `${commit}..HEAD`]);
     if (diff.reason) return { files: null, reason: diff.reason };
-    const committed = diff.out.split('\0').filter(Boolean).filter(counts);
+    const committed = diff.out!.split('\0').filter(Boolean).filter(counts);
     return { files: [...new Set([...committed, ...working])], reason: null, baseline };
   }
 
@@ -616,24 +627,24 @@ class VerificationEngine {
    * @param {{status: string, findings?: Array<string>, reviewer?: string}} [runtimeInput.modelReview]
    * @returns {Object} the report
    */
-  runContract(contract, runtimeInput = {}) {
+  runContract(contract: any, runtimeInput: any = {}): any {
     if (!contract || !Array.isArray(contract.tiers)) {
       throw new Error('runContract expects a contract produced by compileContract');
     }
 
     const startedAt = this.timestamp();
-    const reportTiers = [];
-    const failedChecks = [];
-    let fatalTier = null;
+    const reportTiers: any[] = [];
+    const failedChecks: string[] = [];
+    let fatalTier: string | null = null;
     let checksRun = 0;
     let checksPassed = 0;
     // One evaluation pass, one cache: two tiers declaring the same command (targeted and broad
     // tests are often both `npm test`) run it once and share the result. A recovery retry calls
     // runContract again and gets a fresh cache, so retries always observe live behaviour.
-    const dedupeCache = new Map();
+    const dedupeCache = new Map<string, any>();
 
     for (const tier of contract.tiers) {
-      const entry = {
+      const entry: any = {
         id: tier.id,
         name: tier.name,
         kind: tier.kind,
@@ -683,7 +694,7 @@ class VerificationEngine {
         else failedChecks.push(result.name);
       }
 
-      const anyFailed = entry.checks.some((c) => c.status === 'FAIL');
+      const anyFailed = entry.checks.some((c: any) => c.status === 'FAIL');
       if (anyFailed) {
         entry.status = 'FAIL';
         if (tier.fatal) fatalTier = tier.id;
@@ -707,13 +718,13 @@ class VerificationEngine {
     const evaluated = reportTiers.filter((t) => t.status === 'PASS' || t.status === 'FAIL');
     const modelTier = reportTiers.find((t) => t.modelBased);
 
-    let status;
-    let reason;
+    let status: string;
+    let reason: string;
     if (evaluated.length === 0) {
       // The empty-contract defect, generalized: zero evaluated tiers is a verdict over zero
       // evidence whether the contract was empty or every tier turned out unresolvable.
       status = 'INCONCLUSIVE';
-      reason = contract.tiers.every((t) => t.resolution === 'SKIPPED')
+      reason = contract.tiers.every((t: any) => t.resolution === 'SKIPPED')
         ? 'Contract declared no checks; nothing was verified'
         : 'No tier produced a result; nothing was verified';
     } else if (requiredFailed.length > 0) {
@@ -758,9 +769,9 @@ class VerificationEngine {
       requirementSatisfaction: requirementTier
         ? {
           status: requirementTier.status,
-          satisfied: requirementTier.checks.filter((c) => c.status === 'PASS').map((c) => c.requirementId || c.name),
-          failed: requirementTier.checks.filter((c) => c.status === 'FAIL').map((c) => c.requirementId || c.name),
-          unevaluated: (requirementTier.unevaluatedRequirements || []).map((r) => r.id),
+          satisfied: requirementTier.checks.filter((c: any) => c.status === 'PASS').map((c: any) => c.requirementId || c.name),
+          failed: requirementTier.checks.filter((c: any) => c.status === 'FAIL').map((c: any) => c.requirementId || c.name),
+          unevaluated: (requirementTier.unevaluatedRequirements || []).map((r: any) => r.id),
         }
         : null,
       scope: scopeTier ? scopeTier.scope || { status: scopeTier.status, reason: scopeTier.reason } : null,
@@ -788,7 +799,7 @@ class VerificationEngine {
   }
 
   /** @private */
-  evaluateModelTier(tier, modelReview) {
+  evaluateModelTier(tier: any, modelReview: any): any {
     if (!modelReview || typeof modelReview.status !== 'string') {
       return {
         status: 'UNRESOLVED',
@@ -813,7 +824,7 @@ class VerificationEngine {
   }
 
   /** @private */
-  evaluateScopeTier(tier, changedFiles) {
+  evaluateScopeTier(tier: any, changedFiles: any): any {
     const bound = tier.bound || { maxFiles: null, allowedPaths: [] };
     const { files, reason, baseline } = this.observeChangedFiles(changedFiles, bound);
     if (files === null) {
@@ -824,12 +835,12 @@ class VerificationEngine {
       };
     }
 
-    const violations = [];
+    const violations: string[] = [];
     if (Number.isFinite(bound.maxFiles) && files.length > bound.maxFiles) {
       violations.push(`${files.length} files changed, bound was ${bound.maxFiles}`);
     }
     if (bound.allowedPaths.length > 0) {
-      const outside = files.filter((f) => !bound.allowedPaths.some((p) => f === p || f.startsWith(p.endsWith('/') ? p : `${p}/`)));
+      const outside = files.filter((f: string) => !bound.allowedPaths.some((p: string) => f === p || f.startsWith(p.endsWith('/') ? p : `${p}/`)));
       if (outside.length > 0) violations.push(`outside the declared paths: ${outside.join(', ')}`);
     }
 
@@ -858,7 +869,7 @@ class VerificationEngine {
    * @param {string} [acceptance.note]
    * @returns {{ complete: boolean, basis: string, reason: string, acceptedFailures?: Array<Object> }}
    */
-  declareCompletion(report, acceptance = {}) {
+  declareCompletion(report: any, acceptance: any = {}): any {
     if (!report || typeof report.status !== 'string') {
       throw new Error('declareCompletion expects a report produced by runContract');
     }
@@ -887,8 +898,8 @@ class VerificationEngine {
       basis: 'user-accepted-failures',
       reason: acceptance.note || `Accepted by ${acceptance.acceptedBy} while ${report.status}.`,
       acceptedFailures: (report.tiers || [])
-        .filter((t) => t.required && t.status !== 'PASS' && t.status !== 'NOT_APPLICABLE' && t.status !== 'SUBSUMED' && t.status !== 'SKIPPED')
-        .map((t) => ({ tier: t.id, status: t.status, reason: t.reason })),
+        .filter((t: any) => t.required && t.status !== 'PASS' && t.status !== 'NOT_APPLICABLE' && t.status !== 'SUBSUMED' && t.status !== 'SKIPPED')
+        .map((t: any) => ({ tier: t.id, status: t.status, reason: t.reason })),
     };
   }
 
@@ -898,9 +909,9 @@ class VerificationEngine {
    * @param {Object} report
    * @returns {string}
    */
-  failureSignature(report) {
+  failureSignature(report: any): string {
     const failed = [...(report.failedChecks || [])].sort().join('|');
-    const unresolved = (report.unresolved || []).map((u) => u.tier).sort().join('|');
+    const unresolved = (report.unresolved || []).map((u: any) => u.tier).sort().join('|');
     return `${report.status}::${failed}::${unresolved}`;
   }
 
@@ -915,7 +926,7 @@ class VerificationEngine {
    * @param {number} [options.maxIterations] defaults to the report's risk level
    * @returns {Object|null} null when there is nothing to recover from
    */
-  planRecovery(report, options = {}) {
+  planRecovery(report: any, options: any = {}): any {
     if (!report || report.status === 'PASS') return null;
 
     const maxIterations = Number.isInteger(options.maxIterations)
@@ -923,17 +934,17 @@ class VerificationEngine {
       : this.riskDefinition(report.riskLevel).maxRecoveryIterations;
     const manager = this.recoveryOverride || new RecoveryManager({ maxIterations });
 
-    const failingTier = (report.tiers || []).find((t) => t.required && t.status === 'FAIL')
-      || (report.tiers || []).find((t) => t.status === 'FAIL');
-    const unverifiedTier = (report.tiers || []).find((t) => t.required && (t.status === 'UNRESOLVED' || t.status === 'NOT_RUN'));
+    const failingTier = (report.tiers || []).find((t: any) => t.required && t.status === 'FAIL')
+      || (report.tiers || []).find((t: any) => t.status === 'FAIL');
+    const unverifiedTier = (report.tiers || []).find((t: any) => t.required && (t.status === 'UNRESOLVED' || t.status === 'NOT_RUN'));
 
-    let failureClass;
-    let classificationSource;
-    let errorMessage;
-    let hint = null;
+    let failureClass: string;
+    let classificationSource: string;
+    let errorMessage: string;
+    let hint: string | null = null;
 
     if (failingTier) {
-      const firstFailure = (failingTier.checks || []).find((c) => c.status === 'FAIL');
+      const firstFailure = (failingTier.checks || []).find((c: any) => c.status === 'FAIL');
       errorMessage = [failingTier.reason, firstFailure && firstFailure.error, firstFailure && firstFailure.stderr]
         .filter(Boolean)
         .join(' ');
@@ -985,12 +996,12 @@ class VerificationEngine {
    * @param {Object} [options.runtimeInput] forwarded to each `runContract`
    * @returns {{ outcome: string, report: Object, plan: Object|null, attempts: Array<Object>, reason: string }}
    */
-  runWithRecovery(contract, options = {}) {
+  runWithRecovery(contract: any, options: any = {}): any {
     let current = contract;
     let lastAgent = options.lastAgent;
-    let previousSignature = null;
+    let previousSignature: string | null = null;
     let iteration = 0;
-    const attempts = [];
+    const attempts: any[] = [];
 
     for (;;) {
       const report = this.runContract(current, options.runtimeInput || {});
@@ -1048,7 +1059,7 @@ class VerificationEngine {
    * @param {Object} input `compileContract` input
    * @param {Object} [runtimeInput] `runContract` input
    */
-  verify(input, runtimeInput) {
+  verify(input: any, runtimeInput: any): any {
     const contract = this.compileContract(input);
     return { contract, report: this.runContract(contract, runtimeInput) };
   }
@@ -1084,22 +1095,27 @@ class VerificationEngine {
  * @param {Object} [options.crypto]
  * @returns {{ ok: true, structuralChecks: Array<Object>, requirements: Array<Object>, provenance: Object } | { ok: false, message: string }}
  */
-function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto = nodeCrypto }) {
+function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto = nodeCrypto }: {
+  cwd: string;
+  verificationInput: any;
+  fs?: any;
+  crypto?: any;
+}): any {
   if (typeof verificationInput !== 'string' || verificationInput.trim() === '') {
     return { ok: false, message: '--verification-input requires a file path.' };
   }
   const inputAbs = path.isAbsolute(verificationInput) ? verificationInput : path.resolve(cwd, verificationInput);
-  let rawBytes;
+  let rawBytes: Buffer;
   try {
     rawBytes = fs.readFileSync(inputAbs);
-  } catch (err) {
+  } catch (err: any) {
     return { ok: false, message: `--verification-input '${verificationInput}' could not be read: ${err.message}` };
   }
   const manifestDigest = 'sha256:' + crypto.createHash('sha256').update(rawBytes).digest('hex');
-  let manifest;
+  let manifest: any;
   try {
     manifest = JSON.parse(rawBytes.toString('utf8'));
-  } catch (err) {
+  } catch (err: any) {
     return { ok: false, message: `--verification-input '${verificationInput}' is not valid JSON: ${err.message}` };
   }
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
@@ -1126,10 +1142,10 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
       return { ok: false, message: '--verification-input originalContractDigest must be in format sha256:<64 hex chars>.' };
     }
     const origAbs = path.isAbsolute(manifest.originalContractPath) ? manifest.originalContractPath : path.resolve(cwd, manifest.originalContractPath);
-    let origBytes;
+    let origBytes: Buffer;
     try {
       origBytes = fs.readFileSync(origAbs);
-    } catch (err) {
+    } catch (err: any) {
       return { ok: false, message: `--verification-input originalContractPath '${manifest.originalContractPath}' could not be read: ${err.message}` };
     }
     const actualOrigDigest = 'sha256:' + crypto.createHash('sha256').update(origBytes).digest('hex');
@@ -1138,12 +1154,12 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
     }
   }
 
-  let structuralChecks = [];
+  let structuralChecks: any[] = [];
   if (manifest.structuralChecks !== undefined) {
     if (!Array.isArray(manifest.structuralChecks)) {
       return { ok: false, message: '--verification-input structuralChecks must be an array.' };
     }
-    const seenNames = new Set();
+    const seenNames = new Set<string>();
     const ALLOWED_STRUCT_KEYS = new Set(['name', 'command', 'timeoutMs']);
     for (let i = 0; i < manifest.structuralChecks.length; i++) {
       const entry = manifest.structuralChecks[i];
@@ -1172,12 +1188,12 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
     structuralChecks = manifest.structuralChecks;
   }
 
-  let requirements = [];
+  let requirements: any[] = [];
   if (manifest.requirements !== undefined) {
     if (!Array.isArray(manifest.requirements)) {
       return { ok: false, message: '--verification-input requirements must be an array.' };
     }
-    const seenIds = new Set();
+    const seenIds = new Set<string>();
     const ALLOWED_REQ_KEYS = new Set(['id', 'description', 'command', 'timeoutMs']);
     for (let i = 0; i < manifest.requirements.length; i++) {
       const entry = manifest.requirements[i];
@@ -1244,11 +1260,23 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
  * @param {string} [options.baselineRef] commit or ref to measure change against (IC-022)
  * @returns {number} exit code
  */
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null } = {}) {
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null }: {
+  taskId: any;
+  action?: string;
+  risk?: any;
+  planPath?: any;
+  json?: boolean;
+  projectRoot?: any;
+  slug?: string | null;
+  scope?: any;
+  verificationInput?: string | null;
+  verificationPhase?: string | null;
+  baselineRef?: string | null;
+}): number {
   // The task id names state files here, so it obeys the rule every other task verb applies.
   try {
     assertSafeTaskId(taskId);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('verify', error.message, json);
   }
 
@@ -1258,7 +1286,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     }
   }
 
-  let declared = null;
+  let declared: any = null;
   if (scope !== null && scope !== undefined) {
     const parsed = parseDeclaredScope(typeof scope === 'string' ? scope : '');
     if (parsed.reason) {
@@ -1268,9 +1296,9 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   }
   const cwd = projectRoot || process.cwd();
 
-  let structuralChecks = [];
-  let requirements = [];
-  let inputProvenance = null;
+  let structuralChecks: any[] = [];
+  let requirements: any[] = [];
+  let inputProvenance: any = null;
   if (verificationInput !== null && verificationInput !== undefined) {
     const val = validateVerificationInput({ cwd, verificationInput });
     if (!val.ok) {
@@ -1306,8 +1334,8 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     if (!declared) declared = { paths: [...recordedScope], origin: 'readiness-record', record: recordRel };
   }
 
-  let engine;
-  let contract;
+  let engine: any;
+  let contract: any;
   try {
     engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
     // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
@@ -1328,15 +1356,15 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
       requirements,
       provenance: inputProvenance,
     });
-  } catch (error) {
+  } catch (error: any) {
     return usageError('verify', error.message, json, error);
   }
   // The bound's sources print under the change-scope tier's line; no other line changes.
   const boundLines = new Map(contract.tiers
-    .filter((t) => t.bound && Array.isArray(t.bound.sources) && t.bound.sources.length > 0)
-    .map((t) => [t.id, `      bound: ${boundSourcesText(t.bound.sources)}`]));
+    .filter((t: any) => t.bound && Array.isArray(t.bound.sources) && t.bound.sources.length > 0)
+    .map((t: any) => [t.id, `      bound: ${boundSourcesText(t.bound.sources)}`]));
   if (recordNote) {
-    const scopeTier = contract.tiers.find((t) => t.kind === 'scope');
+    const scopeTier = contract.tiers.find((t: any) => t.kind === 'scope');
     if (scopeTier) boundLines.set(scopeTier.id, [boundLines.get(scopeTier.id), `      ${recordNote}`].filter(Boolean).join('\n'));
   }
 
@@ -1366,7 +1394,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // record exists: the checks passing says nothing about whether the work should have started.
   try {
     report.readiness = verifyReadinessCheck({ stateRoot: cwd, taskId, slug: featureSlug });
-  } catch (error) {
+  } catch (error: any) {
     return usageError('verify', error.message, json, error);
   }
   const readinessHeld = report.readiness.applies && !report.readiness.ok;
@@ -1402,7 +1430,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
 }
 
 /** One line stating what the targeted tier selected, or why it ran the broad command instead. */
-function selectionText(selection) {
+function selectionText(selection: any): string {
   const of = selection.totalCount === null ? '' : ` of ${selection.totalCount}`;
   if (selection.fallback) return `selection: ${selection.basis}, fell back to the broad command (${selection.fallback})`;
   if (selection.selectedCount === null) return `selection: ${selection.basis}`;
@@ -1410,7 +1438,7 @@ function selectionText(selection) {
 }
 
 /** Whether two path lists name the same set. */
-function sameSet(a, b) {
+function sameSet(a: string[], b: string[]): boolean {
   const left = new Set(a);
   const right = new Set(b);
   return left.size === right.size && [...left].every((p) => right.has(p));

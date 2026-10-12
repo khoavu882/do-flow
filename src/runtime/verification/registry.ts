@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The registry-driven layer's own registry: loads and validates `core/registry/verification.json`
  * (plan task C.2, design C7) into the shape `VerificationEngine` (in `verification.js`) compiles
@@ -46,7 +48,7 @@ const RECOVERY_OUTCOMES = Object.freeze([
   'NO_REMEDIATION',
 ]);
 
-function assert(condition, message) {
+function assert(condition: any, message: string): void {
   if (!condition) throw new Error(`verification.json is invalid: ${message}`);
 }
 
@@ -65,7 +67,7 @@ function assert(condition, message) {
  * @param {Object} [options.fsImpl]
  * @returns {Object} the validated registry
  */
-function loadVerificationRegistry(options = {}) {
+function loadVerificationRegistry(options: any = {}): any {
   let data = options.registry;
   if (!data) {
     const repoRoot = options.repoRoot || REPO_ROOT;
@@ -82,7 +84,7 @@ function loadVerificationRegistry(options = {}) {
   // FR-009 states this as a MUST, so it is enforced at load rather than trusted at call sites.
   assert(policy.modelReviewIsPrimaryProof === false, 'policy.modelReviewIsPrimaryProof must be false');
 
-  const seen = new Set();
+  const seen = new Set<string>();
   let previousOrder = -Infinity;
   let lastNonModelOrder = -Infinity;
   let firstModelOrder = Infinity;
@@ -105,7 +107,7 @@ function loadVerificationRegistry(options = {}) {
   // of the registry, so it is checkable here instead of being re-asserted in prose.
   assert(firstModelOrder > lastNonModelOrder, 'every model-based tier must be ordered after every deterministic tier');
 
-  for (const [level, def] of Object.entries(data.riskLevels)) {
+  for (const [level, def] of Object.entries(data.riskLevels) as [string, any][]) {
     assert(def && Array.isArray(def.requiredTiers), `risk level '${level}' needs requiredTiers`);
     for (const id of def.requiredTiers.concat(def.advisoryTiers || [])) {
       assert(seen.has(id), `risk level '${level}' references unknown tier '${id}'`);

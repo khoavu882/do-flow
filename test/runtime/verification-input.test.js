@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { suiteTempDir } = require('../helper/tmp');
 const { createScratch } = require('../helper/scratch-env');
-const { VerificationEngine, validateVerificationInput } = require('../../src/runtime/verification/engine');
+const { VerificationEngine, validateVerificationInput } = require('../../src/runtime/verification/engine.ts');
 
 const scratch = createScratch('doflow-vinput-env-');
 scratch.apply();
