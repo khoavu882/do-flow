@@ -5,7 +5,7 @@
 // the surface the migrated modules actually touch. Extend it as more modules migrate, not ahead of
 // need. See agent-docs/BRIEF_GOAL_DOFLOW.md for the migration roadmap.
 
-declare function require(id: string): any;
+declare var require: { (id: string): any; main: any };
 
 declare var module: { exports: any };
 

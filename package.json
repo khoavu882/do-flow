@@ -33,7 +33,7 @@
     "typecheck": "npx -y -p typescript@5.7.2 tsc -p tsconfig.json",
     "bench": "node bench/runner.js",
     "drift": "node scripts/check-format-drift.js",
-    "version": "node src/release/sync-plugin-versions.js && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json"
+    "version": "node src/release/sync-plugin-versions.ts && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json"
   },
   "files": [
     "bin/",
