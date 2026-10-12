@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Task-attempt ledger (feature 070, roadmap P2A first slice).
 //
 // `do-execute-plan` used to decide a plan task was done from a `[x]` checkbox and a `complete` row
@@ -35,7 +37,8 @@ const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 
 /** A failure that is the caller's or the environment's, not a finding: exit 2. */
 class TaskAttemptError extends Error {
-  constructor(code, message) {
+  declare code: any;
+  constructor(code: any, message: any) {
     super(message);
     this.name = 'TaskAttemptError';
     this.code = code;
@@ -45,13 +48,13 @@ class TaskAttemptError extends Error {
 /** Thrown inside the locked build to abandon a write without touching the store. */
 class NoWrite extends Error {}
 
-function storeFile(root, slug) {
+function storeFile(root: any, slug: any) {
   return path.join(root, '.doflow', 'state', 'task-attempts', `${slug}.json`);
 }
 
-function uniq(values) { return [...new Set(values)]; }
+function uniq(values: any) { return [...new Set(values)]; }
 
-function assertSlug(slug) {
+function assertSlug(slug: any) {
   if (!isSafeSlug(slug)) throw new TaskAttemptError('usage', `'${slug}' is not a valid feature slug`);
   return slug;
 }
@@ -60,7 +63,7 @@ function assertSlug(slug) {
 
 /** The hash a claim records and `finish` compares: everything about the task's plan line except
  * its checkbox, so ticking the box after a finish is not an edit of the task. */
-function taskLineHash(task) {
+function taskLineHash(task: any) {
   const material = JSON.stringify([
     task.id, task.description, task.stories, task.owner, task.files, task.dependsOn, task.externalContract,
   ]);
@@ -71,27 +74,27 @@ function taskLineHash(task) {
  * The plan's tasks, in plan order, with phase order taken from first appearance.
  * @returns {{planPath: string, tasks: Array<{id: string, phase: string, phaseIndex: number, checked: boolean, hash: string}>}}
  */
-function loadPlan({ roots, slug, fsImpl = fs }) {
+function loadPlan({ roots, slug, fsImpl = fs }: any) {
   const relative = path.join('agent-docs', 'doflow', slug, 'plan.md');
-  const found = roots.map((root) => path.join(root, relative)).find((file) => fsImpl.existsSync(file));
+  const found = roots.map((root: any) => path.join(root, relative)).find((file: any) => fsImpl.existsSync(file));
   if (!found) throw new TaskAttemptError('plan-unreadable', `no plan.md for feature '${slug}' (looked for ${relative} under ${roots.join(', ')})`);
   let text;
-  try { text = fsImpl.readFileSync(found, 'utf8'); } catch (error) {
+  try { text = fsImpl.readFileSync(found, 'utf8'); } catch (error: any) {
     throw new TaskAttemptError('plan-unreadable', `cannot read ${found}: ${error.message}`);
   }
   const parsed = parsePlan(text);
   if (parsed.tasks.length === 0) {
-    throw new TaskAttemptError('plan-malformed', `${found} holds no \`- [ ] <phase>.<n>\` tasks: ${parsed.gaps.map((g) => g.why).join('; ') || 'nothing to track'}`);
+    throw new TaskAttemptError('plan-malformed', `${found} holds no \`- [ ] <phase>.<n>\` tasks: ${parsed.gaps.map((g: any) => g.why).join('; ') || 'nothing to track'}`);
   }
   const seen = new Set();
   for (const task of parsed.tasks) {
     if (seen.has(task.id)) throw new TaskAttemptError('plan-malformed', `plan task id '${task.id}' appears more than once in ${found}`);
     seen.add(task.id);
   }
-  const phases = uniq(parsed.tasks.map((t) => t.phase));
+  const phases = uniq(parsed.tasks.map((t: any) => t.phase));
   return {
     planPath: relative.split(path.sep).join('/'),
-    tasks: parsed.tasks.map((t) => ({
+    tasks: parsed.tasks.map((t: any) => ({
       id: t.id, phase: t.phase, phaseIndex: phases.indexOf(t.phase), checked: t.done, hash: taskLineHash(t),
     })),
   };
@@ -99,19 +102,19 @@ function loadPlan({ roots, slug, fsImpl = fs }) {
 
 // ── store ──────────────────────────────────────────────────────────────────────────────────────
 
-function unreadable(file, why) {
+function unreadable(file: any, why: any) {
   return new TaskAttemptError('store-unreadable', `${why} Refusing to read or write '${file}'; it was left unchanged.`);
 }
 
 /** The store as an object, or a fresh empty one when the file does not exist. Shape-checked: a file
  * that parses but is not a ledger is as unusable as one that does not parse. */
-function normalizeStore(data, file) {
+function normalizeStore(data: any, file: any) {
   if (data === null || data === undefined) return { version: SCHEMA_VERSION, revision: 0, planPath: null, tasks: {} };
   if (typeof data !== 'object' || Array.isArray(data) || data.version !== SCHEMA_VERSION
     || typeof data.tasks !== 'object' || data.tasks === null || Array.isArray(data.tasks)) {
     throw unreadable(file, 'It is not a version-1 task-attempt ledger.');
   }
-  for (const [id, entry] of Object.entries(data.tasks)) {
+  for (const [id, entry] of (Object.entries(data.tasks) as [string, any][])) {
     if (!entry || !Number.isInteger(entry.nextToken) || !Array.isArray(entry.attempts)) {
       throw unreadable(file, `Task '${id}' has no readable attempt list.`);
     }
@@ -119,10 +122,10 @@ function normalizeStore(data, file) {
   return data;
 }
 
-function readStore(file, fsImpl) {
+function readStore(file: any, fsImpl: any) {
   try {
     return normalizeStore(readTaskState(fsImpl, file), file);
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof TaskAttemptError) throw error;
     throw unreadable(file, error.message);
   }
@@ -130,12 +133,12 @@ function readStore(file, fsImpl) {
 
 /** One locked read-decide-write. `apply(store)` returns `{result, write}`; with `write` false the
  * store is not touched, which is how a refusal or a stale token changes nothing. */
-function mutate({ file, fsImpl, apply }) {
-  let outcome = null;
+function mutate({ file, fsImpl, apply }: any) {
+  let outcome: any = null;
   try {
     updateTaskState({
       fsImpl, file,
-      build: (disk) => {
+      build: (disk: any) => {
         const store = normalizeStore(disk, file);
         store.revision = (Number.isInteger(store.revision) ? store.revision : 0) + 1;
         outcome = apply(store);
@@ -143,7 +146,7 @@ function mutate({ file, fsImpl, apply }) {
         return store;
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof NoWrite) return outcome.result;
     if (error instanceof TaskAttemptError) throw error;
     throw unreadable(file, error.message);
@@ -151,24 +154,24 @@ function mutate({ file, fsImpl, apply }) {
   return outcome.result;
 }
 
-function entryFor(store, taskId) {
+function entryFor(store: any, taskId: any) {
   if (!store.tasks[taskId]) store.tasks[taskId] = { nextToken: 1, attempts: [] };
   return store.tasks[taskId];
 }
 
-const activeAttempt = (entry) => (entry ? entry.attempts.find((a) => a.state === 'active') || null : null);
-const doneAttempt = (entry) => (entry ? entry.attempts.find((a) => a.state === 'finished' && a.result === 'COMPLETED') || null : null);
+const activeAttempt = (entry: any) => (entry ? entry.attempts.find((a: any) => a.state === 'active') || null : null);
+const doneAttempt = (entry: any) => (entry ? entry.attempts.find((a: any) => a.state === 'finished' && a.result === 'COMPLETED') || null : null);
 
-function latestFinished(entry) {
-  const finished = entry ? entry.attempts.filter((a) => a.state === 'finished') : [];
-  return finished.length ? finished.reduce((a, b) => (b.token > a.token ? b : a)) : null;
+function latestFinished(entry: any) {
+  const finished = entry ? entry.attempts.filter((a: any) => a.state === 'finished') : [];
+  return finished.length ? finished.reduce((a: any, b: any) => (b.token > a.token ? b : a)) : null;
 }
 
 // ── evidence ───────────────────────────────────────────────────────────────────────────────────
 
 /** Evidence ids recorded in any task file under the evidence store, to tell "belongs to another task"
  * from "does not exist". Reads only; a file that cannot be read simply does not match. */
-function evidenceBelongsElsewhere({ roots, slug, evidenceId, fsImpl }) {
+function evidenceBelongsElsewhere({ roots, slug, evidenceId, fsImpl }: any) {
   for (const root of roots) {
     const base = path.join(root, '.doflow', 'state', 'evidence');
     for (const dir of [base, path.join(base, slug)]) {
@@ -178,7 +181,7 @@ function evidenceBelongsElsewhere({ roots, slug, evidenceId, fsImpl }) {
         if (!name.endsWith('.json')) continue;
         try {
           const data = JSON.parse(fsImpl.readFileSync(path.join(dir, name), 'utf8'));
-          if (Array.isArray(data.evidence) && data.evidence.some((item) => item && item.id === evidenceId)) return true;
+          if (Array.isArray(data.evidence) && data.evidence.some((item: any) => item && item.id === evidenceId)) return true;
         } catch { /* unreadable files do not match */ }
       }
     }
@@ -187,7 +190,7 @@ function evidenceBelongsElsewhere({ roots, slug, evidenceId, fsImpl }) {
 }
 
 /** The refusal reason for `evidenceId` as proof of a COMPLETED attempt, or null when it qualifies (FR-004). */
-function evidenceRefusal({ evidenceId, slug, taskId, startedAt, roots, fsImpl }) {
+function evidenceRefusal({ evidenceId, slug, taskId, startedAt, roots, fsImpl }: any) {
   if (!evidenceId) return 'evidence-required';
   const allowed = [slug, taskId];
   let item = null;
@@ -213,25 +216,25 @@ function evidenceRefusal({ evidenceId, slug, taskId, startedAt, roots, fsImpl })
 
 // ── actions ────────────────────────────────────────────────────────────────────────────────────
 
-function rootsFor({ cwd, lifecycleRoot }) {
+function rootsFor({ cwd, lifecycleRoot }: any) {
   return uniq([path.resolve(cwd), lifecycleRoot]);
 }
 
-function claim({ file, fsImpl, roots, slug, task, owner, mode, now = new Date() }) {
+function claim({ file, fsImpl, roots, slug, task, owner, mode, now = new Date() }: any) {
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!owner || !SAFE_NAME.test(owner)) throw new TaskAttemptError('usage', '--owner is required: the name of the agent or person taking the task');
   if (!MODES.includes(mode)) throw new TaskAttemptError('usage', `--mode is required: one of ${MODES.join(', ')}`);
   const plan = loadPlan({ roots, slug, fsImpl });
   return mutate({
     file, fsImpl,
-    apply: (store) => {
-      const refuse = (reason, extra = {}) => ({ write: false, result: { disposition: 'refused', taskId: task, reason, ...extra } });
-      const target = plan.tasks.find((t) => t.id === task);
+    apply: (store: any) => {
+      const refuse = (reason: any, extra: any = {}) => ({ write: false, result: { disposition: 'refused', taskId: task, reason, ...extra } });
+      const target = plan.tasks.find((t: any) => t.id === task);
       if (!target) return refuse('unknown-task');
       if (doneAttempt(store.tasks[task])) return refuse('already-done');
       const active = activeAttempt(store.tasks[task]);
       if (active) return refuse('active-attempt', { activeToken: active.token, owner: active.owner, startedAt: active.startedAt });
-      const unmet = plan.tasks.filter((t) => t.phaseIndex < target.phaseIndex && !doneAttempt(store.tasks[t.id])).map((t) => t.id);
+      const unmet = plan.tasks.filter((t: any) => t.phaseIndex < target.phaseIndex && !doneAttempt(store.tasks[t.id])).map((t: any) => t.id);
       if (unmet.length) return refuse('unmet-phase', { unmet });
       const entry = entryFor(store, task);
       const token = entry.nextToken;
@@ -246,23 +249,23 @@ function claim({ file, fsImpl, roots, slug, task, owner, mode, now = new Date() 
   });
 }
 
-function stale(taskId, token, reason) {
+function stale(taskId: any, token: any, reason: any) {
   return { write: false, result: { disposition: 'stale', taskId, token, reason } };
 }
 
-function finish({ file, fsImpl, roots, slug, task, token, result, evidenceId }) {
+function finish({ file, fsImpl, roots, slug, task, token, result, evidenceId }: any) {
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!Number.isInteger(token) || token < 1) throw new TaskAttemptError('usage', '--token is required: the token claim returned');
   if (!RESULTS.includes(result)) throw new TaskAttemptError('usage', `--result is required: one of ${RESULTS.join(', ')}`);
   return mutate({
     file, fsImpl,
-    apply: (store) => {
+    apply: (store: any) => {
       const active = activeAttempt(store.tasks[task]);
       if (!active) return stale(task, token, 'no-active-attempt');
       if (active.token !== token) return stale(task, token, 'token-mismatch');
-      const refuse = (reason) => ({ write: false, result: { disposition: 'refused', taskId: task, token, reason } });
+      const refuse = (reason: any) => ({ write: false, result: { disposition: 'refused', taskId: task, token, reason } });
       const plan = loadPlan({ roots, slug, fsImpl });
-      const line = plan.tasks.find((t) => t.id === task);
+      const line = plan.tasks.find((t: any) => t.id === task);
       if (!line) return refuse('unknown-task');
       if (line.hash !== active.taskLineHash) return refuse('plan-changed');
       if (result === 'COMPLETED') {
@@ -277,13 +280,13 @@ function finish({ file, fsImpl, roots, slug, task, token, result, evidenceId }) 
   });
 }
 
-function release({ file, fsImpl, task, token, reason }) {
+function release({ file, fsImpl, task, token, reason }: any) {
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!Number.isInteger(token) || token < 1) throw new TaskAttemptError('usage', '--token is required: the token claim returned');
   if (!reason || !String(reason).trim()) throw new TaskAttemptError('usage', '--reason is required: why the attempt is being released');
   return mutate({
     file, fsImpl,
-    apply: (store) => {
+    apply: (store: any) => {
       const active = activeAttempt(store.tasks[task]);
       if (!active) return stale(task, token, 'no-active-attempt');
       if (active.token !== token) return stale(task, token, 'token-mismatch');
@@ -295,10 +298,10 @@ function release({ file, fsImpl, task, token, reason }) {
 }
 
 /** Completion read from the ledger and the plan, never from checkboxes (FR-005). */
-function status({ file, fsImpl, roots, slug }) {
+function status({ file, fsImpl, roots, slug }: any) {
   const plan = loadPlan({ roots, slug, fsImpl });
   const store = readStore(file, fsImpl);
-  const tasks = plan.tasks.map((t) => {
+  const tasks = plan.tasks.map((t: any) => {
     const entry = store.tasks[t.id];
     const active = activeAttempt(entry);
     const done = doneAttempt(entry);
@@ -307,7 +310,7 @@ function status({ file, fsImpl, roots, slug }) {
     if (done) derived = 'done';
     else if (active) derived = 'running';
     else if (last && last.result === 'BLOCKED') derived = 'blocked';
-    else if (plan.tasks.every((o) => o.phaseIndex >= t.phaseIndex || doneAttempt(store.tasks[o.id]))) derived = 'ready';
+    else if (plan.tasks.every((o: any) => o.phaseIndex >= t.phaseIndex || doneAttempt(store.tasks[o.id]))) derived = 'ready';
     else derived = 'pending';
     return {
       id: t.id, phase: t.phase, derived,
@@ -317,10 +320,10 @@ function status({ file, fsImpl, roots, slug }) {
     };
   });
   return {
-    complete: tasks.length > 0 && tasks.every((t) => t.derived === 'done'),
+    complete: tasks.length > 0 && tasks.every((t: any) => t.derived === 'done'),
     revision: store.revision,
     tasks,
-    unclaimedChecked: plan.tasks.filter((t) => t.checked && !doneAttempt(store.tasks[t.id])).map((t) => t.id),
+    unclaimedChecked: plan.tasks.filter((t: any) => t.checked && !doneAttempt(store.tasks[t.id])).map((t: any) => t.id),
   };
 }
 
@@ -330,26 +333,26 @@ function status({ file, fsImpl, roots, slug }) {
  * otherwise. A store or plan that cannot be read throws, so the gate refuses rather than guessing.
  * @returns {{state: 'none'|'complete'|'incomplete', slug: string|null, incomplete: Array<string>}}
  */
-function checkCompletion({ slug, cwd, fsImpl = fs }) {
+function checkCompletion({ slug, cwd, fsImpl = fs }: any) {
   if (!isSafeSlug(slug)) return { state: 'none', slug: null, incomplete: [] };
   const lifecycleRoot = lifecycleProjectRoot(cwd);
   const file = storeFile(lifecycleRoot, slug);
   if (!fsImpl.existsSync(file)) return { state: 'none', slug, incomplete: [] };
   const answer = status({ file, fsImpl, roots: rootsFor({ cwd, lifecycleRoot }), slug });
-  const incomplete = answer.tasks.filter((t) => t.derived !== 'done').map((t) => t.id);
+  const incomplete = answer.tasks.filter((t: any) => t.derived !== 'done').map((t: any) => t.id);
   return { state: answer.complete ? 'complete' : 'incomplete', slug, incomplete };
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────────────────────────
 
-function failure(code, message, json) {
+function failure(code: any, message: any, json: any) {
   const { finishRuntime } = require('./cli-result.ts');
   if (json) console.log(JSON.stringify({ ok: false, error: code, message }, null, 2));
   else console.error(`doflow task-attempt: ${message}`);
   return finishRuntime(2);
 }
 
-function describe(result) {
+function describe(result: any) {
   const parts = [`${result.disposition}`];
   if (result.taskId) parts.push(`task ${result.taskId}`);
   if (result.token !== undefined) parts.push(`token ${result.token}`);
@@ -367,7 +370,7 @@ function describe(result) {
 function handleTaskAttemptCommand({
   action = 'status', slug = null, task, owner, mode, token, result, evidenceId, reason, json = false,
   cwd = process.cwd(), resolveSlug = null, fsImpl = fs, now = new Date(),
-} = {}) {
+}: any = {}) {
   const { finishRuntime } = require('./cli-result.ts');
   try {
     if (!ACTIONS.includes(action)) throw new TaskAttemptError('usage', `unknown action '${action}'; valid: ${ACTIONS.join(' | ')}`);
@@ -400,7 +403,7 @@ function handleTaskAttemptCommand({
       if (answer.unclaimedChecked.length) console.log(`Checked in plan.md with no COMPLETED attempt: ${answer.unclaimedChecked.join(', ')}`);
     } else (ok ? console.log : console.error)(describe(answer));
     return finishRuntime(ok ? 0 : 1);
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof TaskAttemptError) return failure(error.code, error.message, json);
     throw error;
   }
