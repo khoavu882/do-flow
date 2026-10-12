@@ -10,7 +10,7 @@ const { loadAdviceRegistry } = require('./advice/registry');
 const { createAdviceClient } = require('./advice/client');
 const { materializeKind } = require('./advice/kinds');
 const { appendOutcome, findPick } = require('./advice/record');
-const { strengthWords } = require('./advice/strength');
+const { strengthWords } = require('./advice/strength.ts');
 const { loadStorageRegistry } = require('./storage/registry');
 const { resolveRoots } = require('./storage/roots');
 

@@ -26,7 +26,7 @@ const { resolveRoots } = require('./storage/roots');
 const { resolveSetting } = require('./advice/config');
 const { materializeKind } = require('./advice/kinds');
 const { createAdviceClient } = require('./advice/client');
-const { strengthWords } = require('./advice/strength');
+const { strengthWords } = require('./advice/strength.ts');
 
 const SCHEMA = 1;
 const REACHABLE = new Set(['selected', 'configured']);

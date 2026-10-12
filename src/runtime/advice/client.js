@@ -5,7 +5,7 @@ const http = require('node:http');
 const https = require('node:https');
 const { resolveSetting } = require('./config');
 const { checkEndpoint } = require('./endpoint-guard');
-const { strengthOf } = require('./strength');
+const { strengthOf } = require('./strength.ts');
 const { validateQuestionSet, validateStaticAnswer } = require('./kinds');
 const { appendPick, appendMiss } = require('./record');
 

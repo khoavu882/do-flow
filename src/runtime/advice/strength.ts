@@ -1,6 +1,8 @@
 'use strict';
 
-function strengthOf(answer, bands) {
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
+function strengthOf(answer: any, bands: any): { word: string; between: string[] | null } {
   const type = answer?.type;
   const thresholds = bands?.[type] || bands;
   const probabilities = answer?.probabilities;
@@ -9,9 +11,9 @@ function strengthOf(answer, bands) {
   }
 
   if (type === 'choice') {
-    const ordered = Object.entries(probabilities)
+    const ordered: any[] = Object.entries(probabilities)
       .filter(([, probability]) => typeof probability === 'number' && Number.isFinite(probability))
-      .sort((left, right) => right[1] - left[1]);
+      .sort((left: any, right: any) => right[1] - left[1]);
     if (!ordered.length) return { word: 'leaning', between: null };
     if (ordered[0][1] >= thresholds.clearAt) return { word: 'clear', between: null };
     if (ordered.length > 1) {
@@ -28,9 +30,9 @@ function strengthOf(answer, bands) {
     const choice = bands?.choice;
     const criteria = answer.criteria;
     if (!choice || !Array.isArray(criteria)) return { word: 'leaning', between: null };
-    const ordered = criteria.map((criterion, index) => [criterion, probabilities[String(index)]])
-      .filter(([, probability]) => typeof probability === 'number' && Number.isFinite(probability))
-      .sort((left, right) => right[1] - left[1]);
+    const ordered = criteria.map((criterion: any, index: number) => [criterion, probabilities[String(index)]])
+      .filter(([, probability]: any) => typeof probability === 'number' && Number.isFinite(probability))
+      .sort((left: any, right: any) => right[1] - left[1]);
     if (!ordered.length) return { word: 'leaning', between: null };
     if (ordered[0][1] >= choice.clearAt) return { word: 'clear', between: null };
     if (ordered.length > 1) {
@@ -54,7 +56,7 @@ function strengthOf(answer, bands) {
   return { word: 'leaning', between: null };
 }
 
-function strengthWords(strength) {
+function strengthWords(strength: any): string {
   if (strength?.word === 'split' && Array.isArray(strength.between) && strength.between.length === 2) {
     return `split between ${strength.between[0]} and ${strength.between[1]}`;
   }
