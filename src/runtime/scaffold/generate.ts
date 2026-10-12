@@ -424,7 +424,7 @@ function planTestStubs({ requirement, componentsForRequirement, language, slug, 
           `requirement:   ${id}${req ? ` — ${req.summary}` : ' — not present in the requirement index'}`,
           ...(comps.length ? comps.map((c: any) => `component:     ${c.id} — ${c.name} (design.md §3)`) : []),
           `criteria:      ${cases.length} from requirement.md §6`,
-          `language:      ${language.id} (detected from ${language.signal} by command-detect.js)`,
+          `language:      ${language.id} (detected from ${language.signal} by command-detect.ts)`,
         ];
         const name = emitter.testName(id);
         planned.set(path.join('test', name) + STUB_SUFFIX, {

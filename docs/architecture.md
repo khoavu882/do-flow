@@ -238,7 +238,7 @@ feature finishes when a release record names it, or when its merge is contained 
 The Node runtime finds `do-git-state.sh` inside the package, else in the `bash` folder of the scripts
 installed beside its runtime (DEC-048), and reports `git-state-helper-missing` when neither exists. The
 runtime that is installed carries only `bin/`, `src/` and `core/registry/`, so a path under
-`core/shared/` does not exist there. `scope-bound.js` and `feature-resolve.js` still use the older
+`core/shared/` does not exist there. `scope-bound.js` and `feature-resolve.ts` still use the older
 pattern; that is recorded as a follow-up, not fixed here.
 
 ### Failure capture
@@ -294,7 +294,7 @@ command does.
   it, record the measured value and the reason beside the rail, and raise it deliberately in its own
   commit; do not trim an unrelated file to fit. The `dependency-change` rail has little headroom.
 - **G16** (`module-reachability.test.js`): every module in `src/runtime/lifecycle/`, `src/runtime/failure/`
-  and `mask.js` must be reached by a static `require()` literal. The failure modules are required
+  and `mask.ts` must be reached by a static `require()` literal. The failure modules are required
   lazily (in `bin/doflow.js` inside a `try`, in `runtime-commands.js` inside a function), so the CLI runs
   without them; keep the `require('<literal path>')` form when you add one.
 - **G17** (`verb-reachability.test.js`): each of the four verbs must be spelled `doflow-run <verb>` in
@@ -616,7 +616,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   appears only under `core/shared/skills/`; a sentence naming an `optional` server with "always",
   "no flag" or "unconditionally" fails; a sentence holding `ToolSearch(` must say "Claude Code". Each
   marker in a skill file needs a matching `steps` entry in `mcp.json`, and each `steps` entry's file
-  must exist and hold its server's marker. `mcp-consultations.js`, `mcp-reach.js`, `brief-tools.js`
+  must exist and hold its server's marker. `mcp-consultations.ts`, `mcp-reach.js`, `brief-tools.js`
   and `do-task-brief.sh` contain no `mcp.json` id as a literal, and the first three require none of
   `http`, `https`, `net` or `dns`. `docs/setup.md` holds each stepped server's `trigger` verbatim. The
   checks are one function over injected files, and fixture tests run it over bad trees.
