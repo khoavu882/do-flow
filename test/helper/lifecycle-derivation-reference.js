@@ -16,7 +16,7 @@ const { spawnSync } = require('node:child_process');
 const { historyBuilder } = require('./lifecycle-git-fixtures');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { deriveStatuses, readGitFacts, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status.ts');
-const { releaseFeatures } = require('../../src/runtime/lifecycle/release');
+const { releaseFeatures } = require('../../src/runtime/lifecycle/release.ts');
 
 // A fixed clock after every generated date: the fold leaves out events dated over 24 hours ahead of it (DEC-045).
 const CLOCK = new Date('2027-01-01T00:00:00.000Z');

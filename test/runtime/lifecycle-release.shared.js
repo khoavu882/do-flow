@@ -10,7 +10,7 @@ const { makeRepo, featureBranch, FIXTURES, twoReleases, failingGit, SLUG, TRACKE
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { buildOverview, featureStatus } = require('../../src/runtime/lifecycle/overview.ts');
 const { addFollowups, takeFollowups, loadFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
-const { releaseFeatures, recordMerged } = require('../../src/runtime/lifecycle/release');
+const { releaseFeatures, recordMerged } = require('../../src/runtime/lifecycle/release.ts');
 const { readGitFacts } = require('../../src/runtime/lifecycle/status.ts');
 
 

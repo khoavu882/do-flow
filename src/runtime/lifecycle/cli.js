@@ -14,7 +14,7 @@ const { StoreUnsafeError, StoreLockedError } = require('./event-store.ts');
 const { prepareStore } = require('./store-upkeep.ts');
 const { printSafe } = require('../mask.ts');
 const { buildOverview, initFeature, featureStatus } = require('./overview.ts');
-const { releaseFeatures, recordMerged } = require('./release');
+const { releaseFeatures, recordMerged } = require('./release.ts');
 const goal = require('./goal');
 
 const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote', 'report'];

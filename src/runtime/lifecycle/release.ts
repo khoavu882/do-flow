@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * `lifecycle --action release` and `--action merged` (IC-020, IC-021, DEC-021, DEC-022, DEC-030,
  * DEC-044). A release is previewed from git and recorded, on `--confirm`, as one local
@@ -41,18 +43,18 @@ const { FollowupUsageError, oneLine, channelBy } = require('./followup.ts');
 /** The release-tag pattern of IC-020, the one `git-state` filters by. */
 const RELEASE_TAG = /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/;
 
-const refusal = (action, finding, message) => ({ ok: false, action, finding, message });
+const refusal = (action: any, finding: any, message: any) => ({ ok: false, action, finding, message });
 
 /** Trimmed stdout of a git call, or null when git exits non-zero. */
-function gitOut(root, args) {
+function gitOut(root: any, args: any) {
   const run = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
   return run.status === 0 ? run.stdout.trim() : null;
 }
 
-function commitOf(root, ref) { return gitOut(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) || null; }
+function commitOf(root: any, ref: any) { return gitOut(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) || null; }
 
 /** `a` is an ancestor of (or equal to) `b`. */
-function isAncestor(root, a, b) {
+function isAncestor(root: any, a: any, b: any) {
   return spawnSync('git', ['merge-base', '--is-ancestor', a, b], { cwd: root, stdio: 'ignore' }).status === 0;
 }
 
@@ -61,14 +63,14 @@ function isAncestor(root, a, b) {
  * since tracking, whose subject names the slug or whose non-first parent is an ancestor of the branch tip.
  * `merges` are the pinned ref's first-parent merges inside X, newest first; `history` holds X and the tip.
  */
-function earlierMerge({ slug, evidence, tip, lowerBound, merges, bound, history }) {
+function earlierMerge({ slug, evidence, tip, lowerBound, merges, bound, history }: any) {
   if (tip && history.isAncestor(tip, bound)) return { ...evidence };
   for (const merge of merges) {
     if (merge.ct < lowerBound) continue;
     // The merged side is this branch's own when it is an ancestor of the tip and the merge itself is not: a
     // branch cut from the integration ref after that merge has the merge in its history and did not make it.
     // A parent outside the first parent's history is one this merge introduced.
-    const own = (parent) => history.introducer(parent) === merge.sha && history.isAncestor(parent, tip);
+    const own = (parent: any) => history.introducer(parent) === merge.sha && history.isAncestor(parent, tip);
     if (tip && merge.parents.slice(1).some(own) && !history.isAncestor(merge.sha, tip)) return { ...evidence };
     if (subjectNames(merge.subject, slug)) return { kind: 'merge-subject', ref: merge.sha.slice(0, 7) };
   }
@@ -81,14 +83,14 @@ function earlierMerge({ slug, evidence, tip, lowerBound, merges, bound, history 
  * other than `tag` merged into X (git's version order). A `v*` tag that is not a release (`vnext`)
  * never qualifies.
  */
-function previousTagOf(root, { tag, facts, bound }) {
+function previousTagOf(root: any, { tag, facts, bound }: any) {
   const known = new Set(facts.release_tags);
   if (facts.base_tag && facts.base_tag !== tag && known.has(facts.base_tag) && isAncestor(root, `refs/tags/${facts.base_tag}`, bound)) return facts.base_tag;
   const merged = gitOut(root, ['tag', '--list', 'v*', '--sort=-v:refname', '--merged', bound]);
-  return (merged || '').split('\n').find((name) => name && name !== tag && known.has(name)) || null;
+  return (merged || '').split('\n').find((name: any) => name && name !== tag && known.has(name)) || null;
 }
 
-function slugList(raw, label) {
+function slugList(raw: any, label: any) {
   const list = [...new Set((Array.isArray(raw) ? raw : raw === undefined || raw === null ? [] : [raw]).map(String))];
   for (const slug of list) if (!isSafeSlug(slug)) throw new FollowupUsageError(`${label}: ${invalidSlugRefusal(slug).message}`);
   return list;
@@ -105,7 +107,7 @@ function slugList(raw, label) {
  * @param {string} [options.channel]
  * @param {Object} [options.facts] `readGitFacts` output, for a caller that already has it
  */
-function releaseFeatures({ root, tag, confirm = false, features, exclude, channel, now = new Date(), fsImpl = nodeFs, facts: givenFacts }) {
+function releaseFeatures({ root, tag, confirm = false, features, exclude, channel, now = new Date(), fsImpl = nodeFs, facts: givenFacts }: any) {
   if (typeof tag !== 'string' || !RELEASE_TAG.test(tag)) throw new FollowupUsageError(`--tag is required and must look like v1.2.3 or v1.2.3-rc.1 (got '${tag ?? ''}')`);
   const added = slugList(features, '--feature');
   const excluded = slugList(exclude, '--exclude');
@@ -116,7 +118,7 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
   if (!facts.integration_ref) return refusal('release', 'no-integration-ref', 'no integration ref resolves (develop, main, master, origin/HEAD), so no release can be previewed or recorded. Nothing was written.');
 
   const fold = readFold(root, { fsImpl, now });
-  const trackedSlugs = new Set(fold.features.map((f) => f.slug));
+  const trackedSlugs = new Set(fold.features.map((f: any) => f.slug));
   // An exclusion is permanent for its tag, so a mistyped slug must not be recorded any more than a mistyped addition.
   const untracked = [...new Set([...added, ...excluded])].filter((slug) => !trackedSlugs.has(slug));
   if (untracked.length) {
@@ -124,7 +126,7 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
   }
 
   // DEC-030: containment in the tag being recorded never finishes a feature before its record exists.
-  const otherTags = { ...facts, release_tags: facts.release_tags.filter((name) => name !== tag) };
+  const otherTags = { ...facts, release_tags: facts.release_tags.filter((name: any) => name !== tag) };
   const derived = deriveStatuses({ root, fold, facts: otherTags });
   if (derived.releaseMode === 'unknown' || !derived.integrationSha) return refusal('release', 'no-integration-ref', `${derived.reason || `${facts.integration_ref} does not resolve to a commit`}. Nothing was written.`);
 
@@ -135,23 +137,23 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
   // A hotfix merged only into the tag's own history has no evidence on the integration chain: derive against the tag as well.
   const atTag = tagCommit && tagCommit !== derived.integrationSha ? deriveStatuses({ root, fold, facts: { ...otherTags, integration_ref: tagCommit } }) : null;
 
-  const recorded = new Set(fold.releases.flatMap((release) => release.features.map((f) => f.slug)));
+  const recorded = new Set(fold.releases.flatMap((release: any) => release.features.map((f: any) => f.slug)));
   const tagged = derived.releaseMode === 'tagged';
   // While X is the pinned commit, every evidence commit is in its history. Once X is a tag elsewhere, one
   // graph read of the pinned ref, X and the evidence branch tips answers every ancestry question about X.
-  let read = null;
+  let read: any = null;
   const readOfX = () => {
     if (read) return read;
-    const branchRefs = new Set(fold.features.map((f) => derived.statuses[f.slug].evidence).filter((e) => e && e.kind === 'branch').map((e) => e.ref));
+    const branchRefs = new Set(fold.features.map((f: any) => derived.statuses[f.slug].evidence).filter((e: any) => e && e.kind === 'branch').map((e: any) => e.ref));
     // Local branches are listed first, so a ref resolves as refs/heads/<ref> before refs/remotes/<ref>.
     const tips = new Map();
     for (const t of readBranchTips(root)) if (branchRefs.has(t.short) && !tips.has(t.short)) tips.set(t.short, t.sha);
     const history = readHistory(root, derived.integrationSha, [bound, ...tips.values()]);
-    const merges = readMerges(root, derived.integrationSha).filter((m) => history.isAncestor(m.sha, bound)).reverse();
+    const merges = readMerges(root, derived.integrationSha).filter((m: any) => history.isAncestor(m.sha, bound)).reverse();
     read = { history, merges, tips };
     return read;
   };
-  const inX = (commit) => bound === derived.integrationSha || readOfX().history.isAncestor(commit, bound);
+  const inX = (commit: any) => bound === derived.integrationSha || readOfX().history.isAncestor(commit, bound);
   const candidates = [];
   const notDetected = [];
   // A git failure while reading X's history is an environment fault: a refusal, never a throw that would
@@ -179,7 +181,7 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
       }
       if (found) candidates.push({ slug, evidence: found.kind, ref: found.ref }); else notDetected.push(slug);
     }
-  } catch (error) {
+  } catch (error: any) {
     return refusal('release', 'no-integration-ref', `git could not answer while reading the history of ${tagCommit ? tag : facts.integration_ref} (git-state-failed): ${String(error.message).split('\n')[0]}. Nothing was written.`);
   }
 
@@ -187,9 +189,9 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
   for (const slug of added) if (!shipped.some((c) => c.slug === slug)) shipped.push({ slug, evidence: 'confirmed', ref: null });
   const finishing = shipped.filter((c) => !excluded.includes(c.slug));
   const finishingSlugs = new Set(finishing.map((c) => c.slug));
-  const followupsDone = fold.followups.filter((item) => item.state === 'taken' && finishingSlugs.has(item.takenBy)).map((item) => item.id);
+  const followupsDone = fold.followups.filter((item: any) => item.state === 'taken' && finishingSlugs.has(item.takenBy)).map((item: any) => item.id);
 
-  const base = { ok: true, action: 'release', tag, previousTag, bound: tagCommit ? tag : facts.integration_ref, integrationRef: facts.integration_ref };
+  const base: any = { ok: true, action: 'release', tag, previousTag, bound: tagCommit ? tag : facts.integration_ref, integrationRef: facts.integration_ref };
   if (derived.integrationBehind > 0) base.note = behindNote(facts.integration_ref, derived.integrationBehind);
 
   if (!confirm) {
@@ -204,7 +206,7 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
   if (!tagCommit) return refusal('release', 'tag-missing', `${tag} does not exist; create the tag first, then confirm. Nothing was written.`);
   const out = appendEvents(root, [{ type: 'release.recorded', by, data: { tag, commit: tagCommit, features: finishing, excluded } }], { now, fsImpl });
   if (!out.ok) return refusal('release', out.finding, out.message);
-  return { ...base, recorded: true, candidates, added, excluded, notDetected, followupsDone, events: out.written.map((w) => w.file), next: [] };
+  return { ...base, recorded: true, candidates, added, excluded, notDetected, followupsDone, events: out.written.map((w: any) => w.file), next: [] };
 }
 
 /**
@@ -212,17 +214,17 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
  * cherry-pick). It records an observed fact after the merge, one `feature.merged` event, and the
  * status stays derived from events on read, so nothing is written ahead of the fact (DEC-022).
  */
-function recordMerged({ root, slug, reason, channel, now = new Date(), fsImpl = nodeFs }) {
+function recordMerged({ root, slug, reason, channel, now = new Date(), fsImpl = nodeFs }: any) {
   if (!slug) throw new FollowupUsageError('--slug is required for --action merged');
   if (!isSafeSlug(slug)) throw new FollowupUsageError(invalidSlugRefusal(slug).message);
-  const problems = [];
+  const problems: any[] = [];
   const cleanReason = reason === undefined ? null : oneLine(reason, '--reason', problems);
   if (!problems.length && !cleanReason) problems.push('--reason is required for --action merged: how the merge happened, for example "squash-merged by hand"');
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   const by = channelBy(channel);
 
   const fold = readFold(root, { fsImpl, now });
-  if (!fold.features.some((f) => f.slug === slug)) {
+  if (!fold.features.some((f: any) => f.slug === slug)) {
     return refusal('merged', 'untracked-feature', `${slug} is not a tracked feature, so no merge can be confirmed for it; run doflow-run lifecycle --action init --slug ${slug} first. Nothing was written.`);
   }
   const before = deriveStatuses({ root, fold }).statuses[slug];
@@ -233,7 +235,7 @@ function recordMerged({ root, slug, reason, channel, now = new Date(), fsImpl = 
   const out = appendEvents(root, [{ type: 'feature.merged', by, data: { slug, reason: cleanReason } }], { now, fsImpl });
   if (!out.ok) return refusal('merged', out.finding, out.message);
   const after = deriveStatuses({ root, fold: readFold(root, { fsImpl, now }) }).statuses[slug];
-  return { ok: true, action: 'merged', slug, status: after.status, evidence: after.evidence, release: after.release, events: out.written.map((w) => w.file), next: [] };
+  return { ok: true, action: 'merged', slug, status: after.status, evidence: after.evidence, release: after.release, events: out.written.map((w: any) => w.file), next: [] };
 }
 
 module.exports = { releaseFeatures, recordMerged, RELEASE_TAG };
