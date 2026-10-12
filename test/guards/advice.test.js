@@ -71,12 +71,12 @@ function checkG30Requires({ files }) {
     for (const match of hit.text.matchAll(requirePattern)) {
       const moduleName = match[2];
       const base = hit.file.slice('src/runtime/advice/'.length);
-      const provider = /^providers\/[^/]+\.js$/.test(base);
+      const provider = /^providers\/[^/]+\.(?:js|ts)$/.test(base);
       let allowed = true;
       if (['net', 'child_process'].includes(moduleName)) allowed = false;
-      else if (['record.js', 'config.js'].includes(base)) allowed = false;
-      else if (['http', 'https'].includes(moduleName)) allowed = base === 'client.js' || provider;
-      else if (moduleName === 'dns') allowed = base === 'endpoint-guard.js';
+      else if (['record', 'config'].includes(base.replace(/\.(?:js|ts)$/, ''))) allowed = false;
+      else if (['http', 'https'].includes(moduleName)) allowed = base.replace(/\.(?:js|ts)$/, '') === 'client' || provider;
+      else if (moduleName === 'dns') allowed = base.replace(/\.(?:js|ts)$/, '') === 'endpoint-guard';
       if (!allowed) findings.push(`${hit.file}:${hit.line} require('${match[0].includes('node:') ? 'node:' : ''}${moduleName}') is not permitted here`);
     }
   }

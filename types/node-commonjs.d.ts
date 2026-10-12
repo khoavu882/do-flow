@@ -45,3 +45,10 @@ declare var Buffer: {
   from(data: any, encoding?: string): Buffer;
   byteLength(string: string, encoding?: string): number;
 };
+
+// Timers and WHATWG URL, as the migrated .ts modules use them (opaque handle; parsed URL fields only).
+declare function setTimeout(callback: (...args: any[]) => void, ms?: number, ...args: any[]): any;
+declare function clearTimeout(handle: any): void;
+declare var URL: {
+  new (input: string, base?: string): { protocol: string; username: string; password: string; hostname: string; [key: string]: any };
+};
