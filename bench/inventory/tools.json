@@ -343,6 +343,819 @@
         "unverified": "excluded by ADR section 1; not evaluated, so no star count is recorded",
         "verifiedOn": "2026-10-12"
       }
+    },
+    {
+      "id": "TOOL-008",
+      "name": "The Silver Searcher (ag)",
+      "class": "exact-search",
+      "list": "main",
+      "repo": {
+        "value": "https://github.com/ggreer/the_silver_searcher",
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 27128,
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A code-searching tool similar to ack, but faster.",
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2024-06-16T19:37:41Z",
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-009",
+      "name": "ugrep",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/Genivia/ugrep",
+        "source": "https://api.github.com/repos/Genivia/ugrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v7.8.5",
+        "source": "https://api.github.com/repos/Genivia/ugrep/releases/latest → tag_name (published 2026-09-15T11:46:12Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "BSD-3-Clause",
+        "source": "https://api.github.com/repos/Genivia/ugrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 1 asset(s) (ugrep-windows-x64.zip) that name 1 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 3310,
+        "source": "https://api.github.com/repos/Genivia/ugrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "🔍 ugrep 7.8 file pattern searcher -- a user-friendly, faster, more capable grep replacement. Includes a TUI, Google-like Boolean search with AND/OR/NOT, fuzzy search, hexdumps, searches (nested) archives (zip, 7z, tar, pax, cpio), compressed files (gz, Z, bz2, lzma, xz, lz4, zstd, brotli), pdfs, docs, and more",
+        "source": "https://api.github.com/repos/Genivia/ugrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T02:49:58Z",
+        "source": "https://api.github.com/repos/Genivia/ugrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-010",
+      "name": "ripgrep-all",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/phiresky/ripgrep-all",
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.10.10",
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all/releases/latest → tag_name (published 2025-11-09T20:25:38Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "AGPL-3.0",
+        "source": "https://github.com/phiresky/ripgrep-all/blob/HEAD/LICENSE.md → LICENSE.md: states the author settled on the AGPL as default, then carries the GNU Affero General Public License version 3 text (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux"
+        ],
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all/releases/latest → 5 release assets; prebuilt binaries named for macOS (ripgrep_all-v0.10.10-aarch64-apple-darwin.tar.gz), Linux (ripgrep_all-v0.10.10-aarch64-unknown-linux-gnu.tar.gz)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 9876,
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "rga: ripgrep, but also search in PDFs, E-Books, Office documents, zip, tar.gz, etc.",
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-17T11:25:07Z",
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-011",
+      "name": "Hound",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/hound-search/hound",
+        "source": "https://api.github.com/repos/hound-search/hound → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.7.1",
+        "source": "https://api.github.com/repos/hound-search/hound/releases/latest → tag_name (published 2023-05-03T19:10:10Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/hound-search/hound → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 5886,
+        "source": "https://api.github.com/repos/hound-search/hound → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Lightning fast code searching made easy",
+        "source": "https://api.github.com/repos/hound-search/hound → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-10T12:29:59Z",
+        "source": "https://api.github.com/repos/hound-search/hound → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-012",
+      "name": "livegrep",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/livegrep/livegrep",
+        "source": "https://api.github.com/repos/livegrep/livegrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "BSD-2-Clause",
+        "source": "https://github.com/livegrep/livegrep/blob/HEAD/COPYING → COPYING: two numbered redistribution conditions plus the standard disclaimer (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 2236,
+        "source": "https://api.github.com/repos/livegrep/livegrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Interactively grep source code. Source for http://livegrep.com/",
+        "source": "https://api.github.com/repos/livegrep/livegrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-02-10T15:03:35Z",
+        "source": "https://api.github.com/repos/livegrep/livegrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-013",
+      "name": "zoekt",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/sourcegraph/zoekt",
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 1956,
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Fast trigram based code search",
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-09T11:50:01Z",
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-014",
+      "name": "ack3",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/beyondgrep/ack3",
+        "source": "https://api.github.com/repos/beyondgrep/ack3 → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Artistic-2.0",
+        "source": "https://github.com/beyondgrep/ack3/blob/HEAD/LICENSE.md → LICENSE.md: \"ack is released under the Artistic License 2.0\" (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "any platform that runs Perl"
+        ],
+        "source": "https://github.com/beyondgrep/ack3/blob/dev/README.md → \"portable and runs on any platform that runs Perl\"",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 830,
+        "source": "https://api.github.com/repos/beyondgrep/ack3 → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "ack is a grep-like search tool optimized for source code.",
+        "source": "https://api.github.com/repos/beyondgrep/ack3 → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-06T01:03:39Z",
+        "source": "https://api.github.com/repos/beyondgrep/ack3 → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "readme-statement"
+    },
+    {
+      "id": "TOOL-015",
+      "name": "tree-sitter",
+      "class": "structural-search",
+      "list": "main",
+      "repo": {
+        "value": "https://github.com/tree-sitter/tree-sitter",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.27.1",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter/releases/latest → tag_name (published 2026-10-08T17:43:54Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter/releases/latest → 21 release assets; prebuilt binaries named for macOS (tree-sitter-cli-macos-arm64.zip), Linux (tree-sitter-cli-linux-arm.zip), Windows (tree-sitter-cli-windows-arm64.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 27168,
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "An incremental parsing system for programming tools",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T05:35:54Z",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "a parsing system with a query language over syntax trees; not a search command by itself (inference from the repository description)"
+    },
+    {
+      "id": "TOOL-016",
+      "name": "Semgrep",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/semgrep/semgrep",
+        "source": "https://api.github.com/repos/semgrep/semgrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v1.180.0",
+        "source": "https://api.github.com/repos/semgrep/semgrep/releases/latest → tag_name (published 2026-10-07T23:17:11Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "LGPL-2.1",
+        "source": "https://api.github.com/repos/semgrep/semgrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Windows",
+          "Linux"
+        ],
+        "source": "https://pypi.org/pypi/semgrep/json → classifiers \"Operating System :: MacOS\", \"Operating System :: Microsoft :: Windows\", \"Operating System :: POSIX :: Linux\"",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 16998,
+        "source": "https://api.github.com/repos/semgrep/semgrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Lightweight static analysis for many languages. Find bug variants with patterns that look like source code.",
+        "source": "https://api.github.com/repos/semgrep/semgrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T00:04:11Z",
+        "source": "https://api.github.com/repos/semgrep/semgrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "pypi-classifier"
+    },
+    {
+      "id": "TOOL-017",
+      "name": "ast-grep",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/ast-grep/ast-grep",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "0.50.0",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep/releases/latest → tag_name (published 2026-10-09T14:19:44Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/ast-grep/ast-grep/releases/latest → 7 release assets; prebuilt binaries named for macOS (app-aarch64-apple-darwin.zip), Linux (app-aarch64-unknown-linux-gnu.zip), Windows (app-aarch64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 16204,
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "⚡A CLI tool for code structural search, lint and rewriting. Written in Rust",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T15:34:09Z",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-018",
+      "name": "CodeQL",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/github/codeql",
+        "source": "https://api.github.com/repos/github/codeql → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/github/codeql → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 10192,
+        "source": "https://api.github.com/repos/github/codeql → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "CodeQL: the libraries and queries that power security researchers around the world, as well as code scanning in GitHub Advanced Security",
+        "source": "https://api.github.com/repos/github/codeql → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T13:55:46Z",
+        "source": "https://api.github.com/repos/github/codeql → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-019",
+      "name": "Opengrep",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/opengrep/opengrep",
+        "source": "https://api.github.com/repos/opengrep/opengrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v1.30.2",
+        "source": "https://api.github.com/repos/opengrep/opengrep/releases/latest → tag_name (published 2026-10-07T20:55:40Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "LGPL-2.1",
+        "source": "https://api.github.com/repos/opengrep/opengrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/opengrep/opengrep/releases/latest → 26 release assets; prebuilt binaries named for macOS (opengrep-core_osx_aarch64.tar.gz), Linux (opengrep-core_linux_aarch64.tar.gz), Windows (opengrep-core_windows_x86.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 3170,
+        "source": "https://api.github.com/repos/opengrep/opengrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "🔎 Static code analysis engine to find security issues in code.",
+        "source": "https://api.github.com/repos/opengrep/opengrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T11:42:10Z",
+        "source": "https://api.github.com/repos/opengrep/opengrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-020",
+      "name": "Comby",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/comby-tools/comby",
+        "source": "https://api.github.com/repos/comby-tools/comby → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "1.8.1",
+        "source": "https://api.github.com/repos/comby-tools/comby/releases/latest → tag_name (published 2022-06-28T02:35:51Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/comby-tools/comby → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 2 asset(s) (comby-1.8.1-x86_64-linux, comby-1.8.1-x86_64-linux.tar.gz) that name 1 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 2680,
+        "source": "https://api.github.com/repos/comby-tools/comby → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A code rewrite tool for structural search and replace that supports ~every language.",
+        "source": "https://api.github.com/repos/comby-tools/comby → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-06-08T07:27:09Z",
+        "source": "https://api.github.com/repos/comby-tools/comby → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-021",
+      "name": "weggli",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/weggli-rs/weggli",
+        "source": "https://api.github.com/repos/weggli-rs/weggli → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.2.4",
+        "source": "https://api.github.com/repos/weggli-rs/weggli/releases/latest → tag_name (published 2022-05-31T12:23:06Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/weggli-rs/weggli → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 2503,
+        "source": "https://api.github.com/repos/weggli-rs/weggli → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "weggli is a fast and robust semantic search tool for C and C++ codebases. It is designed to help security researchers identify interesting functionality in large codebases.",
+        "source": "https://api.github.com/repos/weggli-rs/weggli → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2024-07-12T16:50:14Z",
+        "source": "https://api.github.com/repos/weggli-rs/weggli → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-022",
+      "name": "GitNexus",
+      "class": "semantic-code-search",
+      "list": "main",
+      "repo": {
+        "value": "https://github.com/abhigyanpatwari/GitNexus",
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v1.6.12",
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus/releases/latest → tag_name (published 2026-09-12T21:40:04Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "PolyForm-Noncommercial-1.0.0",
+        "source": "https://github.com/abhigyanpatwari/GitNexus/blob/HEAD/LICENSE → LICENSE: \"PolyForm Noncommercial License 1.0.0\" (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 47848,
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "GitNexus: The Zero-Server Code Intelligence Engine",
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T06:28:10Z",
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "its README describes both a knowledge graph and embeddings; classed here for embedding search (inference); not evaluated"
+    },
+    {
+      "id": "TOOL-023",
+      "name": "claude-context",
+      "class": "semantic-code-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/zilliztech/claude-context",
+        "source": "https://api.github.com/repos/zilliztech/claude-context → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "0.1.15 (npm @zilliz/claude-context-core latest)",
+        "source": "https://registry.npmjs.org/@zilliz%2Fclaude-context-core/latest",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/zilliztech/claude-context → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 12604,
+        "source": "https://api.github.com/repos/zilliztech/claude-context → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Code search MCP for Claude Code. Make entire codebase the context for any coding agent.",
+        "source": "https://api.github.com/repos/zilliztech/claude-context → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-07-14T12:00:38Z",
+        "source": "https://api.github.com/repos/zilliztech/claude-context → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-024",
+      "name": "mgrep",
+      "class": "semantic-code-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/mixedbread-ai/mgrep",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.1.13",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep/releases/latest → tag_name (published 2026-04-25T18:08:57Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 4416,
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A calm, CLI-native way to semantically grep everything, like code, images, pdfs and more.",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-04-25T17:26:31Z",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-025",
+      "name": "ck",
+      "class": "semantic-code-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/BeaconBay/ck",
+        "source": "https://api.github.com/repos/BeaconBay/ck → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "0.8.1",
+        "source": "https://api.github.com/repos/BeaconBay/ck/releases/latest → tag_name (published 2026-10-11T13:48:18Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/BeaconBay/ck → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/BeaconBay/ck/releases/latest → 12 release assets; prebuilt binaries named for macOS (ck-0.8.1-aarch64-apple-darwin.tar.gz), Linux (ck-0.8.1-aarch64-unknown-linux-gnu.tar.gz), Windows (ck-0.8.1-aarch64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 1743,
+        "source": "https://api.github.com/repos/BeaconBay/ck → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Local first semantic and hybrid BM25 grep / search tool for use by AI and humans!",
+        "source": "https://api.github.com/repos/BeaconBay/ck → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T12:37:15Z",
+        "source": "https://api.github.com/repos/BeaconBay/ck → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-026",
+      "name": "grepai",
+      "class": "semantic-code-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/yoanbernabeu/grepai",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.37.0",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai/releases/latest → tag_name (published 2026-09-10T12:02:33Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai/releases/latest → 7 release assets; prebuilt binaries named for macOS (grepai_0.37.0_darwin_amd64.tar.gz), Linux (grepai_0.37.0_linux_amd64.tar.gz), Windows (grepai_0.37.0_windows_amd64.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 1909,
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Semantic Search & Call Graphs for AI Agents (100% Local)",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-21T05:34:06Z",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
     }
   ],
   "replacementStatement": "No current-stack replacement is recommended.",
