@@ -422,7 +422,7 @@ test('G12: doflow --help documents every command the CLI accepts, and nothing it
 const SEAM_BYPASSES = [
   [/node\s+(?:--input-type=\S+\s+)?--?e(?:val)?\b/, 'inline `node -e`: evaluates DoFlow code outside the verb table'],
   [/require\([^)]*src[\\/]runtime/, 'direct `require()` of a runtime module: the seam decides which implementation serves a verb'],
-  [/node\s+\S*src[\\/]runtime[\\/]\S+\.js/, 'running a runtime module as a script: skips dispatch, tracing and the uniform exit contract'],
+  [/node\s+\S*src[\\/]runtime[\\/]\S+\.(?:js|ts)\b/, 'running a runtime module as a script: skips dispatch, tracing and the uniform exit contract'],
 ];
 
 test('G12: no skill reaches the JavaScript runtime except through the dispatcher (FR-004)', () => {
