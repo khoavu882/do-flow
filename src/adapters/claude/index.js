@@ -1,7 +1,7 @@
 'use strict';
 
 // Claude native adapter.  It owns only Claude path/format decisions; selection and
-// ownership journalling remain lifecycle concerns. Its MCP entries live in ./mcp.js.
+// ownership journalling remain lifecycle concerns. Its MCP entries live in ./mcp.ts.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +11,7 @@ const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../helper/settin
 const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../helper/settings-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveTransform } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
-const { discoverMcp, planMcp, writeMcp, verifyMcp } = require('./mcp');
+const { discoverMcp, planMcp, writeMcp, verifyMcp } = require('./mcp.ts');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';
 const SETTINGS_RENDERER = 'claude-settings';
