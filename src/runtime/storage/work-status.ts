@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
@@ -11,18 +13,18 @@ const UNCHECKED = /^\s*- \[ \] /m;
 const UNCHECKED_TASK = /^\s*- \[ \] (\S+)/gm;
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-function recordStorePaths(fsImpl) {
+function recordStorePaths(fsImpl: any): Map<string, string> {
   try {
     const registry = loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
     return new Map(registry.stores
-      .filter((store) => store.root === 'project-state' && store.entry === 'record' && store.rule === 'work')
-      .map((store) => [store.id, store.path]));
+      .filter((store: any) => store.root === 'project-state' && store.entry === 'record' && store.rule === 'work')
+      .map((store: any): [string, string] => [store.id, store.path]));
   } catch {
     return new Map();
   }
 }
 
-function createWorkCache({ projectRoot, fsImpl = fs }) {
+function createWorkCache({ projectRoot, fsImpl = fs }: { projectRoot: string; fsImpl?: any }): any {
   return {
     projectRoot: path.resolve(projectRoot),
     fsImpl,
@@ -41,38 +43,38 @@ function createWorkCache({ projectRoot, fsImpl = fs }) {
  * plan and listing, so the recheck reads the work's current run and plan rather than the snapshot
  * taken at selection. A run reopened or a plan task unchecked after selection keeps the record.
  */
-function refreshedWorkCache(cache) {
+function refreshedWorkCache(cache: any): any {
   return { ...cache, runNames: null, runListError: false, featureNames: null, featureListError: false,
     runs: new Map(), plans: new Map() };
 }
 
-function cacheFor({ projectRoot, fsImpl, cache }) {
+function cacheFor({ projectRoot, fsImpl, cache }: { projectRoot: string; fsImpl: any; cache?: any }): any {
   const resolved = path.resolve(projectRoot);
   if (cache && cache.projectRoot === resolved && cache.fsImpl === fsImpl
       && cache.recordStorePaths instanceof Map && cache.runs instanceof Map && cache.plans instanceof Map) return cache;
   return createWorkCache({ projectRoot: resolved, fsImpl });
 }
 
-function stateRoot(projectRoot) {
+function stateRoot(projectRoot: string): string {
   return path.join(projectRoot, '.doflow', 'state');
 }
 
-function safeSegment(value) {
+function safeSegment(value: any): boolean {
   return typeof value === 'string' && SAFE_SEGMENT.test(value) && !value.includes('..');
 }
 
-function listRunNames(cache, shouldStop) {
+function listRunNames(cache: any, shouldStop?: () => boolean): { names: string[]; incomplete: boolean } {
   if (shouldStop?.()) return { names: [], incomplete: true };
   if (cache.runNames !== null) return { names: cache.runNames, incomplete: false };
   const dir = path.join(stateRoot(cache.projectRoot), 'orchestration');
-  let entries;
+  let entries: any[];
   try { entries = cache.fsImpl.readdirSync(dir, { withFileTypes: true }); }
-  catch (error) {
+  catch (error: any) {
     if (error?.code === 'ENOENT') entries = [];
     else { cache.runNames = []; cache.runListError = true; return { names: cache.runNames, incomplete: false }; }
   }
   if (shouldStop?.()) return { names: [], incomplete: true };
-  const names = [];
+  const names: string[] = [];
   for (const entry of entries) {
     if (shouldStop?.()) return { names: [], incomplete: true };
     if (entry.name.endsWith('.json')) names.push(entry.name.slice(0, -5));
@@ -82,10 +84,10 @@ function listRunNames(cache, shouldStop) {
   return { names, incomplete: false };
 }
 
-function readRun(cache, runId) {
+function readRun(cache: any, runId: string): any {
   if (cache.runs.has(runId)) return cache.runs.get(runId);
   const file = path.join(stateRoot(cache.projectRoot), 'orchestration', `${runId}.json`);
-  let result;
+  let result: any;
   try {
     const value = JSON.parse(cache.fsImpl.readFileSync(file, 'utf8'));
     result = value && typeof value === 'object' && !Array.isArray(value) && RUN_STATES.has(value.state)
@@ -98,11 +100,11 @@ function readRun(cache, runId) {
   return result;
 }
 
-function resolveRun(cache, taskId, namespace, shouldStop) {
+function resolveRun(cache: any, taskId: string, namespace: any, shouldStop?: () => boolean): any {
   const listed = listRunNames(cache, shouldStop);
   if (listed.incomplete) return { id: null, unreadable: false, incomplete: true };
   if (cache.runListError) return { id: null, unreadable: true };
-  let exact = false, namespaced = false, prefix = null;
+  let exact = false, namespaced = false, prefix: string | null = null;
   for (const candidate of listed.names) {
     if (shouldStop?.()) return { id: null, unreadable: false, incomplete: true };
     if (candidate === taskId) exact = true;
@@ -118,9 +120,9 @@ function resolveRun(cache, taskId, namespace, shouldStop) {
   return read.ok ? { id, value: read.value, unreadable: false } : { id, value: null, unreadable: true };
 }
 
-function readRecord({ projectRoot, storePath, recordId, namespace, mtimeMs, fsImpl }) {
+function readRecord({ projectRoot, storePath, recordId, namespace, mtimeMs, fsImpl }: any): any {
   const storeSegments = typeof storePath === 'string' && storePath !== '' ? storePath.split('/') : [];
-  if (typeof storePath !== 'string' || storeSegments.some((segment) => !safeSegment(segment))
+  if (typeof storePath !== 'string' || storeSegments.some((segment: string) => !safeSegment(segment))
       || !safeSegment(recordId)
       || (namespace !== null && namespace !== undefined && !safeSegment(namespace))) {
     return { ok: false };
@@ -136,18 +138,18 @@ function readRecord({ projectRoot, storePath, recordId, namespace, mtimeMs, fsIm
   }
 }
 
-function listFeatureNames(cache, shouldStop) {
+function listFeatureNames(cache: any, shouldStop?: () => boolean): { names: string[]; incomplete: boolean } {
   if (shouldStop?.()) return { names: [], incomplete: true };
   if (cache.featureNames !== null) return { names: cache.featureNames, incomplete: false };
   const dir = path.join(cache.projectRoot, 'agent-docs', 'doflow');
-  let entries;
+  let entries: any[];
   try { entries = cache.fsImpl.readdirSync(dir, { withFileTypes: true }); }
-  catch (error) {
+  catch (error: any) {
     if (error?.code === 'ENOENT') entries = [];
     else { cache.featureNames = []; cache.featureListError = true; return { names: cache.featureNames, incomplete: false }; }
   }
   if (shouldStop?.()) return { names: [], incomplete: true };
-  const names = [];
+  const names: string[] = [];
   for (const entry of entries) {
     if (shouldStop?.()) return { names: [], incomplete: true };
     if (entry.isDirectory() && safeSegment(entry.name)) names.push(entry.name);
@@ -157,10 +159,10 @@ function listFeatureNames(cache, shouldStop) {
   return { names, incomplete: false };
 }
 
-function featureFromFolders(cache, taskId, shouldStop) {
+function featureFromFolders(cache: any, taskId: string, shouldStop?: () => boolean): { feature: string | null; incomplete: boolean } {
   const listed = listFeatureNames(cache, shouldStop);
   if (listed.incomplete) return { feature: null, incomplete: true };
-  let best = null;
+  let best: string | null = null;
   for (const name of listed.names) {
     if (shouldStop?.()) return { feature: null, incomplete: true };
     if ((taskId === name || taskId.startsWith(`${name}-`) || taskId.startsWith(`${name}.`))
@@ -169,18 +171,18 @@ function featureFromFolders(cache, taskId, shouldStop) {
   return { feature: best, incomplete: false };
 }
 
-function stringField(record, field) {
+function stringField(record: any, field: string): string | null {
   const value = record && typeof record === 'object' ? record[field] : null;
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
 /** true, false when the folder is definitely absent, or null when it cannot be told. */
-function folderExists(fsImpl, folder) {
+function folderExists(fsImpl: any, folder: string): boolean | null {
   try { fsImpl.lstatSync(folder); return true; }
-  catch (error) { return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? false : null; }
+  catch (error: any) { return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? false : null; }
 }
 
-function readPlan(cache, feature, shouldStop) {
+function readPlan(cache: any, feature: string, shouldStop?: () => boolean): any {
   if (shouldStop?.()) return { exists: false, ok: false, text: null, incomplete: true };
   if (cache.plans.has(feature)) return cache.plans.get(feature);
   if (!safeSegment(feature)) {
@@ -189,10 +191,10 @@ function readPlan(cache, feature, shouldStop) {
     return invalid;
   }
   const folder = path.join(cache.projectRoot, 'agent-docs', 'doflow', feature);
-  let result;
+  let result: any;
   try {
     result = { exists: true, ok: true, text: cache.fsImpl.readFileSync(path.join(folder, 'plan.md'), 'utf8'), folder: true };
-  } catch (error) {
+  } catch (error: any) {
     result = error?.code === 'ENOENT'
       ? { exists: false, ok: true, text: null, folder: folderExists(cache.fsImpl, folder) }
       : { exists: true, ok: false, text: null };
@@ -203,7 +205,7 @@ function readPlan(cache, feature, shouldStop) {
   return result;
 }
 
-function planWithUncheckedTask(cache, taskId, shouldStop) {
+function planWithUncheckedTask(cache: any, taskId: string, shouldStop?: () => boolean): any {
   const listed = listFeatureNames(cache, shouldStop);
   if (listed.incomplete) return { found: false, unreadable: false, incomplete: true };
   if (cache.featureListError) return { found: false, unreadable: true };
@@ -214,7 +216,7 @@ function planWithUncheckedTask(cache, taskId, shouldStop) {
     if (!plan.ok) return { found: false, unreadable: true };
     if (!plan.exists) continue;
     UNCHECKED_TASK.lastIndex = 0;
-    let match;
+    let match: RegExpExecArray | null;
     while ((match = UNCHECKED_TASK.exec(plan.text)) !== null) {
       if (shouldStop?.()) return { found: false, unreadable: false, incomplete: true };
       if (match[1] === taskId) return { found: true, unreadable: false };
@@ -224,11 +226,11 @@ function planWithUncheckedTask(cache, taskId, shouldStop) {
   return { found: false, unreadable: false };
 }
 
-function answer(state, reason, run, feature, since = null) {
+function answer(state: string, reason: string, run: any, feature: any, since: number | null = null): any {
   return { state, since, reason, run, feature };
 }
 
-function incompleteAnswer(run = null, feature = null) {
+function incompleteAnswer(run: any = null, feature: any = null): any {
   return { ...answer('undecidable', 'pass-budget-exhausted', run, feature), incomplete: true };
 }
 
@@ -240,7 +242,7 @@ function incompleteAnswer(run = null, feature = null) {
  */
 function workStatus({
   projectRoot, store, taskId, namespace = null, mtimeMs, cache, fsImpl, shouldStop,
-}) {
+}: any): any {
   const project = path.resolve(projectRoot);
   const fileSystem = fsImpl || cache?.fsImpl || fs;
   const pass = cacheFor({ projectRoot: project, fsImpl: fileSystem, cache });
@@ -260,7 +262,7 @@ function workStatus({
   // path. An orchestration record is also its exact run file, so reuse the cached parse rather than
   // reading that file twice.
   const storePath = pass.recordStorePaths.get(store);
-  let record;
+  let record: any;
   if (storePath === 'orchestration' && !namespace && recordId === workId && resolvedRun.id === workId && run) {
     try {
       const file = path.join(stateRoot(project), storePath, `${recordId}.json`);
@@ -283,7 +285,7 @@ function workStatus({
   }
 
   // W5: feature metadata is ordered; folder-name inference is the final fallback.
-  let feature = stringField(run, 'featureSlug')
+  let feature: string | null = stringField(run, 'featureSlug')
     || stringField(record.value, 'featureSlug')
     || stringField(record.value, 'slug')
     || (safeSegment(namespace) ? namespace : null);

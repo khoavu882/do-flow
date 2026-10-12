@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { workStatus, createWorkCache, refreshedWorkCache } = require('./work-status');
+const { workStatus, createWorkCache, refreshedWorkCache } = require('./work-status.ts');
 const { projectKey } = require('../lifecycle/report-store.ts');
 const { readEvents } = require('../lifecycle/event-store');
 

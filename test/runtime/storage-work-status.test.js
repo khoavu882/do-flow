@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { workStatus, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES } = require('../../src/runtime/storage/work-status');
+const { workStatus, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES } = require('../../src/runtime/storage/work-status.ts');
 
 const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
 const DAY = 24 * 60 * 60 * 1000;
@@ -315,7 +315,7 @@ test('workStatus reads mtime when omitted and every missing record read fails cl
 });
 
 test('work-status has no process, network, or HTTP imports', () => {
-  const source = fs.readFileSync(path.join(__dirname, '../../src/runtime/storage/work-status.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '../../src/runtime/storage/work-status.ts'), 'utf8');
   for (const prohibited of ['node:child_process', 'node:http', 'node:https', 'node:net', 'node:dns']) {
     assert.equal(source.includes(prohibited), false, prohibited);
   }
