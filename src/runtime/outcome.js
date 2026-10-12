@@ -53,7 +53,7 @@ const { planPath, UNREACHED } = require('./retrieval-plan');
 // One definition of the score refusal, applied at a further boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in cli.js: a terminal state that carried a confidence would be exactly the
 // number NFR-001 exists to keep out of the one record the next worker reads first.
-const { assertNoScoreFields } = require('./cli');
+const { assertNoScoreFields } = require('./cli.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 

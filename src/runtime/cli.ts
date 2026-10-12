@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -24,7 +26,7 @@ const { finishRuntime: finish, usageError } = require('./cli-result.ts');
  * @param {boolean} [options.check=false]
  * @param {string} [options.repoRoot]
  */
-function handleCapabilitiesCommand({ json = false, check = false, repoRoot } = {}) {
+function handleCapabilitiesCommand({ json = false, check = false, repoRoot }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const router = new CapabilityRouter({ repoRoot: root });
   const report = router.getAllCapabilitiesHealth(check);
@@ -90,7 +92,7 @@ function handleCapabilitiesCommand({ json = false, check = false, repoRoot } = {
 function handleReadinessCommand({
   taskClass = 'feature', taskId = 'default', json = false, repoRoot, stateRoot,
   verificationPlan, scopeClear, invariants, userDecisionPending = false, mode = 'workflow', now, slug = null,
-} = {}) {
+}: any = {}) {
   // Two different roots, previously conflated into one. `root` locates the *registry* (the
   // readiness templates ship inside the DoFlow package). `state` locates the invoking project's
   // evidence, which belongs to the caller's repo — not to wherever DoFlow happens to be installed.
@@ -100,7 +102,7 @@ function handleReadinessCommand({
   const state = stateRoot || process.cwd();
   // Only what the caller actually told us. An absent key must stay absent rather than become a
   // falsy default, because the engine reads presence, not truth.
-  const profile = { taskId, taskClass };
+  const profile: any = { taskId, taskClass };
   if (typeof verificationPlan === 'string' && verificationPlan.trim() !== '') profile.verificationPlan = verificationPlan;
   if (typeof scopeClear === 'string' && scopeClear.trim() !== '') profile.scopeClear = scopeClear;
   if (typeof invariants === 'string' && invariants.trim() !== '') profile.invariants = invariants;
@@ -110,25 +112,25 @@ function handleReadinessCommand({
   let report;
   try {
     report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state, mode });
-  } catch (error) {
+  } catch (error: any) {
     return usageError('readiness', error.message, json, error);
   }
 
   // The evaluation is recorded so the handoff, `verify` and the edit hook can later ask whether
   // this task was READY before its work began. A scope that parses as a path list is also the
   // declared scope `verify` bounds a change by; any other wording stays a statement only.
-  const inputs = {};
+  const inputs: any = {};
   if (profile.verificationPlan) inputs.verificationPlan = profile.verificationPlan;
   if (profile.scopeClear) inputs.scope = profile.scopeClear;
   if (profile.invariants) inputs.invariants = profile.invariants;
   if (profile.userDecisionPending) inputs.userDecisionPending = true;
   const declared = inputs.scope ? parseDeclaredScope(inputs.scope) : null;
   const declaredScope = declared && !declared.reason ? declared.paths : null;
-  let recorded;
+  let recorded: any;
   try {
     const { file, replacedUnreadable } = writeReadinessRecord({ stateRoot: state, taskId, slug, report, inputs, declaredScope, mode, now: now || new Date() });
     recorded = { file, written: true, ...(replacedUnreadable ? { replacedUnreadable } : {}) };
-  } catch (error) {
+  } catch (error: any) {
     recorded = { file: null, written: false, error: error.message };
   }
   const exitCode = recorded.written ? 0 : 1;
@@ -230,7 +232,7 @@ const EVIDENCE_SCORE_FIELDS = new Set([
 ]);
 
 /** The one refusal message for a score offered as a property of a fact. */
-function scoreFieldRefusal(name) {
+function scoreFieldRefusal(name: any) {
   return `'${name}' is a retrieval score and this boundary records none (FR-007). Relevance is a `
     + 'property of a search, not of a fact: stored beside the fact it is read as confidence by the '
     + 'next worker, which is the specific interpretation the requirement forbids. Record the '
@@ -239,7 +241,7 @@ function scoreFieldRefusal(name) {
 }
 
 /** Refuses a score-shaped key anywhere in an item, including nested under source or locator. */
-function assertNoScoreFields(value, prefix) {
+function assertNoScoreFields(value: any, prefix: any) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return;
   for (const [key, inner] of Object.entries(value)) {
     const dotted = prefix ? `${prefix}.${key}` : key;
@@ -253,7 +255,7 @@ function assertNoScoreFields(value, prefix) {
  * @param {Object|string} raw
  * @returns {Object}
  */
-function parseLocator(raw) {
+function parseLocator(raw: any) {
   if (typeof raw === 'string') {
     const text = raw.trim();
     if (text === '') throw new Error('locator is empty');
@@ -265,7 +267,7 @@ function parseLocator(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error("locator must be an object, or a 'path/to/file[:line]' or URI string");
   }
-  const locator = {};
+  const locator: Record<string, any> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (!EVIDENCE_LOCATOR_FIELDS.includes(key)) {
       throw new Error(`unknown locator field '${key}'. Accepted: ${EVIDENCE_LOCATOR_FIELDS.join(', ')}`);
@@ -296,7 +298,7 @@ function parseLocator(raw) {
  * @param {string} [repoRoot] root a relative locator resolves against; defaults to cwd
  * @returns {{kind:string, provenance:string, source:Object, locator:Object, content:(string|null)}}
  */
-function validateEvidenceItem(raw, taskId, repoRoot) {
+function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('an evidence item must be a JSON object');
   assertNoScoreFields(raw, '');
 
@@ -379,7 +381,7 @@ function validateEvidenceItem(raw, taskId, repoRoot) {
   // `blast_radius` at once by category alone (review R1).
   let establishes = [];
   if (raw.establishes !== undefined) {
-    const list = typeof raw.establishes === 'string' ? raw.establishes.split(',').map((s) => s.trim()) : raw.establishes;
+    const list = typeof raw.establishes === 'string' ? raw.establishes.split(',').map((s: any) => s.trim()) : raw.establishes;
     if (!Array.isArray(list) || list.length === 0 || list.some((r) => typeof r !== 'string' || r.trim() === '')) {
       throw new Error("'establishes' must be a requirement id, a comma-separated list of them, or a non-empty array of non-empty strings");
     }
@@ -434,7 +436,7 @@ function validateEvidenceItem(raw, taskId, repoRoot) {
 }
 
 /** HEAD of the tree the evidence was observed in, or null outside a repo. Measured, not asserted. */
-function headCommit(root) {
+function headCommit(root: any) {
   try {
     return execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
       encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'],
@@ -450,17 +452,17 @@ function headCommit(root) {
  * @param {string} batchPath a file path, or `-` for stdin
  * @returns {Array<Object>}
  */
-function readEvidenceBatch(batchPath) {
+function readEvidenceBatch(batchPath: any) {
   let text;
   try {
     text = batchPath === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(path.resolve(batchPath), 'utf8');
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(`cannot read the batch at '${batchPath}': ${error.message}`);
   }
   let data;
   try {
     data = JSON.parse(text);
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(`the batch at '${batchPath}' is not valid JSON: ${error.message}`);
   }
   if (Array.isArray(data)) return data;
@@ -481,7 +483,7 @@ function readEvidenceBatch(batchPath) {
  * The `--action add` arm: validate the whole batch, then write it.
  * @returns {number} exit code
  */
-function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
+function addEvidence({ ledger, root, taskId, item, batchPath, json }: any) {
   const flagged = item && Object.keys(item).length > 0;
   if (flagged && batchPath) {
     return usageError('evidence', '--batch and the single-item flags are two spellings of the same write; use one', json);
@@ -494,7 +496,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
   let raws;
   try {
     raws = batchPath ? readEvidenceBatch(batchPath) : [item];
-  } catch (error) {
+  } catch (error: any) {
     return usageError('evidence', error.message, json, error);
   }
   if (raws.length === 0) {
@@ -508,7 +510,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
   for (const [index, raw] of raws.entries()) {
     try {
       validated.push(validateEvidenceItem(raw, taskId, root));
-    } catch (error) {
+    } catch (error: any) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json, error);
     }
@@ -527,7 +529,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
       written.push(ledger.getEvidence(id));
     }
     stateFile = ledger.save(taskId);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('evidence', error.message, json, error);
   }
 
@@ -556,7 +558,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
 }
 
 /** One-line rendering of a locator for the table views. */
-function locatorText(locator) {
+function locatorText(locator: any) {
   if (!locator) return '';
   if (locator.file) return locator.line ? `${locator.file}:${locator.line}` : locator.file;
   return locator.uri || locator.symbol || '';
@@ -567,14 +569,14 @@ function locatorText(locator) {
  * `handleClaimCommand`'s `supersede` branch — validate, write, save, report the same shape.
  * @returns {number} exit code
  */
-function supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json }) {
+function supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json }: any) {
   if (!evidenceId || !replacedBy) {
     return usageError('evidence', '--evidence-id and --replaced-by are both required for --action supersede', json);
   }
   let status;
   try {
     status = ledger.supersedeEvidence(evidenceId, replacedBy);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('evidence', error.message, json, error);
   }
   const stateFile = ledger.save(taskId);
@@ -608,7 +610,7 @@ function supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json }) {
  * @param {string} [options.stateRoot]
  * @returns {number} exit code
  */
-function handleEvidenceCommand({ taskId = 'default', action = 'list', item = null, batchPath = null, evidenceId = null, replacedBy = null, json = false, repoRoot, stateRoot } = {}) {
+function handleEvidenceCommand({ taskId = 'default', action = 'list', item = null, batchPath = null, evidenceId = null, replacedBy = null, json = false, repoRoot, stateRoot }: any = {}) {
   // See handleReadinessCommand: evidence is the caller's project state, not DoFlow package state.
   const root = stateRoot || repoRoot || process.cwd();
   const isQuery = action === 'list' || action === 'status';
@@ -624,7 +626,7 @@ function handleEvidenceCommand({ taskId = 'default', action = 'list', item = nul
   const ledger = new EvidenceLedger({ repoRoot: root });
   try {
     ledger.load(taskId);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('evidence', error.message, json, error);
   }
 

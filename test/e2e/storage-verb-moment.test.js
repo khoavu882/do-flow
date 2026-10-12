@@ -92,7 +92,7 @@ test('IC-009: early process.exit usage error runs no upkeep moment', { skip: pro
 test('CLI async dispatcher failures stay inside main error boundary', t => {
   const scratch = createScratch('doflow-verb-error-'); t.after(() => scratch.remove());
   const preload = path.join(scratch.dir, 'throw.cjs');
-  fs.writeFileSync(preload, `require(${JSON.stringify(path.join(REPO, 'src/runtime/cli.js'))}).handleEvidenceCommand = () => { throw new Error('verb boundary regression'); };\n`);
+  fs.writeFileSync(preload, `require(${JSON.stringify(path.join(REPO, 'src/runtime/cli.ts'))}).handleEvidenceCommand = () => { throw new Error('verb boundary regression'); };\n`);
   const result = spawnSync(process.execPath, ['--require', preload, CLI, 'evidence', '--action', 'list', '--task-id', 'idle'], {
     cwd: scratch.dir, env: scratch.env(), encoding: 'utf8',
   });

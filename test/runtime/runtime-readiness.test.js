@@ -153,7 +153,7 @@ test('ContextPackCompiler compiles compact structured context within budget', ()
   const ev1 = ledger.addEvidence({
     taskId: 'task_cpack',
     kind: 'exact-search',
-    locator: { file: 'src/runtime/cli.js' },
+    locator: { file: 'src/runtime/cli.ts' },
   });
   const ev2 = ledger.addEvidence({
     taskId: 'task_cpack',
@@ -402,9 +402,9 @@ test('FR-003: items sharing a recorded commit cost one diff, not one each', () =
   const calls = [];
   const mockGit = (args) => {
     calls.push(args.join(' '));
-    if (args[0] === 'status') return ' M src/runtime/cli.js';
+    if (args[0] === 'status') return ' M src/runtime/cli.ts';
     if (args[0] === 'rev-parse') return 'commit_shared';
-    if (args[0] === 'diff') return 'src/runtime/cli.js';
+    if (args[0] === 'diff') return 'src/runtime/cli.ts';
     return '';
   };
   const validator = new FreshnessValidator({ gitRunner: mockGit });
@@ -416,7 +416,7 @@ test('FR-003: items sharing a recorded commit cost one diff, not one each', () =
       taskId: 't_memo',
       kind: 'exact-search',
       provenance: 'extracted',
-      locator: { file: 'src/runtime/cli.js' },
+      locator: { file: 'src/runtime/cli.ts' },
       content: `item ${i}`,
     });
   }
@@ -434,7 +434,7 @@ test('FR-003: distinct recorded commits each get their own diff', () => {
   const mockGit = (args) => {
     calls.push(args.join(' '));
     if (args[0] === 'status') return '';
-    if (args[0] === 'diff') return 'src/runtime/cli.js';
+    if (args[0] === 'diff') return 'src/runtime/cli.ts';
     return '';
   };
   const validator = new FreshnessValidator({ gitRunner: mockGit });
@@ -444,7 +444,7 @@ test('FR-003: distinct recorded commits each get their own diff', () => {
       taskId: 't_memo2',
       kind: 'exact-search',
       provenance: 'extracted',
-      locator: { file: 'src/runtime/cli.js' },
+      locator: { file: 'src/runtime/cli.ts' },
       content: 'x',
     });
     ledger.getEvidence(id).freshness.gitCommit = sha;

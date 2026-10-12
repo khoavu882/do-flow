@@ -23,8 +23,8 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
-} = require('../runtime/cli');
-// `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
+} = require('../runtime/cli.ts');
+// `doctor` comes from the health module rather than src/runtime/cli.ts: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../runtime/health.ts');
 const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand, resolveRunsLocation } = require('../runtime/trace/ledger.ts');

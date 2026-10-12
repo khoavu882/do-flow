@@ -4,7 +4,7 @@
 //
 // Why this file spawns the real CLI rather than calling the libraries: the libraries were never
 // the problem. `EvidenceLedger.addEvidence()` and `ClaimsManager.linkEvidence()` were built,
-// tested and correct, and nothing in `bin/doflow.js` or `src/runtime/cli.js` called the first of
+// tested and correct, and nothing in `bin/doflow.js` or `src/runtime/cli.ts` called the first of
 // them — so FR-007 recorded nothing durable and FR-008's gate had exactly one reachable answer
 // (`NEEDS_EVIDENCE`) for every task in every class. A unit test against the ledger would have
 // passed throughout. Only the seam shows the defect, so only the seam is asserted here.
