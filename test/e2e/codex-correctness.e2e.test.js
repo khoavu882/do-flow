@@ -11,7 +11,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { readCodexMcpCatalog, renderServer } = require('../../src/adapters/codex/mcp');
-const { fingerprint } = require('../../src/adapters/codex/config');
+const { fingerprint } = require('../../src/adapters/codex/config.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');

@@ -8,7 +8,7 @@
 //   skills       — folder-form copy-tree into project .agents/skills or user ~/.gemini/config/skills.
 //   agents       — copy-tree into project .agents/agents or user ~/.gemini/config/agents.
 //   mcp          — entries of the mcpServers object in .agents/mcp_config.json (workspace) or
-//     ~/.gemini/config/mcp_config.json (user), owned one at a time through ../mcp-entries.js;
+//     ~/.gemini/config/mcp_config.json (user), owned one at a time through ../mcp-entries.ts;
 //     remote url/httpUrl projects to serverUrl.
 //   hooks        — native-payload shims (bash + jq translating Antigravity's stdin/stdout
 //     {decision} contract): the pre-implementation gate on PreToolUse and the stop check on Stop,
@@ -19,9 +19,9 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
-const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
+const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 
 const HARNESS = 'antigravity';
 const MCP_CONTAINER = 'mcpServers';
@@ -400,7 +400,7 @@ function mcpDefinitionFor(server) {
 
 function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
-/** Everything the shared entry-ownership rules (../mcp-entries.js) need from this adapter. Rows
+/** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. Rows
  * recorded before entries were fingerprinted carry `fingerprint: null`; such a row owns its entry
  * only while the entry still equals DoFlow's rendering. */
 function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], resources = [] }) {

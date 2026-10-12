@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Per-install "this install has" index: the guidance layer's authoritative summary of exactly
 // which MCP servers were selected for this install, so an agent never assumes availability of a
 // server that isn't actually connected. Rendered fresh on every install/update from the resolved
@@ -13,7 +15,7 @@
 //
 // Only SELECTED servers are imported, so the cost is proportional to what is installed: a
 // one-server install pays for one doc, and an install with none produces no file at all.
-function renderMcpIndex(selectedServers) {
+function renderMcpIndex(selectedServers: any[] | null | undefined): string | null {
   if (!selectedServers || selectedServers.length === 0) return null;
   const lines = ['# MCP short flags — this install'];
   for (const server of selectedServers) {

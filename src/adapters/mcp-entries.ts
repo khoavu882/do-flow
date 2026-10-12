@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // MCP entry ownership for the adapters that keep DoFlow's servers as members of a JSON map in a
 // file the harness shares with its user. Ownership is one ledger row per harness, file and server,
 // whose fingerprint is the entry value DoFlow last verified there. A same-named entry no row claims
@@ -12,7 +14,7 @@
 // the same reason a file DoFlow cannot read is described by a fixed reason, never parser output.
 const fs = require('node:fs');
 const path = require('node:path');
-const { fingerprint } = require('./copy-tree');
+const { fingerprint } = require('./copy-tree.ts');
 
 const REASONS = Object.freeze({
   json: 'invalid JSON',
@@ -20,29 +22,29 @@ const REASONS = Object.freeze({
   container: 'server container is not an object',
 });
 
-function isObject(value) { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
+function isObject(value: any): boolean { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
 
-function entryFingerprint(value) { return fingerprint(value); }
+function entryFingerprint(value: any): string { return fingerprint(value); }
 
-function fingerprintOrNull(value) { return value === undefined ? null : entryFingerprint(value); }
+function fingerprintOrNull(value: any): string | null { return value === undefined ? null : entryFingerprint(value); }
 
 /** Deep equality that ignores key order, so a reformatted entry still equals DoFlow's rendering. */
-function sameValue(a, b) { return a !== undefined && b !== undefined && entryFingerprint(a) === entryFingerprint(b); }
+function sameValue(a: any, b: any): boolean { return a !== undefined && b !== undefined && entryFingerprint(a) === entryFingerprint(b); }
 
-function shortId(id) { const text = String(id); return text.length > 40 ? `${text.slice(0, 37)}...` : text; }
+function shortId(id: any): string { const text = String(id); return text.length > 40 ? `${text.slice(0, 37)}...` : text; }
 
-function shortPath(file) { return file.length > 80 ? `...${file.slice(-77)}` : file; }
+function shortPath(file: string): string { return file.length > 80 ? `...${file.slice(-77)}` : file; }
 
 const NOTICES = Object.freeze({
-  collision: (id, file) => `MCP: kept your own entry '${shortId(id)}' in ${path.basename(file)} and did not register DoFlow's; rename or remove yours to let DoFlow manage it.`,
-  released: (id, file) => `MCP: entry '${shortId(id)}' in ${path.basename(file)} was changed outside DoFlow; it is yours now and DoFlow no longer updates or removes it.`,
-  untouched: (file) => `MCP: left ${shortPath(file)} untouched because it cannot be edited safely; DoFlow no longer manages the entries in it.`,
+  collision: (id: any, file: string) => `MCP: kept your own entry '${shortId(id)}' in ${path.basename(file)} and did not register DoFlow's; rename or remove yours to let DoFlow manage it.`,
+  released: (id: any, file: string) => `MCP: entry '${shortId(id)}' in ${path.basename(file)} was changed outside DoFlow; it is yours now and DoFlow no longer updates or removes it.`,
+  untouched: (file: string) => `MCP: left ${shortPath(file)} untouched because it cannot be edited safely; DoFlow no longer manages the entries in it.`,
 });
 
-function refusal(label, file, reason) { return `${label}: ${file}: ${reason}; DoFlow did not change the file`; }
+function refusal(label: string, file: string, reason: string): string { return `${label}: ${file}: ${reason}; DoFlow did not change the file`; }
 
 /** Read one MCP file as a JSON object. `servers` is null when the file or its container is absent. */
-function readMcpFile(file, container, { fsImpl = fs } = {}) {
+function readMcpFile(file: string, container: string, { fsImpl = fs }: { fsImpl?: any } = {}): any {
   if (!fsImpl.existsSync(file)) return { ok: true, doc: null, servers: null };
   let doc;
   try { doc = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { return { ok: false, reason: REASONS.json }; }
@@ -53,52 +55,52 @@ function readMcpFile(file, container, { fsImpl = fs } = {}) {
 }
 
 /** The `files` map plan and verify take: the scope's MCP file and every file an own row names. */
-function readMcpFiles({ file, ownRows = [], container, fsImpl = fs }) {
-  const targets = new Set([file, ...ownRows.map((row) => row.target)]);
+function readMcpFiles({ file, ownRows = [], container, fsImpl = fs }: any): any {
+  const targets = new Set([file, ...ownRows.map((row: any) => row.target)]);
   return Object.fromEntries([...targets].map((target) => {
     const read = readMcpFile(target, container, { fsImpl });
     return [target, read.ok ? { ok: true, servers: read.servers } : read];
   }));
 }
 
-function renderedById(selected, adoptable) {
-  const rendered = new Map();
+function renderedById(selected: any[], adoptable: any[]): Map<string, any> {
+  const rendered = new Map<string, any>();
   for (const { id, entry } of [...selected, ...adoptable]) if (!rendered.has(id)) rendered.set(id, entry);
   return rendered;
 }
 
 /** Shared by plan, verify and ownedMcpIds, so the three read one entry the same way. */
-function ownershipView({ file, files, selected = [], adoptable = [], ownRows = [], foreignRows = [] }) {
+function ownershipView({ file, files, selected = [], adoptable = [], ownRows = [], foreignRows = [] }: any): any {
   const rendered = renderedById(selected, adoptable);
-  const valueOf = (target, id) => (files[target]?.ok ? files[target].servers?.[id] : undefined);
-  const matches = (row, value) => {
+  const valueOf = (target: string, id: string) => (files[target]?.ok ? files[target].servers?.[id] : undefined);
+  const matches = (row: any, value: any) => {
     if (value === undefined) return false;
     const recorded = row.fingerprint ?? null;
     return recorded !== null ? entryFingerprint(value) === recorded : sameValue(value, rendered.get(row.identity));
   };
-  const rowsFor = (id) => ownRows.filter((row) => row.identity === id && row.target === file);
+  const rowsFor = (id: string) => ownRows.filter((row: any) => row.identity === id && row.target === file);
   // A legacy row is consumed alongside the current one, but never preferred over it.
-  const rowFor = (id) => { const rows = rowsFor(id); return rows.find((row) => !row.legacy) ?? rows[0] ?? null; };
+  const rowFor = (id: string) => { const rows = rowsFor(id); return rows.find((row: any) => !row.legacy) ?? rows[0] ?? null; };
   const adoptionOpen = ownRows.length === 0;
-  const adoptableIds = new Set(adoptable.map((server) => server.id));
-  const selectedIds = new Set(selected.map((server) => server.id));
+  const adoptableIds = new Set(adoptable.map((server: any) => server.id));
+  const selectedIds = new Set(selected.map((server: any) => server.id));
   /** An equal entry no own row claims is DoFlow's when another harness's row claims it, or when it
    * may be adopted. */
-  const claimable = (id, entry) => {
+  const claimable = (id: string, entry: any) => {
     const value = valueOf(file, id);
-    return sameValue(value, entry) && (foreignRows.some((row) => row.identity === id && row.target === file)
+    return sameValue(value, entry) && (foreignRows.some((row: any) => row.identity === id && row.target === file)
       || (adoptionOpen && adoptableIds.has(id)));
   };
   /** Adoptable entries DoFlow takes out because nothing selects them any more. */
   const adoptedRemovals = () => (adoptionOpen && files[file]?.ok
-    ? adoptable.filter(({ id, entry }) => !selectedIds.has(id) && sameValue(valueOf(file, id), entry)) : []);
+    ? adoptable.filter(({ id, entry }: any) => !selectedIds.has(id) && sameValue(valueOf(file, id), entry)) : []);
   return { rendered, valueOf, matches, rowsFor, rowFor, claimable, adoptedRemovals };
 }
 
-function orderOf(selected, adoptable) {
+function orderOf(selected: any[], adoptable: any[]): (a: any, b: any) => number {
   const ids = [...renderedById(selected, adoptable).keys()];
-  const rank = (id) => { const index = ids.indexOf(id); return index < 0 ? ids.length : index; };
-  return (a, b) => (a.target < b.target ? -1 : a.target > b.target ? 1
+  const rank = (id: string) => { const index = ids.indexOf(id); return index < 0 ? ids.length : index; };
+  return (a: any, b: any) => (a.target < b.target ? -1 : a.target > b.target ? 1
     : rank(a.identity) - rank(b.identity) || (a.identity < b.identity ? -1 : a.identity > b.identity ? 1 : 0));
 }
 
@@ -108,17 +110,17 @@ function orderOf(selected, adoptable) {
  * `foreignRows` other harnesses' rows; `identityFor` composes the adapter's ownership identity.
  */
 function planMcpEntries({ file, files, selected = [], adoptable = [], ownRows = [], foreignRows = [], removing = false,
-  identityFor, assetId, renderer, label }) {
+  identityFor, assetId, renderer, label }: any): any {
   const view = ownershipView({ file, files, selected, adoptable, ownRows, foreignRows });
-  const changes = [];
-  const conflicts = [];
-  const notices = [];
-  const base = (fields) => ({ assetId, kind: 'mcp-server', sourceVersion: 'registry-v1', projection: { renderer }, ...fields });
-  const write = (operation, id, entry) => base({
+  const changes: any[] = [];
+  const conflicts: string[] = [];
+  const notices: string[] = [];
+  const base = (fields: any) => ({ assetId, kind: 'mcp-server', sourceVersion: 'registry-v1', projection: { renderer }, ...fields });
+  const write = (operation: string, id: string, entry: any) => base({
     target: file, operation, identity: id, ownershipIdentity: identityFor(id),
     before: fingerprintOrNull(view.valueOf(file, id)), entry, fingerprint: entryFingerprint(entry), afterFingerprint: entryFingerprint(entry),
   });
-  const drop = (row, release) => base({
+  const drop = (row: any, release: boolean) => base({
     target: row.target, operation: 'remove', identity: row.identity, ownershipIdentity: row.ownershipIdentity,
     before: fingerprintOrNull(view.valueOf(row.target, row.identity)), fingerprint: row.fingerprint ?? null,
     ...(release ? { release: true } : {}),
@@ -130,7 +132,7 @@ function planMcpEntries({ file, files, selected = [], adoptable = [], ownRows = 
     else conflicts.push(refusal(label, target, files[target].reason));
   }
 
-  const consumed = new Set();
+  const consumed = new Set<any>();
   if (!removing && files[file]?.ok) {
     for (const { id, entry } of selected) {
       const rows = view.rowsFor(id);
@@ -182,7 +184,7 @@ function planMcpEntries({ file, files, selected = [], adoptable = [], ownRows = 
 /** Apply one file's planned changes to the server map read now. Each change goes ahead only while
  * its entry still holds what plan saw, or already holds the change's end state, which makes two
  * harnesses' changes to one shared entry in one run idempotent. Release changes touch nothing. */
-function applyMcpEntries(servers, changes) {
+function applyMcpEntries(servers: any, changes: any[]): any {
   const next = { ...(servers || {}) };
   for (const change of changes) {
     if (change.release) continue;
@@ -203,13 +205,13 @@ function applyMcpEntries(servers, changes) {
  * whatever it holds now.
  */
 function verifyMcpEntries({ file, files, snapshot, selected = [], adoptable = [], ownRows = [], foreignRows = [], removing = false,
-  identityFor, assetId, renderer, label, harness, sourceVersion = 'unknown' }) {
+  identityFor, assetId, renderer, label, harness, sourceVersion = 'unknown' }: any): any {
   const now = ownershipView({ file, files, selected, adoptable, ownRows, foreignRows });
   const then = ownershipView({ file, files: snapshot, selected, adoptable, ownRows, foreignRows });
-  const statuses = [];
-  const resources = [];
-  const conflicts = [];
-  const report = (id, target, ownershipIdentity, status) => statuses.push({
+  const statuses: any[] = [];
+  const resources: any[] = [];
+  const conflicts: string[] = [];
+  const report = (id: string, target: string, ownershipIdentity: any, status: string) => statuses.push({
     harness, assetId, capability: 'mcp', identity: id, target, ownershipIdentity, status,
   });
 
@@ -217,7 +219,7 @@ function verifyMcpEntries({ file, files, snapshot, selected = [], adoptable = []
     for (const target of Object.keys(files).filter((item) => !files[item].ok).sort()) conflicts.push(refusal(label, target, files[target].reason));
   }
 
-  const consumed = new Set();
+  const consumed = new Set<any>();
   if (!removing) {
     for (const { id, entry } of selected) {
       for (const row of now.rowsFor(id)) consumed.add(row);
@@ -237,7 +239,7 @@ function verifyMcpEntries({ file, files, snapshot, selected = [], adoptable = []
     }
   }
 
-  const leftover = (value, matching, target) => {
+  const leftover = (value: any, matching: boolean, target: string) => {
     if (!files[target]?.ok) return 'not-managed';
     if (value === undefined) return 'absent';
     return matching ? 'retained' : 'not-managed';
@@ -259,29 +261,29 @@ function verifyMcpEntries({ file, files, snapshot, selected = [], adoptable = []
 /** The ids DoFlow owns in this harness's MCP file now, in rendering order: those an own row matches,
  * and, while the harness holds no row, adoptable entries equal to DoFlow's rendering. A file that
  * cannot be read contributes none. */
-function ownedMcpIds({ file, files, selected = [], adoptable = [], ownRows = [] }) {
+function ownedMcpIds({ file, files, selected = [], adoptable = [], ownRows = [] }: any): string[] {
   const view = ownershipView({ file, files, selected, adoptable, ownRows });
-  const owned = new Set(ownRows.filter((row) => view.matches(row, view.valueOf(row.target, row.identity))).map((row) => row.identity));
+  const owned = new Set<string>(ownRows.filter((row: any) => view.matches(row, view.valueOf(row.target, row.identity))).map((row: any) => row.identity));
   if (!ownRows.length) {
     for (const { id, entry } of adoptable) if (sameValue(view.valueOf(file, id), entry)) owned.add(id);
   }
-  const order = [...view.rendered.keys()];
+  const order: string[] = [...view.rendered.keys()];
   return [...order.filter((id) => owned.has(id)), ...[...owned].filter((id) => !order.includes(id)).sort()];
 }
 
-function isSymlink(file, fsImpl) {
+function isSymlink(file: string, fsImpl: any): boolean {
   try { return fsImpl.lstatSync(file).isSymbolicLink(); } catch { return false; }
 }
 
 /** A symlinked MCP file is written through to the file it points at, so the link stays a link. */
-function writePath(file, fsImpl) {
+function writePath(file: string, fsImpl: any): string {
   if (!isSymlink(file, fsImpl)) return file;
   try { return fsImpl.realpathSync(file); } catch { return path.resolve(path.dirname(file), fsImpl.readlinkSync(file)); }
 }
 
 /** Write a JSON document atomically, keeping the existing file's permission bits: an MCP file kept
  * private for its tokens stays so. Creates missing directories; never deletes a file. */
-function writeMcpJson(file, doc, { fsImpl = fs } = {}) {
+function writeMcpJson(file: string, doc: any, { fsImpl = fs }: { fsImpl?: any } = {}): string {
   const dest = writePath(file, fsImpl);
   fsImpl.mkdirSync(path.dirname(dest), { recursive: true });
   const mode = fsImpl.existsSync(dest) ? fsImpl.statSync(dest).mode & 0o7777 : null;
@@ -301,14 +303,14 @@ function writeMcpJson(file, doc, { fsImpl = fs } = {}) {
  * every file's next document computed before the first write. An emptied container is kept as `{}`
  * or its member deleted, as the harness expects. Returns the number of files written.
  */
-function writeMcpEntries(changes, { container, keepEmptyContainer = false, fsImpl = fs } = {}) {
-  const byFile = new Map();
+function writeMcpEntries(changes: any[], { container, keepEmptyContainer = false, fsImpl = fs }: { container?: any, keepEmptyContainer?: boolean, fsImpl?: any } = {}): number {
+  const byFile = new Map<string, any[]>();
   for (const change of changes) {
     if (change.kind !== 'mcp-server' || change.release) continue;
     if (!byFile.has(change.target)) byFile.set(change.target, []);
-    byFile.get(change.target).push(change);
+    byFile.get(change.target)!.push(change);
   }
-  const writes = [];
+  const writes: [string, any][] = [];
   for (const [file, group] of byFile) {
     const read = readMcpFile(file, container, { fsImpl });
     if (!read.ok) throw new Error(`MCP: ${file} changed after planning; nothing was written, re-run the command`);

@@ -110,7 +110,7 @@ test('dry-run supplies plan and ownership records without writing', () => {
 
 // --- a user's own server, release and the conflict that names it ---------------
 const { planCodexMcp } = require('../../../src/adapters/codex/mcp');
-const { NOTICES } = require('../../../src/adapters/mcp-entries');
+const { NOTICES } = require('../../../src/adapters/mcp-entries.ts');
 
 function plannedOver(text, selected, extra = {}) {
   const file = path.join(scratch(), 'config.toml');

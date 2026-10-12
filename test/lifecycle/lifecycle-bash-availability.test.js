@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createAdapterRegistry } = require('../../src/adapters');
 const { defaultLedger } = require('../../src/state/index.ts');
-const { hasBashCapableShell } = require('../../src/lifecycle/bash-availability');
+const { hasBashCapableShell } = require('../../src/lifecycle/bash-availability.ts');
 const { planLifecycle, applyLifecycle, targetNeedsHooks, assertBashAvailableForHooks } = require('../../src/lifecycle');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
 

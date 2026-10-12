@@ -627,7 +627,7 @@
       "moments": [],
       "writers": [
         "src/adapters/antigravity/index.js",
-        "src/adapters/copy-tree.js",
+        "src/adapters/copy-tree.ts",
         "src/install/manifest.ts",
         "src/lifecycle/index.js",
         "src/state/index.ts"
@@ -651,7 +651,7 @@
       "moments": [],
       "writers": [
         "src/adapters/antigravity/index.js",
-        "src/adapters/copy-tree.js",
+        "src/adapters/copy-tree.ts",
         "src/install/manifest.ts",
         "src/lifecycle/index.js",
         "src/state/index.ts"
@@ -938,7 +938,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/state/run-lock.js"
+        "src/state/run-lock.ts"
       ]
     },
     {
@@ -956,7 +956,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/state/run-lock.js"
+        "src/state/run-lock.ts"
       ]
     }
   ],
@@ -994,11 +994,11 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/codex/config.js",
+      "file": "src/adapters/codex/config.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/codex/hooks.js",
+      "file": "src/adapters/codex/hooks.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
@@ -1006,7 +1006,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/gemini/hooks.js",
+      "file": "src/adapters/gemini/hooks.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
@@ -1014,7 +1014,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/mcp-entries.js",
+      "file": "src/adapters/mcp-entries.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
@@ -1026,7 +1026,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/pi/mcp.js",
+      "file": "src/adapters/pi/mcp.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
@@ -1034,7 +1034,7 @@
       "reason": "harness instruction file managed block (CLAUDE.md, AGENTS.md, GEMINI.md), owned by the install ledger"
     },
     {
-      "file": "src/release/sync-plugin-versions.js",
+      "file": "src/release/sync-plugin-versions.ts",
       "reason": "maintainer release tool: rewrites the repo plugin manifests (no DoFlow root)"
     },
     {

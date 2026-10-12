@@ -42,7 +42,7 @@
 
 const os = require('node:os');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/view');
-const { readLock } = require('../../state/lockfile');
+const { readLock } = require('../../state/lockfile.ts');
 const { stateRoot, readLedger } = require('../../state/index.ts');
 const { recordedMcpSelections } = require('../../install/mcp.ts');
 const { readInstallManifest } = require('../../install/manifest.ts');

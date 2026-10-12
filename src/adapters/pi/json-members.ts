@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Byte-preserving member edits on a JSON object's text. Every edit replaces exactly one span of the
 // original string, so whitespace, key order, line endings and every member DoFlow does not touch
 // survive as the user wrote them; re-serialising the parsed document would rewrite all of that.
@@ -8,17 +10,17 @@
 const SKELETON = '{\n  "mcpServers": {}\n}\n';
 const WHITESPACE = ' \t\n\r';
 
-function isPlainObject(value) {
+function isPlainObject(value: any): boolean {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function skipWhitespace(text, i) {
+function skipWhitespace(text: string, i: number): number {
   while (i < text.length && WHITESPACE.includes(text[i])) i += 1;
   return i;
 }
 
 /** Index just past the string token that opens at `i`. */
-function stringEnd(text, i) {
+function stringEnd(text: string, i: number): number {
   for (i += 1; text[i] !== '"'; i += 1) if (text[i] === '\\') i += 1;
   return i + 1;
 }
@@ -26,7 +28,7 @@ function stringEnd(text, i) {
 // The text has already passed JSON.parse, so the scanner only has to find spans, never validate.
 // Only the top-level object and mcpServers need member spans; every other value is skipped by
 // counting brackets, without recursion, so a deeply nested file cannot exhaust the stack.
-function valueEnd(text, i) {
+function valueEnd(text: string, i: number): number {
   const ch = text[i];
   if (ch === '"') return stringEnd(text, i);
   if (ch !== '{' && ch !== '[') {
@@ -45,8 +47,8 @@ function valueEnd(text, i) {
 
 /** Member spans of the object opening at `open`; `nested` names the one member whose object value
  * is scanned for its own members too. */
-function scanObject(text, open, nested = null) {
-  const members = [];
+function scanObject(text: string, open: number, nested: string | null = null): { open: number, close: number, members: any[], [extra: string]: any } {
+  const members: any[] = [];
   let i = skipWhitespace(text, open + 1);
   while (text[i] !== '}') {
     const keyStart = i;
@@ -64,7 +66,7 @@ function scanObject(text, open, nested = null) {
 
 /** JSON.parse's message quotes the text around the error, which may be a token or a password, so
  * only the position is reported. */
-function invalidJsonReason(text, error) {
+function invalidJsonReason(text: string, error: any): string {
   const match = /at position (\d+)/.exec(error.message);
   if (!match) return 'invalid JSON';
   const before = text.slice(0, Number(match[1]));
@@ -73,14 +75,14 @@ function invalidJsonReason(text, error) {
 }
 
 /** The whitespace that starts the line `at` sits on, or null when something else precedes it there. */
-function lineIndent(text, at) {
+function lineIndent(text: string, at: number): string | null {
   const prefix = text.slice(text.lastIndexOf('\n', at - 1) + 1, at);
   return /^[ \t]*$/.test(prefix) ? prefix : null;
 }
 
 /** The line ending most of the lines in `[start, end)` use, or `fallback` when the span has none:
  * one stray CRLF in an LF file does not turn every inserted line into CRLF. */
-function lineEnding(text, start, end, fallback) {
+function lineEnding(text: string, start: number, end: number, fallback: string): string {
   const span = text.slice(start, end);
   const lines = span.split('\n').length - 1;
   if (!lines) return fallback;
@@ -89,7 +91,7 @@ function lineEnding(text, start, end, fallback) {
 
 /** Attach the formatting a container's new members follow: whether it spans lines, its line ending,
  * the indent of its members and the indent of its closing brace. An empty container takes its parent's. */
-function attachLayout(text, node, parent, unit, eol) {
+function attachLayout(text: string, node: any, parent: any, unit: string, eol: string): void {
   const parentIndent = parent ? parent.indent : '';
   const empty = node.members.length === 0;
   node.multiline = text.slice(node.open, node.close).includes('\n') || (empty && Boolean(parent?.multiline));
@@ -98,8 +100,8 @@ function attachLayout(text, node, parent, unit, eol) {
   node.closeIndent = parentIndent;
 }
 
-function duplicateKey(node) {
-  const seen = new Set();
+function duplicateKey(node: any): string | null {
+  const seen = new Set<string>();
   for (const member of node.members) {
     if (seen.has(member.key)) return member.key;
     seen.add(member.key);
@@ -107,9 +109,9 @@ function duplicateKey(node) {
   return null;
 }
 
-function readDocument(text) {
+function readDocument(text: string): any {
   let parsed;
-  try { parsed = JSON.parse(text); } catch (error) { return { ok: false, reason: invalidJsonReason(text, error) }; }
+  try { parsed = JSON.parse(text); } catch (error: any) { return { ok: false, reason: invalidJsonReason(text, error) }; }
   if (!isPlainObject(parsed)) return { ok: false, reason: 'top level is not an object' };
   if (Object.prototype.hasOwnProperty.call(parsed, 'mcpServers') && !isPlainObject(parsed.mcpServers)) {
     return { ok: false, reason: 'mcpServers is not an object' };
@@ -118,7 +120,7 @@ function readDocument(text) {
   try { root = scanObject(text, skipWhitespace(text, 0), 'mcpServers'); } catch { return { ok: false, reason: 'the file could not be scanned' }; }
   const duplicateTop = duplicateKey(root);
   if (duplicateTop !== null) return { ok: false, reason: `duplicate key '${duplicateTop}'` };
-  const servers = root.members.find((member) => member.key === 'mcpServers')?.node ?? null;
+  const servers = root.members.find((member: any) => member.key === 'mcpServers')?.node ?? null;
   const duplicateServer = servers ? duplicateKey(servers) : null;
   if (duplicateServer !== null) return { ok: false, reason: `duplicate key '${duplicateServer}'` };
 
@@ -130,21 +132,21 @@ function readDocument(text) {
   return { ok: true, root, servers, eol, unit };
 }
 
-function renderValue(value, container, layout) {
+function renderValue(value: any, container: any, layout: any): string {
   if (!container.multiline) return JSON.stringify(value);
   return JSON.stringify(value, null, layout.unit).split('\n').join(container.eol + container.indent);
 }
 
-function renderMember(key, value, container, layout) {
+function renderMember(key: string, value: any, container: any, layout: any): string {
   return `${JSON.stringify(key)}: ${renderValue(value, container, layout)}`;
 }
 
-function splice(text, start, end, inserted) {
+function splice(text: string, start: number, end: number, inserted: string): string {
   return text.slice(0, start) + inserted + text.slice(end);
 }
 
 /** `layout` is the readDocument result the container or member came from. */
-function insertMember(text, container, key, value, layout) {
+function insertMember(text: string, container: any, key: string, value: any, layout: any): string {
   const member = renderMember(key, value, container, layout);
   const last = container.members[container.members.length - 1];
   if (last) {
@@ -157,12 +159,12 @@ function insertMember(text, container, key, value, layout) {
   return splice(text, container.open + 1, container.close, inserted);
 }
 
-function replaceValue(text, member, value, layout) {
+function replaceValue(text: string, member: any, value: any, layout: any): string {
   const container = layout.servers?.members.includes(member) ? layout.servers : layout.root;
   return splice(text, member.valueStart, member.valueEnd, renderValue(value, container, layout));
 }
 
-function removeMember(text, container, member) {
+function removeMember(text: string, container: any, member: any): string {
   const index = container.members.indexOf(member);
   if (index === -1) throw new Error(`member '${member.key}' is not in this container`);
   if (container.members.length === 1) return splice(text, container.open + 1, container.close, '');
@@ -171,12 +173,12 @@ function removeMember(text, container, member) {
 }
 
 /** Set the text between an empty container's braces, which a removal of its only member drops. */
-function replaceInner(text, container, inner) {
+function replaceInner(text: string, container: any, inner: string): string {
   if (container.members.length) throw new Error('only an empty container\'s inner text can be replaced');
   return splice(text, container.open + 1, container.close, inner);
 }
 
-function renderNewDocument(entries) {
+function renderNewDocument(entries: any): string {
   return `${JSON.stringify({ mcpServers: Object.fromEntries(entries) }, null, 2)}\n`;
 }
 

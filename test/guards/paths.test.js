@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { loadRegistry, selectMcpServers } = require('../../src/registry/index.ts');
-const { renderMcpIndex } = require('../../src/lifecycle/mcp-index');
+const { renderMcpIndex } = require('../../src/lifecycle/mcp-index.ts');
 const { mcpIndexPath } = require('../../src/lifecycle');
 const { REPO, GUIDANCE } = require('./_shared');
 

@@ -1,12 +1,14 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Codex custom-agent projection. Agent contracts are independent TOML documents, so unlike
 // config.toml there is no safe key-level merge: a same-named destination is changed only when
 // the manifest proves DoFlow owns the exact bytes currently on disk.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { atomicWrite } = require('./config');
+const { atomicWrite } = require('./config.ts');
 
 const AGENT_DIRECTORY = 'agents';
 const AGENT_KIND = 'custom-agent';
@@ -21,38 +23,38 @@ const IMPLEMENTATION_ROLES = new Set([
 ]);
 const ALLOWED_FIELDS = new Set([...REQUIRED_FIELDS, 'sandbox_mode']);
 
-function fingerprint(content) {
+function fingerprint(content: string): string {
   return `sha256:${crypto.createHash('sha256').update(content).digest('hex')}`;
 }
 
-function assertAgentName(name, label = 'agent name') {
+function assertAgentName(name: any, label: string = 'agent name'): string {
   if (typeof name !== 'string' || !/^[a-z][a-z0-9-]*$/.test(name)) {
     throw new Error(`${label} must be a lowercase kebab-case identifier`);
   }
   return name;
 }
 
-function filenameFor(name) {
+function filenameFor(name: string): string {
   assertAgentName(name);
   return `${name}.toml`;
 }
 
-function expectedName(fileName) {
+function expectedName(fileName: any): string {
   if (typeof fileName !== 'string' || path.basename(fileName) !== fileName || !fileName.endsWith('.toml')) {
     throw new Error('Agent filename must be a direct .toml filename');
   }
   return assertAgentName(fileName.slice(0, -'.toml'.length), 'Agent filename');
 }
 
-function parseQuoted(value, field, line) {
+function parseQuoted(value: string, field: string, line: number): string {
   if (!/^"(?:[^"\\\n]|\\.)*"$/.test(value)) throw new Error(`${field} must be a quoted TOML string on line ${line}`);
   try { return JSON.parse(value); } catch { throw new Error(`${field} has an invalid quoted value on line ${line}`); }
 }
 
 /** Parse the intentionally small TOML contract supported by Codex agent definitions. */
-function parseAgentToml(source, { fileName } = {}) {
+function parseAgentToml(source: any, { fileName }: { fileName?: string } = {}): Record<string, string> {
   if (typeof source !== 'string') throw new Error('Agent TOML source must be text');
-  const values = {};
+  const values: Record<string, string> = {};
   const lines = source.split(/\r?\n/);
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
@@ -62,7 +64,7 @@ function parseAgentToml(source, { fileName } = {}) {
       const field = triple[1];
       if (!ALLOWED_FIELDS.has(field)) throw new Error(`Unsupported agent field '${field}'`);
       if (Object.hasOwn(values, field)) throw new Error(`Duplicate agent field '${field}'`);
-      const body = [];
+      const body: string[] = [];
       let closed = false;
       while (++index < lines.length) {
         if (/^"""\s*$/.test(lines[index])) { closed = true; break; }
@@ -83,7 +85,7 @@ function parseAgentToml(source, { fileName } = {}) {
   return values;
 }
 
-function validateAgentContract(source, { fileName } = {}) {
+function validateAgentContract(source: any, { fileName }: { fileName?: string } = {}): any {
   const agent = parseAgentToml(source, { fileName });
   for (const field of REQUIRED_FIELDS) {
     if (typeof agent[field] !== 'string' || !agent[field].trim()) throw new Error(`Agent is missing required '${field}'`);
@@ -104,7 +106,7 @@ function validateAgentContract(source, { fileName } = {}) {
   return Object.freeze({ ...agent, fileName: filenameFor(agent.name) });
 }
 
-function agentDirectory({ scope, codexDir, projectRoot, paths } = {}) {
+function agentDirectory({ scope, codexDir, projectRoot, paths }: { scope?: string, codexDir?: string, projectRoot?: string, paths?: any } = {}): string {
   // Preferred: the declared path resolved by the adapter (harnesses.json "paths".agentsDirectory).
   if (paths?.agentsDirectory) return paths.agentsDirectory;
   // Legacy derivation for direct callers passing raw scope inputs; kept byte-compatible with the
@@ -120,19 +122,19 @@ function agentDirectory({ scope, codexDir, projectRoot, paths } = {}) {
   throw new Error(`Unsupported Codex agent scope: ${scope}`);
 }
 
-function destinationFor(directory, name) {
+function destinationFor(directory: string, name: string): string {
   const file = path.resolve(directory, filenameFor(name));
   const root = `${path.resolve(directory)}${path.sep}`;
   if (!file.startsWith(root)) throw new Error(`Refusing to write agent '${name}' outside the Codex agents directory`);
   return file;
 }
 
-function discoverCodexAgents(sourceDir, fsImpl = fs) {
+function discoverCodexAgents(sourceDir: any, fsImpl: any = fs): any[] {
   if (!sourceDir) throw new Error('sourceDir is required for Codex agents');
   const directory = path.resolve(sourceDir);
   if (!fsImpl.existsSync(directory)) throw new Error(`Codex agent source directory does not exist: ${sourceDir}`);
-  const agents = [];
-  for (const entry of fsImpl.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+  const agents: any[] = [];
+  for (const entry of fsImpl.readdirSync(directory, { withFileTypes: true }).sort((a: any, b: any) => a.name.localeCompare(b.name))) {
     if (!entry.name.endsWith('.toml')) continue;
     if (!entry.isFile()) throw new Error(`Codex agent source '${entry.name}' must be a regular file`);
     const name = expectedName(entry.name);
@@ -143,11 +145,11 @@ function discoverCodexAgents(sourceDir, fsImpl = fs) {
   return agents;
 }
 
-function isOwnedResource(resource, scope) {
+function isOwnedResource(resource: any, scope: any): boolean {
   return resource && resource.target === 'codex' && resource.scope === scope && resource.kind === AGENT_KIND && typeof resource.identity === 'string';
 }
 
-function resourceFor(agent, scope, sourceVersion) {
+function resourceFor(agent: any, scope: any, sourceVersion: any): any {
   return {
     target: 'codex', scope, kind: AGENT_KIND, identity: `agent:${agent.name}`,
     sourceVersion, fingerprint: agent.fingerprint, selection: true,
@@ -161,13 +163,13 @@ function resourceFor(agent, scope, sourceVersion) {
  *   recording ownership instead of refusing. See planCodexConfig for why this is not `force`: a
  *   record that disagrees with the file on disk stays a conflict regardless of `adopt`.
  */
-function planCodexAgents({ scope, codexDir, projectRoot, sourceDir, sourceVersion = 'unknown', managedResources = [], adopt = false, fsImpl = fs }) {
+function planCodexAgents({ scope, codexDir, projectRoot, sourceDir, sourceVersion = 'unknown', managedResources = [], adopt = false, fsImpl = fs }: any): any {
   const directory = agentDirectory({ scope, codexDir, projectRoot });
   const agents = discoverCodexAgents(sourceDir, fsImpl);
-  const owned = new Map(managedResources.filter((resource) => isOwnedResource(resource, scope)).map((resource) => [resource.identity, resource]));
-  const changes = [];
-  const conflicts = [];
-  const nextManagedResources = managedResources.filter((resource) => !isOwnedResource(resource, scope));
+  const owned = new Map<string, any>(managedResources.filter((resource: any) => isOwnedResource(resource, scope)).map((resource: any) => [resource.identity, resource]));
+  const changes: any[] = [];
+  const conflicts: string[] = [];
+  const nextManagedResources = managedResources.filter((resource: any) => !isOwnedResource(resource, scope));
   for (const agent of agents) {
     const file = destinationFor(directory, agent.name);
     const identity = `agent:${agent.name}`;
@@ -189,13 +191,13 @@ function planCodexAgents({ scope, codexDir, projectRoot, sourceDir, sourceVersio
   };
 }
 
-function applyCodexAgents(plan, { dryRun = false, fsImpl = fs } = {}) {
+function applyCodexAgents(plan: any, { dryRun = false, fsImpl = fs }: { dryRun?: boolean, fsImpl?: any } = {}): any {
   if (!plan.ok || dryRun || plan.status === 'unchanged') return { ...plan, applied: false };
   for (const change of plan.changes) atomicWrite(change.file, change.content, fsImpl);
   return { ...plan, applied: true };
 }
 
-function reconcileCodexAgents(options) {
+function reconcileCodexAgents(options: any): any {
   return applyCodexAgents(planCodexAgents(options), options);
 }
 

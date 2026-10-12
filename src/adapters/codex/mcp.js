@@ -11,9 +11,9 @@ const {
   parseToml,
   newViolation,
   atomicWrite,
-} = require('./config');
+} = require('./config.ts');
 const { selectMcpServers, nativeMcpCatalog } = require('../../registry/index.ts');
-const { NOTICES } = require('../mcp-entries');
+const { NOTICES } = require('../mcp-entries.ts');
 const { stripComment } = require('../../helper/toml.ts');
 
 const MCP_KIND = 'mcp-server';

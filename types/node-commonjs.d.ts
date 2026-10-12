@@ -5,8 +5,7 @@
 // the surface the migrated modules actually touch. Extend it as more modules migrate, not ahead of
 // need. See agent-docs/BRIEF_GOAL_DOFLOW.md for the migration roadmap.
 
-declare function require(id: string): any;
-declare namespace require { var main: any; }
+declare var require: { (id: string): any; main: any };
 
 declare var module: { exports: any };
 
@@ -26,6 +25,8 @@ declare var process: {
   stdin: { isTTY?: boolean; isRaw?: boolean; setRawMode(mode: boolean): void };
   stdout: { write(chunk: string): boolean; isTTY?: boolean };
   stderr: { write(chunk: string): boolean };
+  on(event: string, listener: (...args: any[]) => void): any;
+  removeListener(event: string, listener: (...args: any[]) => void): any;
 };
 
 declare var __dirname: string;
@@ -41,11 +42,13 @@ declare var console: {
 
 interface Buffer extends Uint8Array {
   toString(encoding?: string, start?: number, end?: number): string;
+  equals(other: Uint8Array): boolean;
 }
 declare var Buffer: {
   alloc(size: number): Buffer;
   from(data: any, encoding?: string): Buffer;
   byteLength(string: string, encoding?: string): number;
+  isBuffer(value: any): boolean;
 };
 
 // Timers and WHATWG URL, as the migrated .ts modules use them (opaque handle; parsed URL fields only).

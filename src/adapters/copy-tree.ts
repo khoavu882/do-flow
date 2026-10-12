@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Shared copy-tree engine — the generic "own a tree of files" implementation every asset
 // declaring `renderer: "copy-tree"` in core/registry/assets.json needs. Codex's adapter already
 // proved this per-file fingerprint/conflict model for agents and hooks (ownedRemovalPlan,
@@ -10,12 +12,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-function sha256(buf) {
+function sha256(buf: any): string {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
-function walkRelFiles(dir, fsImpl) {
-  const out = [];
+function walkRelFiles(dir: string, fsImpl: any): string[] {
+  const out: string[] = [];
   for (const entry of fsImpl.readdirSync(dir, { withFileTypes: true })) {
     const abs = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walkRelFiles(abs, fsImpl).map((rel) => path.join(entry.name, rel)));
@@ -31,29 +33,29 @@ function walkRelFiles(dir, fsImpl) {
  * branched on inside an adapter, so the shape stays visible next to the asset it applies to.
  * @type {Record<string, (sourceRel: string) => string>}
  */
-const LAYOUTS = {
+const LAYOUTS: Record<string, (sourceRel: string) => string> = {
   /** `spec-analyst.md` -> `spec-analyst/agent.md` */
-  'dir-per-file:agent.md': (sourceRel) => {
+  'dir-per-file:agent.md': (sourceRel: string) => {
     const ext = path.extname(sourceRel);
     return path.join(sourceRel.slice(0, sourceRel.length - ext.length), `agent${ext || '.md'}`);
   },
   /** `RULE_01_SAFETY.md` -> `RULE_01_SAFETY.instructions.md` — GitHub's path-specific
    * instructions are discovered by their `.instructions.md` suffix. */
-  'instructions-md': (sourceRel) => {
+  'instructions-md': (sourceRel: string) => {
     const ext = path.extname(sourceRel);
     return `${sourceRel.slice(0, sourceRel.length - ext.length)}.instructions.md`;
   },
   /** `MODE_Orchestration.md` -> `doflow-orchestration.md` — Claude's /config picker lists
    * output styles by file name; the doflow- prefix keeps DoFlow's styles grouped and
    * non-colliding with anything a user authors by hand. */
-  'doflow-output-style': (sourceRel) => {
+  'doflow-output-style': (sourceRel: string) => {
     const ext = path.extname(sourceRel);
     const base = path.basename(sourceRel, ext).replace(/^MODE_/i, '').replace(/_/g, '-').toLowerCase();
     return `doflow-${base}${ext || '.md'}`;
   },
   /** `core-implementer.md` -> `core-implementer.json` — kiro-cli discovers custom agents as
    * `.kiro/agents/<name>.json` (2.27.1 `kiro-cli agent list` did not list `.md` agents). */
-  'kiro-agent-json': (sourceRel) => {
+  'kiro-agent-json': (sourceRel: string) => {
     const ext = path.extname(sourceRel);
     return `${sourceRel.slice(0, sourceRel.length - ext.length)}.json`;
   },
@@ -61,8 +63,8 @@ const LAYOUTS = {
 
 /** Resolve a declared layout name to its mapper. Unknown names fail loudly rather than silently
  * mirroring, because a typo would otherwise install to the wrong shape and look like it worked. */
-function resolveLayout(name) {
-  if (!name) return (rel) => rel;
+function resolveLayout(name: any): (sourceRel: string) => string {
+  if (!name) return (rel: string) => rel;
   const layout = LAYOUTS[name];
   if (!layout) throw new Error(`Unknown copy-tree layout '${name}' (known: ${Object.keys(LAYOUTS).join(', ')})`);
   return layout;
@@ -77,39 +79,39 @@ function resolveLayout(name) {
  * applyTree can re-derive the written bytes from the untouched source at any later retry.
  * @type {Record<string, (sourceRel: string, content: Buffer) => Buffer>}
  */
-const TRANSFORMS = {
+const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
   /** Shared mode doc -> Claude output style with name/description/keep-coding-instructions */
   'claude-output-styles': renderClaudeOutputStyle,
   /** `<rule>.md` -> `<rule>.instructions.md` body under a Copilot applyTo header */
-  'copilot-rule-instructions': (sourceRel, content) => {
+  'copilot-rule-instructions': (sourceRel: string, content: any) => {
     void sourceRel;
     return Buffer.from(`---\napplyTo: '**'\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
   },
   /** Shared agent spec frontmatter -> only the keys Gemini CLI's subagent schema accepts */
-  'gemini-agents': (sourceRel, content) => {
+  'gemini-agents': (sourceRel: string, content: any) => {
     void sourceRel;
     return Buffer.from(filterGeminiAgentFrontmatter(content.toString('utf8')));
   },
   /** Shared agent spec frontmatter -> OpenCode's markdown-agent vocabulary */
-  'opencode-agents': (sourceRel, content) => {
+  'opencode-agents': (sourceRel: string, content: any) => {
     void sourceRel;
     return Buffer.from(renderOpencodeAgent(content.toString('utf8')));
   },
   /** Shared agent spec -> kiro-cli custom agent JSON (name, description, prompt, tools, hooks) */
-  'kiro-agents': (sourceRel, content) => {
+  'kiro-agents': (sourceRel: string, content: any) => {
     void sourceRel;
     return Buffer.from(renderKiroAgent(content.toString('utf8')));
   },
 };
 
-function resolveTransform(name) {
+function resolveTransform(name: any): ((sourceRel: string, content: any) => any) | null {
   if (!name) return null;
   const transform = TRANSFORMS[name];
   if (!transform) throw new Error(`Unknown copy-tree transform '${name}' (known: ${Object.keys(TRANSFORMS).join(', ')})`);
   return transform;
 }
 
-function stripFrontmatter(text) {
+function stripFrontmatter(text: string): string {
   if (!text.startsWith('---')) return text;
   const end = text.indexOf('\n---', 3);
   if (end === -1) return text;
@@ -120,7 +122,7 @@ function stripFrontmatter(text) {
  * built-in engineering instructions (these styles shape HOW DoFlow works, not WHETHER Claude
  * codes). The description is lifted from the document's first `**Purpose**` line so the /config
  * picker explains each style without opening it. */
-function renderClaudeOutputStyle(sourceRel, content) {
+function renderClaudeOutputStyle(sourceRel: string, content: any): string {
   const text = Buffer.isBuffer(content) ? content.toString('utf8') : String(content);
   const base = path.basename(sourceRel).replace(/\.[^.]+$/, '').replace(/^MODE_/i, '').replace(/_/g, ' ');
   const purpose = text.match(/\*\*Purpose\*\*[:*]*\s*(.+)?/);
@@ -135,11 +137,11 @@ const GEMINI_AGENT_KEYS = new Set(['name', 'description', 'kind', 'tools', 'mcpS
 /** Keep only Gemini's documented top-level frontmatter keys, with their indented continuation
  * lines, in source order. The body after the closing `---` passes through byte for byte, and a
  * file without frontmatter is returned unchanged. */
-function filterGeminiAgentFrontmatter(text) {
+function filterGeminiAgentFrontmatter(text: string): string {
   const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
   if (!match) return text;
   let keep = false;
-  const kept = match[1].split(/(?<=\n)/).filter((line) => {
+  const kept = match[1].split(/(?<=\n)/).filter((line: string) => {
     const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/);
     if (key) keep = GEMINI_AGENT_KEYS.has(key[1]);
     return keep;
@@ -150,12 +152,12 @@ function filterGeminiAgentFrontmatter(text) {
 /** The command a Kiro hook runs for one front-door script: the project copy when the git root
  * holds one, else the user-scope copy under $HOME. One builder, so the static `doflow` agent
  * (core/harnesses/kiro/agents/doflow.json) and every generated specialist share the exact string. */
-function kiroHookCommand(script) {
+function kiroHookCommand(script: string): string {
   return `bash "$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f "$root/.kiro/hooks/${script}" ] && printf '%s/.kiro/hooks/${script}' "$root" || printf '%s/.kiro/hooks/${script}' "$HOME")"`;
 }
 
 /** One kiro-cli agent hook entry. */
-function kiroHook({ name, trigger, matcher, script, timeout }) {
+function kiroHook({ name, trigger, matcher, script, timeout }: { name: string, trigger: string, matcher?: string, script: string, timeout: number }): any {
   return {
     name, trigger, ...(matcher ? { matcher } : {}),
     action: { type: 'command', command: kiroHookCommand(script) }, timeout,
@@ -166,7 +168,7 @@ function kiroHook({ name, trigger, matcher, script, timeout }) {
  * "*" matcher: Kiro documents "@<server>" (every tool of one server) and "*" but no all-MCP
  * matcher, and mcp-tool-guard.sh exits 0 immediately for any non-MCP tool name, so "*" costs one
  * fast no-op for built-in tools and still covers every MCP server. */
-function kiroPreToolUseHooks() {
+function kiroPreToolUseHooks(): any[] {
   return [
     kiroHook({ name: 'doflow-pre-implementation-gate', trigger: 'preToolUse', matcher: 'write', script: 'pre-implement-gate.sh', timeout: 10 }),
     kiroHook({ name: 'doflow-pre-bash-guard', trigger: 'preToolUse', matcher: 'shell', script: 'pre-bash-guard.sh', timeout: 10 }),
@@ -176,8 +178,8 @@ function kiroPreToolUseHooks() {
 
 /** Map one core/shared agent-spec file onto a kiro-cli custom agent. Spec keys other than
  * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. */
-function renderKiroAgent(text) {
-  const fm = {};
+function renderKiroAgent(text: string): string {
+  const fm: Record<string, string> = {};
   let body = text;
   if (text.startsWith('---')) {
     const end = text.indexOf('\n---', 3);
@@ -204,8 +206,8 @@ const OPENCODE_READONLY_AGENTS = new Set(['spec-analyst', 'system-architect', 'q
  * (description / mode / permission; model omitted because OpenCode has no 'inherit'). Unknown
  * spec keys (tools, effort) are dropped rather than passed through, so OpenCode never sees
  * vocabulary it does not define. Body below the frontmatter passes through untouched. */
-function renderOpencodeAgent(text) {
-  const fm = {};
+function renderOpencodeAgent(text: string): string {
+  const fm: Record<string, string> = {};
   let body = text;
   if (text.startsWith('---')) {
     const end = text.indexOf('\n---', 3);
@@ -231,7 +233,7 @@ function renderOpencodeAgent(text) {
  * the destination tree beyond checking existence. `relPath` is destination-relative and doubles as
  * the ledger identity, so a layout change relocates the recorded resource too — planTree's
  * relocation handling then removes the old path rather than orphaning it. */
-function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
+function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: any): { files: any[] } {
   if (!fsImpl.existsSync(sourceDir)) throw new Error(`copy-tree source is missing: ${sourceDir}`);
   const mapRel = typeof layout === 'function' ? layout : resolveLayout(layout);
   const mapContent = typeof transform === 'function' ? transform : resolveTransform(transform);
@@ -256,28 +258,28 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
  * `siblingReplaced` lists the harnesses whose recorded bytes this plan replaces: the file matches
  * neither the source nor this harness's own record, only a sibling's (forced or not).
  */
-function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false, keepModified = false, siblingFingerprints = new Map() }) {
-  const prevByPath = new Map(previousResources.map((resource) => [resource.relPath, resource]));
-  const changes = [];
-  const conflicts = [];
-  const kept = [];
-  const siblingReplaced = new Set();
+function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false, keepModified = false, siblingFingerprints = new Map() }: any): any {
+  const prevByPath = new Map<string, any>(previousResources.map((resource: any) => [resource.relPath, resource]));
+  const changes: any[] = [];
+  const conflicts: string[] = [];
+  const kept: any[] = [];
+  const siblingReplaced = new Set<string>();
 
   // Fingerprints the CURRENT source would write, keyed by destination. Resolved lazily and only
   // when a recorded fingerprint has already failed to match, so the common removal path still
   // never reads the source tree. A missing source directory is not an error here — an asset can be
   // removed after its source moved — it simply leaves the recorded fingerprint as the only signal.
-  let sourceByDest;
-  const sourceFingerprint = (destAbs) => {
+  let sourceByDest: Map<string, string> | undefined;
+  const sourceFingerprint = (destAbs: string): string | undefined => {
     if (sourceByDest === undefined) {
       sourceByDest = sourceDir && fsImpl.existsSync(sourceDir)
-        ? new Map(discoverTree({ sourceDir, destDir, fsImpl, layout, transform }).files.map((file) => [file.destAbs, file.fingerprint]))
+        ? new Map<string, string>(discoverTree({ sourceDir, destDir, fsImpl, layout, transform }).files.map((file): [string, string] => [file.destAbs, file.fingerprint]))
         : new Map();
     }
     return sourceByDest.get(destAbs);
   };
 
-  const proposeRemoval = (prev, { relocated = false } = {}) => {
+  const proposeRemoval = (prev: any, { relocated = false }: { relocated?: boolean } = {}) => {
     // prev's OWN recorded location, not the current destDir — an asset whose nativeDir changed
     // since prev was recorded must be removed from where it actually is, not from where it would
     // land today. Absent (pre-this-fix data, or a caller-constructed previousResources entry with
@@ -365,7 +367,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
  * bit survives the copy without a separate chmod pass) and mtime, matching this codebase's
  * general convention for a lifecycle-owned write (see src/adapters/claude/index.js's
  * applySettingsAsset for the same pattern applied to a transformed-content file). */
-function applyTree({ changes = [], fsImpl = fs, transform }) {
+function applyTree({ changes = [], fsImpl = fs, transform }: any): { applied: number } {
   const mapContent = typeof transform === 'function' ? transform : resolveTransform(transform);
   let applied = 0;
   for (const change of changes) {
@@ -390,7 +392,7 @@ function applyTree({ changes = [], fsImpl = fs, transform }) {
 
 /** Delete every remove change, re-checking each file's fingerprint immediately before deletion —
  * refuses (throws) rather than silently deleting a file modified since planTree ran. */
-function removeTree({ changes = [], fsImpl = fs }) {
+function removeTree({ changes = [], fsImpl = fs }: any): { removed: number } {
   let removed = 0;
   for (const change of changes) {
     if (change.operation !== 'remove' || change.kept) continue;
@@ -413,7 +415,7 @@ const ANCHOR_DIRS = new Set(['.agents', '.claude', '.codex', '.copilot', '.doflo
  * which may hold user content elsewhere. The match is by basename, so a root with another name
  * (`~/.gemini/config`, `~/.pi/agent`, `~/.config/opencode`) is pruned once it is empty; no file is
  * ever lost, since rmdir refuses a folder that holds one. */
-function pruneEmptyAncestors(startDir, { fsImpl = fs } = {}) {
+function pruneEmptyAncestors(startDir: string, { fsImpl = fs }: { fsImpl?: any } = {}): void {
   let current = startDir;
   for (;;) {
     const basename = path.basename(current);
@@ -424,10 +426,10 @@ function pruneEmptyAncestors(startDir, { fsImpl = fs } = {}) {
 }
 
 /** Re-derive ownership resources from what's actually on disk right now, for status/verify. */
-function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
+function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: any): { ok: boolean, resources: any[], conflicts: string[] } {
   const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
-  const resources = [];
-  const conflicts = [];
+  const resources: any[] = [];
+  const conflicts: string[] = [];
   for (const file of files) {
     if (!file.exists) continue;
     const current = sha256(fsImpl.readFileSync(file.destAbs));
@@ -440,14 +442,14 @@ function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
 // ---- per-adapter copy-tree glue, shared so codex/claude/gemini don't each carry their own copy ----
 
 /** Filter a harness's asset list down to the ones this engine handles. */
-function copyTreeAssets(assets) {
-  return (assets || []).filter((asset) => asset?.renderer === 'copy-tree');
+function copyTreeAssets(assets: any): any[] {
+  return (assets || []).filter((asset: any) => asset?.renderer === 'copy-tree');
 }
 
 /** Recursively sort object keys before serializing, so two logically-equal objects with
  * differently-ordered keys (e.g. after a settings file is merged and re-merged) fingerprint
  * identically instead of spuriously registering as changed. */
-function stableSort(value) {
+function stableSort(value: any): any {
   if (Array.isArray(value)) return value.map(stableSort);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableSort(value[key])]));
@@ -455,22 +457,22 @@ function stableSort(value) {
 
 /** Content fingerprint every adapter uses to track what it owns: sha256 of a string as-is, or of
  * a stably key-sorted JSON serialization of anything else. */
-function fingerprint(value) {
+function fingerprint(value: any): string {
   return sha256(typeof value === 'string' ? value : JSON.stringify(stableSort(value)));
 }
 
 /** Read and parse a native JSON file an adapter merges into. Distinguishes "absent" (safe to
  * create) from "present but unparseable" (a conflict to report, never silently overwritten) —
  * every adapter that merges into a native JSON settings/config file needs exactly this. */
-function readJson(file, { fsImpl = fs } = {}) {
+function readJson(file: string, { fsImpl = fs }: { fsImpl?: any } = {}): { exists: boolean, value: any, error: string | null } {
   if (!fsImpl.existsSync(file)) return { exists: false, value: {}, error: null };
   try { return { exists: true, value: JSON.parse(fsImpl.readFileSync(file, 'utf8')), error: null }; }
-  catch (error) { return { exists: true, value: null, error: `Invalid JSON in ${file}: ${error.message}` }; }
+  catch (error: any) { return { exists: true, value: null, error: `Invalid JSON in ${file}: ${error.message}` }; }
 }
 
 /** Resolve an asset's source directory against the repo root, refusing a path that escapes the
  * repository or does not exist. `harnessName` only shapes the thrown error message. */
-function sourceDirFor(asset, context = {}, fsImpl = fs, harnessName = 'Adapter') {
+function sourceDirFor(asset: any, context: any = {}, fsImpl: any = fs, harnessName: string = 'Adapter'): string {
   if (!asset || typeof asset.source !== 'string') throw new Error(`${harnessName} asset requires a source path`);
   const repoRoot = context.repoRoot ? path.resolve(context.repoRoot) : process.cwd();
   const source = path.resolve(repoRoot, asset.source);
@@ -481,14 +483,14 @@ function sourceDirFor(asset, context = {}, fsImpl = fs, harnessName = 'Adapter')
 }
 
 /** Resolve an asset's native destination directory under the harness's already-resolved config dir. */
-function copyTreeDestDir(configDir, asset) {
+function copyTreeDestDir(configDir: string, asset: any): string {
   return path.join(configDir, asset.nativeDir || '');
 }
 
 /** Destination of a `../.doflow` shared-tree asset at the scope root (`<project>/.doflow`, or
  * `$HOME/.doflow` globally), for harnesses whose tree root sits more than one level under the scope
  * root. Returns null for any other nativeDir, so the caller falls back to `copyTreeDestDir`. */
-function sharedTreeDestDir(rootDir, nativeDir) {
+function sharedTreeDestDir(rootDir: string, nativeDir: any): string | null {
   if (nativeDir !== '../.doflow' && !String(nativeDir || '').startsWith('../.doflow/')) return null;
   const sharedRoot = path.join(rootDir, '.doflow');
   const dest = path.join(rootDir, '.doflow', nativeDir.slice('../.doflow'.length));
@@ -510,13 +512,13 @@ const SHARED_TREE_ASSETS = new Set([
 /** For each shared-tree target, the fingerprints other harnesses recorded and which harness
  * recorded each, so an update accepts a runtime or guidance tree a sibling wrote (several harnesses
  * claim one `.doflow` file) while bytes no such row recorded are still refused as a hand edit. */
-function ledgerSiblingFingerprints(resources, harness) {
-  const byTarget = new Map();
+function ledgerSiblingFingerprints(resources: any, harness: string): Map<string, Map<string, string>> {
+  const byTarget = new Map<string, Map<string, string>>();
   for (const resource of resources || []) {
     if (resource.kind !== 'copy-tree-file' || resource.harness === harness || !SHARED_TREE_ASSETS.has(resource.assetId)) continue;
     if (typeof resource.target !== 'string' || typeof resource.fingerprint !== 'string') continue;
     if (!byTarget.has(resource.target)) byTarget.set(resource.target, new Map());
-    const byFingerprint = byTarget.get(resource.target);
+    const byFingerprint = byTarget.get(resource.target)!;
     if (!byFingerprint.has(resource.fingerprint)) byFingerprint.set(resource.fingerprint, resource.harness);
   }
   return byTarget;
@@ -524,17 +526,17 @@ function ledgerSiblingFingerprints(resources, harness) {
 
 /** The one-line plan notice for a plan whose copy-tree results replaced sibling-written files, or
  * an empty list when none did. */
-function siblingReplacedNotices(results) {
+function siblingReplacedNotices(results: any[]): string[] {
   const harnesses = [...new Set(results.flatMap((result) => result.siblingReplaced))].sort();
   if (!harnesses.length) return [];
   return [`replaced shared files written by ${harnesses.join(', ')}; reinstall ${harnesses.length > 1 ? 'those harnesses' : 'that harness'} to restore them`];
 }
 
 /** Narrow a harness's flat neutral-resource list to one asset's previously-owned copy-tree files. */
-function ledgerFileResources(resources, harness, assetId) {
+function ledgerFileResources(resources: any, harness: string, assetId: string): any[] {
   return (resources || [])
-    .filter((resource) => resource.harness === harness && resource.assetId === assetId && resource.kind === 'copy-tree-file')
-    .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
+    .filter((resource: any) => resource.harness === harness && resource.assetId === assetId && resource.kind === 'copy-tree-file')
+    .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
 module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

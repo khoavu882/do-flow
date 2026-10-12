@@ -10,7 +10,7 @@
 // this adapter deliberately leaves settings.json untouched.
 //
 // MCP servers are merged per server into Pi's mcp.json (.pi/mcp.json project; ~/.pi/agent/mcp.json
-// or $PI_CODING_AGENT_DIR/mcp.json user) by ./mcp.js; Pi reads it through its built-in MCP from
+// or $PI_CODING_AGENT_DIR/mcp.json user) by ./mcp.ts; Pi reads it through its built-in MCP from
 // 0.99.0. Hooks are absent — Pi lifecycle handlers are TypeScript modules registered via pi.on(),
 // executing with full system permissions, which is a different trust model from the shell scripts
 // DoFlow ships.
@@ -22,9 +22,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
-const { mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp');
+const { mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp.ts');
 
 const HARNESS = 'pi';
 const AGENT_DIR_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';

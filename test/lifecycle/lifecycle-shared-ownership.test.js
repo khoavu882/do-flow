@@ -23,7 +23,7 @@ const { spawnSync } = require('node:child_process');
 const { createAdapterRegistry } = require('../../src/adapters');
 const { defaultLedger } = require('../../src/state/index.ts');
 const { planLifecycle, applyLifecycle, removeLifecycle, markRetainedRemovals, retentionSummary } = require('../../src/lifecycle');
-const { planTree, applyTree, removeTree, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../../src/adapters/copy-tree');
+const { planTree, applyTree, removeTree, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../../src/adapters/copy-tree.ts');
 const { interpreterSpawn, withinPath, msysArgConvGuards } = require('../helper-platform');
 const { tempDir } = require('../helper/tmp');
 

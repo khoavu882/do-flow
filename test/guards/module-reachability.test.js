@@ -40,7 +40,7 @@ const EXCLUDED_CONSUMER_DIRS = ['bench/runs', 'bench/reports'].map((d) => path.j
 
 /**
  * Surfaces that name a module by path instead of require()-ing it: package.json's npm scripts
- * (`node src/release/sync-plugin-versions.js`) and the shipped shell helpers (render-puml.sh sets
+ * (`node src/release/sync-plugin-versions.ts`) and the shipped shell helpers (render-puml.sh sets
  * PROJECTOR to src/runtime/c4-project.ts). A substring match, so a module merely *mentioned* in a
  * script comment also counts — the same weakness the require scan has, and preferable to an
  * allowlist, which goes on vouching for a module after its caller is deleted. Add a surface here
@@ -52,7 +52,7 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
  * An entry here documents why the named module is deliberately unreferenced — e.g. an entry point
  * invoked only via `node <path>` or `require.resolve` rather than a static `require('...')` a text
  * scan can see. Empty: the three modules no bin/ or src/ file requires are recognised by
- * PATH_CALLER_SURFACES (sync-plugin-versions.js via the `version` npm script, c4-project.ts via
+ * PATH_CALLER_SURFACES (sync-plugin-versions.ts via the `version` npm script, c4-project.ts via
  * render-puml.sh) and CONSUMER_ROOTS (worktree.js via bench/runner.js), both of which stop
  * vouching for a module the moment its caller goes — which an allowlist entry would not.
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
@@ -251,7 +251,7 @@ test('G16: every ALLOWLIST entry names a module that actually exists', () => {
 // stripper cannot help) — whatever `.js` remains is simply the ceiling the next change may not raise.
 // Converting one `.js` to `.ts` lowers the ceiling here in the same commit; adding a new `.js`
 // instead of a `.ts` raises it and fails. Lower JS_CEILING to match after each conversion.
-const JS_CEILING = 74;
+const JS_CEILING = 57;
 
 function jsOnlyUnder(root) {
   return jsFilesUnder(root).filter((f) => f.endsWith('.js'));

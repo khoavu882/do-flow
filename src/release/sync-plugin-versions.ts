@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // ── One release version, projected into every distribution manifest ─────────────────────────────
 //
 // package.json is the single source of the release version. The three plugin manifests (Codex,
@@ -29,14 +31,14 @@ const PLUGIN_MANIFESTS = [
  * @param {Object} [options.fsImpl]
  * @returns {{version: string, updated: Array<string>, unchanged: Array<string>}}
  */
-function syncPluginVersions({ repoRoot = REPO_ROOT, fsImpl = fs } = {}) {
+function syncPluginVersions({ repoRoot = REPO_ROOT, fsImpl = fs }: { repoRoot?: string, fsImpl?: any } = {}): { version: string, updated: string[], unchanged: string[] } {
   const pkg = JSON.parse(fsImpl.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   if (typeof pkg.version !== 'string' || pkg.version.trim() === '') {
     throw new Error('package.json declares no version to project');
   }
 
-  const updated = [];
-  const unchanged = [];
+  const updated: string[] = [];
+  const unchanged: string[] = [];
   for (const rel of PLUGIN_MANIFESTS) {
     const file = path.join(repoRoot, rel);
     const text = fsImpl.readFileSync(file, 'utf8');

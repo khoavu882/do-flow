@@ -16,6 +16,9 @@ const DOFLOW_RUN = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin',
 const SCRATCH = suiteTempDir('doflow-register-followups-e2e-');
 const HOME = path.join(SCRATCH, 'home');
 fs.mkdirSync(HOME, { recursive: true });
+// TMPDIR is SCRATCH, and the CLI's compile cache (bin/doflow.js, 073 D5) defaults to <TMPDIR>/node-compile-cache.
+// Keep it in a sibling temp dir so SCRATCH listings ("nothing written beside the repo") stay exact; the cache stays on.
+const COMPILE_CACHE = suiteTempDir('doflow-register-followups-cc-');
 
 const SKIP = IS_WIN ? 'doflow-run is a bash script' : false;
 let repoCounter = 0;
@@ -23,7 +26,7 @@ let repoCounter = 0;
 /** A minimal, explicit environment: no inherited DOFLOW_CLI, GIT_* or provider keys. */
 function baseEnv() {
   return {
-    PATH: process.env.PATH, HOME, USERPROFILE: HOME, TMPDIR: SCRATCH,
+    PATH: process.env.PATH, HOME, USERPROFILE: HOME, TMPDIR: SCRATCH, NODE_COMPILE_CACHE: COMPILE_CACHE,
     GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com',
     GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com',
     GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',

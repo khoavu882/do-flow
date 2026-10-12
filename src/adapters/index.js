@@ -2,7 +2,7 @@
 
 // Harness adapters own native formats and paths. This module intentionally only
 // validates and resolves that boundary; it never reads or writes harness files.
-const { resolveRegistrySource } = require('./resolve-source');
+const { resolveRegistrySource } = require('./resolve-source.ts');
 
 const ADAPTER_METHODS = Object.freeze(['discover', 'render', 'plan', 'apply', 'remove', 'verify']);
 
@@ -11,7 +11,7 @@ const ADAPTER_METHODS = Object.freeze(['discover', 'render', 'plan', 'apply', 'r
  * the boundary); this module only dispatches by adapter name. An adapter gaining a
  * nativeProjection declaration registers its normalizer here. */
 const NATIVE_PROJECTION_NORMALIZERS = Object.freeze({
-  codex: () => require('./codex/native-projection').normalizeNativeProjection,
+  codex: () => require('./codex/native-projection.ts').normalizeNativeProjection,
 });
 
 /** Dispatch a harness's nativeProjection declaration to its adapter's own normalizer. */

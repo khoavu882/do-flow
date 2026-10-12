@@ -10,7 +10,7 @@ const crypto = require('node:crypto');
 const { suiteTempDir } = require('../helper/tmp');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state/index.ts');
-const { defaultLock, writeLock, lockPath } = require('../../src/state/lockfile');
+const { defaultLock, writeLock, lockPath } = require('../../src/state/lockfile.ts');
 const { LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
 const { readScopes } = require('../../src/runtime/inventory/read-scopes.ts');
 const { buildInventoryReport } = require('../../src/runtime/inventory/index.ts');
@@ -325,7 +325,7 @@ test('a scope with no lock reads without error, resolves no selection, and creat
 
 // ------------------------------------------------------------------- the codex MCP fixture
 
-/** `src/adapters/codex/config.js` fingerprints a managed block as sha256 of its JSON encoding. The
+/** `src/adapters/codex/config.ts` fingerprints a managed block as sha256 of its JSON encoding. The
  * removal branch of `planCodexMcp` compares the recorded fingerprint with the block on disk, so the
  * fixture has to record the same form an install would. */
 function mcpFingerprint(block) {
