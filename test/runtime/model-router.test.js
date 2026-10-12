@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { resolveModelRole, resolveRetrievalSlot, availableProviderIds, BACKEND_CLI } = require('../../src/runtime/model-router');
+const { resolveModelRole, resolveRetrievalSlot, availableProviderIds, BACKEND_CLI } = require('../../src/runtime/model-router.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const path = require('node:path');
 

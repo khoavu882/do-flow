@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Model role router. DoFlow binds no model for the harness's own work; the runtime calls a
 // configured local decision model only for advisory picks. This resolves an abstract role from
 // core/registry/models.json into availability-annotated provider candidates that skills,
@@ -15,9 +17,9 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 /** The machine-level command each provider's backend answers to. A provider without a local CLI
  * (hosted-only access through another harness) reports backendCli null and is never "available". */
-const BACKEND_CLI = Object.freeze({ claude: 'claude', codex: 'codex', copilot: 'copilot', ollama: 'ollama' });
+const BACKEND_CLI: Readonly<Record<string, string>> = Object.freeze({ claude: 'claude', codex: 'codex', copilot: 'copilot', ollama: 'ollama' });
 
-function whichLike(command, { fsImpl = fs, pathEnv = process.env.PATH } = {}) {
+function whichLike(command: string | undefined, { fsImpl = fs, pathEnv = process.env.PATH }: { fsImpl?: any; pathEnv?: string } = {}): boolean {
   if (!command) return false;
   for (const dir of String(pathEnv ?? '').split(path.delimiter)) {
     if (!dir) continue;
@@ -31,7 +33,7 @@ function whichLike(command, { fsImpl = fs, pathEnv = process.env.PATH } = {}) {
 }
 
 /** Providers whose backend CLI resolves on PATH. Injectable in tests; never guessed otherwise. */
-function availableProviderIds({ fsImpl = fs } = {}) {
+function availableProviderIds({ fsImpl = fs }: { fsImpl?: any } = {}): string[] {
   return Object.entries(BACKEND_CLI)
     .filter(([, cli]) => whichLike(cli, { fsImpl }))
     .map(([id]) => id);
@@ -44,13 +46,13 @@ function availableProviderIds({ fsImpl = fs } = {}) {
  * review with require:different-family) and is reported back rather than hidden.
  * Availability unknown stays null — absence of evidence is not reported as absent.
  */
-function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] } = {}) {
-  const role = (registry.modelRoles || []).find((entry) => entry.id === roleId);
+function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] }: any = {}): any {
+  const role = (registry.modelRoles || []).find((entry: any) => entry.id === roleId);
   if (!role) {
-    throw new Error(`Unknown model role '${roleId}'; valid: ${(registry.modelRoles || []).map((r) => r.id).join(', ')}`);
+    throw new Error(`Unknown model role '${roleId}'; valid: ${(registry.modelRoles || []).map((r: any) => r.id).join(', ')}`);
   }
   const excluded = new Set(exclude);
-  const candidates = [];
+  const candidates: any[] = [];
   for (const [index, provider] of (registry.modelProviders || []).entries()) {
     if (excluded.has(provider.id)) continue;
     const tiers = provider.tiers ?? [];
@@ -65,13 +67,13 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] }
       _index: index,
     });
   }
-  const rank = (candidate) => [
+  const rank = (candidate: any): number[] => [
     candidate.available === true ? 0 : candidate.available === false ? 1 : 2,
     candidate.servesPreferredTier ? 0 : 1,
     candidate.servesFallbackTier ? 0 : 1,
     candidate._index,
   ];
-  candidates.sort((a, b) => {
+  candidates.sort((a: any, b: any) => {
     const ra = rank(a); const rb = rank(b);
     for (let i = 0; i < ra.length; i += 1) if (ra[i] !== rb[i]) return ra[i] - rb[i];
     return 0;
@@ -96,10 +98,10 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] }
  * lexical rather than guess. Unknown slot ids also resolve to `{active:false}` rather than
  * throwing: absence of a slot is every install's normal state, unlike an unknown role.
  */
-function resolveRetrievalSlot({ registry, slotId, isAvailable = null } = {}) {
-  const slot = (registry.retrievalSlots || []).find((entry) => entry.id === slotId);
+function resolveRetrievalSlot({ registry, slotId, isAvailable = null }: any = {}): any {
+  const slot = (registry.retrievalSlots || []).find((entry: any) => entry.id === slotId);
   if (!slot || !slot.enabled) return { slotId, active: false, reason: slot ? 'disabled' : 'undeclared' };
-  const provider = (registry.modelProviders || []).find((entry) => entry.id === slot.provider);
+  const provider = (registry.modelProviders || []).find((entry: any) => entry.id === slot.provider);
   if (!provider) return { slotId, active: false, reason: 'provider-missing' };
   return {
     slotId,
@@ -116,11 +118,11 @@ function resolveRetrievalSlot({ registry, slotId, isAvailable = null } = {}) {
 
 /** CLI handler for `doflow model-role`. Read-only advisory routing; exits 1 on an unknown role
  * because a silently-empty candidate list would read as "no providers" rather than "bad input". */
-function handleModelRoleCommand({ role, exclude, json = false, repoRoot } = {}) {
+function handleModelRoleCommand({ role, exclude, json = false, repoRoot }: any = {}): number | undefined {
   if (!role) return usageError('model-role', '--role is required (one of the roles in core/registry/models.json)', json);
   const registry = (() => {
     try { return loadRegistry({ repoRoot: repoRoot || REPO_ROOT }); }
-    catch (error) { captureCaught(error, 'model-role', 1); console.error(`[ERROR] model-role: ${error.message}`); return finishRuntime(1); }
+    catch (error: any) { captureCaught(error, 'model-role', 1); console.error(`[ERROR] model-role: ${error.message}`); return finishRuntime(1); }
   })();
   if (!registry) return undefined;
   const available = new Set(availableProviderIds());
@@ -128,8 +130,8 @@ function handleModelRoleCommand({ role, exclude, json = false, repoRoot } = {}) 
     const resolution = resolveModelRole({
       registry,
       roleId: role,
-      isAvailable: (providerId) => available.has(providerId),
-      exclude: Array.isArray(exclude) ? exclude : String(exclude ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+      isAvailable: (providerId: string) => available.has(providerId),
+      exclude: Array.isArray(exclude) ? exclude : String(exclude ?? '').split(',').map((s: string) => s.trim()).filter(Boolean),
     });
     if (json) console.log(JSON.stringify(resolution, null, 2));
     else {
@@ -141,7 +143,7 @@ function handleModelRoleCommand({ role, exclude, json = false, repoRoot } = {}) 
       if (resolution.excluded.length) console.log(`Excluded: ${resolution.excluded.join(', ')}`);
     }
     return finishRuntime(0);
-  } catch (error) {
+  } catch (error: any) {
     captureCaught(error, 'model-role', 1);
     console.error(`[ERROR] model-role: ${error.message}`);
     return finishRuntime(1);
