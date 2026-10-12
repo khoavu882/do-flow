@@ -209,6 +209,51 @@ test('rollback restores exactly the backup and snapshots only those files', () =
   assert.strictEqual(fs.readFileSync(path.join(backupRoot(scratch), snapshotId, ...stored.stored.split('/')), 'utf8'), 'later-0\n');
 });
 
+const readLedger = (scratch) => JSON.parse(fs.readFileSync(path.join(scratch.home, '.doflow', 'state', 'ledger.json'), 'utf8'));
+const rowsAt = (ledger, file) => ledger.resources.filter((r) => r.target === file);
+
+test('rollback to an older backup keeps the ledger rows of a later install: remove then clears that harness (073 B1)', () => {
+  const scratch = newScratch();
+  install(scratch, 'claude');
+  const before = readLedger(scratch);
+  const { files, id } = updatedScenario(scratch, 1);
+  install(scratch, 'codex');
+  const codexRows = readLedger(scratch).resources.filter((r) => r.harness === 'codex');
+  assert.ok(codexRows.length > 0, 'the codex install records rows');
+
+  const r = run(scratch, ['rollback', id, '-g', '--force']);
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  const after = readLedger(scratch);
+  assert.deepStrictEqual(after.resources.filter((x) => x.harness === 'codex'), codexRows, 'the rows of the later codex install survive the rollback');
+  assert.deepStrictEqual(rowsAt(after, files[0]), rowsAt(before, files[0]), 'the restored file gets back the rows it had when the backup was taken');
+
+  const removed = run(scratch, ['remove', '-g', '--force', '-t', 'codex']);
+  assert.strictEqual(removed.status, 0, removed.stderr + removed.stdout);
+  const left = Object.keys(hashTree(path.join(scratch.home, '.codex')));
+  assert.deepStrictEqual(left, [], 'remove -t codex leaves no codex file behind');
+});
+
+test('rollback keeps the ledger row of an MCP entry the rolled-back update added: remove then deletes the entry (073 B2)', () => {
+  const scratch = newScratch();
+  install(scratch, 'claude');
+  // A file the update recreates, so it takes a backup (an MCP-only change backs up nothing).
+  fs.rmSync(ownedFiles(scratch, '.claude', 1)[0]);
+  const update = run(scratch, ['update', '-g', '--force', '--mcp', 'context7', '-t', 'claude']);
+  assert.strictEqual(update.status, 0, update.stderr);
+  const claudeJson = path.join(scratch.home, '.claude.json');
+  const mcpNames = () => Object.keys(JSON.parse(fs.readFileSync(claudeJson, 'utf8')).mcpServers ?? {});
+  assert.deepStrictEqual(mcpNames(), ['context7'], 'the update adds the context7 entry');
+
+  const r = run(scratch, ['rollback', createdId(update), '-g', '--force']);
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  assert.deepStrictEqual(mcpNames(), ['context7'], 'a file holding only MCP entries is not in a backup, so the entry stays');
+  assert.ok(readLedger(scratch).resources.some((x) => x.kind === 'mcp-server' && x.harness === 'claude'), 'the entry the rollback leaves keeps its ledger row');
+
+  const removed = run(scratch, ['remove', '-g', '--force', '-t', 'claude']);
+  assert.strictEqual(removed.status, 0, removed.stderr + removed.stdout);
+  assert.ok(!fs.existsSync(claudeJson) || !mcpNames().includes('context7'), 'remove deletes the entry DoFlow wrote');
+});
+
 test('rollback names what it leaves in place and exits 0', () => {
   const scratch = newScratch();
   install(scratch, 'claude');

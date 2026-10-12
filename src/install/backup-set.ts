@@ -88,8 +88,9 @@ function addCandidate(candidates: Map<string, any>, file: string, harness: strin
  * `exclude` lists DoFlow's own paths (the backup root, the state root, the install manifest, the
  * lock); an entry at or under one of them is reported in `excluded`, not backed up.
  * `records` lists DoFlow record files backed up beside those files although an `exclude` root holds
- * them (the ownership ledger), with no harness, so a rollback narrowed by --target leaves them. They
- * join only a set that holds some file already, so a run that backs up nothing still backs up nothing.
+ * them (the ownership ledger), with no harness; a rollback restores only the ledger rows of the files
+ * it writes back (backup.ts mergeRestoredLedger). They join only a set that holds some file already,
+ * so a run that backs up nothing still backs up nothing.
  */
 function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], records = [], fsImpl = fs }: any): any {
   const candidates = new Map();

@@ -333,7 +333,7 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.equal(fs.readFileSync(path.join(runtime, userFile), 'utf8'), 'mine\n');
   });
 
-  // 073 T5: a rollback restores the ownership ledger with the files, so the install it leaves can be
+  // 073 T5: a rollback restores the ledger rows of the files it restores, so the install it leaves can be
   // updated and removed again. Before, the ledger kept the update's rows while the files went back,
   // and the next update and remove both refused dozens of files as modified outside DoFlow.
   const ROLLBACK_TAG = 'v1.24.1';
@@ -352,7 +352,7 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     const retired = filesUnder(mirror).filter((rel) => !fs.existsSync(path.join(REPO, 'src', rel)));
     assert.ok(retired.length > 0, `the ${ROLLBACK_TAG} runtime ships nothing this checkout dropped; the cell proves nothing`);
     const before = new Map(retired.map((rel) => [rel, fs.readFileSync(path.join(mirror, rel))]));
-    const ledgerBefore = fs.readFileSync(ledgerFile);
+    const ledgerBefore = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
 
     const cli = (args, cwd = cell.dir) => spawn(cell, process.execPath, [CLI, ...args], cwd, 'y\n');
     const ok = (r, what) => {
@@ -367,7 +367,13 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
 
     ok(await cli(['rollback', bid, '-f'], cell.proj), 'rollback');
     for (const [rel, bytes] of before) assert.ok(fs.readFileSync(path.join(mirror, rel)).equals(bytes), `${rel} is not restored byte-identical`);
-    assert.ok(fs.readFileSync(ledgerFile).equals(ledgerBefore), 'the rollback restores the ledger the files belong to');
+    // The rows of the files it restores come back as they were; rows of files it left in place stay (073 B1).
+    const rowsAt = (ledger, file) => JSON.stringify(ledger.resources.filter((r) => r.target === file));
+    const ledgerAfter = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
+    for (const rel of retired) {
+      const file = path.join(mirror, rel);
+      assert.equal(rowsAt(ledgerAfter, file), rowsAt(ledgerBefore, file), `the rows of ${rel} are not restored`);
+    }
 
     ok(await cli(['update', 'proj']), 'update after rollback');
     ok(await cli(['update', 'proj', '-t', 'pi']), 'update -t pi after rollback');

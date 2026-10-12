@@ -2,7 +2,8 @@
 // `doflow rollback` — restore from a backup (interactive pick when the id is omitted). Works out the
 // whole restore first, then snapshots exactly the files it will overwrite (regardless of
 // --no-backup), then restores. A per-file backup restores every file it holds unless --target
-// narrows it; a backup from an earlier DoFlow restores per tool, as it always did.
+// narrows it, and the ledger rows of exactly the files it restores; a backup from an earlier DoFlow
+// restores per tool, as it always did.
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
@@ -51,7 +52,9 @@ function cmdRollback(o: any): void {
     // Worked out before anything is written. Reads only, so a bad id fails here, before the prompt.
     let plan: any;
     try {
-      plan = planRestore({ bid, backupRoot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot, targets, explicitTargets, dirs });
+      const neutralStateRoot = stateRoot({ scope: scopeName, projectRoot: lifecyclePaths.scopeRoot, homeDir: lifecyclePaths.scopeRoot });
+      plan = planRestore({ bid, backupRoot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot, targets, explicitTargets, dirs,
+        ledgerFile: ledgerPath(neutralStateRoot) });
     } catch (error) {
       fail(error);
     }
@@ -148,8 +151,8 @@ function snapshotBeforeRestore({ o, plan, bid, backupRoot, lifecyclePaths, scope
     const set = backupSetFromPaths({
       items: plan.snapshot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot,
       exclude: [backupRoot, neutralStateRoot, lifecyclePaths.manifestPath, path.join(lifecyclePaths.doflowRoot, 'doflow.lock')],
-      // A backup restores the ledger with its files (backup-set.ts), so the snapshot of what the
-      // restore overwrites holds the current ledger too.
+      // A backup restores the ledger rows of its files (backup.ts mergeRestoredLedger), so the
+      // snapshot of what the restore overwrites holds the current ledger too.
       records: [ledgerPath(neutralStateRoot)],
     });
     snapshot = createFileBackup({ operation: 'pre-rollback', set, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit,

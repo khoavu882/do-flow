@@ -24,6 +24,7 @@ const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');
 const {
   legacyBackupReadRoot, isLegacyBackupReadRoot, scopeRootFromCanonicalBackupRoot,
 } = require('./paths.ts');
+const { validateLedger } = require('../state/index.ts');
 
 /** Where a listed/restorable backup was found. 'current' = the canonical `.doflow/backups` root the
  * installer writes to; 'legacy' = the pre-7de6d5f `.claude/backups` root, readable only. Callers
@@ -450,7 +451,7 @@ function refusalOf(entry: any, target: string, { scope, scopeRoot, bkDir, fsImpl
  * tool through restoreBackup; its snapshot lists the files that restore will overwrite.
  * Reads only.
  */
-function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTargets, dirs, fsImpl = fs, listTar = defaultListTar }: any): any {
+function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTargets, dirs, ledgerFile = null, fsImpl = fs, listTar = defaultListTar }: any): any {
   assertSafeBackupId(bid);
   const found = backupReadRoots(backupRoot).find((r) => fsImpl.existsSync(path.join(r.root, bid)));
   if (!found) throw new Error(`Backup not found: ${bid}`);
@@ -476,9 +477,14 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
   const wanted = new Set(targets);
 
   if (plan.format === 2) {
+    const ledger = typeof ledgerFile === 'string' ? path.resolve(ledgerFile) : null;
     for (const entry of Array.isArray(manifest.files) ? manifest.files : []) {
       const harnesses = Array.isArray(entry.harnesses) ? entry.harnesses : [];
-      if (explicitTargets && !harnesses.some((h: string) => wanted.has(h))) {
+      // The ownership ledger restores per row (executeRestore), only the rows of files this restore
+      // writes, so --target narrows it with the files and never skips it.
+      const isLedger = ledger !== null && entry.outside !== true && typeof entry.path === 'string' && entry.path !== ''
+        && path.resolve(scopeRoot, entry.path) === ledger;
+      if (!isLedger && explicitTargets && !harnesses.some((h: string) => wanted.has(h))) {
         plan.untargeted += 1;
         continue;
       }
@@ -497,7 +503,7 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
         plan.refused.push({ path: reason === 'unsafe path' ? entry.path : target, reason });
         continue;
       }
-      plan.restore.push({ path: target, stored: path.resolve(bkDir, entry.stored), mode: entry.mode, size: entry.size, harnesses });
+      plan.restore.push({ path: target, stored: path.resolve(bkDir, entry.stored), mode: entry.mode, size: entry.size, harnesses, ...(isLedger ? { ledger: true } : {}) });
     }
     plan.snapshot = plan.restore.map((item: any) => ({ path: item.path, harnesses: item.harnesses }));
     return plan;
@@ -524,10 +530,38 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
 }
 
 /**
+ * The ownership ledger a restore leaves: the backup's rows and tombstones for the files the restore
+ * wrote back, and the current ledger for everything else. Rows a later run wrote, rows of harnesses
+ * the backup does not hold and rows of MCP entries (a file holding only MCP entries is never backed
+ * up) stay as they are; restoring the whole old ledger would make DoFlow forget files and entries it
+ * still has on disk. With no current ledger the backup's is taken whole.
+ */
+function mergeRestoredLedger(backup: any, current: any, restored: Set<string>): any {
+  if (!current) return backup;
+  const at = (target: any) => typeof target === 'string' && restored.has(path.resolve(target));
+  return {
+    ...current,
+    resources: [...current.resources.filter((r: any) => !at(r.target)), ...backup.resources.filter((r: any) => at(r.target))],
+    tombstones: [
+      ...(current.tombstones ?? []).filter((t: any) => !at(t.fromTarget)),
+      ...(backup.tombstones ?? []).filter((t: any) => at(t.fromTarget)),
+    ],
+  };
+}
+
+/** The bytes a ledger restore item writes: the backup's ledger merged onto the current one. */
+function restoredLedgerBytes(item: any, restored: Set<string>, fsImpl: any): Buffer {
+  const backup = validateLedger(JSON.parse(fsImpl.readFileSync(item.stored, 'utf8')));
+  const current = fsImpl.existsSync(item.path) ? validateLedger(JSON.parse(fsImpl.readFileSync(item.path, 'utf8'))) : null;
+  return Buffer.from(`${JSON.stringify(validateLedger(mergeRestoredLedger(backup, current, restored)), null, 2)}\n`);
+}
+
+/**
  * Carry out a plan from planRestore. Format 2 writes each restore item through a temp file renamed
  * over the target (or straight through a symlinked target, which stays a link); a failed item is
- * reported and the rest continue. It never deletes a file and never writes outside `plan.restore`.
- * A 1.19 plan goes through restoreBackup unchanged.
+ * reported and the rest continue. The ownership ledger goes last and restores only the rows of the
+ * files written back before it (mergeRestoredLedger). It never deletes a file and never writes
+ * outside `plan.restore`. A 1.19 plan goes through restoreBackup unchanged.
  */
 function executeRestore(plan: any, { backupRoot, dryRun = false, fsImpl = fs }: any): any {
   if (plan.format !== 2) {
@@ -538,7 +572,9 @@ function executeRestore(plan: any, { backupRoot, dryRun = false, fsImpl = fs }: 
 
   const restored = [];
   const failed = [];
-  for (const item of plan.restore) {
+  const files = new Set<string>();
+  const items = [...plan.restore.filter((item: any) => !item.ledger), ...plan.restore.filter((item: any) => item.ledger)];
+  for (const item of items) {
     if (dryRun) {
       restored.push(item.path);
       continue;
@@ -547,7 +583,7 @@ function executeRestore(plan: any, { backupRoot, dryRun = false, fsImpl = fs }: 
     try {
       const dir = path.dirname(item.path);
       fsImpl.mkdirSync(dir, { recursive: true });
-      const bytes = fsImpl.readFileSync(item.stored);
+      const bytes = item.ledger ? restoredLedgerBytes(item, files, fsImpl) : fsImpl.readFileSync(item.stored);
       let isLink = false;
       try {
         isLink = fsImpl.lstatSync(item.path).isSymbolicLink();
@@ -564,6 +600,7 @@ function executeRestore(plan: any, { backupRoot, dryRun = false, fsImpl = fs }: 
         temp = null;
       }
       restored.push(item.path);
+      if (!item.ledger) files.add(path.resolve(item.path));
     } catch (err) {
       if (temp) {
         try { fsImpl.rmSync(temp, { force: true }); } catch { /* best effort */ }
@@ -683,5 +720,5 @@ module.exports = {
   backupId, restoreBackup, listBackups, assertSafeBackupId, scopeRelative, retentionNote,
   backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
   BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, sweepStaleTemps, classifyBackupDir,
-  sortKey, backupSize, formatBytes, planRestore, executeRestore, applyRetention,
+  sortKey, backupSize, formatBytes, planRestore, executeRestore, mergeRestoredLedger, applyRetention,
 };
