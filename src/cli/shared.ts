@@ -23,7 +23,7 @@ const codexAdapter = require('../adapters/codex');
 const { createGeminiAdapter } = require('../adapters/gemini');
 const { createOpenCodeAdapter } = require('../adapters/opencode/index.ts');
 const { createPiAdapter } = require('../adapters/pi/index.ts');
-const { createCopilotAdapter } = require('../adapters/copilot');
+const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
 const { createKiroAdapter } = require('../adapters/kiro/index.ts');
 const { createAntigravityAdapter } = require('../adapters/antigravity');
 

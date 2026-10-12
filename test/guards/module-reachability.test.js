@@ -251,7 +251,7 @@ test('G16: every ALLOWLIST entry names a module that actually exists', () => {
 // stripper cannot help) — whatever `.js` remains is simply the ceiling the next change may not raise.
 // Converting one `.js` to `.ts` lowers the ceiling here in the same commit; adding a new `.js`
 // instead of a `.ts` raises it and fails. Lower JS_CEILING to match after each conversion.
-const JS_CEILING = 74;
+const JS_CEILING = 73;
 
 function jsOnlyUnder(root) {
   return jsFilesUnder(root).filter((f) => f.endsWith('.js'));

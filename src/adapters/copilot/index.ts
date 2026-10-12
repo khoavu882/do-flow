@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // GitHub Copilot CLI adapter.
 //
 // Copilot has no single native root the way Claude's `.claude` is one — instructions, skills,
@@ -57,13 +59,13 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   // Parity note: Copilot's historical nativePaths() derived even its user-scope root from scopeRoot
   // (the CLI passes $HOME there for -g installs), never from a separate homeDir argument — so the
   // resolver is fed no homeDir and "root" keeps resolving exactly as before.
-  function nativePaths({ scope, scopeRoot } = {}) {
+  function nativePaths({ scope, scopeRoot }: any = {}) {
     return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
   }
 
   /** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,
    * and reports the servers DoFlow owns in Copilot's MCP config now (`mcpOwned`). */
-  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, fsImpl = fs }) {
+  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const instruction = paths.instruction && fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
     const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
@@ -74,7 +76,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     return { paths, instruction, mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured };
   }
 
-  function render({ content = '' } = {}) {
+  function render({ content = '' }: any = {}) {
     return `${MARKER_START}\n${String(content).trimEnd()}\n${MARKER_END}\n`;
   }
 
@@ -83,7 +85,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
    * their own shared instruction files, and for the same reason: where DoFlow's content belongs in a
    * file it doesn't fully own is a decision for the file's owner, not a guess for the installer. Add
    * an empty marker pair to opt in. */
-  function managedInstruction(existing, rendered) {
+  function managedInstruction(existing: any, rendered: any) {
     if (existing === null) return { ok: true, operation: 'create', content: rendered };
     const start = existing.indexOf(MARKER_START);
     const end = existing.indexOf(MARKER_END);
@@ -95,7 +97,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
 
   /** Strip DoFlow's span, leaving the rest of a shared copilot-instructions.md intact. Returns null
    * when there is nothing to do, so plan() can skip the change entirely. */
-  function strippedInstruction(existing) {
+  function strippedInstruction(existing: any) {
     if (typeof existing !== 'string') return null;
     const start = existing.indexOf(MARKER_START);
     const end = existing.indexOf(MARKER_END);
@@ -108,11 +110,11 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   /** Plan the single instructions change (or none). Global scope always yields no change and no
    * conflict — Copilot documents no global instructions file, so there is nothing to skip *to*,
    * mirroring how other adapters skip a capability with no native equivalent for a given scope. */
-  function planInstructionsChange({ assets, found, context, removing, fsImpl }) {
+  function planInstructionsChange({ assets, found, context, removing, fsImpl }: any) {
     if (!found.paths.instruction) return { changes: [], conflicts: [] };
     // The marker-managed instruction file is one specific asset: exclude tree-projected rule
     // assets (copilot-rule-instructions), whose `source` is a directory, not a file.
-    const guidance = assets.find((asset) => asset.capability === 'instructions' && asset.renderer !== 'copilot-rule-instructions');
+    const guidance = assets.find((asset: any) => asset.capability === 'instructions' && asset.renderer !== 'copilot-rule-instructions');
     if (!guidance) return { changes: [], conflicts: [] };
     const outcome = removing
       ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
@@ -143,13 +145,13 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
    * one adapter's asset, not a shape another harness also needs. Format logic, not a path fact —
    * it stays code rather than moving into the registry's path declarations.
    */
-  function agentFileLayout(sourceRel) {
+  function agentFileLayout(sourceRel: any) {
     const ext = path.extname(sourceRel);
     const base = sourceRel.slice(0, sourceRel.length - ext.length);
     return `${base}.agent${ext || '.md'}`;
   }
 
-  function planTreeAssets({ assets, renderer, destRoot, scopeRoot, layout, context, ledger, removing, fsImpl = fs }) {
+  function planTreeAssets({ assets, renderer, destRoot, scopeRoot, layout, context, ledger, removing, fsImpl = fs }: any) {
     const changes = [];
     const conflicts = [];
     const treeResults = [];
@@ -165,10 +167,10 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
       treeResults.push(result);
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
       // ownership row is released.
-      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(scopeRoot, item.target)}; DoFlow no longer manages it`));
+      notices.push(...result.kept.map((item: any) => `kept hand-edited ${path.relative(scopeRoot, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -184,7 +186,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
-  function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
+  function applyCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
     let applied = 0;
     const grouped = new Map();
     for (const change of changes) {
@@ -199,13 +201,13 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     return applied;
   }
 
-  function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
-      .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
+  function removeCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
+    const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
+      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges, fsImpl }).removed;
   }
 
-  function verifyTreeAssets({ assets, renderer, destRoot, layout, context, fsImpl = fs }) {
+  function verifyTreeAssets({ assets, renderer, destRoot, layout, context, fsImpl = fs }: any) {
     const statuses = [];
     const resources = [];
     const conflicts = [];
@@ -213,7 +215,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
       const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout, transform: asset.transform });
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
           assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${resource.relPath}`,
@@ -231,7 +233,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
 
   /** Copilot's own per-server shape. The file may be shared with another tool (Claude Code reads the
    * same project `.mcp.json`), so DoFlow only ever writes the entries it owns. */
-  function buildServerEntry(server) {
+  function buildServerEntry(server: any) {
     return {
       command: server.command,
       ...(server.args?.length ? { args: [...server.args] } : {}),
@@ -239,27 +241,27 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     };
   }
 
-  function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
+  function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
   /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
-  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }) {
-    const rendered = (servers) => servers.map((server) => ({ id: server.id, entry: buildServerEntry(server) }));
-    const rows = (ledger?.resources || []).filter((row) => row.kind === 'mcp-server');
+  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }: any) {
+    const rendered = (servers: any) => servers.map((server: any) => ({ id: server.id, entry: buildServerEntry(server) }));
+    const rows = (ledger?.resources || []).filter((row: any) => row.kind === 'mcp-server');
     return {
       file: paths.mcp, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
-      ownRows: rows.filter((row) => row.harness === HARNESS).map((row) => ({
+      ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
         identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
       })),
-      foreignRows: rows.filter((row) => row.harness !== HARNESS).map((row) => ({ harness: row.harness, identity: row.identity, target: row.target })),
+      foreignRows: rows.filter((row: any) => row.harness !== HARNESS).map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
       identityFor: ownershipIdentity, assetId: pseudoAssetId(assets), renderer: MCP_RENDERER, label: 'Copilot MCP',
     };
   }
 
   /** The release of the 1.18.0 whole-map row, under the asset id it was recorded with so the ledger
    * drops exactly that row. The file is not touched. */
-  function legacyRegistrationReleases(ledger) {
-    return (ledger?.resources || []).filter((row) => row.harness === HARNESS && row.ownershipIdentity === LEGACY_MCP_REGISTRATION)
-      .map((row) => ({ assetId: row.assetId, target: row.target, operation: 'remove', release: true,
+  function legacyRegistrationReleases(ledger: any) {
+    return (ledger?.resources || []).filter((row: any) => row.harness === HARNESS && row.ownershipIdentity === LEGACY_MCP_REGISTRATION)
+      .map((row: any) => ({ assetId: row.assetId, target: row.target, operation: 'remove', release: true,
         ownershipIdentity: row.ownershipIdentity, harness: HARNESS, projection: { renderer: MCP_RENDERER } }));
   }
 
@@ -269,13 +271,13 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
    * src/adapters/gemini/index.js#hooksAssetId and src/adapters/kiro/index.ts#pseudoAssetId use. The
    * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
    * invented id like a literal 'copilot.mcp' string is rejected as unknown. */
-  function pseudoAssetId(assets) {
-    return assets.find((asset) => asset.capability === 'instructions')?.id ?? assets[0]?.id;
+  function pseudoAssetId(assets: any) {
+    return assets.find((asset: any) => asset.capability === 'instructions')?.id ?? assets[0]?.id;
   }
 
   // ---- shared adapter contract ----
 
-  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }) {
+  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
     const found = discovery || discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, fsImpl });
     const changes = [];
     const conflicts = [];
@@ -306,12 +308,12 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices, ...mcpPlan.notices], paths: found.paths };
   }
 
-  function writeChange(change, fsImpl) {
+  function writeChange(change: any, fsImpl: any) {
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
     fsImpl.writeFileSync(change.target, change.content, 'utf8');
   }
 
-  function apply({ changes = [], fsImpl = fs }) {
+  function apply({ changes = [], fsImpl = fs }: any) {
     let applied = 0;
     for (const change of changes) {
       if (change.operation === 'remove') continue;
@@ -327,7 +329,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     return { applied };
   }
 
-  function remove({ changes = [], fsImpl = fs }) {
+  function remove({ changes = [], fsImpl = fs }: any) {
     let removed = 0;
     for (const change of changes) {
       if (change.operation !== 'remove') continue;
@@ -341,7 +343,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     return { removed };
   }
 
-  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }) {
+  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
     const found = discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, fsImpl });
     const statuses = [];
     const resources = [];
@@ -350,7 +352,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     if (found.paths.instruction) {
       // The marker-managed instruction file is one specific asset: exclude tree-projected rule
       // assets (copilot-rule-instructions), whose `source` is a directory, not a file.
-      const guidance = assets.find((asset) => asset.capability === 'instructions' && asset.renderer !== 'copilot-rule-instructions');
+      const guidance = assets.find((asset: any) => asset.capability === 'instructions' && asset.renderer !== 'copilot-rule-instructions');
       const hasSection = typeof found.instruction === 'string' && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
       const assetId = guidance?.id ?? 'guidance.codex-pointer';
       statuses.push({ harness: HARNESS, assetId, capability: 'instructions',
@@ -395,8 +397,8 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     agentFileLayout };
 }
 
-function treeAssetsFor(assets, renderer) {
-  return (assets || []).filter((asset) => asset?.renderer === renderer);
+function treeAssetsFor(assets: any, renderer: any) {
+  return (assets || []).filter((asset: any) => asset?.renderer === renderer);
 }
 
 const singleton = createCopilotAdapter();

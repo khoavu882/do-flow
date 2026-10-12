@@ -333,7 +333,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
           // Tagged 'remove' during a remove operation (rather than always 'update'/'create') so this
           // adapter's own apply()/remove() dispatch — which routes strictly on `operation` — writes
           // the unmerged file during removal instead of silently skipping it (the same fix
-          // src/adapters/copilot/index.js's analogous mcp-merge change already carries).
+          // src/adapters/copilot/index.ts's analogous mcp-merge change already carries).
           operation: removing ? 'remove' : (found.config.exists ? 'update' : 'create'), content: `${JSON.stringify(next, null, 2)}\n`,
           ownershipIdentity: `${HARNESS}:config:registration`, fingerprint: fingerprint(next),
           harness: HARNESS, projection: { renderer: 'opencode-config' } });

@@ -1002,7 +1002,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/copilot/index.js",
+      "file": "src/adapters/copilot/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
