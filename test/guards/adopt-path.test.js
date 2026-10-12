@@ -26,14 +26,14 @@ const { REPO } = require('./_shared');
 
 const ADAPTERS_DIR = path.join(REPO, 'src', 'adapters');
 
-/** Every .js file under src/adapters/, recursively. */
+/** Every .js or .ts file under src/adapters/, recursively (a converted module is still an adapter source). */
 function adapterSources() {
   const out = [];
   (function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) { walk(full); continue; }
-      if (entry.name.endsWith('.js')) out.push(full);
+      if (entry.name.endsWith('.js') || entry.name.endsWith('.ts')) out.push(full);
     }
   }(ADAPTERS_DIR));
   return out;

@@ -198,7 +198,7 @@ function adapterFiles(dir = ADAPTERS, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) adapterFiles(full, out);
-    else if (entry.name.endsWith('.js')) out.push(full);
+    else if (entry.name.endsWith('.js') || entry.name.endsWith('.ts')) out.push(full);
   }
   return out;
 }
@@ -255,7 +255,7 @@ test('G20: every adapter composition site builds an ownership identity from scop
   assert.ok(sites.length >= 70,
     `only ${sites.length} ownership-identity composition sites were parsed in src/adapters/; the `
     + 'scan has stopped seeing most of them and is no longer guarding anything');
-  const contributing = new Set(sites.map((site) => site.rel.split('/')[2]).filter((name) => name.endsWith('.js') === false));
+  const contributing = new Set(sites.map((site) => site.rel.split('/')[2]).filter((name) => !name.endsWith('.js') && !name.endsWith('.ts')));
   const adapterDirs = fs.readdirSync(ADAPTERS, { withFileTypes: true })
     .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
   assert.deepEqual([...contributing].sort(), adapterDirs,

@@ -994,7 +994,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/codex/config.js",
+      "file": "src/adapters/codex/config.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {

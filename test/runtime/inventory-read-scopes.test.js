@@ -325,7 +325,7 @@ test('a scope with no lock reads without error, resolves no selection, and creat
 
 // ------------------------------------------------------------------- the codex MCP fixture
 
-/** `src/adapters/codex/config.js` fingerprints a managed block as sha256 of its JSON encoding. The
+/** `src/adapters/codex/config.ts` fingerprints a managed block as sha256 of its JSON encoding. The
  * removal branch of `planCodexMcp` compares the recorded fingerprint with the block on disk, so the
  * fixture has to record the same form an install would. */
 function mcpFingerprint(block) {

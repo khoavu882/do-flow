@@ -496,7 +496,7 @@ function mcpReport({ mcpSelections }) {
   ledger.resources.push({
     harness: 'codex', scope: 'global', assetId: 'guidance.codex-pointer', kind: 'mcp-server',
     identity: 'context7', target: configFile, ownershipIdentity: 'doflow:codex:mcp-server:context7',
-    // The form src/adapters/codex/config.js records: sha256 of the block's JSON encoding.
+    // The form src/adapters/codex/config.ts records: sha256 of the block's JSON encoding.
     fingerprint: `sha256:${crypto.createHash('sha256').update(JSON.stringify(block)).digest('hex')}`,
     sourceVersion: 'test', selection: true, recoveryRef: null, projection: { renderer: 'codex-mcp' },
   });

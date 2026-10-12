@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { verifyHookCommands } = require('../hook-commands.ts');
 const { mergeHooks } = require('../../helper/settings-merge.ts');
-const { atomicWrite } = require('./config');
+const { atomicWrite } = require('./config.ts');
 
 const SUPPORTED_EVENTS = new Set([
   'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PreCompact', 'PostCompact',

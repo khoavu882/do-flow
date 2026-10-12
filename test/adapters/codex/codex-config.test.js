@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { configPath, fingerprint, planCodexConfig, applyCodexConfig, reconcileCodexConfig } = require('../../../src/adapters/codex/config');
+const { configPath, fingerprint, planCodexConfig, applyCodexConfig, reconcileCodexConfig } = require('../../../src/adapters/codex/config.ts');
 
 function scratch() { return suiteTempDir('doflow-codex-config-'); }
 function resource(value = true) { return { target: 'codex', scope: 'project', kind: 'configuration-entry', identity: 'features.hooks', value, sourceVersion: '2.4.4' }; }

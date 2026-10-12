@@ -22,7 +22,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 
-const { fingerprint, planCodexConfig } = require('../../../src/adapters/codex/config');
+const { fingerprint, planCodexConfig } = require('../../../src/adapters/codex/config.ts');
 const { planCodexAgents, fingerprint: agentFingerprint } = require('../../../src/adapters/codex/agents');
 
 function scratch(prefix) { return suiteTempDir(`doflow-codex-adopt-${prefix}-`); }
