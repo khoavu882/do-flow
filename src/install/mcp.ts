@@ -9,7 +9,7 @@
 // `../registry` and `../state/lockfile` requires stay bare while those modules are still `.js`.
 const { readSyncBlocking } = require('../helper/prompt.ts');
 const { selectMcpServers, nativeMcpCatalog, mcpCapable } = require('../registry/index.ts');
-const { pinnedSelections } = require('../state/lockfile');
+const { pinnedSelections } = require('../state/lockfile.ts');
 
 const ESC = String.fromCharCode(27);
 const CTRL_C = String.fromCharCode(3);

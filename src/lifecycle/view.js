@@ -20,7 +20,7 @@ const { createAntigravityAdapter } = require('../adapters/antigravity');
 const { planLifecycle } = require('./index');
 const { stateRoot, readLedger, defaultLedger } = require('../state/index.ts');
 const { selectAssets } = require('../registry/index.ts');
-const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections } = require('../state/lockfile');
+const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections } = require('../state/lockfile.ts');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
 // core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.json.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact

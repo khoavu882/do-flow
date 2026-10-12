@@ -45,7 +45,7 @@
  */
 
 const os = require('node:os');
-const { readLock } = require('../../state/lockfile');
+const { readLock } = require('../../state/lockfile.ts');
 
 /** The scopes a report is assembled from. Mirrors `readScopes`'s pair; a finding naming anything
  * else is a caller bug and is reported as such rather than silently counted either way. */

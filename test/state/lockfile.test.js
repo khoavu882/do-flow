@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { LOCK_VERSION, lockPath, defaultLock, validateLock, readLock, writeLock, diffLocks } = require('../../src/state/lockfile');
+const { LOCK_VERSION, lockPath, defaultLock, validateLock, readLock, writeLock, diffLocks } = require('../../src/state/lockfile.ts');
 const { tempDir } = require('../helper/tmp');
 
 function scratch(t) { return tempDir(t, 'doflow-lock-'); }
