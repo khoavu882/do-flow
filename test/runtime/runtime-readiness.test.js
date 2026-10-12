@@ -9,7 +9,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { ClaimsManager } = require('../../src/runtime/claims.ts');
 const { FreshnessValidator } = require('../../src/runtime/freshness.ts');
-const { ContextPackCompiler } = require('../../src/runtime/context-pack');
+const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
 const { ReadinessEngine } = require('../../src/runtime/readiness.ts');
 
 const REPO = path.resolve(__dirname, "../..");

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
@@ -9,7 +11,7 @@ const { readRegister } = require('./decision-register.ts');
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
-const TASK_CLASS_BUDGETS = Object.freeze({
+const TASK_CLASS_BUDGETS: Record<string, any> = Object.freeze({
   feature: 225000,
   'dependency-change': 85000,
   bug: 71000,
@@ -30,23 +32,23 @@ const TASK_CLASS_BUDGETS = Object.freeze({
  * @param {{projectRoot:string, slug?:string|null}} options
  * @returns {{available:boolean, live:Array<Object>, liveCount:number, reason?:string}}
  */
-function loadLiveDecisions({ projectRoot, slug = null }) {
+function loadLiveDecisions({ projectRoot, slug = null }: any) {
   try {
     const feature = resolveActiveFeature({ projectRoot, slug });
     if (feature.error) return { ...NO_DECISIONS };
     let register;
     try {
       register = readRegister(feature.featureDir);
-    } catch (error) {
+    } catch (error: any) {
       // The register exists but cannot be trusted. Stay unavailable, but say why, so a stage
       // sees the corruption instead of reading "no decisions".
       return { ...NO_DECISIONS, reason: `register unreadable: ${error.message}` };
     }
     if (!register) return { ...NO_DECISIONS };
     const live = register.decisions
-      .filter((d) => d.status === 'live')
-      .sort((a, b) => (a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : 0))
-      .map(({ id, topic, statement, decidedBy, stage }) => ({ id, topic, statement, decidedBy, stage }));
+      .filter((d: any) => d.status === 'live')
+      .sort((a: any, b: any) => (a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : 0))
+      .map(({ id, topic, statement, decidedBy, stage }: any) => ({ id, topic, statement, decidedBy, stage }));
     return { available: true, live, liveCount: live.length };
   } catch {
     return { ...NO_DECISIONS };
@@ -54,13 +56,14 @@ function loadLiveDecisions({ projectRoot, slug = null }) {
 }
 
 class ContextPackCompiler {
+  declare options: any;
   /**
    * @param {Object} [defaultOptions]
    * @param {number} [defaultOptions.maxFiles=15]
    * @param {number} [defaultOptions.maxClaims=20]
    * @param {number} [defaultOptions.maxEvidenceItems=25]
    */
-  constructor(defaultOptions = {}) {
+  constructor(defaultOptions: any = {}) {
     this.options = {
       maxFiles: defaultOptions.maxFiles || 15,
       maxClaims: defaultOptions.maxClaims || 20,
@@ -82,7 +85,7 @@ class ContextPackCompiler {
    * @param {Object} [budgetOverrides={}]
    * @returns {Object} ContextPack
    */
-  compileContextPack(params, budgetOverrides = {}) {
+  compileContextPack(params: any, budgetOverrides: any = {}) {
     const {
       taskId,
       taskClass = 'feature',
@@ -201,7 +204,7 @@ class ContextPackCompiler {
    * @param {Object} pack
    * @returns {string}
    */
-  formatMarkdown(pack) {
+  formatMarkdown(pack: any) {
     let md = `## ContextPack: [${pack.taskClass.toUpperCase()}] ${pack.taskId}\n`;
     if (pack.objective) {
       md += `**Objective:** ${pack.objective}\n\n`;
@@ -268,7 +271,7 @@ class ContextPackCompiler {
    * @param {Array<string>} [options.optional.unverifiedClaims]
    * @returns {Object} ContextPackResult
    */
-  compileBoundedContextPack(options = {}) {
+  compileBoundedContextPack(options: any = {}) {
     const {
       taskId = 'default',
       taskClass = 'feature',
@@ -348,7 +351,7 @@ class ContextPackCompiler {
     const keptNarrative = [];
     const omissions = [];
 
-    const buildPayload = (hList, cList, nList) => {
+    const buildPayload = (hList: any, cList: any, nList: any) => {
       let md = mandatoryMd;
       if (hList.length > 0) {
         md += `### Active Hypotheses (Unverified)\n`;
@@ -421,7 +424,7 @@ class ContextPackCompiler {
   /**
    * Alias for compileBoundedContextPack.
    */
-  compileBoundedPayload(options = {}) {
+  compileBoundedPayload(options: any = {}) {
     return this.compileBoundedContextPack(options);
   }
 }
@@ -443,7 +446,7 @@ class ContextPackCompiler {
  * @param {string} [options.slug] feature slug, when the task id is not the feature's own
  * @returns {number} exit code
  */
-function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot, slug } = {}) {
+function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot, slug }: any = {}) {
   const root = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);

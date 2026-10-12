@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { ContextPackCompiler, handleContextPackCommand } = require('../../src/runtime/context-pack');
+const { ContextPackCompiler, handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
 const { updateTaskState } = require('../../src/runtime/task-state.ts');
 const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
 
