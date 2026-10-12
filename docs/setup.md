@@ -162,7 +162,7 @@ given invocation, so treat it as the source of truth over this table for a speci
 
 OpenCode's global config lives at `~/.config/opencode/`, **not** `~/.opencode/` — a path DoFlow's
 own docs asserted incorrectly for several releases. `~/.opencode/` is a plausible guess that
-OpenCode does not read; `src/adapters/opencode/index.js`'s `nativePaths()` is the authoritative
+OpenCode does not read; `src/adapters/opencode/index.ts`'s `nativePaths()` is the authoritative
 implementation, confirmed against <https://opencode.ai/docs>.
 
 The runtime is shared by every harness in a project. A project install of any one harness writes the

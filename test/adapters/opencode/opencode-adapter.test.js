@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_START } = require('../../../src/adapters/opencode');
+const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_START } = require('../../../src/adapters/opencode/index.ts');
 const { assertAdapter } = require('../../../src/adapters');
 
 function scratch() { return suiteTempDir('doflow-opencode-'); }
@@ -225,7 +225,7 @@ test('OpenCode adapter materialises skills under .opencode/skills for project sc
   const verified = adapter.verify({ scope: 'project', scopeRoot: root, assets: [asset], context });
   assert.equal(verified.ok, true);
   // Filter by kind, not just assetId: the config/mcp pseudo-change piggybacks on a real asset's id
-  // (see opencode/index.js's pseudoAssetId), so it can share an assetId with this test's own single
+  // (see opencode/index.ts's pseudoAssetId), so it can share an assetId with this test's own single
   // copy-tree asset. `kind: 'copy-tree-file'` is the actual discriminator ledgerFileResources() uses
   // in production — matching it here keeps this test correct regardless of that id collision.
   const skillResource = verified.resources.find((r) => r.assetId === asset.id && r.kind === 'copy-tree-file');

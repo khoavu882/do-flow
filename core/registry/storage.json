@@ -1018,7 +1018,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/opencode/index.js",
+      "file": "src/adapters/opencode/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {

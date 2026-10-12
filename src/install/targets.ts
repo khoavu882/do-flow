@@ -66,7 +66,7 @@ interface ToolDirsOptions {
  *               reads (steering, agents, hooks, settings/mcp.json), so — unlike copilot — this is
  *               the clean, symmetric case.
  *   opencode -> Global config is `~/.config/opencode`, NOT `~/.opencode/` — a path DoFlow's own
- *               docs asserted incorrectly for several releases (see src/adapters/opencode/index.js).
+ *               docs asserted incorrectly for several releases (see src/adapters/opencode/index.ts).
  *               Project scope is `.opencode`, asymmetric with the global path the same way gemini's
  *               is.
  *   pi       -> Global config is `~/.pi/agent` — note the `agent/` segment; `~/.pi/settings.json`
