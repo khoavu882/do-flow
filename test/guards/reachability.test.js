@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
-const { loadRegistry, capabilityMapData } = require('../../src/registry');
+const { loadRegistry, capabilityMapData } = require('../../src/registry/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');

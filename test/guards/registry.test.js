@@ -8,13 +8,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { REGISTRY_FILES, loadRegistry, selectAssets } = require('../../src/registry');
+const { REGISTRY_FILES, loadRegistry, selectAssets } = require('../../src/registry/index.ts');
 const { REPO } = require('./_shared');
 
 const registry = loadRegistry({ repoRoot: REPO });
 
 // The registry family is plain JSON (core/registry/*.json, loaded only through
-// src/registry/index.js). This pins both directions: the loader names .json files that all exist
+// src/registry/index.ts). This pins both directions: the loader names .json files that all exist
 // and parse, and no stray non-JSON leftover lives in the directory.
 test('G5: every core/registry entry is a parseable .json file and the loader names exactly those', () => {
   const onDisk = fs.readdirSync(path.join(REPO, 'core', 'registry')).sort();

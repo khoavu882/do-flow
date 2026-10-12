@@ -19,7 +19,7 @@ const { createKiroAdapter } = require('../adapters/kiro');
 const { createAntigravityAdapter } = require('../adapters/antigravity');
 const { planLifecycle } = require('./index');
 const { stateRoot, readLedger, defaultLedger } = require('../state');
-const { selectAssets } = require('../registry');
+const { selectAssets } = require('../registry/index.ts');
 const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections } = require('../state/lockfile');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
 // core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.json.

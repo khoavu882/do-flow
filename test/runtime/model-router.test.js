@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { resolveModelRole, resolveRetrievalSlot, availableProviderIds, BACKEND_CLI } = require('../../src/runtime/model-router');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const path = require('node:path');
 
 const REPO = path.resolve(__dirname, '..', '..');

@@ -3,7 +3,7 @@
 // Registry lifecycle policies are logical intent. This projection reports what a
 // harness may render and any human prerequisite; native event serialization stays
 // in the owning harness adapter.
-const { harnessFor } = require('../registry');
+const { harnessFor } = require('../registry/index.ts');
 
 const POLICY_STATUSES = new Set(['supported', 'different', 'unavailable', 'prerequisite']);
 

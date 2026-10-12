@@ -12,7 +12,7 @@ const {
   newViolation,
   atomicWrite,
 } = require('./config');
-const { selectMcpServers, nativeMcpCatalog } = require('../../registry');
+const { selectMcpServers, nativeMcpCatalog } = require('../../registry/index.ts');
 const { NOTICES } = require('../mcp-entries');
 const { stripComment } = require('../../helper/toml.ts');
 

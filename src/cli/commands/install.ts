@@ -15,7 +15,7 @@ const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { chmodHooksExecutable } = require('../../helper/settings-scope.ts');
 const { promptMcpCheckbox, resolveMcpSelections } = require('../../install/mcp.ts');
-const { loadRegistry } = require('../../registry');
+const { loadRegistry } = require('../../registry/index.ts');
 const { storageAfterInstall } = require('../../runtime/storage/upkeep');
 const { applyLifecycle, applyMcpIndex, recordMcpOwnership } = require('../../lifecycle');
 const {

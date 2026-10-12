@@ -9,7 +9,7 @@ const {
   reconcileCodexMcp, ownedCodexMcpIds,
 } = require('../../../src/adapters/codex/mcp');
 const codexAdapter = require('../../../src/adapters/codex');
-const { loadRegistry } = require('../../../src/registry');
+const { loadRegistry } = require('../../../src/registry/index.ts');
 
 const REPO = path.resolve(__dirname, "../../..");
 const REGISTRY = loadRegistry({ repoRoot: REPO });

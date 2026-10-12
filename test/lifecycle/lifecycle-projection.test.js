@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { loadRegistry, harnessFor, selectAssets, selectMcpServers } = require('../../src/registry');
+const { loadRegistry, harnessFor, selectAssets, selectMcpServers } = require('../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../src/adapters');
 const { renderPolicies } = require('../../src/lifecycle/policies');
 const { createAdapterRegistry } = require('../../src/adapters');

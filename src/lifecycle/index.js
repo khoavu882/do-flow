@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { harnessFor, selectAssets, selectMcpServers, mcpCapable } = require('../registry');
+const { harnessFor, selectAssets, selectMcpServers, mcpCapable } = require('../registry/index.ts');
 const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord, upgradeLedger, LEDGER_VERSION } = require('../state');
 const { resolveAdapter, projectAdapterInput } = require('../adapters');
 const { pruneEmptyAncestors } = require('../adapters/copy-tree');

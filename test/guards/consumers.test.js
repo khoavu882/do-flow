@@ -13,7 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE, SKILLS, coreTextFiles } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 
 const registry = loadRegistry({ repoRoot: REPO });
 

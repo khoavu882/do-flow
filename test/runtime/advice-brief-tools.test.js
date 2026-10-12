@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { spawnFakeServer } = require('../helper/fake-decision-server');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const { CapabilityRouter } = require('../../src/runtime/capability-router');
 const { handleBriefToolsCommand, renderBriefTools } = require('../../src/runtime/brief-tools');
 

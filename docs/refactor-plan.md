@@ -33,7 +33,7 @@ Status: **landed** (#33).
 The `.yaml` extension on JSON files is a historical quirk guarded into permanence. Kill it.
 
 - Rename all 12 `core/registry/*.yaml` to `.json` (contents already JSON; zero semantic change).
-- Update the FILENAMES map in `src/registry/index.js` and delete its subset-comment rationale.
+- Update the FILENAMES map in `src/registry/index.ts` and delete its subset-comment rationale.
 - Sweep all references across `src/`, `bin/`, `test/`, `docs/` (~20 JS files + doc prose).
 - Guards that enforced the quirk flip to enforce `.json`; G-B2 list shape updates same commit.
 - No dual-read shim: `core/` ships inside the package, there are no external readers of these

@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
 } = require('../../src/lifecycle/view');

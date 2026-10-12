@@ -7,7 +7,7 @@ const { resolveContext, printContext } = require('../../install/context.ts');
 const { writeManifest } = require('../../install/manifest.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
-const { loadRegistry } = require('../../registry');
+const { loadRegistry } = require('../../registry/index.ts');
 const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');
 const {
   registryLifecycleView, assertSafeRegistryPlan,

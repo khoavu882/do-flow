@@ -46,7 +46,7 @@ test('preserves foreign GEMINI.md and reports unsupported policy automation plus
 // docs root, so no install received them — while every chain skill resolves its paths through
 // do-paths.sh. This pins the projection so the gap cannot silently reopen.
 test('projects the shared helper-script and template trees into the doflow directory', () => {
-  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry');
+  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry/index.ts');
   const { projectAdapterInput } = require('../../../src/adapters');
   const repoRoot = path.resolve(__dirname, "../../..");
   const registry = loadRegistry({ repoRoot });
@@ -87,7 +87,7 @@ test('projects the shared helper-script and template trees into the doflow direc
 // first runtime-path asset to reach opencode, pi, copilot and kiro, which until now received chain
 // skills referencing scripts they never got, so all seven are checked rather than gemini alone.
 test('the runtime locator is projected into every harness, inside that harness own directory', () => {
-  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry');
+  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry/index.ts');
   const { projectAdapterInput } = require('../../../src/adapters');
   const repoRoot = path.resolve(__dirname, "../../..");
   const registry = loadRegistry({ repoRoot });
@@ -130,7 +130,7 @@ test('the locator source is executable', () => {
 // the install still reported success, because the file was written correctly and only its content
 // aimed at nothing. Depth varies by SCOPE, not by harness, so no static pointer can satisfy both.
 test('the guidance import resolves from wherever GEMINI.md lands, in either scope', () => {
-  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry');
+  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry/index.ts');
   const { projectAdapterInput } = require('../../../src/adapters');
   const repoRoot = path.resolve(__dirname, "../../..");
   const registry = loadRegistry({ repoRoot });
@@ -263,7 +263,7 @@ test('Gemini adapter removes only fingerprint-matching copy-tree files', () => {
 // `effort` is dropped. Antigravity's folder form is a separate projection.
 const REPO = path.resolve(__dirname, '../../..');
 function geminiAgents(scope, root) {
-  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry');
+  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry/index.ts');
   const { projectAdapterInput } = require('../../../src/adapters');
   const registry = loadRegistry({ repoRoot: REPO });
   const selected = selectAssets(registry, { harness: 'gemini', capability: 'agents' }).filter((a) => a.id === 'agents.shared');
@@ -418,7 +418,7 @@ test('a migration from the folder layout leaves no empty .agents/agents behind, 
 });
 
 test('a relocation removal is carried through the lifecycle retained filter, so a file Antigravity claims stays', () => {
-  const { loadRegistry } = require('../../../src/registry');
+  const { loadRegistry } = require('../../../src/registry/index.ts');
   const { buildAdapterRegistry } = require('../../../src/cli/shared.ts');
   const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle');
   const { defaultLedger } = require('../../../src/state');

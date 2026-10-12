@@ -11,7 +11,7 @@
  */
 
 const { REPO_ROOT } = require('../helper/repo-root.ts');
-const { loadRegistry } = require('../registry');
+const { loadRegistry } = require('../registry/index.ts');
 const { CapabilityRouter } = require('./capability-router');
 const { probeProviders, HEALTHY, UNVERIFIED } = require('./health');
 const { mcpReach } = require('./mcp-reach');

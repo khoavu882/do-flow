@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Registry loader and validator.  Registry files are plain JSON (core/registry/*.json).
 const fs = require('node:fs');
 const path = require('node:path');
@@ -35,9 +37,9 @@ const MCP_NAME = /^[A-Za-z0-9_.-]+$/;
  * artifact that can lag the source (`index`). Required on every provider (068). */
 const PROVIDER_SOURCE_MODES = Object.freeze(['live', 'index']);
 
-function issue(errors, location, message) { errors.push(`${location}: ${message}`); }
-function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
-function idsUnique(items, label, errors) {
+function issue(errors: string[], location: string, message: string): void { errors.push(`${location}: ${message}`); }
+function object(value: any): boolean { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+function idsUnique(items: any, label: string, errors: string[]): void {
   const seen = new Set();
   for (const item of items || []) {
     if (!object(item) || typeof item.id !== 'string' || !item.id) continue;
@@ -46,22 +48,22 @@ function idsUnique(items, label, errors) {
   }
 }
 
-function parseRegistryFile(file, fsImpl = fs) {
+function parseRegistryFile(file: string, fsImpl: any = fs): any {
   let text;
-  try { text = fsImpl.readFileSync(file, 'utf8'); } catch (error) {
+  try { text = fsImpl.readFileSync(file, 'utf8'); } catch (error: any) {
     throw new Error(`Could not read registry file '${file}': ${error.message}`);
   }
-  try { return JSON.parse(text); } catch (error) {
+  try { return JSON.parse(text); } catch (error: any) {
     throw new Error(`Registry file '${file}' is not valid JSON: ${error.message}`);
   }
 }
 
-function registryDir(repoRoot) { return path.join(path.resolve(repoRoot), 'core', 'registry'); }
+function registryDir(repoRoot: string): string { return path.join(path.resolve(repoRoot), 'core', 'registry'); }
 
-function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
+function loadRegistry({ repoRoot, dir, fsImpl = fs }: { repoRoot?: string, dir?: string, fsImpl?: any } = {}): any {
   if (!repoRoot && !dir) throw new Error('loadRegistry requires repoRoot or dir');
-  const base = dir ? path.resolve(dir) : registryDir(repoRoot);
-  const loaded = {};
+  const base = dir ? path.resolve(dir) : registryDir(repoRoot as string);
+  const loaded: any = {};
   for (const [name, fileName] of Object.entries(REGISTRY_FILES)) {
     loaded[name] = parseRegistryFile(path.join(base, fileName), fsImpl);
   }
@@ -83,11 +85,11 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
     retrievalSlots: Array.isArray(loaded.models.slots) ? loaded.models.slots : [],
     dispatchTiers: loaded.models.dispatchTiers,
     capabilities,
-    versions: Object.fromEntries(Object.entries(loaded).map(([name, value]) => [name, value.version])),
+    versions: Object.fromEntries((Object.entries(loaded) as [string, any][]).map(([name, value]) => [name, value.version])),
   };
   const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
   if (!validation.ok) {
-    const error = new Error(`Invalid DoFlow registry:\n- ${validation.errors.join('\n- ')}`);
+    const error: any = new Error(`Invalid DoFlow registry:\n- ${validation.errors.join('\n- ')}`);
     error.validation = validation;
     throw error;
   }
@@ -102,7 +104,7 @@ const CONTRACT_COMPLETENESS = new Set(['verified', 'lower-bound']);
  *
  * `evidence` is required for the same reason capabilities require it: a contract claim with no
  * citation is folklore, and these lists are copied from vendor documentation that moves. */
-function validateContract(value, location, errors, harnessIds) {
+function validateContract(value: any, location: string, errors: string[], harnessIds: any): void {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
   if (typeof value.harness !== 'string' || !harnessIds.has(value.harness)) {
     issue(errors, location, `harness must be one of: ${[...harnessIds].join(', ')}`);
@@ -140,28 +142,28 @@ function validateContract(value, location, errors, harnessIds) {
     issue(errors, `${location}.hookEvents`, 'must not contain duplicates');
   }
   if (!Array.isArray(value.evidence) || value.evidence.length === 0
-    || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
+    || value.evidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
     issue(errors, location, 'must include one or more HTTPS evidence URLs');
   }
 }
 
 /** A harness MCP tool-name template: contains {server} and {tool}, and no other brace text. */
-function validToolNameTemplate(value) {
+function validToolNameTemplate(value: any): boolean {
   return typeof value === 'string' && value.includes('{server}') && value.includes('{tool}')
     && !value.replace(/\{server\}|\{tool\}/g, '').match(/[{}]/);
 }
 
-function validateCapability(value, location, errors) {
+function validateCapability(value: any, location: string, errors: string[]): void {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
   if (!CAPABILITY_STATUS.has(value.status)) issue(errors, location, 'status must be supported, different, or unavailable');
-  if (!Array.isArray(value.evidence) || value.evidence.length === 0 || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
+  if (!Array.isArray(value.evidence) || value.evidence.length === 0 || value.evidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
     issue(errors, location, 'must include one or more HTTPS evidence URLs');
   }
   if (typeof value.verification !== 'string' || !value.verification.trim()) issue(errors, location, 'requires a verification instruction');
   if (value.toolName !== undefined && !validToolNameTemplate(value.toolName)) {
     issue(errors, location, 'toolName must be a string with exactly the placeholders {server} and {tool} and no other braces');
   }
-  if (value.prerequisites !== undefined && (!Array.isArray(value.prerequisites) || value.prerequisites.some((item) => typeof item !== 'string' || !item))) {
+  if (value.prerequisites !== undefined && (!Array.isArray(value.prerequisites) || value.prerequisites.some((item: any) => typeof item !== 'string' || !item))) {
     issue(errors, location, 'prerequisites must be an array of non-empty strings');
   }
   // Optional per-event detail, reusing the same three-value status vocabulary. Additive on
@@ -171,7 +173,7 @@ function validateCapability(value, location, errors) {
     if (!object(value.events) || Object.keys(value.events).length === 0) {
       issue(errors, `${location}.events`, 'must be a non-empty object when present');
     } else {
-      for (const [event, detail] of Object.entries(value.events)) {
+      for (const [event, detail] of Object.entries(value.events) as [string, any][]) {
         if (!/^[A-Z][A-Za-z]*$/.test(event)) issue(errors, `${location}.events`, `invalid event name '${event}'`);
         if (!object(detail) || !CAPABILITY_STATUS.has(detail.status)) {
           issue(errors, `${location}.events.${event}`, 'status must be supported, different, or unavailable');
@@ -184,7 +186,7 @@ function validateCapability(value, location, errors) {
   }
 }
 
-function validateSource(repoRoot, source, location, errors, fsImpl, expected = 'any') {
+function validateSource(repoRoot: any, source: any, location: string, errors: string[], fsImpl: any, expected: string = 'any'): void {
   if (typeof source !== 'string' || !source.trim()) { issue(errors, location, 'requires a repository-relative source'); return; }
   const root = path.resolve(repoRoot);
   const resolved = path.resolve(root, source);
@@ -193,7 +195,7 @@ function validateSource(repoRoot, source, location, errors, fsImpl, expected = '
   if (expected === 'directory' && !fsImpl.statSync(resolved).isDirectory()) issue(errors, location, `source must be a directory: ${source}`);
 }
 
-function validateNativeProjection(projection, harness, { repoRoot, fsImpl }, errors) {
+function validateNativeProjection(projection: any, harness: any, { repoRoot, fsImpl }: { repoRoot: any, fsImpl: any }, errors: string[]): void {
   const at = `harness '${harness.id}' nativeProjection`;
   if (!object(projection)) { issue(errors, at, 'must be an object'); return; }
   const config = projection.config;
@@ -221,14 +223,14 @@ function validateNativeProjection(projection, harness, { repoRoot, fsImpl }, err
   }
 }
 
-function validateCommand(command, location, errors) {
+function validateCommand(command: any, location: string, errors: string[]): void {
   if (!Array.isArray(command) || command.length === 0
     || command.some((argument) => typeof argument !== 'string' || !argument.trim())) {
     issue(errors, location, 'command must be a non-empty array of non-empty strings');
   }
 }
 
-function validateExternalTool(value, location, errors) {
+function validateExternalTool(value: any, location: string, errors: string[]): void {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
   const allowed = new Set(['id', 'displayName', 'officialEvidence', 'status', 'install', 'update', 'uninstall', 'prerequisites']);
   for (const key of Object.keys(value)) {
@@ -239,11 +241,11 @@ function validateExternalTool(value, location, errors) {
   }
   if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
   if (!Array.isArray(value.officialEvidence) || value.officialEvidence.length === 0
-    || value.officialEvidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
+    || value.officialEvidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
     issue(errors, location, 'must include one or more HTTPS officialEvidence URLs');
   }
   if (value.prerequisites !== undefined && (!Array.isArray(value.prerequisites)
-    || value.prerequisites.some((item) => typeof item !== 'string' || !item.trim())
+    || value.prerequisites.some((item: any) => typeof item !== 'string' || !item.trim())
     || new Set(value.prerequisites).size !== value.prerequisites.length)) {
     issue(errors, location, 'prerequisites must be an array of unique non-empty strings when present');
   }
@@ -254,7 +256,7 @@ function validateExternalTool(value, location, errors) {
     for (const key of Object.keys(value.status)) {
       if (!allowedStatus.has(key)) issue(errors, `${location}.status`, `unsupported field '${key}'`);
     }
-    value.status.commands.forEach((command, index) => validateCommand(command, `${location}.status.commands[${index}]`, errors));
+    value.status.commands.forEach((command: any, index: number) => validateCommand(command, `${location}.status.commands[${index}]`, errors));
   }
   for (const action of EXTERNAL_TOOL_ACTIONS) {
     if (value[action] === undefined) continue;
@@ -270,18 +272,18 @@ function validateExternalTool(value, location, errors) {
  * router will consume. Shell scope: providers are declared with identity, kind, and
  * evidence (a capability claim without a citation is folklore); roles name routing preferences
  * without binding to concrete model IDs, which stay runtime/user choices resolved at run time. */
-function validateModelProvider(value, location, errors) {
+function validateModelProvider(value: any, location: string, errors: string[]): void {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
   if (typeof value.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.id)) issue(errors, location, 'id must be a lowercase identifier');
   if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
   if (!MODEL_KINDS.has(value.kind)) issue(errors, location, `kind must be one of: ${[...MODEL_KINDS].join(', ')}`);
   if (!Array.isArray(value.evidence) || value.evidence.length === 0
-    || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
+    || value.evidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
     issue(errors, location, 'must include one or more HTTPS evidence URLs');
   }
 }
 
-function validateModelRole(value, location, errors) {
+function validateModelRole(value: any, location: string, errors: string[]): void {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
   if (typeof value.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.id)) issue(errors, location, 'id must be a lowercase identifier');
   for (const field of ['prefer', 'fallback', 'require']) {
@@ -297,7 +299,7 @@ function validateModelRole(value, location, errors) {
  * must fail the load loudly, because a typo reading as "no dense provider" would silently skip
  * the feature instead of surfacing it. `enabled` is therefore required rather than defaulted:
  * a misspelled flag defaulting to off is the same PASS-over-no-evidence defect in miniature. */
-function validateModelSlot(value, location, errors, providerIds) {
+function validateModelSlot(value: any, location: string, errors: string[], providerIds: any): void {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
   const allowed = new Set(['id', 'provider', 'model', 'enabled', 'evidence']);
   for (const key of Object.keys(value)) {
@@ -309,20 +311,20 @@ function validateModelSlot(value, location, errors, providerIds) {
   if (typeof value.model !== 'string' || !value.model.trim()) issue(errors, location, 'requires model');
   if (typeof value.enabled !== 'boolean') issue(errors, location, 'enabled must be a boolean');
   if (value.evidence !== undefined && (!Array.isArray(value.evidence) || value.evidence.length === 0
-    || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url)))) {
+    || value.evidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url)))) {
     issue(errors, location, 'must include one or more HTTPS evidence URLs when evidence is present');
   }
 }
 
 /** `trigger` and `steps` on an MCP server (062): when a stage should reach for the server, and
  * which skill files name it. Registry-only; adapters pick fields and never render these keys. */
-function validateMcpStageUse(server, at, errors) {
+function validateMcpStageUse(server: any, at: string, errors: string[]): void {
   if (typeof server.trigger !== 'string' || server.trigger.length < 20 || server.trigger.length > 300 || /[\r\n]/.test(server.trigger)) {
     issue(errors, at, 'trigger must be one line of 20 to 300 characters');
   }
   if (!Array.isArray(server.steps)) { issue(errors, at, 'steps must be an array'); return; }
   const seen = new Set();
-  server.steps.forEach((step, index) => {
+  server.steps.forEach((step: any, index: number) => {
     const where = `steps[${index}]`;
     if (!object(step)) { issue(errors, at, `${where} must be an object`); return; }
     for (const key of Object.keys(step)) if (!MCP_STEP_KEYS.has(key)) issue(errors, at, `${where} has unknown key '${key}'`);
@@ -338,10 +340,10 @@ function validateMcpStageUse(server, at, errors) {
 }
 
 /** Provider checks for capabilities.json: required `sourceMode` (068) and optional `mcp: {server, tool}` (062). */
-function validateCapabilityProviders(capabilities, errors) {
+function validateCapabilityProviders(capabilities: any, errors: string[]): void {
   if (capabilities === undefined) return;
   if (!object(capabilities)) { issue(errors, 'capabilities', 'must be an object'); return; }
-  for (const [capabilityId, capability] of Object.entries(capabilities)) {
+  for (const [capabilityId, capability] of Object.entries(capabilities) as [string, any][]) {
     for (const provider of object(capability) && Array.isArray(capability.providers) ? capability.providers : []) {
       if (!object(provider)) continue;
       const at = `capability '${capabilityId}' provider '${provider.id ?? '?'}'`;
@@ -358,11 +360,11 @@ function validateCapabilityProviders(capabilities, errors) {
 }
 
 /** `dispatchTiers` in models.json (062): the tier vocabulary and the per-owner default a brief names. */
-function validateDispatchTiers(value, errors) {
+function validateDispatchTiers(value: any, errors: string[]): void {
   if (value === undefined) return;
   const at = 'models.dispatchTiers';
   if (!object(value)) { issue(errors, at, 'must be an object'); return; }
-  const tiers = Array.isArray(value.tiers) && value.tiers.length > 0 && value.tiers.every((tier) => typeof tier === 'string' && tier) ? value.tiers : null;
+  const tiers = Array.isArray(value.tiers) && value.tiers.length > 0 && value.tiers.every((tier: any) => typeof tier === 'string' && tier) ? value.tiers : null;
   if (!tiers) { issue(errors, at, 'tiers must be a non-empty array of strings'); return; }
   if (new Set(tiers).size !== tiers.length) issue(errors, at, 'tiers must be unique');
   if (!tiers.includes(value.default)) issue(errors, at, `default must be one of: ${tiers.join(', ')}`);
@@ -372,8 +374,8 @@ function validateDispatchTiers(value, errors) {
   }
 }
 
-function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
-  const errors = [];
+function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?: string, fsImpl?: any } = {}): { ok: boolean, errors: string[] } {
+  const errors: string[] = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
   const assets = Array.isArray(registry?.assets) ? registry.assets : null;
   const mcp = Array.isArray(registry?.mcp) ? registry.mcp : null;
@@ -390,14 +392,14 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
   idsUnique(mcp, 'mcp', errors); idsUnique(lifecycle, 'lifecycle', errors);
   idsUnique(externalTools, 'externalTools', errors);
 
-  const harnessIds = new Set((harnesses || []).filter(object).map((item) => item.id));
+  const harnessIds = new Set((harnesses || []).filter(object).map((item: any) => item.id));
   for (const harness of harnesses || []) {
     const at = `harness '${harness?.id ?? '?'}'`;
     if (!object(harness)) { issue(errors, 'harnesses', 'entries must be objects'); continue; }
     if (typeof harness.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(harness.id)) issue(errors, at, 'id must be a lowercase identifier');
     if (typeof harness.displayName !== 'string' || !harness.displayName.trim()) issue(errors, at, 'requires displayName');
     if (typeof harness.adapter !== 'string' || !harness.adapter.trim()) issue(errors, at, 'requires adapter');
-    if (!Array.isArray(harness.scopes) || harness.scopes.length === 0 || harness.scopes.some((scope) => !SCOPES.has(scope))) issue(errors, at, 'scopes must contain project and/or user');
+    if (!Array.isArray(harness.scopes) || harness.scopes.length === 0 || harness.scopes.some((scope: any) => !SCOPES.has(scope))) issue(errors, at, 'scopes must contain project and/or user');
     if (!object(harness.nativeTargets)) issue(errors, at, 'nativeTargets must be an object');
     // Declared native paths (Stage 3): every surface a harness declares must parse into the
     // minimal {base, segments} shape — unknown keys or malformed rules fail the load loudly so a
@@ -443,7 +445,7 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
       if (!object(projection) || typeof projection.renderer !== 'string' || !projection.renderer.trim() || typeof projection.capability !== 'string' || !projection.capability.trim()) {
         issue(errors, at, `requires renderer and capability projection for '${harnessId}'`); continue;
       }
-      const harness = (harnesses || []).find((item) => item?.id === harnessId);
+      const harness = (harnesses || []).find((item: any) => item?.id === harnessId);
       const capability = harness?.capabilities?.[projection.capability];
       if (!capability) issue(errors, at, `projection '${harnessId}' references unknown capability '${projection.capability}'`);
       else if (capability.status === 'unavailable') issue(errors, at, `projection '${harnessId}' cannot render unavailable capability '${projection.capability}'`);
@@ -456,7 +458,7 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     if (typeof server.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(server.id)) issue(errors, at, 'id must be a lowercase identifier');
     if (!MCP_TRANSPORTS.has(server.transport)) issue(errors, at, 'transport must be stdio, http, or sse');
     if (server.transport === 'stdio' && (typeof server.command !== 'string' || !server.command.trim())) issue(errors, at, 'stdio transport requires command');
-    if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some((arg) => typeof arg !== 'string'))) issue(errors, at, 'args must be an array of strings');
+    if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some((arg: any) => typeof arg !== 'string'))) issue(errors, at, 'args must be an array of strings');
     if (!['optional', 'required'].includes(server.selection)) issue(errors, at, 'selection must be optional or required');
     validateMcpStageUse(server, at, errors);
   }
@@ -470,9 +472,9 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     if (typeof policy.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(policy.id)) issue(errors, at, 'id must be a lowercase identifier');
     if (typeof policy.intent !== 'string' || !policy.intent.trim()) issue(errors, at, 'requires intent');
     if (policy.tier !== undefined && !POLICY_TIERS.has(policy.tier)) issue(errors, at, `tier must be one of ${[...POLICY_TIERS].join(', ')}`);
-    if (!Array.isArray(policy.requires) || policy.requires.some((capability) => typeof capability !== 'string')) issue(errors, at, 'requires must be an array of capability names');
+    if (!Array.isArray(policy.requires) || policy.requires.some((capability: any) => typeof capability !== 'string')) issue(errors, at, 'requires must be an array of capability names');
     if (!object(policy.mappings)) { issue(errors, at, 'mappings must be an object'); continue; }
-    for (const [harnessId, mapping] of Object.entries(policy.mappings)) {
+    for (const [harnessId, mapping] of Object.entries(policy.mappings) as [string, any][]) {
       if (!harnessIds.has(harnessId)) { issue(errors, at, `mapping references unknown harness '${harnessId}'`); continue; }
       if (!object(mapping) || !CAPABILITY_STATUS.has(mapping.status)) { issue(errors, at, `mapping '${harnessId}' needs a valid status`); continue; }
       if (mapping.status !== 'unavailable' && (typeof mapping.event !== 'string' || !mapping.event.trim())) issue(errors, at, `mapping '${harnessId}' requires event for a renderable status`);
@@ -498,21 +500,21 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     issue(errors, 'models.slots', 'must be an array when present');
   } else {
     idsUnique(modelSlots, 'models.slots', errors);
-    const providerIds = new Set((modelProviders || []).filter(object).map((item) => item.id));
+    const providerIds = new Set((modelProviders || []).filter(object).map((item: any) => item.id));
     for (const slot of modelSlots) validateModelSlot(slot, `model slot '${slot?.id ?? '?'}'`, errors, providerIds);
   }
   return { ok: errors.length === 0, errors };
 }
 
-function harnessFor(registry, id) {
-  const harness = registry.harnesses.find((item) => item.id === id);
+function harnessFor(registry: any, id: string): any {
+  const harness = registry.harnesses.find((item: any) => item.id === id);
   if (!harness) throw new Error(`Unknown registry harness '${id}'`);
   return harness;
 }
 
-function selectAssets(registry, { harness, capability, kind } = {}) {
+function selectAssets(registry: any, { harness, capability, kind }: { harness?: string, capability?: string, kind?: string } = {}): any[] {
   const declaration = harness ? harnessFor(registry, harness) : null;
-  return registry.assets.filter((asset) => {
+  return registry.assets.filter((asset: any) => {
     if (kind && asset.kind !== kind) return false;
     if (!harness) return true;
     if (!asset.appliesTo.includes(harness)) return false;
@@ -521,18 +523,18 @@ function selectAssets(registry, { harness, capability, kind } = {}) {
   });
 }
 
-function selectMcpServers(registry, ids) {
+function selectMcpServers(registry: any, ids?: string[] | null): any[] {
   if (ids === undefined || ids === null) return [...registry.mcp];
   if (!Array.isArray(ids)) throw new Error('MCP selection must be an array of server ids');
   const wanted = new Set(ids);
-  const unknown = [...wanted].filter((id) => !registry.mcp.some((server) => server.id === id));
+  const unknown = [...wanted].filter((id) => !registry.mcp.some((server: any) => server.id === id));
   if (unknown.length) throw new Error(`Unknown registry MCP server(s): ${unknown.join(', ')}`);
-  return registry.mcp.filter((server) => wanted.has(server.id));
+  return registry.mcp.filter((server: any) => wanted.has(server.id));
 }
 
 /** True when the harness takes servers from the shared MCP catalog; the lifecycle and the selection
  * resolver read this one predicate. */
-function mcpCapable(registry, harnessId) {
+function mcpCapable(registry: any, harnessId: string): boolean {
   return harnessFor(registry, harnessId).capabilities.mcp?.status === 'supported';
 }
 
@@ -540,7 +542,7 @@ function mcpCapable(registry, harnessId) {
  * harness's native MCP reconciliation (Codex's config.toml writer, Claude's ~/.claude.json/
  * .mcp.json writer) expects — the one place this transform is derived, reused rather than
  * re-implemented per consumer. */
-function nativeMcpCatalog(servers = []) {
+function nativeMcpCatalog(servers: any[] = []): { allServers: string[], serverDefs: any } {
   const allServers = servers.map((server) => server.id);
   const serverDefs = Object.fromEntries(servers.map((server) => [server.id, {
     command: server.command,
@@ -550,8 +552,8 @@ function nativeMcpCatalog(servers = []) {
   return { allServers, serverDefs };
 }
 
-function capabilityMapData(registry) {
-  return registry.harnesses.flatMap((harness) => Object.entries(harness.capabilities).map(([capability, declaration]) => ({
+function capabilityMapData(registry: any): any[] {
+  return registry.harnesses.flatMap((harness: any) => (Object.entries(harness.capabilities) as [string, any][]).map(([capability, declaration]) => ({
     harness: harness.id,
     displayName: harness.displayName,
     capability,

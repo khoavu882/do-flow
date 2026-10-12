@@ -3,7 +3,7 @@
 // --force is deliberately unavailable: every mutation gets its own confirmation.
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const { confirm, promptLine } = require('../../helper/prompt.ts');
-const { loadRegistry } = require('../../registry');
+const { loadRegistry } = require('../../registry/index.ts');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle.ts');
 const { REPO_ROOT } = require('../shared.ts');
 

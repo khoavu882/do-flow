@@ -171,7 +171,7 @@ test('Pi adapter refuses to remove a copy-tree file that was modified outside Do
 });
 
 test('assets.json routes skills.doflow to the pi adapter as a copy-tree asset', () => {
-  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry');
+  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry/index.ts');
   const { projectAdapterInput } = require('../../../src/adapters');
   const repoRoot = path.resolve(__dirname, "../../..");
   const registry = loadRegistry({ repoRoot });

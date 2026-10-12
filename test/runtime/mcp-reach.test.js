@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
 const { mcpReach } = require('../../src/runtime/mcp-reach');
 

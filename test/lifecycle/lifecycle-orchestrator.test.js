@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createAdapterRegistry } = require('../../src/adapters');
 const { defaultLedger, readLedger } = require('../../src/state');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const { planLifecycle, applyLifecycle, removeLifecycle, normalizeRemovalVerification, mcpIndexPath } = require('../../src/lifecycle');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
 

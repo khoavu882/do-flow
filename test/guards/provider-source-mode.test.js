@@ -11,7 +11,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const { PROVIDER_ARTIFACTS } = require('../../src/runtime/health');
 
 const SOURCE_MODES = ['live', 'index'];

@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { loadRegistry, selectAssets } = require('../../../src/registry');
-const { harnessFor } = require('../../../src/registry');
+const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
+const { harnessFor } = require('../../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../../src/adapters');
 const { normalizeContext, discover, render, plan, apply, remove, verify } = require('../../../src/adapters/codex');
 

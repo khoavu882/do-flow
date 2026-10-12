@@ -8,7 +8,7 @@
 // caller's `require('../install/mcp.ts')` keeps working while the tree is still `.js`. The
 // `../registry` and `../state/lockfile` requires stay bare while those modules are still `.js`.
 const { readSyncBlocking } = require('../helper/prompt.ts');
-const { selectMcpServers, nativeMcpCatalog, mcpCapable } = require('../registry');
+const { selectMcpServers, nativeMcpCatalog, mcpCapable } = require('../registry/index.ts');
 const { pinnedSelections } = require('../state/lockfile');
 
 const ESC = String.fromCharCode(27);

@@ -8,7 +8,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const { backupSetFromPlan, backupSetFromPaths } = require('../../src/install/backup-set.ts');
 const { BackupError } = require('../../src/install/backup.ts');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const { registryLifecycleView } = require('../../src/lifecycle/view');
 const { IS_WIN } = require('../helper-platform');
 

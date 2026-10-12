@@ -178,7 +178,7 @@ test('skills.doflow materialises into .kiro/skills, following the dedicated Kiro
 });
 
 test('confirms the real registry routes guidance, skills, and agents trees to kiro, steering included as instructions', () => {
-  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry');
+  const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry/index.ts');
   const repoRoot = path.resolve(__dirname, "../../..");
   const registry = loadRegistry({ repoRoot });
   const harness = harnessFor(registry, 'kiro');

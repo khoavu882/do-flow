@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { confirm } = require('../../helper/prompt.ts');
-const { loadRegistry } = require('../../registry');
+const { loadRegistry } = require('../../registry/index.ts');
 const { storageForgetScope } = require('../../runtime/storage/upkeep');
 const { removeLifecycle, retentionSummary } = require('../../lifecycle');
 const {

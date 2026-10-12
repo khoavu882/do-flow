@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const { evaluateReach, REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach');
 
 const registry = loadRegistry({ repoRoot: REPO_ROOT });

@@ -221,7 +221,7 @@ test('writeMcpEntries keeps every other key and keeps or deletes an emptied cont
 });
 
 test('M20: no entry any harness plans for the shipped servers carries the registry-only steps or trigger keys (062 R11)', () => {
-  const { loadRegistry, mcpCapable } = require('../../src/registry');
+  const { loadRegistry, mcpCapable } = require('../../src/registry/index.ts');
   const { planLifecycle } = require('../../src/lifecycle');
   const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
   const repoRoot = path.resolve(__dirname, '../..');

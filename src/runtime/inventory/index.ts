@@ -59,7 +59,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { harnessFor, loadRegistry } = require('../../registry');
+const { harnessFor, loadRegistry } = require('../../registry/index.ts');
 const { readScopes } = require('./read-scopes.ts');
 const { deriveAssetIdentity } = require('./identity.ts');
 const { resolveShadowVerdict } = require('./precedence.ts');

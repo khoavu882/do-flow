@@ -115,7 +115,7 @@ describe('error-to-usage catch sites record a programming error and keep the usa
     ['evidence supersede', ['evidence', '--task-id', 't1', '--action', 'supersede', '--evidence-id', 'E1', '--replaced-by', 'E2', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.js', cls: 'EvidenceLedger', method: 'supersedeEvidence' }],
     ['route', ['route', '--intent', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.js', cls: 'CapabilityRouter', method: 'resolveIntent' }],
     ['claim', ['claim', '--task-id', 't1', '--action', 'add', '--statement', 'x', '--json'], { kind: 'proto', module: 'src/runtime/claims.js', cls: 'ClaimsManager', method: 'addClaim' }],
-    ['inventory', ['inventory', '--json'], { kind: 'export', module: 'src/registry/index.js', method: 'loadRegistry' }],
+    ['inventory', ['inventory', '--json'], { kind: 'export', module: 'src/registry/index.ts', method: 'loadRegistry' }],
     ['outcome record', ['outcome', '--action', 'record', '--task-id', 't1', '--task-class', 'feature', '--state', 'INCONCLUSIVE', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
     ['research-request', ['research-request', '--action', 'list', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/research-request.js', cls: 'ResearchRequestStore', method: 'list' }],
     ['retrieval-plan declare', ['retrieval-plan', '--action', 'declare', '--task-id', 't1', '--stage', 'design', '--need', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.js', cls: 'CapabilityRouter', method: 'resolveIntent' }],
@@ -338,7 +338,7 @@ describe('handlers that print their own [ERROR] and exit 1 still record a progra
   const sites = [
     ['retrieve', ['retrieve', '--query', 'x'], { kind: 'export', module: 'src/runtime/knowledge/index-store.ts', method: 'isFresh' },
       (cwd) => { fs.mkdirSync(path.join(cwd, '.doflow', 'guidance'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.doflow', 'guidance', 'a.md'), '# A\n\nhello\n'); }],
-    ['model-role', ['model-role', '--role', 'reasoning'], { kind: 'export', module: 'src/registry/index.js', method: 'loadRegistry' }, undefined],
+    ['model-role', ['model-role', '--role', 'reasoning'], { kind: 'export', module: 'src/registry/index.ts', method: 'loadRegistry' }, undefined],
     ['rollback', ['rollback', 'no-such-backup', '-t', 'claude', '--force'], { kind: 'export', module: 'src/install/backup.ts', method: 'planRestore' }, undefined],
   ];
   for (const [name, args, spec, setup] of sites) {

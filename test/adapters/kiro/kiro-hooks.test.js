@@ -146,7 +146,7 @@ test('installed hook scripts are executable', () => {
 });
 
 test('confirms the real registry routes kiro.hooks-scripts to kiro only', () => {
-  const { loadRegistry, selectAssets } = require('../../../src/registry');
+  const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const hooksAssets = selectAssets(registry, { harness: 'kiro', capability: 'hooks' });
   // Two hooks-capability assets apply to kiro since 022-hooks-shared-install-gap: kiro's own

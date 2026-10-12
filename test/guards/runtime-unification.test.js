@@ -24,7 +24,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
 const { tempDir } = require('../helper/tmp');
 

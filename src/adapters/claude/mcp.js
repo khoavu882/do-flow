@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { nativeMcpCatalog } = require('../../registry');
+const { nativeMcpCatalog } = require('../../registry/index.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 
 const HARNESS = 'claude';
