@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadAdviceRegistry } = require('../../src/runtime/advice/registry');
+const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('../../src/runtime/advice/kinds.ts');
 
 const REPO = path.resolve(__dirname, '../..');

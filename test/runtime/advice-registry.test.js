@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { loadAdviceRegistry } = require('../../src/runtime/advice/registry');
+const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const MODELS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/models.json'), 'utf8'));

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const { resolveRoots } = require('../storage/roots.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
-const { loadAdviceRegistry } = require('./registry');
+const { loadAdviceRegistry } = require('./registry.ts');
 const { resolveSetting } = require('./config');
 const { createAdviceClient } = require('./client');
 const { readWindow } = require('./record');
