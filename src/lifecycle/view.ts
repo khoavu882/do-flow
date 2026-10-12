@@ -1,4 +1,6 @@
 'use strict';
+
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 // lifecycle-view.js — CLI-facing view over the registry/lifecycle path: computes a plan across
 // every requested harness (claude/codex/gemini) from a loaded registry, a neutral ledger, and the
 // Codex-native source locations under `repoRoot`, then renders/gates it for bin/doflow.js's
@@ -30,9 +32,9 @@ function loadPkg() {
 }
 const pkg = loadPkg();
 
-function codexScope(scope) { return scope.global ? 'global' : 'project'; }
+function codexScope(scope: any) { return scope.global ? 'global' : 'project'; }
 
-function codexConfigResources(repoRoot, fsImpl) {
+function codexConfigResources(repoRoot: any, fsImpl: any) {
   const configSrc = path.join(repoRoot, 'core', 'harnesses', 'codex', 'config', 'config.toml');
   const parsed = parseToml(fsImpl.readFileSync(configSrc, 'utf8'));
   return [...parsed.entries.entries()].map(([identity, entry]) => ({
@@ -46,7 +48,7 @@ function codexConfigResources(repoRoot, fsImpl) {
  * mutation path until every native adapter has CLI-level parity.
  * `registry` is loaded once per command (by the caller) and threaded through here rather than
  * reloaded — the same registry also resolves every harness's MCP selection for that command. */
-function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }) {
+function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }: any) {
   const lifecycleScope = codexScope(scope);
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
@@ -77,11 +79,11 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, m
   return { registry, stateRoot: neutralStateRoot, ledger, plan, adapters };
 }
 
-function printRegistryLifecycle(view, prefix = '[PLAN]') {
+function printRegistryLifecycle(view: any, prefix = '[PLAN]') {
   console.log(`${prefix} Registry lifecycle: ${view.plan.changes.length} native change(s), ${view.plan.conflicts.length} conflict(s), ${view.plan.prerequisites.length} prerequisite(s)`);
   for (const target of view.plan.targets) {
     console.log(`${prefix}   ${target.harness}: ${target.changes.length} change(s)${target.conflicts.length ? `; conflicts: ${target.conflicts.join('; ')}` : ''}`);
-    const hookChange = target.changes.find((change) => change.nativeComponent === 'hooks');
+    const hookChange = target.changes.find((change: any) => change.nativeComponent === 'hooks');
     if (hookChange?.nativePlan?.trust?.required) {
       console.log(`${prefix}   ${target.harness} hooks trust: ${hookChange.nativePlan.trust.status} (review required in ${target.harness})`);
     }
@@ -92,7 +94,7 @@ function printRegistryLifecycle(view, prefix = '[PLAN]') {
 
 /** Prints the plan's notices after a real run. Independent of whether anything changed: a no-op
  * reinstall of a harness that has a gap must still say so. */
-function printPlanNotices(view) {
+function printPlanNotices(view: any) {
   for (const { harness, notice } of view.plan.notices) console.log(`[INFO] ${harness}: ${notice}`);
 }
 
@@ -101,7 +103,7 @@ function printPlanNotices(view) {
  * src/targets.js — so a future non-lifecycle target doesn't silently gain lifecycle behavior. */
 const LIFECYCLE_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 
-function assertSafeRegistryPlan(view) {
+function assertSafeRegistryPlan(view: any) {
   if (view.plan.safe) return;
   for (const conflict of view.plan.conflicts) console.error(`[ERROR] ${conflict.harness} lifecycle refused: ${conflict.reason}`);
   for (const prerequisite of view.plan.prerequisites) console.error(`[ERROR] ${prerequisite.harness} lifecycle prerequisite: ${prerequisite.prerequisite}`);
@@ -117,9 +119,9 @@ function assertSafeRegistryPlan(view) {
  * selections carry over for pinned harnesses and are replaced by the rows this run resolved, `[]`
  * included. Assets are recomputed from the registry for every pinned harness. `null` when no harness
  * stays pinned. */
-function lockDocument({ registry, scope, scopeRoot, previous = null, ledger, plannedTargets = [], mcpSelections = {}, sourceVersion = pkg.version, now = new Date() }) {
-  const held = new Set((ledger?.resources ?? []).map((resource) => resource?.harness));
-  const pinned = [...new Set([...(previous?.targets ?? []).map((entry) => entry.harness), ...plannedTargets])]
+function lockDocument({ registry, scope, scopeRoot, previous = null, ledger, plannedTargets = [], mcpSelections = {}, sourceVersion = pkg.version, now = new Date() }: any) {
+  const held = new Set((ledger?.resources ?? []).map((resource: any) => resource?.harness));
+  const pinned = [...new Set([...(previous?.targets ?? []).map((entry: any) => entry.harness), ...plannedTargets])]
     .filter((harness) => held.has(harness)).sort();
   if (!pinned.length) return null;
   const assets = [];
@@ -143,13 +145,13 @@ function lockDocument({ registry, scope, scopeRoot, previous = null, ledger, pla
 /** Describe the reviewable delta between the pinned lock and the next one: "created" for a first
  * pin, "unchanged" when nothing pinned differs, "cleared" when nothing remains pinned, else a count
  * of the changed rows. */
-function lockDelta(previous, next) {
+function lockDelta(previous: any, next: any) {
   if (!next) return previous ? { changed: true, summary: 'cleared' } : { changed: false, summary: 'unchanged' };
   if (!previous) return { changed: true, summary: 'created' };
   const diff = diffLocks(previous, next);
   if (diff.clean) return { changed: false, summary: 'unchanged' };
   const count = ['targets', 'assets']
-    .flatMap((section) => Object.values(diff[section]).map((list) => list.length))
+    .flatMap((section) => Object.values<any>(diff[section]).map((list: any) => list.length))
     .reduce((sum, n) => sum + n, 0)
     + diff.mcpSelections.changed.length + (diff.meta.sourceVersion ? 1 : 0);
   return { changed: true, summary: `${count} change(s)` };
@@ -158,7 +160,7 @@ function lockDelta(previous, next) {
 /** Persist the lock for a completed command and return its delta against what was pinned before.
  * An unchanged lock is left byte for byte, so routine re-runs neither rewrite the file nor
  * manufacture noise; a `null` lock removes the file. */
-function recordLock(scopeArgs, next, { fsImpl = fs } = {}) {
+function recordLock(scopeArgs: any, next: any, { fsImpl = fs }: any = {}) {
   const delta = lockDelta(readLock(scopeArgs, { fsImpl }), next);
   if (delta.changed) {
     if (next) writeLock(scopeArgs, next, { fsImpl });

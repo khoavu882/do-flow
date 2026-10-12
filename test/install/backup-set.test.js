@@ -9,7 +9,7 @@ const { suiteTempDir } = require('../helper/tmp');
 const { backupSetFromPlan, backupSetFromPaths } = require('../../src/install/backup-set.ts');
 const { BackupError } = require('../../src/install/backup.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { registryLifecycleView } = require('../../src/lifecycle/view');
+const { registryLifecycleView } = require('../../src/lifecycle/view.ts');
 const { IS_WIN } = require('../helper-platform');
 
 const REPO = path.resolve(__dirname, '../..');

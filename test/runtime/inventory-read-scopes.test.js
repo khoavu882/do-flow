@@ -11,7 +11,7 @@ const { suiteTempDir } = require('../helper/tmp');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state/index.ts');
 const { defaultLock, writeLock, lockPath } = require('../../src/state/lockfile.ts');
-const { LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
+const { LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
 const { readScopes } = require('../../src/runtime/inventory/read-scopes.ts');
 const { buildInventoryReport } = require('../../src/runtime/inventory/index.ts');
 

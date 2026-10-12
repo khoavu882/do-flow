@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { lockDocument, lockDelta, recordLock } = require('../../src/lifecycle/view');
+const { lockDocument, lockDelta, recordLock } = require('../../src/lifecycle/view.ts');
 const { readLock, lockPath, defaultLock } = require('../../src/state/lockfile.ts');
 const { tempDir } = require('../helper/tmp');
 

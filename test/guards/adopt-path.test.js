@@ -95,7 +95,7 @@ test('G19: adopt is parsed, threaded, and read off the lifecycle context', () =>
 
   assert.match(read('src/cli/index.ts'), /case '--adopt': o\.adopt = true/, 'the CLI must parse --adopt');
   assert.match(read('src/cli/commands/install.ts'), /adopt: o\.adopt === true/, 'install must pass it on');
-  assert.match(read('src/lifecycle/view.js'), /^\s+adopt,$/m, 'the lifecycle view must put it in the adapter context');
+  assert.match(read('src/lifecycle/view.ts'), /^\s+adopt,$/m, 'the lifecycle view must put it in the adapter context');
   assert.match(read('src/adapters/codex/index.ts'), /options\.context\?\.adopt === true/,
     'the adapter must read it off the LIFECYCLE context (options.context), not its own native one');
 });

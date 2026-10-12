@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createScratch } = require('../helper/scratch-env');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
+const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
 const { applyLifecycle } = require('../../src/lifecycle/index.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

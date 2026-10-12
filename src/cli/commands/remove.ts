@@ -12,7 +12,7 @@ const { removeLifecycle, retentionSummary } = require('../../lifecycle/index.ts'
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES,
   assertSafeRegistryPlan, lockDocument, recordLock,
-} = require('../../lifecycle/view');
+} = require('../../lifecycle/view.ts');
 const { recordedMcpSelections } = require('../../install/mcp.ts');
 const {
   REPO_ROOT, scopeOf, scopeSelectionState, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,

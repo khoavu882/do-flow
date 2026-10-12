@@ -20,7 +20,7 @@ const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle/index.ts
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, lockDelta, recordLock,
-} = require('../../lifecycle/view');
+} = require('../../lifecycle/view.ts');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
   printRecordedMcpOwnership, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,

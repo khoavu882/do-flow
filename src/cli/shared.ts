@@ -44,7 +44,7 @@ const pkg = loadPkg();
 /**
  * The one adapter registry construction, used by install/update/remove/reconcile. There used to
  * be three inline copies of the same construction (one per mutating command); a fourth variant
- * once grew in src/lifecycle/view.js and silently fell behind (fixed in 96006da) — which is why
+ * once grew in src/lifecycle/view.ts and silently fell behind (fixed in 96006da) — which is why
  * the registry guard pins every declared harness into each call site by parsing them.
  * Build one here rather than copying the object literal again. Stage 3: each adapter factory
  * receives its harness's declared native paths from core/registry/harnesses.json, so the CLI
