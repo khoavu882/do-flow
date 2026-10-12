@@ -12,7 +12,7 @@ const { resolveAdapter, projectAdapterInput } = require('../adapters');
 const { pruneEmptyAncestors } = require('../adapters/copy-tree');
 const { renderPolicies } = require('./policies');
 const { renderMcpIndex } = require('./mcp-index');
-const { hasBashCapableShell } = require('./bash-availability');
+const { hasBashCapableShell } = require('./bash-availability.ts');
 const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
