@@ -24,7 +24,7 @@ const { loadAdviceRegistry } = require('./advice/registry');
 const { loadStorageRegistry } = require('./storage/registry.ts');
 const { resolveRoots } = require('./storage/roots.ts');
 const { resolveSetting } = require('./advice/config');
-const { materializeKind } = require('./advice/kinds');
+const { materializeKind } = require('./advice/kinds.ts');
 const { createAdviceClient } = require('./advice/client');
 const { strengthWords } = require('./advice/strength.ts');
 

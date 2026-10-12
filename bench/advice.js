@@ -8,7 +8,7 @@ const { loadStorageRegistry } = require('../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../src/runtime/storage/roots.ts');
 const { resolveSetting } = require('../src/runtime/advice/config');
 const { createAdviceClient } = require('../src/runtime/advice/client');
-const { materializeKind } = require('../src/runtime/advice/kinds');
+const { materializeKind } = require('../src/runtime/advice/kinds.ts');
 
 function loadSources() {
   const read = (name) => JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry', name), 'utf8'));

@@ -6,7 +6,7 @@ const https = require('node:https');
 const { resolveSetting } = require('./config');
 const { checkEndpoint } = require('./endpoint-guard.ts');
 const { strengthOf } = require('./strength.ts');
-const { validateQuestionSet, validateStaticAnswer } = require('./kinds');
+const { validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
 const { appendPick, appendMiss } = require('./record');
 
 // Keep this map literal: module reachability must be auditable without dynamic require paths.

@@ -1,19 +1,21 @@
 'use strict';
 
-function isObject(value) {
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
+function isObject(value: any): boolean {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function invalid(detail, reason = 'config-invalid') {
+function invalid(detail: string, reason: string = 'config-invalid'): { ok: false; reason: string; detail: string } {
   return { ok: false, reason, detail };
 }
 
-function optionCount(question) {
+function optionCount(question: any): number {
   if (question.type === 'score') return Array.isArray(question.criteria) ? question.criteria.length : 0;
   return question.type === 'choice' ? Object.keys(question.options || {}).length : 2;
 }
 
-function checkOptionRange(count, limits, owner) {
+function checkOptionRange(count: number, limits: any, owner: string): { ok: false; reason: string; detail: string } | null {
   if (!Number.isInteger(limits?.minOptions) || !Number.isInteger(limits?.maxOptions)) {
     return invalid(`${owner} cannot be built: invalid limits in core/registry/advice.json`);
   }
@@ -26,16 +28,16 @@ function checkOptionRange(count, limits, owner) {
   return null;
 }
 
-function criteriaFrom(source, sources) {
-  let entries;
+function criteriaFrom(source: string, sources: any): Record<string, any> | null {
+  let entries: [string, any][];
   if (source === 'workflows.classes') {
     const classes = sources?.workflows?.classes;
     if (!isObject(classes)) return null;
-    entries = Object.entries(classes).map(([id, item]) => [id, item?.description]);
+    entries = Object.entries(classes).map(([id, item]: [string, any]) => [id, item?.description]);
   } else if (source === 'verification.riskLevels') {
     const levels = sources?.verification?.riskLevels;
     if (!isObject(levels)) return null;
-    entries = Object.entries(levels).map(([id, item]) => [id, item?.description]);
+    entries = Object.entries(levels).map(([id, item]: [string, any]) => [id, item?.description]);
   } else {
     return null;
   }
@@ -43,21 +45,21 @@ function criteriaFrom(source, sources) {
   return Object.fromEntries(entries);
 }
 
-function materializeKind(kindId, { adviceRegistry, sources = {}, server } = {}) {
+function materializeKind(kindId: string, { adviceRegistry, sources = {}, server }: any = {}): any {
   const kinds = adviceRegistry?.kinds;
   if (!Array.isArray(kinds)) return invalid('kinds are missing from core/registry/advice.json');
-  const kind = kinds.find((entry) => entry?.id === kindId);
+  const kind = kinds.find((entry: any) => entry?.id === kindId);
   if (!kind) return invalid(`unknown kind '${kindId}'`, 'usage-error');
 
   const serverSource = kind.criteriaFrom === 'mcp.servers[].trigger';
   if (server !== undefined && !serverSource) return invalid('--server is valid only for mcp-need', 'usage-error');
 
-  let question;
+  let question: any;
   if (serverSource) {
     if (typeof server !== 'string' || !server.trim()) return invalid('--server is required for mcp-need', 'usage-error');
     const servers = sources?.mcp?.servers;
     if (!Array.isArray(servers)) return invalid('mcp.servers is missing from core/registry/mcp.json');
-    const match = servers.find((entry) => entry?.id === server);
+    const match = servers.find((entry: any) => entry?.id === server);
     if (!match) return invalid(`server '${server}' is not present in core/registry/mcp.json`, 'usage-error');
     if (typeof match.trigger !== 'string' || !match.trigger.trim()) return invalid(`mcp.servers.${server}.trigger is missing`);
     question = { name: kind.id, type: 'yesno', instructions: match.trigger, no: kind.no, yes: kind.yes };
@@ -80,7 +82,7 @@ function materializeKind(kindId, { adviceRegistry, sources = {}, server } = {}) 
   return { ok: true, kind: kind.id, question };
 }
 
-function validateQuestionSet(questionSet, { adviceRegistry } = {}) {
+function validateQuestionSet(questionSet: any, { adviceRegistry }: any = {}): any {
   const limits = adviceRegistry?.limits;
   if (!isObject(limits)) return invalid('limits are missing from core/registry/advice.json');
   if (!isObject(questionSet)) return invalid('question set must be an object (core/registry/advice.json limits.minQuestions)');
@@ -93,7 +95,7 @@ function validateQuestionSet(questionSet, { adviceRegistry } = {}) {
     return invalid(`question count exceeds ${limits.maxQuestions} (core/registry/advice.json limits.maxQuestions)`);
   }
 
-  let namePattern;
+  let namePattern: RegExp;
   try { namePattern = new RegExp(limits.questionName); } catch {
     return invalid('questionName does not compile (core/registry/advice.json limits.questionName)');
   }
@@ -126,7 +128,7 @@ function validateQuestionSet(questionSet, { adviceRegistry } = {}) {
       if (!Array.isArray(question.criteria)) return invalid(`${prefix}.criteria must be an array of criterion strings (core/registry/advice.json limits.minOptions)`);
       const rangeError = checkOptionRange(question.criteria.length, limits, `${prefix}.criteria`);
       if (rangeError) return rangeError;
-      if (question.criteria.some((criterion) => typeof criterion !== 'string' || !criterion.trim())) {
+      if (question.criteria.some((criterion: any) => typeof criterion !== 'string' || !criterion.trim())) {
         return invalid(`${prefix}.criteria must be non-empty strings (core/registry/advice.json limits.minOptions)`);
       }
       if (new Set(question.criteria).size !== question.criteria.length) {
@@ -139,7 +141,7 @@ function validateQuestionSet(questionSet, { adviceRegistry } = {}) {
   return { ok: true, questionSet };
 }
 
-function validateStaticAnswer(question, value) {
+function validateStaticAnswer(question: any, value: any): { ok: boolean; reason?: string; detail?: string } {
   if (value === undefined || value === null) return { ok: true };
   const validOptions = question?.type === 'choice'
     ? Object.keys(question.options || {})

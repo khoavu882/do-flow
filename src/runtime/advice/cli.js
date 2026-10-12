@@ -9,7 +9,7 @@ const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { resolveSetting, writeSetting } = require('./config');
 const { createAdviceClient } = require('./client');
-const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds');
+const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
 const { findPick, appendOutcome } = require('./record');
 const { strengthWords } = require('./strength.ts');
 
