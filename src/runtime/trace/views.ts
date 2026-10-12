@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Read-side views over the run ledger (FR-012): the three inspection views — trajectory,
  * aggregate stats and missed opportunities — plus the helpers they share.
@@ -18,7 +20,7 @@
 const SESSION_GAP_MS = 30 * 60 * 1000;
 
 /** Nearest-rank percentile over an unsorted numeric array. */
-function percentile(values, fraction) {
+function percentile(values: number[], fraction: number): number | null {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const rank = Math.max(1, Math.ceil(fraction * sorted.length));
@@ -32,31 +34,31 @@ function percentile(values, fraction) {
  * @param {number} [options.gapMs=SESSION_GAP_MS]
  * @returns {{grouping: 'session-field'|'idle-gap', sessions: Array<{id: string, startedAt: string|null, endedAt: string|null, records: Object[]}>}}
  */
-function groupSessions(records, { gapMs = SESSION_GAP_MS } = {}) {
+function groupSessions(records: any[], { gapMs = SESSION_GAP_MS } = {}): any {
   if (!records.length) return { grouping: 'idle-gap', sessions: [] };
 
   // An explicit session id is a recorded fact; an idle gap is an inference. Prefer the fact, and
   // only when every record carries one — a half-labelled history would mix the two silently.
   if (records.every((record) => record.session)) {
-    const order = [];
-    const byId = new Map();
+    const order: string[] = [];
+    const byId = new Map<string, any[]>();
     for (const record of records) {
       if (!byId.has(record.session)) { byId.set(record.session, []); order.push(record.session); }
-      byId.get(record.session).push(record);
+      byId.get(record.session)!.push(record);
     }
     return {
       grouping: 'session-field',
       sessions: order.map((id) => ({
         id,
-        startedAt: byId.get(id)[0].timestamp,
-        endedAt: byId.get(id)[byId.get(id).length - 1].timestamp,
-        records: byId.get(id),
+        startedAt: byId.get(id)![0].timestamp,
+        endedAt: byId.get(id)![byId.get(id)!.length - 1].timestamp,
+        records: byId.get(id)!,
       })),
     };
   }
 
-  const sessions = [];
-  let current = null;
+  const sessions: any[] = [];
+  let current: any = null;
   for (const record of records) {
     const previous = current && current.records[current.records.length - 1];
     const contiguous = previous && record.at !== null && previous.at !== null && record.at - previous.at <= gapMs;
@@ -71,7 +73,7 @@ function groupSessions(records, { gapMs = SESSION_GAP_MS } = {}) {
 }
 
 /** The ledger provenance every view carries, so a reader can always tell what was actually read. */
-function ledgerSummary(read) {
+function ledgerSummary(read: any): any {
   return {
     dir: read.dir,
     exists: read.exists,
@@ -85,8 +87,8 @@ function ledgerSummary(read) {
 
 /** How many records carry each optional field. Every view reports this, because the difference
  * between "no missed opportunities" and "no data to look for them in" is exactly this table. */
-function fieldCoverage(records) {
-  const count = (predicate) => records.filter(predicate).length;
+function fieldCoverage(records: any[]): any {
+  const count = (predicate: (r: any) => boolean) => records.filter(predicate).length;
   return {
     capability: count((r) => Boolean(r.capability)),
     provider: count((r) => Boolean(r.provider)),
@@ -106,7 +108,7 @@ function fieldCoverage(records) {
  * @param {number} [options.gapMs]
  * @returns {Object} view model
  */
-function buildTrace(read, { gapMs = SESSION_GAP_MS } = {}) {
+function buildTrace(read: any, { gapMs = SESSION_GAP_MS } = {}): any {
   const ledger = ledgerSummary(read);
   const { grouping, sessions } = groupSessions(read.records, { gapMs });
   if (!sessions.length) {
@@ -124,7 +126,7 @@ function buildTrace(read, { gapMs = SESSION_GAP_MS } = {}) {
   }
 
   const session = sessions[sessions.length - 1];
-  const steps = session.records.map((record, index) => ({
+  const steps = session.records.map((record: any, index: number) => ({
     n: index + 1,
     timestamp: record.timestamp,
     verb: record.verb,
@@ -149,9 +151,9 @@ function buildTrace(read, { gapMs = SESSION_GAP_MS } = {}) {
       startedAt: session.startedAt,
       endedAt: session.endedAt,
       wallDurationMs: start !== null && end !== null ? Math.max(0, end - start) : null,
-      dispatchedMs: steps.reduce((total, step) => total + (step.durationMs ?? 0), 0),
+      dispatchedMs: steps.reduce((total: number, step: any) => total + (step.durationMs ?? 0), 0),
       stepCount: steps.length,
-      failedSteps: steps.filter((step) => step.exitCode !== null && step.exitCode !== 0).length,
+      failedSteps: steps.filter((step: any) => step.exitCode !== null && step.exitCode !== 0).length,
       steps,
     },
   };
@@ -164,13 +166,13 @@ function buildTrace(read, { gapMs = SESSION_GAP_MS } = {}) {
  * @param {Object} read result of `RunLedger#read`
  * @returns {Object} view model
  */
-function buildStats(read) {
-  const records = read.records;
+function buildStats(read: any): any {
+  const records: any[] = read.records;
   const ledger = ledgerSummary(read);
   const durations = records.map((r) => r.durationMs).filter((value) => typeof value === 'number');
 
-  const tally = (keyOf) => {
-    const map = new Map();
+  const tally = (keyOf: (r: any) => any) => {
+    const map = new Map<string, any>();
     for (const record of records) {
       const key = keyOf(record);
       if (!key) continue;
@@ -219,7 +221,7 @@ function buildStats(read) {
     byVerb: tally((r) => r.verb),
     byCapability: tally((r) => r.capability),
     byProvider: tally((r) => r.provider),
-    byDay: tally((r) => (r.timestamp ? r.timestamp.slice(0, 10) : null)).sort((a, b) => a.key.localeCompare(b.key)),
+    byDay: tally((r) => (r.timestamp ? r.timestamp.slice(0, 10) : null)).sort((a: any, b: any) => a.key.localeCompare(b.key)),
     coverage: fieldCoverage(records),
   };
 }
@@ -228,7 +230,7 @@ function buildStats(read) {
 
 /** Capability ids the opportunity analyses reason about, kept in one place so a registry rename
  * shows up as one edit rather than four scattered string literals. */
-const CAPABILITY = Object.freeze({
+const CAPABILITY: Record<string, string> = Object.freeze({
   exactSearch: 'code.exact-search',
   semanticSearch: 'code.semantic-search',
   relationships: 'code.relationships',
@@ -236,7 +238,7 @@ const CAPABILITY = Object.freeze({
   compress: 'command.compress',
 });
 
-const PROVIDER = Object.freeze({
+const PROVIDER: Record<string, string> = Object.freeze({
   semantic: 'semble.search',
   structural: 'graphify.query',
   compressor: 'rtk',
@@ -258,7 +260,7 @@ const FINDING = 'FINDING';
 const CLEAR = 'CLEAR';
 
 /** Health of a provider as this analysis needs it: only `HEALTHY` counts as "was available". */
-function providerAvailable(providerHealth, id) {
+function providerAvailable(providerHealth: any, id: string): boolean | null {
   const entry = providerHealth ? providerHealth[id] : undefined;
   if (!entry) return null; // unknown — not the same as unavailable
   return entry.status === 'HEALTHY';
@@ -279,8 +281,8 @@ function providerAvailable(providerHealth, id) {
  * @param {number} [options.gapMs]
  * @returns {Object} view model
  */
-function buildDiscover(read, { providerHealth = null, gapMs = SESSION_GAP_MS } = {}) {
-  const records = read.records;
+function buildDiscover(read: any, { providerHealth = null, gapMs = SESSION_GAP_MS } = {}): any {
+  const records: any[] = read.records;
   const ledger = ledgerSummary(read);
   const coverage = fieldCoverage(records);
   const { grouping, sessions } = groupSessions(records, { gapMs });
@@ -294,7 +296,7 @@ function buildDiscover(read, { providerHealth = null, gapMs = SESSION_GAP_MS } =
       + 'Capability-level records are written by runtime calls that resolve a capability to a provider.',
   };
 
-  const analyses = [];
+  const analyses: any[] = [];
 
   // 1. A broad search that was really a semantic question.
   analyses.push((() => {
@@ -330,13 +332,13 @@ function buildDiscover(read, { providerHealth = null, gapMs = SESSION_GAP_MS } =
     if (!available) return { ...base, status: NOT_APPLICABLE, detail: `\`${PROVIDER.structural}\` is not answering on this machine, so structural queries were not an available alternative.` };
 
     const offenders = sessions
-      .map((session) => ({
+      .map((session: any) => ({
         id: session.id,
         startedAt: session.startedAt,
-        searches: session.records.filter((r) => r.capability === CAPABILITY.exactSearch).length,
-        structural: session.records.filter((r) => r.capability === CAPABILITY.relationships || r.capability === CAPABILITY.impact).length,
+        searches: session.records.filter((r: any) => r.capability === CAPABILITY.exactSearch).length,
+        structural: session.records.filter((r: any) => r.capability === CAPABILITY.relationships || r.capability === CAPABILITY.impact).length,
       }))
-      .filter((session) => session.searches >= REPEATED_SEARCHES && session.structural === 0);
+      .filter((session: any) => session.searches >= REPEATED_SEARCHES && session.structural === 0);
     if (!offenders.length) return { ...base, status: CLEAR, detail: `no session ran ${REPEATED_SEARCHES}+ exact searches without also querying the code graph.` };
     return {
       ...base,
@@ -360,7 +362,7 @@ function buildDiscover(read, { providerHealth = null, gapMs = SESSION_GAP_MS } =
 
     const bulky = records.filter((r) => (r.outputBytes ?? 0) >= LARGE_OUTPUT_BYTES && r.provider !== PROVIDER.compressor);
     if (!bulky.length) return { ...base, status: CLEAR, detail: `no uncompressed run returned ${LARGE_OUTPUT_BYTES} bytes or more.` };
-    const wasted = bulky.reduce((total, r) => total + r.outputBytes, 0);
+    const wasted = bulky.reduce((total: number, r: any) => total + r.outputBytes, 0);
     return {
       ...base,
       status: FINDING,
@@ -377,14 +379,14 @@ function buildDiscover(read, { providerHealth = null, gapMs = SESSION_GAP_MS } =
     const base = { id: 'retries-without-readiness', title: 'Implementation retries with no readiness check beforehand' };
     if (!records.length) return { ...base, status: NOT_DETERMINED, detail: 'the ledger holds no runs to analyse.' };
     const retrying = sessions
-      .map((session) => ({
+      .map((session: any) => ({
         id: session.id,
         startedAt: session.startedAt,
-        failedVerifications: session.records.filter((r) => r.verb === 'verify' && r.exitCode !== undefined && r.exitCode !== 0).length,
-        recoveries: session.records.filter((r) => r.verb === 'recover').length,
-        readinessCalls: session.records.filter((r) => r.verb === 'readiness').length,
+        failedVerifications: session.records.filter((r: any) => r.verb === 'verify' && r.exitCode !== undefined && r.exitCode !== 0).length,
+        recoveries: session.records.filter((r: any) => r.verb === 'recover').length,
+        readinessCalls: session.records.filter((r: any) => r.verb === 'readiness').length,
       }))
-      .filter((session) => session.failedVerifications >= RETRY_THRESHOLD || session.recoveries >= 1);
+      .filter((session: any) => session.failedVerifications >= RETRY_THRESHOLD || session.recoveries >= 1);
     if (!retrying.length) {
       // The retry signal is a `verify` that FAILED (non-zero exit_code) or a `recover` run. A
       // `verify` record with no exit_code carries neither, and that is the shape the shell
@@ -406,7 +408,7 @@ function buildDiscover(read, { providerHealth = null, gapMs = SESSION_GAP_MS } =
           : 'no `verify` with a recorded exit code and no `recover` run appears in this window, so there is no retry behaviour to judge.',
       };
     }
-    const unguarded = retrying.filter((session) => session.readinessCalls === 0);
+    const unguarded = retrying.filter((session: any) => session.readinessCalls === 0);
     if (!unguarded.length) {
       return {
         ...base,
@@ -428,7 +430,7 @@ function buildDiscover(read, { providerHealth = null, gapMs = SESSION_GAP_MS } =
   const undetermined = analyses.filter((analysis) => analysis.status === NOT_DETERMINED);
 
   // The verdict never claims a clean bill of health over data that could not answer the question.
-  let verdict;
+  let verdict: string;
   if (findings.length) verdict = 'findings';
   else if (undetermined.length === analyses.length) verdict = 'insufficient-data';
   else if (undetermined.length) verdict = 'no-findings-in-the-analyses-that-could-run';

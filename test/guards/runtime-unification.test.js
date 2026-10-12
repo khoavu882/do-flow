@@ -451,9 +451,9 @@ test('G12: no skill reaches the JavaScript runtime except through the dispatcher
 // `state/runs/2026-08-18.jsonl` until something else goes wrong. `sanitizeRunEvent` is the whole
 // defence — a closed field list plus a token pattern that cannot express a path, a URL, a quote or
 // a space. A writer that goes around it does not fail; it just writes.
-const TRACE_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'ledger.js');
+const TRACE_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'ledger.ts');
 const traceText = fs.readFileSync(TRACE_FILE, 'utf8');
-const trace = require('../../src/runtime/trace/ledger');
+const trace = require('../../src/runtime/trace/ledger.ts');
 
 /** Every runtime module (`.js` or `.ts`, excluding `.d.ts`) under src/ and bin/, the two trees
  * that could plausibly hold a second writer. `.ts` is included since the TypeScript migration, so a
@@ -496,7 +496,9 @@ test('G12: the ledger write in trace.js is the one guarded by sanitizeRunEvent (
     `trace.js should perform exactly one filesystem write. Found: ${writes.join(', ') || '(none)'}. `
     + 'More than one means a path into the ledger that this guard has not read.');
 
-  const method = traceText.match(/\n {2}append\(event\) \{([\s\S]*?)\n {2}\}/);
+  // `append(event)` gained a TypeScript annotation in the migration (`append(event: any): any`),
+  // so the signature match allows an optional parameter type and return type.
+  const method = traceText.match(/\n {2}append\(event(?:\s*:[^)]*)?\)(?:\s*:[^{]*)? \{([\s\S]*?)\n {2}\}/);
   assert.ok(method, 'RunLedger#append must be parseable — it is the ledger write path');
   const body = method[1];
   assert.ok(body.includes('appendFileSync'),

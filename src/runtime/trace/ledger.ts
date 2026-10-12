@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -10,7 +12,7 @@ const {
   buildStats,
   buildDiscover,
   PROVIDER,
-} = require('./views');
+} = require('./views.ts');
 const {
   shortTime,
   formatMs,
@@ -18,7 +20,7 @@ const {
   integrityNote,
   printEmptyLedgerNotice,
   DISCOVER_MARK,
-} = require('./render');
+} = require('./render.ts');
 
 /**
  * Task-run telemetry — the JavaScript port of
@@ -47,7 +49,7 @@ const {
  * They price one specific model; a trace naming a different one gets a cost only if the caller
  * supplies its rates, because inventing a price for an unpriced model is inventing a metric.
  */
-const DEFAULT_TOKEN_RATES = Object.freeze({
+const DEFAULT_TOKEN_RATES: Readonly<{ inputPerToken: number; outputPerToken: number }> = Object.freeze({
   inputPerToken: 0.000003,
   outputPerToken: 0.000015,
 });
@@ -58,12 +60,21 @@ const COST_DECIMALS = 6;
  * @param {number} value
  * @returns {number} rounded to six decimals, matching the Python's `round(x, 6)`
  */
-function roundCost(value) {
+function roundCost(value: number): number {
   const factor = 10 ** COST_DECIMALS;
   return Math.round(value * factor) / factor;
 }
 
 class TaskRunTelemetry {
+  taskId: string;
+  agent: string;
+  model: string;
+  rates: { inputPerToken: number; outputPerToken: number } | null;
+  events: any[];
+  clock: () => number;
+  startedAtMs: number;
+  startedAt: string;
+
   /**
    * @param {string} taskId
    * @param {Object|string} [options] a string is accepted for parity with the Python's positional
@@ -73,7 +84,7 @@ class TaskRunTelemetry {
    * @param {{inputPerToken: number, outputPerToken: number}|null} [options.rates]
    * @param {Function} [options.clock] injection seam for tests; returns elapsed milliseconds
    */
-  constructor(taskId, options = {}) {
+  constructor(taskId: string, options: any = {}) {
     const opts = typeof options === 'string' ? { agent: options } : options;
     this.taskId = taskId;
     this.agent = opts.agent || 'codex';
@@ -94,7 +105,7 @@ class TaskRunTelemetry {
    * @param {Object} [details={}]
    * @returns {Object} the recorded event
    */
-  recordEvent(eventType, details = {}) {
+  recordEvent(eventType: string, details: any = {}): any {
     const event = {
       timestamp: new Date().toISOString(),
       type: eventType,
@@ -108,7 +119,7 @@ class TaskRunTelemetry {
    * Milliseconds elapsed since the recorder was constructed.
    * @returns {number}
    */
-  elapsedMs() {
+  elapsedMs(): number {
     return Math.max(0, this.clock() - this.startedAtMs);
   }
 
@@ -119,7 +130,7 @@ class TaskRunTelemetry {
    * @param {number} [outputTokens=0]
    * @returns {Object} trace record
    */
-  exportTrace(success, inputTokens = 0, outputTokens = 0) {
+  exportTrace(success: boolean, inputTokens: number = 0, outputTokens: number = 0): any {
     // Defect fix (2): cost is only reported when rates are known for this run. The default rates
     // reproduce the Python's number exactly; a caller that clears them (`rates: null`) gets `null`
     // rather than a confident figure derived from another model's price list.
@@ -169,7 +180,7 @@ const LEDGER_FILE_RE = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
  * `wire` is the on-disk key: snake_case, matching the five fields `doflow-run` already writes, so
  * one file never mixes two naming conventions.
  */
-const RUN_FIELDS = Object.freeze([
+const RUN_FIELDS: Readonly<Array<{ key: string; wire: string; type: string }>> = Object.freeze([
   { key: 'verb', wire: 'verb', type: 'token' },
   { key: 'kind', wire: 'kind', type: 'token' },
   { key: 'capability', wire: 'capability', type: 'token' },
@@ -204,7 +215,7 @@ const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/;
  * @param {string} configDir an install root, e.g. `<project>/.doflow` or `~/.doflow`
  * @returns {string}
  */
-function runsDir(configDir) {
+function runsDir(configDir: string): string {
   return path.join(configDir, 'state', RUNS_DIRNAME);
 }
 
@@ -223,8 +234,8 @@ function runsDir(configDir) {
  *   subdirectory, so a project with state but no guidance tree falls through to the home install
  * @returns {{dir: string, configDir: string, origin: string, searched: string[]}}
  */
-function resolveRunsLocation({ start, global: forceGlobal = false, env = process.env, homeDir = os.homedir(), fsImpl = fs, containing = '' } = {}) {
-  const searched = [];
+function resolveRunsLocation({ start, global: forceGlobal = false, env = process.env, homeDir = os.homedir(), fsImpl = fs, containing = '' }: any = {}): any {
+  const searched: string[] = [];
   const home = path.resolve(homeDir || '.');
   if (forceGlobal) {
     const configDir = path.join(home, '.doflow');
@@ -263,14 +274,14 @@ function resolveRunsLocation({ start, global: forceGlobal = false, env = process
  *   fields and never carries their values — a rejection report that echoed the value would leak
  *   exactly the content the rejection exists to keep out.
  */
-function sanitizeRunEvent(input, { now = new Date() } = {}) {
+function sanitizeRunEvent(input: any, { now = new Date() } = {}): any {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return { record: null, dropped: [], reason: 'event must be an object' };
   }
   const byKey = new Map(RUN_FIELDS.map((field) => [field.key, field]));
   const byWire = new Map(RUN_FIELDS.map((field) => [field.wire, field]));
-  const record = {};
-  const dropped = [];
+  const record: any = {};
+  const dropped: string[] = [];
 
   const timestamp = typeof input.timestamp === 'string' && ISO_TIMESTAMP.test(input.timestamp)
     ? input.timestamp
@@ -306,9 +317,9 @@ function sanitizeRunEvent(input, { now = new Date() } = {}) {
  * @param {*} raw parsed JSON value
  * @returns {Object|null} null when the line is not a usable record
  */
-function normalizeRunRecord(raw) {
+function normalizeRunRecord(raw: any): any | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const out = { timestamp: typeof raw.timestamp === 'string' ? raw.timestamp : null };
+  const out: any = { timestamp: typeof raw.timestamp === 'string' ? raw.timestamp : null };
   for (const field of RUN_FIELDS) {
     const value = raw[field.wire] !== undefined ? raw[field.wire] : raw[field.key];
     if (value === undefined || value === null) continue;
@@ -326,6 +337,10 @@ function normalizeRunRecord(raw) {
 }
 
 class RunLedger {
+  fsImpl: any;
+  clock: () => Date;
+  dir: string;
+
   /**
    * @param {Object} [options]
    * @param {string} [options.dir] the runs directory; resolved from `configDir`/cwd when omitted
@@ -333,7 +348,7 @@ class RunLedger {
    * @param {Object} [options.fsImpl=fs]
    * @param {Function} [options.clock] returns the current Date; injection seam for tests
    */
-  constructor({ dir, configDir, fsImpl = fs, clock = () => new Date() } = {}) {
+  constructor({ dir, configDir, fsImpl = fs, clock = () => new Date() }: any = {}) {
     this.fsImpl = fsImpl;
     this.clock = clock;
     if (dir) this.dir = path.resolve(dir);
@@ -347,7 +362,7 @@ class RunLedger {
    * @param {Object} event
    * @returns {{written: boolean, file?: string, record?: Object, dropped: string[], reason?: string}}
    */
-  append(event) {
+  append(event: any): any {
     const { record, dropped, reason } = sanitizeRunEvent(event, { now: this.clock() });
     if (!record) return { written: false, dropped, reason };
     try {
@@ -355,7 +370,7 @@ class RunLedger {
       const file = path.join(this.dir, `${record.timestamp.slice(0, 10)}.jsonl`);
       this.fsImpl.appendFileSync(file, `${JSON.stringify(record)}\n`, 'utf8');
       return { written: true, file, record, dropped };
-    } catch (error) {
+    } catch (error: any) {
       return { written: false, record, dropped, reason: error.message };
     }
   }
@@ -368,8 +383,8 @@ class RunLedger {
    * @param {number} [options.days] keep only partitions dated within the last N calendar days
    * @returns {{dir: string, exists: boolean, files: string[], records: Object[], malformedLines: number, unreadableFiles: string[], days: number|null}}
    */
-  read({ days = null } = {}) {
-    const result = {
+  read({ days = null }: any = {}): any {
+    const result: any = {
       dir: this.dir,
       exists: false,
       files: [],
@@ -379,7 +394,7 @@ class RunLedger {
       days: days && days > 0 ? days : null,
     };
 
-    let entries;
+    let entries: string[];
     try {
       entries = this.fsImpl.readdirSync(this.dir);
     } catch {
@@ -387,7 +402,7 @@ class RunLedger {
     }
     result.exists = true;
 
-    let names = entries.filter((name) => LEDGER_FILE_RE.test(name)).sort();
+    let names: string[] = entries.filter((name) => LEDGER_FILE_RE.test(name)).sort();
     if (result.days) {
       // Calendar days, not "the last N files": a quiet week must not silently widen the window.
       const cutoff = new Date(this.clock().getTime() - (result.days - 1) * 24 * 60 * 60 * 1000)
@@ -397,7 +412,7 @@ class RunLedger {
     result.files = names;
 
     for (const name of names) {
-      let text;
+      let text: string;
       try {
         text = this.fsImpl.readFileSync(path.join(this.dir, name), 'utf8');
       } catch {
@@ -406,7 +421,7 @@ class RunLedger {
       }
       for (const line of text.split('\n')) {
         if (line.trim() === '') continue;
-        let parsed;
+        let parsed: any;
         try {
           parsed = JSON.parse(line);
         } catch {
@@ -421,7 +436,7 @@ class RunLedger {
     }
 
     // Undated records sort last rather than being dropped: they still count toward usage.
-    result.records.sort((a, b) => (a.at ?? Number.MAX_SAFE_INTEGER) - (b.at ?? Number.MAX_SAFE_INTEGER));
+    result.records.sort((a: any, b: any) => (a.at ?? Number.MAX_SAFE_INTEGER) - (b.at ?? Number.MAX_SAFE_INTEGER));
     return result;
   }
 }
@@ -440,7 +455,7 @@ class RunLedger {
  * @param {string} [options.projectRoot]
  * @returns {number} process exit code
  */
-function handleTraceCommand({ json = false, days = null, global: useGlobal = false, projectRoot } = {}) {
+function handleTraceCommand({ json = false, days = null, global: useGlobal = false, projectRoot }: any = {}): number {
   const location = resolveRunsLocation({ start: projectRoot, global: useGlobal });
   const view = buildTrace(new RunLedger({ dir: location.dir }).read({ days }));
   view.origin = location.origin;
@@ -488,7 +503,7 @@ function handleTraceCommand({ json = false, days = null, global: useGlobal = fal
  * @param {Object} options
  * @returns {number} process exit code
  */
-function handleStatsCommand({ json = false, days = null, global: useGlobal = false, projectRoot } = {}) {
+function handleStatsCommand({ json = false, days = null, global: useGlobal = false, projectRoot }: any = {}): number {
   const location = resolveRunsLocation({ start: projectRoot, global: useGlobal });
   const view = buildStats(new RunLedger({ dir: location.dir }).read({ days }));
   view.origin = location.origin;
@@ -541,7 +556,7 @@ function handleStatsCommand({ json = false, days = null, global: useGlobal = fal
  * @param {Object} [options.providerHealth] injected for tests; probed from `health.js` otherwise
  * @returns {number} process exit code — 1 when there is a finding to act on
  */
-function handleDiscoverCommand({ json = false, days = null, global: useGlobal = false, projectRoot, providerHealth } = {}) {
+function handleDiscoverCommand({ json = false, days = null, global: useGlobal = false, projectRoot, providerHealth }: any = {}): number {
   const location = resolveRunsLocation({ start: projectRoot, global: useGlobal });
   const read = new RunLedger({ dir: location.dir }).read({ days });
 

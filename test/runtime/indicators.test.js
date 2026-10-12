@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
-const { readRecords, buildIndicators, orchestrationDir } = require('../../src/runtime/trace/indicators');
+const { readRecords, buildIndicators, orchestrationDir } = require('../../src/runtime/trace/indicators.ts');
 
 const MINUTE = 60_000;
 

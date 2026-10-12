@@ -27,8 +27,8 @@ const {
 // `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../runtime/health');
-const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand, resolveRunsLocation } = require('../runtime/trace/ledger');
-const { handleIndicatorsCommand } = require('../runtime/trace/indicators');
+const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand, resolveRunsLocation } = require('../runtime/trace/ledger.ts');
+const { handleIndicatorsCommand } = require('../runtime/trace/indicators.ts');
 // The rest of the verb surface design §4.2 declares. `classify`, `workflow`, `route`, `claim`,
 // `context-pack`, `verify`, `recover` and `scaffold` each have exactly one implementation, in the
 // engine module named on the right; this file only dispatches to them.

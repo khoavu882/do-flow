@@ -218,7 +218,7 @@
       ],
       "writers": [
         "core/shared/scripts/doflow/bin/doflow-run",
-        "src/runtime/trace/ledger.js"
+        "src/runtime/trace/ledger.ts"
       ]
     },
     {
@@ -237,7 +237,7 @@
       ],
       "writers": [
         "core/shared/scripts/doflow/bin/doflow-run",
-        "src/runtime/trace/ledger.js"
+        "src/runtime/trace/ledger.ts"
       ]
     },
     {

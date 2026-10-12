@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * CLI rendering for `doflow trace`/`stats`/`discover` (split out of `trace.js`, plan task H.3).
  *
@@ -10,12 +12,12 @@
 
 /** ISO timestamp to a compact local-independent `MM-DD HH:MM:SS`. Keeps columns narrow without
  * inventing a timezone the record does not carry. */
-function shortTime(timestamp) {
+function shortTime(timestamp: any): string {
   if (typeof timestamp !== 'string' || timestamp.length < 19) return '(undated)';
   return `${timestamp.slice(5, 10)} ${timestamp.slice(11, 19)}`;
 }
 
-function formatMs(value) {
+function formatMs(value: any): string {
   if (typeof value !== 'number') return '-';
   if (value < 1000) return `${value}ms`;
   return `${(value / 1000).toFixed(1)}s`;
@@ -31,7 +33,7 @@ function formatMs(value) {
  * @param {number} code
  * @returns {number}
  */
-function finish(code) {
+function finish(code: number): number {
   process.exitCode = code;
   return code;
 }
@@ -42,22 +44,22 @@ function finish(code) {
  * @param {Object} ledger
  * @returns {string|null}
  */
-function integrityNote(ledger) {
-  const parts = [];
+function integrityNote(ledger: any): string | null {
+  const parts: string[] = [];
   if (ledger.malformedLines) parts.push(`${ledger.malformedLines} unreadable ledger line(s) skipped`);
   if (ledger.unreadableFiles.length) parts.push(`${ledger.unreadableFiles.length} unreadable partition(s): ${ledger.unreadableFiles.join(', ')}`);
   return parts.length ? `Note: ${parts.join('; ')}.` : null;
 }
 
 /** One place that turns a resolved location into the sentence an empty ledger deserves. */
-function printEmptyLedgerNotice(ledger, reason) {
+function printEmptyLedgerNotice(ledger: any, reason: any): void {
   console.log(`  ${reason}`);
   console.log(`  Location: ${ledger.dir}`);
   console.log('  An empty ledger is a normal state for a fresh install. It is not evidence that');
   console.log('  nothing ran, and no conclusion about usage can be drawn from it.');
 }
 
-const DISCOVER_MARK = Object.freeze({
+const DISCOVER_MARK: Record<string, string> = Object.freeze({
   FINDING: '! FINDING',
   CLEAR: '✓ CLEAR',
   NOT_DETERMINED: '? UNKNOWN',

@@ -7,7 +7,7 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadStorageRegistry } = require('./registry');
 const { resolveRoots, readPruneSetting } = require('./roots');
 const engine = require('./engine');
-const { RunLedger } = require('../trace/ledger');
+const { RunLedger } = require('../trace/ledger.ts');
 
 // Load once: a not-due moment only reads the three small markers, never the catalogue again.
 let registry;

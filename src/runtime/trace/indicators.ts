@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Workflow indicators over the orchestration record (feature 033).
  *
@@ -24,16 +26,16 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { formatMs, finish } = require('./render');
+const { formatMs, finish } = require('./render.ts');
 
 const ORCHESTRATION_DIRNAME = 'orchestration';
 
 /** Mirrors resolveRunsLocation's shape, for the sibling state directory this reads. */
-function orchestrationDir(root) {
+function orchestrationDir(root: string): string {
   return path.join(root, '.doflow', 'state', ORCHESTRATION_DIRNAME);
 }
 
-function parseAt(value) {
+function parseAt(value: any): number | null {
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
 }
@@ -41,10 +43,10 @@ function parseAt(value) {
 /** Every record in a directory, plus the names of the ones that did not parse. A file that cannot be
  * read is counted and named rather than skipped: a report that quietly drops what it could not read
  * overstates its own coverage, which is the defect `malformedLines` already guards against for runs. */
-function readRecords(dir, fsImpl = fs) {
+function readRecords(dir: string, fsImpl: any = fs): any {
   if (!fsImpl.existsSync(dir)) return { records: [], unreadable: [], exists: false };
-  const records = [];
-  const unreadable = [];
+  const records: any[] = [];
+  const unreadable: any[] = [];
   for (const name of fsImpl.readdirSync(dir).sort()) {
     if (!name.endsWith('.json')) continue;
     try {
@@ -54,7 +56,7 @@ function readRecords(dir, fsImpl = fs) {
         continue;
       }
       records.push(parsed);
-    } catch (err) {
+    } catch (err: any) {
       unreadable.push({ file: name, reason: err.message });
     }
   }
@@ -63,11 +65,11 @@ function readRecords(dir, fsImpl = fs) {
 
 /** A stage row is "not work done" when the orchestrator backfilled it or imported it rather than
  * executing it. Its duration measures when the record was written, so it is listed but never averaged. */
-function isSynthetic(entry) {
+function isSynthetic(entry: any): boolean {
   return Boolean(entry.backfilled) || (entry.executionStatus && entry.executionStatus !== 'completed');
 }
 
-function median(values) {
+function median(values: number[]): number | null {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -75,11 +77,11 @@ function median(values) {
 }
 
 /** One run's rows, walking history in recorded order with a cursor so no interval is counted twice. */
-function runRows(record) {
+function runRows(record: any): any {
   const history = Array.isArray(record.history) ? record.history : [];
   let cursor = parseAt(record.startedAt);
-  const stages = [];
-  const gates = [];
+  const stages: any[] = [];
+  const gates: any[] = [];
   let reruns = 0;
 
   for (const entry of history) {
@@ -129,13 +131,13 @@ function runRows(record) {
 /** Median elapsed per stage id across runs of one class. Synthetic rows are excluded here and still
  * listed in their run: averaging the moment a file was written into the figure most likely to be
  * quoted would corrupt it. */
-function aggregateStages(runs) {
-  const perStage = new Map();
+function aggregateStages(runs: any[]): any[] {
+  const perStage = new Map<string, number[]>();
   for (const run of runs) {
     for (const row of run.stages) {
       if (row.synthetic || row.elapsedMs === null || !row.stage) continue;
       if (!perStage.has(row.stage)) perStage.set(row.stage, []);
-      perStage.get(row.stage).push(row.elapsedMs);
+      perStage.get(row.stage)!.push(row.elapsedMs);
     }
   }
   return [...perStage.entries()].map(([stage, values]) => ({
@@ -144,14 +146,14 @@ function aggregateStages(runs) {
 }
 
 /** Pure. Reads nothing and writes nothing; takes already-parsed records. */
-function buildIndicators({ records = [], unreadable = [], exists = true } = {}) {
-  const runs = records.map(runRows);
-  const byClass = new Map();
+function buildIndicators({ records = [], unreadable = [], exists = true } = {}): any {
+  const runs = (records as any[]).map(runRows);
+  const byClass = new Map<string, any>();
 
   for (const run of runs) {
     const key = run.taskClass || '(unclassified)';
     if (!byClass.has(key)) byClass.set(key, { taskClass: key, runs: [], stageAggregate: [] });
-    byClass.get(key).runs.push(run);
+    byClass.get(key)!.runs.push(run);
   }
 
   for (const group of byClass.values()) group.stageAggregate = aggregateStages(group.runs);
@@ -174,7 +176,7 @@ function buildIndicators({ records = [], unreadable = [], exists = true } = {}) 
 }
 
 /** One class block: its runs, each run's stage and gate rows, then the class median. */
-function printClass(group) {
+function printClass(group: any): void {
   console.log('─'.repeat(78));
   console.log(`CLASS: ${group.taskClass}   (${group.runs.length} run(s))`);
   for (const run of group.runs) {
@@ -193,7 +195,7 @@ function printClass(group) {
   }
 }
 
-function handleIndicatorsCommand({ json = false, projectRoot = process.cwd() } = {}) {
+function handleIndicatorsCommand({ json = false, projectRoot = process.cwd() } = {}): number {
   const dir = orchestrationDir(projectRoot);
   const read = readRecords(dir);
   const view = buildIndicators(read);
@@ -218,7 +220,7 @@ function handleIndicatorsCommand({ json = false, projectRoot = process.cwd() } =
 
   console.log(`Runs:      ${view.runCount} across ${view.byClass.length} task class(es)`);
   if (view.unreadable.length) {
-    console.log(`Unreadable: ${view.unreadable.length} record(s) — ${view.unreadable.map((u) => u.file).join(', ')}`);
+    console.log(`Unreadable: ${view.unreadable.length} record(s) — ${view.unreadable.map((u: any) => u.file).join(', ')}`);
   }
 
   for (const group of view.byClass) printClass(group);
