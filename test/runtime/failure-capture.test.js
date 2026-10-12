@@ -397,7 +397,8 @@ describe('rotation under concurrency (IC-015)', () => {
   // Each worker loads the module, reports ready and spins until the start file exists, so all of them
   // meet the full live file at the same moment.
   const big = (file) => { fs.writeFileSync(file, ''); fs.truncateSync(file, ROTATE_AT_BYTES); };
-  const worker = (env, id, gate) => new Promise((resolve) => {
+  // `exits[id]` is filled when the worker's process closes, so the parent can notice one that died.
+  const worker = (env, id, gate, exits) => new Promise((resolve) => {
     const child = spawn(process.execPath, ['-e', `
       const fs = require('node:fs');
       const { captureFailure } = require(${JSON.stringify(MODULE)});
@@ -408,8 +409,10 @@ describe('rotation under concurrency (IC-015)', () => {
       process.stdout.write(String(written));
     `], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
+    let err = '';
     child.stdout.on('data', (d) => { out += d; });
-    child.on('close', (code) => resolve({ code, out }));
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('close', (code) => { exits[id] = { code, err }; resolve({ code, out }); });
   });
 
   test('24 processes appending across a rotation lose no line, tear no line and never stop capturing', async () => {
@@ -421,8 +424,24 @@ describe('rotation under concurrency (IC-015)', () => {
     const count = Math.ceil(ROTATE_AT_BYTES / prefillLine.length);
     fs.writeFileSync(path.join(home, 'events.jsonl'), prefillLine.repeat(count));
     const gate = path.join(scratch.dir, `gate-${n++}`);
-    const pending = Promise.all(Array.from({ length: 24 }, (_, i) => worker(env, i, gate)));
-    while (fs.readdirSync(scratch.dir).filter((f) => f.startsWith(path.basename(gate) + '.ready-')).length < 24) await new Promise((r) => setTimeout(r, 20));
+    const exits = {};
+    const pending = Promise.all(Array.from({ length: 24 }, (_, i) => worker(env, i, gate, exits)));
+    // Bounded wait: a worker that exits before reporting ready (its module failed to load) fails the
+    // test at once, naming it and its stderr, instead of hanging the file forever.
+    const deadline = Date.now() + 30000;
+    const ready = () => fs.readdirSync(scratch.dir).filter((f) => f.startsWith(path.basename(gate) + '.ready-'));
+    while (ready().length < 24) {
+      const names = new Set(ready());
+      const dead = Object.keys(exits).find((id) => !names.has(`${path.basename(gate)}.ready-${id}`));
+      if (dead !== undefined || Date.now() > deadline) {
+        fs.writeFileSync(`${gate}.go`, ''); // release any worker still spinning so no process outlives the failure
+        await pending;
+        assert.fail(dead !== undefined
+          ? `worker ${dead} exited (code ${exits[dead].code}) before it was ready; stderr: ${exits[dead].err}`
+          : `only ${ready().length} of 24 workers were ready within 30 s`);
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
     fs.writeFileSync(`${gate}.go`, '');
     const results = await pending;
     assert.ok(results.every((r) => r.code === 0 && r.out === '200'), `every capture was written: ${JSON.stringify(results.filter((r) => r.code !== 0 || r.out !== '200'))}`);
