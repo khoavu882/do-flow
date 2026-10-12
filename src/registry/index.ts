@@ -17,6 +17,11 @@ const REGISTRY_FILES = Object.freeze({
   models: 'models.json',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
+/** The orchestration block's own status vocabulary (074 IC-026): whether a harness exposes a
+ * primitive, kept apart from CAPABILITY_STATUS because "unknown" is a recorded state here, not a gap. */
+const ORCHESTRATION_STATUS = new Set(['supported', 'unsupported', 'unknown']);
+const ORCHESTRATION_OPS = ['spawn', 'wait', 'status', 'cancel', 'resume'];
+const ORCHESTRATION_FALLBACK = new Set(['sequential', 'manual']);
 // 'core' = must be supported/different (never unavailable) on every currently-integrated harness;
 // 'enhanced' = best-effort, wired wherever a harness's native surface allows. Optional field —
 // a policy without one is neither tier, and test/guards/registry.test.js's core-tier check simply
@@ -374,6 +379,39 @@ function validateDispatchTiers(value: any, errors: string[]): void {
   }
 }
 
+/** Validates one harness's `orchestration` block (074 IC-026): the five subagent primitives a
+ * harness exposes (spawn, wait, status, cancel, resume), each with evidence and a re-check
+ * instruction. It reads no other harness and no model name; a value is declared, never inferred. */
+function validateOrchestration(value: any, location: string, errors: string[]): void {
+  if (!object(value)) { issue(errors, location, 'orchestration block is required and must be an object'); return; }
+  for (const op of ORCHESTRATION_OPS) {
+    if (!Object.hasOwn(value, op)) issue(errors, location, `orchestration is missing operation '${op}'`);
+  }
+  for (const op of Object.keys(value)) {
+    if (!ORCHESTRATION_OPS.includes(op)) issue(errors, location, `orchestration has unknown operation '${op}'`);
+  }
+  for (const op of ORCHESTRATION_OPS) {
+    if (!Object.hasOwn(value, op)) continue;
+    const at = `${location} orchestration '${op}'`;
+    const entry = value[op];
+    if (!object(entry)) { issue(errors, at, 'must be an object'); continue; }
+    if (!ORCHESTRATION_STATUS.has(entry.status)) issue(errors, at, 'status must be supported, unsupported, or unknown');
+    if (!Array.isArray(entry.evidence) || entry.evidence.some((item: any) => typeof item !== 'string')) {
+      issue(errors, at, 'evidence must be an array of strings');
+    } else if (entry.evidence.length === 0 && (entry.status === 'supported' || entry.status === 'unsupported')) {
+      issue(errors, at, `evidence must not be empty when status is ${entry.status}`);
+    }
+    if (typeof entry.verification !== 'string' || !entry.verification.trim()) issue(errors, at, 'requires a verification instruction');
+    if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) issue(errors, at, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
+    if (entry.status !== 'supported' && !ORCHESTRATION_FALLBACK.has(entry.fallback)) {
+      issue(errors, at, `requires fallback (sequential or manual) when status is ${entry.status}`);
+    }
+    if (entry.status === 'unknown' && (typeof entry.reason !== 'string' || !entry.reason.trim())) {
+      issue(errors, at, 'requires a reason when status is unknown');
+    }
+  }
+}
+
 function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?: string, fsImpl?: any } = {}): { ok: boolean, errors: string[] } {
   const errors: string[] = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
@@ -412,6 +450,7 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
       if (!/^[a-z][a-z0-9-]*$/.test(capability)) issue(errors, at, `invalid capability '${capability}'`);
       validateCapability(declaration, `${at} capability '${capability}'`, errors);
     }
+    validateOrchestration(harness.orchestration, at, errors);
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl }, errors);
   }
 
@@ -566,7 +605,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
+  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry,
   harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };
