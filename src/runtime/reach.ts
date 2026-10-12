@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Static reach: for each harness the ledger says is installed, can the skills it received find a
  * dispatcher and a runtime? The answer mirrors the lookup order of the skill resolver and of
@@ -21,18 +23,18 @@ const REACH_DISPATCHER_REL = 'scripts/doflow/bin/doflow-run';
 const REACH_RUNTIME_REL = 'runtime/bin/doflow.js';
 
 /** `dir`, then each parent, ending when the parent is the directory itself (`/`, `C:\`). */
-function* ancestors(dir) {
+function* ancestors(dir: string): Generator<string> {
   for (let current = dir; ; current = path.dirname(current)) {
     yield current;
     if (path.dirname(current) === current) return;
   }
 }
 
-function statIs(fsImpl, target, kind) {
+function statIs(fsImpl: any, target: string, kind: string): boolean {
   try { return fsImpl.statSync(target)[kind](); } catch { return false; }
 }
 
-function isExecutableFile(fsImpl, target) {
+function isExecutableFile(fsImpl: any, target: string): boolean {
   if (!statIs(fsImpl, target, 'isFile')) return false;
   try { fsImpl.accessSync(target, fs.constants.X_OK); return true; } catch { return false; }
 }
@@ -45,8 +47,8 @@ function isExecutableFile(fsImpl, target) {
  * @param {Object} [options.fsImpl]
  * @returns {{rows: Array<{harness: string, scope: 'project'|'global', installRoot: string, state: 'REACHED'|'NO-REACH'|'N/A', root?: string, reason?: string, fix?: string}>, unreadable: Array<{scope: string, ledger: string, detail: string}>}}
  */
-function evaluateReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs }) {
-  const real = (target) => { try { return fsImpl.realpathSync(target); } catch { return path.resolve(target); } };
+function evaluateReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs }: { registry: any; projectRoot: string; homeDir?: string; fsImpl?: any }): { rows: any[]; unreadable: any[] } {
+  const real = (target: string): string => { try { return fsImpl.realpathSync(target); } catch { return path.resolve(target); } };
   const start = real(projectRoot);
   const home = real(homeDir);
   const homeDoflow = path.join(home, '.doflow');
@@ -55,14 +57,14 @@ function evaluateReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl =
   // Every ledger on the walk is read, not only the nearest: a removed harness's residue in a
   // subdirectory must not hide the install that encloses it. The walk stops at the home directory,
   // whose own ledger is the global scope; nothing above it is read.
-  const scopes = [];
+  const scopes: any[] = [];
   if (start !== home) {
-    const walk = [];
+    const walk: string[] = [];
     for (const dir of ancestors(start)) {
       if (dir === home) break;
       walk.push(dir);
     }
-    for (const installRoot of walk.filter((dir) => statIs(fsImpl, path.join(dir, '.doflow', 'state'), 'isDirectory'))) {
+    for (const installRoot of walk.filter((dir: string) => statIs(fsImpl, path.join(dir, '.doflow', 'state'), 'isDirectory'))) {
       scopes.push({
         scope: 'project',
         installRoot,
@@ -70,7 +72,7 @@ function evaluateReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl =
         from: start,
         searched: `${path.join(start, '.doflow', REACH_DISPATCHER_REL)} and each directory above it, then ${homeDispatcher}`,
         doflowDirs: [...ancestors(start)].map((dir) => path.join(dir, '.doflow')).concat(homeDoflow),
-        fix: (harness) => `npx @khoavu882/doflow install ${installRoot} -t ${harness}`,
+        fix: (harness: string) => `npx @khoavu882/doflow install ${installRoot} -t ${harness}`,
       });
     }
   }
@@ -81,14 +83,14 @@ function evaluateReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl =
     from: home,
     searched: homeDispatcher,
     doflowDirs: [homeDoflow],
-    fix: (harness) => `npx @khoavu882/doflow install -g -t ${harness}`,
+    fix: (harness: string) => `npx @khoavu882/doflow install -g -t ${harness}`,
   });
 
-  const harnessIds = registry.harnesses.map((harness) => harness.id);
-  const rows = [];
-  const unreadable = [];
-  const seen = new Set();
-  const addRow = (row) => {
+  const harnessIds = registry.harnesses.map((harness: any) => harness.id);
+  const rows: any[] = [];
+  const unreadable: any[] = [];
+  const seen = new Set<string>();
+  const addRow = (row: any): void => {
     // A stale outer ledger that says what a nearer one already said adds nothing.
     const key = JSON.stringify([row.harness, row.scope, row.state, row.root, row.reason]);
     if (seen.has(key)) return;
@@ -97,20 +99,20 @@ function evaluateReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl =
   };
 
   for (const { scope, installRoot, stateDir, from, searched, doflowDirs, fix } of scopes) {
-    let ledger;
+    let ledger: any;
     try {
       ledger = readLedger(stateDir, { fsImpl });
-    } catch (error) {
+    } catch (error: any) {
       unreadable.push({ scope, ledger: stateDir, detail: error.message });
       continue;
     }
     if (!ledger) continue;
 
     const resources = ledger.resources || [];
-    const installed = harnessIds.filter((id) => resources.some((resource) => resource.harness === id));
+    const installed = harnessIds.filter((id: string) => resources.some((resource: any) => resource.harness === id));
     if (!installed.length) continue;
 
-    const root = doflowDirs.find((dir) => isExecutableFile(fsImpl, path.join(dir, REACH_DISPATCHER_REL)));
+    const root = doflowDirs.find((dir: string) => isExecutableFile(fsImpl, path.join(dir, REACH_DISPATCHER_REL)));
     const dispatcher = root && path.join(root, REACH_DISPATCHER_REL);
     const configDir = [...ancestors(from)].map((dir) => path.join(dir, '.doflow')).find((dir) => statIs(fsImpl, dir, 'isDirectory'));
     const runtime = [configDir, homeDoflow].filter(Boolean).some((dir) => statIs(fsImpl, path.join(dir, REACH_RUNTIME_REL), 'isFile'));
@@ -119,7 +121,7 @@ function evaluateReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl =
     const hiddenBy = scope === 'project' && configDir && configDir !== path.join(installRoot, '.doflow') ? configDir : null;
 
     for (const harness of installed) {
-      if (!resources.some((resource) => resource.harness === harness && resource.assetId === 'skills.doflow')) {
+      if (!resources.some((resource: any) => resource.harness === harness && resource.assetId === 'skills.doflow')) {
         addRow({ harness, scope, installRoot, state: 'N/A', reason: `no skills at ${scope} scope` });
       } else if (dispatcher && runtime) {
         addRow({ harness, scope, installRoot, state: 'REACHED', root });
