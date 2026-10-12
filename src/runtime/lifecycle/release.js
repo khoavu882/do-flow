@@ -35,7 +35,7 @@ const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
 const { appendEvents, readFold } = require('./event-store');
-const { deriveStatuses, readGitFacts, behindNote, subjectNames, readMerges, readBranchTips, readHistory } = require('./status');
+const { deriveStatuses, readGitFacts, behindNote, subjectNames, readMerges, readBranchTips, readHistory } = require('./status.ts');
 const { FollowupUsageError, oneLine, channelBy } = require('./followup');
 
 /** The release-tag pattern of IC-020, the one `git-state` filters by. */

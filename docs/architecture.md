@@ -191,7 +191,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | `src/runtime/lifecycle/followup.js`, `goal.js` | The follow-up and goal services; each returns a result object and never prints |
 | `src/runtime/lifecycle/intent-writer.ts` | Creates a new intent for `followup --action promote`, from headings fixed in code |
 | `src/runtime/lifecycle/report-store.js` | The machine-local report body and its masked excerpt |
-| `src/runtime/lifecycle/status.js` | Feature status derived from git and release records, never written |
+| `src/runtime/lifecycle/status.ts` | Feature status derived from git and release records, never written |
 | `src/runtime/lifecycle/overview.js`, `release.js` | `overview`, `init`, `status`; `release` and `merged` |
 | `src/runtime/lifecycle/cli.js` | The `followup`, `lifecycle` and `goal` handlers: flag checks, text output, exit codes |
 | `src/runtime/failure/home.ts`, `classifier.js` | Where the failure home is and whether capture is on; the programming-error classifier |

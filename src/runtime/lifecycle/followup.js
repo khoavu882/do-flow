@@ -21,7 +21,7 @@ const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { SETTLE_AS, withDerivedDone } = require('./fold.ts');
 const { appendEvents, readFold, byFromChannel, randomChars } = require('./event-store');
-const { deriveStatuses } = require('./status');
+const { deriveStatuses } = require('./status.ts');
 const { writeIntent, kebabTitle } = require('./intent-writer.ts');
 const reportStore = require('./report-store');
 

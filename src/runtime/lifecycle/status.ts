@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Feature status deriver (IC-021, DEC-022, DEC-044, DEC-030, DEC-035). A tracked feature is
  * `finished`, `awaiting-release`, `in-progress` or `unknown`, derived on every read from git and the
@@ -33,11 +35,11 @@ const { resolveBashHelper } = require('../../helper/bash-helper.ts');
 const MAX_BUFFER = 256 * 1024 * 1024;
 
 /** Where `do-git-state.sh` is: the shared resolver (package copy first, else the one projected beside the runtime). */
-function resolveGitStateHelper(repoRoot = REPO_ROOT, existsImpl = fs.existsSync) {
+function resolveGitStateHelper(repoRoot: string = REPO_ROOT, existsImpl: (file: string) => boolean = fs.existsSync): string | null {
   return resolveBashHelper('do-git-state.sh', repoRoot, existsImpl);
 }
 
-function git(root, args) {
+function git(root: string, args: string[]): string {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: MAX_BUFFER, stdio: ['ignore', 'pipe', 'ignore'] });
 }
 
@@ -47,7 +49,7 @@ function git(root, args) {
  * @returns {{integration_ref:string|null, feature_prefixes:string[], release_tags:string[], base_tag:string|null}
  *   |{error:string}}
  */
-function readGitFacts(root, runtimeRoot = REPO_ROOT) {
+function readGitFacts(root: string, runtimeRoot: string = REPO_ROOT): any {
   const helper = resolveGitStateHelper(runtimeRoot);
   if (!helper) return { error: 'git-state-helper-missing' };
   try {
@@ -55,20 +57,20 @@ function readGitFacts(root, runtimeRoot = REPO_ROOT) {
     const facts = JSON.parse(out);
     if (facts.error) return { error: facts.error };
     return facts;
-  } catch (error) {
+  } catch (error: any) {
     return { error: error.code === 'ENOENT' ? 'bash-not-found' : 'git-state-failed' };
   }
 }
 
-function escapeRegExp(text) { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function escapeRegExp(text: string): string { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /** The slug appears in the subject bounded by its ends or by characters outside `[a-z0-9-]`. */
-function subjectNames(subject, slug) {
+function subjectNames(subject: string, slug: string): boolean {
   return new RegExp(`(?:^|[^a-z0-9-])${escapeRegExp(slug)}(?:$|[^a-z0-9-])`).test(subject);
 }
 
 /** First-parent merges of `ref`, oldest first. */
-function readMerges(root, ref) {
+function readMerges(root: string, ref: string): Array<{ sha: string; parents: string[]; ct: number; subject: string }> {
   const out = git(root, ['log', '--first-parent', '--merges', '--format=%H%x09%P%x09%ct%x09%s', ref]);
   return out.split('\n').filter(Boolean).map((line) => {
     const [sha, parents, ct, ...subject] = line.split('\t');
@@ -77,9 +79,9 @@ function readMerges(root, ref) {
 }
 
 /** Branch refs by short name (`feat/x`, `origin/feat/x`) with their tips; local branches first. */
-function readBranchTips(root) {
+function readBranchTips(root: string): Array<{ short: string; local: string; sha: string }> {
   const out = git(root, ['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/heads', 'refs/remotes']);
-  const tips = [];
+  const tips: Array<{ short: string; local: string; sha: string }> = [];
   for (const line of out.split('\n').filter(Boolean)) {
     const [refname, sha] = line.split('\t');
     if (refname.startsWith('refs/heads/')) tips.push({ short: refname.slice('refs/heads/'.length), local: refname.slice('refs/heads/'.length), sha });
@@ -92,7 +94,7 @@ function readBranchTips(root) {
 }
 
 /** The commit a tag names, peeled through any number of tag objects, or null when it is no commit. */
-function peelTag(root, refname) {
+function peelTag(root: string, refname: string): string | null {
   try { return git(root, ['rev-parse', '--verify', '--quiet', `${refname}^{commit}`]).trim() || null; } catch { return null; }
 }
 
@@ -101,14 +103,14 @@ function peelTag(root, refname) {
  * `tag.sort`, as `git tag --contains` did), so the first containing tag is the one it would name.
  * @returns {Array<{name:string, commit:string|null}>}
  */
-function readTagCommits(root, wanted) {
+function readTagCommits(root: string, wanted: Set<string>): Array<{ name: string; commit: string | null }> {
   const out = git(root, ['tag', '--list', 'v*', '--format=%(refname)%09%(objecttype)%09%(objectname)%09%(*objecttype)%09%(*objectname)']);
-  const tags = [];
+  const tags: Array<{ name: string; commit: string | null }> = [];
   for (const line of out.split('\n').filter(Boolean)) {
     const [refname, type, object, peeledType, peeled] = line.split('\t');
     const name = refname.slice('refs/tags/'.length);
     if (!wanted.has(name)) continue;
-    let commit = null;
+    let commit: string | null = null;
     if (type === 'commit') commit = object;
     else if (type === 'tag' && peeledType === 'commit') commit = peeled;
     else if (type === 'tag') commit = peelTag(root, refname); // a tag of a tag: rare, one call each
@@ -132,53 +134,53 @@ function readTagCommits(root, wanted) {
  * @param {string} pinned a full commit sha
  * @param {string[]} [revs] further full commit shas whose history is read too
  */
-function readHistory(root, pinned, revs = []) {
+function readHistory(root: string, pinned: string, revs: string[] = []): { introducer: (sha: string) => string | undefined; isAncestor: (a: string, b: string) => boolean } {
   const input = `${[pinned, ...revs].join('\n')}\n`;
   const out = execFileSync('git', ['rev-list', '--parents', '--topo-order', '--stdin'], { cwd: root, input, encoding: 'utf8', maxBuffer: MAX_BUFFER, stdio: ['pipe', 'pipe', 'ignore'] });
-  const parents = new Map();
-  const order = [];
+  const parents = new Map<string, string[]>();
+  const order: string[] = [];
   for (const line of out.split('\n')) {
     if (!line) continue;
     const [sha, ...rest] = line.split(' ');
     parents.set(sha, rest);
     order.push(sha);
   }
-  const chain = [];
-  for (let sha = pinned; parents.has(sha); sha = parents.get(sha)[0]) chain.push(sha);
+  const chain: string[] = [];
+  for (let sha = pinned; parents.has(sha); sha = (parents.get(sha) as string[])[0]) chain.push(sha);
   chain.reverse();
-  const chainIndex = new Map(chain.map((sha, i) => [sha, i]));
+  const chainIndex = new Map<string, number>(chain.map((sha, i): [string, number] => [sha, i]));
 
-  const introducer = new Map();
+  const introducer = new Map<string, string>();
   for (const head of chain) {
-    const stack = [head];
+    const stack: string[] = [head];
     while (stack.length) {
-      const sha = stack.pop();
+      const sha = stack.pop() as string;
       if (introducer.has(sha) || !parents.has(sha)) continue;
       introducer.set(sha, head);
-      stack.push(...parents.get(sha));
+      stack.push(...(parents.get(sha) as string[]));
     }
   }
 
   // --topo-order lists no parent before its children, so walking it backwards meets parents first.
-  const chainMax = new Map();
+  const chainMax = new Map<string, number>();
   for (let i = order.length - 1; i >= 0; i -= 1) {
     const sha = order[i];
-    let max = chainIndex.has(sha) ? chainIndex.get(sha) : -1;
-    if (max === -1) for (const parent of parents.get(sha)) max = Math.max(max, chainMax.get(parent) ?? -1);
+    let max: number = chainIndex.has(sha) ? (chainIndex.get(sha) as number) : -1;
+    if (max === -1) for (const parent of parents.get(sha) as string[]) max = Math.max(max, chainMax.get(parent) ?? -1);
     chainMax.set(sha, max);
   }
 
-  const reached = new Map();
-  function ancestorsOf(sha) {
+  const reached = new Map<string, Set<string>>();
+  function ancestorsOf(sha: string): Set<string> {
     let seen = reached.get(sha);
     if (seen) return seen;
-    seen = new Set();
-    const stack = [sha];
+    seen = new Set<string>();
+    const stack: string[] = [sha];
     while (stack.length) {
-      const next = stack.pop();
+      const next = stack.pop() as string;
       if (seen.has(next) || !parents.has(next)) continue;
       seen.add(next);
-      stack.push(...parents.get(next));
+      stack.push(...(parents.get(next) as string[]));
     }
     reached.set(sha, seen);
     return seen;
@@ -186,9 +188,9 @@ function readHistory(root, pinned, revs = []) {
 
   return {
     /** The chain commit that brought `sha` into `pinned`'s history, or undefined when it is not in it. */
-    introducer: (sha) => introducer.get(sha),
+    introducer: (sha: string) => introducer.get(sha),
     /** `a` is `b` or an ancestor of it; `a` must be in the read. */
-    isAncestor(a, b) {
+    isAncestor(a: string, b: string): boolean {
       const index = chainIndex.get(a);
       if (index !== undefined) return index <= (chainMax.get(b) ?? -1);
       return ancestorsOf(b).has(a);
@@ -203,17 +205,17 @@ function readHistory(root, pinned, revs = []) {
  * (a fast-forward, or a branch with no commits of its own) is its own introducer, so it never counts;
  * a tip the merge holds but its first parent does not came in on a non-first parent.
  */
-function introducingMerge(history, mergeBySha, tip, lowerBound) {
+function introducingMerge(history: () => any, mergeBySha: Map<string, any>, tip: string, lowerBound: number): any {
   const merge = mergeBySha.get(history().introducer(tip));
   if (!merge || merge.sha === tip || merge.ct < lowerBound) return null;
   return merge;
 }
 
 /** Evidence of a merge of `slug` into the pinned ref, tried in IC-021's order, or null. */
-function findEvidence({ slug, lowerBound, merges, mergeBySha, newestCt, history, tips, prefixes, confirmed }) {
-  const branchNames = new Set(prefixes.map((prefix) => `${prefix}/${slug}`));
+function findEvidence({ slug, lowerBound, merges, mergeBySha, newestCt, history, tips, prefixes, confirmed }: any): { kind: string; ref: string | null; commit: string | null } | null {
+  const branchNames = new Set(prefixes.map((prefix: string) => `${prefix}/${slug}`));
   // No merge is recent enough for this feature: no branch can have one, so the graph need not be read for it.
-  const branchTips = newestCt < lowerBound ? [] : tips.filter((t) => branchNames.has(t.local));
+  const branchTips = newestCt < lowerBound ? [] : tips.filter((t: any) => branchNames.has(t.local));
   for (const tip of branchTips) {
     const merge = introducingMerge(history, mergeBySha, tip.sha, lowerBound);
     if (merge) return { kind: 'branch', ref: tip.short, commit: merge.sha };
@@ -226,8 +228,8 @@ function findEvidence({ slug, lowerBound, merges, mergeBySha, newestCt, history,
 }
 
 /** A value computed on first use, so a call that needs no graph never reads one. */
-function lazy(make) {
-  let value;
+function lazy<T>(make: () => T): () => T {
+  let value: T;
   let made = false;
   return () => {
     if (!made) { value = make(); made = true; }
@@ -235,12 +237,12 @@ function lazy(make) {
   };
 }
 
-const BUCKET = { finished: 'finished', 'awaiting-release': 'awaitingRelease', 'in-progress': 'inProgress', unknown: 'unknown' };
+const BUCKET: Record<string, string> = { finished: 'finished', 'awaiting-release': 'awaitingRelease', 'in-progress': 'inProgress', unknown: 'unknown' };
 
-function emptyBuckets() { return { finished: [], awaitingRelease: [], inProgress: [], unknown: [] }; }
+function emptyBuckets(): Record<string, string[]> { return { finished: [], awaitingRelease: [], inProgress: [], unknown: [] }; }
 
 /** Slugs grouped in the four buckets IC-007 and IC-022 show. */
-function bucketize(statuses, slugs = Object.keys(statuses)) {
+function bucketize(statuses: any, slugs: string[] = Object.keys(statuses)): Record<string, string[]> {
   const buckets = emptyBuckets();
   for (const slug of slugs) {
     const entry = statuses[slug];
@@ -249,12 +251,12 @@ function bucketize(statuses, slugs = Object.keys(statuses)) {
   return buckets;
 }
 
-function result(releaseMode, integrationRef, reason, statuses, notDetected = [], behind = 0) {
+function result(releaseMode: string, integrationRef: string | null, reason: string | null, statuses: any, notDetected: string[] = [], behind: number = 0): any {
   return { releaseMode, integrationRef, integrationBehind: behind, reason, statuses, features: bucketize(statuses), notDetected };
 }
 
 /** The one-line note a stale local integration branch earns (DEC-044), or null. */
-function behindNote(ref, behind) {
+function behindNote(ref: string, behind: number): string | null {
   return behind > 0
     ? `local ${ref} is ${behind} commit${behind === 1 ? '' : 's'} behind origin/${ref}; a merge that exists only on origin is not seen until you pull`
     : null;
@@ -275,10 +277,10 @@ function behindNote(ref, behind) {
  *   failure?:string (git, or the git-facts helper, failed while deriving: `git-state-failed`, `bash-not-found`,
  *   `git-state-helper-missing`; an environment fault, so every status is `unknown`)}}
  */
-function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
+function deriveStatuses({ root, fold, facts = readGitFacts(root) }: { root: string; fold: any; facts?: any }): any {
   const tracked = fold.features;
-  const unknown = (reason) => result('unknown', facts.integration_ref ?? null, reason,
-    Object.fromEntries(tracked.map((f) => [f.slug, { status: 'unknown', evidence: null, release: null }])));
+  const unknown = (reason: string) => result('unknown', facts.integration_ref ?? null, reason,
+    Object.fromEntries(tracked.map((f: any) => [f.slug, { status: 'unknown', evidence: null, release: null }])));
   if (facts.error) return { ...unknown(`git facts unavailable: ${facts.error}`), failure: facts.error };
   if (!facts.integration_ref) return unknown('no integration ref resolves (develop, main, master, origin/HEAD)');
 
@@ -295,21 +297,21 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
     // Pin the ref once: every query below names the same commit.
     const pinned = git(root, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
     const merges = readMerges(root, pinned);
-    const mergeBySha = new Map(merges.map((m) => [m.sha, m]));
+    const mergeBySha = new Map(merges.map((m): [string, any] => [m.sha, m]));
     const newestCt = merges.reduce((max, m) => Math.max(max, m.ct), -Infinity);
     const tips = readBranchTips(root);
-    const mergedSlugs = new Set(fold.merged.map((m) => m.slug));
-    const recorded = new Map();
+    const mergedSlugs = new Set<string>(fold.merged.map((m: any) => m.slug));
+    const recorded = new Map<string, string>();
     for (const release of fold.releases) for (const f of release.features) if (!recorded.has(f.slug)) recorded.set(f.slug, release.tag);
-    const recordedTags = new Set(fold.releases.map((r) => r.tag));
-    const unrecordedTags = new Set(facts.release_tags.filter((tag) => !recordedTags.has(tag)));
+    const recordedTags = new Set(fold.releases.map((r: any) => r.tag));
+    const unrecordedTags = new Set<string>(facts.release_tags.filter((tag: string) => !recordedTags.has(tag)));
     // Only a tag with no release record can finish a feature by containment (DEC-030), so only those are read.
     const tags = lazy(() => (releaseMode === 'tagged' && unrecordedTags.size > 0 ? readTagCommits(root, unrecordedTags) : []));
-    const history = lazy(() => readHistory(root, pinned, tags().map((t) => t.commit).filter(Boolean)));
+    const history = lazy(() => readHistory(root, pinned, tags().map((t) => t.commit).filter(Boolean) as string[]));
 
-    const statuses = {};
-    const evidenceCommits = {};
-    const notDetected = [];
+    const statuses: Record<string, any> = {};
+    const evidenceCommits: Record<string, string | null> = {};
+    const notDetected: string[] = [];
     for (const feature of tracked) {
       const lowerBound = Math.floor(Date.parse(feature.trackedAt) / 1000);
       const evidence = findEvidence({
@@ -317,20 +319,20 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
       });
       const shown = evidence && { kind: evidence.kind, ref: evidence.ref };
       evidenceCommits[feature.slug] = evidence ? evidence.commit : null;
-      let status;
-      let release = null;
+      let status: string;
+      let release: string | null = null;
       if (releaseMode === 'untagged') {
         status = evidence ? 'finished' : 'in-progress';
       } else if (recorded.has(feature.slug)) {
         // A record finishes the feature by itself: no containment is looked for.
         status = 'finished';
-        release = recorded.get(feature.slug);
+        release = recorded.get(feature.slug) as string;
       } else {
         // DEC-030: a merge inside a `v*` tag that has no release record also finishes the feature. A
         // tag with a record uses only that record, and a feature excluded from it is already outside it.
         // The evidence commit is a first-parent merge of the pinned ref, so it is in the graph read.
         const containing = evidence && evidence.commit && unrecordedTags.size > 0
-          ? tags().filter((t) => t.commit && history().isAncestor(evidence.commit, t.commit)).map((t) => t.name)
+          ? tags().filter((t) => t.commit && history().isAncestor(evidence.commit as string, t.commit as string)).map((t) => t.name)
           : [];
         if (containing.length > 0) { status = 'finished'; release = containing[0]; }
         else status = evidence ? 'awaiting-release' : 'in-progress';
@@ -341,7 +343,7 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
     // `integrationSha` and `evidenceCommits` are for the release preview, which must use the very commit
     // pinned here (DEC-044) and the full merge commit an evidence names, not its 7-character `ref`.
     return { ...result(releaseMode, ref, null, statuses, notDetected, behind), integrationSha: pinned, evidenceCommits };
-  } catch (error) {
+  } catch (error: any) {
     // A git failure is an environment fault, not a DoFlow defect: it is reported, never thrown.
     // `failure` tells a caller git itself failed, which it reports (overview) or refuses on (release, merged).
     return { ...unknown(`git could not answer (git-state-failed): ${String(error.message).split('\n')[0]}`), failure: 'git-state-failed' };
