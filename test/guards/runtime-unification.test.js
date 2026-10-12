@@ -686,7 +686,7 @@ test('G12: every discover analysis declares which ledger fields its verdict rest
 // which is the moment the system is least able to absorb a second problem.
 test('G12: every failureClass in verification.json is a declared recovery class (FR-010)', () => {
   const { parseYamlFile } = require('../../src/runtime/capability-router');
-  const { FAILURE_CLASSES } = require('../../src/runtime/recovery');
+  const { FAILURE_CLASSES } = require('../../src/runtime/recovery.ts');
   const doc = parseYamlFile(path.join(REPO, 'core', 'registry', 'verification.json'), fs);
 
   assert.ok(Array.isArray(doc.tiers) && doc.tiers.length > 0, 'verification.json must declare tiers');

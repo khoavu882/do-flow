@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Failure classifier and bounded recovery planner — the JavaScript port of
  * `core/shared/scripts/doflow/recovery/recovery_manager.py` (plan task B.3, component C8).
@@ -21,7 +23,7 @@
 const { finishRuntime, usageError } = require('./cli-result.ts');
 
 /** The eleven classes, in the order the Python declared them. */
-const FAILURE_CLASSES = Object.freeze([
+const FAILURE_CLASSES: readonly string[] = Object.freeze([
   'CONTEXT_MISSING',
   'WRONG_IMPLEMENTATION',
   'TEST_FAILURE',
@@ -38,9 +40,9 @@ const FAILURE_CLASSES = Object.freeze([
 const DEFAULT_MAX_ITERATIONS = 3;
 
 /** Check-name fragments that identify a build-stage failure regardless of the error text. */
-const BUILD_CHECK_MARKERS = Object.freeze(['syntax', 'compile', 'build']);
+const BUILD_CHECK_MARKERS: readonly string[] = Object.freeze(['syntax', 'compile', 'build']);
 /** Check-name fragments that identify a test-stage failure. */
-const TEST_CHECK_MARKERS = Object.freeze(['test', 'unit']);
+const TEST_CHECK_MARKERS: readonly string[] = Object.freeze(['test', 'unit']);
 
 /**
  * Per-class recovery strategy — **one entry per class, all eleven** (plan task C.2).
@@ -66,7 +68,7 @@ const TEST_CHECK_MARKERS = Object.freeze(['test', 'unit']);
  * already been spent (its `current_iteration >= 2`). `terminal` is new and means the class is not
  * retryable at any iteration.
  */
-const STRATEGY_MAP = Object.freeze({
+const STRATEGY_MAP: Readonly<Record<string, any>> = Object.freeze({
   CONTEXT_MISSING: { action: 'RETRIEVE_MORE_CONTEXT', targetRole: 'SCOUT', switchAtIteration: null },
   WRONG_IMPLEMENTATION: { action: 'REVISE_IMPLEMENTATION', targetRole: 'IMPLEMENTER', switchAtIteration: 2 },
   TEST_FAILURE: { action: 'TARGETED_DEBUGGER_FIX', targetRole: 'DEBUGGER', switchAtIteration: 2 },
@@ -84,7 +86,7 @@ const STRATEGY_MAP = Object.freeze({
 });
 
 /** Reachable only for a class string outside the eleven — see the note on STRATEGY_MAP. */
-const GENERIC_STRATEGY = Object.freeze({
+const GENERIC_STRATEGY: Readonly<Record<string, any>> = Object.freeze({
   action: 'GENERIC_DEBUGGER_FIX',
   targetRole: 'DEBUGGER',
   switchAtIteration: 2,
@@ -94,21 +96,23 @@ const GENERIC_STRATEGY = Object.freeze({
  * @param {*} value
  * @returns {Array<string>} only the string members, lowercased
  */
-function normalizeCheckNames(value) {
+function normalizeCheckNames(value: any): string[] {
   // Defect fix (2a): the Python accepted `failed_checks` unvalidated. Handed a plain string it
   // iterated characters, so every single-letter "check" was tested for "syntax" and none matched —
   // a build failure silently classified as WRONG_IMPLEMENTATION.
   if (!Array.isArray(value)) return [];
-  return value.filter((v) => typeof v === 'string').map((v) => v.toLowerCase());
+  return value.filter((v: any) => typeof v === 'string').map((v: string) => v.toLowerCase());
 }
 
 class RecoveryManager {
+  maxIterations: number;
+
   /**
    * @param {Object|number} [options] a number is accepted for parity with the Python's positional
    *   `max_iterations` argument
    * @param {number} [options.maxIterations=3]
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     const opts = typeof options === 'number' ? { maxIterations: options } : options;
     this.maxIterations = opts.maxIterations || DEFAULT_MAX_ITERATIONS;
   }
@@ -122,13 +126,13 @@ class RecoveryManager {
    * @param {Array<string>} [failedChecks=[]]
    * @returns {string} one of FAILURE_CLASSES
    */
-  classifyFailure(errorMessage, failedChecks = []) {
+  classifyFailure(errorMessage: any, failedChecks: any = []): string {
     const checks = normalizeCheckNames(failedChecks);
     // Defect fix (2b): `None.lower()` raised. A classifier handed no message should return
     // UNKNOWN_FAILURE, not abort the recovery path that exists to handle failures.
     const msg = typeof errorMessage === 'string' ? errorMessage.toLowerCase() : '';
 
-    const anyCheck = (markers) => checks.some((chk) => markers.some((m) => chk.includes(m)));
+    const anyCheck = (markers: readonly string[]) => checks.some((chk) => markers.some((m) => chk.includes(m)));
 
     if (anyCheck(BUILD_CHECK_MARKERS) || msg.includes('build error')) {
       return 'BUILD_FAILURE';
@@ -170,7 +174,7 @@ class RecoveryManager {
    * @param {string} [lastAgent='codex']
    * @returns {{ iteration: number, failureClass: string, action: string, targetRole: string|null, agent: string, canRetry: boolean, reason?: string }}
    */
-  planRecovery(failureClass, currentIteration, lastAgent = 'codex') {
+  planRecovery(failureClass: string, currentIteration: number, lastAgent: string = 'codex'): { iteration: number; failureClass: string; action: string; targetRole: string | null; agent: string; canRetry: boolean; reason?: string } {
     // A negative or non-numeric iteration is caller nonsense; clamping keeps it from reading as
     // "before the first attempt" and skipping the agent switch that iteration 0 is supposed to get.
     const iteration = Number.isFinite(currentIteration) ? Math.max(0, Math.trunc(currentIteration)) : 0;
@@ -244,7 +248,7 @@ class RecoveryManager {
  * @param {boolean} [options.json=false]
  * @returns {number} exit code
  */
-function handleRecoverCommand({ errorMessage, failedChecks = [], iteration = 0, agent, json = false } = {}) {
+function handleRecoverCommand({ errorMessage, failedChecks = [], iteration = 0, agent, json = false }: any = {}): number {
   // Handed nothing, the classifier answers UNKNOWN_FAILURE — a confident-looking verdict about a
   // failure it never saw. Refuse instead.
   if ((typeof errorMessage !== 'string' || errorMessage.trim() === '') && failedChecks.length === 0) {
@@ -254,7 +258,7 @@ function handleRecoverCommand({ errorMessage, failedChecks = [], iteration = 0, 
   const failureClass = manager.classifyFailure(errorMessage, failedChecks);
   const plan = manager.planRecovery(failureClass, iteration, agent || undefined);
 
-  if (json) console.log(JSON.stringify({ failureClass, failedChecks, ...plan }, null, 2));
+  if (json) console.log(JSON.stringify({ failureClass, failedChecks, ...(plan as any) }, null, 2));
   else {
     console.log(`\nDoFlow Recovery [${plan.failureClass}]:`);
     console.log('═'.repeat(78));
