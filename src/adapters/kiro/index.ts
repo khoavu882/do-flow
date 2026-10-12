@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Kiro adapter.
 //
 // Kiro's native root is symmetric across scopes — `.kiro/` (project) / `~/.kiro/` (global) is the
@@ -39,13 +41,13 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
   // Parity note: Kiro's historical nativePaths() derived even its user-scope root from scopeRoot
   // (the CLI passes $HOME there for -g installs), never from a separate homeDir argument — so the
   // resolver is fed no homeDir and "root" keeps resolving exactly as before.
-  function nativePaths({ scope, scopeRoot } = {}) {
+  function nativePaths({ scope, scopeRoot }: any = {}) {
     return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
   }
 
   /** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,
    * and reports the servers DoFlow owns in Kiro's mcp.json now (`mcpOwned`). */
-  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, fsImpl = fs }) {
+  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
     const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
@@ -63,7 +65,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
    * `kiro-agents`, so nothing reaches this function. It is kept as a pure passthrough only to
    * satisfy the six-function adapter contract every harness must implement identically.
    */
-  function render({ content = '' } = {}) {
+  function render({ content = '' }: any = {}) {
     return String(content);
   }
 
@@ -82,11 +84,11 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
    * `kiro-agent-json` layout and `kiro-agents` transform: kiro-cli discovers agents as
    * `.kiro/agents/<name>.json`, so each shared `<name>.md` spec is rendered, not mirrored.
    */
-  function kiroTreeAssets(assets) {
-    return [...copyTreeAssets(assets), ...(assets || []).filter((asset) => asset.renderer === 'kiro-agents')];
+  function kiroTreeAssets(assets: any) {
+    return [...copyTreeAssets(assets), ...(assets || []).filter((asset: any) => asset.renderer === 'kiro-agents')];
   }
 
-  function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
+  function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const changes = [];
     const conflicts = [];
@@ -103,10 +105,10 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
       treeResults.push(result);
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
       // ownership row is released.
-      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
+      notices.push(...result.kept.map((item: any) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -122,7 +124,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
-  function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
+  function applyCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
     let applied = 0;
     const grouped = new Map();
     for (const change of changes) {
@@ -137,13 +139,13 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     return applied;
   }
 
-  function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-    const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
-      .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
+  function removeCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
+    const treeChanges = changes.filter((change: any) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
+      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges, fsImpl }).removed;
   }
 
-  function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }) {
+  function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const statuses = [];
     const resources = [];
@@ -152,7 +154,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
       const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform });
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
           assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${resource.relPath}`,
@@ -175,15 +177,15 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
    * registry (core/registry/mcp.json) only ever declares stdio servers today, so only the fields it
    * actually carries are emitted — this never invents a field the registry doesn't supply.
    */
-  function buildServerEntry(server) {
+  function buildServerEntry(server: any) {
     if (server.url) return { url: server.url, ...(server.headers ? { headers: server.headers } : {}) };
     return { command: server.command, ...(server.args?.length ? { args: server.args } : {}) };
   }
 
-  function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
+  function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
-  function mcpOwnRows(ledger) {
-    return (ledger?.resources || []).filter((row) => row.harness === HARNESS).flatMap((row) => {
+  function mcpOwnRows(ledger: any) {
+    return (ledger?.resources || []).filter((row: any) => row.harness === HARNESS).flatMap((row: any) => {
       if (row.kind === 'mcp-server') {
         return [{ identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false }];
       }
@@ -194,13 +196,13 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
   }
 
   /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
-  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }) {
-    const rendered = (servers) => servers.map((server) => ({ id: server.id, entry: buildServerEntry(server) }));
+  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }: any) {
+    const rendered = (servers: any) => servers.map((server: any) => ({ id: server.id, entry: buildServerEntry(server) }));
     return {
       file: paths.mcp, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
       ownRows: mcpOwnRows(ledger),
-      foreignRows: (ledger?.resources || []).filter((row) => row.kind === 'mcp-server' && row.harness !== HARNESS)
-        .map((row) => ({ harness: row.harness, identity: row.identity, target: row.target })),
+      foreignRows: (ledger?.resources || []).filter((row: any) => row.kind === 'mcp-server' && row.harness !== HARNESS)
+        .map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
       identityFor: ownershipIdentity, assetId: pseudoAssetId(assets), renderer: MCP_RENDERER, label: 'Kiro MCP',
     };
   }
@@ -209,8 +211,8 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
    * core/registry/mcp.json, not an asset), so an MCP entry change piggybacks on an asset id
    * this harness actually receives — the same "pseudo-component" technique
    * src/adapters/gemini/index.js#hooksAssetId already uses for its own settings-only component. */
-  function pseudoAssetId(assets) {
-    return assets.find((asset) => asset.id === 'guidance.context-layer')?.id ?? assets[0]?.id;
+  function pseudoAssetId(assets: any) {
+    return assets.find((asset: any) => asset.id === 'guidance.context-layer')?.id ?? assets[0]?.id;
   }
 
   // ---- shared adapter contract ----
@@ -224,11 +226,11 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
    * `assets` array; per-file installed status for the hooks tree itself is reported through
    * `copyTree.statuses`/`copyTree.resources`, exactly like it is for skills and agents.
    */
-  function hooksSurface(paths) {
+  function hooksSurface(paths: any) {
     return { status: 'supported', target: paths.hooks };
   }
 
-  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }) {
+  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
     const found = discovery || discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, fsImpl });
     const changes = [];
     const conflicts = [];
@@ -251,12 +253,12 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
         skills: { status: 'supported', target: found.paths.skills },
         agents: { status: 'supported', target: found.paths.agents },
         hooks: hooksSurface(found.paths),
-        mcp: { status: found.mcpSnapshot[found.paths.mcp].ok ? 'supported' : 'blocked', target: found.paths.mcp, selected: mcp.map((item) => item.id) },
+        mcp: { status: found.mcpSnapshot[found.paths.mcp].ok ? 'supported' : 'blocked', target: found.paths.mcp, selected: mcp.map((item: any) => item.id) },
       },
     };
   }
 
-  function apply({ changes = [], fsImpl = fs }) {
+  function apply({ changes = [], fsImpl = fs }: any) {
     writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
     applyCopyTreeAssets(changes, { fsImpl });
     // An update that no longer ships a copy-tree file carries its rows as removals inside the
@@ -264,12 +266,12 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     removeCopyTreeAssets(changes, { fsImpl });
   }
 
-  function remove({ changes = [], fsImpl = fs }) {
+  function remove({ changes = [], fsImpl = fs }: any) {
     writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
     removeCopyTreeAssets(changes, { fsImpl });
   }
 
-  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }) {
+  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const resources = [];
     const conflicts = [];

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createKiroAdapter, nativePaths } = require('../../../src/adapters/kiro');
+const { createKiroAdapter, nativePaths } = require('../../../src/adapters/kiro/index.ts');
 const { entryFingerprint } = require('../../../src/adapters/mcp-entries.ts');
 const { assertAdapter } = require('../../../src/adapters');
 

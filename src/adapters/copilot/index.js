@@ -266,7 +266,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   /** Copilot's MCP entry changes have no asset of their own in core/registry/assets.json (they are a
    * registration side-effect of the selected MCP servers, not a projected asset), so they piggyback
    * on a real asset id already routed to this harness — the same "pseudo-component" technique
-   * src/adapters/gemini/index.js#hooksAssetId and src/adapters/kiro/index.js#pseudoAssetId use. The
+   * src/adapters/gemini/index.js#hooksAssetId and src/adapters/kiro/index.ts#pseudoAssetId use. The
    * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
    * invented id like a literal 'copilot.mcp' string is rejected as unknown. */
   function pseudoAssetId(assets) {

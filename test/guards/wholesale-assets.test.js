@@ -108,7 +108,7 @@ function projectionsDeclaring(transformNames) {
 const RECORDED = new Map([
   [pairKey('kiro', 'guidance.context-layer'), {
     rationale: 'Kiro loads every file under .kiro/steering/ as steering context and has no '
-      + 'single-file instruction surface at all (src/adapters/kiro/index.js header; '
+      + 'single-file instruction surface at all (src/adapters/kiro/index.ts header; '
       + 'https://kiro.dev/docs/steering/), and DoFlow projects the whole shared guidance tree '
       + 'there. Nothing in the projection distinguishes that from a name-resolved copy-tree — same '
       + 'renderer, no transform — so it cannot be derived from adapter behaviour the way Copilot\'s '

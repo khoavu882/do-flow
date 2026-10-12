@@ -24,7 +24,7 @@ const { createGeminiAdapter } = require('../adapters/gemini');
 const { createOpenCodeAdapter } = require('../adapters/opencode/index.ts');
 const { createPiAdapter } = require('../adapters/pi/index.ts');
 const { createCopilotAdapter } = require('../adapters/copilot');
-const { createKiroAdapter } = require('../adapters/kiro');
+const { createKiroAdapter } = require('../adapters/kiro/index.ts');
 const { createAntigravityAdapter } = require('../adapters/antigravity');
 
 // The directory of the `doflow` entrypoint. Derived from the shared package root rather than
