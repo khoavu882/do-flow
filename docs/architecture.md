@@ -187,7 +187,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | `src/runtime/lifecycle/event-store.js` | Write-once event files under `.doflow/state/lifecycle/events/`, local to the machine: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
 | `src/runtime/lifecycle/store-upkeep.js` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
 | `src/runtime/lifecycle/retention.js` | The retention window and the pure selection of settled units |
-| `src/runtime/lifecycle/fold.js` | The pure fold of events into follow-ups, tracked features, goals and release records, with conflicts. No file or git access |
+| `src/runtime/lifecycle/fold.ts` | The pure fold of events into follow-ups, tracked features, goals and release records, with conflicts. No file or git access |
 | `src/runtime/lifecycle/followup.js`, `goal.js` | The follow-up and goal services; each returns a result object and never prints |
 | `src/runtime/lifecycle/intent-writer.js` | Creates a new intent for `followup --action promote`, from headings fixed in code |
 | `src/runtime/lifecycle/report-store.js` | The machine-local report body and its masked excerpt |

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { foldEvents, applyEvent, newState, withDerivedDone } = require('../../src/runtime/lifecycle/fold');
+const { foldEvents, applyEvent, newState, withDerivedDone } = require('../../src/runtime/lifecycle/fold.ts');
 
 let seq = 0;
 /** An envelope at `at` (ISO), with a deterministic id. */

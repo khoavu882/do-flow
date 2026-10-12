@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The fold (IC-003, IC-004): every lifecycle event file, ordered by `at` then `id`, reduced to the
  * follow-ups, tracked features, goals and release records they describe. The function is pure: no
@@ -15,19 +17,19 @@
 
 const SETTLE_AS = ['kept', 'dismissed', 'fix', 'done'];
 
-function byOrder(a, b) {
+function byOrder(a: any, b: any): number {
   const delta = Date.parse(a.at) - Date.parse(b.at);
   if (delta !== 0) return delta;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-function isText(value) { return typeof value === 'string' && value.trim() !== ''; }
-function isIdList(value) { return Array.isArray(value) && value.length > 0 && value.every(isText); }
+function isText(value: any): boolean { return typeof value === 'string' && value.trim() !== ''; }
+function isIdList(value: any): boolean { return Array.isArray(value) && value.length > 0 && value.every(isText); }
 
 /** DEC-045: an event dated further ahead than this stays out of the fold and is listed as a conflict. */
 const FUTURE_LIMIT_MS = 24 * 60 * 60 * 1000;
 
-function newState({ now = new Date() } = {}) {
+function newState({ now = new Date() }: { now?: Date } = {}): any {
   return {
     cutoff: now.getTime() + FUTURE_LIMIT_MS,
     items: new Map(),
@@ -41,15 +43,15 @@ function newState({ now = new Date() } = {}) {
   };
 }
 
-function conflict(event, code, reason) {
+function conflict(event: any, code: string, reason: string): { event: string; type: string; reason: string; code: string } {
   return { event: event.id, type: event.type, reason, code };
 }
 
-function touch(item, event) {
+function touch(item: any, event: any): void {
   item.history.push({ event: event.id, type: event.type, at: event.at, by: event.by });
 }
 
-function itemFor(state, event, id) {
+function itemFor(state: any, event: any, id: string): { item?: any; problem?: any } {
   const item = state.items.get(id);
   if (!item) return { problem: conflict(event, 'unknown-id', `${id} is not a follow-up`) };
   if (state.final.has(id)) return { problem: conflict(event, 'illegal-transition', `${id} is done and accepts no later event`) };
@@ -58,13 +60,13 @@ function itemFor(state, event, id) {
 
 // ── follow-ups ─────────────────────────────────────────────────────────────────────────────────
 
-function applyAdded(state, event) {
+function applyAdded(state: any, event: any): any[] {
   const d = event.data;
   if (!isText(d.id) || !isText(d.statement) || !d.source || typeof d.source !== 'object' || !isText(d.source.kind)) {
     return [conflict(event, 'malformed', 'followup.added needs id, statement and source.kind')];
   }
   if (state.items.has(d.id)) return [conflict(event, 'illegal-transition', `${d.id} was already added`)];
-  const item = {
+  const item: any = {
     id: d.id,
     statement: d.statement,
     source: d.source,
@@ -86,10 +88,10 @@ function applyAdded(state, event) {
   return [];
 }
 
-function applyTaken(state, event) {
+function applyTaken(state: any, event: any): any[] {
   const d = event.data;
   if (!isIdList(d.ids) || !isText(d.feature)) return [conflict(event, 'malformed', 'followup.taken needs ids and feature')];
-  const problems = [];
+  const problems: any[] = [];
   for (const id of d.ids) {
     const { item, problem } = itemFor(state, event, id);
     if (problem) { problems.push(problem); continue; }
@@ -102,11 +104,11 @@ function applyTaken(state, event) {
   return problems;
 }
 
-function settleOne(state, event, id) {
+function settleOne(state: any, event: any, id: string): any {
   const d = event.data;
   const { item, problem } = itemFor(state, event, id);
   if (problem) return problem;
-  const refuse = (reason) => conflict(event, 'illegal-transition', reason);
+  const refuse = (reason: string) => conflict(event, 'illegal-transition', reason);
   switch (d.as) {
     case 'kept':
       // IC-003: a reason is required when a taken item is released or a dismissed one reopens, not for an open one.
@@ -137,18 +139,18 @@ function settleOne(state, event, id) {
   return null;
 }
 
-function applySettled(state, event) {
+function applySettled(state: any, event: any): any[] {
   const d = event.data;
   // The legacy single-id shape (`id`) and the batch shape (`ids`) both fold; the verb writes one event per id.
   const ids = isText(d.id) ? [d.id] : d.ids;
   if (!isIdList(ids)) return [conflict(event, 'malformed', 'followup.settled needs an id')];
-  return ids.map((id) => settleOne(state, event, id)).filter(Boolean);
+  return ids.map((id: string) => settleOne(state, event, id)).filter(Boolean);
 }
 
-function applyPromoted(state, event) {
+function applyPromoted(state: any, event: any): any[] {
   const d = event.data;
   if (!isIdList(d.ids) || !isText(d.intent)) return [conflict(event, 'malformed', 'followup.promoted needs ids and intent')];
-  const problems = [];
+  const problems: any[] = [];
   for (const id of d.ids) {
     const { item, problem } = itemFor(state, event, id);
     if (problem) { problems.push(problem); continue; }
@@ -162,7 +164,7 @@ function applyPromoted(state, event) {
 
 // ── features, goals, releases ──────────────────────────────────────────────────────────────────
 
-function applyTracked(state, event) {
+function applyTracked(state: any, event: any): any[] {
   const slug = event.data.slug;
   if (!isText(slug)) return [conflict(event, 'malformed', 'feature.tracked needs a slug')];
   // The earliest event counts; a later one from another clone changes nothing and is no conflict.
@@ -170,19 +172,19 @@ function applyTracked(state, event) {
   return [];
 }
 
-function applyMerged(state, event) {
+function applyMerged(state: any, event: any): any[] {
   const { slug, reason } = event.data;
   if (!isText(slug)) return [conflict(event, 'malformed', 'feature.merged needs a slug')];
   if (!state.merged.has(slug)) state.merged.set(slug, { slug, reason: typeof reason === 'string' ? reason : '', at: event.at });
   return [];
 }
 
-function goalFor(state, event, id) {
+function goalFor(state: any, event: any, id: string): { goal?: any; problem?: any } {
   const goal = state.goals.get(id);
   return goal ? { goal } : { problem: conflict(event, 'unknown-goal', `${id} is not a goal`) };
 }
 
-function applyGoalAdded(state, event) {
+function applyGoalAdded(state: any, event: any): any[] {
   const d = event.data;
   if (!isText(d.goal) || !Array.isArray(d.items)) return [conflict(event, 'malformed', 'goal.added needs goal and items')];
   // A second `goal.added` for one id, as another clone may write, loses: the first wins.
@@ -193,26 +195,26 @@ function applyGoalAdded(state, event) {
     status: 'open',
     reason: null,
     added: event.at.slice(0, 10),
-    items: d.items.filter((i) => i && isText(i.id)).map((i) => ({ id: i.id, text: String(i.text ?? ''), met: false, evidence: null })),
+    items: d.items.filter((i: any) => i && isText(i.id)).map((i: any) => ({ id: i.id, text: String(i.text ?? ''), met: false, evidence: null })),
   });
   return [];
 }
 
-function applyGoalItemAdded(state, event) {
+function applyGoalItemAdded(state: any, event: any): any[] {
   const d = event.data;
   const { goal, problem } = goalFor(state, event, d.goal);
   if (problem) return [problem];
   if (!d.item || !isText(d.item.id)) return [conflict(event, 'malformed', 'goal.item-added needs item.id')];
-  if (goal.items.some((i) => i.id === d.item.id)) return [conflict(event, 'illegal-transition', `${d.goal} already has item ${d.item.id}`)];
+  if (goal.items.some((i: any) => i.id === d.item.id)) return [conflict(event, 'illegal-transition', `${d.goal} already has item ${d.item.id}`)];
   goal.items.push({ id: d.item.id, text: String(d.item.text ?? ''), met: false, evidence: null });
   return [];
 }
 
-function applyGoalChecked(state, event) {
+function applyGoalChecked(state: any, event: any): any[] {
   const d = event.data;
   const { goal, problem } = goalFor(state, event, d.goal);
   if (problem) return [problem];
-  const item = goal.items.find((i) => i.id === d.item);
+  const item = goal.items.find((i: any) => i.id === d.item);
   if (!item) return [conflict(event, 'unknown-item', `${d.goal} has no item ${d.item}`)];
   if (!isText(d.evidence)) return [conflict(event, 'evidence-required', 'goal.checked needs evidence')];
   item.met = d.met === true;
@@ -220,7 +222,7 @@ function applyGoalChecked(state, event) {
   return [];
 }
 
-function applyGoalLinked(state, event) {
+function applyGoalLinked(state: any, event: any): any[] {
   const d = event.data;
   const { problem } = goalFor(state, event, d.goal);
   if (problem) return [problem];
@@ -233,7 +235,7 @@ function applyGoalLinked(state, event) {
   return [];
 }
 
-function applyGoalDone(state, event) {
+function applyGoalDone(state: any, event: any): any[] {
   const d = event.data;
   const { goal, problem } = goalFor(state, event, d.goal);
   if (problem) return [problem];
@@ -242,7 +244,7 @@ function applyGoalDone(state, event) {
   return [];
 }
 
-function applyReleaseRecorded(state, event) {
+function applyReleaseRecorded(state: any, event: any): any[] {
   const d = event.data;
   if (!isText(d.tag)) return [conflict(event, 'malformed', 'release.recorded needs a tag')];
   let release = state.releases.get(d.tag);
@@ -258,7 +260,7 @@ function applyReleaseRecorded(state, event) {
   return [];
 }
 
-const APPLY = {
+const APPLY: Record<string, (state: any, event: any) => any[]> = {
   'followup.added': applyAdded,
   'followup.taken': applyTaken,
   'followup.settled': applySettled,
@@ -281,7 +283,7 @@ const EVENT_TYPES = Object.keys(APPLY);
  * conflicts to refuse before anything is written.
  * @returns {Array<{event:string,type:string,reason:string,code:string}>} the conflicts this event raised
  */
-function applyEvent(state, event, { checkFuture = true } = {}) {
+function applyEvent(state: any, event: any, { checkFuture = true }: { checkFuture?: boolean } = {}): any[] {
   const at = Date.parse(event.at);
   if (checkFuture && at > state.cutoff) {
     // Left out of the stamping floor and of every tracking bound: one wrong clock must not move them.
@@ -299,7 +301,7 @@ function applyEvent(state, event, { checkFuture = true } = {}) {
 }
 
 /** @param {Array<Object>} events IC-002 envelopes, in any order */
-function foldInto(events, options = {}) {
+function foldInto(events: any[], options: any = {}): any {
   const state = newState(options);
   if (options.shouldStop?.()) { state.incomplete = true; return state; }
   const ordered = [...events].sort(byOrder);
@@ -313,16 +315,16 @@ function foldInto(events, options = {}) {
 }
 
 /** The result of a fold, as plain data. `hasBody(item)` tells a report whose body is on this machine. */
-function finalize(state, { hasBody = () => false } = {}) {
-  const followups = [...state.items.values()].map((item) => (
+function finalize(state: any, { hasBody = (_item: any) => false }: any = {}): any {
+  const followups = [...state.items.values()].map((item: any) => (
     item.source.kind === 'report' ? { ...item, body: hasBody(item) ? 'on-this-machine' : 'not-on-this-machine' } : item));
-  const releases = [...state.releases.values()].map((r) => {
+  const releases = [...state.releases.values()].map((r: any) => {
     const excluded = [...r.excluded];
-    return { tag: r.tag, commit: r.commit, features: [...r.features.values()].filter((f) => !r.excluded.has(f.slug)), excluded };
+    return { tag: r.tag, commit: r.commit, features: [...r.features.values()].filter((f: any) => !r.excluded.has(f.slug)), excluded };
   });
   return {
     followups,
-    features: [...state.tracked.values()].map((f) => ({ ...f })),
+    features: [...state.tracked.values()].map((f: any) => ({ ...f })),
     merged: [...state.merged.values()],
     goals: [...state.goals.values()],
     releases,
@@ -332,7 +334,7 @@ function finalize(state, { hasBody = () => false } = {}) {
 }
 
 /** @returns {ReturnType<typeof finalize>} */
-function foldEvents(events, options = {}) {
+function foldEvents(events: any[], options: any = {}): any {
   return finalize(foldInto(events, options), options);
 }
 
@@ -342,9 +344,9 @@ function foldEvents(events, options = {}) {
  * @param {Array<Object>} followups folded items
  * @param {Object<string,string>|Map<string,string>} statuses feature slug to derived status
  */
-function withDerivedDone(followups, statuses) {
-  const statusOf = (slug) => (statuses instanceof Map ? statuses.get(slug) : statuses[slug]);
-  return followups.map((item) => (
+function withDerivedDone(followups: any[], statuses: any): any[] {
+  const statusOf = (slug: string) => (statuses instanceof Map ? statuses.get(slug) : statuses[slug]);
+  return followups.map((item: any) => (
     item.state === 'taken' && statusOf(item.takenBy) === 'finished' ? { ...item, state: 'done', derived: true } : item));
 }
 

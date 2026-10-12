@@ -8,7 +8,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { projectRoot } = require('../../src/runtime/lifecycle/root.ts');
 const store = require('../../src/runtime/lifecycle/event-store');
-const { foldEvents } = require('../../src/runtime/lifecycle/fold');
+const { foldEvents } = require('../../src/runtime/lifecycle/fold.ts');
 const { prepareStore } = require('../../src/runtime/lifecycle/store-upkeep');
 
 const scratch = createScratch('doflow-store-');

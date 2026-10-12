@@ -17,7 +17,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { acquireLock } = require('../task-state.ts');
 const { printSafe } = require('../mask.ts');
-const { foldInto, finalize, applyEvent } = require('./fold');
+const { foldInto, finalize, applyEvent } = require('./fold.ts');
 
 const LIFECYCLE_REL = path.join('.doflow', 'state', 'lifecycle');
 const EVENTS_REL = path.join(LIFECYCLE_REL, 'events');

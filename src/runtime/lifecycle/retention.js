@@ -18,7 +18,7 @@ const { isDeepStrictEqual } = require('node:util');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots, readPruneSetting } = require('../storage/roots.ts');
-const { foldInto, finalize } = require('./fold');
+const { foldInto, finalize } = require('./fold.ts');
 
 const HOUR_MS = 3600000;
 
