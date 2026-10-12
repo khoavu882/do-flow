@@ -12,7 +12,7 @@
 
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { loadRegistry } = require('../registry/index.ts');
-const { CapabilityRouter } = require('./capability-router');
+const { CapabilityRouter } = require('./capability-router.ts');
 const { probeProviders, HEALTHY, UNVERIFIED } = require('./health');
 const { mcpReach } = require('./mcp-reach');
 const { WorkflowOrchestrator } = require('./workflow-orchestrator');

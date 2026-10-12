@@ -13,7 +13,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { CapabilityRouter } = require('../../src/runtime/capability-router');
+const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
 const { renderBriefTools, currentStageOf } = require('../../src/runtime/brief-tools');
 

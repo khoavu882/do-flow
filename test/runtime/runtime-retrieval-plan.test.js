@@ -263,7 +263,7 @@ test('a provider the registry does not declare, or declared index anywhere, is n
 test('semble and graphify keep their probed state; shipped live providers stay NOT_APPLICABLE (068)', () => {
   const root = project('src-shipped');
   cannedProbe = null;
-  const { CapabilityRouter } = require('../../src/runtime/capability-router');
+  const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
   const lookup = sourceModeLookup(new CapabilityRouter({ repoRoot: REPO }).capabilities);
   for (const id of ['semble.search', 'graphify.query']) {
     const entry = freshnessEntry(id, root, lookup);

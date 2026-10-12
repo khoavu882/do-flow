@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, skillFiles } = require('./_shared');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
-const { parseYamlFile } = require('../../src/runtime/capability-router');
+const { parseYamlFile } = require('../../src/runtime/capability-router.ts');
 
 const REGISTRY_DIR = path.join(REPO, 'core', 'registry');
 const WORKFLOWS_FILE = path.join(REGISTRY_DIR, 'workflows.json');

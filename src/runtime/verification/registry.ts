@@ -14,7 +14,7 @@
 
 const path = require('node:path');
 const nodeFs = require('node:fs');
-const { parseYamlFile } = require('../capability-router');
+const { parseYamlFile } = require('../capability-router.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const REGISTRY_FILENAME = 'verification.json';

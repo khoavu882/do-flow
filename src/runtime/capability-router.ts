@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -12,22 +14,31 @@ const { validateCapabilityProviders } = require('../registry/index.ts');
 
 /** POSIX single-quote escaping, for the DISPLAY string only — execution always uses the argv
  * vector, never a shell string, so retrieved data can never become shell syntax (review R5). */
-function shellQuote(word) {
+function shellQuote(word: any): string {
   const text = String(word);
   if (text !== '' && /^[A-Za-z0-9_@%+=:,.\/-]+$/.test(text)) return text;
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
-function parseYamlFile(filePath, fsImpl = fs) {
+function parseYamlFile(filePath: string, fsImpl: any = fs): any {
   try {
     const text = fsImpl.readFileSync(filePath, 'utf8');
     return JSON.parse(text);
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(`Failed to parse registry file '${filePath}': ${error.message}`);
   }
 }
 
 class CapabilityRouter {
+  fsImpl: any;
+  repoRoot: string;
+  projectRoot: string;
+  registryDir: string;
+  binaryChecker: ((binary: string) => boolean) | null;
+  binaryCache: Map<string, boolean>;
+  capabilities!: Record<string, any>;
+  routes!: Record<string, any>;
+
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot]
@@ -37,7 +48,7 @@ class CapabilityRouter {
    * @param {Object} [options.fsImpl]
    * @param {Function} [options.binaryChecker]
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
     // Two roots, deliberately distinct (review A3, surfaced by R5's tests): `repoRoot` locates the
@@ -57,7 +68,7 @@ class CapabilityRouter {
     }
   }
 
-  loadRegistries() {
+  loadRegistries(): void {
     const capsPath = path.join(this.registryDir, 'capabilities.json');
     const routesPath = path.join(this.registryDir, 'routes.json');
     
@@ -67,7 +78,7 @@ class CapabilityRouter {
     this.capabilities = capsData.capabilities || {};
     // A provider without a valid `sourceMode` cannot be told apart from an index-backed one, so the
     // file is refused whole rather than loaded with a guess (068).
-    const providerErrors = [];
+    const providerErrors: string[] = [];
     validateCapabilityProviders(this.capabilities, providerErrors);
     if (providerErrors.length > 0) {
       throw new Error(`Invalid registry file '${capsPath}':\n- ${providerErrors.join('\n- ')}`);
@@ -80,13 +91,13 @@ class CapabilityRouter {
    * @param {string} binary
    * @returns {boolean}
    */
-  isBinaryAvailable(binary) {
+  isBinaryAvailable(binary: string): boolean {
     if (!binary) return false;
     if (this.binaryChecker) {
       return this.binaryChecker(binary);
     }
     if (this.binaryCache.has(binary)) {
-      return this.binaryCache.get(binary);
+      return this.binaryCache.get(binary) as boolean;
     }
     try {
       const isWin = process.platform === 'win32';
@@ -105,7 +116,7 @@ class CapabilityRouter {
    * @param {Array<string>} checkCommand
    * @returns {{ ok: boolean, output?: string, error?: string }}
    */
-  executeSmokeCheck(checkCommand) {
+  executeSmokeCheck(checkCommand: any): { ok: boolean; output?: string; error?: string } {
     if (!Array.isArray(checkCommand) || checkCommand.length === 0) {
       return { ok: true };
     }
@@ -117,7 +128,7 @@ class CapabilityRouter {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       return { ok: true, output: stdout.trim() };
-    } catch (error) {
+    } catch (error: any) {
       return { ok: false, error: error.message };
     }
   }
@@ -128,13 +139,13 @@ class CapabilityRouter {
    * @param {boolean} [deepCheck=false]
    * @returns {{ status: 'HEALTHY'|'UNAVAILABLE', details?: string }}
    */
-  evaluateProviderHealth(provider, deepCheck = false) {
+  evaluateProviderHealth(provider: any, deepCheck: boolean = false): any {
     if (!provider) return { status: 'UNAVAILABLE', details: 'No provider declared' };
 
     // Declared / installed / responsive are DISTINCT facts (review R5): `facts` reports each one
     // as true, false, or null-for-not-measured, so "healthy" can never silently mean only
     // "declared in the registry". The summary `status` stays for existing callers.
-    const facts = { declared: true, installed: null, responsive: null };
+    const facts: { declared: boolean; installed: boolean | null; responsive: boolean | null } = { declared: true, installed: null, responsive: null };
 
     // `native.test` has no binary — its installedness is whether this project's manifests declare
     // a test command at all. Reporting HEALTHY without that check routed verify-runtime-behavior
@@ -194,16 +205,16 @@ class CapabilityRouter {
    * @param {boolean} [options.deepCheck=false]
    * @returns {{ capabilityId: string, provider: Object|null, status: string, fallbackProviders: Array<Object> }}
    */
-  resolveCapability(capabilityId, { deepCheck = false } = {}) {
+  resolveCapability(capabilityId: string, { deepCheck = false }: { deepCheck?: boolean } = {}): any {
     const capability = this.capabilities[capabilityId];
     if (!capability) {
       throw new Error(`Unknown capability '${capabilityId}'`);
     }
 
     const providers = capability.providers || [];
-    let selectedProvider = null;
+    let selectedProvider: any = null;
     let selectedStatus = 'UNAVAILABLE';
-    const fallbackProviders = [];
+    const fallbackProviders: any[] = [];
 
     for (let i = 0; i < providers.length; i++) {
       const prov = providers[i];
@@ -244,16 +255,16 @@ class CapabilityRouter {
    * @param {Object} params
    * @returns {Object}
    */
-  formatExecution(intent, provider, params = {}) {
+  formatExecution(intent: string, provider: any, params: any = {}): any {
     const query = params.query || params.symbol || params.concept || '';
     const targetPath = params.path || '.';
     // The MCP tool name comes from the provider's registry descriptor (`mcp: {server, tool}`), so a
     // new MCP-backed provider needs no code change here. A caller may pass a bare `{ id }`, so fall
     // back to the registry entry with that id.
     const mcp = provider.mcp
-      || Object.values(this.capabilities).flatMap((cap) => cap.providers || []).find((p) => p.id === provider.id && p.mcp)?.mcp;
+      || Object.values(this.capabilities).flatMap((cap: any) => cap.providers || []).find((p: any) => p.id === provider.id && p.mcp)?.mcp;
     const mcpTool = mcp ? { mcpTool: `mcp__${mcp.server}__${mcp.tool}` } : {};
-    const withDisplay = (result) => ({ ...mcpTool, ...result, ...(result.argv ? { cliCommand: result.argv.map(shellQuote).join(' ') } : {}) });
+    const withDisplay = (result: any) => ({ ...mcpTool, ...result, ...(result.argv ? { cliCommand: result.argv.map(shellQuote).join(' ') } : {}) });
 
     if (provider.id === 'semble.search') {
       const content = params.content || 'code';
@@ -327,7 +338,7 @@ class CapabilityRouter {
   /** The project's own test entrypoint, read from its manifests by the shared command detector —
    * the same detector `doflow verify` uses, so the two agree. Returns null when no manifest
    * declares one: a wrong guess here becomes a command the model runs. */
-  detectTestCommand() {
+  detectTestCommand(): string | null {
     try {
       const { detectCommands } = require('./command-detect.ts');
       const detected = detectCommands({ projectRoot: this.projectRoot });
@@ -344,7 +355,7 @@ class CapabilityRouter {
    * @param {Object} [options={}]
    * @returns {Object} RetrievalPlan
    */
-  resolveIntent(intentId, params = {}, { deepCheck = false } = {}) {
+  resolveIntent(intentId: string, params: any = {}, { deepCheck = false }: { deepCheck?: boolean } = {}): any {
     const route = this.routes[intentId];
     if (!route) {
       throw new Error(`Unknown route/intent '${intentId}'`);
@@ -361,7 +372,7 @@ class CapabilityRouter {
         selectedProvider: primaryResolution.provider,
         status: primaryResolution.status,
         execution: this.formatExecution(intentId, primaryResolution.provider, params),
-        fallbackChain: (route.fallback || []).map((fbCap) => ({
+        fallbackChain: (route.fallback || []).map((fbCap: string) => ({
           capability: fbCap,
           resolved: this.resolveCapability(fbCap, { deepCheck }),
         })),
@@ -397,7 +408,7 @@ class CapabilityRouter {
       selectedProvider: null,
       status: 'UNAVAILABLE',
       execution: null,
-      fallbackChain: (route.fallback || []).map((cap) => ({ capability: cap, status: 'UNAVAILABLE' })),
+      fallbackChain: (route.fallback || []).map((cap: string) => ({ capability: cap, status: 'UNAVAILABLE' })),
     };
   }
 
@@ -406,8 +417,8 @@ class CapabilityRouter {
    * @param {boolean} [deepCheck=false]
    * @returns {Array<Object>}
    */
-  getAllCapabilitiesHealth(deepCheck = false) {
-    const report = [];
+  getAllCapabilitiesHealth(deepCheck: boolean = false): any[] {
+    const report: any[] = [];
     for (const [capId, cap] of Object.entries(this.capabilities)) {
       const resolution = this.resolveCapability(capId, { deepCheck });
       report.push({
@@ -437,16 +448,16 @@ class CapabilityRouter {
  * @param {string} [options.projectRoot]
  * @returns {number} exit code
  */
-function handleRouteCommand({ intent, query, check = false, json = false, projectRoot } = {}) {
+function handleRouteCommand({ intent, query, check = false, json = false, projectRoot }: any = {}): number {
   const router = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot });
   if (typeof intent !== 'string' || intent.trim() === '') {
     return usageError('route', `--intent is required. Declared intents: ${Object.keys(router.routes).join(', ')}`, json);
   }
 
-  let resolution;
+  let resolution: any;
   try {
     resolution = router.resolveIntent(intent, { query, path: projectRoot || '.' }, { deepCheck: check });
-  } catch (error) {
+  } catch (error: any) {
     return usageError('route', `${error.message}. Declared intents: ${Object.keys(router.routes).join(', ')}`, json, error);
   }
 

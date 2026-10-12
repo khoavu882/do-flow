@@ -685,7 +685,7 @@ test('G12: every discover analysis declares which ledger fields its verdict rest
 // class that does not exist. It surfaces later, in the recovery path, as an unrouted failure —
 // which is the moment the system is least able to absorb a second problem.
 test('G12: every failureClass in verification.json is a declared recovery class (FR-010)', () => {
-  const { parseYamlFile } = require('../../src/runtime/capability-router');
+  const { parseYamlFile } = require('../../src/runtime/capability-router.ts');
   const { FAILURE_CLASSES } = require('../../src/runtime/recovery.ts');
   const doc = parseYamlFile(path.join(REPO, 'core', 'registry', 'verification.json'), fs);
 

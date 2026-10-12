@@ -17,7 +17,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { REPO, AGENT_SPECS } = require('./_shared');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { CapabilityRouter } = require('../../src/runtime/capability-router');
+const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
 const { renderBriefTools } = require('../../src/runtime/brief-tools');
 
 const GENERATOR = 'src/runtime/brief-tools.js';

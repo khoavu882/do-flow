@@ -38,7 +38,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { CapabilityRouter } = require('./capability-router');
+const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
 const { taskStoreDir } = require('./task-scope.ts');
 const { probeFreshness } = require('./health');
