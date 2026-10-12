@@ -409,7 +409,7 @@ test('X11 fail-open: a registry that will not load stores no record and the hand
 });
 
 test('X11 retry: evidence saved before a refused completion is found again, not added twice', (t) => {
-  const { ResearchRequestStore } = require('../../src/runtime/research-request');
+  const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
   const p = project(t);
   start(p);
   const report = writeBrief(p);

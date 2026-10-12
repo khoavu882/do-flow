@@ -114,7 +114,7 @@ test('claims, outcome, retrieval and research records follow the same layout', (
   assert.ok(fs.existsSync(path.join(state, 'retrieval', WITH, 'A.1.json')));
   assert.ok(!fs.existsSync(path.join(state, 'retrieval', 'A.1.json')));
 
-  const { ResearchRequestStore } = require('../../src/runtime/research-request');
+  const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
   assert.equal(new ResearchRequestStore({ projectRoot: root, slug: WITH }).file('A.1'),
     path.join(state, 'research', WITH, 'A.1.json'));
   assert.equal(new ResearchRequestStore({ projectRoot: root, slug: WITHOUT }).file('A.1'),

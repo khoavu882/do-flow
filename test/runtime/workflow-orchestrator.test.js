@@ -445,7 +445,7 @@ test('blocking research request refuses handoff and direct completion without cu
   const root = scratch(t);
   const orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root,
     stateDir: path.join(root, '.doflow/state/orchestration'), readinessEvaluate: READY });
-  const { ResearchRequestStore } = require('../../src/runtime/research-request');
+  const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
   const store = new ResearchRequestStore({ projectRoot: root });
   orch.start({ taskId: 'feature-gap', taskClass: 'feature' });
   const request = store.open({ taskId: 'feature-gap', stageId: 'discovery',

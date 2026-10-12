@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -13,14 +15,14 @@ const { finishRuntime, usageError } = require('./cli-result.ts');
 
 const STATES = new Set(['OPEN', 'ANSWERED', 'UNRESOLVED']);
 const REASONS = new Set(['detected-gap', 'user-request']);
-const safeId = (value, label) => {
+const safeId = (value: any, label: any) => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) {
     throw new Error(`${label} must be a safe non-empty identifier`);
   }
   return value;
 };
 
-function hasLocatedSource(item, projectRoot) {
+function hasLocatedSource(item: any, projectRoot: any) {
   const locator = item.locator || {};
   if (locator.uri !== undefined) {
     if (typeof locator.uri !== 'string') return false;
@@ -34,7 +36,11 @@ function hasLocatedSource(item, projectRoot) {
 }
 
 class ResearchRequestStore {
-  constructor({ projectRoot = process.cwd(), fsImpl = fs, slug = null } = {}) {
+  declare projectRoot: any;
+  declare fsImpl: any;
+  declare slug: any;
+  declare stateDir: any;
+  constructor({ projectRoot = process.cwd(), fsImpl = fs, slug = null }: any = {}) {
     this.projectRoot = projectRoot;
     this.fsImpl = fsImpl;
     this.slug = slug;
@@ -42,29 +48,29 @@ class ResearchRequestStore {
   }
 
   /** The feature's namespace directory when the task has one (task-scope.js), else the flat store. */
-  file(taskId) {
+  file(taskId: any) {
     const dir = taskStoreDir({ projectRoot: this.projectRoot, store: 'research', taskId: assertSafeTaskId(taskId), slug: this.slug });
     return path.join(dir, `${taskId}.json`);
   }
 
-  runFile(taskId) {
+  runFile(taskId: any) {
     return path.join(this.projectRoot, '.doflow', 'state', 'orchestration', `${assertSafeTaskId(taskId)}.json`);
   }
 
-  read(taskId) {
+  read(taskId: any) {
     const data = readTaskState(this.fsImpl, this.file(taskId));
     if (!data) return { taskId, revision: 0, requests: [] };
     if (data.taskId !== taskId || !Array.isArray(data.requests)
-      || data.requests.some(r => !STATES.has(r.status))) {
+      || data.requests.some((r: any) => !STATES.has(r.status))) {
       throw new Error(`Invalid research state for task '${taskId}'`);
     }
     return data;
   }
 
   // Re-read inside updateTaskState's lock: overlapping writers cannot lose a request.
-  change(taskId, update) {
+  change(taskId: any, update: any) {
     let result;
-    updateTaskState({ fsImpl: this.fsImpl, file: this.file(taskId), build: disk => {
+    updateTaskState({ fsImpl: this.fsImpl, file: this.file(taskId), build: (disk: any) => {
       if (disk && (disk.taskId !== taskId || !Array.isArray(disk.requests))) {
         throw new Error(`Invalid research state for task '${taskId}'`);
       }
@@ -75,7 +81,7 @@ class ResearchRequestStore {
     return result;
   }
 
-  stageFor(taskId, stageId) {
+  stageFor(taskId: any, stageId: any) {
     const run = readTaskState(this.fsImpl, this.runFile(taskId));
     if (!run || run.taskClass !== 'feature' || run.state !== 'RUNNING') {
       throw new Error(`Task '${taskId}' has no active feature stage`);
@@ -86,7 +92,7 @@ class ResearchRequestStore {
     }
   }
 
-  open({ taskId, stageId, question, reason, blocking } = {}) {
+  open({ taskId, stageId, question, reason, blocking }: any = {}) {
     safeId(taskId, 'taskId'); safeId(stageId, 'stageId');
     if (typeof question !== 'string' || !question.trim()) throw new Error('question is required');
     if (!REASONS.has(reason)) throw new Error(`reason must be one of: ${[...REASONS].join(', ')}`);
@@ -98,8 +104,8 @@ class ResearchRequestStore {
     const release = acquireLock(this.fsImpl, runFile);
     try {
       this.stageFor(taskId, stageId);
-      return this.change(taskId, requests => {
-        const existing = requests.find(r => r.stageId === stageId && r.question === question.trim() && r.status === 'OPEN');
+      return this.change(taskId, (requests: any) => {
+        const existing = requests.find((r: any) => r.stageId === stageId && r.question === question.trim() && r.status === 'OPEN');
         if (existing) {
           if ((blocking ?? reason === 'detected-gap') && !existing.blocking) {
             existing.blocking = true;
@@ -118,13 +124,13 @@ class ResearchRequestStore {
     } finally { release(); }
   }
 
-  list(taskId) {
+  list(taskId: any) {
     safeId(taskId, 'taskId');
     return this.read(taskId).requests;
   }
 
   // Validate references before taking the write lock; only the status transition itself mutates state.
-  resolve({ taskId, requestId, outcome, claimId, evidenceIds = [], gap } = {}) {
+  resolve({ taskId, requestId, outcome, claimId, evidenceIds = [], gap }: any = {}) {
     safeId(taskId, 'taskId'); safeId(requestId, 'requestId');
     if (!['answered', 'unresolved'].includes(outcome)) throw new Error('outcome must be answered or unresolved');
     if (!Array.isArray(evidenceIds)) throw new Error('evidenceIds must be an array');
@@ -153,8 +159,8 @@ class ResearchRequestStore {
         }
       }
     }
-    return this.change(taskId, requests => {
-      const request = requests.find(r => r.id === requestId);
+    return this.change(taskId, (requests: any) => {
+      const request = requests.find((r: any) => r.id === requestId);
       if (!request) throw new Error(`Unknown research request '${requestId}' for task '${taskId}'`);
       if (request.status !== 'OPEN') throw new Error(`Request '${requestId}' is ${request.status}, not OPEN`);
       Object.assign(request, { status: outcome === 'answered' ? 'ANSWERED' : 'UNRESOLVED',
@@ -164,20 +170,20 @@ class ResearchRequestStore {
     });
   }
 
-  blockingGap(taskId, stageId) {
-    const requests = this.list(taskId).filter(r => r.stageId === stageId && r.blocking);
+  blockingGap(taskId: any, stageId: any) {
+    const requests = this.list(taskId).filter((r: any) => r.stageId === stageId && r.blocking);
     for (const request of requests) {
       if (request.status !== 'ANSWERED') return request;
       try {
         this.validateAnswer(taskId, request);
-      } catch (error) {
+      } catch (error: any) {
         return { ...request, failureReason: error.message };
       }
     }
     return null;
   }
 
-  validateAnswer(taskId, request) {
+  validateAnswer(taskId: any, request: any) {
     const ledger = new EvidenceLedger({ repoRoot: this.projectRoot, slug: this.slug });
     ledger.load(taskId);
     new FreshnessValidator({ repoRoot: this.projectRoot }).validateLedgerFreshness(ledger);
@@ -204,7 +210,7 @@ class ResearchRequestStore {
 }
 
 function handleResearchRequestCommand({ action = 'list', taskId, stageId, question, reason,
-  blocking, requestId, outcome, claimId, evidenceIds, gap, json = false, projectRoot, slug } = {}) {
+  blocking, requestId, outcome, claimId, evidenceIds, gap, json = false, projectRoot, slug }: any = {}) {
   try {
     const store = new ResearchRequestStore({ projectRoot, slug });
     let result;
@@ -217,7 +223,7 @@ function handleResearchRequestCommand({ action = 'list', taskId, stageId, questi
     if (json) console.log(JSON.stringify(result, null, 2));
     else console.log(JSON.stringify(result));
     return finishRuntime(0);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('research-request', error.message, json, error);
   }
 }
