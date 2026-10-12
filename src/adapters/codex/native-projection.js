@@ -6,7 +6,7 @@
 // only dispatches by adapter name; the shape below — configResources / mcp catalog / agents dir /
 // hooks trust — is Codex's own and belongs to its adapter directory.
 
-const { resolveRegistrySource } = require('../resolve-source');
+const { resolveRegistrySource } = require('../resolve-source.ts');
 
 /** Normalize the validated Codex registry declaration into its adapter's named
  * input. Source paths always come from the registry; runtime overrides only

@@ -2,7 +2,7 @@
 
 // Harness adapters own native formats and paths. This module intentionally only
 // validates and resolves that boundary; it never reads or writes harness files.
-const { resolveRegistrySource } = require('./resolve-source');
+const { resolveRegistrySource } = require('./resolve-source.ts');
 
 const ADAPTER_METHODS = Object.freeze(['discover', 'render', 'plan', 'apply', 'remove', 'verify']);
 
