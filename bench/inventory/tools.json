@@ -1,0 +1,383 @@
+{
+  "schemaVersion": 1,
+  "refresh": {
+    "trigger": "A tool in the current stack changes version, a candidate crosses the star threshold, or a retrieval-profile proposal is revisited",
+    "owner": "maintainer"
+  },
+  "starThreshold": 20000,
+  "classes": [
+    "exact-search",
+    "structural-search",
+    "semantic-code-search",
+    "graph-query",
+    "reranking",
+    "output-compression"
+  ],
+  "rows": [
+    {
+      "id": "TOOL-001",
+      "name": "ripgrep",
+      "class": "exact-search",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/BurntSushi/ripgrep",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "15.2.0",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep/releases/latest → tag_name (published 2026-07-15T16:26:10Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Unlicense",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep/releases/latest → 28 release assets; prebuilt binaries named for macOS (ripgrep-15.2.0-aarch64-apple-darwin.tar.gz), Linux (ripgrep-15.2.0-aarch64-unknown-linux-gnu.tar.gz), Windows (ripgrep-15.2.0-aarch64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 69086,
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "ripgrep recursively searches directories for a regex pattern while respecting your gitignore",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-08-04T13:59:44Z",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "ripgrep 15.2.0",
+        "source": "rg --version → ripgrep 15.2.0",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-002",
+      "name": "fd",
+      "class": "exact-search",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/sharkdp/fd",
+        "source": "https://api.github.com/repos/sharkdp/fd → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v10.5.0",
+        "source": "https://api.github.com/repos/sharkdp/fd/releases/latest → tag_name (published 2026-08-26T07:59:09Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/sharkdp/fd → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/sharkdp/fd/releases/latest → 22 release assets; prebuilt binaries named for macOS (fd-v10.5.0-aarch64-apple-darwin.tar.gz), Linux (fd-musl_10.5.0_amd64.deb), Windows (fd-v10.5.0-aarch64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 44765,
+        "source": "https://api.github.com/repos/sharkdp/fd → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A simple, fast and user-friendly alternative to 'find'",
+        "source": "https://api.github.com/repos/sharkdp/fd → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-07T17:42:40Z",
+        "source": "https://api.github.com/repos/sharkdp/fd → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "file-name search; assigned to exact-search because it matches file names literally or by regex",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "unverified": "binary absent on this machine",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-003",
+      "name": "jq",
+      "class": "structural-search",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/jqlang/jq",
+        "source": "https://api.github.com/repos/jqlang/jq → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "jq-1.8.2",
+        "source": "https://api.github.com/repos/jqlang/jq/releases/latest → tag_name (published 2026-06-20T14:11:27Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://github.com/jqlang/jq/blob/HEAD/COPYING → COPYING: MIT permission text for the source (\"Permission is hereby granted, free of charge...\"); docs/ under CC BY 3.0; incorporates David M. Gay's dtoa.c and g_fmt.c under their own notices (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/jqlang/jq/releases/latest → 29 release assets; prebuilt binaries named for macOS (jq-macos-amd64), Linux (jq-linux-amd64), Windows (jq-win64.exe)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 35792,
+        "source": "https://api.github.com/repos/jqlang/jq → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Command-line JSON processor",
+        "source": "https://api.github.com/repos/jqlang/jq → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T04:40:40Z",
+        "source": "https://api.github.com/repos/jqlang/jq → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "assigned to structural-search because it selects by position in a JSON structure; the plan names no class for jq (inference, not a source statement)",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "jq-1.7.1-apple",
+        "source": "jq --version → jq-1.7.1-apple",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-004",
+      "name": "RTK",
+      "class": "output-compression",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/rtk-ai/rtk",
+        "source": "https://api.github.com/repos/rtk-ai/rtk → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.51.0",
+        "source": "https://api.github.com/repos/rtk-ai/rtk/releases/latest → tag_name (published 2026-10-02T13:33:54Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/rtk-ai/rtk → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/rtk-ai/rtk/releases/latest → 10 release assets; prebuilt binaries named for macOS (rtk-aarch64-apple-darwin.tar.gz), Linux (rtk-0.51.0-1.x86_64.rpm), Windows (rtk-x86_64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 83070,
+        "source": "https://api.github.com/repos/rtk-ai/rtk → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "CLI proxy that reduces LLM token consumption by 60-90% on common dev commands. Single Rust binary, zero dependencies",
+        "source": "https://api.github.com/repos/rtk-ai/rtk → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T10:42:53Z",
+        "source": "https://api.github.com/repos/rtk-ai/rtk → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "rtk 0.50.0",
+        "source": "rtk --version → rtk 0.50.0",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-005",
+      "name": "semble",
+      "class": "semantic-code-search",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/MinishLab/semble",
+        "source": "https://api.github.com/repos/MinishLab/semble → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.6.2",
+        "source": "https://api.github.com/repos/MinishLab/semble/releases/latest → tag_name (published 2026-10-05T09:24:41Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/MinishLab/semble → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/semble/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 6197,
+        "source": "https://api.github.com/repos/MinishLab/semble → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Fast and Accurate Code Search for Agents. Uses 99% fewer tokens than grep+read",
+        "source": "https://api.github.com/repos/MinishLab/semble → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T12:02:42Z",
+        "source": "https://api.github.com/repos/MinishLab/semble → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "0.6.1",
+        "source": "semble --version → 0.6.1",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-006",
+      "name": "graphify",
+      "class": "graph-query",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/Graphify-Labs/graphify",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.9.86",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify/releases/latest → tag_name (published 2026-10-11T20:22:14Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 1 asset(s) (graphify-self-graph.tar.gz) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/graphifyy/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 125749,
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Turn any codebase, with its docs, SQL schemas, configs, and PDFs, into a queryable knowledge graph. A /graphify skill for Claude Code, Cursor, Codex, and Gemini CLI: local deterministic AST parsing, every edge explained, no vector store.",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T14:10:36Z",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "graphify 0.9.71",
+        "source": "graphify --version → graphify 0.9.71",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-007",
+      "name": "Serena",
+      "class": "semantic-code-search",
+      "list": "excluded",
+      "excludedBy": "ADR section 1",
+      "repo": {
+        "unverified": "excluded by ADR section 1; not evaluated",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "excluded by ADR section 1; not evaluated",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "unverified": "excluded by ADR section 1; not evaluated",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "excluded by ADR section 1; not evaluated",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "unverified": "excluded by ADR section 1; not evaluated, so no star count is recorded",
+        "verifiedOn": "2026-10-12"
+      }
+    }
+  ],
+  "replacementStatement": "No current-stack replacement is recommended.",
+  "localAdvisor": {
+    "configurationName": "clef-flash",
+    "modelId": {
+      "value": "clef-flash:latest",
+      "source": "~/.config/doflow/decision-model.json → \"model\": \"clef-flash:latest\"",
+      "verifiedOn": "2026-10-12"
+    },
+    "backend": {
+      "value": "ollama",
+      "source": "~/.config/doflow/decision-model.json → \"provider\": \"ollama\"",
+      "verifiedOn": "2026-10-12"
+    },
+    "backendVersion": {
+      "value": "0.40.3",
+      "source": "curl http://127.0.0.1:11434/api/version → {\"version\":\"0.40.3\"}; ollama --version → ollama version is 0.40.3",
+      "verifiedOn": "2026-10-12"
+    },
+    "structuredOutput": {
+      "value": "closed-schema",
+      "source": "src/runtime/advice/providers/ollama-systemone.ts:24 buildRequest sends each question as a closed type (choice, score or noul) to POST /v1/systemone, and the reply parser rejects any answer outside the declared criteria (same file, parseScore at line 59)",
+      "verifiedOn": "2026-10-12"
+    },
+    "modelDetail": {
+      "value": "size 12387093750 bytes on disk; format safetensors; quantization mxfp8; runner mlx; capabilities decision, vision",
+      "source": "curl http://127.0.0.1:11434/api/tags → models[0].size, details, capabilities",
+      "verifiedOn": "2026-10-12"
+    },
+    "rssAloneMB": {
+      "unmeasured": "not loaded: curl http://127.0.0.1:11434/api/ps listed no loaded model, and loading a 12.4 GB model would compete for memory with the concurrent sessions that share this machine and perturb their timings; resident memory of an mlx runner is also unified memory, which ps rss does not isolate"
+    },
+    "rssWithCodingModelMB": {
+      "unmeasured": "needs a coding model loaded beside clef-flash, which no recorded run provides; not run for the same memory reason as rssAloneMB"
+    }
+  }
+}
