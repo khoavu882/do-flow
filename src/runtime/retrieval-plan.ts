@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Declared retrieval, and the report over it (feature 011, plan task B.1, design component C1;
  * FR-010, FR-013, FR-014, FR-015).
@@ -82,7 +84,7 @@ const FRESHNESS_STATES = Object.freeze(['FRESH', 'STALE', 'UNKNOWN', NOT_APPLICA
  * this module exists to prevent — so staleness travels as a marker beside `EMPTY`, and the
  * provider's `refresh` command travels with it so the remedy is one step away.
  */
-const EMPTY_ANSWER_BY_FRESHNESS = Object.freeze({
+const EMPTY_ANSWER_BY_FRESHNESS: Record<string, any> = Object.freeze({
   UNKNOWN: UNVERIFIED,
   STALE: EMPTY,
   FRESH: EMPTY,
@@ -94,7 +96,7 @@ const EMPTY_ANSWER_BY_FRESHNESS = Object.freeze({
  * @param {string} freshnessState one of FRESHNESS_STATES
  * @returns {string} one of RESULTS
  */
-function resultForEmptyAnswer(freshnessState) {
+function resultForEmptyAnswer(freshnessState: any) {
   const mapped = EMPTY_ANSWER_BY_FRESHNESS[freshnessState];
   if (!mapped) {
     // Fail closed rather than pick a default: an unrecognised freshness token means the record was
@@ -117,7 +119,7 @@ function resultForEmptyAnswer(freshnessState) {
  * @param {string|null} [slug] the feature the task belongs to, when not the branch's (task-scope.js)
  * @returns {string}
  */
-function planPath(projectRoot, taskId, slug = null) {
+function planPath(projectRoot: any, taskId: any, slug: any = null) {
   const dir = taskStoreDir({ projectRoot, store: 'retrieval', taskId: assertSafeTaskId(taskId), slug });
   return path.join(dir, `${taskId}.json`);
 }
@@ -127,12 +129,12 @@ function planPath(projectRoot, taskId, slug = null) {
  * @param {string} taskId
  * @returns {Object|null} the record, or null when no plan was declared
  */
-function readPlan(projectRoot, taskId, slug = null) {
+function readPlan(projectRoot: any, taskId: any, slug: any = null) {
   const file = planPath(projectRoot, taskId, slug);
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(`the retrieval plan at '${file}' is not readable: ${error.message}`);
   }
 }
@@ -143,7 +145,7 @@ function readPlan(projectRoot, taskId, slug = null) {
  * @param {Object} record
  * @returns {string} the file written
  */
-function writePlan(projectRoot, taskId, record, slug = null) {
+function writePlan(projectRoot: any, taskId: any, record: any, slug: any = null) {
   const file = planPath(projectRoot, taskId, slug);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
@@ -159,16 +161,16 @@ function writePlan(projectRoot, taskId, record, slug = null) {
  * @param {Object} capabilities the router's `capabilities` map
  * @returns {(providerId: string) => string|null} the declared mode, or null for an unknown id
  */
-function sourceModeLookup(capabilities) {
+function sourceModeLookup(capabilities: any) {
   const modes = new Map();
-  for (const capability of Object.values(capabilities || {})) {
+  for (const capability of Object.values<any>(capabilities || {})) {
     for (const provider of (capability && capability.providers) || []) {
       if (!provider || !provider.id) continue;
       if (modes.get(provider.id) === 'index') continue;
       modes.set(provider.id, provider.sourceMode || null);
     }
   }
-  return (providerId) => (modes.has(providerId) ? modes.get(providerId) : null);
+  return (providerId: any) => (modes.has(providerId) ? modes.get(providerId) : null);
 }
 
 /**
@@ -184,7 +186,7 @@ function sourceModeLookup(capabilities) {
  *   absent, every provider without an artifact layout is treated as unknown (fail closed)
  * @returns {{state: string, artifact: string|null, refresh: string|null, label: string|null, reason: string|null}}
  */
-function freshnessEntry(providerId, projectRoot, sourceModeOf = () => null) {
+function freshnessEntry(providerId: any, projectRoot: any, sourceModeOf: any = () => null) {
   const probe = probeFreshness(providerId, { root: projectRoot });
   if (!probe) {
     // `probeFreshness` returns null for a provider it has no artifact layout for. What that means
@@ -228,9 +230,9 @@ function freshnessEntry(providerId, projectRoot, sourceModeOf = () => null) {
  * @param {Object} need
  * @returns {string} one of FRESHNESS_STATES
  */
-function freshnessOf(record, need) {
+function freshnessOf(record: any, need: any) {
   if (!need.provider) return NOT_APPLICABLE;
-  const entry = record.providers && record.providers[need.provider];
+  const entry: any = record.providers && record.providers[need.provider];
   return entry && entry.state ? entry.state : NOT_APPLICABLE;
 }
 
@@ -246,14 +248,14 @@ function freshnessOf(record, need) {
  * @param {Array<Object>} items
  * @returns {Array<string>} evidence ids
  */
-function evidenceIdsFor(need, items) {
+function evidenceIdsFor(need: any, items: any) {
   return items
-    .filter((item) => {
+    .filter((item: any) => {
       const source = item.source || {};
       if (need.provider && source.provider === need.provider) return true;
       return Boolean(need.capability) && source.capability === need.capability;
     })
-    .map((item) => item.id);
+    .map((item: any) => item.id);
 }
 
 // ── actions ───────────────────────────────────────────────────────────────────────────────────
@@ -272,13 +274,13 @@ function evidenceIdsFor(need, items) {
  *
  * @returns {number} exit code
  */
-function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }) {
+function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }: any) {
   const needs = [];
   for (const intent of intents) {
     let resolution;
     try {
       resolution = router.resolveIntent(intent);
-    } catch (error) {
+    } catch (error: any) {
       // A misspelled intent is a caller error, not an unresolvable need. Recording it as
       // declared-unresolvable would file a typo as a machine limitation and hide it until report.
       return usageError('retrieval-plan',
@@ -297,8 +299,8 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
 
   // R8, in one loop: the probe set is the set of DISTINCT providers, so cost is bounded by
   // provider count and not by need count. Six needs across two providers pay two scans.
-  const providers = {};
-  const sourceModeOf = sourceModeLookup(router.capabilities);
+  const providers: Record<string, any> = {};
+  const sourceModeOf: any = sourceModeLookup(router.capabilities);
   for (const need of needs) {
     if (!need.provider || providers[need.provider]) continue;
     providers[need.provider] = freshnessEntry(need.provider, projectRoot, sourceModeOf);
@@ -365,11 +367,11 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
  *
  * @returns {number} exit code
  */
-function reportPlan({ projectRoot, taskId, reached, json, slug }) {
+function reportPlan({ projectRoot, taskId, reached, json, slug }: any) {
   let record;
   try {
     record = readPlan(projectRoot, taskId, slug);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }
   if (!record) {
@@ -379,7 +381,7 @@ function reportPlan({ projectRoot, taskId, reached, json, slug }) {
       + 'plan would state that nothing was missed, which is not something an absent plan can establish', json);
   }
 
-  const declared = new Set(record.needs.map((need) => need.intent));
+  const declared = new Set(record.needs.map((need: any) => need.intent));
   const undeclared = [...reached].filter((intent) => !declared.has(intent)).sort();
   if (undeclared.length > 0) {
     return usageError('retrieval-plan',
@@ -390,7 +392,7 @@ function reportPlan({ projectRoot, taskId, reached, json, slug }) {
   const ledger = new EvidenceLedger({ repoRoot: projectRoot, slug });
   try {
     ledger.load(taskId);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }
   const items = ledger.queryEvidence({ taskId });
@@ -407,8 +409,8 @@ function reportPlan({ projectRoot, taskId, reached, json, slug }) {
 
   // Derived views, computed at emit and never stored on a need — a need holds a provider id and
   // nothing about that provider's index (plan D7).
-  const byResult = (result) => record.needs.filter((need) => need.result === result).map((need) => need.intent);
-  const stale = record.needs.filter((need) => freshnessOf(record, need) === 'STALE').map((need) => need.intent);
+  const byResult = (result: any) => record.needs.filter((need: any) => need.result === result).map((need: any) => need.intent);
+  const stale = record.needs.filter((need: any) => freshnessOf(record, need) === 'STALE').map((need: any) => need.intent);
   const unreached = byResult(UNREACHED);
   const unverified = byResult(UNVERIFIED);
   const incomplete = unreached.length > 0 || unverified.length > 0;
@@ -463,8 +465,8 @@ function reportPlan({ projectRoot, taskId, reached, json, slug }) {
 }
 
 /** The provider index block both actions print: state, what was located, and the remedy. */
-function printProviderIndexes(record) {
-  const entries = Object.entries(record.providers || {});
+function printProviderIndexes(record: any) {
+  const entries = Object.entries<any>(record.providers || {});
   if (entries.length === 0) return;
   console.log('─'.repeat(78));
   console.log('Provider indexes (probed once each, at declare time):');
@@ -479,9 +481,9 @@ function printProviderIndexes(record) {
 // ── the verb ──────────────────────────────────────────────────────────────────────────────────
 
 /** `--need a,b --need c` and `--need a --need b` are the same list. */
-function parseIntents(raw) {
+function parseIntents(raw: any) {
   const list = Array.isArray(raw) ? raw : (raw === undefined || raw === null ? [] : [raw]);
-  const out = [];
+  const out: any = [];
   for (const entry of list) {
     for (const token of String(entry).split(',')) {
       const trimmed = token.trim();
@@ -505,7 +507,7 @@ function parseIntents(raw) {
  * @param {string} [options.stateRoot] the project the task belongs to; its state and its index
  * @returns {number} exit code
  */
-function handleRetrievalPlanCommand(options = {}) {
+function handleRetrievalPlanCommand(options: any = {}) {
   const { taskId, action = 'report', need, stage, json = false, repoRoot, stateRoot, slug } = options;
 
   // NFR-001, at the boundary where a caller's input first becomes a record. `bin/doflow.js` already
@@ -513,7 +515,7 @@ function handleRetrievalPlanCommand(options = {}) {
   // option object, so a second input surface cannot arrive later without inheriting the refusal.
   try {
     assertNoScoreFields(options, '');
-  } catch (error) {
+  } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }
 
@@ -532,7 +534,7 @@ function handleRetrievalPlanCommand(options = {}) {
 
   try {
     assertSafeTaskId(taskId);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }
 
@@ -550,7 +552,7 @@ function handleRetrievalPlanCommand(options = {}) {
     let router;
     try {
       router = new CapabilityRouter({ repoRoot: packageRoot });
-    } catch (error) {
+    } catch (error: any) {
       return usageError('retrieval-plan', error.message, json, error);
     }
     return declarePlan({ router, projectRoot, taskId, stage, intents, json, slug });

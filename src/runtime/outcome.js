@@ -35,7 +35,7 @@
  * No state here is a number, a percentage or a confidence (NFR-001). `basis.evidenceCount` is the
  * only integer the record carries and it is a **count of records**: how many things were filed, not
  * how good they were. Score-shaped inputs are refused by name at this boundary through the same
- * one definition `bin/doflow.js` and `retrieval-plan.js` use.
+ * one definition `bin/doflow.js` and `retrieval-plan.ts` use.
  */
 
 const fs = require('node:fs');
@@ -47,9 +47,9 @@ const { taskStoreDir } = require('./task-scope.ts');
 const { READINESS_STATES } = require('./readiness.ts');
 const { VERIFICATION_STATUSES } = require('./verification/engine.ts');
 const { WorkflowEngine } = require('./workflow-engine.ts');
-// Read, not re-derived: the retrieval plan's location is `retrieval-plan.js`'s to define, and the
+// Read, not re-derived: the retrieval plan's location is `retrieval-plan.ts`'s to define, and the
 // unreached items this record carries forward are the ones that record already holds.
-const { planPath, UNREACHED } = require('./retrieval-plan');
+const { planPath, UNREACHED } = require('./retrieval-plan.ts');
 // One definition of the score refusal, applied at a further boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in cli.js: a terminal state that carried a confidence would be exactly the
 // number NFR-001 exists to keep out of the one record the next worker reads first.

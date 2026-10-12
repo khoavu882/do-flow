@@ -162,7 +162,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/retrieval-plan.js"
+        "src/runtime/retrieval-plan.ts"
       ]
     },
     {
