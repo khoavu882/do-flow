@@ -11,7 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { WorkflowEngine } = require('./workflow-engine');
-const { updateTaskState, readTaskState } = require('./task-state');
+const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { ResearchRequestStore } = require('./research-request');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');

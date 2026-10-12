@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
-const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
+const { updateTaskState, readTaskState, mergeRecords } = require('./task-state.ts');
 const { taskStoreDir } = require('./task-scope');
 
 const VALID_EVIDENCE_KINDS = new Set([

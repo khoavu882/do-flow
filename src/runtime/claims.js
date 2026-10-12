@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
-const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
+const { updateTaskState, readTaskState, mergeRecords } = require('./task-state.ts');
 const { taskStoreDir } = require('./task-scope');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');

@@ -22,7 +22,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
-const { acquireLock, tryAcquireLock } = require('../task-state');
+const { acquireLock, tryAcquireLock } = require('../task-state.ts');
 const {
   EVENTS_REL, LIFECYCLE_REL, JOURNAL_REL, lockTarget, isEventName, randomChars, readEvents, readJournal, StoreUnsafeError,
 } = require('./event-store');

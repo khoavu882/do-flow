@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { acquireLock, updateTaskState, readTaskState } = require('./task-state');
+const { acquireLock, updateTaskState, readTaskState } = require('./task-state.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
 const { ClaimsManager } = require('./claims');
 const { taskStoreDir } = require('./task-scope');

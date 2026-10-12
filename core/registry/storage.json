@@ -89,7 +89,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -108,7 +108,7 @@
       ],
       "writers": [
         "src/runtime/readiness-record.js",
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -126,7 +126,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -180,7 +180,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -198,7 +198,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js",
+        "src/runtime/task-state.ts",
         "src/runtime/workflow-orchestrator.js"
       ]
     },
@@ -606,10 +606,10 @@
       "moments": [],
       "writers": [
         "src/runtime/storage/engine.js",
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ],
       "source": {
-        "file": "src/runtime/task-state.js",
+        "file": "src/runtime/task-state.ts",
         "pattern": "LOCK_STALE_MS = 10_000"
       }
     },

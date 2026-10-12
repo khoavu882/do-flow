@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { ResearchRequestStore } = require('../../src/runtime/research-request');
-const { updateTaskState } = require('../../src/runtime/task-state');
+const { updateTaskState } = require('../../src/runtime/task-state.ts');
 
 function fixture(t) {
   const root = tempDir(t, 'doflow-research-request-');
@@ -71,7 +71,7 @@ test('answered requires same-task extracted source linked to supported claim', t
 test('cannot attach a new request to a completed stage while awaiting its gate', t => {
   const { root, store } = fixture(t);
   const file = path.join(root, '.doflow/state/orchestration/feature.json');
-  const { updateTaskState } = require('../../src/runtime/task-state');
+  const { updateTaskState } = require('../../src/runtime/task-state.ts');
   updateTaskState({ fsImpl: fs, file, build: disk => ({ ...disk, state: 'AWAITING_GATE', cursor: 1,
     program: [{ type: 'stage', id: 'design', status: 'completed' }, { type: 'gate', id: 'gate-a', status: 'pending' }] }) });
   assert.throws(() => store.open({ taskId: 'feature', stageId: 'design', question: 'Too late?', reason: 'detected-gap' }), /no active feature stage/);

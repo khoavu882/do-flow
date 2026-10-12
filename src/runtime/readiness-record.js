@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { updateTaskState } = require('./task-state');
+const { updateTaskState } = require('./task-state.ts');
 const { resolveTaskScope } = require('./task-scope');
 const { findStateFile } = require('./checkouts');
 

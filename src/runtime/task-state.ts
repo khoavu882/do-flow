@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // ── Durable per-task state: locked, merged, versioned ────────────────────────────────────────────
 //
 // EvidenceLedger.save and ClaimsManager.save used to overwrite their whole JSON file with
@@ -26,8 +28,8 @@ const { isDeepStrictEqual } = require('node:util');
 
 /** Three-way merge against the reader's snapshot. Unchanged local records never overwrite a
  * newer disk version; concurrent edits to the same record must be retried after an explicit read. */
-function mergeRecords(local, disk, baseline) {
-  const merged = new Map(disk.map(item => [item.id, item]));
+function mergeRecords(local: any[], disk: any[], baseline: Map<any, any>): any[] {
+  const merged = new Map(disk.map((item: any) => [item.id, item]));
   for (const item of local) {
     const previous = baseline.get(item.id);
     const current = merged.get(item.id);
@@ -46,7 +48,7 @@ const LOCK_RETRIES = 250;
 const LOCK_WAIT_MS = 20;
 
 /** Synchronous sleep without spinning: Atomics.wait on a throwaway buffer. */
-function sleep(ms) {
+function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
@@ -57,28 +59,28 @@ function sleep(ms) {
  * @param {string} file
  * @returns {(() => void)|null}
  */
-function tryAcquireLock(fsImpl, file) {
+function tryAcquireLock(fsImpl: any, file: string): (() => void) | null {
   const lockDir = `${file}.lock`;
   const release = () => { try { fsImpl.rmdirSync(lockDir); } catch { /* released is released */ } };
   try {
     fsImpl.mkdirSync(lockDir);
     return release;
-  } catch (error) {
+  } catch (error: any) {
     if (error.code !== 'EEXIST') throw error;
   }
-  let lock;
-  try { lock = fsImpl.statSync(lockDir); } catch (error) {
+  let lock: any;
+  try { lock = fsImpl.statSync(lockDir); } catch (error: any) {
     if (error.code !== 'ENOENT') return null;
-    try { fsImpl.mkdirSync(lockDir); return release; } catch (retryError) {
+    try { fsImpl.mkdirSync(lockDir); return release; } catch (retryError: any) {
       if (retryError.code === 'EEXIST') return null;
       throw retryError;
     }
   }
   if (Date.now() - lock.mtimeMs <= LOCK_STALE_MS) return null;
-  try { fsImpl.rmdirSync(lockDir); } catch (error) {
+  try { fsImpl.rmdirSync(lockDir); } catch (error: any) {
     if (error.code !== 'ENOENT') return null;
   }
-  try { fsImpl.mkdirSync(lockDir); return release; } catch (error) {
+  try { fsImpl.mkdirSync(lockDir); return release; } catch (error: any) {
     if (error.code === 'EEXIST') return null;
     throw error;
   }
@@ -91,7 +93,7 @@ function tryAcquireLock(fsImpl, file) {
  * @param {string} file
  * @returns {() => void}
  */
-function acquireLock(fsImpl, file) {
+function acquireLock(fsImpl: any, file: string): () => void {
   const lockDir = `${file}.lock`;
   // The stale rule below is wall-clock, so the wait must be too: on a host where each attempt costs
   // real time, counting attempts alone would outlive a live holder's staleness window and then
@@ -121,12 +123,12 @@ function acquireLock(fsImpl, file) {
  * @param {string} file
  * @returns {Object|null} the parsed payload
  */
-function readTaskState(fsImpl, file) {
+function readTaskState(fsImpl: any, file: string): any {
   if (!fsImpl.existsSync(file)) return null;
-  let data;
+  let data: any;
   try {
     data = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(`Failed to load state file '${file}': ${error.message}. The write path is atomic `
       + '(tmp + rename), so a torn file means outside interference; recover it from version control '
       + 'or move it aside and re-record the task\'s items.');
@@ -151,7 +153,7 @@ function readTaskState(fsImpl, file) {
  *   that must inspect or set aside what is there under the same exclusion as the write
  * @returns {string} the file path written
  */
-function updateTaskState({ fsImpl, file, build, prepare }) {
+function updateTaskState({ fsImpl, file, build, prepare }: { fsImpl: any; file: string; build: (disk: any) => any; prepare?: () => void }): string {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const release = acquireLock(fsImpl, file);
   try {

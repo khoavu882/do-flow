@@ -15,7 +15,7 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { acquireLock } = require('../task-state');
+const { acquireLock } = require('../task-state.ts');
 const { printSafe } = require('../mask.ts');
 const { foldInto, finalize, applyEvent } = require('./fold');
 
