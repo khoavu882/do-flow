@@ -51,7 +51,7 @@ test('refuses wrong stage, absent feature, and unsupported answer without a writ
 test('answered requires same-task extracted source linked to supported claim', t => {
   const { root, store } = fixture(t);
   const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-  const { ClaimsManager } = require('../../src/runtime/claims');
+  const { ClaimsManager } = require('../../src/runtime/claims.ts');
   const request = store.open({ taskId: 'feature', stageId: 'design', question: 'Current API?', reason: 'detected-gap' });
   const ledger = new EvidenceLedger({ repoRoot: root });
   const evId = ledger.addEvidence({ taskId: 'feature', kind: 'documentation', provenance: 'extracted',
@@ -98,7 +98,7 @@ test('detected gap upgrades a duplicate optional question to blocking without cr
 test('answered refuses non-web and credential-bearing URI locators', t => {
   const { root, store } = fixture(t);
   const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-  const { ClaimsManager } = require('../../src/runtime/claims');
+  const { ClaimsManager } = require('../../src/runtime/claims.ts');
   const request = store.open({ taskId: 'feature', stageId: 'design', question: 'External fact?', reason: 'detected-gap' });
   const ledger = new EvidenceLedger({ repoRoot: root });
   const ids = ['not-an-actual-locator', 'javascript:alert(1)', 'https://user:secret@example.com/path']

@@ -114,7 +114,7 @@ describe('error-to-usage catch sites record a programming error and keep the usa
     ['evidence list (ledger load)', ['evidence', '--task-id', 't1', '--action', 'list', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.ts', cls: 'EvidenceLedger', method: 'load' }],
     ['evidence supersede', ['evidence', '--task-id', 't1', '--action', 'supersede', '--evidence-id', 'E1', '--replaced-by', 'E2', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.ts', cls: 'EvidenceLedger', method: 'supersedeEvidence' }],
     ['route', ['route', '--intent', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.ts', cls: 'CapabilityRouter', method: 'resolveIntent' }],
-    ['claim', ['claim', '--task-id', 't1', '--action', 'add', '--statement', 'x', '--json'], { kind: 'proto', module: 'src/runtime/claims.js', cls: 'ClaimsManager', method: 'addClaim' }],
+    ['claim', ['claim', '--task-id', 't1', '--action', 'add', '--statement', 'x', '--json'], { kind: 'proto', module: 'src/runtime/claims.ts', cls: 'ClaimsManager', method: 'addClaim' }],
     ['inventory', ['inventory', '--json'], { kind: 'export', module: 'src/registry/index.ts', method: 'loadRegistry' }],
     ['outcome record', ['outcome', '--action', 'record', '--task-id', 't1', '--task-class', 'feature', '--state', 'INCONCLUSIVE', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.ts', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
     ['research-request', ['research-request', '--action', 'list', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/research-request.js', cls: 'ResearchRequestStore', method: 'list' }],

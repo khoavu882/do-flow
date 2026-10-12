@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-const { ClaimsManager } = require('../../src/runtime/claims');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
 const { acquireLock, tryAcquireLock, readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state.ts');
 
 function stateRoot(t) {

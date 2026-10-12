@@ -33,7 +33,7 @@ const { handleIndicatorsCommand } = require('../runtime/trace/indicators.ts');
 // `context-pack`, `verify`, `recover` and `scaffold` each have exactly one implementation, in the
 // engine module named on the right; this file only dispatches to them.
 const { ReadinessEngine } = require('../runtime/readiness');
-const { handleClaimCommand } = require('../runtime/claims');
+const { handleClaimCommand } = require('../runtime/claims.ts');
 const { handleClassifyCommand } = require('../runtime/task-classifier');
 const { handleWorkflowCommand } = require('../runtime/workflow-engine.ts');
 const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator');

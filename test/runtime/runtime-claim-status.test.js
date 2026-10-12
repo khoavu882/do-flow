@@ -11,7 +11,7 @@
 // the same split would silently unblock real conflicts. These tests pin the boundary.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { ClaimsManager } = require('../../src/runtime/claims');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 
 /** A ledger plus manager wired together, with one fresh evidence item per requested role. */

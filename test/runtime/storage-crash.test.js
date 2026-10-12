@@ -9,7 +9,7 @@ const { inheritedEnv } = require('../helper/scratch-env');
 const registry = require('../../core/registry/storage.json');
 const { runPass } = require('../../src/runtime/storage/engine');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-const { ClaimsManager } = require('../../src/runtime/claims');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
 const NOW = Date.parse('2026-10-10T12:00:00Z'), DAY = 86400000;
 const CLI = path.resolve(__dirname, '../../bin/doflow.js');
 const TOMBSTONE = /^\.[A-Za-z0-9][A-Za-z0-9._-]*\.pruning-[0-9]+-[0-9a-f]{8}$/;

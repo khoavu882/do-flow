@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-const { ClaimsManager } = require('../../src/runtime/claims');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
 const { FreshnessValidator } = require('../../src/runtime/freshness.ts');
 const { ContextPackCompiler } = require('../../src/runtime/context-pack');
 const { ReadinessEngine } = require('../../src/runtime/readiness');
@@ -70,7 +70,7 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
   const ev3 = ledger.addEvidence({
     taskId: 'task_bug_ready',
     kind: 'structural',
-    locator: { file: 'src/runtime/claims.js' },
+    locator: { file: 'src/runtime/claims.ts' },
     content: 'CheckoutController -> PaymentService',
     establishes: ['blast_radius'],
   });
@@ -280,7 +280,7 @@ test('a stale item alone forces NEEDS_EVIDENCE even when every requirement is ot
 test('supersedeEvidence refuses a missing replacement, self-supersession, and re-superseding', () => {
   const ledger = new EvidenceLedger();
   const a = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/readiness.js' } });
-  const b = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/claims.js' } });
+  const b = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/claims.ts' } });
 
   assert.throws(() => ledger.supersedeEvidence(a, 'no-such-id'), /No evidence 'no-such-id' is recorded/);
   assert.throws(() => ledger.supersedeEvidence(a, a), /cannot supersede itself/);

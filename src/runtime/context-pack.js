@@ -1,7 +1,7 @@
 'use strict';
 
 const { EvidenceLedger } = require('./evidence-ledger.ts');
-const { ClaimsManager } = require('./claims');
+const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -36,6 +38,15 @@ const CLAIM_STATUSES = new Set([
 const TERMINAL_CLAIM_STATUSES = new Set(['retracted', 'superseded']);
 
 class ClaimsManager {
+  declare fsImpl: any;
+  declare evidenceLedger: any;
+  declare repoRoot: any;
+  declare fixedStateDir: any;
+  declare slug: any;
+  declare stateDir: any;
+  declare claimsMap: Map<any, any>;
+  declare baseline: Map<any, any>;
+  declare seq: number;
   /**
    * @param {Object} [options]
    * @param {Object} [options.evidenceLedger]
@@ -44,7 +55,7 @@ class ClaimsManager {
    * @param {string} [options.slug] feature whose namespace the records live under (see task-scope.js)
    * @param {Object} [options.fsImpl]
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.evidenceLedger = options.evidenceLedger || null;
     this.repoRoot = options.repoRoot || REPO_ROOT;
@@ -57,7 +68,7 @@ class ClaimsManager {
   }
 
   /** Where this task's claims file lives: beside its evidence, in the feature's namespace when it has one. */
-  fileFor(taskId) {
+  fileFor(taskId: any) {
     const dir = this.fixedStateDir
       || taskStoreDir({ projectRoot: this.repoRoot, store: 'evidence', taskId, slug: this.slug });
     return path.join(dir, `${assertSafeTaskId(taskId)}_claims.json`);
@@ -76,7 +87,7 @@ class ClaimsManager {
    * @param {Object} item - { statement, taskId, status, id, role }
    * @returns {string} claimId
    */
-  addClaim(item) {
+  addClaim(item: any): string {
     if (!item || typeof item !== 'object') {
       throw new Error('Claim item must be an object');
     }
@@ -114,7 +125,7 @@ class ClaimsManager {
    * @param {string} id
    * @returns {Object|null}
    */
-  getClaim(id) {
+  getClaim(id: string) {
     return this.claimsMap.get(id) || null;
   }
 
@@ -124,7 +135,7 @@ class ClaimsManager {
    * @param {string} evidenceId
    * @param {'supports'|'contradicts'} [relation='supports']
    */
-  linkEvidence(claimId, evidenceId, relation = 'supports') {
+  linkEvidence(claimId: string, evidenceId: string, relation = 'supports') {
     const claim = this.claimsMap.get(claimId);
     if (!claim) {
       throw new Error(`Unknown claim '${claimId}'`);
@@ -163,7 +174,7 @@ class ClaimsManager {
    * @param {string} claimId
    * @returns {'hypothesis'|'supported'|'conflicted'|'invalidated'|'unknown'}
    */
-  evaluateClaim(claimId) {
+  evaluateClaim(claimId: string) {
     const claim = this.claimsMap.get(claimId);
     if (!claim) {
       throw new Error(`Unknown claim '${claimId}'`);
@@ -228,7 +239,7 @@ class ClaimsManager {
    * @param {string} [supersededBy]
    * @returns {string} the new status
    */
-  finalizeClaim(claimId, status, supersededBy) {
+  finalizeClaim(claimId: string, status: any, supersededBy?: string): string {
     const claim = this.claimsMap.get(claimId);
     if (!claim) {
       throw new Error(`Unknown claim '${claimId}'`);
@@ -249,7 +260,7 @@ class ClaimsManager {
    * @param {string} claimId
    * @returns {string} the new status
    */
-  retractClaim(claimId) {
+  retractClaim(claimId: string): string {
     return this.finalizeClaim(claimId, 'retracted');
   }
 
@@ -262,7 +273,7 @@ class ClaimsManager {
    * @param {string} replacedBy
    * @returns {string} the new status
    */
-  supersedeClaim(claimId, replacedBy) {
+  supersedeClaim(claimId: string, replacedBy: string): string {
     // The target is checked first: validating the replacement before the claim being superseded
     // reported a missing replacement when the caller had actually mistyped the target, sending them
     // to fix the wrong id.
@@ -296,7 +307,7 @@ class ClaimsManager {
    * @param {string} [taskId]
    * @returns {Array<Object>}
    */
-  getClaims(taskId) {
+  getClaims(taskId: string) {
     const results = [];
     for (const claim of this.claimsMap.values()) {
       if (!taskId || claim.taskId === taskId) {
@@ -311,13 +322,13 @@ class ClaimsManager {
    * @param {string} [taskId='default']
    * @returns {string} filePath
    */
-  save(taskId = 'default') {
+  save(taskId = 'default'): string {
     const targetFile = this.fileFor(taskId);
-    let merged;
+    let merged: any;
     const file = updateTaskState({
       fsImpl: this.fsImpl,
       file: targetFile,
-      build: (disk) => {
+      build: (disk: any) => {
         merged = mergeRecords(this.getClaims(taskId), disk?.claims || [], this.baseline);
         return { taskId, updatedAt: new Date().toISOString(), claimsCount: merged.length, claims: merged };
       },
@@ -334,7 +345,7 @@ class ClaimsManager {
    * @param {string} [taskId='default']
    * @returns {number}
    */
-  load(taskId = 'default') {
+  load(taskId = 'default'): number {
     const targetFile = this.fileFor(taskId);
     const data = readTaskState(this.fsImpl, targetFile);
     if (data && Array.isArray(data.claims)) {
@@ -374,7 +385,7 @@ class ClaimsManager {
  * @param {string} [options.slug] feature the task belongs to, when not the branch's
  * @returns {number} exit code
  */
-function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', role, json = false, stateRoot, slug } = {}) {
+function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', role, json = false, stateRoot, slug }: any = {}): number {
   const root = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);
@@ -426,7 +437,7 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
     } else {
       return usageError('claim', `unknown --action '${action}'. Valid: list, add, link, retract, supersede`, json);
     }
-  } catch (error) {
+  } catch (error: any) {
     return usageError('claim', error.message, json, error);
   }
 
