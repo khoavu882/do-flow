@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { workStatus, createWorkCache, refreshedWorkCache } = require('./work-status.ts');
@@ -16,12 +18,12 @@ const removableRules = new Set(['count-and-age','work','date-partition','recover
 const SAFE_NAMESPACE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 // Open-log protection cannot vouch for a record store that holds a link, so the pass fails closed.
 const LINKED = 'link-in-record-store';
-function stopped(context) { return Boolean(context.shouldStop?.()); }
+function stopped(context: any) { return Boolean(context.shouldStop?.()); }
 function budgetError() { return Object.assign(new Error('storage pass budget exhausted'), { code: 'EBUDGET', partial: true }); }
-function projectRoot(roots) { return roots['project-state'] ? path.dirname(path.dirname(roots['project-state'])) : null; }
-function safeStat(fsImpl, file) { try { return fsImpl.lstatSync(file); } catch { return null; } }
-function names(fsImpl, dir) { return fsImpl.readdirSync(dir); }
-function ageReason(store, entry, now, fsImpl, storeDir, shouldStop) {
+function projectRoot(roots: any) { return roots['project-state'] ? path.dirname(path.dirname(roots['project-state'])) : null; }
+function safeStat(fsImpl: any, file: any) { try { return fsImpl.lstatSync(file); } catch { return null; } }
+function names(fsImpl: any, dir: any) { return fsImpl.readdirSync(dir); }
+function ageReason(store: any, entry: any, now: any, fsImpl: any, storeDir: any, shouldStop: any) {
   const limit = store.bound.maxAgeDays * DAY;
   if (store.rule === 'date-partition') {
     const date = entry.name.slice(0, 10);
@@ -43,13 +45,13 @@ function ageReason(store, entry, now, fsImpl, storeDir, shouldStop) {
   }
   return now - newest > limit ? 'age' : null;
 }
-function workCandidates(store, entries, context) {
+function workCandidates(store: any, entries: any, context: any) {
   const { fsImpl, storeDir, now, roots, settings, shouldStop } = context;
   const project = projectRoot(roots);
   if (!project) return [];
   const cache = context.cache || createWorkCache({ projectRoot: project, fsImpl });
-  const recordMatch = new RegExp(store.match), selected = [];
-  const visit = (dir, namespace = null) => {
+  const recordMatch = new RegExp(store.match), selected: any[] = [];
+  const visit = (dir: any, namespace: any = null) => {
     let children;
     try { children = names(fsImpl, dir); } catch { return true; }
     for (const name of children) {
@@ -75,7 +77,7 @@ function workCandidates(store, entries, context) {
   return selected;
 }
 /** Revalidate the subject under its try-lock against its current run and plan, not the selection snapshot. */
-function recordStillCandidate(store, candidate, info, context) {
+function recordStillCandidate(store: any, candidate: any, info: any, context: any) {
   const { fsImpl, roots, now, settings, cache, shouldStop, storeDir } = context;
   const before = candidate.recordStat;
   if (!info.isFile() || !before || ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev'].some(key => info[key] !== before[key])) return false;
@@ -94,7 +96,7 @@ function recordStillCandidate(store, candidate, info, context) {
   return !status.incomplete && !shouldStop?.() && status.state === 'finished'
     && status.since === candidate.mtimeMs && now - status.since > store.bound.finishedDays * DAY;
 }
-function workStorePathStatus(store, roots, fsImpl) {
+function workStorePathStatus(store: any, roots: any, fsImpl: any) {
   const project = projectRoot(roots), root = roots[store.root];
   if (!project || !root) return 'missing';
   const paths = [path.join(project, '.doflow'), root];
@@ -103,16 +105,16 @@ function workStorePathStatus(store, roots, fsImpl) {
   for (const candidate of paths) {
     let info;
     try { info = fsImpl.lstatSync(candidate); }
-    catch (error) { return error.code === 'ENOENT' || error.code === 'ENOTDIR' ? 'missing' : 'inaccessible'; }
+    catch (error: any) { return error.code === 'ENOENT' || error.code === 'ENOTDIR' ? 'missing' : 'inaccessible'; }
     if (info.isSymbolicLink()) return 'linked';
   }
   return 'safe';
 }
-function protectedLogs({ registry, roots, fsImpl, cache, shouldStop }) {
+function protectedLogs({ registry, roots, fsImpl, cache, shouldStop }: any) {
   const project = projectRoot(roots), protectedNames = new Set();
   if (!project) return { names: protectedNames, incomplete: false };
   const workCache = cache || createWorkCache({ projectRoot: project, fsImpl });
-  for (const store of registry.stores.filter((s) => s.root === 'project-state' && s.entry === 'record' && s.rule === 'work')) {
+  for (const store of registry.stores.filter((s: any) => s.root === 'project-state' && s.entry === 'record' && s.rule === 'work')) {
     if (shouldStop?.()) return { names: protectedNames, incomplete: true };
     const pathStatus = workStorePathStatus(store, roots, fsImpl);
     if (pathStatus === 'missing') continue;
@@ -120,16 +122,16 @@ function protectedLogs({ registry, roots, fsImpl, cache, shouldStop }) {
     const dir = path.join(roots[store.root], ...store.path.split('/'));
     const recordMatch = new RegExp(store.match);
     let linked = false;
-    const visit = (folder, namespace = null) => {
+    const visit = (folder: any, namespace: any = null) => {
       let list;
       try { list = names(fsImpl, folder); }
-      catch (error) { return error.code === 'ENOENT' || error.code === 'ENOTDIR'; }
+      catch (error: any) { return error.code === 'ENOENT' || error.code === 'ENOTDIR'; }
       for (const name of list) {
         if (shouldStop?.()) return false;
         const file = path.join(folder, name);
         let stat;
         try { stat = fsImpl.lstatSync(file); }
-        catch (error) { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue; return false; }
+        catch (error: any) { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue; return false; }
         if (stat.isSymbolicLink()) { linked = true; return false; }
         if (namespace === null && stat.isDirectory() && SAFE_NAMESPACE.test(name) && !name.includes('..')) {
           if (!visit(file, name)) return false;
@@ -156,18 +158,18 @@ function protectedLogs({ registry, roots, fsImpl, cache, shouldStop }) {
   }
   return { names: protectedNames, incomplete: false };
 }
-function lifecyclePathsSafe(project, fsImpl) {
+function lifecyclePathsSafe(project: any, fsImpl: any) {
   for (const rel of [path.join('.doflow'), path.join('.doflow', 'state'), path.join('.doflow', 'state', 'lifecycle'), path.join('.doflow', 'state', 'lifecycle', 'events')]) {
     try { if (fsImpl.lstatSync(path.join(project, rel)).isSymbolicLink()) return false; }
-    catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') return false; if (rel !== path.join('.doflow', 'state', 'lifecycle', 'events')) return false; }
+    catch (error: any) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') return false; if (rel !== path.join('.doflow', 'state', 'lifecycle', 'events')) return false; }
   }
   return true;
 }
-function definitelyMissing(fsImpl, target) {
+function definitelyMissing(fsImpl: any, target: any) {
   try { fsImpl.lstatSync(target); return false; }
-  catch (error) { return error.code === 'ENOENT' || error.code === 'ENOTDIR'; }
+  catch (error: any) { return error.code === 'ENOENT' || error.code === 'ENOTDIR'; }
 }
-function reportCandidates(store, entries, context) {
+function reportCandidates(store: any, entries: any, context: any) {
   const { fsImpl, storeDir, roots, now, settings, shouldStop } = context;
   const project = projectRoot(roots);
   const key = project && projectKey(project, fsImpl), selected = [];
@@ -181,7 +183,7 @@ function reportCandidates(store, entries, context) {
         if (shouldStop?.()) throw budgetError();
         if (BODY.test(name) && safeStat(fsImpl, path.join(folder, name))?.isFile()) bodyNames.push(name);
       }
-    } catch (error) { if (error.partial) throw error; continue; }
+    } catch (error: any) { if (error.partial) throw error; continue; }
     if (entry.name === key) {
       const lifecycle = path.join(project, '.doflow/state/lifecycle');
       if (!safeStat(fsImpl, path.join(lifecycle, 'migrated.json'))?.isFile() || !lifecyclePathsSafe(project, fsImpl)) continue;
@@ -230,7 +232,7 @@ function reportCandidates(store, entries, context) {
   }
   return selected;
 }
-function selectCandidates(store, entries, context) {
+function selectCandidates(store: any, entries: any, context: any) {
   const { now, fsImpl, storeDir, roots, shouldStop } = context;
   switch (store.rule) {
     case 'count-and-age': {
