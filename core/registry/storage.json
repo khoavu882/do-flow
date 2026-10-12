@@ -1038,7 +1038,7 @@
       "reason": "maintainer release tool: rewrites the repo plugin manifests (no DoFlow root)"
     },
     {
-      "file": "src/runtime/decision-register.js",
+      "file": "src/runtime/decision-register.ts",
       "reason": "agent-docs deliverable (decisions register of a feature)"
     },
     {

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Decision register (IC-001 to IC-009). One `decisions/register.json` per feature folder holds
  * every decision taken during the feature's chain; `decisions.md` (live view, one row per live
@@ -28,7 +30,7 @@ const REF_RE = /^[A-Za-z]+-?[0-9]+$/;
 const DEC_RE = /^DEC-[0-9]{3,}$/;
 const STAGES = ['discovery', 'design', 'planning', 'implementation', 'verification', 'review'];
 /** Channel -> who decided. The caller names the channel; `decidedBy` follows from it. */
-const CHANNEL_DECIDED_BY = { question: 'user', gate: 'user', prompt: 'user', default: 'agent', resolution: 'agent' };
+const CHANNEL_DECIDED_BY: Record<string, string> = { question: 'user', gate: 'user', prompt: 'user', default: 'agent', resolution: 'agent' };
 const ITEM_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale', 'supersedes', 'refs', 'source'];
 const REQUIRED_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale'];
 
@@ -42,7 +44,9 @@ class DecisionUsageError extends Error {}
 
 /** A finding the caller must act on (exit 1). */
 class DecisionFinding extends Error {
-  constructor(finding, message) {
+  finding: string;
+
+  constructor(finding: string, message: string) {
     super(message);
     this.finding = finding;
   }
@@ -50,19 +54,19 @@ class DecisionFinding extends Error {
 
 // ── paths ──────────────────────────────────────────────────────────────────────────────────────
 
-function registerFile(featureDir) { return path.join(featureDir, 'decisions', 'register.json'); }
-function liveViewFile(featureDir) { return path.join(featureDir, 'decisions.md'); }
-function archiveFile(featureDir) { return path.join(featureDir, 'decisions', 'archive.md'); }
+function registerFile(featureDir: string): string { return path.join(featureDir, 'decisions', 'register.json'); }
+function liveViewFile(featureDir: string): string { return path.join(featureDir, 'decisions.md'); }
+function archiveFile(featureDir: string): string { return path.join(featureDir, 'decisions', 'archive.md'); }
 
 // ── register io ────────────────────────────────────────────────────────────────────────────────
 
-function readRegister(featureDir, fsImpl = nodeFs) {
+function readRegister(featureDir: string, fsImpl: any = nodeFs): any {
   const file = registerFile(featureDir);
   if (!fsImpl.existsSync(file)) return null;
-  let data;
+  let data: any;
   try {
     data = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
-  } catch (error) {
+  } catch (error: any) {
     throw new DecisionUsageError(`${file} is not valid JSON (${error.message}). The register is written atomically, so a torn file means outside interference; restore it from version control.`);
   }
   if (!data || data.version !== REGISTER_VERSION || !Array.isArray(data.decisions) || !Number.isInteger(data.nextId)) {
@@ -71,62 +75,62 @@ function readRegister(featureDir, fsImpl = nodeFs) {
   return data;
 }
 
-function writeAtomic(fsImpl, file, content) {
+function writeAtomic(fsImpl: any, file: string, content: string): void {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   try {
     fsImpl.writeFileSync(tmp, content, 'utf8');
     fsImpl.renameSync(tmp, file);
-  } catch (error) {
+  } catch (error: any) {
     try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
     throw error;
   }
 }
 
 /** Writes only when the content differs, so re-rendering an unchanged view is a no-op. */
-function writeIfChanged(fsImpl, file, content) {
+function writeIfChanged(fsImpl: any, file: string, content: string): void {
   if (fsImpl.existsSync(file) && fsImpl.readFileSync(file, 'utf8') === content) return;
   writeAtomic(fsImpl, file, content);
 }
 
-function writeRegister(fsImpl, featureDir, register) {
+function writeRegister(fsImpl: any, featureDir: string, register: any): void {
   writeAtomic(fsImpl, registerFile(featureDir), `${JSON.stringify(register, null, 2)}\n`);
 }
 
-function renderViews(fsImpl, featureDir, register) {
+function renderViews(fsImpl: any, featureDir: string, register: any): void {
   writeIfChanged(fsImpl, liveViewFile(featureDir), renderLiveView(register));
   writeIfChanged(fsImpl, archiveFile(featureDir), renderArchive(register));
 }
 
 // ── ordering and ids ───────────────────────────────────────────────────────────────────────────
 
-function idNumber(id) { return Number(id.slice(4)); }
-function formatId(n) { return `DEC-${String(n).padStart(3, '0')}`; }
-function byId(a, b) { return idNumber(a.id) - idNumber(b.id); }
-function byTopic(a, b) { return a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : idNumber(a.id) - idNumber(b.id); }
-function liveOf(register) { return register.decisions.filter((d) => d.status === 'live'); }
+function idNumber(id: string): number { return Number(id.slice(4)); }
+function formatId(n: number): string { return `DEC-${String(n).padStart(3, '0')}`; }
+function byId(a: any, b: any): number { return idNumber(a.id) - idNumber(b.id); }
+function byTopic(a: any, b: any): number { return a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : idNumber(a.id) - idNumber(b.id); }
+function liveOf(register: any): any[] { return register.decisions.filter((d: any) => d.status === 'live'); }
 
 // ── renderers ──────────────────────────────────────────────────────────────────────────────────
 
 /** `\` is escaped first, so a statement ending in one cannot escape the pipe that closes the cell
  * (IC-007); `|` would end the cell; `<` could open an HTML comment that hides every later row. */
-function cell(text) { return String(text).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/</g, '\\<'); }
+function cell(text: any): string { return String(text).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/</g, '\\<'); }
 
 /** Archive text is read by people and agents, never as HTML: `<` is escaped so `<!--` cannot hide later entries. */
-function plain(text) { return String(text).replace(/</g, '\\<'); }
+function plain(text: any): string { return String(text).replace(/</g, '\\<'); }
 
 /**
  * A one-line rationale reads inline. A longer one goes in a blockquote under the bullet, every line
  * prefixed, so no line of it can start a heading or pose as one of the entry's own bullets.
  */
-function rationaleLines(rationale) {
+function rationaleLines(rationale: any): string[] {
   const parts = plain(rationale).split(/\r\n|[\n\r\u2028\u2029\u0085]/);
   if (parts.length === 1) return [`- **Rationale:** ${parts[0]}`];
-  return ['- **Rationale:**', ...parts.map((l) => (l === '' ? '  >' : `  > ${l}`))];
+  return ['- **Rationale:**', ...parts.map((l: string) => (l === '' ? '  >' : `  > ${l}`))];
 }
 
 /** IC-007. Size depends on the number of live topics, never on how many decisions were made. */
-function renderLiveView(register) {
+function renderLiveView(register: any): string {
   const live = liveOf(register).sort(byTopic);
   const out = [
     `# Decisions: ${register.slug}`,
@@ -146,7 +150,7 @@ function renderLiveView(register) {
 }
 
 /** IC-008. One entry per decision, by id; superseded entries stay with their rationale. */
-function renderArchive(register) {
+function renderArchive(register: any): string {
   const out = [`# Decision archive: ${register.slug}`, '', `> ${GENERATED_NOTE}`];
   for (const d of [...register.decisions].sort(byId)) {
     out.push('', `### ${d.id}: ${d.topic}`, '');
@@ -163,13 +167,13 @@ function renderArchive(register) {
 
 // ── item validation ────────────────────────────────────────────────────────────────────────────
 
-function toList(value, what, label) {
+function toList(value: any, what: string, label: string): string[] {
   if (value === undefined || value === null || value === '') return [];
-  let list;
+  let list: any[];
   if (Array.isArray(value)) list = value;
   else if (typeof value === 'string') list = value.split(',');
   else throw new DecisionUsageError(`${label}: ${what} must be an array of strings`);
-  const out = [];
+  const out: string[] = [];
   for (const entry of list) {
     if (typeof entry !== 'string') throw new DecisionUsageError(`${label}: ${what} must be an array of strings`);
     const trimmed = entry.trim();
@@ -179,11 +183,11 @@ function toList(value, what, label) {
 }
 
 /** Validates one add item against IC-003's field rules. Throws DecisionUsageError. */
-function normalizeItem(raw, label) {
+function normalizeItem(raw: any, label: string): any {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new DecisionUsageError(`${label}: must be an object`);
-  const extra = Object.keys(raw).filter((k) => !ITEM_KEYS.includes(k));
+  const extra = Object.keys(raw).filter((k: string) => !ITEM_KEYS.includes(k));
   if (extra.length) {
-    throw new DecisionUsageError(`${label}: unknown key${extra.length > 1 ? 's' : ''} ${extra.map((k) => `'${k}'`).join(', ')}. Allowed: ${ITEM_KEYS.join(', ')} (decidedBy is set by the runtime from the channel)`);
+    throw new DecisionUsageError(`${label}: unknown key${extra.length > 1 ? 's' : ''} ${extra.map((k: string) => `'${k}'`).join(', ')}. Allowed: ${ITEM_KEYS.join(', ')} (decidedBy is set by the runtime from the channel)`);
   }
   for (const key of REQUIRED_KEYS) {
     if (typeof raw[key] !== 'string' || raw[key].trim() === '') throw new DecisionUsageError(`${label}: '${key}' is required`);
@@ -222,9 +226,9 @@ function normalizeItem(raw, label) {
 }
 
 /** Normalizes the batch (`--batch` contents) or the single item, refusing everything on one fault. */
-function normalizeItems(items) {
+function normalizeItems(items: any): any[] {
   if (!Array.isArray(items)) throw new DecisionUsageError('a batch must be a JSON array of decision objects');
-  const normalized = items.map((raw, i) => normalizeItem(raw, `item ${i + 1}`));
+  const normalized = items.map((raw: any, i: number) => normalizeItem(raw, `item ${i + 1}`));
   const seen = new Set();
   for (const item of normalized) {
     if (seen.has(item.topic)) throw new DecisionUsageError(`topic '${item.topic}' appears more than once in the batch; a topic takes one decision per batch`);
@@ -235,15 +239,15 @@ function normalizeItems(items) {
 
 // ── actions ────────────────────────────────────────────────────────────────────────────────────
 
-function summary({ action, slug, featureDir }) { return { action, slug, featureDir }; }
+function summary({ action, slug, featureDir }: { action: string; slug: string; featureDir: string }): { action: string; slug: string; featureDir: string } { return { action, slug, featureDir }; }
 
 const FOLDER_ARTIFACTS = ['intention/requirement.md', 'requirement.md', 'design/design.md', 'design.md', 'plan.md'];
 
 /** IC-002. */
-function initRegister({ featureDir, slug, fsImpl = nodeFs }) {
+function initRegister({ featureDir, slug, fsImpl = nodeFs }: any): any {
   const base = summary({ action: 'init', slug, featureDir });
   if (fsImpl.existsSync(registerFile(featureDir))) return { ...base, created: false };
-  const present = FOLDER_ARTIFACTS.filter((rel) => fsImpl.existsSync(path.join(featureDir, rel)));
+  const present = FOLDER_ARTIFACTS.filter((rel: string) => fsImpl.existsSync(path.join(featureDir, rel)));
   if (present.length) {
     return {
       ...base,
@@ -269,7 +273,7 @@ function initRegister({ featureDir, slug, fsImpl = nodeFs }) {
  * IC-003. All-or-nothing: the whole batch is validated and simulated against the register first,
  * and nothing is written unless every item passes.
  */
-function addDecisions({ featureDir, slug, items, now = new Date(), fsImpl = nodeFs }) {
+function addDecisions({ featureDir, slug, items, now = new Date(), fsImpl = nodeFs }: any): any {
   const normalized = normalizeItems(items);
   const base = summary({ action: 'add', slug, featureDir });
   if (!fsImpl.existsSync(registerFile(featureDir))) {
@@ -281,24 +285,24 @@ function addDecisions({ featureDir, slug, items, now = new Date(), fsImpl = node
   try {
     const register = readRegister(featureDir, fsImpl);
     const iso = now.toISOString();
-    const added = [];
-    const superseded = [];
-    let conflict = null;
+    const added: any[] = [];
+    const superseded: any[] = [];
+    let conflict: any = null;
     let nextId = register.nextId;
     for (const item of normalized) {
       for (const id of item.supersedes) {
-        const target = register.decisions.find((d) => d.id === id);
+        const target = register.decisions.find((d: any) => d.id === id);
         if (!target) throw new DecisionUsageError(`topic '${item.topic}': supersedes ${id}, which is not a decision in this register`);
         if (target.status !== 'live') throw new DecisionUsageError(`topic '${item.topic}': supersedes ${id}, which is not live (it was superseded by ${target.supersededBy})`);
       }
-      const unnamed = register.decisions.find((d) => d.status === 'live' && d.topic === item.topic && !item.supersedes.includes(d.id));
+      const unnamed = register.decisions.find((d: any) => d.status === 'live' && d.topic === item.topic && !item.supersedes.includes(d.id));
       if (unnamed && !conflict) {
         conflict = { finding: 'topic-conflict', message: `topic '${item.topic}' already has live decision ${unnamed.id}; name it in supersedes to replace it. Nothing was written` };
       }
       const id = formatId(nextId);
       nextId += 1;
       for (const old of item.supersedes) {
-        const target = register.decisions.find((d) => d.id === old);
+        const target = register.decisions.find((d: any) => d.id === old);
         target.status = 'superseded';
         target.supersededBy = id;
         superseded.push({ id: old, by: id });
@@ -332,7 +336,7 @@ function addDecisions({ featureDir, slug, items, now = new Date(), fsImpl = node
 }
 
 /** IC-004. */
-function listDecisions({ featureDir, slug, all = false, fsImpl = nodeFs }) {
+function listDecisions({ featureDir, slug, all = false, fsImpl = nodeFs }: any): any {
   const base = summary({ action: 'list', slug, featureDir });
   const register = readRegister(featureDir, fsImpl);
   if (!register) return { ...base, finding: 'no-register', message: `${featureDir} has no decisions/register.json` };
@@ -341,7 +345,7 @@ function listDecisions({ featureDir, slug, all = false, fsImpl = nodeFs }) {
 }
 
 /** IC-005: compaction plus the view re-render, under the register lock `compactHistory` itself lacks. */
-function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(), fsImpl = nodeFs }) {
+function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(), fsImpl = nodeFs }: any): any {
   const base = summary({ action: 'compact', slug, featureDir });
   if (!fsImpl.existsSync(registerFile(featureDir))) {
     return { ...base, finding: 'no-register', message: `${featureDir} has no decisions/register.json; nothing was touched` };
@@ -356,7 +360,7 @@ function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(),
     if (result.failed.length) {
       return {
         ...base, status: result.status, finding: 'compaction-failed',
-        message: result.failed.map((f) => f.message).join('; '),
+        message: result.failed.map((f: any) => f.message).join('; '),
         artifact: result.failed[0].path, moved: result.moved, failed: result.failed,
       };
     }
@@ -370,17 +374,17 @@ function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(),
 
 const VALID_ACTIONS = ['init', 'add', 'list', 'compact'];
 
-function readBatchFile(batchPath, fsImpl) {
-  let text;
+function readBatchFile(batchPath: string, fsImpl: any): any {
+  let text: string;
   try {
     // `-` is stdin, as for the evidence verb.
     text = batchPath === '-' ? fsImpl.readFileSync(0, 'utf8') : fsImpl.readFileSync(path.resolve(batchPath), 'utf8');
-  } catch (error) {
+  } catch (error: any) {
     throw new DecisionUsageError(`cannot read --batch ${batchPath}: ${error.message}`);
   }
   try {
     return JSON.parse(text);
-  } catch (error) {
+  } catch (error: any) {
     throw new DecisionUsageError(`--batch ${batchPath} is not valid JSON: ${error.message}`);
   }
 }
@@ -397,15 +401,15 @@ function readBatchFile(batchPath, fsImpl) {
  *   refs, source, batch (path); list: all
  * @returns {{exitCode:number, result?:Object, usage?:string}}
  */
-function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, now = new Date(), fsImpl = nodeFs }) {
+function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, now = new Date(), fsImpl = nodeFs }: any): { exitCode: number; result?: any; usage?: string } {
   const act = action === 'status' ? 'list' : action;
-  let resolved = null;
+  let resolved: any = null;
   try {
     if (!VALID_ACTIONS.includes(act)) throw new DecisionUsageError(`unknown --action '${action}'. Valid: ${VALID_ACTIONS.join(', ')}`);
     const feature = resolveActiveFeature({ projectRoot, slug });
     if (feature.error) throw new DecisionUsageError(feature.message);
     resolved = { featureDir: feature.featureDir, slug: feature.paths.feature_slug };
-    let result;
+    let result: any;
     if (act === 'init') {
       result = initRegister({ ...resolved, fsImpl });
     } else if (act === 'list') {
@@ -413,13 +417,13 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
     } else if (act === 'compact') {
       result = compactDecisions({ ...resolved, repoRoot: feature.repoRoot, paths: feature.paths, now, fsImpl });
     } else {
-      let items;
+      let items: any;
       if (flags.batch) {
         const named = ITEM_KEYS.filter((k) => flags[k] !== undefined);
         if (named.length) throw new DecisionUsageError(`--batch cannot be combined with --${named[0]}`);
         items = readBatchFile(flags.batch, fsImpl);
       } else {
-        const single = {};
+        const single: Record<string, any> = {};
         for (const key of ITEM_KEYS) if (flags[key] !== undefined) single[key] = flags[key];
         for (const key of REQUIRED_KEYS) {
           if (single[key] === undefined) throw new DecisionUsageError(`--${key} is required for --action add (or pass --batch <file.json>)`);
@@ -429,7 +433,7 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
       result = addDecisions({ ...resolved, items, now, fsImpl });
     }
     return { exitCode: result.finding ? 1 : 0, result };
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof DecisionUsageError) return { exitCode: 2, usage: error.message };
     // Another writer holds the register lock: a condition to retry, not a mistake in the call.
     if (resolved && error && /^Could not lock/.test(error.message || '')) {
@@ -439,21 +443,21 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
   }
 }
 
-function humanLines(result) {
-  const lines = [];
+function humanLines(result: any): string[] {
+  const lines: string[] = [];
   if (result.finding) lines.push(`${result.finding}: ${result.message}`);
   if (result.action === 'init' && !result.finding) {
     lines.push(result.created ? `created ${path.join(result.featureDir, 'decisions', 'register.json')}` : 'register already exists; nothing written');
   }
-  for (const a of result.added || []) lines.push(`added ${a.id} (${a.topic})`);
-  for (const s of result.superseded || []) lines.push(`superseded ${s.id} by ${s.by}`);
+  for (const a of (result.added || []) as any[]) lines.push(`added ${a.id} (${a.topic})`);
+  for (const s of (result.superseded || []) as any[]) lines.push(`superseded ${s.id} by ${s.by}`);
   if (result.action === 'list' && !result.finding) {
     if (result.decisions.length === 0) lines.push('No decisions.');
-    for (const d of result.decisions) lines.push(`${d.id}  ${d.topic}  ${d.statement}  [${d.decidedBy}, ${d.stage}${d.status === 'live' ? '' : `, superseded by ${d.supersededBy}`}]`);
+    for (const d of result.decisions as any[]) lines.push(`${d.id}  ${d.topic}  ${d.statement}  [${d.decidedBy}, ${d.stage}${d.status === 'live' ? '' : `, superseded by ${d.supersededBy}`}]`);
   }
   if (result.action === 'compact') {
     if (result.status === 'unchanged') lines.push('nothing to compact');
-    for (const m of result.moved || []) lines.push(`moved ${m.lines} line${m.lines === 1 ? '' : 's'} from ${m.path} to ${m.archive}`);
+    for (const m of (result.moved || []) as any[]) lines.push(`moved ${m.lines} line${m.lines === 1 ? '' : 's'} from ${m.path} to ${m.archive}`);
   }
   return lines;
 }
@@ -462,7 +466,7 @@ function humanLines(result) {
  * `decision` verb. Exit 0 = answered, 1 = a finding the caller must act on, 2 = usage.
  * `--json` prints the result object unmodified.
  */
-function handleDecisionCommand({ action = 'list', projectRoot, slug = null, flags = {}, json = false } = {}) {
+function handleDecisionCommand({ action = 'list', projectRoot, slug = null, flags = {}, json = false }: any = {}): number {
   const run = runDecision({ action, projectRoot: projectRoot || process.cwd(), slug, flags });
   if (run.usage !== undefined) return usageError('decision', run.usage, json);
   if (json) console.log(JSON.stringify(run.result, null, 2));
