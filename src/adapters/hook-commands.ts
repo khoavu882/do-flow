@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Shared hook-command verification — the one piece of codex/hooks.js and gemini/hooks.js that
 // proved byte-identical on inspection (unlike SUPPORTED_EVENTS, validateHooksConfig, and
 // classifyClaudeGuardrails, which encode genuine per-harness differences and stay in each
@@ -9,16 +11,16 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-function commandScriptNames(command) {
+function commandScriptNames(command: string): string[] {
   // DoFlow's wrappers are shell scripts selected from a project or CODEX_HOME hooks directory.
   // Extracting the basename works for both literal and command-substitution based paths.
   return [...new Set((command.match(/[A-Za-z0-9][A-Za-z0-9_-]*\.sh\b/g) || []))];
 }
 
-function hookHandlers(config) {
-  return Object.entries(config.hooks || {}).flatMap(([event, groups]) =>
-    (Array.isArray(groups) ? groups : []).flatMap((group) =>
-      (Array.isArray(group?.hooks) ? group.hooks : []).map((handler) => ({ event, handler }))));
+function hookHandlers(config: any): { event: string, handler: any }[] {
+  return Object.entries(config.hooks || {}).flatMap(([event, groups]: [string, any]) =>
+    (Array.isArray(groups) ? groups : []).flatMap((group: any) =>
+      (Array.isArray(group?.hooks) ? group.hooks : []).map((handler: any) => ({ event, handler }))));
 }
 
 // On `trusted`: both harnesses gate hook execution behind their own trust prompt — Codex through
@@ -34,8 +36,8 @@ function hookHandlers(config) {
 // exec-bit half of the check is POSIX-only; existence is checked everywhere.
 const EXEC_BITS_EXIST = process.platform !== 'win32';
 
-function verifyHookCommands(config, { scriptsDir, trusted = false, fsImpl = fs } = {}) {
-  const checks = [];
+function verifyHookCommands(config: any, { scriptsDir, trusted = false, fsImpl = fs }: { scriptsDir?: string, trusted?: boolean, fsImpl?: any } = {}): any {
+  const checks: any[] = [];
   for (const { event, handler } of hookHandlers(config)) {
     if (!handler || handler.type !== 'command' || typeof handler.command !== 'string' || !handler.command.trim()) continue;
     const names = commandScriptNames(handler.command);
@@ -52,7 +54,7 @@ function verifyHookCommands(config, { scriptsDir, trusted = false, fsImpl = fs }
         requiresTrust: true, trusted });
     }
   }
-  return { ok: checks.every((check) => check.ok), checks, trust: { required: checks.length > 0, trusted: Boolean(trusted), status: trusted ? 'trusted' : 'review-required' } };
+  return { ok: checks.every((check: any) => check.ok), checks, trust: { required: checks.length > 0, trusted: Boolean(trusted), status: trusted ? 'trusted' : 'review-required' } };
 }
 
 module.exports = { commandScriptNames, hookHandlers, verifyHookCommands };

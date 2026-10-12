@@ -5,7 +5,7 @@
 // that are not executable.  Trust is reported as a prerequisite rather than being bypassed.
 const fs = require('node:fs');
 const path = require('node:path');
-const { verifyHookCommands } = require('../hook-commands');
+const { verifyHookCommands } = require('../hook-commands.ts');
 const { mergeHooks } = require('../../helper/settings-merge.ts');
 const { atomicWrite } = require('./config');
 

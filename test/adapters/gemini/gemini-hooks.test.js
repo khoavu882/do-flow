@@ -37,7 +37,7 @@ test('fails closed for missing or non-executable command wrappers', () => {
   const hooks = wrapper(root, 'session-start.sh', 0o644);
   result = verifyHookCommands(hookConfig(), { scriptsDir: hooks });
   // Windows has no exec bits, so a 0644 wrapper is indistinguishable from 0755 there and the
-  // not-executable refusal is POSIX-only (see src/adapters/hook-commands.js).
+  // not-executable refusal is POSIX-only (see src/adapters/hook-commands.ts).
   if (!IS_WIN) {
     assert.equal(result.ok, false); assert.equal(result.checks[0].reason, 'Hook script is not executable');
   } else {

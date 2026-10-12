@@ -12,7 +12,7 @@
 // if a third harness with the same shape is ever added.
 const fs = require('node:fs');
 const path = require('node:path');
-const { verifyHookCommands } = require('../hook-commands');
+const { verifyHookCommands } = require('../hook-commands.ts');
 const { mergeHooks } = require('../../helper/settings-merge.ts');
 
 const SUPPORTED_EVENTS = new Set([
