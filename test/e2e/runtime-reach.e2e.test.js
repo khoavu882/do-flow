@@ -103,6 +103,14 @@ function parseJson(text) {
 
 const real = fs.realpathSync;
 
+/** Files under `<root>/.doflow/runtime` this checkout's source no longer produces, relative to the runtime root. */
+function runtimeOrphans(root) {
+  return ['bin', 'src', path.join('core', 'registry')].flatMap((tree) => {
+    const dir = path.join(root, '.doflow', 'runtime', tree);
+    return fs.existsSync(dir) ? filesUnder(dir).filter((rel) => !fs.existsSync(path.join(REPO, tree, rel))).map((rel) => path.join(tree, rel)) : [];
+  });
+}
+
 function ancestorWithDoflow(start) {
   for (let dir = start; ; dir = path.dirname(dir)) {
     if (fs.existsSync(path.join(dir, '.doflow'))) return dir;
@@ -242,46 +250,88 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.ok([...filesUnder(mirror), ...filesUnder(path.join(REPO, 'src'))].some(differs), `the ${LEGACY_TAG} runtime equals this checkout's; the mixed-version cell proves nothing`);
 
     // `update` runs without -f: force would make every file known-good and hide the sibling-fingerprint
-    // acceptance this cell exists to prove. The confirmation prompt is answered on stdin.
+    // acceptance this cell exists to prove. The confirmation prompt is answered on stdin. A null
+    // harness is a bare `update`, which targets claude alone.
     const step = async (verb, harness) => {
-      const r = await spawn(cell, process.execPath, [CLI, verb, 'proj', ...(verb === 'update' ? [] : ['-f']), '-t', harness], cell.dir, 'y\n');
+      const r = await spawn(cell, process.execPath, [CLI, verb, 'proj', ...(verb === 'update' ? [] : ['-f']), ...(harness ? ['-t', harness] : [])], cell.dir, 'y\n');
       assert.equal(r.status, 0, `${verb} -t ${harness}: ${r.stdout}${r.stderr}`);
       assert.ok(!/modified outside DoFlow/.test(r.stdout + r.stderr), `${verb} -t ${harness}: ${r.stdout}${r.stderr}`);
       return r;
     };
 
+    const retired = runtimeOrphans(cell.proj);
+    assert.ok(retired.length > 0, `the ${LEGACY_TAG} runtime ships nothing this checkout dropped; the prune is not exercised`);
     const updated = await step('update', 'pi');
     const notices = `${updated.stdout}\n${updated.stderr}`.split('\n').filter((line) => line.includes('replaced shared files'));
     assert.deepEqual(notices, ['[INFO] pi: replaced shared files written by claude; reinstall that harness to restore them'], `${updated.stdout}${updated.stderr}`);
-    // Every file THIS checkout's source produces must be present and byte-correct in the mirror
-    // after the update — the reconciliation this cell exists to prove. Iterating src/ (not
-    // `mirror ∪ src`) is deliberate: a file renamed OUT of this checkout's source between the
-    // legacy tag and HEAD (the TypeScript migration's first case, src/helper/git.js -> git.ts) is
-    // a legacy orphan the installer leaves in place on a cross-version update, because the legacy
-    // ledger predates per-file runtime ownership and the installer refuses to delete a mirror file
-    // it cannot prove it owns (RULE_01 Safety: never delete without verifying ownership). The
-    // orphan assertion below makes that behavior explicit rather than letting the loop fail on it.
+    // Every file THIS checkout's source produces is present and byte-correct in the mirror after
+    // the update — the reconciliation this cell exists to prove.
     for (const rel of filesUnder(path.join(REPO, 'src'))) {
       assert.ok(!differs(rel), `${rel} differs from this checkout after the update`);
     }
-    // Known limitation, asserted so it stays visible: a source file renamed across the version
-    // boundary (git.js -> git.ts) survives in the mirror as an unledgered legacy orphan. When the
-    // installer gains safe cross-version orphan pruning (tracked follow-up), replace this with an
-    // assertion that the orphan is gone.
-    const renameOrphan = path.join(mirror, 'helper', 'git.js');
-    const headHasGitJs = fs.existsSync(path.join(REPO, 'src', 'helper', 'git.js'));
-    if (!headHasGitJs && fs.existsSync(renameOrphan)) {
-      assert.ok(fs.existsSync(path.join(mirror, 'helper', 'git.ts')),
-        'the renamed git.ts must be present in the mirror even though the legacy git.js orphan lingers');
+    // And nothing it no longer ships is left (073 T4). The legacy files renamed away since the tag
+    // (the TypeScript migration's .js -> .ts) carry the ledger rows the legacy claude install wrote,
+    // so their bytes prove DoFlow wrote them; they used to survive only because claude's rows
+    // retained them while this run updated pi alone. Pi's update now prunes them and releases
+    // claude's rows, and names each one.
+    assert.deepEqual(runtimeOrphans(cell.proj), [], 'an update of pi alone leaves no retired runtime file behind');
+    for (const rel of retired) {
+      assert.ok(updated.stdout.includes(`[INFO] pi: prune .doflow/runtime/${rel.split(path.sep).join('/')}: no longer shipped, unchanged since DoFlow wrote it`), `${rel} pruned but not named`);
     }
     if (guidanceDiffers) {
       for (const rel of allGuidance()) assert.ok(!guidanceDiffer(rel), `guidance ${rel} differs from this checkout after the update`);
     }
-    await step('update', 'claude');
+    await step('update', null);
+    assert.deepEqual(runtimeOrphans(cell.proj), [], 'nor does the bare update that follows');
     await step('remove', 'pi');
     await step('remove', 'claude');
     assert.equal(fs.existsSync(path.join(cell.proj, '.doflow', 'runtime')), false);
   };
+
+  // 073 T4 negative controls on a real legacy install: what the prune must keep, it keeps and names,
+  // and --dry-run lists every prune and keep without deleting anything.
+  test('v1.24.1 orphans: --dry-run lists without deleting; an edited orphan and an unrecorded file are kept and named', { skip: tagSkip('v1.24.1') }, async () => {
+    const cell = newCell('prune-controls');
+    const legacy = path.join(cell.dir, 'legacy');
+    fs.mkdirSync(legacy);
+    const archive = spawnSync('git', ['archive', '--format=tar', '-o', path.join(cell.dir, 'legacy.tar'), 'v1.24.1'], { cwd: REPO, encoding: 'utf8' });
+    assert.equal(archive.status, 0, archive.stderr);
+    assert.equal(spawnSync('tar', ['-x', '-f', path.join(cell.dir, 'legacy.tar'), '-C', legacy]).status, 0);
+    const older = await install(cell, 'project', 'claude,pi', path.join(legacy, 'bin', 'doflow.js'));
+    assert.equal(older.status, 0, older.stderr);
+
+    const runtime = path.join(cell.proj, '.doflow', 'runtime');
+    const shown = (rel) => `.doflow/runtime/${rel.split(path.sep).join('/')}`;
+    const retired = runtimeOrphans(cell.proj);
+    assert.ok(retired.length > 1, 'the fixture needs at least two retired runtime files');
+    const [edited, ...pristine] = retired;
+    fs.appendFileSync(path.join(runtime, edited), '// a local fix\n');
+    const editedBytes = fs.readFileSync(path.join(runtime, edited));
+    const userFile = path.join('src', 'my-notes.js');
+    fs.writeFileSync(path.join(runtime, userFile), 'mine\n');
+    const cli = (args) => spawn(cell, process.execPath, [CLI, ...args], cell.dir, 'y\n');
+
+    const dry = await cli(['update', 'proj', '-t', 'pi', '--dry-run']);
+    assert.equal(dry.status, 0, `${dry.stdout}${dry.stderr}`);
+    for (const rel of pristine) assert.ok(dry.stdout.includes(`[DRY]   pi: prune ${shown(rel)}: no longer shipped, unchanged since DoFlow wrote it`), `${rel} not listed`);
+    assert.ok(dry.stdout.includes(`[DRY]   pi: kept hand-edited ${shown(edited)}; DoFlow no longer manages it`), dry.stdout);
+    assert.ok(dry.stdout.includes(`[DRY]   pi: kept ${shown(userFile)}: not shipped by this version and not recorded as DoFlow's`), dry.stdout);
+    assert.deepEqual(runtimeOrphans(cell.proj).sort(), [...retired, userFile].sort(), '--dry-run deletes nothing');
+
+    const real = await cli(['update', 'proj', '-t', 'pi']);
+    assert.equal(real.status, 0, `${real.stdout}${real.stderr}`);
+    assert.ok(!/modified outside DoFlow/.test(real.stdout + real.stderr), real.stdout + real.stderr);
+    assert.ok(real.stdout.includes(`[INFO] pi: kept hand-edited ${shown(edited)}; DoFlow no longer manages it`), real.stdout);
+    assert.ok(real.stdout.includes(`[INFO] pi: kept ${shown(userFile)}: not shipped by this version and not recorded as DoFlow's`), real.stdout);
+    assert.deepEqual(runtimeOrphans(cell.proj).sort(), [edited, userFile].sort(), 'only the edited and the unrecorded file remain');
+    assert.ok(fs.readFileSync(path.join(runtime, edited)).equals(editedBytes));
+
+    const bare = await cli(['update', 'proj']);
+    assert.equal(bare.status, 0, `${bare.stdout}${bare.stderr}`);
+    assert.ok(bare.stdout.includes(`[INFO] claude: kept hand-edited ${shown(edited)}; DoFlow no longer manages it`), bare.stdout);
+    assert.deepEqual(runtimeOrphans(cell.proj).sort(), [edited, userFile].sort());
+    assert.equal(fs.readFileSync(path.join(runtime, userFile), 'utf8'), 'mine\n');
+  });
 
   // 073 T5: a rollback restores the ownership ledger with the files, so the install it leaves can be
   // updated and removed again. Before, the ledger kept the update's rows while the files went back,
