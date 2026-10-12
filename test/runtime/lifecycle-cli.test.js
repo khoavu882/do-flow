@@ -61,7 +61,7 @@ test('the dispatcher routes both verbs to the Node CLI', () => {
 
 test('--help lists every action and the flags the parser takes, for followup, lifecycle and goal', () => {
   const { repo } = newRepo();
-  const { FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS } = require('../../src/runtime/lifecycle/cli');
+  const { FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS } = require('../../src/runtime/lifecycle/cli.ts');
   const help = run(repo.dir, ['--help']).stdout;
   assert.ok(help.includes(`(--action ${FOLLOWUP_ACTIONS.join('|')})`), 'followup verb line');
   assert.ok(help.includes(`(--action ${LIFECYCLE_ACTIONS.join('|')})`), 'lifecycle verb line');

@@ -193,7 +193,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | `src/runtime/lifecycle/report-store.ts` | The machine-local report body and its masked excerpt |
 | `src/runtime/lifecycle/status.ts` | Feature status derived from git and release records, never written |
 | `src/runtime/lifecycle/overview.ts`, `release.ts` | `overview`, `init`, `status`; `release` and `merged` |
-| `src/runtime/lifecycle/cli.js` | The `followup`, `lifecycle` and `goal` handlers: flag checks, text output, exit codes |
+| `src/runtime/lifecycle/cli.ts` | The `followup`, `lifecycle` and `goal` handlers: flag checks, text output, exit codes |
 | `src/runtime/failure/home.ts`, `classifier.js` | Where the failure home is and whether capture is on; the programming-error classifier |
 | `src/runtime/failure/capture.ts`, `store.js`, `cli.js` | The Node writer with rotation; the reader, fingerprints and settlements; the `failure` handler |
 

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The `followup`, `lifecycle` and `goal` verb handlers (IC-006 to IC-009, IC-022). All work on the
  * project store at the IC-001 root, so `-g` is refused with exit 2. `--json` prints the result
@@ -21,16 +23,16 @@ const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote', 'report'];
 const LIFECYCLE_ACTIONS = ['overview', 'init', 'release', 'status', 'merged'];
 const GOAL_ACTIONS = ['add', 'item', 'check', 'link', 'list', 'done'];
 /** The flags each goal action takes, besides --goal, --channel and --json; any other one given is a usage error. */
-const GOAL_FLAGS = {
+const GOAL_FLAGS: Record<string, any> = {
   add: ['statement', 'item'], item: ['text'], check: ['item', 'evidence', 'unmet'],
   link: ['slug', 'replace'], list: [], done: ['reason'],
 };
 
-function sourceText(source) {
+function sourceText(source: any) {
   return [source.kind, source.feature, source.taskClass, source.taskId, source.release, source.stage, source.ref].filter(Boolean).join(' ');
 }
 
-function followupLines(result) {
+function followupLines(result: any) {
   const lines = [];
   switch (result.action) {
     case 'add': for (const c of result.created) lines.push(`added ${c.id} (${sourceText(c.source)}): ${c.statement}`); break;
@@ -50,17 +52,17 @@ function followupLines(result) {
   return lines;
 }
 
-function overviewLines(r) {
+function overviewLines(r: any) {
   const lines = [`${r.mode} overview: ${r.followups.open} open follow-up${r.followups.open === 1 ? '' : 's'}, ${r.followups.shown} shown (release mode ${r.releaseMode}${r.integrationRef ? `, integration ref ${r.integrationRef}` : ''})`];
   for (const i of r.followups.items) lines.push(`  ${i.id}  (${sourceText(i.source)}, ${i.added})${i.promoted ? ` promoted to ${i.intent}` : ''}${i.pending === false ? ' settled this run' : ''}  ${i.statement}`);
   if (Array.isArray(r.failures)) {
     lines.push(`failures: ${r.failures.length} new or regressed`);
     for (const f of r.failures) lines.push(`  ${f.fp}  ${f.status}  x${f.count}  ${f.command} ${f.kind}${f.message ? `: ${f.message}` : ''}  (last seen ${f.lastSeen}, ${f.lastVersion})`);
   }
-  for (const g of r.goals) lines.push(`goal ${g.goal}: ${g.items.met}/${g.items.total} items met${g.proposeDone ? ' (propose done)' : ''}`, ...g.nudges.map((n) => `  ${n}`), ...(g.conflicts || []).map((c) => `  conflict: ${c.reason}${c.text ? ` (dropped text: ${JSON.stringify(c.text)})` : ''}`));
+  for (const g of r.goals) lines.push(`goal ${g.goal}: ${g.items.met}/${g.items.total} items met${g.proposeDone ? ' (propose done)' : ''}`, ...g.nudges.map((n: any) => `  ${n}`), ...(g.conflicts || []).map((c: any) => `  conflict: ${c.reason}${c.text ? ` (dropped text: ${JSON.stringify(c.text)})` : ''}`));
   const f = r.features;
   // The finished and awaiting-release lists only grow, so the text shows their bounded form.
-  const bounded = (key) => (r.featuresShown && r.featuresShown[key]) || { count: f[key].length, shown: f[key], more: 0 };
+  const bounded = (key: any) => (r.featuresShown && r.featuresShown[key]) || { count: f[key].length, shown: f[key], more: 0 };
   const names = [['finished', bounded('finished')], ['awaiting release', bounded('awaitingRelease')],
     ['in progress', { count: f.inProgress.length, shown: f.inProgress, more: 0 }], ['unknown', { count: f.unknown.length, shown: f.unknown, more: 0 }]].filter(([, b]) => b.count);
   for (const [label, b] of names) {
@@ -70,12 +72,12 @@ function overviewLines(r) {
   if (r.mode === 'maintain') lines.push(`pending: ${r.pending}`);
   if (r.note) lines.push(`note: ${r.note}`);
   if (r.conflicts.length) lines.push(`${r.conflicts.length} event conflict${r.conflicts.length === 1 ? '' : 's'} (see --json)`);
-  if (r.unreadable.length) lines.push(`unreadable event files: ${r.unreadable.map((n) => (r.unreadableReasons && r.unreadableReasons[n] ? `${n} (${r.unreadableReasons[n]})` : n)).join(', ')}`);
+  if (r.unreadable.length) lines.push(`unreadable event files: ${r.unreadable.map((n: any) => (r.unreadableReasons && r.unreadableReasons[n] ? `${n} (${r.unreadableReasons[n]})` : n)).join(', ')}`);
   for (const line of r.next) lines.push(`next: ${line}`);
   return lines;
 }
 
-function releaseLines(r) {
+function releaseLines(r: any) {
   const lines = [`${r.recorded ? 'recorded' : 'preview of'} release ${r.tag} (previous ${r.previousTag || 'none'}, bound ${r.bound})`];
   for (const c of r.candidates) if (!r.excluded.includes(c.slug)) lines.push(`  ships ${c.slug}  (${c.evidence}${c.ref ? ` ${c.ref}` : ''})`);
   if (r.added.length) lines.push(`added: ${r.added.join(', ')}`);
@@ -87,7 +89,7 @@ function releaseLines(r) {
   return lines;
 }
 
-function lifecycleLines(result) {
+function lifecycleLines(result: any) {
   switch (result.action) {
     case 'init': return [`${result.slug}: tracked ${result.tracked}${result.taken.length ? `, took ${result.taken.join(', ')}` : ''}${result.goal ? `, serves ${result.goal}` : ''}`, ...result.next];
     case 'status': return [`${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}`, ...(result.note ? [`note: ${result.note}`] : [])];
@@ -97,12 +99,12 @@ function lifecycleLines(result) {
   }
 }
 
-function goalLines(r) {
-  const met = (g) => `${g.progress.met}/${g.progress.total} items met`;
+function goalLines(r: any) {
+  const met = (g: any) => `${g.progress.met}/${g.progress.total} items met`;
   switch (r.action) {
-    case 'add': return [`added goal ${r.goal}: ${r.outcome}`, ...r.items.map((i) => `  ${i.id}  ${i.text}`), ...r.next.map((n) => `next: ${n}`)];
-    case 'item': return [`added ${r.item.id} to ${r.goal}: ${r.item.text}`, ...r.next.map((n) => `next: ${n}`)];
-    case 'check': return [`${r.goal} ${r.item}: ${r.met ? 'met' : 'unmet'} (${r.evidence}); ${r.progress.met}/${r.progress.total} items met${r.proposeDone ? ' (propose done)' : ''}`, ...r.next.map((n) => `next: ${n}`)];
+    case 'add': return [`added goal ${r.goal}: ${r.outcome}`, ...r.items.map((i: any) => `  ${i.id}  ${i.text}`), ...r.next.map((n: any) => `next: ${n}`)];
+    case 'item': return [`added ${r.item.id} to ${r.goal}: ${r.item.text}`, ...r.next.map((n: any) => `next: ${n}`)];
+    case 'check': return [`${r.goal} ${r.item}: ${r.met ? 'met' : 'unmet'} (${r.evidence}); ${r.progress.met}/${r.progress.total} items met${r.proposeDone ? ' (propose done)' : ''}`, ...r.next.map((n: any) => `next: ${n}`)];
     case 'link': return [r.linked === 'already' ? `${r.slug} already serves ${r.goal}` : `${r.slug} now serves ${r.goal}${r.replaced ? ` (was ${r.replaced})` : ''}`];
     case 'done': return [`${r.goal} is done${r.unmet.length ? ` with ${r.unmet.join(', ')} unmet: ${r.reason}` : ''}`];
     default: {
@@ -117,13 +119,13 @@ function goalLines(r) {
         for (const c of g.conflicts || []) lines.push(`  conflict: ${c.reason}${c.text ? ` (dropped text: ${JSON.stringify(c.text)})` : ''}`);
       }
       if (r.reason) lines.push(`note: ${r.reason}`);
-      return [...lines, ...r.next.map((n) => `next: ${n}`)];
+      return [...lines, ...r.next.map((n: any) => `next: ${n}`)];
     }
   }
 }
 
 /** Prints a result and sets the exit status; shared by the verbs. */
-function emit(result, json, lines) {
+function emit(result: any, json: any, lines: any) {
   if (json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok === false) console.log(printSafe(`${result.finding}: ${result.message}`));
   else for (const line of lines(result)) console.log(printSafe(line));
@@ -131,10 +133,10 @@ function emit(result, json, lines) {
 }
 
 /** Runs `fn`, turning a caller mistake into the exit-2 usage result and a lock that never came into the `store-locked` refusal. */
-function guarded(verb, action, json, fn) {
+function guarded(verb: any, action: any, json: any, fn: any) {
   try {
     return fn();
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof followup.FollowupUsageError || error instanceof StoreUnsafeError) return usageError(verb, error.message, json);
     if (error instanceof StoreLockedError) return emit({ ok: false, action, finding: 'store-locked', message: error.message }, json, () => []);
     throw error;
@@ -142,13 +144,13 @@ function guarded(verb, action, json, fn) {
 }
 
 /** Runs the store upkeep for one invocation and prints its lines to stderr; returns its refusal, or null. */
-function upkeep(verb, action, root) {
+function upkeep(verb: any, action: any, root: any) {
   const prepared = prepareStore(root);
   for (const line of prepared.lines) console.error(printSafe(`doflow ${verb}: ${line}`));
   return prepared.ok ? null : { ok: false, action, finding: prepared.finding, message: prepared.message };
 }
 
-function refuseGlobal(verb, global, json) {
+function refuseGlobal(verb: any, global: any, json: any) {
   return global ? usageError(verb, `${verb} works on the project store at the repository root and refuses -g`, json) : null;
 }
 
@@ -160,7 +162,7 @@ function refuseGlobal(verb, global, json) {
  * @param {Object} options.flags parsed flag values: statement, stage, source, taskClass, taskId, release,
  *   batch, channel, state, ids, as, reason, evidence, title; for report also file, stdin, text, feature
  */
-function handleFollowupCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
+function handleFollowupCommand({ action, cwd, global = false, slug = null, json = false, flags = {} }: any = {}) {
   const refused = refuseGlobal('followup', global, json);
   if (refused !== null) return refused;
   return guarded('followup', action, json, () => {
@@ -211,7 +213,7 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
  * @param {Object} options.flags parsed flag values: take, intent, goal, maintain, since, tag, confirm,
  *   feature, exclude, reason, channel
  */
-function handleLifecycleCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
+function handleLifecycleCommand({ action, cwd, global = false, slug = null, json = false, flags = {} }: any = {}) {
   const refused = refuseGlobal('lifecycle', global, json);
   if (refused !== null) return refused;
   return guarded('lifecycle', action === undefined ? 'overview' : action, json, () => {
@@ -244,7 +246,7 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
  * @param {Object} options.flags parsed flag values: goal, statement, item (a list), text, evidence, unmet,
  *   replace, reason, channel; `--slug` arrives as `slug`
  */
-function handleGoalCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
+function handleGoalCommand({ action, cwd, global = false, slug = null, json = false, flags = {} }: any = {}) {
   const refused = refuseGlobal('goal', global, json);
   if (refused !== null) return refused;
   return guarded('goal', action, json, () => {
