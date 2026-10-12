@@ -240,7 +240,7 @@ test('G18: design-template.md §2 ships the generated-block markers the runtime 
   const OPEN = '<!-- generated from';
   const CLOSE = '<!-- end generated -->';
   const runtimeUsers = [
-    ['the projector', 'src/runtime/c4-project.js'],
+    ['the projector', 'src/runtime/c4-project.ts'],
     ['render-puml.sh', 'core/shared/scripts/doflow/bash/render-puml.sh'],
   ];
   for (const [label, rel] of runtimeUsers) {

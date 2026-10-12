@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Project a C4-PlantUML source into the Mermaid flowchart that stands for it (035 IC-002/IC-004).
  *
@@ -81,11 +83,11 @@ class Refused extends Error {}
  * Returns the arguments AND how many characters the call occupied, so the caller can resume scanning
  * after the closing paren rather than assuming the macro owned the rest of its line.
  */
-function splitArgs(text) {
-  const args = [];
+function splitArgs(text: string): { args: string[]; consumed: number; closed: boolean } {
+  const args: string[] = [];
   let buf = '';
   let depth = 0;
-  let quote = null;
+  let quote: string | null = null;
   let consumed = text.length;
   let closed = false;
   for (let i = 0; i < text.length; i += 1) {
@@ -125,9 +127,9 @@ function splitArgs(text) {
  * line-level transform running ahead of quote state has silently rewritten a label, so the transform
  * moved in here rather than being fixed again where it stood.
  */
-function stripComments(raw, state, lineno) {
+function stripComments(raw: string, state: { inBlock: boolean; openedAt: number }, lineno: number): { text: string; continues: boolean } {
   let out = '';
-  let quote = null;
+  let quote: string | null = null;
   let i = 0;
   let continues = false;
   while (i < raw.length) {
@@ -159,7 +161,7 @@ function stripComments(raw, state, lineno) {
 
 /** Mermaid delimits a node label with double quotes; an unescaped one inside ends it early and the
  *  rest of the fence stops parsing. `&quot;` is the entity Mermaid documents for this. */
-function escapeLabel(text) {
+function escapeLabel(text: any): string {
   return String(text).replace(/"/g, '&quot;');
 }
 
@@ -183,11 +185,11 @@ function escapeLabel(text) {
 const ALIAS = /^[A-Za-z0-9_]+([.-][A-Za-z0-9_]+)*$/;
 
 /** Every refusal carries the file and line, so the one place that formats it owns both. */
-function refuse(ctx, lineno, message) {
+function refuse(ctx: any, lineno: number, message: string): never {
   throw new Refused(`${ctx.sourcePath}:${lineno}: ${message}`);
 }
 
-function requireAlias(ctx, alias, lineno, role) {
+function requireAlias(ctx: any, alias: string, lineno: number, role: string): void {
   if (!ALIAS.test(alias)) {
     refuse(ctx, lineno, `${role} '${alias}' is not a usable node id. Mermaid fails the whole diagram `
       + 'on one it cannot lex, and silently reads one carrying `--` or `-.-` as a LINK instead, '
@@ -195,7 +197,7 @@ function requireAlias(ctx, alias, lineno, role) {
   }
 }
 
-function acceptElement(ctx, name, args, lineno) {
+function acceptElement(ctx: any, name: string, args: string[], lineno: number): void {
   if (args.length < 2) refuse(ctx, lineno, `${name} needs an alias and a label`);
   requireAlias(ctx, args[0], lineno, 'alias');
   if (ctx.nodes.has(args[0])) {
@@ -209,7 +211,7 @@ function acceptElement(ctx, name, args, lineno) {
 // A boundary opened inside another is that one's CHILD, not a second root. Pushing every boundary
 // onto one flat list rendered the outer one as an empty subgraph and hoisted the inner one to the
 // top level -- dropping a containment the source states and Mermaid supports.
-function acceptBoundary(ctx, name, args, lineno) {
+function acceptBoundary(ctx: any, name: string, args: string[], lineno: number): void {
   if (args.length < 2) refuse(ctx, lineno, `${name} needs an alias and a label`);
   requireAlias(ctx, args[0], lineno, 'boundary alias');
   const b = { alias: args[0], label: args[1], members: [], children: [] };
@@ -217,14 +219,14 @@ function acceptBoundary(ctx, name, args, lineno) {
   ctx.stack.push(b);
 }
 
-function acceptRelation(ctx, name, args, lineno) {
+function acceptRelation(ctx: any, name: string, args: string[], lineno: number): void {
   if (args.length < 2) refuse(ctx, lineno, `${name} needs a source and a target`);
   requireAlias(ctx, args[0], lineno, 'relation source');
   requireAlias(ctx, args[1], lineno, 'relation target');
   ctx.edges.push({ from: args[0], to: args[1], label: args[2] || '', bi: name.startsWith('BiRel') });
 }
 
-function accept(ctx, name, args, lineno) {
+function accept(ctx: any, name: string, args: string[], lineno: number): void {
   if (SKIPPED.has(name)) return;
   if (ELEMENTS.has(name)) acceptElement(ctx, name, args, lineno);
   else if (BOUNDARIES.has(name)) acceptBoundary(ctx, name, args, lineno);
@@ -232,7 +234,7 @@ function accept(ctx, name, args, lineno) {
   else {
     refuse(ctx, lineno, `unrecognized macro '${name}'. The projector refuses rather than skipping `
       + 'it, because a skipped macro would silently shrink the diagram. Add it to the recognized '
-      + 'set in src/runtime/c4-project.js if the bundled library defines it.');
+      + 'set in src/runtime/c4-project.ts if the bundled library defines it.');
   }
 }
 
@@ -244,10 +246,10 @@ function accept(ctx, name, args, lineno) {
  * is what joins them. A trailing backslash inside a quoted label is therefore not a continuation,
  * and the call it leaves unterminated refuses in the scan rather than absorbing the next line.
  */
-function toLogicalLines(text, state) {
+function toLogicalLines(text: string, state: { inBlock: boolean; openedAt: number }): Array<{ raw: string; lineno: number }> {
   const rawLines = text.split('\n');
-  const logical = [];
-  let pending = null;
+  const logical: Array<{ raw: string; lineno: number }> = [];
+  let pending: { raw: string; lineno: number } | null = null;
   for (let n = 0; n < rawLines.length; n += 1) {
     const stripped = stripComments(rawLines[n], state, n + 1);
     if (pending === null) pending = { raw: stripped.text, lineno: n + 1 };
@@ -261,7 +263,7 @@ function toLogicalLines(text, state) {
 }
 
 /** Read every construct one logical line carries, in order. */
-function scanLine(ctx, line, lineno) {
+function scanLine(ctx: any, line: string, lineno: number): void {
   if (!line || /^[#@!]/.test(line)) return;
   // A line is scanned for constructs only when it BEGINS with one. Scanning every offset of every
   // line turned any free text containing `word (` into a macro candidate, so `title My Diagram
@@ -281,7 +283,7 @@ function scanLine(ctx, line, lineno) {
       // `Rel(a)` must be ignored the way prose is everywhere else.
       const rest = line.slice(i);
       const hit = [...rest.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)]
-        .find(([, n]) => ELEMENTS.has(n) || BOUNDARIES.has(n) || RELATIONS.has(n));
+        .find(([, n]: any) => ELEMENTS.has(n) || BOUNDARIES.has(n) || RELATIONS.has(n));
       const dropped = hit && !/[A-Za-z0-9]/.test(rest.slice(0, hit.index)) ? hit[1] : null;
       if (dropped) {
         refuse(ctx, lineno, `${dropped}(...) follows text on this line that is not a construct, `
@@ -300,7 +302,7 @@ function scanLine(ctx, line, lineno) {
   }
 }
 
-function parse(text, sourcePath) {
+function parse(text: string, sourcePath: string): { nodes: Map<string, string>; edges: any[]; boundaries: any[] } {
   const ctx = { sourcePath, nodes: new Map(), edges: [], boundaries: [], stack: [] };
   const state = { inBlock: false, openedAt: 0 };
   for (const entry of toLogicalLines(text, state)) scanLine(ctx, entry.raw.trim(), entry.lineno);
@@ -313,9 +315,9 @@ function parse(text, sourcePath) {
   return { nodes: ctx.nodes, edges: ctx.edges, boundaries: ctx.boundaries };
 }
 
-function emit({ nodes, edges, boundaries }, sourceRel, digest) {
-  const grouped = new Set();
-  const collect = (list) => {
+function emit({ nodes, edges, boundaries }: { nodes: Map<string, string>; edges: any[]; boundaries: any[] }, sourceRel: string, digest: string): string {
+  const grouped = new Set<string>();
+  const collect = (list: any[]): void => {
     for (const b of list) {
       for (const a of b.members) grouped.add(a);
       collect(b.children);
@@ -328,7 +330,7 @@ function emit({ nodes, edges, boundaries }, sourceRel, digest) {
     '```mermaid',
     'flowchart TB',
   ];
-  const renderBoundary = (b, indent) => {
+  const renderBoundary = (b: any, indent: string): void => {
     out.push(`${indent}subgraph ${b.alias}["${escapeLabel(b.label)}"]`);
     for (const a of b.members) out.push(`${indent}    ${a}["${escapeLabel(nodes.get(a) ?? a)}"]`);
     for (const child of b.children) renderBoundary(child, `${indent}    `);
@@ -346,7 +348,7 @@ function emit({ nodes, edges, boundaries }, sourceRel, digest) {
   return `${out.join('\n')}\n`;
 }
 
-function project(text, sourceRel = '<source>') {
+function project(text: string, sourceRel: string = '<source>'): { block: string; digest: string } {
   const digest = crypto.createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 12);
   return { block: emit(parse(text, sourceRel), sourceRel, digest), digest };
 }
@@ -357,12 +359,12 @@ module.exports = {
 
 if (require.main === module) {
   const file = process.argv[2];
-  if (!file) { process.stderr.write('usage: c4-project.js <file.puml>\n'); process.exit(2); }
-  let text;
+  if (!file) { process.stderr.write('usage: c4-project.ts <file.puml>\n'); process.exit(2); }
+  let text: string;
   try { text = fs.readFileSync(file, 'utf8'); }
-  catch (err) { process.stderr.write(`c4-project: cannot read ${file}: ${err.message}\n`); process.exit(2); }
+  catch (err: any) { process.stderr.write(`c4-project: cannot read ${file}: ${err.message}\n`); process.exit(2); }
   try { process.stdout.write(project(text, file).block); }
-  catch (err) {
+  catch (err: any) {
     if (err instanceof Refused) { process.stderr.write(`c4-project: ${err.message}\n`); process.exit(1); }
     throw err;
   }

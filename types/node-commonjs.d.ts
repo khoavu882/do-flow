@@ -6,6 +6,7 @@
 // need. See agent-docs/BRIEF_GOAL_DOFLOW.md for the migration roadmap.
 
 declare function require(id: string): any;
+declare namespace require { var main: any; }
 
 declare var module: { exports: any };
 
