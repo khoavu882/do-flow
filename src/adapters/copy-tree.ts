@@ -341,7 +341,10 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     // as an un-releasable claim instead of a refused install. A hand edit matches neither and is
     // still refused. The OBSERVED fingerprint travels with the change so removeTree's own
     // pre-delete re-check agrees with the decision taken here rather than throwing mid-apply.
-    const modified = current !== prev.fingerprint && current !== sourceFingerprint(destAbs);
+    // A third signal, the bytes a sibling harness recorded at this target: in a shared tree the
+    // sibling may have written the file last, and calling that a hand edit would keep it under a
+    // false label while the lifecycle's runtime prune deletes it on the same proof.
+    const modified = current !== prev.fingerprint && current !== sourceFingerprint(destAbs) && !siblingFingerprints.get(destAbs)?.has(current);
     // A row left behind by an apply (the asset moved, or its source file went away) is released,
     // and a hand edit there is the user's, not DoFlow's: with `keepModified` the file stays where
     // it is, force or not, and only the ledger row goes. The change carries `kept` so removeTree
@@ -592,4 +595,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

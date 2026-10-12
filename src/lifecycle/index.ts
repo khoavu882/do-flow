@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const { harnessFor, selectAssets, selectMcpServers, mcpCapable } = require('../registry/index.ts');
 const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord, upgradeLedger, LEDGER_VERSION } = require('../state/index.ts');
 const { resolveAdapter, projectAdapterInput } = require('../adapters/index.ts');
-const { pruneEmptyAncestors } = require('../adapters/copy-tree.ts');
+const { pruneEmptyAncestors, discoverTree, sameFileIndex, sharedTreeDestDir, walkRelFiles } = require('../adapters/copy-tree.ts');
 const { renderPolicies } = require('./policies.ts');
 const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
@@ -188,6 +188,7 @@ function releasedOwnershipKeys(harnessPlans: any, scope: any) {
     for (const change of target.changes || []) {
       if (change.operation !== 'remove') continue;
       keys.add(ownershipKey({ harness: change.harness, scope, assetId: change.assetId, target: change.target, ownershipIdentity: change.ownershipIdentity }));
+      for (const key of change.supersedes ?? []) keys.add(key);
     }
   }
   return keys;
@@ -303,6 +304,147 @@ function harnessMcpSelection(registry: any, harness: any, raw: any) {
   return [];
 }
 
+/** The runtime trees: each one source directory projected to one `<scopeRoot>/.doflow/runtime/...`
+ * tree for every harness, with no layout and no transform (test/guards/runtime-tree.test.js pins
+ * that). Nothing but the shared scripts reaches into them, so a file the current source no longer
+ * ships is dead for every harness at once. Guidance and scripts are not here: a harness this run
+ * does not update names files in those trees from its own native files, so NFR-007 retention is
+ * right for them. */
+const RUNTIME_TREE_ASSETS = ['runtime.cli', 'runtime.lib', 'runtime.registry'];
+
+function sha256File(file: string, fsImpl: any): string {
+  return crypto.createHash('sha256').update(fsImpl.readFileSync(file)).digest('hex');
+}
+
+function isUnder(file: string, root: string): boolean {
+  return file.startsWith(`${root}${path.sep}`);
+}
+
+/** Replace some of a harness plan's changes and append others, keeping `requiredNativeResources`
+ * in step when it is the same array (as markRetainedRemovals does). */
+function withChanges(target: any, replaced: Map<any, any>, added: any[], notices: string[]) {
+  if (!replaced.size && !added.length && !notices.length) return target;
+  const changes = [...target.changes.map((change: any) => replaced.get(change) ?? change), ...added];
+  const requiredNativeResources = target.requiredNativeResources === target.changes ? changes : target.requiredNativeResources;
+  return { ...target, changes, requiredNativeResources, notices: [...target.notices, ...notices] };
+}
+
+/**
+ * Cross-version orphan prune (073 T4), run on install and update, never on remove.
+ *
+ * A file under a runtime tree that the current source no longer produces is deleted when its bytes
+ * equal a fingerprint some DoFlow ledger row recorded at that exact path. That is DoFlow's own
+ * write, unmodified. Without this pass, such a file outlives any update that leaves out one of the
+ * harnesses holding a row on it, because markRetainedRemovals keeps a removal another harness still
+ * claims, and a bare `update` targets claude alone. The pass:
+ * - un-retains the planned removals of that file, or, when no planned harness has a row on it,
+ *   adds one for the first planned harness (`kind: 'copy-tree-file'` and `projection.renderer:
+ *   'copy-tree'`, the two fields every adapter's removal filter reads);
+ * - names the other harnesses' rows in `supersedes`, which updateLedger and releasedOwnershipKeys
+ *   drop together with the removal;
+ * - releases rows whose file is already gone, since the source no longer produces it either;
+ * - keeps, and names, a changed file, an unrecorded one, one whose real path leaves the tree, and
+ *   one that is the same file as a path the source produces (a case-only rename).
+ * removeTree re-hashes every file just before deleting it, as for any removal.
+ */
+function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot, repoRoot, fsImpl = fs }: any) {
+  const planned = harnessPlans.filter((target: any) => !target.skipped);
+  if (!planned.length || !repoRoot) return harnessPlans;
+  const replaced = new Map<string, Map<any, any>>(planned.map((target: any) => [target.harness, new Map()]));
+  const added = new Map<string, any[]>(planned.map((target: any) => [target.harness, []]));
+  const notices = new Map<string, string[]>(planned.map((target: any) => [target.harness, []]));
+  const rows = (ledger?.resources ?? []).filter((row: any) => typeof row?.target === 'string');
+  const recorded = new Set(rows.map((row: any) => row.target));
+  const shown = (file: string) => path.relative(scopeRoot, file);
+
+  for (const assetId of RUNTIME_TREE_ASSETS) {
+    const executor = planned.find((target: any) => target.assets.some((asset: any) => asset.id === assetId));
+    if (!executor) continue;
+    const asset = executor.assets.find((item: any) => item.id === assetId);
+    const nativeDir = typeof asset.nativeDir === 'string' ? asset.nativeDir : asset.nativeDir?.[executor.harness];
+    const destDir = sharedTreeDestDir(scopeRoot, nativeDir);
+    const sourceDir = path.resolve(repoRoot, asset.source);
+    if (!destDir || !fsImpl.existsSync(sourceDir) || !fsImpl.existsSync(destDir)) continue;
+    const produced = discoverTree({ sourceDir, destDir, fsImpl }).files.map((file: any) => file.destAbs);
+    const producedSet = new Set(produced);
+    const sameFile = sameFileIndex(produced, fsImpl);
+    const realRoot = fsImpl.realpathSync(destDir);
+
+    const rowsAt = new Map<string, any[]>();
+    for (const row of rows) {
+      if (!isUnder(row.target, destDir) || producedSet.has(row.target)) continue;
+      if (!rowsAt.has(row.target)) rowsAt.set(row.target, []);
+      rowsAt.get(row.target)!.push(row);
+    }
+    const removalsAt = new Map<string, any[]>();
+    for (const target of planned) {
+      for (const change of target.changes) {
+        if (change.operation !== 'remove' || change.assetId !== assetId || !isUnder(change.target, destDir) || producedSet.has(change.target)) continue;
+        if (!removalsAt.has(change.target)) removalsAt.set(change.target, []);
+        removalsAt.get(change.target)!.push(change);
+      }
+    }
+    /** Turn every planned removal of `file` into a release that deletes nothing. */
+    const keepFile = (file: string) => {
+      for (const change of removalsAt.get(file) ?? []) {
+        if (!change.retained) replaced.get(change.harness)!.set(change, Object.freeze({ ...change, retained: true, retainedFor: [] }));
+      }
+    };
+
+    for (const file of new Set([...rowsAt.keys(), ...removalsAt.keys()])) {
+      const fileRows = rowsAt.get(file) ?? [];
+      // Another asset's live row on this path is a claim this pass does not judge.
+      if (fileRows.some((row: any) => row.assetId !== assetId)) continue;
+      const removals = removalsAt.get(file) ?? [];
+      const identity = path.relative(destDir, file);
+      // The rows no planned removal of this file releases on its own.
+      const superseded = fileRows.filter((row: any) => !removals.some((change: any) => change.harness === row.harness)).map((row: any) => ownershipKey(row));
+      const synthetic = (extra: any) => Object.freeze({
+        harness: executor.harness, assetId, target: file, operation: 'remove', kind: 'copy-tree-file', identity,
+        ownershipIdentity: `doflow:${executor.harness}:copy-tree:${assetId}:${identity}`, projection: { renderer: 'copy-tree' }, ...extra,
+      });
+
+      if (!fsImpl.existsSync(file)) {
+        // Already gone (an interrupted run, a user's delete): the rows only point at nothing.
+        if (fileRows.length) added.get(executor.harness)!.push(synthetic({ fingerprint: null, retained: true, retainedFor: [], supersedes: superseded }));
+        continue;
+      }
+      const real = fsImpl.realpathSync(file);
+      if (!isUnder(real, realRoot)) {
+        keepFile(file);
+        notices.get(executor.harness)!.push(`kept ${shown(file)}: no longer shipped, but it resolves outside ${shown(destDir)}`);
+        continue;
+      }
+      if (sameFile(file)) { keepFile(file); continue; }   // the produced file under an old spelling
+      const current = sha256File(file, fsImpl);
+      if (!fileRows.some((row: any) => row.fingerprint === current)) {
+        // A planned removal here was already kept by planTree, and its adapter named it.
+        if (!removals.length) notices.get(executor.harness)!.push(`kept ${shown(file)}: no longer shipped, changed since DoFlow wrote it`);
+        continue;
+      }
+      notices.get(executor.harness)!.push(`prune ${shown(file)}: no longer shipped, unchanged since DoFlow wrote it`);
+      if (!removals.length) {
+        added.get(executor.harness)!.push(synthetic({ fingerprint: current, supersedes: superseded }));
+        continue;
+      }
+      removals.forEach((change: any, index: number) => {
+        const { retained, retainedFor, ...rest } = change;
+        void retained; void retainedFor;
+        replaced.get(change.harness)!.set(change, Object.freeze({ ...rest, fingerprint: current, ...(index === 0 ? { supersedes: superseded } : {}) }));
+      });
+    }
+
+    // Files no row names and the source does not produce: never DoFlow's to delete, but named.
+    for (const rel of walkRelFiles(destDir, fsImpl)) {
+      const file = path.join(destDir, rel);
+      if (producedSet.has(file) || recorded.has(file) || sameFile(file)) continue;
+      notices.get(executor.harness)!.push(`kept ${shown(file)}: not shipped by this version and not recorded as DoFlow's`);
+    }
+  }
+  return harnessPlans.map((target: any) => (target.skipped ? target
+    : withChanges(target, replaced.get(target.harness)!, added.get(target.harness)!, notices.get(target.harness)!)));
+}
+
 function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], ledger, context = {} }: any) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
@@ -342,7 +484,9 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     [...retainedMcpIds, ...harnessPlans.flatMap((item) => (item.skipped ? [] : item.mcpSelected ?? []))]));
   // Only once every harness's plan is known: whether a file may be deleted depends on the rows
   // the WHOLE plan leaves standing, which no single harness's plan can see.
-  const annotated = markRetainedRemovals(harnessPlans, baseLedger, scope);
+  const retained = markRetainedRemovals(harnessPlans, baseLedger, scope);
+  const annotated = context.operation === 'remove' ? retained
+    : pruneRetiredRuntimeFiles(retained, baseLedger, { scopeRoot, repoRoot: context.repoRoot });
   const changes = annotated.flatMap((item: any) => item.changes);
   const conflicts = annotated.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
   const prerequisites = annotated.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));
@@ -422,6 +566,9 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
     const related = changes.filter((change: any) => change.harness === verification.harness);
     const removed = related.filter((change: any) => change.operation === 'remove');
     const removeKeys = new Set(removed.map((change: any) => ownershipKey({ harness: change.harness, scope, assetId: change.assetId, target: change.target, ownershipIdentity: change.ownershipIdentity })));
+    // A runtime prune also gives up the rows other harnesses hold on the file it deletes
+    // (pruneRetiredRuntimeFiles): released here, in the same write, so no row outlives its file.
+    for (const change of removed) for (const key of change.supersedes ?? []) removeKeys.add(key);
     next.resources = next.resources.filter((resource: any) => !removeKeys.has(ownershipKey(resource)));
     for (const resource of verificationResources(verification, related, scope, recoveryRef)) {
       const key = ownershipKey(resource);
