@@ -4,7 +4,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { loadStorageRegistry } = require('./registry.ts');
 const { resolveRoots, readPruneSetting } = require('./roots.ts');
-const { runPass } = require('./engine');
+const { runPass } = require('./engine.ts');
 const { upkeepAfterVerb } = require('./upkeep');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 

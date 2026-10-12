@@ -60,3 +60,6 @@ declare function clearTimeout(handle: any): void;
 declare var URL: {
   new (input: string, base?: string): { protocol: string; username: string; password: string; hostname: string; [key: string]: any };
 };
+
+// High-resolution clock (storage engine pass budget).
+declare var performance: { now(): number };

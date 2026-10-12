@@ -36,7 +36,7 @@ for (const args of [ ['evidence', '--action', 'list', '--task-id', 'idle'], ['tr
     }
     // Observe the real pass result without adding a production test seam or installing hooks.
     const output = path.join(scratch.dir, 'passes.jsonl'), preload = path.join(scratch.dir, 'observe.cjs');
-    fs.writeFileSync(preload, `const fs = require('node:fs');\nconst engine = require(${JSON.stringify(path.join(REPO, 'src/runtime/storage/engine.js'))});\nconst runPass = engine.runPass;\nengine.runPass = options => { const result = runPass(options); fs.appendFileSync(${JSON.stringify(output)}, JSON.stringify(result) + '\\n'); return result; };\n`);
+    fs.writeFileSync(preload, `const fs = require('node:fs');\nconst engine = require(${JSON.stringify(path.join(REPO, 'src/runtime/storage/engine.ts'))});\nconst runPass = engine.runPass;\nengine.runPass = options => { const result = runPass(options); fs.appendFileSync(${JSON.stringify(output)}, JSON.stringify(result) + '\\n'); return result; };\n`);
     const result = spawnSync('/bin/bash', [RUN, ...args, '--json'], {
       cwd: projectRoot, env: { ...env, NODE_OPTIONS: `--require=${preload}` }, encoding: 'utf8',
     });

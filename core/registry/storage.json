@@ -348,7 +348,7 @@
       ],
       "writers": [
         "src/runtime/lifecycle/report-store.ts",
-        "src/runtime/storage/engine.js"
+        "src/runtime/storage/engine.ts"
       ]
     },
     {
@@ -605,7 +605,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/storage/engine.js",
+        "src/runtime/storage/engine.ts",
         "src/runtime/task-state.ts"
       ],
       "source": {

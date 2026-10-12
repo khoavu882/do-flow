@@ -6,7 +6,7 @@ const path=require('node:path');
 const {tempDir}=require('../helper/tmp');
 const {projectKey}=require('../../src/runtime/lifecycle/report-store.ts');
 const registry=require('../../core/registry/storage.json');
-const {runPass}=require('../../src/runtime/storage/engine');
+const {runPass}=require('../../src/runtime/storage/engine.ts');
 const {retainLocked}=require('../../src/runtime/lifecycle/store-upkeep.ts');
 const NOW=Date.parse('2026-10-10T12:00:00Z'), DAY=86400000;
 function fixture(t){const root=tempDir(t,'doflow-report-bodies-'), reports=path.join(root,'xdg/doflow/reports'), key=projectKey(root);fs.mkdirSync(reports,{recursive:true});return {root,reports,key,pass:(stores=['report-bodies'],mode='prune',extra={})=>runPass({registry,roots:{'project-state':path.join(root,'.doflow/state'),'config-home':path.dirname(reports)},stores,mode,setting:{'project-state':'on','config-home':'on'},now:NOW,...extra})};}

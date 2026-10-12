@@ -6,7 +6,7 @@ const { randomBytes } = require('node:crypto');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadStorageRegistry } = require('./registry.ts');
 const { resolveRoots, readPruneSetting } = require('./roots.ts');
-const engine = require('./engine');
+const engine = require('./engine.ts');
 const { RunLedger } = require('../trace/ledger.ts');
 
 // Load once: a not-due moment only reads the three small markers, never the catalogue again.

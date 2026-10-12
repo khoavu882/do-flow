@@ -7,7 +7,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { inheritedEnv } = require('../helper/scratch-env');
 const registry = require('../../core/registry/storage.json');
-const { runPass } = require('../../src/runtime/storage/engine');
+const { runPass } = require('../../src/runtime/storage/engine.ts');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { ClaimsManager } = require('../../src/runtime/claims.ts');
 const NOW = Date.parse('2026-10-10T12:00:00Z'), DAY = 86400000;
