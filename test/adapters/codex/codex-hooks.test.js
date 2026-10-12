@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { execFileSync } = require('node:child_process');
-const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks, shippedHookScripts, removeCodexHookScripts } = require('../../../src/adapters/codex/hooks');
+const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks, shippedHookScripts, removeCodexHookScripts } = require('../../../src/adapters/codex/hooks.ts');
 const { IS_WIN, expectExecutable } = require('../../helper-platform');
 
 const CODEX_HOOKS_DIR = path.resolve(__dirname, '../../..', 'core', 'harnesses', 'codex', 'hooks');
