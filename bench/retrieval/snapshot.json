@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": 1,
+  "commit": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+  "seed": 20261012,
+  "refresh": {
+    "trigger": "the pinned commit changes (retrieval migrate) or a listed tool changes version",
+    "owner": "maintainer",
+    "command": "npm run bench -- retrieval migrate --to <commit>"
+  },
+  "exclude": [
+    "bench/**",
+    "agent-docs/**",
+    "docs/**",
+    "graphify-out/**",
+    "node_modules/**",
+    ".doflow/**"
+  ],
+  "corpora": {
+    "code": {
+      "scopes": [
+        "src/**",
+        "bin/**",
+        "core/registry/**",
+        "core/harnesses/**",
+        "test/**"
+      ],
+      "exclude": [],
+      "dirtyRule": "exclude-working-tree; include-by-setup-patch",
+      "matchRule": "span-overlap",
+      "tokenizer": "rg -F literal or per-term rg -i -F (IC-008)",
+      "kMax": 10
+    },
+    "guidance": {
+      "scopes": [
+        "core/shared/guidance/**"
+      ],
+      "exclude": [],
+      "dirtyRule": "exclude-working-tree; include-by-setup-patch",
+      "matchRule": "path-heading",
+      "tokenizer": "retrieval.ts tokenize at snapshot",
+      "kMax": 5
+    }
+  },
+  "manifestPath": "bench/retrieval/manifest.json",
+  "manifestSha256": "5d032c76bdeaaf6a7ba1740993908602f45dc6f6c2dbab56d95c277772ca320e",
+  "tools": [
+    {
+      "id": "git",
+      "versionCommand": [
+        "git",
+        "--version"
+      ],
+      "versionLine": "git version 2.50.1 (Apple Git-155)",
+      "state": "present"
+    },
+    {
+      "id": "rg",
+      "versionCommand": [
+        "rg",
+        "--version"
+      ],
+      "versionLine": "ripgrep 15.2.0",
+      "state": "present"
+    },
+    {
+      "id": "fd",
+      "versionCommand": [
+        "fd",
+        "--version"
+      ],
+      "versionLine": null,
+      "state": "absent"
+    },
+    {
+      "id": "semble",
+      "versionCommand": [
+        "semble",
+        "--version"
+      ],
+      "versionLine": "0.6.1",
+      "state": "present"
+    },
+    {
+      "id": "graphify",
+      "versionCommand": [
+        "graphify",
+        "--version"
+      ],
+      "versionLine": "graphify 0.9.71",
+      "state": "present"
+    },
+    {
+      "id": "rtk",
+      "versionCommand": [
+        "rtk",
+        "--version"
+      ],
+      "versionLine": "rtk 0.50.0",
+      "state": "present"
+    },
+    {
+      "id": "jq",
+      "versionCommand": [
+        "jq",
+        "--version"
+      ],
+      "versionLine": "jq-1.7.1-apple",
+      "state": "present"
+    }
+  ],
+  "node": "v26.8.1",
+  "os": "darwin",
+  "arch": "arm64",
+  "taskFiles": {
+    "dev": {
+      "path": "bench/retrieval/tasks/dev.json",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}
