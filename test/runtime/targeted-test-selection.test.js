@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { suiteTempDir } = require('../helper/tmp');
-const { detectCommands } = require('../../src/runtime/command-detect');
+const { detectCommands } = require('../../src/runtime/command-detect.ts');
 const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
 const { selectChangedTests, quotePath } = require('../../src/runtime/verification/test-selection.ts');
 

@@ -24,7 +24,7 @@ const { tempDir } = require('../helper/tmp');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
 const { renderPolicy } = require('../../src/lifecycle/policies');
 const { describeResolution, RESOLUTION_REASONS } = require('../../src/runtime/locator-resolve.ts');
-const { DERIVATIONS } = require('../../src/runtime/command-detect');
+const { DERIVATIONS } = require('../../src/runtime/command-detect.ts');
 const { RUN_STATES } = require('../../src/runtime/workflow-orchestrator');
 
 const SRC = path.resolve(__dirname, '../../src');
@@ -152,7 +152,7 @@ test('DERIVATIONS: every derivation literal in the detectors is a member of the 
   // `derivation` is written as a literal at more than twenty sites across the per-language
   // detectors. The runtime check in detectCommands covers whatever a run reaches; this covers every
   // site whether a test exercises that language's detector or not.
-  const source = fs.readFileSync(path.join(SRC, 'runtime/command-detect.js'), 'utf8');
+  const source = fs.readFileSync(path.join(SRC, 'runtime/command-detect.ts'), 'utf8');
   const literals = [...source.matchAll(/derivation:\s*'([a-z-]+)'/g)].map((m) => m[1]);
 
   assert.ok(literals.length >= 20, `expected the detectors to set derivation many times, found ${literals.length}`);

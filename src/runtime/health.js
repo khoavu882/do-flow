@@ -342,7 +342,7 @@ function probeProviders({ repoRoot, projectRoot = process.cwd(), ids = null, rou
 /**
  * The project's build and test commands.
  *
- * Detection itself belongs to `command-detect.js` (plan task C.2) and is deliberately **not**
+ * Detection itself belongs to `command-detect.ts` (plan task C.2) and is deliberately **not**
  * reimplemented here — two detectors would be exactly the "one verb, two implementations" defect
  * this feature exists to remove (FR-005). This function reports what that module found, and when
  * the module is absent it says so by name rather than guessing a command. A guessed build command
@@ -358,13 +358,13 @@ function detectProjectCommands({ projectRoot = process.cwd(), detector } = {}) {
   if (!detect) {
     let mod = null;
     try {
-      mod = require('./command-detect');
+      mod = require('./command-detect.ts');
     } catch {
       return {
         status: 'UNKNOWN',
         build: null,
         test: null,
-        reason: 'src/runtime/command-detect.js is not present in this build; DoFlow reports detected commands but does not detect them itself, and will not guess',
+        reason: 'src/runtime/command-detect.ts is not present in this build; DoFlow reports detected commands but does not detect them itself, and will not guess',
       };
     }
     detect = typeof mod.detectCommands === 'function' ? mod.detectCommands : null;
@@ -373,7 +373,7 @@ function detectProjectCommands({ projectRoot = process.cwd(), detector } = {}) {
         status: 'UNKNOWN',
         build: null,
         test: null,
-        reason: `src/runtime/command-detect.js exports no detectCommands() (found: ${Object.keys(mod).join(', ') || 'nothing'})`,
+        reason: `src/runtime/command-detect.ts exports no detectCommands() (found: ${Object.keys(mod).join(', ') || 'nothing'})`,
       };
     }
   }

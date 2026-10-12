@@ -329,7 +329,7 @@ class CapabilityRouter {
    * declares one: a wrong guess here becomes a command the model runs. */
   detectTestCommand() {
     try {
-      const { detectCommands } = require('./command-detect');
+      const { detectCommands } = require('./command-detect.ts');
       const detected = detectCommands({ projectRoot: this.projectRoot });
       return detected.commands?.test?.command || null;
     } catch {

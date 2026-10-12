@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Build/test/lint command detection from project manifests, with a per-feature `plan.md` override
  * (plan task C.2, design component C7).
@@ -30,7 +32,7 @@ const path = require('node:path');
 
 /** The roles a tier in `verification.json` can ask for. Anything else in an override is an error,
  * because a typo'd key that is silently ignored is a command the user believes is running. */
-const COMMAND_ROLES = Object.freeze([
+const COMMAND_ROLES: readonly string[] = Object.freeze([
   'parse',
   'build',
   'lint',
@@ -59,19 +61,19 @@ const SHELL_SYNTAX = /[&|;<>$`()\\]/;
  * while leaving a targeted variant behind would report a tier as runnable that the plan just said
  * does not exist.
  */
-const DERIVED_ROLES = Object.freeze({ testTargeted: 'test' });
+const DERIVED_ROLES: Readonly<Record<string, string>> = Object.freeze({ testTargeted: 'test' });
 
 /**
  * How a command was arrived at. `declared` means a human or a manifest script named it exactly;
  * `inferred` means this module constructed it from the toolchain's conventions and it may be wrong.
  * Kept out of any numeric form on purpose — FR-008 forbids numeric confidence in output paths.
  */
-const DERIVATIONS = Object.freeze(['declared', 'inferred', 'override']);
+const DERIVATIONS: readonly string[] = Object.freeze(['declared', 'inferred', 'override']);
 
-function readFileIfPresent(filePath, fsImpl) {
+function readFileIfPresent(filePath: string, fsImpl: any): string | null {
   try {
     return fsImpl.readFileSync(filePath, 'utf8');
-  } catch (error) {
+  } catch (error: any) {
     if (error && (error.code === 'ENOENT' || error.code === 'ENOTDIR' || error.code === 'EISDIR')) {
       return null;
     }
@@ -79,7 +81,7 @@ function readFileIfPresent(filePath, fsImpl) {
   }
 }
 
-function exists(filePath, fsImpl) {
+function exists(filePath: string, fsImpl: any): boolean {
   try {
     fsImpl.statSync(filePath);
     return true;
@@ -93,7 +95,7 @@ function exists(filePath, fsImpl) {
  * workspace usually works and occasionally installs a second, divergent `node_modules`.
  * @returns {{ run: string, test: string, manager: string }}
  */
-function nodePackageManager(root, fsImpl) {
+function nodePackageManager(root: string, fsImpl: any): { run: string; test: string; manager: string } {
   if (exists(path.join(root, 'pnpm-lock.yaml'), fsImpl)) {
     return { run: 'pnpm run', test: 'pnpm test', manager: 'pnpm' };
   }
@@ -109,14 +111,14 @@ function nodePackageManager(root, fsImpl) {
 /**
  * @returns {{ id: string, roles: Object, absent: Array<string> }|null}
  */
-function detectNode(root, fsImpl) {
+function detectNode(root: string, fsImpl: any): any {
   const raw = readFileIfPresent(path.join(root, 'package.json'), fsImpl);
   if (raw === null) return null;
 
-  let pkg;
+  let pkg: any;
   try {
     pkg = JSON.parse(raw);
-  } catch (error) {
+  } catch (error: any) {
     // A malformed manifest is not an absent manifest. Reporting it as "no build script" would
     // hand the caller a confident answer derived from a file it failed to read.
     return { id: 'package.json', roles: {}, absent: [], error: `package.json is not valid JSON: ${error.message}` };
@@ -124,14 +126,14 @@ function detectNode(root, fsImpl) {
 
   const scripts = (pkg && typeof pkg.scripts === 'object' && pkg.scripts) || {};
   const pm = nodePackageManager(root, fsImpl);
-  const roles = {};
+  const roles: Record<string, any> = {};
   // Node has no project-wide parse step distinct from type-checking or running the code; `node
   // --check` needs an explicit file list this module does not have. Reporting it absent (rather
   // than leaving it undetected) lets the parse tier resolve NOT_APPLICABLE instead of stalling
   // every contract in every plain-JavaScript repository on a step that does not exist.
-  const absent = ['parse'];
+  const absent: string[] = ['parse'];
 
-  const script = (...names) => names.find((n) => typeof scripts[n] === 'string' && scripts[n].trim() !== '');
+  const script = (...names: string[]) => names.find((n) => typeof scripts[n] === 'string' && scripts[n].trim() !== '');
 
   const buildScript = script('build');
   if (buildScript) roles.build = { command: `${pm.run} ${buildScript}`, derivation: 'declared' };
@@ -154,7 +156,7 @@ function detectNode(root, fsImpl) {
     const testText = scripts[testScript].trim();
     const scriptArgs = testText.split(' ').slice(2);
     // A flag (`--require ./setup.js`) would be dropped by the targeted form, so it is not declared.
-    if (NODE_TEST_SCRIPT.test(testText) && !SHELL_SYNTAX.test(testText) && !scriptArgs.some((arg) => arg.startsWith('-'))) {
+    if (NODE_TEST_SCRIPT.test(testText) && !SHELL_SYNTAX.test(testText) && !scriptArgs.some((arg: string) => arg.startsWith('-'))) {
       // The runner is named by the script itself, so the targeted form is declared, not guessed.
       // `testDirs` are the arguments the script already passes: where its test files live.
       const testDirs = scriptArgs;
@@ -170,7 +172,7 @@ function detectNode(root, fsImpl) {
   return { id: 'package.json', roles, absent };
 }
 
-function detectRust(root, fsImpl) {
+function detectRust(root: string, fsImpl: any): any {
   if (!exists(path.join(root, 'Cargo.toml'), fsImpl)) return null;
   return {
     id: 'Cargo.toml',
@@ -185,7 +187,7 @@ function detectRust(root, fsImpl) {
   };
 }
 
-function detectGo(root, fsImpl) {
+function detectGo(root: string, fsImpl: any): any {
   if (!exists(path.join(root, 'go.mod'), fsImpl)) return null;
   return {
     id: 'go.mod',
@@ -204,13 +206,13 @@ function detectGo(root, fsImpl) {
  * dependency for tool-table presence detection is not worth it. Only the presence of a `[tool.X]`
  * table is used, which is robust to the parts of TOML this does not understand.
  */
-function detectPython(root, fsImpl) {
+function detectPython(root: string, fsImpl: any): any {
   const raw = readFileIfPresent(path.join(root, 'pyproject.toml'), fsImpl);
   if (raw === null) return null;
 
-  const hasTable = (name) => new RegExp(`^\\s*\\[tool\\.${name}[\\].]`, 'm').test(raw);
-  const roles = {};
-  const absent = [];
+  const hasTable = (name: string) => new RegExp(`^\\s*\\[tool\\.${name}[\\].]`, 'm').test(raw);
+  const roles: Record<string, any> = {};
+  const absent: string[] = [];
 
   if (hasTable('pytest') || exists(path.join(root, 'pytest.ini'), fsImpl) || exists(path.join(root, 'tests'), fsImpl)) {
     roles.test = { command: 'pytest', derivation: 'inferred' };
@@ -232,7 +234,7 @@ function detectPython(root, fsImpl) {
 }
 
 /** Makefile target name → the role it serves. Only unambiguous names are mapped. */
-const MAKE_TARGET_ROLES = Object.freeze({
+const MAKE_TARGET_ROLES: Readonly<Record<string, string>> = Object.freeze({
   build: 'build',
   compile: 'build',
   test: 'test',
@@ -244,14 +246,14 @@ const MAKE_TARGET_ROLES = Object.freeze({
   check: 'parse',
 });
 
-function detectMake(root, fsImpl) {
+function detectMake(root: string, fsImpl: any): any {
   const raw = readFileIfPresent(path.join(root, 'Makefile'), fsImpl) ??
     readFileIfPresent(path.join(root, 'makefile'), fsImpl);
   if (raw === null) return null;
 
-  const roles = {};
-  const absent = [];
-  const targets = new Set();
+  const roles: Record<string, any> = {};
+  const absent: string[] = [];
+  const targets = new Set<string>();
   // Target lines only: a leading tab means a recipe line, and `:=` is a variable assignment.
   for (const line of raw.split('\n')) {
     const m = /^([A-Za-z0-9_.\-/]+)\s*:(?!=)/.exec(line);
@@ -275,7 +277,7 @@ function detectMake(root, fsImpl) {
  * and a repository where it is the real entrypoint is precisely the case the `plan.md` override
  * exists for.
  */
-const DETECTORS = Object.freeze([detectNode, detectRust, detectGo, detectPython, detectMake]);
+const DETECTORS: readonly ((root: string, fsImpl: any) => any)[] = Object.freeze([detectNode, detectRust, detectGo, detectPython, detectMake]);
 
 /**
  * Extracts the override object from a feature's `plan.md`.
@@ -285,25 +287,25 @@ const DETECTORS = Object.freeze([detectNode, detectRust, detectGo, detectPython,
  * @param {string} planText
  * @returns {{ override: Object|null, errors: Array<string> }}
  */
-function parsePlanOverride(planText) {
+function parsePlanOverride(planText: any): { override: any; errors: string[] } {
   if (typeof planText !== 'string' || planText === '') return { override: null, errors: [] };
 
   const fence = new RegExp(`^[ \\t]*\`\`\`${PLAN_OVERRIDE_BLOCK}[ \\t]*\\n([\\s\\S]*?)^[ \\t]*\`\`\``, 'm');
   const match = fence.exec(planText);
   if (!match) return { override: null, errors: [] };
 
-  let parsed;
+  let parsed: any;
   try {
     parsed = JSON.parse(match[1]);
-  } catch (error) {
+  } catch (error: any) {
     return { override: null, errors: [`plan.md '${PLAN_OVERRIDE_BLOCK}' block is not valid JSON: ${error.message}`] };
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { override: null, errors: [`plan.md '${PLAN_OVERRIDE_BLOCK}' block must be a JSON object mapping command roles to commands`] };
   }
 
-  const errors = [];
-  for (const [key, value] of Object.entries(parsed)) {
+  const errors: string[] = [];
+  for (const [key, value] of Object.entries(parsed) as [string, any][]) {
     if (!COMMAND_ROLES.includes(key)) {
       errors.push(`plan.md override declares unknown command role '${key}'; known roles: ${COMMAND_ROLES.join(', ')}`);
       continue;
@@ -335,21 +337,21 @@ function parsePlanOverride(planText) {
  *   errors: Array<string>
  * }}
  */
-function detectCommands(options = {}) {
+function detectCommands(options: any = {}): any {
   const fsImpl = options.fsImpl || fs;
   const projectRoot = options.projectRoot || process.cwd();
 
-  const manifests = [];
-  const commands = {};
-  const alternatives = [];
-  const absentByRole = new Map();
-  const errors = [];
+  const manifests: string[] = [];
+  const commands: Record<string, any> = {};
+  const alternatives: any[] = [];
+  const absentByRole = new Map<string, string>();
+  const errors: string[] = [];
 
   for (const detector of DETECTORS) {
-    let found;
+    let found: any;
     try {
       found = detector(projectRoot, fsImpl);
-    } catch (error) {
+    } catch (error: any) {
       errors.push(`Detector failed while reading ${projectRoot}: ${error.message}`);
       continue;
     }
@@ -359,7 +361,7 @@ function detectCommands(options = {}) {
       errors.push(found.error);
       continue;
     }
-    for (const [role, entry] of Object.entries(found.roles)) {
+    for (const [role, entry] of Object.entries(found.roles) as [string, any][]) {
       if (commands[role]) {
         alternatives.push({ role, command: entry.command, source: found.id, derivation: entry.derivation });
       } else {
@@ -374,7 +376,7 @@ function detectCommands(options = {}) {
   // A role another manifest supplied is not absent, whatever the manifest that lacked it said.
   for (const role of Object.keys(commands)) absentByRole.delete(role);
 
-  let planText = options.planText;
+  let planText: any = options.planText;
   if (typeof planText !== 'string' && options.planPath) {
     planText = readFileIfPresent(options.planPath, fsImpl);
     if (planText === null) {
@@ -383,12 +385,12 @@ function detectCommands(options = {}) {
     }
   }
 
-  const declaredNone = [];
+  const declaredNone: string[] = [];
   const { override, errors: overrideErrors } = parsePlanOverride(planText);
   errors.push(...overrideErrors);
 
   if (override && overrideErrors.length === 0) {
-    for (const [role, value] of Object.entries(override)) {
+    for (const [role, value] of Object.entries(override) as [string, any][]) {
       if (value === null) {
         delete commands[role];
         absentByRole.delete(role);
@@ -467,7 +469,7 @@ function detectCommands(options = {}) {
  * @param {string} [pattern]
  * @returns {{ command: string, substituted: boolean }}
  */
-function applyTargetPattern(command, pattern) {
+function applyTargetPattern(command: any, pattern?: string): { command: string | null; substituted: boolean } {
   if (typeof command !== 'string' || !command.includes(TARGET_PATTERN_TOKEN)) {
     return { command, substituted: false };
   }
