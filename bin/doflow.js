@@ -5,6 +5,15 @@
 // so the `doflow` binary path and the doflow-run dispatcher seam
 // (core/shared/scripts/doflow/bin/doflow-run, which execs `node <repoRoot>/bin/doflow.js`)
 // keep resolving to this exact location.
+// Enable Node's module compile cache before any ../src require. Type stripping makes the first load
+// of each .ts module cost a transform; the cache turns that into a one-time cost per Node version
+// and file content. Called without options so an explicit NODE_COMPILE_CACHE directory is honoured
+// and NODE_DISABLE_COMPILE_CACHE still disables it. Best-effort: where the API is missing (older
+// Node) or throws, the CLI runs at today's speed.
+const nodeModule = require('node:module');
+if (typeof nodeModule.enableCompileCache === 'function') {
+  try { nodeModule.enableCompileCache(); } catch { /* best-effort */ }
+}
 // Record an error that escapes everything, including one thrown while the CLI loads (a half-updated
 // install), before it is loaded (IC-016). The monitor only observes: Node's own crash output and
 // exit status are unchanged, and a monitor that threw would change that status to 7, hence the
