@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Native state and formats remain adapter-owned. The lifecycle layer selects
 // registry assets, validates declarative changes, journals mutations, and keeps
 // the neutral ledger in sync only after successful verification.
@@ -20,38 +22,38 @@ const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
  * `discover().mcpOwned`. */
 const MCP_KEEP = 'keep';
 
-function registryScope(scope) { return scope === 'global' ? 'user' : scope; }
-function assertScope(scope) {
+function registryScope(scope: any) { return scope === 'global' ? 'user' : scope; }
+function assertScope(scope: any) {
   if (scope !== 'project' && scope !== 'global') throw new Error(`Lifecycle scope must be project or global, got '${scope}'`);
 }
 
-function normalizeTargets(registry, targets) {
-  const wanted = targets && targets.length ? targets : registry.harnesses.map((harness) => harness.id);
+function normalizeTargets(registry: any, targets: any) {
+  const wanted = targets && targets.length ? targets : registry.harnesses.map((harness: any) => harness.id);
   if (!Array.isArray(wanted)) throw new Error('Lifecycle targets must be an array');
   return [...new Set(wanted)].map((id) => harnessFor(registry, id));
 }
 
-function identityFor(change) { return change.ownershipIdentity ?? change.ownership; }
+function identityFor(change: any) { return change.ownershipIdentity ?? change.ownership; }
 
-function normalizeChange(change, { harness, assets }) {
+function normalizeChange(change: any, { harness, assets }: any) {
   if (!change || typeof change !== 'object') throw new Error(`Adapter '${harness.id}' returned a non-object change`);
   const ownershipIdentity = identityFor(change);
   if (change.harness !== undefined && change.harness !== harness.id) throw new Error(`Adapter '${harness.id}' returned a change for '${change.harness}'`);
-  if (!assets.some((asset) => asset.id === change.assetId)) throw new Error(`Adapter '${harness.id}' returned unknown asset '${change.assetId}'`);
+  if (!assets.some((asset: any) => asset.id === change.assetId)) throw new Error(`Adapter '${harness.id}' returned unknown asset '${change.assetId}'`);
   if (!OPERATIONS.has(change.operation)) throw new Error(`Adapter '${harness.id}' returned unsupported operation '${change.operation}'`);
   if (typeof change.target !== 'string' || !change.target) throw new Error(`Adapter '${harness.id}' change '${change.assetId}' requires target`);
   if (typeof ownershipIdentity !== 'string' || !ownershipIdentity) throw new Error(`Adapter '${harness.id}' change '${change.assetId}' requires ownershipIdentity`);
   return Object.freeze({ ...change, harness: harness.id, ownershipIdentity });
 }
 
-function normalizeVerification(result, harness) {
+function normalizeVerification(result: any, harness: any) {
   if (!result || typeof result !== 'object') throw new Error(`Adapter '${harness.id}' returned an invalid verification result`);
   const statuses = Array.isArray(result.statuses) ? result.statuses : [];
   const resources = Array.isArray(result.resources) ? result.resources : [];
   return { ...result, harness: harness.id, statuses, resources };
 }
 
-function matchesChange(resource, change) {
+function matchesChange(resource: any, change: any) {
   if (resource?.assetId !== change.assetId || resource?.target !== change.target) return false;
   const resourceOwnership = resource?.ownershipIdentity ?? resource?.ownership;
   const changeOwnership = change.ownershipIdentity ?? change.ownership;
@@ -66,9 +68,9 @@ function matchesChange(resource, change) {
 /** Whether one removed change is genuinely gone, and if so, how `statuses` should record that.
  * `statuses` is read live, not a snapshot — an earlier change in the same removal batch can add
  * or update an entry a later change's own lookup then finds. */
-function reconcileRemovedChange(verification, statuses, change) {
-  const reported = verification.resources.some((resource) => matchesChange(resource, change));
-  const statusIndex = statuses.findIndex((item) => matchesChange(item, change));
+function reconcileRemovedChange(verification: any, statuses: any, change: any) {
+  const reported = verification.resources.some((resource: any) => matchesChange(resource, change));
+  const statusIndex = statuses.findIndex((item: any) => matchesChange(item, change));
   const status = statusIndex >= 0 ? statuses[statusIndex] : null;
   // 'absent' belongs here alongside 'missing': a shared file (settings.json) survives removal
   // holding the user's own content, and its adapter reports 'absent' once none of DoFlow's
@@ -99,28 +101,28 @@ function reconcileRemovedChange(verification, statuses, change) {
  * 'missing' the ledger *does* claim stays a hard failure — that is a removal which genuinely did
  * not happen, and the existing "unrelated missing remains false" contract depends on it. Without a
  * ledger, non-ownership cannot be proven, so the strict reading is kept. */
-function markUnownedAbsences(statuses, ledger, harness) {
+function markUnownedAbsences(statuses: any, ledger: any, harness: any) {
   if (!ledger) return statuses;
   const owned = new Set((ledger.resources || [])
-    .filter((resource) => resource.harness === harness)
-    .map((resource) => resource.ownershipIdentity)
+    .filter((resource: any) => resource.harness === harness)
+    .map((resource: any) => resource.ownershipIdentity)
     .filter(Boolean));
-  return statuses.map((status) => (
+  return statuses.map((status: any) => (
     status?.status === 'missing' && status.ownershipIdentity && !owned.has(status.ownershipIdentity)
       ? { ...status, status: 'absent', expectedAbsence: true }
       : status
   ));
 }
 
-function normalizeRemovalVerification(verification, changes, ledger) {
-  const removals = changes.filter((change) => change.operation === 'remove' && change.harness === verification.harness);
+function normalizeRemovalVerification(verification: any, changes: any, ledger: any) {
+  const removals = changes.filter((change: any) => change.operation === 'remove' && change.harness === verification.harness);
   if (!removals.length) return verification;
   // A retained removal released this harness's ownership row without deleting the file, because
   // another harness still claims it (see markRetainedRemovals). The file is therefore *expected*
   // to still be on disk, so asking "is it gone?" of it would turn the correct outcome into a
   // verification conflict. Everything the plan actually deleted is still checked as strictly as
   // before.
-  const removed = removals.filter((change) => !change.retained);
+  const removed = removals.filter((change: any) => !change.retained);
   let statuses = [...verification.statuses];
   const conflicts = [...(verification.conflicts || [])];
   for (const change of removed) {
@@ -138,35 +140,35 @@ function normalizeRemovalVerification(verification, changes, ledger) {
  * that exact absence has been normalized (an `expectedRemoval` status), recompute rather than
  * carrying the stale false forward. A bare adapter failure, conflict, or any unrelated
  * missing/error status remains a hard verification failure. */
-function removalVerificationOk(ok, statuses, conflicts) {
-  const unresolvedFailure = statuses.some((status) => ['missing', 'conflict', 'error', 'invalid'].includes(status?.status));
-  const onlyExpectedRemovalFailure = ok === false && statuses.some((status) => status?.expectedRemoval || status?.expectedAbsence) && !unresolvedFailure && conflicts.length === 0;
+function removalVerificationOk(ok: any, statuses: any, conflicts: any) {
+  const unresolvedFailure = statuses.some((status: any) => ['missing', 'conflict', 'error', 'invalid'].includes(status?.status));
+  const onlyExpectedRemovalFailure = ok === false && statuses.some((status: any) => status?.expectedRemoval || status?.expectedAbsence) && !unresolvedFailure && conflicts.length === 0;
   return conflicts.length === 0 && !unresolvedFailure && (ok !== false || onlyExpectedRemovalFailure);
 }
 
 /** A `failures` entry comes in three shapes from different adapters: a [name, detail] tuple,
  * a bare string, or an object with its own conflicts/errors. */
-function failureReasons(failure) {
+function failureReasons(failure: any) {
   if (Array.isArray(failure)) {
     const [name, detail] = failure;
     const detailReasons = detail?.conflicts || detail?.errors || [];
-    return detailReasons.map((reason) => `${name}: ${reason}`);
+    return detailReasons.map((reason: any) => `${name}: ${reason}`);
   }
   if (typeof failure === 'string') return [failure];
   if (failure?.conflicts || failure?.errors) return failure.conflicts || failure.errors;
   return [];
 }
 
-function componentReasons(name, component) {
+function componentReasons(name: any, component: any) {
   if (component?.ok !== false) return [];
   const details = component.conflicts || component.errors || [];
-  return details.length ? details.map((reason) => `${name}: ${reason}`) : [`${name}: native plan failed`];
+  return details.length ? details.map((reason: any) => `${name}: ${reason}`) : [`${name}: native plan failed`];
 }
 
 /** Promote adapter-declared failed components into the common conflict channel.
  * A false `ok` is never advisory: otherwise a native adapter can decline a
  * dangerous reconciliation while the lifecycle still journals and writes state. */
-function adapterConflicts(result, harness) {
+function adapterConflicts(result: any, harness: any) {
   const reasons = [
     ...(result.conflicts || []),
     ...(result.errors || []),
@@ -180,7 +182,7 @@ function adapterConflicts(result, harness) {
 /** Every ownership row this plan is about to give up, keyed exactly as the neutral ledger keys it.
  * A removal change always releases its harness's claim; whether it also deletes the file is a
  * separate question, answered by markRetainedRemovals below. */
-function releasedOwnershipKeys(harnessPlans, scope) {
+function releasedOwnershipKeys(harnessPlans: any, scope: any) {
   const keys = new Set();
   for (const target of harnessPlans) {
     for (const change of target.changes || []) {
@@ -196,7 +198,7 @@ function releasedOwnershipKeys(harnessPlans, scope) {
  * on this file is not a claimant even if it is releasing nothing else, and a harness in the same
  * batch that keeps its row (an install that relocates one asset while a sibling's projection is
  * unchanged) still is. */
-function survivingClaimantsByTarget(ledger, releasedKeys) {
+function survivingClaimantsByTarget(ledger: any, releasedKeys: any) {
   const byTarget = new Map();
   for (const resource of ledger?.resources || []) {
     if (typeof resource?.target !== 'string' || typeof resource?.harness !== 'string') continue;
@@ -210,7 +212,7 @@ function survivingClaimantsByTarget(ledger, releasedKeys) {
 
 /** What one claim covers: a whole file, except an MCP entry, which is claimed on its own because
  * several harnesses keep their servers side by side in one MCP file. */
-function claimKey(record) {
+function claimKey(record: any) {
   return record.kind === 'mcp-server' ? `${record.target}\u0000${record.identity}` : record.target;
 }
 
@@ -229,13 +231,13 @@ function claimKey(record) {
  * stays, and the last claimant's removal is the one that reclaims it. The neutral ledger is the
  * only thing consulted — it is already the record of who owns what, and a second ownership
  * registry would be one more thing to keep in sync. */
-function markRetainedRemovals(harnessPlans, ledger, scope) {
+function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any) {
   const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope));
   if (!claimants.size) return harnessPlans;
-  return harnessPlans.map((target) => {
+  return harnessPlans.map((target: any) => {
     if (target.skipped) return target;
     let retainedAny = false;
-    const changes = target.changes.map((change) => {
+    const changes = target.changes.map((change: any) => {
       if (change.operation !== 'remove') return change;
       const retainedFor = [...(claimants.get(claimKey(change)) ?? [])].filter((harness) => harness !== change.harness).sort();
       if (!retainedFor.length) return change;
@@ -252,15 +254,15 @@ function markRetainedRemovals(harnessPlans, ledger, scope) {
 
 /** Whether this plan leaves no ownership row standing anywhere — the only case in which a shared,
  * install-wide artifact that no single harness owns is genuinely unclaimed. */
-function removalIsTotal(plan) {
+function removalIsTotal(plan: any) {
   const released = releasedOwnershipKeys(plan.targets || [], plan.scope);
-  return (plan.ledger?.resources || []).every((resource) => released.has(ownershipKey(resource)));
+  return (plan.ledger?.resources || []).every((resource: any) => released.has(ownershipKey(resource)));
 }
 
 /** What a removal kept and why, ready to print. A command that says "removed" while silently
  * leaving files behind is answering confidently about something it did not do, so the retained
  * count and the harnesses responsible for it are reported, never inferred by the caller. */
-function retentionSummary(retained = []) {
+function retentionSummary(retained: any = []) {
   const groups = new Map();
   for (const item of retained) {
     const key = `${item.harness} | ${item.retainedFor.join(', ')}`;
@@ -272,26 +274,26 @@ function retentionSummary(retained = []) {
   });
 }
 
-function retainedChanges(changes) {
-  return changes.filter((change) => change.retained)
-    .map((change) => ({ harness: change.harness, assetId: change.assetId, target: change.target, retainedFor: change.retainedFor }));
+function retainedChanges(changes: any) {
+  return changes.filter((change: any) => change.retained)
+    .map((change: any) => ({ harness: change.harness, assetId: change.assetId, target: change.target, retainedFor: change.retainedFor }));
 }
 
 /** An adapter's non-blocking notes: one line of at most 200 characters each. A malformed entry is
  * dropped rather than failing the plan, because a notice must never change whether an install runs. */
-function adapterNotices(result) {
+function adapterNotices(result: any) {
   return (Array.isArray(result.notices) ? result.notices : [])
-    .filter((notice) => typeof notice === 'string' && notice.length <= 200 && !/[\u0000-\u001f\u007f]/.test(notice));
+    .filter((notice: any) => typeof notice === 'string' && notice.length <= 200 && !/[\u0000-\u001f\u007f]/.test(notice));
 }
 
 /** The ids of `ids` the catalog declares, in registry order. */
-function catalogIds(registry, ids) {
-  return registry.mcp.filter((server) => ids.includes(server.id)).map((server) => server.id);
+function catalogIds(registry: any, ids: any) {
+  return registry.mcp.filter((server: any) => ids.includes(server.id)).map((server: any) => server.id);
 }
 
 /** Each harness takes its own MCP selection: an id array, or MCP_KEEP for the servers it owns now.
  * A harness that takes no MCP servers reads `keep` and an absent entry as none and refuses any id. */
-function harnessMcpSelection(registry, harness, raw) {
+function harnessMcpSelection(registry: any, harness: any, raw: any) {
   const value = raw ?? [];
   if (value !== MCP_KEEP && !(Array.isArray(value) && value.every((id) => typeof id === 'string'))) {
     throw new Error(`MCP selection for '${harness.id}' must be an array of server ids or '${MCP_KEEP}'`);
@@ -301,7 +303,7 @@ function harnessMcpSelection(registry, harness, raw) {
   return [];
 }
 
-function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], ledger, context = {} }) {
+function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], ledger, context = {} }: any) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
   const baseLedger = ledger ?? defaultLedger({ scope, scopeRoot });
@@ -315,7 +317,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const policies = renderPolicies(registry, { harness: harness.id });
     const adoptable = capable ? selectMcpServers(registry, catalogIds(registry, mcpAdoptable[harness.id] ?? [])) : [];
     const adapter = resolveAdapter(adapters, harness);
-    const project = (mcp) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context });
+    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context });
     // `keep` asks the adapter what it owns before the real projection: the probe carries no
     // selection, so discovery reads the files as they are.
     const ids = selection === MCP_KEEP
@@ -327,12 +329,12 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const discovery = adapter.discover(input);
     const result = adapter.plan({ ...input, discovery });
     if (!result || typeof result !== 'object') throw new Error(`Adapter '${harness.id}' returned an invalid plan`);
-    const changes = (result.changes || []).map((change) => normalizeChange(change, { harness, assets }));
+    const changes = (result.changes || []).map((change: any) => normalizeChange(change, { harness, assets }));
     const conflicts = adapterConflicts(result, harness);
-    const prerequisites = [...(result.prerequisites || []), ...changes.map((change) => change.prerequisite).filter(Boolean)];
+    const prerequisites = [...(result.prerequisites || []), ...changes.map((change: any) => change.prerequisite).filter(Boolean)];
     const requiredNativeResources = result.requiredNativeResources ?? changes;
     if (!Array.isArray(requiredNativeResources)) throw new Error(`Adapter '${harness.id}' returned invalid requiredNativeResources`);
-    return { harness: harness.id, adapter: harness.adapter, assets, mcp, mcpSelected: capable ? mcp.map((server) => server.id) : null, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
+    return { harness: harness.id, adapter: harness.adapter, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
   });
   // The MCP index names every server a harness of this scope uses: the selections planned here and
   // the recorded selections of the harnesses this run does not touch.
@@ -341,18 +343,18 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   // Only once every harness's plan is known: whether a file may be deleted depends on the rows
   // the WHOLE plan leaves standing, which no single harness's plan can see.
   const annotated = markRetainedRemovals(harnessPlans, baseLedger, scope);
-  const changes = annotated.flatMap((item) => item.changes);
-  const conflicts = annotated.flatMap((item) => item.conflicts.map((reason) => ({ harness: item.harness, reason })));
-  const prerequisites = annotated.flatMap((item) => item.prerequisites.map((prerequisite) => ({ harness: item.harness, prerequisite })));
-  const requiredNativeResources = annotated.flatMap((item) => item.requiredNativeResources || []);
-  const notices = annotated.flatMap((item) => item.notices.map((notice) => ({ harness: item.harness, notice })));
+  const changes = annotated.flatMap((item: any) => item.changes);
+  const conflicts = annotated.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
+  const prerequisites = annotated.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));
+  const requiredNativeResources = annotated.flatMap((item: any) => item.requiredNativeResources || []);
+  const notices = annotated.flatMap((item: any) => item.notices.map((notice: any) => ({ harness: item.harness, notice })));
   return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: annotated, changes, requiredNativeResources, conflicts, prerequisites, notices,
     retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0 });
 }
 
-function verificationResources(verification, changes, scope, recoveryRef) {
-  if (verification.resources.length) return verification.resources.map((resource) => ({ ...resource, harness: verification.harness, scope, recoveryRef: resource.recoveryRef ?? recoveryRef }));
-  return changes.filter((change) => change.operation !== 'remove').map((change) => ({
+function verificationResources(verification: any, changes: any, scope: any, recoveryRef: any) {
+  if (verification.resources.length) return verification.resources.map((resource: any) => ({ ...resource, harness: verification.harness, scope, recoveryRef: resource.recoveryRef ?? recoveryRef }));
+  return changes.filter((change: any) => change.operation !== 'remove').map((change: any) => ({
     harness: change.harness, scope, assetId: change.assetId, target: change.target,
     ownershipIdentity: change.ownershipIdentity, fingerprint: change.afterFingerprint ?? null,
     sourceVersion: change.sourceVersion ?? 'unknown', projection: change.projection ?? null, recoveryRef,
@@ -362,7 +364,7 @@ function verificationResources(verification, changes, scope, recoveryRef) {
 /** The guidance-content layer's own version marker (core/shared/guidance/VERSION, copy-treed
  * to <scopeRoot>/.doflow/guidance/VERSION) is independent of this package's version — read it
  * fresh on every ledger update so the ledger reflects whatever is actually on disk. */
-function readGuidanceVersion(scopeRoot, fsImpl = fs) {
+function readGuidanceVersion(scopeRoot: any, fsImpl = fs) {
   const file = path.join(scopeRoot, '.doflow', 'guidance', 'VERSION');
   if (!fsImpl.existsSync(file)) return null;
   return fsImpl.readFileSync(file, 'utf8').trim();
@@ -378,7 +380,7 @@ function readGuidanceVersion(scopeRoot, fsImpl = fs) {
  * same anchor DOFLOW_CORE.md's own @-imports use. Writing this file into a subdirectory would
  * silently reinterpret every one of those paths against that subdirectory and break them all,
  * with no error at install time. test/mcp-index.test.js pins the anchor from both ends. */
-function mcpIndexPath(scopeRoot) {
+function mcpIndexPath(scopeRoot: any) {
   return path.join(scopeRoot, '.doflow', 'guidance', 'MCP_INDEX.md');
 }
 
@@ -393,7 +395,7 @@ function mcpIndexPath(scopeRoot) {
  * shared runtime, in the one asset that is generated rather than ledger-tracked and so cannot be
  * protected by ownership counting. The remaining harnesses' MCP selection has not changed, so the
  * file is left exactly as it is rather than re-rendered from this removal's empty selection. */
-function applyMcpIndex({ scopeRoot, selectedMcp, mode, retain = false, fsImpl = fs }) {
+function applyMcpIndex({ scopeRoot, selectedMcp, mode, retain = false, fsImpl = fs }: any) {
   const file = mcpIndexPath(scopeRoot);
   const content = mode === 'remove' ? null : renderMcpIndex(selectedMcp);
   if (content === null) {
@@ -405,7 +407,7 @@ function applyMcpIndex({ scopeRoot, selectedMcp, mode, retain = false, fsImpl = 
   fsImpl.writeFileSync(file, content);
 }
 
-function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, fsImpl = fs }) {
+function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, fsImpl = fs }: any) {
   // upgradeLedger makes every written ledger v2-shaped (tombstone log present) while v1 inputs
   // stay readable — migration happens on write, never as a separate user-facing step.
   const next = JSON.parse(JSON.stringify(upgradeLedger(ledger ?? defaultLedger({ scope, scopeRoot }))));
@@ -417,10 +419,10 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
     priorByIdentity.set(`${resource.harness}\u0000${resource.assetId}\u0000${resource.identity ?? ''}`, resource);
   }
   for (const verification of verifications) {
-    const related = changes.filter((change) => change.harness === verification.harness);
-    const removed = related.filter((change) => change.operation === 'remove');
-    const removeKeys = new Set(removed.map((change) => ownershipKey({ harness: change.harness, scope, assetId: change.assetId, target: change.target, ownershipIdentity: change.ownershipIdentity })));
-    next.resources = next.resources.filter((resource) => !removeKeys.has(ownershipKey(resource)));
+    const related = changes.filter((change: any) => change.harness === verification.harness);
+    const removed = related.filter((change: any) => change.operation === 'remove');
+    const removeKeys = new Set(removed.map((change: any) => ownershipKey({ harness: change.harness, scope, assetId: change.assetId, target: change.target, ownershipIdentity: change.ownershipIdentity })));
+    next.resources = next.resources.filter((resource: any) => !removeKeys.has(ownershipKey(resource)));
     for (const resource of verificationResources(verification, related, scope, recoveryRef)) {
       const key = ownershipKey(resource);
       // A verifier enumerates what is on disk, and a released-but-retained file is deliberately
@@ -433,9 +435,9 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
       const prior = priorByIdentity.get(`${resource.harness}\u0000${resource.assetId}\u0000${resource.identity ?? ''}`);
       if (prior && prior.target !== resource.target) {
         const supersededKey = ownershipKey(prior);
-        next.resources = next.resources.filter((item) => ownershipKey(item) !== supersededKey);
+        next.resources = next.resources.filter((item: any) => ownershipKey(item) !== supersededKey);
       }
-      const index = next.resources.findIndex((item) => ownershipKey(item) === key);
+      const index = next.resources.findIndex((item: any) => ownershipKey(item) === key);
       if (index >= 0) next.resources[index] = resource;
       else next.resources.push(resource);
     }
@@ -448,7 +450,7 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
   for (const resource of next.resources) {
     const prior = priorByIdentity.get(`${resource.harness}\u0000${resource.assetId}\u0000${resource.identity ?? ''}`);
     if (!prior || prior.target === resource.target) continue;
-    if (!next.tombstones.some((entry) => entry.harness === resource.harness
+    if (!next.tombstones.some((entry: any) => entry.harness === resource.harness
       && entry.fromTarget === prior.target && entry.toTarget === resource.target)) {
       next.tombstones.push({
         harness: resource.harness, assetId: resource.assetId,
@@ -457,7 +459,7 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
       });
     }
   }
-  const claims = new Set(next.resources.map((resource) => resource.target));
+  const claims = new Set(next.resources.map((resource: any) => resource.target));
   for (const entry of next.tombstones) {
     if (entry.sweptAt || !fsImpl.existsSync(entry.fromTarget) || claims.has(entry.fromTarget)) continue;
     try {
@@ -475,7 +477,7 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
   return next;
 }
 
-function verifyLifecycle({ plan, adapters, context = {} }) {
+function verifyLifecycle({ plan, adapters, context = {} }: any) {
   const verifications = [];
   for (const target of plan.targets) {
     if (target.skipped) continue;
@@ -488,11 +490,11 @@ function verifyLifecycle({ plan, adapters, context = {} }) {
     if (operation === 'remove') verification = normalizeRemovalVerification(verification, target.changes, plan.ledger);
     verifications.push({ ...verification, hookWiring: hookWiringStatus(harness, target, verification) });
   }
-  const conflicts = verifications.flatMap((result) => (result.conflicts || []).map((reason) => ({ harness: result.harness, reason })));
+  const conflicts = verifications.flatMap((result) => (result.conflicts || []).map((reason: any) => ({ harness: result.harness, reason })));
   return { verifications, conflicts, ok: conflicts.length === 0 && verifications.every((result) => result.ok !== false) };
 }
 
-function assertPlanApplicable(plan, stateRoot, acceptPrerequisites) {
+function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: any) {
   if (!plan.safe && !(acceptPrerequisites && plan.conflicts.length === 0)) throw new Error('Refusing to apply an unsafe lifecycle plan');
   if (!stateRoot) throw new Error('stateRoot is required before lifecycle mutation');
   if (!plan.requiredNativeResources?.length || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
@@ -502,8 +504,8 @@ function assertPlanApplicable(plan, stateRoot, acceptPrerequisites) {
  * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex and Gemini
  * deploy hooks via their own bespoke code paths (see targetNeedsHooks below) rather than a
  * registered asset, so they never appear here. */
-function hookAssetIds(target) {
-  return new Set((target.assets || []).filter((asset) => asset.kind === 'hooks').map((asset) => asset.id));
+function hookAssetIds(target: any) {
+  return new Set((target.assets || []).filter((asset: any) => asset.kind === 'hooks').map((asset: any) => asset.id));
 }
 
 /** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
@@ -511,9 +513,9 @@ function hookAssetIds(target) {
  * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
  * 'hooks'` instead (see src/adapters/codex/index.ts and src/adapters/gemini/index.ts). Either
  * signal is sufficient — this stays harness-agnostic on purpose. */
-function targetNeedsHooks(target) {
+function targetNeedsHooks(target: any) {
   const hookIds = hookAssetIds(target);
-  return (target.changes || []).some((change) => hookIds.has(change.assetId) || change.nativeComponent === 'hooks');
+  return (target.changes || []).some((change: any) => hookIds.has(change.assetId) || change.nativeComponent === 'hooks');
 }
 
 /** Whether a verified resource is the hooks resource this harness owns. A registry-declared hooks
@@ -522,15 +524,15 @@ function targetNeedsHooks(target) {
  * matched by its `projection.renderer` tag — see src/adapters/codex/index.ts's
  * `lifecycleResource(..., kind: 'hooks-file', ...)` and src/adapters/gemini/index.ts's verify(),
  * which tags its hooks resource `projection: { renderer: 'gemini-hooks' }`. */
-function verificationOwnsHooks(verification, hookIds) {
-  return (verification?.resources || []).some((resource) =>
+function verificationOwnsHooks(verification: any, hookIds: any) {
+  return (verification?.resources || []).some((resource: any) =>
     hookIds.has(resource.assetId) || resource.kind === 'hooks-file' || resource.projection?.renderer === 'gemini-hooks');
 }
 
 /** Gemini's hooks trust, observed through the adapter's own API. How trust is computed — the
  * fingerprint semantics, which context fields matter — lives in src/adapters/gemini (review A3:
  * this file used to import planGeminiHooks and re-derive the plan itself). */
-function geminiHookTrust(target) {
+function geminiHookTrust(target: any) {
   return geminiHookTrustFor(target);
 }
 
@@ -544,7 +546,7 @@ function geminiHookTrust(target) {
  *    trust computation via geminiHookTrust above.
  *  - 'active': installed with no unmet prerequisite (Claude and Kiro today, since neither declares
  *    any `capabilities.hooks.prerequisites` and Kiro hooks activate automatically per kiro.dev). */
-function hookWiringStatus(harness, target, verification) {
+function hookWiringStatus(harness: any, target: any, verification: any) {
   if (!target || target.skipped) return { status: 'absent', prerequisites: [] };
   if (!verificationOwnsHooks(verification, hookAssetIds(target))) return { status: 'absent', prerequisites: [] };
   if (harness.id === 'gemini') {
@@ -563,15 +565,15 @@ function hookWiringStatus(harness, target, verification) {
  * silently at runtime. Only harnesses whose selected changes actually include hooks trigger
  * this — a plan touching only guidance/skills assets never invokes the check. Removal is
  * exempt: deleting hook files does not require running them. */
-function assertBashAvailableForHooks(plan, mode, hasBashCapableShellFn) {
+function assertBashAvailableForHooks(plan: any, mode: any, hasBashCapableShellFn: any) {
   if (mode === 'remove') return;
-  const hookHarnesses = plan.targets.filter((target) => !target.skipped && targetNeedsHooks(target)).map((target) => target.harness);
+  const hookHarnesses = plan.targets.filter((target: any) => !target.skipped && targetNeedsHooks(target)).map((target: any) => target.harness);
   if (hookHarnesses.length === 0) return;
   if (hasBashCapableShellFn()) return;
   throw new Error(`No bash-capable shell detected (checked: bash --version). Install Git Bash for Windows, or run inside WSL, before installing hooks for ${hookHarnesses.join(', ')}.`);
 }
 
-function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.ledger, context = {}, mode = 'apply', acceptPrerequisites = false, writeLedgerFn = writeLedger, writeRecoveryRecordFn = writeRecoveryRecord, hasBashCapableShellFn = hasBashCapableShell }) {
+function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.ledger, context = {}, mode = 'apply', acceptPrerequisites = false, writeLedgerFn = writeLedger, writeRecoveryRecordFn = writeRecoveryRecord, hasBashCapableShellFn = hasBashCapableShell }: any) {
   assertPlanApplicable(plan, stateRoot, acceptPrerequisites);
   assertBashAvailableForHooks(plan, mode, hasBashCapableShellFn);
   const recovery = writeRecoveryRecordFn(stateRoot, { status: 'pending', changes: plan.changes });
@@ -583,14 +585,14 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
       // it, because every adapter's job with a removal change is to delete the thing. Filtered
       // here rather than in planLifecycle so the change still reaches updateLedger, which is what
       // actually drops this harness's ownership row.
-      const applicable = target.changes.filter((change) => !change.retained);
+      const applicable = target.changes.filter((change: any) => !change.retained);
       if (!applicable.length) continue;
       const harness = harnessFor(registry, target.harness);
       const adapter = resolveAdapter(adapters, harness);
       adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: applicable, ledger, recoveryRef: recovery.id });
       completedHarnesses.push(target.harness);
     }
-  } catch (error) {
+  } catch (error: any) {
     // A mid-loop throw (fs error, TOCTOU ownership mismatch) leaves some harnesses' native writes
     // already on disk. Recording exactly which ones completed — rather than leaving the record
     // stuck at 'pending' forever — is the difference between a diagnosable partial failure and a
@@ -606,7 +608,7 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   }
   try {
     applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan) });
-  } catch (error) {
+  } catch (error: any) {
     // Same reasoning as the harness-loop catch above: every native resource already applied and
     // verified successfully by this point, so leaving the record at 'pending' on a failure here
     // would hide that success and make a retry indistinguishable from a from-scratch install.
@@ -627,14 +629,14 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
  * selects. Verify only reads; this writes the ledger and nothing native. `dryRun` reports without
  * writing. Returns the ledger and the server ids recorded per harness.
  */
-function recordMcpOwnership({ plan, registry, adapters, stateRoot, ledger = plan.ledger, dryRun = false, writeLedgerFn = writeLedger }) {
+function recordMcpOwnership({ plan, registry, adapters, stateRoot, ledger = plan.ledger, dryRun = false, writeLedgerFn = writeLedger }: any) {
   const { verifications } = verifyLifecycle({ plan: { ...plan, registry }, adapters, context: { registry, operation: 'apply' } });
-  const held = new Set((ledger.resources || []).map((resource) => ownershipKey(resource)));
+  const held = new Set((ledger.resources || []).map((resource: any) => ownershipKey(resource)));
   const added = verifications.flatMap((verification) => (verification.resources || [])
-    .filter((resource) => resource.kind === 'mcp-server')
-    .map((resource) => ({ ...resource, harness: verification.harness, scope: plan.scope, recoveryRef: resource.recoveryRef ?? null })))
+    .filter((resource: any) => resource.kind === 'mcp-server')
+    .map((resource: any) => ({ ...resource, harness: verification.harness, scope: plan.scope, recoveryRef: resource.recoveryRef ?? null })))
     .filter((resource) => !held.has(ownershipKey(resource)));
-  const recorded = {};
+  const recorded: Record<string, any[]> = {};
   for (const resource of added) (recorded[resource.harness] ??= []).push(resource.identity);
   if (!added.length || dryRun) return { ledger, recorded };
   const next = upgradeLedger({ ...ledger, resources: [...(ledger.resources || []), ...added] });
@@ -642,7 +644,7 @@ function recordMcpOwnership({ plan, registry, adapters, stateRoot, ledger = plan
   return { ledger: next, recorded };
 }
 
-function removeLifecycle(options) {
+function removeLifecycle(options: any) {
   const plan = planLifecycle({ ...options, context: { ...(options.context || {}), operation: 'remove' } });
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }

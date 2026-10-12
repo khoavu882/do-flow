@@ -5,7 +5,7 @@
  * (feature 041, task D.3; IC-004).
  *
  * `doflow inventory` decides that two recorded resources are two copies of the same logical asset
- * when `(harness, ownershipIdentity)` agrees. `src/lifecycle/index.js:40` already refuses a change
+ * when `(harness, ownershipIdentity)` agrees. `src/lifecycle/index.ts:40` already refuses a change
  * carrying no ownership identity, so the field is mandatory. Two further properties are load-
  * bearing and neither was enforced anywhere before this guard:
  *

@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createAdapterRegistry } = require('../../src/adapters/index.ts');
-const { planLifecycle } = require('../../src/lifecycle');
+const { planLifecycle } = require('../../src/lifecycle/index.ts');
 const { printRegistryLifecycle } = require('../../src/lifecycle/view');
 const { createScratch } = require('../helper/scratch-env');
 

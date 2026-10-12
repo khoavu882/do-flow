@@ -12,7 +12,7 @@ const { loadRegistry, mcpCapable } = require('../../registry/index.ts');
 const { recordedMcpSelections } = require('../../install/mcp.ts');
 const { pinnedSelections } = require('../../state/lockfile.ts');
 const { readLedger } = require('../../state/index.ts');
-const { verifyLifecycle } = require('../../lifecycle');
+const { verifyLifecycle } = require('../../lifecycle/index.ts');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/view');
 const { REPO_ROOT, SCRIPT_DIR, installPaths, scopeOf, scopeSelectionState } = require('../shared.ts');
 

@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { mcpIndexPath } = require('../../src/lifecycle');
+const { mcpIndexPath } = require('../../src/lifecycle/index.ts');
 
 const SKILLS_PREFIX = 'core/shared/skills/';
 const CODE_FILES = [

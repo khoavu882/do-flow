@@ -324,7 +324,7 @@ test('verify reports managed for an untouched Gemini agents install and conflict
 });
 
 test('update over folder-layout rows removes the old agent folders; an Antigravity row on the same file keeps it', () => {
-  const { markRetainedRemovals } = require('../../../src/lifecycle');
+  const { markRetainedRemovals } = require('../../../src/lifecycle/index.ts');
   const root = scratch(); const adapter = createGeminiAdapter();
   const { input, asset } = geminiAgents('project', root);
   const oldAsset = { ...asset, nativeDir: 'agents', layout: 'dir-per-file:agent.md', transform: undefined };
@@ -420,7 +420,7 @@ test('a migration from the folder layout leaves no empty .agents/agents behind, 
 test('a relocation removal is carried through the lifecycle retained filter, so a file Antigravity claims stays', () => {
   const { loadRegistry } = require('../../../src/registry/index.ts');
   const { buildAdapterRegistry } = require('../../../src/cli/shared.ts');
-  const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle');
+  const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle/index.ts');
   const { defaultLedger } = require('../../../src/state/index.ts');
   const registry = loadRegistry({ repoRoot: REPO });
   const adapters = buildAdapterRegistry();
