@@ -7,7 +7,7 @@
  * by the service and printed here, never thrown, so it cannot reach failure capture (NFR-005).
  */
 
-const { finishRuntime, usageError } = require('../cli-result');
+const { finishRuntime, usageError } = require('../cli-result.ts');
 const { projectRoot } = require('./root');
 const followup = require('./followup');
 const { StoreUnsafeError, StoreLockedError } = require('./event-store');

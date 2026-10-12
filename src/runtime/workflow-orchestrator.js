@@ -794,7 +794,7 @@ function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
   verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, slug = null, buildAdapters = null,
 } = {}) {
-  const { finishRuntime, usageError } = require('./cli-result');
+  const { finishRuntime, usageError } = require('./cli-result.ts');
 
   const root = repoRoot || REPO_ROOT;
   // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):

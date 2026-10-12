@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { finishRuntime, usageError } = require('./cli-result');
+const { finishRuntime, usageError } = require('./cli-result.ts');
 
 /**
  * Reports DoFlow's own process vocabulary appearing in files that ship to people who never used

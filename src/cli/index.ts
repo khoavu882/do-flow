@@ -15,7 +15,7 @@ const {
 const { pkg } = require('./shared.ts');
 const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets.ts');
 const { dispatchRuntimeCommand } = require('./runtime-commands.ts');
-const { usageError } = require('../runtime/cli-result');
+const { usageError } = require('../runtime/cli-result.ts');
 
 const cmdInstall = require('./commands/install.ts');
 const cmdUpdate = require('./commands/update.ts');

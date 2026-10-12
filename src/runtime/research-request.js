@@ -9,7 +9,7 @@ const { ClaimsManager } = require('./claims');
 const { taskStoreDir } = require('./task-scope');
 const { FreshnessValidator } = require('./freshness');
 const { resolveLocator } = require('./locator-resolve');
-const { finishRuntime, usageError } = require('./cli-result');
+const { finishRuntime, usageError } = require('./cli-result.ts');
 
 const STATES = new Set(['OPEN', 'ANSWERED', 'UNRESOLVED']);
 const REASONS = new Set(['detected-gap', 'user-request']);

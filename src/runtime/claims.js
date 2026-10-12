@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
 const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
 const { taskStoreDir } = require('./task-scope');
-const { finishRuntime, usageError } = require('./cli-result');
+const { finishRuntime, usageError } = require('./cli-result.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 const CLAIM_STATUSES = new Set([

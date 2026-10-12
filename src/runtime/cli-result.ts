@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * CLI exit and error reporting for runtime verb handlers. These presentation helpers are being
  * factored out as verb handlers move from bin/doflow.js into engine modules. Homed here rather
@@ -14,7 +16,7 @@
  * @param {number} code
  * @returns {number} the code, for chaining
  */
-function finishRuntime(code) {
+function finishRuntime(code: number): number {
   process.exitCode = code;
   return code;
 }
@@ -27,7 +29,7 @@ function finishRuntime(code) {
  * @param {string} command the verb or installer command name
  * @param {number} exit the exit status the caller is about to produce
  */
-function captureCaught(error, command, exit) {
+function captureCaught(error: any, command: string, exit: number): void {
   try { require('./failure/capture.ts').captureError(error, { command, exit }); } catch { /* capture is best-effort */ }
 }
 
@@ -43,7 +45,7 @@ function captureCaught(error, command, exit) {
  * @param {Error} [error]
  * @returns {number} 2 (USAGE error exit code)
  */
-function usageError(verb, message, json, error) {
+function usageError(verb: string, message: string, json?: boolean, error?: Error): number {
   if (error !== undefined) captureCaught(error, verb, 2);
   if (json) console.log(JSON.stringify({ ok: false, status: 'USAGE', exitCode: 2, error: 'usage', summary: message }, null, 2));
   else console.error(`doflow ${verb}: ${message}`);

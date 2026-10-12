@@ -3,7 +3,7 @@
 const { EvidenceLedger } = require('./evidence-ledger');
 const { ClaimsManager } = require('./claims');
 const { ResearchRequestStore } = require('./research-request');
-const { finishRuntime, usageError } = require('./cli-result');
+const { finishRuntime, usageError } = require('./cli-result.ts');
 const { resolveActiveFeature } = require('./feature-resolve');
 const { readRegister } = require('./decision-register');
 

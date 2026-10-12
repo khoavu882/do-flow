@@ -58,7 +58,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
-const { finishRuntime } = require('../cli-result');
+const { finishRuntime } = require('../cli-result.ts');
 const { resolveActiveFeature } = require('../feature-resolve');
 const { parseRequirement, parseDesign, parsePlan } = require('./artifacts.ts');
 const {

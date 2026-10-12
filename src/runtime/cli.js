@@ -15,7 +15,7 @@ const { parseDeclaredScope } = require('./verification/scope-bound.ts');
 const { loadRegistry } = require('../registry/index.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 // One definition of the exit and usage helpers (design §4.2); `finish` is the local spelling of `finishRuntime`.
-const { finishRuntime: finish, usageError } = require('./cli-result');
+const { finishRuntime: finish, usageError } = require('./cli-result.ts');
 
 /**
  * Handles `doflow capabilities` command execution.

@@ -27,7 +27,7 @@ const { spawnSync } = require('node:child_process');
 const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect');
 const { selectChangedTests } = require('./test-selection.ts');
 const { RecoveryManager } = require('../recovery');
-const { finishRuntime, usageError } = require('../cli-result');
+const { finishRuntime, usageError } = require('../cli-result.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const {
   resolveScopeBound, resolveIntegrationBase, resolveExplicitBaseline, parseDeclaredScope, scopeReasonText, boundSourcesText,

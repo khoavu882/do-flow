@@ -343,7 +343,7 @@ function checkCompletion({ slug, cwd, fsImpl = fs }) {
 // ── CLI ────────────────────────────────────────────────────────────────────────────────────────
 
 function failure(code, message, json) {
-  const { finishRuntime } = require('./cli-result');
+  const { finishRuntime } = require('./cli-result.ts');
   if (json) console.log(JSON.stringify({ ok: false, error: code, message }, null, 2));
   else console.error(`doflow task-attempt: ${message}`);
   return finishRuntime(2);
@@ -368,7 +368,7 @@ function handleTaskAttemptCommand({
   action = 'status', slug = null, task, owner, mode, token, result, evidenceId, reason, json = false,
   cwd = process.cwd(), resolveSlug = null, fsImpl = fs, now = new Date(),
 } = {}) {
-  const { finishRuntime } = require('./cli-result');
+  const { finishRuntime } = require('./cli-result.ts');
   try {
     if (!ACTIONS.includes(action)) throw new TaskAttemptError('usage', `unknown action '${action}'; valid: ${ACTIONS.join(' | ')}`);
     const feature = slug || (resolveSlug ? resolveSlug(cwd) : null);

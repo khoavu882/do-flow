@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { finishRuntime, usageError } = require('../cli-result');
+const { finishRuntime, usageError } = require('../cli-result.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadAdviceRegistry } = require('./registry');
 const { loadStorageRegistry } = require('../storage/registry');

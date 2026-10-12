@@ -65,7 +65,7 @@ const { deriveAssetIdentity } = require('./identity.ts');
 const { resolveShadowVerdict } = require('./precedence.ts');
 const { inspectSiblings } = require('./siblings.ts');
 const { repairCoverage, readScopeLocks } = require('./coverage.ts');
-const { finishRuntime, usageError } = require('../cli-result');
+const { finishRuntime, usageError } = require('../cli-result.ts');
 
 /** The three currency values of IC-002, and never a fourth. The third is not a weaker second: a
  * copy nothing in this scope's plan spoke about has not "diverged", it cannot be judged at all.

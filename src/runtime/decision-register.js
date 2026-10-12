@@ -18,7 +18,7 @@ const path = require('node:path');
 const { acquireLock } = require('./task-state');
 const { resolveActiveFeature } = require('./feature-resolve');
 const { compactHistory } = require('./history-compactor');
-const { finishRuntime, usageError } = require('./cli-result');
+const { finishRuntime, usageError } = require('./cli-result.ts');
 
 const REGISTER_VERSION = 1;
 const TOPIC_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
