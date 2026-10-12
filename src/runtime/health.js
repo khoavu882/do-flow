@@ -764,7 +764,7 @@ const FRESHNESS_MARK = Object.freeze({
  */
 async function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest } = {}) {
   const report = buildHealthReport({ repoRoot, projectRoot, ...rest });
-  const { buildAdviceDoctor, printAdviceDoctor } = require('./advice/doctor');
+  const { buildAdviceDoctor, printAdviceDoctor } = require('./advice/doctor.ts');
   const adviceSections = await buildAdviceDoctor({ repoRoot, projectRoot, fsImpl: rest.fsImpl });
   report.decisionModel = adviceSections.decisionModel;
   report.advice = adviceSections.advice;
