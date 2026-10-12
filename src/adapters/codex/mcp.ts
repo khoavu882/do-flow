@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Codex MCP reconciliation.  Unlike Claude's JSON registry, Codex discovers MCP servers from
 // config.toml.  This adapter manages only table names that it created and recorded in the
 // manifest ledger; every other MCP table remains user-owned and byte-for-byte untouched.
@@ -20,15 +22,15 @@ const MCP_KIND = 'mcp-server';
 const MCP_PREFIX = 'mcp_servers.';
 
 /** @param {object} registry a loaded registry (src/registry#loadRegistry) */
-function readCodexMcpCatalog(registry) {
+function readCodexMcpCatalog(registry: any) {
   return nativeMcpCatalog(selectMcpServers(registry));
 }
 
-function isSafeServerName(name) {
+function isSafeServerName(name: any) {
   return /^[A-Za-z0-9_-]+$/.test(name);
 }
 
-function tomlValue(value) {
+function tomlValue(value: any): string {
   if (typeof value === 'string') return JSON.stringify(value);
   if (typeof value === 'boolean' || typeof value === 'number') return String(value);
   if (Array.isArray(value)) return `[${value.map(tomlValue).join(', ')}]`;
@@ -38,7 +40,7 @@ function tomlValue(value) {
   throw new Error('Codex MCP definitions may only contain TOML-compatible values');
 }
 
-function renderServer(name, definition) {
+function renderServer(name: any, definition: any) {
   if (!isSafeServerName(name)) throw new Error(`Unsupported Codex MCP server name '${name}'`);
   if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
     throw new Error(`Codex MCP server '${name}' requires an object definition`);
@@ -54,7 +56,7 @@ function renderServer(name, definition) {
   return `${lines.join('\n')}\n`;
 }
 
-function resourceFor({ name, scope, definition, sourceVersion, recoveryPoint }) {
+function resourceFor({ name, scope, definition, sourceVersion, recoveryPoint }: any) {
   return {
     target: 'codex', scope, kind: MCP_KIND, identity: name,
     sourceVersion, selection: true, recoveryPoint,
@@ -62,12 +64,12 @@ function resourceFor({ name, scope, definition, sourceVersion, recoveryPoint }) 
   };
 }
 
-function isOwnedRecord(resource, scope) {
+function isOwnedRecord(resource: any, scope: any) {
   return resource && resource.target === 'codex' && resource.scope === scope &&
     resource.kind === MCP_KIND && typeof resource.identity === 'string';
 }
 
-function tableRanges(text) {
+function tableRanges(text: any) {
   const lines = text.split(/\r?\n/);
   const tables = [];
   for (let index = 0; index < lines.length; index++) {
@@ -94,25 +96,25 @@ function tableRanges(text) {
   return { lines, tables };
 }
 
-function fullServerRange(tables, name) {
-  return tables.find((table) => table.name === name) ?? null;
+function fullServerRange(tables: any, name: any) {
+  return tables.find((table: any) => table.name === name) ?? null;
 }
 
 /** One table's text as its fingerprint is taken. */
-function tableText(lines, range) {
+function tableText(lines: any, range: any) {
   return `${lines.slice(range.start, range.end).join('\n').replace(/\n*$/, '\n')}`;
 }
 
 /** Whether config.toml defines server `name` in any form: a bare `[mcp_servers.<name>]` header, a
  * quoted header, a sub-table, or dotted keys and inline tables under `mcp_servers`. */
-function definedInFile(name, { tables, parsed }) {
-  const own = (key) => key === `${MCP_PREFIX}${name}` || key.startsWith(`${MCP_PREFIX}${name}.`);
-  return tables.some((table) => table.name === name) || parsed.headers.some((header) => own(header.table))
+function definedInFile(name: any, { tables, parsed }: any) {
+  const own = (key: any) => key === `${MCP_PREFIX}${name}` || key.startsWith(`${MCP_PREFIX}${name}.`);
+  return tables.some((table: any) => table.name === name) || parsed.headers.some((header: any) => own(header.table))
     || [...parsed.entries.keys()].some(own);
 }
 
 /** The text of server `name`'s bare table, as its fingerprint is taken, or null when it has none. */
-function serverTableText(text, name) {
+function serverTableText(text: any, name: any) {
   const { lines, tables } = tableRanges(text);
   const range = fullServerRange(tables, name);
   return range ? tableText(lines, range) : null;
@@ -120,35 +122,35 @@ function serverTableText(text, name) {
 
 /** The names among `names` that config.toml defines with no owned record: the user's own servers,
  * which DoFlow never writes, removes or records. A file that cannot be read or parsed yields none. */
-function userDefinedCodexMcpIds({ file, scope, names = [], managedResources = [], fsImpl = fs }) {
+function userDefinedCodexMcpIds({ file, scope, names = [], managedResources = [], fsImpl = fs }: any) {
   let text; let parsed;
   try {
     text = fsImpl.existsSync(file) ? fsImpl.readFileSync(file, 'utf8') : '';
     parsed = parseToml(text);
   } catch { return []; }
   const { tables } = tableRanges(text);
-  const owned = new Set(managedResources.filter((resource) => isOwnedRecord(resource, scope)).map((resource) => resource.identity));
+  const owned = new Set(managedResources.filter((resource: any) => isOwnedRecord(resource, scope)).map((resource: any) => resource.identity));
   return [...new Set(names)].filter((name) => !owned.has(name) && definedInFile(name, { tables, parsed }));
 }
 
 /** The tables DoFlow owns in config.toml now: owned records whose table is present with the
  * fingerprint the record holds. A file that cannot be read or parsed yields none. */
-function ownedCodexMcpIds({ file, scope, managedResources = [], fsImpl = fs }) {
+function ownedCodexMcpIds({ file, scope, managedResources = [], fsImpl = fs }: any) {
   let text;
   try {
     text = fsImpl.existsSync(file) ? fsImpl.readFileSync(file, 'utf8') : '';
     parseToml(text);
   } catch { return []; }
   const { lines, tables } = tableRanges(text);
-  return managedResources.filter((resource) => isOwnedRecord(resource, scope)).filter((resource) => {
+  return managedResources.filter((resource: any) => isOwnedRecord(resource, scope)).filter((resource: any) => {
     const range = fullServerRange(tables, resource.identity);
     return range !== null && fingerprint(tableText(lines, range)) === resource.fingerprint;
-  }).map((resource) => resource.identity);
+  }).map((resource: any) => resource.identity);
 }
 
 /** How to stop managing a server whose table the user changed: the same run without it selected. */
-function modifiedConflict(name, desired, scopeArg) {
-  const rest = desired.filter((item) => item !== name);
+function modifiedConflict(name: any, desired: any, scopeArg: any) {
+  const rest = desired.filter((item: any) => item !== name);
   // Quoted for a POSIX shell when it holds anything a shell would split or expand, so the command
   // works as copied for a project root with a space in it.
   const arg = /^[A-Za-z0-9_@%+=:,./-]+$/.test(scopeArg) ? scopeArg : `'${scopeArg.replace(/'/g, "'\\''")}'`;
@@ -163,27 +165,27 @@ function modifiedConflict(name, desired, scopeArg) {
  * @param {string} [options.scopeArg='-g'] the scope as the user types it (`-g` or the project root),
  *   for the command a conflict names.
  */
-function planCodexMcp({ file, scope, managedResources = [], selected = [], allServers, serverDefs, sourceVersion, recoveryPoint, removing = false, scopeArg = '-g' }) {
+function planCodexMcp({ file, scope, managedResources = [], selected = [], allServers, serverDefs, sourceVersion, recoveryPoint, removing = false, scopeArg = '-g' }: any) {
   const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
   let parsed;
-  try { parsed = parseToml(original); } catch (error) {
+  try { parsed = parseToml(original); } catch (error: any) {
     return { ok: false, status: 'malformed', file, original, changes: [], conflicts: [error.message], managedResources };
   }
   if (!Array.isArray(allServers) || !serverDefs || typeof serverDefs !== 'object') {
     return { ok: false, status: 'invalid-request', file, original, changes: [], conflicts: ['Codex MCP catalog is required'], managedResources };
   }
-  const unknown = selected.filter((name) => !allServers.includes(name));
+  const unknown = selected.filter((name: any) => !allServers.includes(name));
   if (unknown.length) return { ok: false, status: 'invalid-request', file, original, changes: [], conflicts: [`Unknown MCP server(s): ${unknown.join(', ')}`], managedResources };
-  const desired = [...new Set(selected)];
-  try { for (const name of desired) renderServer(name, serverDefs[name]); } catch (error) {
+  const desired: any[] = [...new Set<any>(selected)];
+  try { for (const name of desired) renderServer(name, serverDefs[name]); } catch (error: any) {
     return { ok: false, status: 'invalid-request', file, original, changes: [], conflicts: [error.message], managedResources };
   }
 
   const { lines, tables } = tableRanges(original);
-  const owned = new Map(managedResources.filter((resource) => isOwnedRecord(resource, scope)).map((resource) => [resource.identity, resource]));
-  const changes = [];
-  const conflicts = [];
-  const notices = [];
+  const owned = new Map<string, any>(managedResources.filter((resource: any) => isOwnedRecord(resource, scope)).map((resource: any) => [resource.identity, resource]));
+  const changes: any[] = [];
+  const conflicts: string[] = [];
+  const notices: string[] = [];
   const userDefined = allServers.filter((name) => !owned.has(name) && definedInFile(name, { tables, parsed }));
   const names = new Set([...desired, ...owned.keys()]);
   for (const name of names) {
@@ -233,24 +235,24 @@ function planCodexMcp({ file, scope, managedResources = [], selected = [], allSe
   const invalid = newViolation({ file, original, content, identities: changes.map((change) => change.identity) });
   if (invalid) return { ok: false, status: 'conflict', file, original, changes: [], conflicts: [invalid], managedResources };
 
-  const nextManagedResources = managedResources.filter((resource) => !isOwnedRecord(resource, scope) || desired.includes(resource.identity));
+  const nextManagedResources = managedResources.filter((resource: any) => !isOwnedRecord(resource, scope) || desired.includes(resource.identity));
   for (const name of desired) {
     if (userDefined.includes(name)) continue;
     const next = resourceFor({ name, scope, definition: serverDefs[name], sourceVersion, recoveryPoint });
-    const index = nextManagedResources.findIndex((resource) => isOwnedRecord(resource, scope) && resource.identity === name);
+    const index = nextManagedResources.findIndex((resource: any) => isOwnedRecord(resource, scope) && resource.identity === name);
     if (index >= 0) nextManagedResources[index] = next;
     else nextManagedResources.push(next);
   }
   return { ok: true, status: changes.length ? 'change' : 'unchanged', file, original, content, changes, conflicts: [], notices, userDefined, managedResources: nextManagedResources };
 }
 
-function applyCodexMcp(plan, { dryRun = false, fsImpl = fs } = {}) {
+function applyCodexMcp(plan: any, { dryRun = false, fsImpl = fs } = {}) {
   if (!plan.ok || dryRun || plan.status === 'unchanged') return { ...plan, applied: false };
   atomicWrite(plan.file, plan.content, fsImpl);
   return { ...plan, applied: true };
 }
 
-function reconcileCodexMcp(options) {
+function reconcileCodexMcp(options: any) {
   const file = options.file ?? configPath(options);
   return applyCodexMcp(planCodexMcp({ ...options, file }), options);
 }
