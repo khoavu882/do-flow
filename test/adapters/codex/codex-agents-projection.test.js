@@ -7,7 +7,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const {
   agentDirectory, destinationFor, discoverCodexAgents, planCodexAgents, reconcileCodexAgents,
-} = require('../../../src/adapters/codex/agents');
+} = require('../../../src/adapters/codex/agents.ts');
 
 function scratch() { return suiteTempDir('doflow-codex-agents-'); }
 function agent(name = 'backend-architect', sandbox = 'sandbox_mode = "read-only"') {
