@@ -26,7 +26,7 @@ const { acquireLock, tryAcquireLock } = require('../task-state.ts');
 const {
   EVENTS_REL, LIFECYCLE_REL, JOURNAL_REL, lockTarget, isEventName, randomChars, readEvents, readJournal, StoreUnsafeError,
 } = require('./event-store');
-const { retentionWindow, selectExpired } = require('./retention');
+const { retentionWindow, selectExpired } = require('./retention.ts');
 
 const LEGACY_LIFECYCLE_REL = path.join('agent-docs', 'lifecycle');
 const LEGACY_EVENTS_REL = path.join(LEGACY_LIFECYCLE_REL, 'events');

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Which event files the retention switch may delete. `DOFLOW_RETENTION_HOURS` overrides the window;
  * when it is unset, the declared default applies only while the project's `prune` setting is on.
@@ -23,7 +25,7 @@ const { foldInto, finalize } = require('./fold.ts');
 const HOUR_MS = 3600000;
 
 /** @returns {{state: 'off'} | {state: 'on', hours: number, ms: number} | {state: 'invalid', raw: string}} */
-function parseWindow(env = process.env) {
+function parseWindow(env: Record<string, string | undefined> = process.env): { state: 'off' } | { state: 'on'; hours: number; ms: number } | { state: 'invalid'; raw: string } {
   const raw = env.DOFLOW_RETENTION_HOURS;
   if (raw === undefined || raw === '') return { state: 'off' };
   if (/^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw))) {
@@ -34,11 +36,11 @@ function parseWindow(env = process.env) {
 }
 
 /** Composes IC-013's explicit environment override with the declared lifecycle default. */
-function retentionWindow({ env = process.env, projectRoot, registry, fsImpl = nodeFs } = {}) {
+function retentionWindow({ env = process.env, projectRoot, registry, fsImpl = nodeFs }: any = {}): any {
   const parsed = parseWindow(env);
   if (parsed.state === 'invalid') return parsed;
   if (parsed.state === 'on') return { ...parsed, source: 'env' };
-  let activeRegistry;
+  let activeRegistry: any;
   try {
     activeRegistry = registry || loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
   } catch {
@@ -46,23 +48,23 @@ function retentionWindow({ env = process.env, projectRoot, registry, fsImpl = no
   }
   const roots = resolveRoots({ registry: activeRegistry, projectRoot, env });
   if (readPruneSetting({ registry: activeRegistry, roots, rootId: 'project-state', fsImpl }).setting !== 'on') return { state: 'off' };
-  const lifecycleStore = activeRegistry.stores.find((store) => store.id === 'lifecycle-events');
+  const lifecycleStore = activeRegistry.stores.find((store: any) => store.id === 'lifecycle-events');
   if (!lifecycleStore) throw new Error('Storage registry has no lifecycle-events store');
   const hours = lifecycleStore.bound.defaultHours;
   return { state: 'on', hours, ms: hours * HOUR_MS, source: 'default' };
 }
 
-function isText(value) { return typeof value === 'string' && value.trim() !== ''; }
+function isText(value: any): boolean { return typeof value === 'string' && value.trim() !== ''; }
 
 /** The item keys an event names, or none when it is not about a follow-up or a goal. */
-function itemsOf(event) {
+function itemsOf(event: any): string[] {
   const d = event.data;
-  const ids = (list) => (Array.isArray(list) && list.length > 0 && list.every(isText) ? list : []);
+  const ids = (list: any): string[] => (Array.isArray(list) && list.length > 0 && list.every(isText) ? list : []);
   switch (event.type) {
     case 'followup.added': return isText(d.id) ? [`followup:${d.id}`] : [];
     case 'followup.taken':
-    case 'followup.promoted': return ids(d.ids).map((id) => `followup:${id}`);
-    case 'followup.settled': return (isText(d.id) ? [d.id] : ids(d.ids)).map((id) => `followup:${id}`);
+    case 'followup.promoted': return ids(d.ids).map((id: string) => `followup:${id}`);
+    case 'followup.settled': return (isText(d.id) ? [d.id] : ids(d.ids)).map((id: string) => `followup:${id}`);
     case 'goal.added':
     case 'goal.item-added':
     case 'goal.checked':
@@ -73,17 +75,17 @@ function itemsOf(event) {
 }
 
 /** Groups the items into units: items named together by one event share a unit. */
-function unitsOf(events, shouldStop) {
-  const parent = new Map();
-  const find = (key) => {
+function unitsOf(events: any[], shouldStop?: () => boolean): any[] | null {
+  const parent = new Map<string, string>();
+  const find = (key: string): string | null => {
     while (parent.get(key) !== key) {
       if (shouldStop?.()) return null;
-      parent.set(key, parent.get(parent.get(key)));
-      key = parent.get(key);
+      parent.set(key, parent.get(parent.get(key) as string) as string);
+      key = parent.get(key) as string;
     }
     return key;
   };
-  const named = [];
+  const named: Array<{ event: any; items: string[] }> = [];
   for (const event of events) {
     if (shouldStop?.()) return null;
     named.push({ event, items: [...new Set(itemsOf(event))] });
@@ -97,7 +99,7 @@ function unitsOf(events, shouldStop) {
       parent.set(root, head);
     }
   }
-  const units = new Map();
+  const units = new Map<string, any>();
   for (const { event, items } of named) {
     if (shouldStop?.()) return null;
     if (items.length === 0) continue;
@@ -111,7 +113,7 @@ function unitsOf(events, shouldStop) {
   return [...units.values()];
 }
 
-function isSettled(state, key) {
+function isSettled(state: any, key: string): boolean {
   const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
   if (kind === 'followup') {
     const item = state.items.get(id);
@@ -122,15 +124,15 @@ function isSettled(state, key) {
 }
 
 /** The parts of a fold that removing a unit must leave unchanged. */
-function comparable(result) {
+function comparable(result: any): any {
   const { followups, features, merged, goals, releases, conflicts } = result;
   return { followups, features, merged, goals, releases, conflicts };
 }
 
 /** Whether dropping `removed` units changes nothing but the removed items themselves. */
-function refoldEqual(events, full, removed, now, shouldStop) {
+function refoldEqual(events: any[], full: any, removed: any[], now: Date, shouldStop?: () => boolean): boolean | null {
   if (shouldStop?.()) return null;
-  const gone = new Set(), keys = new Set();
+  const gone = new Set<string>(), keys = new Set<string>();
   for (const unit of removed) {
     if (shouldStop?.()) return null;
     for (const event of unit.events) gone.add(event.id);
@@ -138,11 +140,11 @@ function refoldEqual(events, full, removed, now, shouldStop) {
   }
   const expected = {
     ...full,
-    followups: full.followups.filter((f) => !keys.has(`followup:${f.id}`)),
-    goals: full.goals.filter((g) => !keys.has(`goal:${g.goal}`)),
-    conflicts: full.conflicts.filter((c) => !gone.has(c.event)),
+    followups: full.followups.filter((f: any) => !keys.has(`followup:${f.id}`)),
+    goals: full.goals.filter((g: any) => !keys.has(`goal:${g.goal}`)),
+    conflicts: full.conflicts.filter((c: any) => !gone.has(c.event)),
   };
-  const remaining = [];
+  const remaining: any[] = [];
   for (const event of events) {
     if (shouldStop?.()) return null;
     if (!gone.has(event.id)) remaining.push(event);
@@ -158,23 +160,23 @@ function refoldEqual(events, full, removed, now, shouldStop) {
  * @returns {{files: string[], units: Array<{items: string[], newestAt: string, files: string[]}>, incomplete?: true}}
  *   files: `<id>.json` names, sorted
  */
-function selectExpired(events, { now, windowMs, shouldStop } = {}) {
-  const incomplete = () => ({ files: [], units: [], incomplete: true });
+function selectExpired(events: any[], { now, windowMs, shouldStop }: any = {}): any {
+  const incomplete = (): any => ({ files: [], units: [], incomplete: true });
   if (shouldStop?.()) return incomplete();
   const state = foldInto(events, { now, shouldStop });
   if (state.incomplete || shouldStop?.()) return incomplete();
   const cutoff = now.getTime() - windowMs;
-  const served = new Set();
+  const served = new Set<string>();
   for (const feature of state.tracked.values()) {
     if (shouldStop?.()) return incomplete();
     if (feature.goal) served.add(feature.goal);
   }
   const named = unitsOf(events, shouldStop);
   if (!named || shouldStop?.()) return incomplete();
-  const candidates = [];
+  const candidates: any[] = [];
   for (const unit of named) {
     if (shouldStop?.()) return incomplete();
-    const newest = unit.events.reduce((max, event) => (Date.parse(event.at) > Date.parse(max) ? event.at : max), unit.events[0].at);
+    const newest = unit.events.reduce((max: string, event: any) => (Date.parse(event.at) > Date.parse(max) ? event.at : max), unit.events[0].at);
     if (shouldStop?.()) return incomplete();
     let eligible = Date.parse(newest) < cutoff;
     if (eligible) for (const key of unit.items) {
@@ -189,7 +191,7 @@ function selectExpired(events, { now, windowMs, shouldStop } = {}) {
   if (allSafe === null || shouldStop?.()) return incomplete();
   if (!allSafe) {
     selected = [];
-    const ordered = [...candidates].sort((a, b) => Date.parse(a.newestAt) - Date.parse(b.newestAt));
+    const ordered = [...candidates].sort((a: any, b: any) => Date.parse(a.newestAt) - Date.parse(b.newestAt));
     if (shouldStop?.()) return incomplete();
     for (const unit of ordered) {
       if (shouldStop?.()) return incomplete();
@@ -198,13 +200,13 @@ function selectExpired(events, { now, windowMs, shouldStop } = {}) {
       if (safe) selected.push(unit);
     }
   }
-  const units = [];
+  const units: any[] = [];
   for (const unit of selected) {
     if (shouldStop?.()) return incomplete();
-    units.push({ items: [...unit.items].sort(), newestAt: unit.newestAt, files: unit.events.map((event) => `${event.id}.json`).sort() });
+    units.push({ items: [...unit.items].sort(), newestAt: unit.newestAt, files: unit.events.map((event: any) => `${event.id}.json`).sort() });
   }
   if (shouldStop?.()) return incomplete();
-  return { files: units.flatMap((unit) => unit.files).sort(), units };
+  return { files: units.flatMap((unit: any) => unit.files).sort(), units };
 }
 
 module.exports = { parseWindow, retentionWindow, selectExpired };
