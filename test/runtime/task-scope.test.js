@@ -15,7 +15,7 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
-const { resolveTaskScope, clearTaskScopeCache, setDefaultSlug } = require('../../src/runtime/task-scope');
+const { resolveTaskScope, clearTaskScopeCache, setDefaultSlug } = require('../../src/runtime/task-scope.ts');
 
 // The `--slug` default and the per-root cache are process-wide; every test leaves them as it found them.
 test.afterEach(() => { setDefaultSlug(null); clearTaskScopeCache(); });

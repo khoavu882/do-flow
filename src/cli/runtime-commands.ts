@@ -58,7 +58,7 @@ const { handleStorageCommand } = require('../runtime/storage/cli');
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
-const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');
+const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
 const { listCheckouts } = require('../runtime/checkouts');
 const { featureSlugFor } = require('../runtime/implementation-gate');
 const { handleBriefToolsCommand } = require('../runtime/brief-tools');

@@ -33,7 +33,7 @@
 
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
+const { isSafeSlug, invalidSlugRefusal } = require('../task-scope.ts');
 const { appendEvents, readFold } = require('./event-store');
 const { deriveStatuses, readGitFacts, behindNote, subjectNames, readMerges, readBranchTips, readHistory } = require('./status.ts');
 const { FollowupUsageError, oneLine, channelBy } = require('./followup');

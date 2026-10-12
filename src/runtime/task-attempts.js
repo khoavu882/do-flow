@@ -24,7 +24,7 @@ const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
 const { EvidenceLedger } = require('./evidence-ledger');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
-const { isSafeSlug } = require('./task-scope');
+const { isSafeSlug } = require('./task-scope.ts');
 
 const SCHEMA_VERSION = 1;
 const MODES = Object.freeze(['manual', 'sequential', 'subagent']);

@@ -40,7 +40,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { CapabilityRouter } = require('./capability-router');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
-const { taskStoreDir } = require('./task-scope');
+const { taskStoreDir } = require('./task-scope.ts');
 const { probeFreshness } = require('./health');
 // One definition of the score refusal, applied at a second boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in cli.js: relevance is a property of a search, not of a fact, and a plan

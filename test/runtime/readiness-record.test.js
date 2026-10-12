@@ -15,7 +15,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { writeReadinessRecord, readReadinessRecord } = require('../../src/runtime/readiness-record');
 const { checkReadiness } = require('../../src/runtime/implementation-gate');
 const { clearCheckoutCache } = require('../../src/runtime/checkouts');
-const { clearTaskScopeCache } = require('../../src/runtime/task-scope');
+const { clearTaskScopeCache } = require('../../src/runtime/task-scope.ts');
 
 const SLUG = '900-demo';
 const NOW = new Date('2026-10-08T12:00:00.000Z');

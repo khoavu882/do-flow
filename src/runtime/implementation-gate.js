@@ -6,7 +6,7 @@ const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readi
 const { listCheckouts } = require('./checkouts');
 const { readTaskState } = require('./task-state.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
-const { isSafeSlug } = require('./task-scope');
+const { isSafeSlug } = require('./task-scope.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // The implementation gate: which stage of a workflow needs a READY readiness record before it is

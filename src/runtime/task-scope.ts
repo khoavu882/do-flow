@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
@@ -17,7 +19,7 @@ const SAFE_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SLUG_RULE = 'use letters, digits, dot, underscore or dash, start with a letter or digit, and no ".."';
 
 /** The one shape check for a feature slug (IC-009); do-paths.sh applies the same rule in bash. */
-function isSafeSlug(slug) {
+function isSafeSlug(slug: any): boolean {
   return typeof slug === 'string' && SAFE_SLUG.test(slug) && !slug.includes('..');
 }
 
@@ -27,31 +29,31 @@ function isSafeSlug(slug) {
  * @param {*} slug
  * @returns {{error: 'invalid-slug', message: string, hint: string}|null}
  */
-function invalidSlugRefusal(slug) {
+function invalidSlugRefusal(slug: any): { error: 'invalid-slug'; message: string; hint: string } | null {
   if (typeof slug !== 'string' || slug === '' || isSafeSlug(slug)) return null;
   return { error: 'invalid-slug', message: `slug "${slug}" is not a valid feature slug: ${SLUG_RULE}`, hint: SLUG_RULE };
 }
 
 /** (projectRoot, slug) -> { slug, hasRegister } | { reason }. One resolver spawn per key per process. */
-const featureCache = new Map();
+const featureCache = new Map<string, any>();
 
 /** A slug the CLI named explicitly (`--slug`), applied to every store call in this process that was
  * not given its own. The dispatcher sets it once so the verbs whose handlers build their ledger
  * internally (readiness, evidence) route the same way as the ones that take `slug` directly. */
-let defaultSlug = null;
+let defaultSlug: string | null = null;
 
-function setDefaultSlug(slug) {
+function setDefaultSlug(slug: any): void {
   defaultSlug = typeof slug === 'string' && slug !== '' ? slug : null;
 }
 
-function clearTaskScopeCache() {
+function clearTaskScopeCache(): void {
   featureCache.clear();
 }
 
 /** The resolver reports the git top level, which is the project root or one of its ancestors, and
  * the feature folders live directly under it — so no `agent-docs/doflow` on the way up means there
  * is nothing to resolve and the spawn is skipped. */
-function hasFeatureFolderAbove(projectRoot) {
+function hasFeatureFolderAbove(projectRoot: string): boolean {
   let dir = path.resolve(projectRoot);
   for (;;) {
     try {
@@ -63,10 +65,10 @@ function hasFeatureFolderAbove(projectRoot) {
   }
 }
 
-function featureFor(projectRoot, slug) {
+function featureFor(projectRoot: string, slug: string | null | undefined): any {
   const key = `${path.resolve(projectRoot)}\0${slug || ''}`;
   if (featureCache.has(key)) return featureCache.get(key);
-  let value = { reason: 'no-feature' };
+  let value: any = { reason: 'no-feature' };
   try {
     if (hasFeatureFolderAbove(projectRoot)) {
       const found = resolveActiveFeature({ projectRoot, slug: slug || null });
@@ -88,7 +90,7 @@ function featureFor(projectRoot, slug) {
  *   `reason` is `namespaced` when a namespace applies, else `no-feature`, `no-register` or
  *   `feature-level-id`.
  */
-function resolveTaskScope({ projectRoot, taskId, slug = null }) {
+function resolveTaskScope({ projectRoot, taskId, slug = null }: { projectRoot: string; taskId: string; slug?: string | null }): { namespace: string | null; slug: string | null; reason: string } {
   const feature = featureFor(projectRoot, slug || defaultSlug);
   if (feature.reason) return { namespace: null, slug: null, reason: feature.reason };
   if (!feature.hasRegister) return { namespace: null, slug: feature.slug, reason: 'no-register' };
@@ -105,7 +107,7 @@ function resolveTaskScope({ projectRoot, taskId, slug = null }) {
  * @param {string} options.slug
  * @returns {boolean}
  */
-function slugNamesNoFeature({ projectRoot, slug }) {
+function slugNamesNoFeature({ projectRoot, slug }: { projectRoot: string; slug: string }): boolean {
   const feature = featureFor(projectRoot, slug);
   return Boolean(feature.reason) || feature.exists === false;
 }
@@ -119,7 +121,7 @@ function slugNamesNoFeature({ projectRoot, slug }) {
  * @param {string|null} [options.slug]
  * @returns {string}
  */
-function taskStoreDir({ projectRoot, store, taskId, slug = null }) {
+function taskStoreDir({ projectRoot, store, taskId, slug = null }: { projectRoot: string; store: string; taskId: string; slug?: string | null }): string {
   const base = path.join(projectRoot, '.doflow', 'state', store);
   const { namespace } = resolveTaskScope({ projectRoot, taskId, slug });
   return namespace ? path.join(base, namespace) : base;
