@@ -217,6 +217,30 @@ test('negative control: an orphan whose real path leaves the tree through a syml
   assert.equal(fs.readFileSync(path.join(outside, 'old.js'), 'utf8'), 'v1\n', 'the file outside the tree is untouched');
 });
 
+/** Whether `dir` sits on a case-insensitive filesystem (APFS and NTFS by default). */
+function caseInsensitive(dir) {
+  const probe = path.join(dir, `.case-probe-${process.pid}`);
+  fs.writeFileSync(probe, '');
+  try { return fs.existsSync(path.join(dir, `.CASE-PROBE-${process.pid}`)); }
+  finally { fs.rmSync(probe, { force: true }); }
+}
+
+test('negative control: an orphan row of a harness outside the run that names a produced file under another case is kept (B3)', (t) => {
+  const p = project(t, { 'x/Bar.js': 'same\n' });
+  if (!caseInsensitive(p.dest)) { t.skip('needs a case-insensitive filesystem'); return; }
+  // Only beta records the old spelling, so no planned removal of alpha's exists and planTree's own
+  // same-file guard never sees it: the prune's guard alone keeps the produced file.
+  p.ledger = { ...p.ledger, resources: p.ledger.resources.filter((row) => row.harness !== 'alpha') };
+  p.ship({ 'x/bar.js': 'same\n' });
+
+  const planned = p.plan(['alpha']);
+  const old = path.join(p.dest, 'x', 'Bar.js');
+  assert.deepEqual(changesAt(planned, old).filter((change) => change.operation === 'remove' && !change.retained), [],
+    'nothing removes the old spelling: on this filesystem it is the file the source produces');
+  p.apply(planned);
+  assert.equal(fs.readFileSync(path.join(p.dest, 'x', 'bar.js'), 'utf8'), 'same\n', 'the produced file survives the update');
+});
+
 test('a row whose file is already gone is released when the source no longer ships it, and kept while it still does', (t) => {
   const p = project(t, { 'gone.js': 'v1\n', 'shipped.js': 'still\n' });
   fs.rmSync(path.join(p.dest, 'gone.js'));
