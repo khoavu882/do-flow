@@ -776,7 +776,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -794,7 +794,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -812,7 +812,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -830,7 +830,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -848,7 +848,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -866,7 +866,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -884,7 +884,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -902,7 +902,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -920,7 +920,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {

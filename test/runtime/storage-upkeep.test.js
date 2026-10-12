@@ -15,7 +15,7 @@ const RUN = path.join(REPO, 'core/shared/scripts/doflow/bin/doflow-run');
 const NOW = Date.parse('2026-10-10T12:00:00Z');
 const DAY = 86400000;
 const IGNORE = `${registry.settings.ignoreFile.lines.join('\n')}\n`;
-const upkeep = () => require('../../src/runtime/storage/upkeep');
+const upkeep = () => require('../../src/runtime/storage/upkeep.ts');
 
 function fixture(t, rootIds = ['project-state']) {
   const dir = tempDir(t, 'doflow-upkeep-');

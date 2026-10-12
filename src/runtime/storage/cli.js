@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const { loadStorageRegistry } = require('./registry.ts');
 const { resolveRoots, readPruneSetting } = require('./roots.ts');
 const { runPass } = require('./engine.ts');
-const { upkeepAfterVerb } = require('./upkeep');
+const { upkeepAfterVerb } = require('./upkeep.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 function handleStorageCommand({ action = 'report', json = false, global = false, projectRoot = '.', env = process.env, fsImpl = fs } = {}) {

@@ -52,7 +52,7 @@ const { handleScaffoldCommand } = require('../runtime/scaffold/generate.ts');
 const { handleDecisionCommand } = require('../runtime/decision-register.ts');
 const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli');
 const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
-const { upkeepAfterVerb } = require('../runtime/storage/upkeep');
+const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
 const { handleStorageCommand } = require('../runtime/storage/cli');
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
