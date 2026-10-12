@@ -3,7 +3,10 @@
 // delete, the scripts an adapter copies beside a change's target, the old copy a moved resource
 // leaves behind, and files a pending tombstone will sweep. Files holding only MCP entries stay out:
 // their ledger row, not a file copy, is how an entry is recovered, and the same file can hold the
-// harness's own state, which a rollback must never restore over. DoFlow's own records stay out too.
+// harness's own state, which a rollback must never restore over. DoFlow's own records stay out too,
+// except the ones named in `records`: the ownership ledger rides along with the files, because a
+// rollback that restores files without the rows describing them leaves every later update and
+// remove refusing those files as modified outside DoFlow.
 // Reads only: it stats files and creates nothing.
 //
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
@@ -14,7 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { BackupError, scopeRelative } = require('./backup.ts');
 
-const REASON_ORDER = ['change', 'companion', 'relocated-from', 'tombstone', 'snapshot'];
+const REASON_ORDER = ['change', 'companion', 'relocated-from', 'tombstone', 'snapshot', 'record'];
 
 function byCodePoint(a: string, b: string): number {
   if (a === b) return 0;
@@ -39,12 +42,14 @@ function isAtOrUnder(file: string, root: string): boolean {
   return file === resolved || file.startsWith(resolved.endsWith(path.sep) ? resolved : resolved + path.sep);
 }
 
-/** Candidates (absolute path -> harnesses and reasons) into a BackupSet, after the exclusions. */
-function toBackupSet(candidates: Map<string, any>, { scope, scopeRoot, exclude, excluded, fsImpl }: any): any {
+/** Candidates (absolute path -> harnesses and reasons) into a BackupSet, after the exclusions.
+ * A path in `records` is kept even under an excluded root. */
+function toBackupSet(candidates: Map<string, any>, { scope, scopeRoot, exclude, excluded, records = [], fsImpl }: any): any {
   const root = path.resolve(scopeRoot);
+  const kept = new Set(records.map((file: string) => path.resolve(file)));
   const entries = [];
   for (const file of [...candidates.keys()].sort(byCodePoint)) {
-    if (exclude.some((x: string) => isAtOrUnder(file, x))) {
+    if (!kept.has(file) && exclude.some((x: string) => isAtOrUnder(file, x))) {
       excluded.push({ path: file, reason: 'doflow-state' });
       continue;
     }
@@ -82,8 +87,11 @@ function addCandidate(candidates: Map<string, any>, file: string, harness: strin
  * The files a lifecycle plan's apply can overwrite or delete, as a BackupSet.
  * `exclude` lists DoFlow's own paths (the backup root, the state root, the install manifest, the
  * lock); an entry at or under one of them is reported in `excluded`, not backed up.
+ * `records` lists DoFlow record files backed up beside those files although an `exclude` root holds
+ * them (the ownership ledger), with no harness, so a rollback narrowed by --target leaves them. They
+ * join only a set that holds some file already, so a run that backs up nothing still backs up nothing.
  */
-function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], fsImpl = fs }: any): any {
+function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], records = [], fsImpl = fs }: any): any {
   const candidates = new Map();
   const mcpOnly = new Map();
   const resources = plan.ledger?.resources ?? [];
@@ -122,17 +130,19 @@ function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], fsImpl = fs }
   const excluded = [...mcpOnly]
     .filter(([target, onlyMcp]) => onlyMcp && !candidates.has(target))
     .map(([target]) => ({ path: target, reason: 'mcp-entries-only' }));
-  return toBackupSet(candidates, { scope, scopeRoot, exclude, excluded, fsImpl });
+  if (candidates.size) for (const file of records) addCandidate(candidates, file, null, 'record');
+  return toBackupSet(candidates, { scope, scopeRoot, exclude, excluded, records, fsImpl });
 }
 
-/** A BackupSet of the given absolute paths, for the pre-rollback snapshot. */
-function backupSetFromPaths({ items, scope, scopeRoot, exclude = [], fsImpl = fs }: any): any {
+/** A BackupSet of the given absolute paths, for the pre-rollback snapshot. `records` as for
+ * backupSetFromPlan: a restored ledger is snapshotted too, so the snapshot rolls back as a whole. */
+function backupSetFromPaths({ items, scope, scopeRoot, exclude = [], records = [], fsImpl = fs }: any): any {
   const candidates = new Map();
   for (const item of items) {
     if (item.harnesses.length === 0) addCandidate(candidates, item.path, null, 'snapshot');
     for (const harness of item.harnesses) addCandidate(candidates, item.path, harness, 'snapshot');
   }
-  return toBackupSet(candidates, { scope, scopeRoot, exclude, excluded: [], fsImpl });
+  return toBackupSet(candidates, { scope, scopeRoot, exclude, excluded: [], records, fsImpl });
 }
 
 module.exports = { backupSetFromPlan, backupSetFromPaths };

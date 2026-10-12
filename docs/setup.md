@@ -256,7 +256,11 @@ the global install's files and records, and its `remove` could delete them. Use 
 
 An install or update that changes files first copies only those files into
 `.doflow/backups/<id>/`, and records the files it is about to create so a rollback can tell them
-apart. A file that holds only MCP entries is never copied. After each install or update the newest 3
+apart. A file that holds only MCP entries is never copied. The ownership ledger
+(`.doflow/state/ledger.json`) is copied with those files, so a rollback restores the records that
+describe what it restores and a later `update` or `remove` accepts them; a rollback narrowed by
+`--target` leaves the ledger alone, and nothing else under `.doflow/state` (runs, evidence, recovery
+records), `doflow.lock` or the install manifest is copied. After each install or update the newest 3
 backups of that scope are kept: `--prune N` keeps N, and `--prune 0` keeps all. An update with
 nothing to change prunes nothing, so the first run after upgrading from 1.19 that prunes is an
 install, or an update that changes files; it removes the older DoFlow-written backups beyond the

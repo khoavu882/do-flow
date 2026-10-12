@@ -12,7 +12,7 @@ const {
 } = require('../../install/backup.ts');
 const { backupSetFromPaths } = require('../../install/backup-set.ts');
 const { writeManifest } = require('../../install/manifest.ts');
-const { stateRoot } = require('../../state/index.ts');
+const { stateRoot, ledgerPath } = require('../../state/index.ts');
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { captureCaught } = require('../../runtime/cli-result');
@@ -144,10 +144,13 @@ function snapshotBeforeRestore({ o, plan, bid, backupRoot, lifecyclePaths, scope
   console.error('[INFO]  Creating pre-rollback safety snapshot...');
   let snapshot;
   try {
+    const neutralStateRoot = stateRoot({ scope: scopeName, projectRoot: lifecyclePaths.scopeRoot, homeDir: lifecyclePaths.scopeRoot });
     const set = backupSetFromPaths({
       items: plan.snapshot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot,
-      exclude: [backupRoot, stateRoot({ scope: scopeName, projectRoot: lifecyclePaths.scopeRoot, homeDir: lifecyclePaths.scopeRoot }),
-        lifecyclePaths.manifestPath, path.join(lifecyclePaths.doflowRoot, 'doflow.lock')],
+      exclude: [backupRoot, neutralStateRoot, lifecyclePaths.manifestPath, path.join(lifecyclePaths.doflowRoot, 'doflow.lock')],
+      // A backup restores the ledger with its files (backup-set.ts), so the snapshot of what the
+      // restore overwrites holds the current ledger too.
+      records: [ledgerPath(neutralStateRoot)],
     });
     snapshot = createFileBackup({ operation: 'pre-rollback', set, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit,
       version: pkg.version, date: new Date(), restores: bid });

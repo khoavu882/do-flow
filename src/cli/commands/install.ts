@@ -10,6 +10,7 @@ const {
   BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, formatBytes, retentionNote,
 } = require('../../install/backup.ts');
 const { backupSetFromPlan } = require('../../install/backup-set.ts');
+const { ledgerPath } = require('../../state/index.ts');
 const { writeManifest, readInstallManifest } = require('../../install/manifest.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
@@ -70,6 +71,10 @@ function cmdInstall(o: any): void {
     const buildBackupSet = () => backupSetFromPlan({
       plan: lifecycleView.plan, scope: scope.global ? 'global' : 'project', scopeRoot: lifecyclePaths.scopeRoot,
       exclude: [backupRoot, lifecycleView.stateRoot, lifecyclePaths.manifestPath, path.join(lifecyclePaths.doflowRoot, 'doflow.lock')],
+      // The ownership ledger, and nothing else from the state root (runs, evidence and recovery
+      // records written after the backup must survive a rollback): a rollback then restores the
+      // rows that describe the files it restores.
+      records: [ledgerPath(lifecycleView.stateRoot)],
     });
     const keep = o.prune ?? DEFAULT_BACKUP_RETENTION;
 

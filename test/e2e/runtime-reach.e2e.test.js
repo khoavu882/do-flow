@@ -283,6 +283,49 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.equal(fs.existsSync(path.join(cell.proj, '.doflow', 'runtime')), false);
   };
 
+  // 073 T5: a rollback restores the ownership ledger with the files, so the install it leaves can be
+  // updated and removed again. Before, the ledger kept the update's rows while the files went back,
+  // and the next update and remove both refused dozens of files as modified outside DoFlow.
+  const ROLLBACK_TAG = 'v1.24.1';
+  test(`rollback of a ${ROLLBACK_TAG} -> this checkout update restores pruned files and the ledger; update and remove then succeed`, { skip: tagSkip(ROLLBACK_TAG) }, async () => {
+    const cell = newCell('rollback-ledger');
+    const legacy = path.join(cell.dir, 'legacy');
+    fs.mkdirSync(legacy);
+    const archive = spawnSync('git', ['archive', '--format=tar', '-o', path.join(cell.dir, 'legacy.tar'), ROLLBACK_TAG], { cwd: REPO, encoding: 'utf8' });
+    assert.equal(archive.status, 0, archive.stderr);
+    assert.equal(spawnSync('tar', ['-x', '-f', path.join(cell.dir, 'legacy.tar'), '-C', legacy]).status, 0);
+    const older = await install(cell, 'project', 'claude,pi', path.join(legacy, 'bin', 'doflow.js'));
+    assert.equal(older.status, 0, older.stderr);
+
+    const mirror = path.join(cell.proj, '.doflow', 'runtime', 'src');
+    const ledgerFile = path.join(cell.proj, '.doflow', 'state', 'ledger.json');
+    const retired = filesUnder(mirror).filter((rel) => !fs.existsSync(path.join(REPO, 'src', rel)));
+    assert.ok(retired.length > 0, `the ${ROLLBACK_TAG} runtime ships nothing this checkout dropped; the cell proves nothing`);
+    const before = new Map(retired.map((rel) => [rel, fs.readFileSync(path.join(mirror, rel))]));
+    const ledgerBefore = fs.readFileSync(ledgerFile);
+
+    const cli = (args, cwd = cell.dir) => spawn(cell, process.execPath, [CLI, ...args], cwd, 'y\n');
+    const ok = (r, what) => {
+      assert.equal(r.status, 0, `${what}: ${r.stdout}${r.stderr}`);
+      assert.ok(!/modified outside DoFlow/.test(r.stdout + r.stderr), `${what}: ${r.stdout}${r.stderr}`);
+      return r;
+    };
+    const updated = ok(await cli(['update', 'proj', '-t', 'pi']), 'update -t pi');
+    assert.deepEqual(retired.filter((rel) => fs.existsSync(path.join(mirror, rel))), [], 'the update prunes every retired runtime file');
+    const bid = (updated.stdout + updated.stderr).match(/Backup created: (\S+)/)?.[1];
+    assert.ok(bid, `no backup id in: ${updated.stdout}${updated.stderr}`);
+
+    ok(await cli(['rollback', bid, '-f'], cell.proj), 'rollback');
+    for (const [rel, bytes] of before) assert.ok(fs.readFileSync(path.join(mirror, rel)).equals(bytes), `${rel} is not restored byte-identical`);
+    assert.ok(fs.readFileSync(ledgerFile).equals(ledgerBefore), 'the rollback restores the ledger the files belong to');
+
+    ok(await cli(['update', 'proj']), 'update after rollback');
+    ok(await cli(['update', 'proj', '-t', 'pi']), 'update -t pi after rollback');
+    assert.deepEqual(retired.filter((rel) => fs.existsSync(path.join(mirror, rel))), []);
+    ok(await cli(['remove', 'proj', '-f', '-t', 'claude,pi']), 'remove after rollback');
+    assert.equal(fs.existsSync(path.join(cell.proj, '.doflow', 'runtime')), false);
+  });
+
   test(`mixed versions: a ${LEGACY_TAG} install updates to this checkout's runtime and is removed cleanly`, { skip: tagSkip(LEGACY_TAG) }, mixedVersion(LEGACY_TAG, false));
   test(`mixed versions: a ${OLDER_TAG} install, whose guidance differs from this checkout's, updates with no source edit`, { skip: tagSkip(OLDER_TAG) }, mixedVersion(OLDER_TAG, true));
 });

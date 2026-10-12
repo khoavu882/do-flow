@@ -193,17 +193,20 @@ test('--target restores only the named harnesses and counts the rest; no --targe
     { path: '.codex/b.md', existed: true, content: 'b', harnesses: ['codex'] },
     { path: '.agents/c.md', existed: true, content: 'c', harnesses: ['codex', 'claude'] },
     { path: '.codex/new.md', existed: false, harnesses: ['codex'] },
+    // The ownership ledger rides with the files under no harness: restored whole, or not at all,
+    // because restoring it for one harness would rewind the rows of the others (073 T5).
+    { path: '.doflow/state/ledger.json', existed: true, content: '{}', harnesses: [] },
   ]);
 
   const targeted = plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: true });
   assert.deepStrictEqual(targeted.restore.map((r) => r.path), [
     path.join(ctx.scopeRoot, '.claude', 'a.md'), path.join(ctx.scopeRoot, '.agents', 'c.md'),
   ]);
-  assert.strictEqual(targeted.untargeted, 2);
+  assert.strictEqual(targeted.untargeted, 3);
   assert.deepStrictEqual(targeted.absent, []);
 
   const all = plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: false });
-  assert.strictEqual(all.restore.length, 3);
+  assert.strictEqual(all.restore.length, 4);
   assert.strictEqual(all.untargeted, 0);
   assert.deepStrictEqual(all.absent, [path.join(ctx.scopeRoot, '.codex', 'new.md')]);
 });

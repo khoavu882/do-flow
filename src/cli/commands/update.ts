@@ -8,6 +8,7 @@ const { resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');
 const { DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, retentionNote } = require('../../install/backup.ts');
 const { backupSetFromPlan } = require('../../install/backup-set.ts');
+const { ledgerPath } = require('../../state/index.ts');
 const { backupStep, reportBackup, printBackupDryRun, applyBackupRetention } = require('./install.ts');
 const { writeManifest, readInstallManifest } = require('../../install/manifest.ts');
 const { confirm } = require('../../helper/prompt.ts');
@@ -60,6 +61,10 @@ function cmdUpdate(o: any): void {
     const buildBackupSet = () => backupSetFromPlan({
       plan: lifecycleView.plan, scope: scope.global ? 'global' : 'project', scopeRoot: lifecyclePaths.scopeRoot,
       exclude: [backupRoot, lifecycleView.stateRoot, lifecyclePaths.manifestPath, path.join(lifecyclePaths.doflowRoot, 'doflow.lock')],
+      // The ownership ledger, and nothing else from the state root (runs, evidence and recovery
+      // records written after the backup must survive a rollback): a rollback then restores the
+      // rows that describe the files it restores.
+      records: [ledgerPath(lifecycleView.stateRoot)],
     });
     const keep = o.prune ?? DEFAULT_BACKUP_RETENTION;
 
