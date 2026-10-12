@@ -188,7 +188,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | `src/runtime/lifecycle/store-upkeep.js` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
 | `src/runtime/lifecycle/retention.ts` | The retention window and the pure selection of settled units |
 | `src/runtime/lifecycle/fold.ts` | The pure fold of events into follow-ups, tracked features, goals and release records, with conflicts. No file or git access |
-| `src/runtime/lifecycle/followup.js`, `goal.js` | The follow-up and goal services; each returns a result object and never prints |
+| `src/runtime/lifecycle/followup.ts`, `goal.js` | The follow-up and goal services; each returns a result object and never prints |
 | `src/runtime/lifecycle/intent-writer.ts` | Creates a new intent for `followup --action promote`, from headings fixed in code |
 | `src/runtime/lifecycle/report-store.ts` | The machine-local report body and its masked excerpt |
 | `src/runtime/lifecycle/status.ts` | Feature status derived from git and release records, never written |

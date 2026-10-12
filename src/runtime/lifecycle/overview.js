@@ -13,7 +13,7 @@ const { isSafeSlug, invalidSlugRefusal } = require('../task-scope.ts');
 const { withDerivedDone } = require('./fold.ts');
 const { appendEvents, readFold, readEvents } = require('./event-store.ts');
 const { deriveStatuses, bucketize, behindNote } = require('./status.ts');
-const { FollowupUsageError, parseIds } = require('./followup');
+const { FollowupUsageError, parseIds } = require('./followup.ts');
 
 /** The failure store, or null when its module cannot be loaded: the overview then reports no failures. */
 function failureStoreOrNull() {

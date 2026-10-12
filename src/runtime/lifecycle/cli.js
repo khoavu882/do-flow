@@ -9,7 +9,7 @@
 
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { projectRoot } = require('./root.ts');
-const followup = require('./followup');
+const followup = require('./followup.ts');
 const { StoreUnsafeError, StoreLockedError } = require('./event-store.ts');
 const { prepareStore } = require('./store-upkeep');
 const { printSafe } = require('../mask.ts');

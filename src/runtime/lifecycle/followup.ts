@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The follow-up service (IC-006 without `report`, IC-003 transitions): add, list, take, settle and
  * promote, over the lifecycle event store. Every function takes the IC-001 root, writes only events
@@ -41,16 +43,16 @@ const CONFLICT_FINDINGS = new Set(['unknown-id', 'untracked-feature', 'intent-ex
 /** A caller mistake (exit 2). */
 class FollowupUsageError extends Error {}
 
-function refusal(action, finding, message) { return { ok: false, action, finding, message }; }
+function refusal(action: any, finding: any, message: any) { return { ok: false, action, finding, message }; }
 
 /** Maps an `appendEvents` failure to a refusal result. */
-function refusalFrom(action, failed) {
+function refusalFrom(action: any, failed: any) {
   const finding = failed.conflict && CONFLICT_FINDINGS.has(failed.conflict.code) ? failed.conflict.code : failed.finding;
   return refusal(action, finding, failed.message);
 }
 
 /** Masks a free-text field and checks it is one non-empty line of at most `max` characters. */
-function oneLine(raw, label, problems, { max = STATEMENT_MAX } = {}) {
+function oneLine(raw: any, label: any, problems: any, { max = STATEMENT_MAX }: any = {}) {
   // The length is checked before masking as well, so the masking patterns never see more than a bounded input.
   const rawLength = String(raw ?? '').length;
   if (rawLength > max * 4) { problems.push(`${label} is ${rawLength} characters; the limit is ${max}`); return null; }
@@ -62,20 +64,20 @@ function oneLine(raw, label, problems, { max = STATEMENT_MAX } = {}) {
   return text;
 }
 
-function newFollowupId(taken) {
+function newFollowupId(taken: any) {
   for (;;) {
     const id = `FU-${randomChars(6)}`;
     if (!taken.has(id)) { taken.add(id); return id; }
   }
 }
 
-function channelBy(channel) {
+function channelBy(channel: any) {
   const by = byFromChannel(channel || 'default');
   if (!by) throw new FollowupUsageError(`unknown --channel '${channel}'. Valid: question, gate, prompt, default`);
   return by;
 }
 
-function parseIds(raw, label = '--ids') {
+function parseIds(raw: any, label = '--ids') {
   const list = Array.isArray(raw) ? raw : String(raw ?? '').split(',');
   const ids = [...new Set(list.flatMap((entry) => String(entry).split(',')).map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) throw new FollowupUsageError(`${label} is required: one or more follow-up ids, comma separated`);
@@ -85,18 +87,18 @@ function parseIds(raw, label = '--ids') {
 }
 
 /** The folded store, with a taken item shown `done` while its feature derives finished (IC-003, IC-021). */
-function loadFollowups(root, { hasBody, fsImpl = nodeFs, statuses, now = new Date() } = {}) {
+function loadFollowups(root: any, { hasBody, fsImpl = nodeFs, statuses, now = new Date() }: any = {}) {
   const fold = readFold(root, { hasBody: hasBody || reportStore.bodyChecker(root, { fsImpl }), fsImpl, now });
-  const needsStatus = fold.followups.some((item) => item.state === 'taken');
+  const needsStatus = fold.followups.some((item: any) => item.state === 'taken');
   const derived = needsStatus ? (statuses || deriveStatuses({ root, fold })) : null;
-  const followups = needsStatus ? withDerivedDone(fold.followups, Object.fromEntries(Object.entries(derived.statuses).map(([slug, s]) => [slug, s.status]))) : fold.followups;
+  const followups = needsStatus ? withDerivedDone(fold.followups, Object.fromEntries(Object.entries(derived.statuses).map(([slug, s]: [string, any]) => [slug, s.status]))) : fold.followups;
   return { fold, followups };
 }
 
 // ── add ────────────────────────────────────────────────────────────────────────────────────────
 
 /** The active feature slug: `--slug`, else the branch through the existing resolver; null when neither. */
-function resolveFeatureSlug({ cwd, slug }) {
+function resolveFeatureSlug({ cwd, slug }: any) {
   if (slug) {
     const bad = invalidSlugRefusal(slug);
     if (bad) throw new FollowupUsageError(bad.message);
@@ -116,8 +118,8 @@ function resolveFeatureSlug({ cwd, slug }) {
   return resolved;
 }
 
-function sourceFor(kind, fields, label, problems) {
-  const word = (value, name) => {
+function sourceFor(kind: any, fields: any, label: any, problems: any) {
+  const word = (value: any, name: any) => {
     if (typeof value === 'string' && WORD.test(value)) return value;
     problems.push(`${label}: ${name} must be letters, digits, dot, underscore or dash`);
     return null;
@@ -143,15 +145,15 @@ function sourceFor(kind, fields, label, problems) {
  * Validates every item and builds its `followup.added` data; nothing is written unless all pass.
  * @returns {Array<{statement:string, source:Object}>}
  */
-function buildItems({ cwd, items, defaults }) {
-  const problems = [];
-  let featureSlug;
+function buildItems({ cwd, items, defaults }: any) {
+  const problems: any[] = [];
+  let featureSlug: any;
   const feature = () => {
     if (featureSlug === undefined) featureSlug = resolveFeatureSlug({ cwd, slug: defaults.slug });
     return featureSlug;
   };
-  const built = [];
-  items.forEach((raw, index) => {
+  const built: any[] = [];
+  items.forEach((raw: any, index: any) => {
     const label = items.length > 1 || defaults.batch ? `item ${index + 1}` : 'the follow-up';
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { problems.push(`${label} must be an object`); return; }
     const statement = oneLine(raw.statement, `${label}: statement`, problems);
@@ -192,7 +194,7 @@ function buildItems({ cwd, items, defaults }) {
  * must be a regular file of at most 16 MiB, so a device or a FIFO is refused, never read.
  * @returns {Object[]}
  */
-function readBatchFile(file, fsImpl = nodeFs) {
+function readBatchFile(file: any, fsImpl = nodeFs) {
   let parsed;
   let fd;
   try {
@@ -203,7 +205,7 @@ function readBatchFile(file, fsImpl = nodeFs) {
     if (!st.isFile()) throw new Error('not a regular file');
     if (st.size > reportStore.MAX_READ_BYTES) throw new Error('larger than 16 MiB');
     parsed = JSON.parse(fsImpl.readFileSync(fd, 'utf8'));
-  } catch (error) {
+  } catch (error: any) {
     throw new FollowupUsageError(`cannot read --batch ${file}: ${error.message}`);
   } finally {
     if (fd !== undefined) { try { fsImpl.closeSync(fd); } catch { /* read already done */ } }
@@ -216,18 +218,18 @@ function readBatchFile(file, fsImpl = nodeFs) {
  * IC-006 `add`. `items` are `{statement, stage?, source?}`; `defaults` holds the flag values
  * (`stage`, `slug`, `source`, `taskClass`, `taskId`, `release`, `batch`).
  */
-function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel, now = new Date(), fsImpl = nodeFs }) {
+function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel, now = new Date(), fsImpl = nodeFs }: any) {
   const by = channelBy(channel);
   const built = buildItems({ cwd, items, defaults });
-  const taken = new Set(readFold(root, { fsImpl, now }).followups.map((f) => f.id));
+  const taken = new Set(readFold(root, { fsImpl, now }).followups.map((f: any) => f.id));
   const drafts = built.map(({ statement, source }) => ({ type: 'followup.added', by, data: { id: newFollowupId(taken), statement, source } }));
   const out = appendEvents(root, drafts, { now, fsImpl });
   if (!out.ok) return refusalFrom('add', out);
   return {
     ok: true,
     action: 'add',
-    created: out.written.map(({ event }) => ({ id: event.data.id, statement: event.data.statement, source: event.data.source, state: 'open' })),
-    events: out.written.map((w) => w.file),
+    created: out.written.map(({ event }: any) => ({ id: event.data.id, statement: event.data.statement, source: event.data.source, state: 'open' })),
+    events: out.written.map((w: any) => w.file),
     next: [],
   };
 }
@@ -235,9 +237,9 @@ function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel
 // ── report ─────────────────────────────────────────────────────────────────────────────────────
 
 /** `--release` and `--feature` of a report: letters, digits, dot, underscore or dash, as for `--source release`. */
-function reportSource({ release, feature }) {
+function reportSource({ release, feature }: any) {
   const problems = [];
-  const source = { kind: 'report' };
+  const source: any = { kind: 'report' };
   if (release !== undefined && release !== null) {
     if (typeof release === 'string' && WORD.test(release)) source.release = release; else problems.push('--release must be letters, digits, dot, underscore or dash');
   }
@@ -267,21 +269,21 @@ function reportSource({ release, feature }) {
  * @param {string} [options.release]
  * @param {string|string[]} [options.feature]
  */
-function reportFollowup({ root, statement, input, release, feature, channel, now = new Date(), fsImpl = nodeFs, env = process.env }) {
+function reportFollowup({ root, statement, input, release, feature, channel, now = new Date(), fsImpl = nodeFs, env = process.env }: any) {
   const by = channelBy(channel);
   const source = reportSource({ release, feature });
-  const problems = [];
+  const problems: any[] = [];
   const rawStatement = String(statement ?? '');
   const statementMasked = maskLine(rawStatement).masked;
   const cleanStatement = oneLine(rawStatement, '--statement', problems);
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   let raw;
-  try { raw = reportStore.readReportText(input, { fsImpl }); } catch (error) {
+  try { raw = reportStore.readReportText(input, { fsImpl }); } catch (error: any) {
     if (error instanceof reportStore.ReportInputError) throw new FollowupUsageError(error.message);
     throw error;
   }
   let body;
-  try { body = reportStore.prepareBody(raw, { home: env.HOME || os.homedir() }); } catch (error) {
+  try { body = reportStore.prepareBody(raw, { home: env.HOME || os.homedir() }); } catch (error: any) {
     if (error instanceof reportStore.ReportInputError) throw new FollowupUsageError(error.message);
     throw error;
   }
@@ -291,9 +293,9 @@ function reportFollowup({ root, statement, input, release, feature, channel, now
   // ANSI colour and title sequences were removed before masking; what is left is a real control or bidirectional character.
   if (CONTROL.test(excerpt)) throw new FollowupUsageError('the first 2 KB of the report body contain a control or bidirectional-override character; remove it and file the report again');
 
-  const taken = new Set(readFold(root, { fsImpl, now }).followups.map((f) => f.id));
+  const taken = new Set(readFold(root, { fsImpl, now }).followups.map((f: any) => f.id));
   let id;
-  let stored = { ok: false, reason: 'no-home' };
+  let stored: any = { ok: false, reason: 'no-home' };
   for (let attempt = 0; attempt < 5; attempt += 1) {
     id = newFollowupId(taken);
     stored = reportStore.writeBody(root, id, body.buffer, { env, fsImpl });
@@ -307,7 +309,7 @@ function reportFollowup({ root, statement, input, release, feature, channel, now
   let out;
   try {
     out = appendEvents(root, [{ type: 'followup.added', by, data }], { now, fsImpl });
-  } catch (error) {
+  } catch (error: any) {
     if (kept) reportStore.removeBody(stored.file, fsImpl);
     throw error;
   }
@@ -325,7 +327,7 @@ function reportFollowup({ root, statement, input, release, feature, channel, now
       excerptBytes: Buffer.byteLength(excerpt, 'utf8'), bodyBytes: body.buffer.length,
       body: kept ? 'on-this-machine' : 'not-on-this-machine', masked: statementMasked + body.masked,
     }],
-    events: out.written.map((w) => w.file),
+    events: out.written.map((w: any) => w.file),
     next,
   };
 }
@@ -333,31 +335,31 @@ function reportFollowup({ root, statement, input, release, feature, channel, now
 // ── list ───────────────────────────────────────────────────────────────────────────────────────
 
 /** IC-006 `list`: `state` is open (default), taken, done, dismissed or all. */
-function listFollowups({ root, state = 'open', hasBody, fsImpl = nodeFs, statuses, now = new Date() }) {
+function listFollowups({ root, state = 'open', hasBody, fsImpl = nodeFs, statuses, now = new Date() }: any) {
   if (state !== 'all' && !STATES.includes(state)) throw new FollowupUsageError(`--state must be one of ${[...STATES, 'all'].join(', ')} (got '${state}')`);
   const { fold, followups } = loadFollowups(root, { hasBody, fsImpl, statuses, now });
-  const items = state === 'all' ? followups : followups.filter((item) => item.state === state);
+  const items = state === 'all' ? followups : followups.filter((item: any) => item.state === state);
   return { ok: true, action: 'list', state, count: items.length, items, conflicts: fold.conflicts, unreadable: fold.unreadable, unreadableReasons: fold.unreadableReasons, next: [] };
 }
 
 // ── take, settle, promote ──────────────────────────────────────────────────────────────────────
 
 /** IC-006 `take`: one `followup.taken` event; every id must be open and the feature tracked. */
-function takeFollowups({ root, ids, slug, channel, now = new Date(), fsImpl = nodeFs }) {
+function takeFollowups({ root, ids, slug, channel, now = new Date(), fsImpl = nodeFs }: any) {
   const list = parseIds(ids);
   if (!slug) throw new FollowupUsageError('--slug is required for --action take');
   const bad = invalidSlugRefusal(slug);
   if (bad) throw new FollowupUsageError(bad.message);
   const out = appendEvents(root, [{ type: 'followup.taken', by: channelBy(channel), data: { ids: list, feature: slug } }], { now, fsImpl });
   if (!out.ok) return refusalFrom('take', out);
-  return { ok: true, action: 'take', ids: list, feature: slug, events: out.written.map((w) => w.file), next: [] };
+  return { ok: true, action: 'take', ids: list, feature: slug, events: out.written.map((w: any) => w.file), next: [] };
 }
 
 /** IC-006 `settle`: one `followup.settled` event per id. Each `as` value's required field is in IC-003. */
-function settleFollowups({ root, ids, as, reason, evidence, channel, now = new Date(), fsImpl = nodeFs }) {
+function settleFollowups({ root, ids, as, reason, evidence, channel, now = new Date(), fsImpl = nodeFs }: any) {
   const list = parseIds(ids);
   if (!SETTLE_AS.includes(as)) throw new FollowupUsageError(`--as must be one of ${SETTLE_AS.join(', ')}${as ? ` (got '${as}')` : ''}`);
-  const problems = [];
+  const problems: any[] = [];
   const cleanReason = reason === undefined ? null : oneLine(reason, '--reason', problems);
   const cleanEvidence = evidence === undefined ? null : oneLine(evidence, '--evidence', problems);
   // `kept` needs a reason only when it releases a taken item or reopens a dismissed one; the fold knows the state.
@@ -366,7 +368,7 @@ function settleFollowups({ root, ids, as, reason, evidence, channel, now = new D
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   const by = channelBy(channel);
   // `list` shows a taken item whose feature finished as `done`, but the fold still holds it `taken`: say what the user was shown.
-  const derivedDone = new Map(loadFollowups(root, { fsImpl, now }).followups.filter((item) => item.derived).map((item) => [item.id, item.takenBy]));
+  const derivedDone = new Map(loadFollowups(root, { fsImpl, now }).followups.filter((item: any) => item.derived).map((item: any) => [item.id, item.takenBy]));
   if (as !== 'kept') {
     const shown = list.find((id) => derivedDone.has(id));
     if (shown) {
@@ -382,7 +384,7 @@ function settleFollowups({ root, ids, as, reason, evidence, channel, now = new D
     action: 'settle',
     ids: list,
     as,
-    events: out.written.map((w) => w.file),
+    events: out.written.map((w: any) => w.file),
     next: reopened.map((id) => `${id} was shown as done because feature ${derivedDone.get(id)} finished; keeping it released it from that feature, so it is open again`),
   };
 }
@@ -391,9 +393,9 @@ function settleFollowups({ root, ids, as, reason, evidence, channel, now = new D
  * IC-006 `promote` (IC-024): creates a new intent that names the items, then writes one
  * `followup.promoted` event. It never adds items to an existing intent.
  */
-function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl = nodeFs }) {
+function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl = nodeFs }: any) {
   const list = parseIds(ids);
-  const problems = [];
+  const problems: any[] = [];
   const cleanTitle = oneLine(title, '--title', problems, { max: 80 });
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   const by = channelBy(channel);
@@ -401,7 +403,7 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
   const { followups } = loadFollowups(root, { fsImpl, now });
   const items = [];
   for (const id of list) {
-    const item = followups.find((f) => f.id === id);
+    const item = followups.find((f: any) => f.id === id);
     if (!item) return refusal('promote', 'unknown-id', `${id} is not a follow-up. Nothing was written.`);
     if (item.state !== 'open') return refusal('promote', 'illegal-transition', `${id} is ${item.state}; only an open item can be promoted. Nothing was written.`);
     if (item.intent) return refusal('promote', 'intent-exists', `${id} was already promoted to ${item.intent}. Nothing was written.`);
@@ -416,7 +418,7 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
     const out = appendEvents(root, [{ type: 'followup.promoted', by, data: { ids: list, intent: written.path } }], { now, fsImpl });
     if (!out.ok) return refusalFrom('promote', out);
     committed = true;
-    return { ok: true, action: 'promote', intent: written.path, ids: list, events: out.written.map((w) => w.file), next: [] };
+    return { ok: true, action: 'promote', intent: written.path, ids: list, events: out.written.map((w: any) => w.file), next: [] };
   } finally {
     // The file is the one this call just created exclusively, so removing it undoes a half-done promotion on every failure path.
     if (!committed) { try { fsImpl.rmSync(written.file, { force: true }); } catch { /* the failure being reported stands */ } }

@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { FIXTURES, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
-const followup = require('../../src/runtime/lifecycle/followup');
+const followup = require('../../src/runtime/lifecycle/followup.ts');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 
 const scratch = createScratch('doflow-followup-');

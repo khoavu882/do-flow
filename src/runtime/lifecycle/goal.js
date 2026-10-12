@@ -17,7 +17,7 @@ const nodeFs = require('node:fs');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope.ts');
 const { appendEvents, readFold } = require('./event-store.ts');
 const { deriveStatuses } = require('./status.ts');
-const { FollowupUsageError, oneLine, channelBy } = require('./followup');
+const { FollowupUsageError, oneLine, channelBy } = require('./followup.ts');
 const { goalView, goalConflicts, goalConflictNext } = require('./overview');
 
 const GOAL_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
