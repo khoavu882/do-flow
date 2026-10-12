@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Artifact parsing — turns the text of `requirement.md`, `design.md` and `plan.md` into the
  * structures `scaffold.js`'s generator reads: a requirement index and acceptance criteria, a
@@ -11,7 +13,7 @@
  */
 
 /** Returns the body of the first `## …<title>…` section, or null when there is none. */
-function section(text, titlePattern) {
+function section(text: string, titlePattern: RegExp): string | null {
   const lines = text.split('\n');
   let start = -1;
   for (let i = 0; i < lines.length; i += 1) {
@@ -26,7 +28,7 @@ function section(text, titlePattern) {
 }
 
 /** Splits a markdown table row into trimmed cells, or null when the line is not a row. */
-function row(line) {
+function row(line: string): string[] | null {
   if (!/^\s*\|/.test(line)) return null;
   const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
   if (cells.every((c) => /^:?-{3,}:?$/.test(c))) return null;   // the header separator
@@ -34,8 +36,8 @@ function row(line) {
 }
 
 /** Markdown wraps long list items; a criterion or task split over three lines is still one item. */
-function joinWrapped(body) {
-  const out = [];
+function joinWrapped(body: string): string[] {
+  const out: string[] = [];
   for (const line of body.split('\n')) {
     if (/^\s+\S/.test(line) && out.length && out[out.length - 1].trim() !== '') {
       out[out.length - 1] += ` ${line.trim()}`;
@@ -50,9 +52,9 @@ function joinWrapped(body) {
  * `requirement.md` → requirement summaries (for traceability headers) and acceptance criteria
  * (for test stubs).
  */
-function parseRequirement(text) {
-  const gaps = [];
-  const requirements = new Map();
+function parseRequirement(text: string): any {
+  const gaps: any[] = [];
+  const requirements = new Map<string, any>();
 
   const frBody = section(text, /Functional Requirements/i) ?? '';
   const nfrBody = section(text, /Non-Functional Requirements/i) ?? '';
@@ -70,7 +72,7 @@ function parseRequirement(text) {
     gaps.push({ artifact: 'requirement.md', what: 'requirement index', why: 'no `| FR-nnn | … |` table row found under a Functional Requirements heading' });
   }
 
-  const criteria = [];
+  const criteria: any[] = [];
   const acceptanceBody = section(text, /Acceptance Criteria/i);
   if (acceptanceBody === null) {
     gaps.push({ artifact: 'requirement.md', what: 'acceptance criteria', why: 'no "Acceptance Criteria" section — no test stubs can be derived' });
@@ -94,9 +96,9 @@ function parseRequirement(text) {
  * `design.md` → the component index (traceability) and whatever §4 declares as an interface
  * (carried through verbatim rather than paraphrased).
  */
-function parseDesign(text) {
-  const gaps = [];
-  const components = new Map();
+function parseDesign(text: string): any {
+  const gaps: any[] = [];
+  const components = new Map<string, any>();
 
   const body = section(text, /Components\s*(&|and)\s*Boundaries/i) ?? '';
   for (const line of body.split('\n')) {
@@ -119,9 +121,9 @@ function parseDesign(text) {
     gaps.push({ artifact: 'design.md', what: 'interface contracts', why: 'no "API / Interface Contracts" section — every emitted file falls back to a placeholder signature' });
   } else {
     const lines = contractBody.split('\n');
-    let heading = null;
-    let fence = null;
-    let buffer = [];
+    let heading: string | null = null;
+    let fence: string | null = null;
+    let buffer: string[] = [];
     for (const line of lines) {
       const headingMatch = line.match(/^###\s+(.*)$/);
       if (headingMatch && fence === null) { heading = headingMatch[1].trim(); continue; }
@@ -153,9 +155,9 @@ function parseDesign(text) {
 const TASK_KEYS = ['owner', 'files', 'depends-on', 'external-contract'];
 
 /** `plan.md` → the task list, which is where the intended file layout actually comes from. */
-function parsePlan(text) {
-  const gaps = [];
-  const tasks = [];
+function parsePlan(text: string): any {
+  const gaps: any[] = [];
+  const tasks: any[] = [];
 
   // Anchored on the whole heading: `### Task Summary` is orientation, not the task list, and a
   // loose match would read the summary table's rows as tasks.
@@ -180,14 +182,14 @@ function parsePlan(text) {
     const stories = [...new Set(head.match(/US\d+/g) || [])].sort();
     const description = head.replace(/\[P\]/g, '').replace(/\[US\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
 
-    const fields = {};
+    const fields: Record<string, string> = {};
     for (const chunk of meta.split(';')) {
       const fieldMatch = chunk.match(/^\s*([a-z-]+):\s*(.*)$/);
       if (!fieldMatch || !TASK_KEYS.includes(fieldMatch[1])) continue;
       fields[fieldMatch[1]] = fieldMatch[2].trim();
     }
 
-    const list = (value) => (value ? value.split(',').map((v) => v.replace(/`/g, '').trim()).filter(Boolean) : []);
+    const list = (value: string | undefined) => (value ? value.split(',').map((v) => v.replace(/`/g, '').trim()).filter(Boolean) : []);
 
     tasks.push({
       id,

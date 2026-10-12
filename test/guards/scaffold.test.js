@@ -31,7 +31,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const {
   generateScaffold, ARTIFACTS, FINGERPRINT_RE, SCAFFOLD_DIR_NAME, MANIFEST_NAME, STUB_SUFFIX, STATUS, EXIT,
-} = require('../../src/runtime/scaffold/generate');
+} = require('../../src/runtime/scaffold/generate.ts');
 const { tempDir } = require('../helper/tmp');
 
 // ---------------------------------------------------------------------------------------------

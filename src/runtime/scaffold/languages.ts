@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Language selection and emitters — everything `scaffold.js`'s generator needs to know about a
  * target language: which extension maps to which language, which extensions are content rather
@@ -20,7 +22,7 @@ const { detectCommands } = require('../command-detect');
  * is this repository" — is `command-detect.js`'s, so it is asked there rather than answered a
  * second time here. See `repoLanguage()` for the one place its output is interpreted.
  */
-const EXTENSION_LANGUAGE = Object.freeze({
+const EXTENSION_LANGUAGE: Readonly<Record<string, string>> = Object.freeze({
   '.js': 'javascript',
   '.mjs': 'javascript',
   '.cjs': 'javascript',
@@ -39,7 +41,7 @@ const EXTENSION_LANGUAGE = Object.freeze({
  * generator — there is no signature to emit for a markdown file — so these skip benignly and never
  * push the run to a non-zero exit.
  */
-const PROSE_EXTENSIONS = new Set([
+const PROSE_EXTENSIONS: ReadonlySet<string> = new Set([
   '.md', '.markdown', '.txt', '.rst',
   '.yaml', '.yml', '.json', '.jsonc', '.toml', '.ini', '.cfg', '.conf', '.env', '.lock',
   '.html', '.css', '.scss', '.svg', '.png', '.jpg', '.gif', '.csv',
@@ -51,7 +53,7 @@ const PROSE_EXTENSIONS = new Set([
  * plan that touches one produces "no emitter for Java", not silence — the gap is real and belongs
  * in the manifest, not in a reader's assumptions.
  */
-const UNEMITTED_SOURCE_EXTENSIONS = Object.freeze({
+const UNEMITTED_SOURCE_EXTENSIONS: Readonly<Record<string, { name: string; inProseGrammar: boolean }>> = Object.freeze({
   '.java': { name: 'Java', inProseGrammar: true },
   '.kt': { name: 'Kotlin', inProseGrammar: true },
   '.kts': { name: 'Kotlin', inProseGrammar: true },
@@ -71,7 +73,7 @@ const UNEMITTED_SOURCE_EXTENSIONS = Object.freeze({
 
 /** Splits an identifier-ish path segment into lowercase words, so every language can re-case it
  * to its own convention from one parse. */
-function words(name) {
+function words(name: string): string[] {
   return name
     .replace(/\.[^.]+$/, '')
     .split(/[^A-Za-z0-9]+/)
@@ -80,9 +82,9 @@ function words(name) {
     .map((part) => part.toLowerCase());
 }
 
-const camel = (parts) => parts.map((w, i) => (i === 0 ? w : w[0].toUpperCase() + w.slice(1))).join('') || 'scaffold';
-const pascal = (parts) => parts.map((w) => w[0].toUpperCase() + w.slice(1)).join('') || 'Scaffold';
-const snake = (parts) => parts.join('_') || 'scaffold';
+const camel = (parts: string[]): string => parts.map((w, i) => (i === 0 ? w : w[0].toUpperCase() + w.slice(1))).join('') || 'scaffold';
+const pascal = (parts: string[]): string => parts.map((w) => w[0].toUpperCase() + w.slice(1)).join('') || 'Scaffold';
+const snake = (parts: string[]): string => parts.join('_') || 'scaffold';
 
 /**
  * One entry per language this module can emit. Each `module` and `test` body is a signature plus a
@@ -90,10 +92,10 @@ const snake = (parts) => parts.join('_') || 'scaffold';
  * `references/scaffold.md` — the same table the external-dependency case uses, so the two halves of
  * that document agree on what an unimplemented body looks like.
  */
-const EMITTERS = Object.freeze({
+const EMITTERS: Readonly<Record<string, any>> = Object.freeze({
   javascript: {
-    line: (t) => (t ? `// ${t}` : '//'),
-    module: ({ symbol, message }) => [
+    line: (t: string) => (t ? `// ${t}` : '//'),
+    module: ({ symbol, message }: any) => [
       '/**',
       ' * Placeholder signature — replace with the real surface before implementing.',
       ' * @returns {never}',
@@ -104,11 +106,11 @@ const EMITTERS = Object.freeze({
       '',
       `module.exports = { ${symbol} };`,
     ].join('\n'),
-    testName: (id) => `${id}.test.js`,
-    test: ({ id, cases, message }) => [
+    testName: (id: string) => `${id}.test.js`,
+    test: ({ id, cases, message }: any) => [
       "const { test } = require('node:test');",
       '',
-      ...cases.map(({ statement }) => [
+      ...cases.map(({ statement }: any) => [
         `test(${JSON.stringify(`${id} — ${statement}`)}, () => {`,
         `  throw new Error(${JSON.stringify(message)});`,
         '});',
@@ -118,18 +120,18 @@ const EMITTERS = Object.freeze({
   },
 
   typescript: {
-    line: (t) => (t ? `// ${t}` : '//'),
-    module: ({ symbol, message }) => [
+    line: (t: string) => (t ? `// ${t}` : '//'),
+    module: ({ symbol, message }: any) => [
       '/** Placeholder signature — replace with the real surface before implementing. */',
       `export function ${symbol}(): never {`,
       `  throw new Error(${JSON.stringify(message)});`,
       '}',
     ].join('\n'),
-    testName: (id) => `${id}.test.ts`,
-    test: ({ id, cases, message }) => [
+    testName: (id: string) => `${id}.test.ts`,
+    test: ({ id, cases, message }: any) => [
       "import { test } from 'node:test';",
       '',
-      ...cases.map(({ statement }) => [
+      ...cases.map(({ statement }: any) => [
         `test(${JSON.stringify(`${id} — ${statement}`)}, (): void => {`,
         `  throw new Error(${JSON.stringify(message)});`,
         '});',
@@ -139,14 +141,14 @@ const EMITTERS = Object.freeze({
   },
 
   python: {
-    line: (t) => (t ? `# ${t}` : '#'),
-    module: ({ symbol, message }) => [
+    line: (t: string) => (t ? `# ${t}` : '#'),
+    module: ({ symbol, message }: any) => [
       `def ${symbol}() -> None:`,
       '    """Placeholder signature — replace with the real surface before implementing."""',
       `    raise NotImplementedError(${JSON.stringify(message)})`,
     ].join('\n'),
-    testName: (id) => `test_${id.toLowerCase().replace(/-/g, '_')}.py`,
-    test: ({ cases, message }) => cases.map(({ statement }, i) => [
+    testName: (id: string) => `test_${id.toLowerCase().replace(/-/g, '_')}.py`,
+    test: ({ cases, message }: any) => cases.map(({ statement }: any, i: number) => [
       `def test_case_${i + 1}() -> None:`,
       `    """${statement.replace(/"/g, "'")}"""`,
       `    raise NotImplementedError(${JSON.stringify(message)})`,
@@ -155,8 +157,8 @@ const EMITTERS = Object.freeze({
   },
 
   go: {
-    line: (t) => (t ? `// ${t}` : '//'),
-    module: ({ symbol, message, pkg }) => [
+    line: (t: string) => (t ? `// ${t}` : '//'),
+    module: ({ symbol, message, pkg }: any) => [
       `package ${pkg}`,
       '',
       'import "errors"',
@@ -166,13 +168,13 @@ const EMITTERS = Object.freeze({
       `\treturn errors.New(${JSON.stringify(message)})`,
       '}',
     ].join('\n'),
-    testName: (id) => `${id.toLowerCase().replace(/-/g, '_')}_test.go`,
-    test: ({ id, cases, message, pkg }) => [
+    testName: (id: string) => `${id.toLowerCase().replace(/-/g, '_')}_test.go`,
+    test: ({ id, cases, message, pkg }: any) => [
       `package ${pkg}`,
       '',
       'import "testing"',
       '',
-      ...cases.map(({ statement }, i) => [
+      ...cases.map(({ statement }: any, i: number) => [
         `// ${statement}`,
         `func Test${pascal(words(id))}Case${i + 1}(t *testing.T) {`,
         `\tt.Fatal(${JSON.stringify(message)})`,
@@ -183,15 +185,15 @@ const EMITTERS = Object.freeze({
   },
 
   rust: {
-    line: (t) => (t ? `// ${t}` : '//'),
-    module: ({ symbol, message }) => [
+    line: (t: string) => (t ? `// ${t}` : '//'),
+    module: ({ symbol, message }: any) => [
       '/// Placeholder signature — replace with the real surface before implementing.',
       `pub fn ${symbol}() {`,
       `    unimplemented!(${JSON.stringify(message)});`,
       '}',
     ].join('\n'),
-    testName: (id) => `${id.toLowerCase().replace(/-/g, '_')}.rs`,
-    test: ({ id, cases, message }) => cases.map(({ statement }, i) => [
+    testName: (id: string) => `${id.toLowerCase().replace(/-/g, '_')}.rs`,
+    test: ({ id, cases, message }: any) => cases.map(({ statement }: any, i: number) => [
       `// ${statement}`,
       '#[test]',
       `fn ${snake(words(id))}_case_${i + 1}() {`,
@@ -210,12 +212,12 @@ const EMITTERS = Object.freeze({
  * TypeScript. The one extra bit is read from its own output (a `typecheck` role exists only when a
  * tsc script or a `tsconfig.json` was found), so no second detector is introduced.
  */
-function repoLanguage(repoRoot, fsImpl) {
+function repoLanguage(repoRoot: string, fsImpl: any): any {
   const detected = detectCommands({ projectRoot: repoRoot, fsImpl });
   if (!detected.manifestFound) {
     return { id: null, signal: 'none', why: 'no build manifest found by command-detect.js' };
   }
-  const has = (name) => detected.manifests.includes(name);
+  const has = (name: string) => detected.manifests.includes(name);
   if (has('package.json')) {
     const typescript = Boolean(detected.commands.typecheck);
     return { id: typescript ? 'typescript' : 'javascript', signal: 'package.json', why: null };

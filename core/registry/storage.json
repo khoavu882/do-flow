@@ -1050,7 +1050,7 @@
       "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
     },
     {
-      "file": "src/runtime/scaffold/generate.js",
+      "file": "src/runtime/scaffold/generate.ts",
       "reason": "agent-docs deliverable (scaffold files and manifest)"
     }
   ]

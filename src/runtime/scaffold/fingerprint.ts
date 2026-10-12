@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Fingerprinting — the mechanism behind property 4 of the scaffold generator ("human edits
  * survive"). Every generated file carries a hash of its own body in its header; `compose()` writes
@@ -15,7 +17,7 @@ const crypto = require('node:crypto');
 const FINGERPRINT_MARKER = 'doflow-scaffold-fingerprint';
 const FINGERPRINT_RE = new RegExp(`${FINGERPRINT_MARKER} sha256:([0-9a-f]{64})`);
 
-function sha256(text) {
+function sha256(text: string): string {
   return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
@@ -26,7 +28,7 @@ function sha256(text) {
  * reading as human-edited; and it lives in the file rather than in a side ledger, so a scaffold
  * copied, moved or committed on its own still carries the evidence needed to protect it.
  */
-function compose(emitter, headerLines, body) {
+function compose(emitter: any, headerLines: string[], body: string): string {
   const fingerprint = sha256(body);
   const header = [
     ...headerLines.map((l) => emitter.line(l)),
@@ -36,7 +38,7 @@ function compose(emitter, headerLines, body) {
 }
 
 /** The hash a file claims for its own body, and the body it actually has. */
-function inspectExisting(text) {
+function inspectExisting(text: string): { claimed: string | null; actual: string | null; body: string | null } {
   const match = text.match(FINGERPRINT_RE);
   if (!match) return { claimed: null, actual: null, body: null };
   const cut = text.indexOf('\n', text.indexOf(match[0]));
