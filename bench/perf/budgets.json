@@ -93,6 +93,15 @@
       "cpuCount": 14,
       "totalMemMB": 98304,
       "node": "v26.8.1"
+    },
+    {
+      "machineId": "bea6dc6a8e0a",
+      "os": "darwin",
+      "arch": "arm64",
+      "cpuModel": "Apple M3 Max",
+      "cpuCount": 14,
+      "totalMemMB": 98304,
+      "node": "v26.8.1"
     }
   ],
   "surfaces": [
@@ -634,6 +643,226 @@
     {
       "surfaceId": "hook.shared.subagent-audit",
       "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "cli.version",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 59.15,
+      "p95Ms": 67.75,
+      "maxMs": 90.13,
+      "madMs": 2.67,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 16.94,
+      "ceilingMs": 85,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "cli.help",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 57.33,
+      "p95Ms": 67.55,
+      "maxMs": 69.46,
+      "madMs": 3.37,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 16.89,
+      "ceilingMs": 85,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "verb.goal-list",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 125.89,
+      "p95Ms": 142.5,
+      "maxMs": 173.25,
+      "madMs": 7.91,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 35.63,
+      "ceilingMs": 150,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "verb.capabilities",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 77.86,
+      "p95Ms": 90.63,
+      "maxMs": 111.61,
+      "madMs": 5.38,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 22.66,
+      "ceilingMs": 114,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "verb.context-pack",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 191.81,
+      "p95Ms": 219.58,
+      "maxMs": 229.82,
+      "madMs": 16.01,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 54.9,
+      "ceilingMs": 150,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "diag.doctor",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 433.73,
+      "p95Ms": 528.54,
+      "maxMs": 535.03,
+      "madMs": 19.6,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 132.14,
+      "ceilingMs": 500,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "install.dry-run",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 104.51,
+      "p95Ms": 144.6,
+      "maxMs": 164.94,
+      "madMs": 6.23,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 36.15,
+      "ceilingMs": 181,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 16.97,
+      "p95Ms": 22.51,
+      "maxMs": 26.11,
+      "madMs": 1.6,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 33,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.user-prompt-submit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 13.24,
+      "p95Ms": 16.11,
+      "maxMs": 16.75,
+      "madMs": 1.36,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 27,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "suite.guard-file",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 118.23,
+      "p95Ms": 135.93,
+      "maxMs": 150.81,
+      "madMs": 5.39,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 33.98,
+      "ceilingMs": 170,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "suite.guards",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 5573.67,
+      "p95Ms": 6793.44,
+      "maxMs": 6942.95,
+      "madMs": 168.16,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 1698.36,
+      "ceilingMs": 8492,
+      "status": "proposed"
     }
   ],
   "startupContext": [
@@ -641,8 +870,11 @@
       "harness": "claude",
       "installedVersion": "2.1.287 (Claude Code)",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no fixture"
+      "sessionStartStdoutBytes": 0,
+      "sessionStartStderrBytes": 0,
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -654,8 +886,11 @@
       "harness": "codex",
       "installedVersion": "codex-cli 0.162.1",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no fixture"
+      "sessionStartStdoutBytes": 0,
+      "sessionStartStderrBytes": 0,
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -667,8 +902,11 @@
       "harness": "gemini",
       "installedVersion": "0.55.1",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no fixture"
+      "sessionStartStdoutBytes": 0,
+      "sessionStartStderrBytes": 0,
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -683,6 +921,13 @@
       "sessionStartStdoutBytes": {
         "unmeasured": "no session-start hook"
       },
+      "sessionStartStderrBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
+      },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
       "harnessNative": {
@@ -695,6 +940,13 @@
       "doflowProjectedBytes": 9992,
       "sessionStartStdoutBytes": {
         "unmeasured": "no session-start hook"
+      },
+      "sessionStartStderrBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -709,6 +961,13 @@
       "sessionStartStdoutBytes": {
         "unmeasured": "no session-start hook"
       },
+      "sessionStartStderrBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
+      },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
       "harnessNative": {
@@ -717,10 +976,13 @@
     },
     {
       "harness": "kiro",
-      "installedVersion": "kiro-cli 2.30.0",
+      "installedVersion": "kiro-cli 2.31.0",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no fixture"
+      "sessionStartStdoutBytes": 0,
+      "sessionStartStderrBytes": 0,
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -730,10 +992,17 @@
     },
     {
       "harness": "antigravity",
-      "installedVersion": "1.3.3",
+      "installedVersion": "1.3.4",
       "doflowProjectedBytes": 9992,
       "sessionStartStdoutBytes": {
         "unmeasured": "no session-start hook"
+      },
+      "sessionStartStderrBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -746,90 +1015,91 @@
     {
       "harness": "claude",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "codex",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "gemini",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "opencode",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "pi",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "copilot",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "kiro",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "antigravity",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     }
-  ]
+  ],
+  "pointerCost": []
 }
