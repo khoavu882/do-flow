@@ -90,3 +90,47 @@ test('updatePlan runs build inside the cross-process lock and releases it afterw
   assert.equal(fs.existsSync(`${file}.lock`), false, 'the lock must be released after the write');
   assert.equal(readPlan(root, taskId).revision, 1);
 });
+
+test('concurrent attempts and reports preserve caller attempts and every revision', async (t) => {
+  const root = tempDir(t, 'doflow-retrieval-mixed-concurrency-');
+  const taskId = 'mixed-concurrency-task';
+
+  const realLog = console.log;
+  console.log = () => {};
+  let code;
+  try {
+    code = handleRetrievalPlanCommand({ taskId, action: 'declare', need: ['locate-concept'], stateRoot: root, json: true });
+  } finally {
+    console.log = realLog;
+    process.exitCode = 0;
+  }
+  assert.equal(code, 0, 'declare must succeed');
+
+  const K = 10;
+  const workerScript = (action) => `
+    const { handleRetrievalPlanCommand } = require(${JSON.stringify(path.resolve(__dirname, '../../src/runtime/retrieval-plan.ts'))});
+    const root = ${JSON.stringify(root)};
+    const taskId = ${JSON.stringify(taskId)};
+    const K = ${K};
+    const action = ${JSON.stringify(action)};
+    for (let i = 0; i < K; i++) {
+      const code = handleRetrievalPlanCommand({
+        taskId, action, need: action === 'attempt' ? ['locate-concept'] : [], stateRoot: root, json: true,
+        provider: 'native.rg', attemptStatus: 'UNREACHED', reason: 'timeout', note: 'concurrent caller attempt',
+      });
+      if (code !== 1 && code !== 0) process.exit(2);
+    }
+    process.exit(0);
+  `;
+
+  const child1 = spawn(process.execPath, ['-e', workerScript('attempt')], { stdio: 'ignore' });
+  const child2 = spawn(process.execPath, ['-e', workerScript('report')], { stdio: 'ignore' });
+  await Promise.all([
+    new Promise((resolve, reject) => child1.on('close', (exitCode) => (exitCode === 0 ? resolve() : reject(new Error(`child1 exited with ${exitCode}`))))),
+    new Promise((resolve, reject) => child2.on('close', (exitCode) => (exitCode === 0 ? resolve() : reject(new Error(`child2 exited with ${exitCode}`))))),
+  ]);
+
+  const plan = readPlan(root, taskId);
+  assert.equal(plan.needs[0].attempts.filter((attempt) => attempt.recordedBy === 'caller').length, K, 'all caller attempts must be present');
+  assert.equal(plan.revision, 1 + 2 * K, `expected revision ${1 + 2 * K}, got ${plan.revision}`);
+});
