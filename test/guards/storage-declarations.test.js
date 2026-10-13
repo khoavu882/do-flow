@@ -298,6 +298,7 @@ function runScenario() {
       ['orchestrate start', verb('orchestrate', '--action', 'start', '--task-id', 'g26-task', '--task-class', 'feature'), 0],
       ['evidence add', verb('evidence', '--task-id', 'g26-task', '--action', 'add', '--kind', 'documentation', '--provenance', 'asserted', '--provider', 'test', '--capability', 'scenario', '--content', 'a note'), 0],
       ['claim add', verb('claim', '--task-id', 'g26-task', '--action', 'add', '--statement', 'a claim'), 0],
+      ['context-pack', verb('context-pack', '--task-id', 'g26-task', '--task-class', 'feature'), 0],
       ['readiness', verb('readiness', '--task-class', 'bug', '--task-id', 'g26-task'), 0],
       ['research-request', verb('research-request', '--task-id', 'g26-task', '--action', 'open', '--stage-id', 'discovery', '--question', 'a question', '--reason', 'user-request'), 0],
       ['outcome', verb('outcome', '--task-id', 'g26-task', '--action', 'record', '--state', 'BLOCKED', '--task-class', 'bug'), 0],

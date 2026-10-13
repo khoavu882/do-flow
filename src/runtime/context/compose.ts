@@ -724,7 +724,7 @@ function linearFit({
  * Groups omissions according to IC-008.
  * Order: not-fresh STALE, not-fresh UNKNOWN, mandatory-overflow, budget, item-cap, unchanged.
  */
-function groupOmissions(omissionsList: any[] = []): { total: number; groups: any[] } {
+function groupOmissions(omissionsList: any[] = [], recorded = false): { total: number; groups: any[] } {
   if (!omissionsList || omissionsList.length === 0) {
     return { total: 0, groups: [] };
   }
@@ -755,11 +755,35 @@ function groupOmissions(omissionsList: any[] = []): { total: number; groups: any
     groupMap.get(key)!.ids.push(item.id);
   }
 
-  const groups = Array.from(groupMap.values())
-    .map((g) => ({
-      ...g,
-      count: g.ids.length,
-    }))
+  const groups = Array.from(groupMap.entries())
+    .map(([key, g]) => {
+      const matching = omissionsList.filter((item) => `${item.reason}:${item.freshness || ''}` === key);
+      const ranges: any[] = [];
+      const ranged = new Set<number>();
+      if (recorded) {
+        for (let start = 0; start < matching.length;) {
+          const first = matching[start];
+          const match = /^(.+?)(\d+)$/.exec(first.id);
+          let end = start;
+          if (match) {
+            let previous = Number(match[2]);
+            for (let i = start + 1; i < matching.length; i += 1) {
+              const next = /^(.+?)(\d+)$/.exec(matching[i].id);
+              if (matching[i].field !== first.field || !next || next[1] !== match[1] || Number(next[2]) !== previous + 1) break;
+              previous = Number(next[2]);
+              end = i;
+            }
+          }
+          if (end - start + 1 >= 3) {
+            for (let i = start; i <= end; i += 1) ranged.add(i);
+            ranges.push({ field: first.field, from: matching[start].id, to: matching[end].id, count: end - start + 1 });
+          }
+          start = end + 1;
+        }
+      }
+      const ids = g.ids.filter((_, index) => !ranged.has(index));
+      return { ...g, ids, ranges, count: g.ids.length };
+    })
     .sort((a, b) => rank(a) - rank(b));
 
   return {

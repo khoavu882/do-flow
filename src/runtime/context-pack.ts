@@ -48,6 +48,8 @@ const {
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
 const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds } = require('./context/budget.ts');
+const { createDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
+const { boundedAcquire } = require('./task-state.ts');
 
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
@@ -344,7 +346,7 @@ class ContextPackCompiler {
       const packMandatoryBytes = fit.mandatoryBytes;
       const packOptionalBytes = isOverflow ? 0 : Math.max(0, fit.totalBytes - fit.mandatoryBytes);
 
-      return {
+      const packed = {
         version: 1,
         status: isOverflow ? 'OVERFLOW' : (empty ? 'EMPTY' : 'OK'),
         exitCode: isOverflow ? EXIT.OVERFLOW : (empty ? EXIT.EMPTY : EXIT.OK),
@@ -439,6 +441,11 @@ class ContextPackCompiler {
           digest: packDigest.slice(0, 19),
         },
       };
+      Object.defineProperties(packed, {
+        deliveryItems: { value: keptItems.map((item: any) => ({ id: item.id, digest: item.digest, cls: item.cls || item.class })) },
+        deliveryOmissions: { value: bare ? [] : omissionsList.map((item: any) => ({ ...item })) },
+      });
+      return packed;
     };
 
     let pack: any = assemblePack(fit.kept, fit.omissions, fit.overflow, fit.cause);
@@ -875,6 +882,25 @@ function handleContextPackCommand({
     researchRequests,
     decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null, feature }),
   });
+
+  if (noRecord) {
+    pack.delivery.reason = 'no-record';
+  } else {
+    const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness });
+    try {
+      const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire });
+      pack.delivery.key = result.key;
+      pack.delivery.recorded = true;
+      pack.delivery.reason = null;
+      pack.accounting.tokens = entry.tokens;
+      pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, true);
+    } catch (error: any) {
+      if (error?.code !== 'store-locked' && error?.message !== 'store-locked') throw error;
+      pack.delivery.key = null;
+      pack.delivery.recorded = false;
+      pack.delivery.reason = 'store-locked';
+    }
+  }
 
   const output = json ? compiler.formatJson(pack) : compiler.formatMarkdown(pack);
   const emittedBytes = Buffer.byteLength(output, 'utf8');

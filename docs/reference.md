@@ -160,6 +160,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `task-retrieval` | `.doflow/state/retrieval` | prune finished work after 30 days |
 | `task-orchestration` | `.doflow/state/orchestration` | prune finished work after 30 days |
 | `task-attempts` | `.doflow/state/task-attempts` | prune finished work after 30 days |
+| `task-delivery` | `.doflow/state/delivery` | prune finished work after 30 days |
 | `runs-project` | `.doflow/state/runs` | prune partitions older than 180 days |
 | `runs-user` | `~/.doflow/state/runs` | prune partitions older than 180 days |
 | `advice-picks-project` | `.doflow/state/advice/picks` | prune partitions older than 90 days |
