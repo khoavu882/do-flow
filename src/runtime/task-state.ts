@@ -118,6 +118,43 @@ function acquireLock(fsImpl: any, file: string): () => void {
 }
 
 /**
+ * Takes the cross-process lock for one state file with a bounded wait.
+ * Makes 1 try plus `retries` retries (default 3) separated by `waitMs` (default 5).
+ * Throws an Error('store-locked') after one try plus retries.
+ * @param {Object} fsImpl
+ * @param {string} file
+ * @param {Object} [options]
+ * @param {number} [options.retries=3]
+ * @param {number} [options.waitMs=5]
+ * @returns {() => void} release function
+ */
+function boundedAcquire(
+  fsImpl: any,
+  file: string,
+  options: {
+    retries?: number;
+    waitMs?: number;
+    sleepFn?: (ms: number) => void;
+    tryAcquireLockFn?: (fsImpl: any, file: string) => (() => void) | null;
+  } = {}
+): () => void {
+  const retries = options?.retries ?? 3;
+  const waitMs = options?.waitMs ?? 5;
+  const sleepFn = options?.sleepFn ?? sleep;
+  const tryAcquire = options?.tryAcquireLockFn ?? tryAcquireLock;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const release = tryAcquire(fsImpl, file);
+    if (release) return release;
+    if (attempt < retries && waitMs > 0) {
+      sleepFn(waitMs);
+    }
+  }
+  const error = new Error('store-locked');
+  (error as any).code = 'store-locked';
+  throw error;
+}
+
+/**
  * Reads and validates one task-state file. Returns null when the file does not exist.
  * @param {Object} fsImpl
  * @param {string} file
@@ -129,13 +166,17 @@ function readTaskState(fsImpl: any, file: string): any {
   try {
     data = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
   } catch (error: any) {
-    throw new Error(`Failed to load state file '${file}': ${error.message}. The write path is atomic `
+    const failure: any = new Error(`Failed to load state file '${file}': ${error.message}. The write path is atomic `
       + '(tmp + rename), so a torn file means outside interference; recover it from version control '
       + 'or move it aside and re-record the task\'s items.');
+    failure.code = 'store-unreadable';
+    throw failure;
   }
   if (data && typeof data === 'object' && data.version !== undefined && data.version !== SCHEMA_VERSION) {
-    throw new Error(`State file '${file}' has schema version ${data.version}; this runtime reads version ${SCHEMA_VERSION}. `
+    const failure: any = new Error(`State file '${file}' has schema version ${data.version}; this runtime reads version ${SCHEMA_VERSION}. `
       + 'Refusing to guess at its shape — upgrade the runtime or migrate the file.');
+    failure.code = 'store-unreadable';
+    throw failure;
   }
   return data;
 }
@@ -151,16 +192,32 @@ function readTaskState(fsImpl: any, file: string): any {
  *   return the complete new payload (without `version`/`revision`, which are stamped here)
  * @param {() => void} [options.prepare] called INSIDE the lock before the file is read, for a store
  *   that must inspect or set aside what is there under the same exclusion as the write
- * @returns {string} the file path written
+ * @param {(fsImpl: Object, file: string) => () => void} [options.acquire] optional lock acquirer
+ *   defaulting to acquireLock
+ * @returns {string|null} the file path written, or null when build declines a write
  */
-function updateTaskState({ fsImpl, file, build, prepare }: { fsImpl: any; file: string; build: (disk: any) => any; prepare?: () => void }): string {
+function updateTaskState({
+  fsImpl,
+  file,
+  build,
+  prepare,
+  acquire = acquireLock,
+}: {
+  fsImpl: any;
+  file: string;
+  build: (disk: any) => any;
+  prepare?: () => void;
+  acquire?: (fsImpl: any, file: string) => () => void;
+}): string | null {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  const release = acquireLock(fsImpl, file);
+  const release = acquire(fsImpl, file);
   try {
     if (prepare) prepare();
     const disk = readTaskState(fsImpl, file);
+    const built = build(disk);
+    if (built === null) return null;
     const payload = {
-      ...build(disk),
+      ...built,
       version: SCHEMA_VERSION,
       revision: (disk && Number.isInteger(disk.revision) ? disk.revision : 0) + 1,
     };
@@ -173,4 +230,12 @@ function updateTaskState({ fsImpl, file, build, prepare }: { fsImpl: any; file: 
   }
 }
 
-module.exports = { acquireLock, tryAcquireLock, updateTaskState, readTaskState, mergeRecords, SCHEMA_VERSION };
+module.exports = {
+  acquireLock,
+  tryAcquireLock,
+  boundedAcquire,
+  updateTaskState,
+  readTaskState,
+  mergeRecords,
+  SCHEMA_VERSION,
+};

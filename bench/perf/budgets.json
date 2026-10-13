@@ -93,6 +93,15 @@
       "cpuCount": 14,
       "totalMemMB": 98304,
       "node": "v26.8.1"
+    },
+    {
+      "machineId": "bea6dc6a8e0a",
+      "os": "darwin",
+      "arch": "arm64",
+      "cpuModel": "Apple M3 Max",
+      "cpuCount": 14,
+      "totalMemMB": 98304,
+      "node": "v26.8.1"
     }
   ],
   "surfaces": [
@@ -141,6 +150,29 @@
       ],
       "intentClass": "verb",
       "enforced": false
+    },
+    {
+      "id": "verb.context-pack",
+      "kind": "cli",
+      "intentClass": "verb",
+      "enforced": false,
+      "status": "proposed",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/context-pack-project",
+        "git": true
+      },
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "context-pack",
+        "{project}",
+        "--task-id",
+        "perf-cp",
+        "--slug",
+        "perf-feature",
+        "--json"
+      ]
     },
     {
       "id": "diag.doctor",
@@ -611,6 +643,226 @@
     {
       "surfaceId": "hook.shared.subagent-audit",
       "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "cli.version",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 59.15,
+      "p95Ms": 67.75,
+      "maxMs": 90.13,
+      "madMs": 2.67,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 16.94,
+      "ceilingMs": 85,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "cli.help",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 57.33,
+      "p95Ms": 67.55,
+      "maxMs": 69.46,
+      "madMs": 3.37,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 16.89,
+      "ceilingMs": 85,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "verb.goal-list",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 125.89,
+      "p95Ms": 142.5,
+      "maxMs": 173.25,
+      "madMs": 7.91,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 35.63,
+      "ceilingMs": 150,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "verb.capabilities",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 77.86,
+      "p95Ms": 90.63,
+      "maxMs": 111.61,
+      "madMs": 5.38,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 22.66,
+      "ceilingMs": 114,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "verb.context-pack",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 120.79,
+      "p95Ms": 133.94,
+      "maxMs": 134.24,
+      "madMs": 2.67,
+      "controlP50Ms": 23.74,
+      "redos": 0,
+      "headroomMs": 33.49,
+      "ceilingMs": 150,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "diag.doctor",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 433.73,
+      "p95Ms": 528.54,
+      "maxMs": 535.03,
+      "madMs": 19.6,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 132.14,
+      "ceilingMs": 500,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "install.dry-run",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 104.51,
+      "p95Ms": 144.6,
+      "maxMs": 164.94,
+      "madMs": 6.23,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 36.15,
+      "ceilingMs": 181,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 16.97,
+      "p95Ms": 22.51,
+      "maxMs": 26.11,
+      "madMs": 1.6,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 33,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.user-prompt-submit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 13.24,
+      "p95Ms": 16.11,
+      "maxMs": 16.75,
+      "madMs": 1.36,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 27,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "suite.guard-file",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 118.23,
+      "p95Ms": 135.93,
+      "maxMs": 150.81,
+      "madMs": 5.39,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 33.98,
+      "ceilingMs": 170,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "suite.guards",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "bea6dc6a8e0a",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 5573.67,
+      "p95Ms": 6793.44,
+      "maxMs": 6942.95,
+      "madMs": 168.16,
+      "controlP50Ms": 27.29,
+      "redos": 0,
+      "headroomMs": 1698.36,
+      "ceilingMs": 8492,
+      "status": "proposed"
     }
   ],
   "startupContext": [
@@ -618,8 +870,11 @@
       "harness": "claude",
       "installedVersion": "2.1.287 (Claude Code)",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no fixture"
+      "sessionStartStdoutBytes": 0,
+      "sessionStartStderrBytes": 0,
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -631,8 +886,11 @@
       "harness": "codex",
       "installedVersion": "codex-cli 0.162.1",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no fixture"
+      "sessionStartStdoutBytes": 0,
+      "sessionStartStderrBytes": 0,
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -644,8 +902,11 @@
       "harness": "gemini",
       "installedVersion": "0.55.1",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no fixture"
+      "sessionStartStdoutBytes": 0,
+      "sessionStartStderrBytes": 0,
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -660,6 +921,13 @@
       "sessionStartStdoutBytes": {
         "unmeasured": "no session-start hook"
       },
+      "sessionStartStderrBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
+      },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
       "harnessNative": {
@@ -672,6 +940,13 @@
       "doflowProjectedBytes": 9992,
       "sessionStartStdoutBytes": {
         "unmeasured": "no session-start hook"
+      },
+      "sessionStartStderrBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -686,6 +961,13 @@
       "sessionStartStdoutBytes": {
         "unmeasured": "no session-start hook"
       },
+      "sessionStartStderrBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
+      },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
       "harnessNative": {
@@ -694,10 +976,13 @@
     },
     {
       "harness": "kiro",
-      "installedVersion": "kiro-cli 2.30.0",
+      "installedVersion": "kiro-cli 2.31.0",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no fixture"
+      "sessionStartStdoutBytes": 0,
+      "sessionStartStderrBytes": 0,
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -707,10 +992,17 @@
     },
     {
       "harness": "antigravity",
-      "installedVersion": "1.3.3",
+      "installedVersion": "1.3.4",
       "doflowProjectedBytes": 9992,
       "sessionStartStdoutBytes": {
         "unmeasured": "no session-start hook"
+      },
+      "sessionStartStderrBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "sessionStartBasis": "measured:temp-home-install",
+      "perPromptStdoutBytes": {
+        "unmeasured": "owner 077"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -723,90 +1015,740 @@
     {
       "harness": "claude",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "codex",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "gemini",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "opencode",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "pi",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "copilot",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "kiro",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
     },
     {
       "harness": "antigravity",
       "capacityTokens": null,
-      "capacityBasis": "profile-required",
+      "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,
       "startupBasis": "estimated",
-      "reserveTokens": 0,
-      "reserveBasis": "estimated",
+      "reserveTokens": null,
+      "reserveBasis": "unverified:values belong to 085 (A-19)",
       "availableTokens": null,
       "availableBasis": "profile-required"
+    }
+  ],
+  "pointerCost": [
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/intention/requirement.md:15-18",
+      "path": "agent-docs/doflow/perf-feature/intention/requirement.md",
+      "range": {
+        "startLine": 15,
+        "endLine": 18
+      },
+      "target": "whole-file",
+      "form": "markdown",
+      "inlineBytes": 108,
+      "pointerBytes": 136,
+      "targetBytes": 1586,
+      "followedBytes": 1722,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 27,
+        "followed": 431,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 1614,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/intention/requirement.md:15-18",
+      "path": "agent-docs/doflow/perf-feature/intention/requirement.md",
+      "range": {
+        "startLine": 15,
+        "endLine": 18
+      },
+      "target": "whole-file",
+      "form": "json",
+      "inlineBytes": 108,
+      "pointerBytes": 464,
+      "targetBytes": 1586,
+      "followedBytes": 2050,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 27,
+        "followed": 513,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 1942,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/intention/requirement.md:15-18",
+      "path": "agent-docs/doflow/perf-feature/intention/requirement.md",
+      "range": {
+        "startLine": 15,
+        "endLine": 18
+      },
+      "target": "slice",
+      "form": "markdown",
+      "inlineBytes": 108,
+      "pointerBytes": 136,
+      "targetBytes": 108,
+      "followedBytes": 244,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 27,
+        "followed": 61,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 136,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/intention/requirement.md:15-18",
+      "path": "agent-docs/doflow/perf-feature/intention/requirement.md",
+      "range": {
+        "startLine": 15,
+        "endLine": 18
+      },
+      "target": "slice",
+      "form": "json",
+      "inlineBytes": 108,
+      "pointerBytes": 464,
+      "targetBytes": 108,
+      "followedBytes": 572,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 27,
+        "followed": 143,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 464,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/intention/requirement.md:26-30",
+      "path": "agent-docs/doflow/perf-feature/intention/requirement.md",
+      "range": {
+        "startLine": 26,
+        "endLine": 30
+      },
+      "target": "whole-file",
+      "form": "markdown",
+      "inlineBytes": 158,
+      "pointerBytes": 136,
+      "targetBytes": 1586,
+      "followedBytes": 1722,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 40,
+        "followed": 431,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 1564,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/intention/requirement.md:26-30",
+      "path": "agent-docs/doflow/perf-feature/intention/requirement.md",
+      "range": {
+        "startLine": 26,
+        "endLine": 30
+      },
+      "target": "whole-file",
+      "form": "json",
+      "inlineBytes": 158,
+      "pointerBytes": 468,
+      "targetBytes": 1586,
+      "followedBytes": 2054,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 40,
+        "followed": 514,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 1896,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/intention/requirement.md:26-30",
+      "path": "agent-docs/doflow/perf-feature/intention/requirement.md",
+      "range": {
+        "startLine": 26,
+        "endLine": 30
+      },
+      "target": "slice",
+      "form": "markdown",
+      "inlineBytes": 158,
+      "pointerBytes": 136,
+      "targetBytes": 158,
+      "followedBytes": 294,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 40,
+        "followed": 74,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 136,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/intention/requirement.md:26-30",
+      "path": "agent-docs/doflow/perf-feature/intention/requirement.md",
+      "range": {
+        "startLine": 26,
+        "endLine": 30
+      },
+      "target": "slice",
+      "form": "json",
+      "inlineBytes": 158,
+      "pointerBytes": 468,
+      "targetBytes": 158,
+      "followedBytes": 626,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 40,
+        "followed": 157,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 468,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/design.md:3-6",
+      "path": "agent-docs/doflow/perf-feature/design/design.md",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "target": "whole-file",
+      "form": "markdown",
+      "inlineBytes": 83,
+      "pointerBytes": 115,
+      "targetBytes": 214,
+      "followedBytes": 329,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 21,
+        "followed": 83,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 246,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/design.md:3-6",
+      "path": "agent-docs/doflow/perf-feature/design/design.md",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "target": "whole-file",
+      "form": "json",
+      "inlineBytes": 83,
+      "pointerBytes": 419,
+      "targetBytes": 214,
+      "followedBytes": 633,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 21,
+        "followed": 159,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 550,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/design.md:3-6",
+      "path": "agent-docs/doflow/perf-feature/design/design.md",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "target": "slice",
+      "form": "markdown",
+      "inlineBytes": 83,
+      "pointerBytes": 115,
+      "targetBytes": 83,
+      "followedBytes": 198,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 21,
+        "followed": 50,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 115,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/design.md:3-6",
+      "path": "agent-docs/doflow/perf-feature/design/design.md",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "target": "slice",
+      "form": "json",
+      "inlineBytes": 83,
+      "pointerBytes": 419,
+      "targetBytes": 83,
+      "followedBytes": 502,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 21,
+        "followed": 126,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 419,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/design.md:7-10",
+      "path": "agent-docs/doflow/perf-feature/design/design.md",
+      "range": {
+        "startLine": 7,
+        "endLine": 10
+      },
+      "target": "whole-file",
+      "form": "markdown",
+      "inlineBytes": 86,
+      "pointerBytes": 117,
+      "targetBytes": 214,
+      "followedBytes": 331,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 22,
+        "followed": 83,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 245,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/design.md:7-10",
+      "path": "agent-docs/doflow/perf-feature/design/design.md",
+      "range": {
+        "startLine": 7,
+        "endLine": 10
+      },
+      "target": "whole-file",
+      "form": "json",
+      "inlineBytes": 86,
+      "pointerBytes": 420,
+      "targetBytes": 214,
+      "followedBytes": 634,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 22,
+        "followed": 159,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 548,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/design.md:7-10",
+      "path": "agent-docs/doflow/perf-feature/design/design.md",
+      "range": {
+        "startLine": 7,
+        "endLine": 10
+      },
+      "target": "slice",
+      "form": "markdown",
+      "inlineBytes": 86,
+      "pointerBytes": 117,
+      "targetBytes": 86,
+      "followedBytes": 203,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 22,
+        "followed": 51,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 117,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/design.md:7-10",
+      "path": "agent-docs/doflow/perf-feature/design/design.md",
+      "range": {
+        "startLine": 7,
+        "endLine": 10
+      },
+      "target": "slice",
+      "form": "json",
+      "inlineBytes": 86,
+      "pointerBytes": 420,
+      "targetBytes": 86,
+      "followedBytes": 506,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 22,
+        "followed": 127,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 420,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/specs.md:3-6",
+      "path": "agent-docs/doflow/perf-feature/design/specs.md",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "target": "whole-file",
+      "form": "markdown",
+      "inlineBytes": 107,
+      "pointerBytes": 114,
+      "targetBytes": 275,
+      "followedBytes": 389,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 27,
+        "followed": 98,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 282,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/specs.md:3-6",
+      "path": "agent-docs/doflow/perf-feature/design/specs.md",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "target": "whole-file",
+      "form": "json",
+      "inlineBytes": 107,
+      "pointerBytes": 430,
+      "targetBytes": 275,
+      "followedBytes": 705,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 27,
+        "followed": 177,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 598,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/specs.md:3-6",
+      "path": "agent-docs/doflow/perf-feature/design/specs.md",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "target": "slice",
+      "form": "markdown",
+      "inlineBytes": 107,
+      "pointerBytes": 114,
+      "targetBytes": 107,
+      "followedBytes": 221,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 27,
+        "followed": 56,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 114,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/specs.md:3-6",
+      "path": "agent-docs/doflow/perf-feature/design/specs.md",
+      "range": {
+        "startLine": 3,
+        "endLine": 6
+      },
+      "target": "slice",
+      "form": "json",
+      "inlineBytes": 107,
+      "pointerBytes": 430,
+      "targetBytes": 107,
+      "followedBytes": 537,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 27,
+        "followed": 135,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 430,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/specs.md:7-10",
+      "path": "agent-docs/doflow/perf-feature/design/specs.md",
+      "range": {
+        "startLine": 7,
+        "endLine": 10
+      },
+      "target": "whole-file",
+      "form": "markdown",
+      "inlineBytes": 110,
+      "pointerBytes": 116,
+      "targetBytes": 275,
+      "followedBytes": 391,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 28,
+        "followed": 98,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 281,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/specs.md:7-10",
+      "path": "agent-docs/doflow/perf-feature/design/specs.md",
+      "range": {
+        "startLine": 7,
+        "endLine": 10
+      },
+      "target": "whole-file",
+      "form": "json",
+      "inlineBytes": 110,
+      "pointerBytes": 428,
+      "targetBytes": 275,
+      "followedBytes": 703,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 28,
+        "followed": 176,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 593,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/specs.md:7-10",
+      "path": "agent-docs/doflow/perf-feature/design/specs.md",
+      "range": {
+        "startLine": 7,
+        "endLine": 10
+      },
+      "target": "slice",
+      "form": "markdown",
+      "inlineBytes": 110,
+      "pointerBytes": 116,
+      "targetBytes": 110,
+      "followedBytes": 226,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 28,
+        "followed": 57,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 116,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "pointerId": "ptr:agent-docs/doflow/perf-feature/design/specs.md:7-10",
+      "path": "agent-docs/doflow/perf-feature/design/specs.md",
+      "range": {
+        "startLine": 7,
+        "endLine": 10
+      },
+      "target": "slice",
+      "form": "json",
+      "inlineBytes": 110,
+      "pointerBytes": 428,
+      "targetBytes": 110,
+      "followedBytes": 538,
+      "reads": 1,
+      "tokensEst": {
+        "inline": 28,
+        "followed": 135,
+        "basis": "estimated:bytes/4"
+      },
+      "netBytes": 428,
+      "readProbability": {
+        "unmeasured": "needs a model call (paid)"
+      },
+      "actual": {
+        "unmeasured": "needs a model call (paid)"
+      }
     }
   ]
 }

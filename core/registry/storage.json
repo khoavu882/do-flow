@@ -93,6 +93,24 @@
       ]
     },
     {
+      "id": "task-delivery",
+      "root": "project-state",
+      "path": "delivery",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.ts"
+      ]
+    },
+    {
       "id": "task-readiness",
       "root": "project-state",
       "path": "readiness",
