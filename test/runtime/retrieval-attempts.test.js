@@ -289,12 +289,18 @@ test('two child processes appending attempts lose none (IC-020, DEC-012, NFR-004
 
   declareFixturePlan(root, taskId);
 
-  const K = 10;
+  const K = 20;
+  // Both workers load their modules, announce themselves, and wait for one start file, so the two
+  // append loops overlap instead of running back to back.
+  const goFile = path.join(root, 'go');
   const workerScript = `
+    const fs = require('node:fs');
     const { handleRetrievalPlanCommand } = require(${JSON.stringify(path.resolve(__dirname, '../../src/runtime/retrieval-plan.ts'))});
     const root = ${JSON.stringify(root)};
     const taskId = ${JSON.stringify(taskId)};
     const K = ${K};
+    fs.writeFileSync(require('node:path').join(root, 'ready-' + process.pid), '');
+    while (!fs.existsSync(${JSON.stringify(goFile)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
     for (let i = 0; i < K; i++) {
       const code = handleRetrievalPlanCommand({
         taskId,
@@ -316,15 +322,17 @@ test('two child processes appending attempts lose none (IC-020, DEC-012, NFR-004
 
   const child1 = spawn(process.execPath, ['-e', workerScript], { stdio: 'ignore' });
   const child2 = spawn(process.execPath, ['-e', workerScript], { stdio: 'ignore' });
-
-  await Promise.all([
-    new Promise((resolve, reject) => {
-      child1.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`child1 exited with ${code}`))));
-    }),
-    new Promise((resolve, reject) => {
-      child2.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`child2 exited with ${code}`))));
-    }),
-  ]);
+  const closed = [child1, child2].map((child, index) => new Promise((resolve, reject) => {
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`child${index + 1} exited with ${code}`))));
+  }));
+  // Release the start barrier once both workers are ready; a worker that dies first fails `closed`.
+  let workerDied = false;
+  for (const exit of closed) exit.catch(() => { workerDied = true; });
+  while (!workerDied && fs.readdirSync(root).filter((name) => name.startsWith('ready-')).length < 2) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  fs.writeFileSync(goFile, '');
+  await Promise.all(closed);
 
   const plan = readPlan(root, taskId);
   assert.ok(plan, 'plan exists');

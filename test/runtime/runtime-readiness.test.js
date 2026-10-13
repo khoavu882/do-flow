@@ -373,6 +373,25 @@ test('a stale absence blocks its requirement with the specific reason and stays 
   assert.deepEqual(report.staleEvidence, []);
 });
 
+test('an UNKNOWN absence also blocks its requirement with stale-absence-unverified', (t) => {
+  const root = tempDir(t, 'doflow-readiness-unknown-absence-');
+  const taskId = 't-unknown-absence';
+  updatePlan(root, taskId, null, () => ({ taskId, needs: [], providers: {} }));
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  const id = ledger.addEvidence({ taskId, kind: 'structural', result: 'EMPTY', establishes: ['architecture_mapped'],
+    source: { provider: 'unmapped.index', capability: 'code.impact-analysis' }, freshness: { status: 'UNKNOWN' } });
+
+  const report = engine.evaluateReadiness({ taskId, taskClass: 'refactor' }, ledger, claims);
+  const requirement = report.requirements.find((item) => item.id === 'architecture_mapped');
+  assert.equal(report.state, 'NEEDS_EVIDENCE');
+  assert.equal(requirement.satisfied, false);
+  assert.equal(requirement.reasonCode, 'stale-absence-unverified');
+  assert.deepEqual(report.staleAbsence, [{ evidenceId: id, requirement: 'architecture_mapped', provider: 'unmapped.index', freshness: 'UNKNOWN', refresh: null }]);
+  assert.deepEqual(report.staleEvidence, []);
+});
+
 test('a fresh absence qualifies, while a query-bound unbound item does not', (t) => {
   const root = tempDir(t, 'doflow-readiness-binding-');
   const taskId = 't-readiness-binding';
