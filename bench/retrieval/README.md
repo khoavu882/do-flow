@@ -30,7 +30,7 @@ Retrieval effectiveness is measured using deterministic metrics defined in IC-00
 
 - **Ranking metrics**: Span recall (`recallAt{k}`), file recall (`fileRecallAt{k}`), Mean Reciprocal Rank (`mrrAt{k}`), `successAt1` (exact-lookup), and `ndcgAt10`.
 - **Integrity and outcome metrics**: `locatorValidity`, `falseAbsence`, `statusMatch`, `missedDependencies` (impact-refactor), `mustIncludeMet` (oversized-context), and `mustSurviveMet` (verification-failure).
-- **Statistics**: Seeded pseudo-random number generation via mulberry32, nearest-rank percentiles, Mean Absolute Deviation (MAD), 95% bootstrap confidence intervals (10,000 resamples), and paired sign-flip randomization tests.
+- **Statistics**: Seeded pseudo-random number generation via mulberry32, nearest-rank percentiles, Median Absolute Deviation (MAD), 95% bootstrap confidence intervals (10,000 resamples), and paired sign-flip randomization tests.
 - **Reporting rules**: Results are reported by corpus, class, and harness, never blended. Model self-scoring is never the only metric.
 
 ## Orchestration evaluation
@@ -62,7 +62,7 @@ Holdout evaluation protects against benchmark overfitting per IC-014:
 - **`sealedBy` rule**: Authors who author or seal holdout tasks (`sealedBy`) must not tune later configurations or author tasks for later features (barred from feature 079 and subsequent tuning).
 - **Seal invalidation**: A fresh generation is required when holdout results fed tuning, when more than 6 runs have used the generation, or if plaintext or canary tokens leak into any tracked file.
 
-Generation 1 was run once for configurations A and B (commit 8e7a0e5); its six per-class aggregate files are under bench/retrieval/results/. Generation 1 may not feed tuning; tuning on it requires generation 2.
+Generation 1 was run once for configurations A and B (commit 8e7a0e5); its six per-class aggregate files are under bench/retrieval/results/. Generation 1 may not feed tuning; tuning on it requires generation 2. Generation 1 comparisons predate the headline-metric comparisons and unreachedCount (DEC-020) and cannot be recomputed.
 
 ## Refresh
 
@@ -73,11 +73,11 @@ Generation 1 was run once for configurations A and B (commit 8e7a0e5); its six p
 ## P0 gate
 
 Benchmarks rerun against the same snapshot.
-Evidence: `npm run bench -- retrieval rerun --json` reproduced the committed baseline (`baseline.json`) on snapshot 1 (`3fc988bc519cd7ac289f6db64dfa15b78457cf1b`) with exit code 0. All 290 metric diffs across code and guidance corpora matched within tolerance (`allOk: true`), and latency was compared on the same machine (`latency.compared: true`; rerun latency is same-machine-only per thresholds.json `rerun.latency`).
+Evidence: `npm run bench -- retrieval rerun --json` reproduced the committed baseline (`baseline.json`) on snapshot 1 (`3fc988bc519cd7ac289f6db64dfa15b78457cf1b`) with exit code 0. All metric diffs across code and guidance corpora matched within tolerance (summary line: `latency not gated: thresholds.json has no latency tolerances`). Latency is not gated by rerun because `thresholds.json` has no latency tolerances.
 
 Registry slots alone do not establish operational hybrid support.
 Evidence: `bench/inventory/capabilities.json` gate evidence records confirm that registry declarations lack operational execution:
-- `INV-012`: `models.json` retrieval slots (`dense`, `rerank`) are declared but remain inactive with no production callers (`src/runtime/model-router.ts:101`).
+- `INV-012`: The registry validator allows the ids `dense`/`rerank`; `models.json` declares no retrieval slots (`src/runtime/model-router.ts:101`).
 - `INV-014`: `fuseHybridResults` reciprocal-rank fusion is declared and unit-tested in `src/runtime/knowledge/hybrid.ts:92`, but has no production caller in any CLI verb or runtime execution path.
 
 Tool replacement requires comparative evidence.
