@@ -1,0 +1,11 @@
+--- a/core/shared/guidance/PRINCIPLES.md
++++ b/core/shared/guidance/PRINCIPLES.md
+@@ -12,7 +12,7 @@
+ Before producing a result, state the set you will check and the bar each item must clear — compile
+ that set from whatever owns it rather than recalling it. Then run. Then report every item in the
+ set: one the run never reached is reported as unreached, never dropped. A stage that opens by
+-analysing and closes with a verdict had no contract.
++analysing and closes with a verdict had no contract. <!-- dirty 025 -->
+ 
+ ## Plan, then execute
+ 

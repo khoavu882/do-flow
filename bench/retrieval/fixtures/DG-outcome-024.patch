@@ -1,0 +1,8 @@
+--- a/core/shared/guidance/FLAGS.md
++++ b/core/shared/guidance/FLAGS.md
+@@ -22,4 +22,4 @@
+ **--focus [quality|security|performance|architecture]** — narrows analysis to one domain. Consumed
+ by `do-diagnose`.
+ 
+-MCP short flags are generated per install into `MCP_INDEX.md`; this file names no server.
++MCP short flags are generated per install into `MCP_INDEX.md`; this file names no server. <!-- dirty 024 -->

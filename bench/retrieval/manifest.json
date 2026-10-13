@@ -1,0 +1,3552 @@
+{
+  "schemaVersion": 1,
+  "commit": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+  "entries": [
+    {
+      "path": "bin/doflow.js",
+      "corpus": "code",
+      "blob": "b597ce74eae257c2f849ce96fdff4f8659021e3a",
+      "bytes": 2915
+    },
+    {
+      "path": "core/harnesses/antigravity/hooks/pre-implementation-gate.sh",
+      "corpus": "code",
+      "blob": "22e04c081852f64646764b973b968b34c3f233ae",
+      "bytes": 547
+    },
+    {
+      "path": "core/harnesses/antigravity/hooks/stop-check.sh",
+      "corpus": "code",
+      "blob": "0f5427a4b3ee468f3300db570200c74626113d95",
+      "bytes": 595
+    },
+    {
+      "path": "core/harnesses/claude/hooks/lib.sh",
+      "corpus": "code",
+      "blob": "37e39a3c5d3b505b70bff9e3854801ef49ddccee",
+      "bytes": 13389
+    },
+    {
+      "path": "core/harnesses/claude/hooks/mcp-tool-guard.sh",
+      "corpus": "code",
+      "blob": "56b881c53d9bd771c50961662f9d7525904a82dd",
+      "bytes": 917
+    },
+    {
+      "path": "core/harnesses/claude/hooks/permission-audit.sh",
+      "corpus": "code",
+      "blob": "bcd833a1eea996abc12fae877b658e118adc4731",
+      "bytes": 1743
+    },
+    {
+      "path": "core/harnesses/claude/hooks/post-compact.sh",
+      "corpus": "code",
+      "blob": "8ce35e5d5f2035e63af3643cb1cfdbd3a552d34f",
+      "bytes": 2580
+    },
+    {
+      "path": "core/harnesses/claude/hooks/post-edit-lint.sh",
+      "corpus": "code",
+      "blob": "6f77feb46121038bf03c1a4a550fe1a8a4f6a380",
+      "bytes": 1180
+    },
+    {
+      "path": "core/harnesses/claude/hooks/post-tool-failure.sh",
+      "corpus": "code",
+      "blob": "c5e4066fd71a2233c32e9c237d39578d253f4496",
+      "bytes": 1788
+    },
+    {
+      "path": "core/harnesses/claude/hooks/pre-bash-guard.sh",
+      "corpus": "code",
+      "blob": "029ba4126bddbd84e0fcd8d86dd208185b00e797",
+      "bytes": 911
+    },
+    {
+      "path": "core/harnesses/claude/hooks/pre-compact.sh",
+      "corpus": "code",
+      "blob": "b20bc056ae5ae12c4374ccbde08c078d8f10242b",
+      "bytes": 1655
+    },
+    {
+      "path": "core/harnesses/claude/hooks/pre-implement-gate.sh",
+      "corpus": "code",
+      "blob": "d416bc90965cdfd337d98ec18877c245b421532b",
+      "bytes": 941
+    },
+    {
+      "path": "core/harnesses/claude/hooks/session-end.sh",
+      "corpus": "code",
+      "blob": "cf3f0d2305112e7210a0b08c74d3ae18e64e6729",
+      "bytes": 3544
+    },
+    {
+      "path": "core/harnesses/claude/hooks/session-start.sh",
+      "corpus": "code",
+      "blob": "ac2957c5a9e39424ad50b7f82109c523df8efd8c",
+      "bytes": 247
+    },
+    {
+      "path": "core/harnesses/claude/hooks/skill-config-audit.sh",
+      "corpus": "code",
+      "blob": "78f187a83415f1b86e8abd90c02fcc1d557979ba",
+      "bytes": 1638
+    },
+    {
+      "path": "core/harnesses/claude/hooks/stop-check.sh",
+      "corpus": "code",
+      "blob": "e84e7ce576f97b49c53617362d897bafc6df0779",
+      "bytes": 244
+    },
+    {
+      "path": "core/harnesses/claude/hooks/subagent-audit.sh",
+      "corpus": "code",
+      "blob": "baa0911d4e88d058158c6dd91028453869068b00",
+      "bytes": 372
+    },
+    {
+      "path": "core/harnesses/claude/hooks/user-prompt-submit.sh",
+      "corpus": "code",
+      "blob": "9995ac88e79d4a0c094f815c1450c1fcfbcc60ac",
+      "bytes": 257
+    },
+    {
+      "path": "core/harnesses/claude/settings/keybindings.json",
+      "corpus": "code",
+      "blob": "056ee6233f27dcb9241334a30eae56b81ef4be8e",
+      "bytes": 442
+    },
+    {
+      "path": "core/harnesses/claude/settings/settings.json",
+      "corpus": "code",
+      "blob": "cca85a639b87dc2269860a85289ca65675a8623c",
+      "bytes": 4028
+    },
+    {
+      "path": "core/harnesses/claude/statusline/doflow-statusline.sh",
+      "corpus": "code",
+      "blob": "0dd95795b99512cc4a2ffd3670107d529ff2b8af",
+      "bytes": 1575
+    },
+    {
+      "path": "core/harnesses/codex/agents/core-implementer.toml",
+      "corpus": "code",
+      "blob": "cc3af6a62d0240b41b3a6b47bb346c702eb396f3",
+      "bytes": 456
+    },
+    {
+      "path": "core/harnesses/codex/agents/quality-guardian.toml",
+      "corpus": "code",
+      "blob": "d6c09eec688bedf5e9ffee45219a6d11f39934e5",
+      "bytes": 514
+    },
+    {
+      "path": "core/harnesses/codex/agents/research-writer.toml",
+      "corpus": "code",
+      "blob": "5c752e4227f45ff5be16e7b6b93a551c8655eab9",
+      "bytes": 473
+    },
+    {
+      "path": "core/harnesses/codex/agents/spec-analyst.toml",
+      "corpus": "code",
+      "blob": "0db16a6ece8d517e48193db0ea52ceb0c4fa8bf9",
+      "bytes": 437
+    },
+    {
+      "path": "core/harnesses/codex/agents/system-architect.toml",
+      "corpus": "code",
+      "blob": "9e271a16f065be5dece3da9bc32b7929cdcb783c",
+      "bytes": 535
+    },
+    {
+      "path": "core/harnesses/codex/config/config.toml",
+      "corpus": "code",
+      "blob": "5a738f3200f9cf7b2a6ae2783e9d5f928856f29f",
+      "bytes": 455
+    },
+    {
+      "path": "core/harnesses/codex/hooks/hooks.json",
+      "corpus": "code",
+      "blob": "41dd72729e14171a1c5363d177f5fd9a4cf078a2",
+      "bytes": 4855
+    },
+    {
+      "path": "core/harnesses/codex/hooks/lib.sh",
+      "corpus": "code",
+      "blob": "ffc7ef6764ad6b7ef67c44876bd0e993ae24157a",
+      "bytes": 14338
+    },
+    {
+      "path": "core/harnesses/codex/hooks/mcp-tool-guard.sh",
+      "corpus": "code",
+      "blob": "2d0c98dadc0e80f897176fd5b559210265838a1c",
+      "bytes": 830
+    },
+    {
+      "path": "core/harnesses/codex/hooks/post-edit-lint.impl.sh",
+      "corpus": "code",
+      "blob": "766d32d3d8fc42a9c6f918bc23b43ef16942b2ff",
+      "bytes": 2218
+    },
+    {
+      "path": "core/harnesses/codex/hooks/post-edit-lint.sh",
+      "corpus": "code",
+      "blob": "7596a385eb8f0a762e595e00c1c25a571a33412d",
+      "bytes": 286
+    },
+    {
+      "path": "core/harnesses/codex/hooks/pre-bash-guard.sh",
+      "corpus": "code",
+      "blob": "1794b07afccc2d80a02894a308b0075f64afb21c",
+      "bytes": 824
+    },
+    {
+      "path": "core/harnesses/codex/hooks/pre-compact.impl.sh",
+      "corpus": "code",
+      "blob": "9fff7814c902a524c336e6c002cb4880c9125238",
+      "bytes": 2280
+    },
+    {
+      "path": "core/harnesses/codex/hooks/pre-compact.sh",
+      "corpus": "code",
+      "blob": "826274910d80b32d7041566c62694192881c47d7",
+      "bytes": 555
+    },
+    {
+      "path": "core/harnesses/codex/hooks/pre-implement-gate.sh",
+      "corpus": "code",
+      "blob": "a3059373416081e11b6e46962dcce842b29beba2",
+      "bytes": 854
+    },
+    {
+      "path": "core/harnesses/codex/hooks/session-end.impl.sh",
+      "corpus": "code",
+      "blob": "d67a4577b134c33f61d750fab447074ca1876e33",
+      "bytes": 3767
+    },
+    {
+      "path": "core/harnesses/codex/hooks/session-end.sh",
+      "corpus": "code",
+      "blob": "9f4b0e90ffc1e5586d058df35c66674d9d44d090",
+      "bytes": 174
+    },
+    {
+      "path": "core/harnesses/codex/hooks/session-start.sh",
+      "corpus": "code",
+      "blob": "8b3ee26b71babbcdfcaee11a2fb83f69e020ffe0",
+      "bytes": 250
+    },
+    {
+      "path": "core/harnesses/codex/hooks/stop-check.sh",
+      "corpus": "code",
+      "blob": "eff412ef5617926b0c5f394fea7659c1d353c3f4",
+      "bytes": 296
+    },
+    {
+      "path": "core/harnesses/codex/hooks/subagent-audit.sh",
+      "corpus": "code",
+      "blob": "db7b9b52cf1890aa041f03385410d8d397a1f336",
+      "bytes": 455
+    },
+    {
+      "path": "core/harnesses/codex/hooks/user-prompt-submit.sh",
+      "corpus": "code",
+      "blob": "6809f0a8a4b6c8f6f53d392cb47e10d4d08e4b03",
+      "bytes": 340
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/hooks.json",
+      "corpus": "code",
+      "blob": "3e8f62234dc617b00bd821a5e9cc0dbb822e5323",
+      "bytes": 1817
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/lib.sh",
+      "corpus": "code",
+      "blob": "96fc20a9c3100a9d6f0075a77e7b9f7d4c65380e",
+      "bytes": 13110
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/mcp-tool-guard.sh",
+      "corpus": "code",
+      "blob": "380040cc62bf8bb6934947a8a6b95d9495292edf",
+      "bytes": 970
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/post-edit-lint.sh",
+      "corpus": "code",
+      "blob": "d0e111117249faa65df616705dbeb2a993736c29",
+      "bytes": 1613
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/pre-bash-guard.sh",
+      "corpus": "code",
+      "blob": "e810ca1e27001a138cfcf14c8240d1a63ce24435",
+      "bytes": 964
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/pre-compact.sh",
+      "corpus": "code",
+      "blob": "070610609cf6093099a5a9a3761f082b80252cac",
+      "bytes": 1364
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/pre-implement-gate.sh",
+      "corpus": "code",
+      "blob": "088d5590201385ebfc107f03ad28afaf29a8ee62",
+      "bytes": 994
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/session-end.impl.sh",
+      "corpus": "code",
+      "blob": "6e01d4c3c682dc54a877dcc7b763dde2e2c615a6",
+      "bytes": 3573
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/session-end.sh",
+      "corpus": "code",
+      "blob": "072553c2b93c23c7384cfefa5c70498530de9e08",
+      "bytes": 188
+    },
+    {
+      "path": "core/harnesses/gemini/hooks/session-start.sh",
+      "corpus": "code",
+      "blob": "eeecd3fa2e8e0e3d39b42363f6203e08e1ecf825",
+      "bytes": 246
+    },
+    {
+      "path": "core/harnesses/gemini/settings/adapter-defaults.json",
+      "corpus": "code",
+      "blob": "83407ef2adcd0951a7811cb2b445f4bbe036b7bb",
+      "bytes": 75
+    },
+    {
+      "path": "core/harnesses/kiro/agents/doflow.json",
+      "corpus": "code",
+      "blob": "2285895b026d02dd5db1d9f660ceb7ee381ec8c7",
+      "bytes": 2611
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/doflow.json",
+      "corpus": "code",
+      "blob": "50e31decc2d1620700f6d2ea37e01ee92c0b4ffb",
+      "bytes": 2120
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/lib.sh",
+      "corpus": "code",
+      "blob": "5b56477fddb4b1a9db41e73f5d25b3cf390dd8bc",
+      "bytes": 14575
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/mcp-tool-guard.sh",
+      "corpus": "code",
+      "blob": "50fc33dfbcbb228830d2705a39b83ab8b2b32841",
+      "bytes": 448
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/pre-bash-guard.sh",
+      "corpus": "code",
+      "blob": "e59eb08b8cb692e6cc0f21fe7215e9079a744ebe",
+      "bytes": 448
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/pre-implement-gate.sh",
+      "corpus": "code",
+      "blob": "148a9f685e13865c77e5fe30c970b9ba773e5569",
+      "bytes": 466
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/session-start.sh",
+      "corpus": "code",
+      "blob": "c5757ebfd04c5860682edb4b18bfb025522d503f",
+      "bytes": 450
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/stop-check.sh",
+      "corpus": "code",
+      "blob": "f939796c078e7d33be03249986162b66af788ace",
+      "bytes": 2052
+    },
+    {
+      "path": "core/harnesses/shared/hooks/ENVELOPE_MIGRATION.md",
+      "corpus": "code",
+      "blob": "cbac5a3bfe174fcf5805cee14246f5221831062e",
+      "bytes": 2483
+    },
+    {
+      "path": "core/harnesses/shared/hooks/adapters/antigravity.js",
+      "corpus": "code",
+      "blob": "7c22fa00276193da539331302648d1594bbfc8c3",
+      "bytes": 4490
+    },
+    {
+      "path": "core/harnesses/shared/hooks/adapters/arg-fields.js",
+      "corpus": "code",
+      "blob": "74266fb1c8b4599a3f207978704d93dc6117272d",
+      "bytes": 634
+    },
+    {
+      "path": "core/harnesses/shared/hooks/adapters/gemini.js",
+      "corpus": "code",
+      "blob": "f225c7c56f8d9a5557a5f3aba97f89a207477039",
+      "bytes": 4774
+    },
+    {
+      "path": "core/harnesses/shared/hooks/hooks.json",
+      "corpus": "code",
+      "blob": "4e7f31f63d281a0d0387a3e3e4565cb7461d0694",
+      "bytes": 1212
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/blocked-patterns.conf",
+      "corpus": "code",
+      "blob": "4ad6845126b7c6cbb0f6822cf75a6a1fec4ae123",
+      "bytes": 12114
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/capture-failure.sh",
+      "corpus": "code",
+      "blob": "f66789bcde7f4338373fb91bbefaa1797ea5063a",
+      "bytes": 4975
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/deny-json.sh",
+      "corpus": "code",
+      "blob": "4ae879282ebba84f2526581ce03d3eed6baa63ab",
+      "bytes": 1163
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/lib.sh",
+      "corpus": "code",
+      "blob": "602515ee3906992ca3bd2c81dd80e465bc8dcc69",
+      "bytes": 21932
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/mcp-policy.conf",
+      "corpus": "code",
+      "blob": "36e4aec9894049c0daf23126e772ec61c165e18d",
+      "bytes": 1135
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/mcp-tool-guard.sh",
+      "corpus": "code",
+      "blob": "ab04d14176b095ea793ab66a7fba9fbdd530941b",
+      "bytes": 4038
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/pre-bash-guard.sh",
+      "corpus": "code",
+      "blob": "4c12e3843d969456ad3fe76ac713dac05dd0eb17",
+      "bytes": 14841
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/pre-implementation-gate.sh",
+      "corpus": "code",
+      "blob": "99f98546b786f63474398d232af7d23319379833",
+      "bytes": 22836
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/prompt-nudge.jq",
+      "corpus": "code",
+      "blob": "980055a357403c6a2c7fa3fe54b92b79f58fb231",
+      "bytes": 7273
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/session-context.sh",
+      "corpus": "code",
+      "blob": "e8d2951e4b968415e0a0cc8324463a846b6680c6",
+      "bytes": 5934
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/stop-check.sh",
+      "corpus": "code",
+      "blob": "8140c32a842e162d617307f05f0c4c46976249d9",
+      "bytes": 12718
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/subagent-audit.sh",
+      "corpus": "code",
+      "blob": "c45d6610f388bdb5d6d11363b2d0b9e17cd06c90",
+      "bytes": 1969
+    },
+    {
+      "path": "core/harnesses/shared/hooks/policies/user-prompt-submit.sh",
+      "corpus": "code",
+      "blob": "b6e40bae3531dac18da1ebfa673fd1f7e1b1184d",
+      "bytes": 12516
+    },
+    {
+      "path": "core/harnesses/shared/hooks/stream-hook-runner.js",
+      "corpus": "code",
+      "blob": "08d4398cba87853605887054a0ce113791cff9d2",
+      "bytes": 27192
+    },
+    {
+      "path": "core/harnesses/shared/locator/doflow-run",
+      "corpus": "code",
+      "blob": "9c0a460ff204d25c2bdc36e21d774961423dc780",
+      "bytes": 4471
+    },
+    {
+      "path": "core/registry/advice.json",
+      "corpus": "code",
+      "blob": "d8be2a1614dc02947aa69575432a1b382ee358f6",
+      "bytes": 3076
+    },
+    {
+      "path": "core/registry/assets.json",
+      "corpus": "code",
+      "blob": "80443a67e7f95510a03c2a8c801d2e11daca60e9",
+      "bytes": 19233
+    },
+    {
+      "path": "core/registry/capabilities.json",
+      "corpus": "code",
+      "blob": "8c0e60d35a46d1343781841ca09dfe9496bf6dbf",
+      "bytes": 3457
+    },
+    {
+      "path": "core/registry/contracts.json",
+      "corpus": "code",
+      "blob": "6db1275bcb491e7a53a1f43a818e171376901eb0",
+      "bytes": 8196
+    },
+    {
+      "path": "core/registry/external-tools.json",
+      "corpus": "code",
+      "blob": "4b6eb6c92d61ca265648c53afcfbb13117959445",
+      "bytes": 3702
+    },
+    {
+      "path": "core/registry/harnesses.json",
+      "corpus": "code",
+      "blob": "1ed102b2d3a84e86cfd843f9a2e643dca9c752cb",
+      "bytes": 71466
+    },
+    {
+      "path": "core/registry/lifecycle.json",
+      "corpus": "code",
+      "blob": "0c1e51c78a34799b9b6e37dfa769455748b0b4ad",
+      "bytes": 5218
+    },
+    {
+      "path": "core/registry/mcp.json",
+      "corpus": "code",
+      "blob": "e9066b9fbb199a13dfcfa9be56363bfe54188166",
+      "bytes": 1114
+    },
+    {
+      "path": "core/registry/models.json",
+      "corpus": "code",
+      "blob": "debae1d4a7d2a53474a8e97cca9ad902d728c110",
+      "bytes": 1662
+    },
+    {
+      "path": "core/registry/readiness-templates.json",
+      "corpus": "code",
+      "blob": "024311ff38a5a1f178a7275c9e9912c042baff87",
+      "bytes": 4351
+    },
+    {
+      "path": "core/registry/routes.json",
+      "corpus": "code",
+      "blob": "b97e60f1f5a190b0a5586f969fa4e4c0ce75ea54",
+      "bytes": 1425
+    },
+    {
+      "path": "core/registry/storage.json",
+      "corpus": "code",
+      "blob": "ac20fdc2d00d1bb5c1e81e4992d6a9f274487e62",
+      "bytes": 27052
+    },
+    {
+      "path": "core/registry/verification.json",
+      "corpus": "code",
+      "blob": "3b88ffbfbb4dba042164d1f54b3e3b1c794fba10",
+      "bytes": 8848
+    },
+    {
+      "path": "core/registry/workflows.json",
+      "corpus": "code",
+      "blob": "520cc0976348ba5ed5dbcd4ac53fe7ff501c942f",
+      "bytes": 26742
+    },
+    {
+      "path": "core/shared/guidance/DOFLOW_CORE.md",
+      "corpus": "guidance",
+      "blob": "ee97d62fd9f329796fa83d497c2f5c64feebac45",
+      "bytes": 178
+    },
+    {
+      "path": "core/shared/guidance/FLAGS.md",
+      "corpus": "guidance",
+      "blob": "2170c69874a6ed0580eb23f9a57a9e592240cf1c",
+      "bytes": 1139
+    },
+    {
+      "path": "core/shared/guidance/PRINCIPLES.md",
+      "corpus": "guidance",
+      "blob": "486e292318bd963fd46a9dad305d0e93272ac4a4",
+      "bytes": 3186
+    },
+    {
+      "path": "core/shared/guidance/VERSION",
+      "corpus": "guidance",
+      "blob": "3eefcb9dd5b38e2c1dc061052455dd97bcd51e6c",
+      "bytes": 6
+    },
+    {
+      "path": "core/shared/guidance/mcp/MCP_Context7.md",
+      "corpus": "guidance",
+      "blob": "81d176d88fb161f49c865786247b475748e08bf5",
+      "bytes": 893
+    },
+    {
+      "path": "core/shared/guidance/mcp/MCP_Sequential.md",
+      "corpus": "guidance",
+      "blob": "7874eaf235d778129ff8c7ea151514fd019d2ab8",
+      "bytes": 821
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_Brainstorming.md",
+      "corpus": "guidance",
+      "blob": "5431fee95fbeafcbbf9a648313b2b0ce472dc7e1",
+      "bytes": 2322
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_DeepResearch.md",
+      "corpus": "guidance",
+      "blob": "d306ee0749452e69d5041fda5342fd4bfe8de2f6",
+      "bytes": 2909
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_Introspection.md",
+      "corpus": "guidance",
+      "blob": "b9e5cd76d5a62af355f51626a707c1dcae81d284",
+      "bytes": 1490
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_Orchestration.md",
+      "corpus": "guidance",
+      "blob": "d2ba3623cfa84c23acdfd067aa9b4a5970aace9d",
+      "bytes": 3243
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_Task_Management.md",
+      "corpus": "guidance",
+      "blob": "77c44d93a2704d4d6770c9e4122e1e452c2c021f",
+      "bytes": 3587
+    },
+    {
+      "path": "core/shared/guidance/pointers/claude-gemini.md",
+      "corpus": "guidance",
+      "blob": "7ed682ca35b407b4644db192f8ad4bbf2fc7b9b8",
+      "bytes": 109
+    },
+    {
+      "path": "core/shared/guidance/pointers/codex.md",
+      "corpus": "guidance",
+      "blob": "c8dd777d4718260e7dbda0cda200bd5237347633",
+      "bytes": 304
+    },
+    {
+      "path": "core/shared/guidance/references/ARTIFACT_FORMAT.md",
+      "corpus": "guidance",
+      "blob": "6a6f519c093092e97182d1693855e320411c00a4",
+      "bytes": 20948
+    },
+    {
+      "path": "core/shared/guidance/references/ARTIFACT_VOICE.md",
+      "corpus": "guidance",
+      "blob": "c7927f3e6f104623473b413d0d44e15e8d61dcdd",
+      "bytes": 6747
+    },
+    {
+      "path": "core/shared/guidance/references/CONSTITUTION_BASE.md",
+      "corpus": "guidance",
+      "blob": "965d84bf71597384e12dbd2384467f3462351285",
+      "bytes": 2369
+    },
+    {
+      "path": "core/shared/guidance/references/DIAGRAM_GUIDE.md",
+      "corpus": "guidance",
+      "blob": "5fd9dba40a228f7d2d6b6dd2788b9686b75adc6d",
+      "bytes": 10018
+    },
+    {
+      "path": "core/shared/guidance/references/DOFLOW_CHAIN.md",
+      "corpus": "guidance",
+      "blob": "ec1e21abcfaea2e8c10ba2096491bf3540f21316",
+      "bytes": 8147
+    },
+    {
+      "path": "core/shared/guidance/references/EVIDENCE_LEDGER.md",
+      "corpus": "guidance",
+      "blob": "9ceeeae5a7502a17567d9060eb087f9140a2fdd5",
+      "bytes": 5593
+    },
+    {
+      "path": "core/shared/guidance/references/MODEL_SELECTION.md",
+      "corpus": "guidance",
+      "blob": "dd7d77b62fe23334c693fc5d4d0bc5c2bc6c38ca",
+      "bytes": 3930
+    },
+    {
+      "path": "core/shared/guidance/references/ORCHESTRATION.md",
+      "corpus": "guidance",
+      "blob": "f56efe32c8738c256cb3b370867e4d61d605d1f0",
+      "bytes": 1978
+    },
+    {
+      "path": "core/shared/guidance/references/RESEARCH_CONFIG.md",
+      "corpus": "guidance",
+      "blob": "ba9681c83861823073bf0b8bfaf62e8c8aeb935f",
+      "bytes": 1329
+    },
+    {
+      "path": "core/shared/guidance/references/WORKFLOW_HANDOFF.md",
+      "corpus": "guidance",
+      "blob": "ba3ec19d44bf366babdd3494f2eafe2039ed7e75",
+      "bytes": 5231
+    },
+    {
+      "path": "core/shared/guidance/rules/RULE_01_SAFETY.md",
+      "corpus": "guidance",
+      "blob": "cb15313615decd46a2d20e3d65e3a3a10dbcc514",
+      "bytes": 1092
+    },
+    {
+      "path": "core/shared/guidance/rules/RULE_02_WORKFLOW.md",
+      "corpus": "guidance",
+      "blob": "ebae8ee7c695110d4e8f32a5551e93673551f2f4",
+      "bytes": 1064
+    },
+    {
+      "path": "core/shared/guidance/rules/RULE_03_QUALITY.md",
+      "corpus": "guidance",
+      "blob": "f8c7c70696acb19eed81b7b2dc9dcb5476be2218",
+      "bytes": 964
+    },
+    {
+      "path": "core/shared/guidance/rules/RULE_04_QUESTIONS.md",
+      "corpus": "guidance",
+      "blob": "4f529717e77f60250e82ff59c81d8eef95df309a",
+      "bytes": 2369
+    },
+    {
+      "path": "src/adapters/antigravity/index.ts",
+      "corpus": "code",
+      "blob": "a56e5644a054650f16cad677759d0a902389aaea",
+      "bytes": 33835
+    },
+    {
+      "path": "src/adapters/claude/index.ts",
+      "corpus": "code",
+      "blob": "2008c2a85526f3c3b19e24633678b3727f949976",
+      "bytes": 31154
+    },
+    {
+      "path": "src/adapters/claude/mcp.ts",
+      "corpus": "code",
+      "blob": "71a3ab79f0ba64a5c7fb079f7570959e1bc57a67",
+      "bytes": 5676
+    },
+    {
+      "path": "src/adapters/codex/agents.ts",
+      "corpus": "code",
+      "blob": "d3d2f1897fb7e65eff965aaf505a5122adb06657",
+      "bytes": 11089
+    },
+    {
+      "path": "src/adapters/codex/config.ts",
+      "corpus": "code",
+      "blob": "3da520bf58c59becf14b8827c8e2a2daa390401f",
+      "bytes": 17124
+    },
+    {
+      "path": "src/adapters/codex/hooks.ts",
+      "corpus": "code",
+      "blob": "c9280c8e3e65e112eb7f993b4a380114580a649c",
+      "bytes": 11373
+    },
+    {
+      "path": "src/adapters/codex/index.ts",
+      "corpus": "code",
+      "blob": "1177bd9b6c04c813876b715db399f43e07fd9e9c",
+      "bytes": 46395
+    },
+    {
+      "path": "src/adapters/codex/mcp.ts",
+      "corpus": "code",
+      "blob": "20991917ba2a9c53963514d37a05cb85c9f4c8a9",
+      "bytes": 13501
+    },
+    {
+      "path": "src/adapters/codex/native-projection.ts",
+      "corpus": "code",
+      "blob": "464527b0c6e7d44e4af8216c211c1749091acf94",
+      "bytes": 2252
+    },
+    {
+      "path": "src/adapters/copilot/index.ts",
+      "corpus": "code",
+      "blob": "d348ba8a0466fd4cce3a240cdfcd64d5637ebc81",
+      "bytes": 24865
+    },
+    {
+      "path": "src/adapters/copy-tree.ts",
+      "corpus": "code",
+      "blob": "07ed39d13e710ce333d88dce999e89405514299e",
+      "bytes": 36801
+    },
+    {
+      "path": "src/adapters/gemini/hooks.ts",
+      "corpus": "code",
+      "blob": "fd16863c20bf746367f967f3bb38fa360e9b1f58",
+      "bytes": 12157
+    },
+    {
+      "path": "src/adapters/gemini/index.ts",
+      "corpus": "code",
+      "blob": "47c5252080bdb94a210df39251ba95b8fac25b9c",
+      "bytes": 24545
+    },
+    {
+      "path": "src/adapters/hook-commands.ts",
+      "corpus": "code",
+      "blob": "734a49c760e34fcc61247ba3d8edcf52d1965986",
+      "bytes": 3878
+    },
+    {
+      "path": "src/adapters/index.ts",
+      "corpus": "code",
+      "blob": "14f2f6873fd75f0f89b9236f31c50a34688e54b4",
+      "bytes": 5648
+    },
+    {
+      "path": "src/adapters/kiro/index.ts",
+      "corpus": "code",
+      "blob": "6411384f82ff95c67f133f04859ad6c3c80e7dc7",
+      "bytes": 17580
+    },
+    {
+      "path": "src/adapters/mcp-entries.ts",
+      "corpus": "code",
+      "blob": "02a676552c534f3fc28ec487a1fe33c91ecd72db",
+      "bytes": 17562
+    },
+    {
+      "path": "src/adapters/opencode/index.ts",
+      "corpus": "code",
+      "blob": "cbfd59f286cd7e093252af4fc4d36bcaf2155dfa",
+      "bytes": 28052
+    },
+    {
+      "path": "src/adapters/pi/index.ts",
+      "corpus": "code",
+      "blob": "2c58f0865c8f2736e75455fb5256b532160ede9a",
+      "bytes": 16304
+    },
+    {
+      "path": "src/adapters/pi/json-members.ts",
+      "corpus": "code",
+      "blob": "348ef046f8cb05af075550739d555a41d0a50075",
+      "bytes": 9100
+    },
+    {
+      "path": "src/adapters/pi/mcp.ts",
+      "corpus": "code",
+      "blob": "5ccf93777aaa6c83260a3ef8519dcabb851c0a5c",
+      "bytes": 19599
+    },
+    {
+      "path": "src/adapters/resolve-source.ts",
+      "corpus": "code",
+      "blob": "ed6e47c3e0426e63c1f7056423fe547060403b77",
+      "bytes": 1058
+    },
+    {
+      "path": "src/cli/commands/install.ts",
+      "corpus": "code",
+      "blob": "fd0c62255cef174d69bf036920672e5e36278b14",
+      "bytes": 12589
+    },
+    {
+      "path": "src/cli/commands/list-backups.ts",
+      "corpus": "code",
+      "blob": "be99af4438f92b9c5b021428595e730b168d875f",
+      "bytes": 1311
+    },
+    {
+      "path": "src/cli/commands/reconcile.ts",
+      "corpus": "code",
+      "blob": "f85a656fdebac69cfaf4b973ac51c6c5c685474a",
+      "bytes": 6827
+    },
+    {
+      "path": "src/cli/commands/remove.ts",
+      "corpus": "code",
+      "blob": "f88af2c02c3c305f0d8882b93ca9fe5fb0015e23",
+      "bytes": 5364
+    },
+    {
+      "path": "src/cli/commands/rollback.ts",
+      "corpus": "code",
+      "blob": "05eec73dc549ed719cdddd040e15afd1ccccafaa",
+      "bytes": 8794
+    },
+    {
+      "path": "src/cli/commands/self-update.ts",
+      "corpus": "code",
+      "blob": "9f0af26c9a4f617145623dce2662168acee69e06",
+      "bytes": 1463
+    },
+    {
+      "path": "src/cli/commands/status.ts",
+      "corpus": "code",
+      "blob": "c2e7cefff8a393383553b714eaa100e1317f1591",
+      "bytes": 8438
+    },
+    {
+      "path": "src/cli/commands/tools.ts",
+      "corpus": "code",
+      "blob": "8de294513704b8d6665f1e9a57f85def7b4b98f6",
+      "bytes": 4789
+    },
+    {
+      "path": "src/cli/commands/update.ts",
+      "corpus": "code",
+      "blob": "85aad6330602f77b1a91f5d501144b78b5b92f11",
+      "bytes": 9818
+    },
+    {
+      "path": "src/cli/index.ts",
+      "corpus": "code",
+      "blob": "5fe966d26ec5b90de109eb3b8e2cd46eccda3766",
+      "bytes": 37052
+    },
+    {
+      "path": "src/cli/runtime-commands.ts",
+      "corpus": "code",
+      "blob": "4026a30975dab1f096eed1e1a6a2ce1749a608a0",
+      "bytes": 24412
+    },
+    {
+      "path": "src/cli/shared.ts",
+      "corpus": "code",
+      "blob": "734caafedad9bfc3b06983899c196ed768a64192",
+      "bytes": 12214
+    },
+    {
+      "path": "src/helper/bash-helper.ts",
+      "corpus": "code",
+      "blob": "d25dd0cfa544f932459d58daeaad3fcb4586c583",
+      "bytes": 1682
+    },
+    {
+      "path": "src/helper/git.ts",
+      "corpus": "code",
+      "blob": "72efdb0d92f23f7ff925aca380dbab412645a677",
+      "bytes": 1302
+    },
+    {
+      "path": "src/helper/guardrails.ts",
+      "corpus": "code",
+      "blob": "5f4d8f5a2a80396f0c241d1591d60b8f1987afa5",
+      "bytes": 2288
+    },
+    {
+      "path": "src/helper/harness-paths.ts",
+      "corpus": "code",
+      "blob": "a3a063cd01faa7fc0f3caefe5b790ad2ae023a56",
+      "bytes": 7456
+    },
+    {
+      "path": "src/helper/marker-merge.ts",
+      "corpus": "code",
+      "blob": "958bce5f5dbe94d7f61ad29b3dad62df9a7e02b1",
+      "bytes": 6233
+    },
+    {
+      "path": "src/helper/prompt.ts",
+      "corpus": "code",
+      "blob": "d3a0009747f39ea6f9fb2b75655dd8c3a38ce738",
+      "bytes": 2513
+    },
+    {
+      "path": "src/helper/repo-root.ts",
+      "corpus": "code",
+      "blob": "8079a7f67159ab57104c734f015cc3f1e62a1e51",
+      "bytes": 1517
+    },
+    {
+      "path": "src/helper/settings-merge.ts",
+      "corpus": "code",
+      "blob": "b21ff463a0345bf6703d161e9314dd78e4db7b90",
+      "bytes": 8175
+    },
+    {
+      "path": "src/helper/settings-scope.ts",
+      "corpus": "code",
+      "blob": "cc5518b0bb92589ee08c4eec94d65479445bbd98",
+      "bytes": 1871
+    },
+    {
+      "path": "src/helper/toml.ts",
+      "corpus": "code",
+      "blob": "2c789f80030ab861a72f1a76b67e49f80dc3c973",
+      "bytes": 10226
+    },
+    {
+      "path": "src/install/backup-set.ts",
+      "corpus": "code",
+      "blob": "abac6727344970c5caf1a174c68292ad62a8427f",
+      "bytes": 7702
+    },
+    {
+      "path": "src/install/backup.ts",
+      "corpus": "code",
+      "blob": "286a412a567ce2055e58fef14e040877d769d06b",
+      "bytes": 33218
+    },
+    {
+      "path": "src/install/context.ts",
+      "corpus": "code",
+      "blob": "e41e2e673ec835346b2977442f4d5aa1ec08b38a",
+      "bytes": 2708
+    },
+    {
+      "path": "src/install/manifest.ts",
+      "corpus": "code",
+      "blob": "c689bee261e3924cd4876e53178bc128438a94a1",
+      "bytes": 6936
+    },
+    {
+      "path": "src/install/mcp.ts",
+      "corpus": "code",
+      "blob": "a6472538b383ca6fac1469b10709e9d239de9038",
+      "bytes": 12289
+    },
+    {
+      "path": "src/install/paths.ts",
+      "corpus": "code",
+      "blob": "e935916cf576fb4dc4978f4c2a9681882b8445a6",
+      "bytes": 3834
+    },
+    {
+      "path": "src/install/targets.ts",
+      "corpus": "code",
+      "blob": "ac2057ab8d393adb7c7483df69e8e1b71dc89bed",
+      "bytes": 5161
+    },
+    {
+      "path": "src/install/tool-lifecycle.ts",
+      "corpus": "code",
+      "blob": "64aacdd9c9020ad34b461e51eb2a2324aa9f7abe",
+      "bytes": 7658
+    },
+    {
+      "path": "src/lifecycle/bash-availability.ts",
+      "corpus": "code",
+      "blob": "fe30de255e8923451b570ab0043ad9c9e2bef3f2",
+      "bytes": 1183
+    },
+    {
+      "path": "src/lifecycle/index.ts",
+      "corpus": "code",
+      "blob": "decd7fb54801eac586eb7cbbf7dcd0f5c6682fa6",
+      "bytes": 53364
+    },
+    {
+      "path": "src/lifecycle/mcp-index.ts",
+      "corpus": "code",
+      "blob": "90c218b2409de727b4d304e3dfb4c9ba8cda6608",
+      "bytes": 1628
+    },
+    {
+      "path": "src/lifecycle/policies.ts",
+      "corpus": "code",
+      "blob": "83bb1ead5b5707d75d32e2ef2ede75f61c34eed6",
+      "bytes": 3925
+    },
+    {
+      "path": "src/lifecycle/view.ts",
+      "corpus": "code",
+      "blob": "6526642eb2dadc76ae327674629f398de858c37c",
+      "bytes": 10994
+    },
+    {
+      "path": "src/registry/index.ts",
+      "corpus": "code",
+      "blob": "df0ade5b0a1fe8fbace2ec2df5b7b0806e70e525",
+      "bytes": 37113
+    },
+    {
+      "path": "src/release/sync-plugin-versions.ts",
+      "corpus": "code",
+      "blob": "20b0cb46abd74560675cb0a96b058339067a2393",
+      "bytes": 3088
+    },
+    {
+      "path": "src/runtime/advice/cli.ts",
+      "corpus": "code",
+      "blob": "5095d8e3da47ece9bc4cd99cfa84bc07495228a0",
+      "bytes": 13961
+    },
+    {
+      "path": "src/runtime/advice/client.ts",
+      "corpus": "code",
+      "blob": "3192ac5b6098a9d581073c69dc04b7ecd87143f0",
+      "bytes": 14138
+    },
+    {
+      "path": "src/runtime/advice/config.ts",
+      "corpus": "code",
+      "blob": "e5ee1f6666112dad3382c1c3d42c9fb928297d08",
+      "bytes": 8593
+    },
+    {
+      "path": "src/runtime/advice/doctor.ts",
+      "corpus": "code",
+      "blob": "03face2ded230f0a7abc9c1e005b61bd5c0fb15e",
+      "bytes": 11143
+    },
+    {
+      "path": "src/runtime/advice/endpoint-guard.ts",
+      "corpus": "code",
+      "blob": "1ddb12b02dd1814d676c892ce27af0e99e0b4f45",
+      "bytes": 5490
+    },
+    {
+      "path": "src/runtime/advice/kinds.ts",
+      "corpus": "code",
+      "blob": "90a4c981dc671f47251950bf6a9a68d8e979b940",
+      "bytes": 9093
+    },
+    {
+      "path": "src/runtime/advice/providers/ollama-systemone.ts",
+      "corpus": "code",
+      "blob": "e1d554e8b0327fb44e05e424864b6bbff8387fb1",
+      "bytes": 8966
+    },
+    {
+      "path": "src/runtime/advice/record.ts",
+      "corpus": "code",
+      "blob": "eac8469fbc78ac0ed6ee216c737fe79a0f848de2",
+      "bytes": 6842
+    },
+    {
+      "path": "src/runtime/advice/registry.ts",
+      "corpus": "code",
+      "blob": "a989f953b5aad5aa89748595346cd1f99091c34f",
+      "bytes": 8698
+    },
+    {
+      "path": "src/runtime/advice/strength.ts",
+      "corpus": "code",
+      "blob": "42ca62b1d25c43ed57c98a6ce50dc0c92bb34ec9",
+      "bytes": 3176
+    },
+    {
+      "path": "src/runtime/brief-tools.ts",
+      "corpus": "code",
+      "blob": "edd92894333580eb943945838a62883a689b9203",
+      "bytes": 18140
+    },
+    {
+      "path": "src/runtime/c4-project.ts",
+      "corpus": "code",
+      "blob": "30b773538503e3d2c8486c1c1df451c7449f21f6",
+      "bytes": 18904
+    },
+    {
+      "path": "src/runtime/capability-router.ts",
+      "corpus": "code",
+      "blob": "808a8da345426ba82d5c69a28152f03fdf4c7675",
+      "bytes": 19204
+    },
+    {
+      "path": "src/runtime/checkouts.ts",
+      "corpus": "code",
+      "blob": "ca885d34e275d2d0e9b715ea7aba6c367f1d060d",
+      "bytes": 7348
+    },
+    {
+      "path": "src/runtime/claims.ts",
+      "corpus": "code",
+      "blob": "af7fdceb834e689270c65c7f84d2d829c9ed2f5a",
+      "bytes": 18146
+    },
+    {
+      "path": "src/runtime/cli-result.ts",
+      "corpus": "code",
+      "blob": "5c5182ec625c03e6fbe06a15eb3fb25278f4dedf",
+      "bytes": 2423
+    },
+    {
+      "path": "src/runtime/cli.ts",
+      "corpus": "code",
+      "blob": "ccc3a736effd3042423653bdd1ffb3378f5f4f0c",
+      "bytes": 33749
+    },
+    {
+      "path": "src/runtime/command-detect.ts",
+      "corpus": "code",
+      "blob": "a0d607db9d604d468adced98dd5a7e5f5b9e7153",
+      "bytes": 20845
+    },
+    {
+      "path": "src/runtime/context-pack.ts",
+      "corpus": "code",
+      "blob": "5967c0de04253426e5a400a2ba800b1e703af05a",
+      "bytes": 17968
+    },
+    {
+      "path": "src/runtime/decision-register.ts",
+      "corpus": "code",
+      "blob": "535d4c14dc116c61c6b1d466cc7859fbf0e22a26",
+      "bytes": 25274
+    },
+    {
+      "path": "src/runtime/evidence-ledger.ts",
+      "corpus": "code",
+      "blob": "a52a5d2cb2ff8c4d3e546982a6c0a0528a4d74b1",
+      "bytes": 13374
+    },
+    {
+      "path": "src/runtime/failure/capture.ts",
+      "corpus": "code",
+      "blob": "e5481e50976a8c83501a1c35a9191b91c787750e",
+      "bytes": 12274
+    },
+    {
+      "path": "src/runtime/failure/classifier.ts",
+      "corpus": "code",
+      "blob": "799fc1c2e58959689df20115148c411fd336554c",
+      "bytes": 2759
+    },
+    {
+      "path": "src/runtime/failure/cli.ts",
+      "corpus": "code",
+      "blob": "7d6ac22d69445b22aff87d51d4d64857ad435a14",
+      "bytes": 11385
+    },
+    {
+      "path": "src/runtime/failure/home.ts",
+      "corpus": "code",
+      "blob": "b2ebfd017c72005a05e35673efb1af51b3bc4537",
+      "bytes": 3005
+    },
+    {
+      "path": "src/runtime/failure/store.ts",
+      "corpus": "code",
+      "blob": "5f0d7e4a50d22fa8243de8d6ba0e53670a3cf081",
+      "bytes": 10934
+    },
+    {
+      "path": "src/runtime/feature-resolve.ts",
+      "corpus": "code",
+      "blob": "96e104a22b75df79a12abcfb9b4e09bea1d2271d",
+      "bytes": 4136
+    },
+    {
+      "path": "src/runtime/freshness.ts",
+      "corpus": "code",
+      "blob": "34cb0d60bcc2121f70c90e10c9b41435bd958c17",
+      "bytes": 5709
+    },
+    {
+      "path": "src/runtime/health.ts",
+      "corpus": "code",
+      "blob": "352cfab52d384244c37b8fac3570b80336c9d548",
+      "bytes": 39569
+    },
+    {
+      "path": "src/runtime/history-compactor.ts",
+      "corpus": "code",
+      "blob": "bc83f02b5867beebbb55c38ebaf21f343b61e3ce",
+      "bytes": 11897
+    },
+    {
+      "path": "src/runtime/implementation-gate.ts",
+      "corpus": "code",
+      "blob": "3a623e56cd220514da8a459aa935f8983b39fc9e",
+      "bytes": 16153
+    },
+    {
+      "path": "src/runtime/inventory/coverage.ts",
+      "corpus": "code",
+      "blob": "8fe1a99ed789f1064aff2229ad0627c9cbc6842d",
+      "bytes": 11763
+    },
+    {
+      "path": "src/runtime/inventory/identity.ts",
+      "corpus": "code",
+      "blob": "072fe628eed7a0810c18b62ebe69ab4475107401",
+      "bytes": 4205
+    },
+    {
+      "path": "src/runtime/inventory/index.ts",
+      "corpus": "code",
+      "blob": "6fa871a3405f3cd399e09679275d9cc2897de5b7",
+      "bytes": 40689
+    },
+    {
+      "path": "src/runtime/inventory/precedence.ts",
+      "corpus": "code",
+      "blob": "f92af5d1e9b3270e4e315b555d1f00019ce9bec1",
+      "bytes": 6793
+    },
+    {
+      "path": "src/runtime/inventory/read-scopes.ts",
+      "corpus": "code",
+      "blob": "f5f90d28ff5feeca3e600ce32a7f500a9588d6fa",
+      "bytes": 8079
+    },
+    {
+      "path": "src/runtime/inventory/siblings.ts",
+      "corpus": "code",
+      "blob": "7b31626123b0eb05e4c91f127281e6c8f4c24287",
+      "bytes": 10683
+    },
+    {
+      "path": "src/runtime/knowledge/chunker.ts",
+      "corpus": "code",
+      "blob": "1d6de05f14dfbc04a188d85eaaa9336cc94add0c",
+      "bytes": 4795
+    },
+    {
+      "path": "src/runtime/knowledge/hybrid.ts",
+      "corpus": "code",
+      "blob": "9f11d2a8f4faccccdde92e46e35a1abc0375813e",
+      "bytes": 5089
+    },
+    {
+      "path": "src/runtime/knowledge/index-store.ts",
+      "corpus": "code",
+      "blob": "4d93ebb5d9f4c34a7e417dbf53686ac8c8e34fa5",
+      "bytes": 6374
+    },
+    {
+      "path": "src/runtime/knowledge/retrieval.ts",
+      "corpus": "code",
+      "blob": "dcdb074effc4f54b4dc30ee90c4aadbd3418abbc",
+      "bytes": 9076
+    },
+    {
+      "path": "src/runtime/leak-scan.ts",
+      "corpus": "code",
+      "blob": "2af0be186096320da2217cc492136817866fcd05",
+      "bytes": 8458
+    },
+    {
+      "path": "src/runtime/lifecycle/cli.ts",
+      "corpus": "code",
+      "blob": "80f468b3e4ab62de481b9823f20b2f9b40676ba4",
+      "bytes": 18511
+    },
+    {
+      "path": "src/runtime/lifecycle/event-store.ts",
+      "corpus": "code",
+      "blob": "fa573b8272771f877b9598d0dd6d6c7b2fb377e7",
+      "bytes": 18032
+    },
+    {
+      "path": "src/runtime/lifecycle/fold.ts",
+      "corpus": "code",
+      "blob": "0e28bd7b291e6d07487d0e29707020f8b33962ef",
+      "bytes": 16138
+    },
+    {
+      "path": "src/runtime/lifecycle/followup.ts",
+      "corpus": "code",
+      "blob": "856011c197ec1749504ef0f963fbde72c71f19e3",
+      "bytes": 24666
+    },
+    {
+      "path": "src/runtime/lifecycle/goal.ts",
+      "corpus": "code",
+      "blob": "468ced4b6b035e737c03a199c36754af472c860b",
+      "bytes": 15328
+    },
+    {
+      "path": "src/runtime/lifecycle/intent-writer.ts",
+      "corpus": "code",
+      "blob": "92489c6b1979e4fbf525e643dee1ca3943d97a61",
+      "bytes": 4189
+    },
+    {
+      "path": "src/runtime/lifecycle/overview.ts",
+      "corpus": "code",
+      "blob": "68d0d2a880daf11bcf673d5fc77361ec1d287101",
+      "bytes": 16999
+    },
+    {
+      "path": "src/runtime/lifecycle/release.ts",
+      "corpus": "code",
+      "blob": "b42def288725b2800c82fc48cb7fdf3aafacb0e2",
+      "bytes": 16190
+    },
+    {
+      "path": "src/runtime/lifecycle/report-store.ts",
+      "corpus": "code",
+      "blob": "aa0c8609b612fc9262a96d8500b0c840fb4ce452",
+      "bytes": 11638
+    },
+    {
+      "path": "src/runtime/lifecycle/retention.ts",
+      "corpus": "code",
+      "blob": "909b5752b4ec92fb70c060bd9b3d74990cbdf817",
+      "bytes": 9756
+    },
+    {
+      "path": "src/runtime/lifecycle/root.ts",
+      "corpus": "code",
+      "blob": "7d4f5833e5f03891cd0dee8dc9a062ea0f7723f0",
+      "bytes": 3050
+    },
+    {
+      "path": "src/runtime/lifecycle/status.ts",
+      "corpus": "code",
+      "blob": "b90480196a03d978fcbb6a4d0488d5c52407eb84",
+      "bytes": 19574
+    },
+    {
+      "path": "src/runtime/lifecycle/store-upkeep.ts",
+      "corpus": "code",
+      "blob": "42875a170a5322bdd133f11a1eedf0f26e558607",
+      "bytes": 19900
+    },
+    {
+      "path": "src/runtime/locator-resolve.ts",
+      "corpus": "code",
+      "blob": "04a1d055434be697e6c9ecb2d764e482007c2111",
+      "bytes": 7726
+    },
+    {
+      "path": "src/runtime/mask.ts",
+      "corpus": "code",
+      "blob": "374c0f95f4842afaed7aec46ed0721f23dcad3a5",
+      "bytes": 11522
+    },
+    {
+      "path": "src/runtime/mcp-consultations.ts",
+      "corpus": "code",
+      "blob": "29a931baf48d866972575ea64cac74659a70127d",
+      "bytes": 18688
+    },
+    {
+      "path": "src/runtime/mcp-reach.ts",
+      "corpus": "code",
+      "blob": "968e94de39c40190a36b32105277929bc04e9c33",
+      "bytes": 7761
+    },
+    {
+      "path": "src/runtime/model-router.ts",
+      "corpus": "code",
+      "blob": "d56825b7d3610a1503d7936f003b9d84e42b2b79",
+      "bytes": 7951
+    },
+    {
+      "path": "src/runtime/outcome.ts",
+      "corpus": "code",
+      "blob": "3ebac5217ff72f6535f7c3a8f62ad7776a8cbd4d",
+      "bytes": 22106
+    },
+    {
+      "path": "src/runtime/reach.ts",
+      "corpus": "code",
+      "blob": "bc9e159ec50816982e6377dd30168b21a2cf7257",
+      "bytes": 6978
+    },
+    {
+      "path": "src/runtime/readiness-record.ts",
+      "corpus": "code",
+      "blob": "7d2f6659cee473b7d1dff1378d42b929e5d971e1",
+      "bytes": 7398
+    },
+    {
+      "path": "src/runtime/readiness.ts",
+      "corpus": "code",
+      "blob": "27cb504f439052fb7fd65c4e234b2eae5b179295",
+      "bytes": 21992
+    },
+    {
+      "path": "src/runtime/recovery.ts",
+      "corpus": "code",
+      "blob": "22b52083aec7a0302eca6c11dfa3dd36eb809df1",
+      "bytes": 13606
+    },
+    {
+      "path": "src/runtime/research-request.ts",
+      "corpus": "code",
+      "blob": "d6abb0da09917ab11642ec10e976429bdde2fd83",
+      "bytes": 10899
+    },
+    {
+      "path": "src/runtime/retrieval-plan.ts",
+      "corpus": "code",
+      "blob": "d36385ff4195bd5e307804d92c26f2ad03677310",
+      "bytes": 26415
+    },
+    {
+      "path": "src/runtime/scaffold/artifacts.ts",
+      "corpus": "code",
+      "blob": "cfd2f1a57dfcc58e1123f3b3f87956747646f6a4",
+      "bytes": 9174
+    },
+    {
+      "path": "src/runtime/scaffold/fingerprint.ts",
+      "corpus": "code",
+      "blob": "73d9579f2c7db2d060ce8f994a9d7ae2af011bf1",
+      "bytes": 2287
+    },
+    {
+      "path": "src/runtime/scaffold/generate.ts",
+      "corpus": "code",
+      "blob": "bc7c12cbb49b4275f6fa8df7f6fc8121da17a6b0",
+      "bytes": 44952
+    },
+    {
+      "path": "src/runtime/scaffold/languages.ts",
+      "corpus": "code",
+      "blob": "caa3f685bfbc0584a838e13a5994fc2155899553",
+      "bytes": 9993
+    },
+    {
+      "path": "src/runtime/storage/cli.ts",
+      "corpus": "code",
+      "blob": "5dfdadd984202a73eff36ee77204047677ef6449",
+      "bytes": 3728
+    },
+    {
+      "path": "src/runtime/storage/engine.ts",
+      "corpus": "code",
+      "blob": "0976abe4b867b14c47b8f044c3f4112a1b5f95d2",
+      "bytes": 14325
+    },
+    {
+      "path": "src/runtime/storage/registry.ts",
+      "corpus": "code",
+      "blob": "918f81d4e53c6cfa35d186446e2f13ec9fa346bc",
+      "bytes": 9179
+    },
+    {
+      "path": "src/runtime/storage/roots.ts",
+      "corpus": "code",
+      "blob": "59f20013c70c9d55e8647063d2f860237085f465",
+      "bytes": 3129
+    },
+    {
+      "path": "src/runtime/storage/rules.ts",
+      "corpus": "code",
+      "blob": "1c98a2c28f7cfb1fa4ab69567a11f53cfecae1da",
+      "bytes": 15669
+    },
+    {
+      "path": "src/runtime/storage/upkeep.ts",
+      "corpus": "code",
+      "blob": "82af66c2f17d3d0dcb05c7343aac7422defa4ac7",
+      "bytes": 12289
+    },
+    {
+      "path": "src/runtime/storage/work-status.ts",
+      "corpus": "code",
+      "blob": "5bc01b80ddf91cc75e818eeffdf3f4cb3474be54",
+      "bytes": 15859
+    },
+    {
+      "path": "src/runtime/task-attempts.ts",
+      "corpus": "code",
+      "blob": "c2101f08932d387146b68baf2f0a7fe15c05d8f0",
+      "bytes": 21218
+    },
+    {
+      "path": "src/runtime/task-classifier.ts",
+      "corpus": "code",
+      "blob": "a3e0e32f3aaea7017dc9cb1f283e8ac123c2375f",
+      "bytes": 25112
+    },
+    {
+      "path": "src/runtime/task-scope.ts",
+      "corpus": "code",
+      "blob": "9ca8ed45a56a09ed2489298592cfe0b91f4eff2e",
+      "bytes": 6326
+    },
+    {
+      "path": "src/runtime/task-state.ts",
+      "corpus": "code",
+      "blob": "66c666778db99ae22218e4bce791290df33f5534",
+      "bytes": 8204
+    },
+    {
+      "path": "src/runtime/trace/indicators.ts",
+      "corpus": "code",
+      "blob": "b7a7782fe0e9bbdaeebb7e52d840110e86da9e49",
+      "bytes": 9893
+    },
+    {
+      "path": "src/runtime/trace/ledger.ts",
+      "corpus": "code",
+      "blob": "ae1ae7dd6fde21937e2aa24d1f03df25026986fe",
+      "bytes": 26437
+    },
+    {
+      "path": "src/runtime/trace/render.ts",
+      "corpus": "code",
+      "blob": "e040a405e879fe91a3ad37fad894914ec74c2cc1",
+      "bytes": 2846
+    },
+    {
+      "path": "src/runtime/trace/views.ts",
+      "corpus": "code",
+      "blob": "523fc1b211c6fd22c5347ddd273a4e0c063e5bdd",
+      "bytes": 22997
+    },
+    {
+      "path": "src/runtime/verification/contract-runner.ts",
+      "corpus": "code",
+      "blob": "c5da02977bde118a55a88f9740d2165403d32b4d",
+      "bytes": 14156
+    },
+    {
+      "path": "src/runtime/verification/engine.ts",
+      "corpus": "code",
+      "blob": "b602ed042199c55df8cd95cceaed2ca19c27005b",
+      "bytes": 68631
+    },
+    {
+      "path": "src/runtime/verification/registry.ts",
+      "corpus": "code",
+      "blob": "b1f87e524a8e2bc471b9c66dbff7857b17cf3e4c",
+      "bytes": 4968
+    },
+    {
+      "path": "src/runtime/verification/scope-bound.ts",
+      "corpus": "code",
+      "blob": "2a06813704762ecbcfc931fcf72de9f8af281af9",
+      "bytes": 19801
+    },
+    {
+      "path": "src/runtime/verification/test-selection.ts",
+      "corpus": "code",
+      "blob": "261368e1d7a83e3f2d8f886ba68514483879680a",
+      "bytes": 7478
+    },
+    {
+      "path": "src/runtime/workflow-engine.ts",
+      "corpus": "code",
+      "blob": "7e4caec5b5023f748a2e97b2ce845328c1de96fb",
+      "bytes": 23670
+    },
+    {
+      "path": "src/runtime/workflow-orchestrator.ts",
+      "corpus": "code",
+      "blob": "0081b6c5109d4ef8d8e4413853afae2b6c49a863",
+      "bytes": 57378
+    },
+    {
+      "path": "src/runtime/worktree.ts",
+      "corpus": "code",
+      "blob": "c2849cb21ca52d90977f6d1739d21c1e7f4ed538",
+      "bytes": 15416
+    },
+    {
+      "path": "src/state/index.ts",
+      "corpus": "code",
+      "blob": "d6313631ad5094859c5bb1ed386bf50ed2bb2eeb",
+      "bytes": 10171
+    },
+    {
+      "path": "src/state/lockfile.ts",
+      "corpus": "code",
+      "blob": "03d23acda437d0feb7a93a5b3dabbbe8ed1545f2",
+      "bytes": 7256
+    },
+    {
+      "path": "src/state/run-lock.ts",
+      "corpus": "code",
+      "blob": "598abc623444446d0823f04f9521fd0e76a5983d",
+      "bytes": 17841
+    },
+    {
+      "path": "test/adapters/antigravity/adapter.test.js",
+      "corpus": "code",
+      "blob": "22f364f8b4d428d97211ee53bbd0996a6c39a0ed",
+      "bytes": 31827
+    },
+    {
+      "path": "test/adapters/claude/claude-adapter.test.js",
+      "corpus": "code",
+      "blob": "00e08ae8df4d49e8a748f4f84999e8e9eb8a1a76",
+      "bytes": 13292
+    },
+    {
+      "path": "test/adapters/claude/claude-mcp.test.js",
+      "corpus": "code",
+      "blob": "d839ce519ca48793575785a8ca256ad55b3eb766",
+      "bytes": 10074
+    },
+    {
+      "path": "test/adapters/codex/codex-adapter.test.js",
+      "corpus": "code",
+      "blob": "7cbf517c1c1f0b07ba6d01cbb69d9b1a5fb928b5",
+      "bytes": 20400
+    },
+    {
+      "path": "test/adapters/codex/codex-adopt.test.js",
+      "corpus": "code",
+      "blob": "9ba2faa6a632675ecfb8a570e536bbb961b42705",
+      "bytes": 9006
+    },
+    {
+      "path": "test/adapters/codex/codex-agents-projection.test.js",
+      "corpus": "code",
+      "blob": "6771cfda1f999ed7e607c333a67c69c464f8e7b3",
+      "bytes": 4506
+    },
+    {
+      "path": "test/adapters/codex/codex-agents.test.js",
+      "corpus": "code",
+      "blob": "269fbe662b49f29bbdb7fe6ab9f862af35f8c1d7",
+      "bytes": 3612
+    },
+    {
+      "path": "test/adapters/codex/codex-config.test.js",
+      "corpus": "code",
+      "blob": "3d1a4e3a7186e20933fa7079fbdf2bfbd1c1500a",
+      "bytes": 18084
+    },
+    {
+      "path": "test/adapters/codex/codex-hooks.test.js",
+      "corpus": "code",
+      "blob": "cafb31a09446b717263a2d6f965df1a7da28beef",
+      "bytes": 14059
+    },
+    {
+      "path": "test/adapters/codex/codex-mcp.test.js",
+      "corpus": "code",
+      "blob": "6682206b494d15ccb3c4f2e2b4a704f68b5ef624",
+      "bytes": 12788
+    },
+    {
+      "path": "test/adapters/copilot/copilot-adapter.test.js",
+      "corpus": "code",
+      "blob": "63a2837ef4c8ca53b56012de9306cb811bd18136",
+      "bytes": 30688
+    },
+    {
+      "path": "test/adapters/copy-tree.test.js",
+      "corpus": "code",
+      "blob": "51e259da578548278a7586c6c7fd70adfcc43f0e",
+      "bytes": 39236
+    },
+    {
+      "path": "test/adapters/dropped-file.test.js",
+      "corpus": "code",
+      "blob": "ab2477fca641ddf70b7fdb96e2652d2861533152",
+      "bytes": 4742
+    },
+    {
+      "path": "test/adapters/gemini/gemini-adapter.test.js",
+      "corpus": "code",
+      "blob": "ef6e0bfeddd29aa14a15b4cc4663628be5bd9392",
+      "bytes": 31708
+    },
+    {
+      "path": "test/adapters/gemini/gemini-hooks.test.js",
+      "corpus": "code",
+      "blob": "7c685b492a5986cdff7a870c1a36b2eb44441389",
+      "bytes": 9690
+    },
+    {
+      "path": "test/adapters/kiro/kiro-adapter.test.js",
+      "corpus": "code",
+      "blob": "08fca4599210adb4588b9375f00dc569f9e6f058",
+      "bytes": 21983
+    },
+    {
+      "path": "test/adapters/kiro/kiro-agents.test.js",
+      "corpus": "code",
+      "blob": "c11b60c8e3beefc837f2be4c4ae0ef23ecdf567d",
+      "bytes": 12399
+    },
+    {
+      "path": "test/adapters/kiro/kiro-hooks.test.js",
+      "corpus": "code",
+      "blob": "1893628c1bab826059bd7712cdf96cfa6aecfe16",
+      "bytes": 8962
+    },
+    {
+      "path": "test/adapters/mcp-entries.test.js",
+      "corpus": "code",
+      "blob": "743de35a497d9c23a6e00b9bba7cfe3416db92be",
+      "bytes": 15775
+    },
+    {
+      "path": "test/adapters/opencode/opencode-adapter.test.js",
+      "corpus": "code",
+      "blob": "ee755874df2cef680a7c345fa93519a58e85f871",
+      "bytes": 25462
+    },
+    {
+      "path": "test/adapters/pi/json-members.test.js",
+      "corpus": "code",
+      "blob": "bef4647136cb7fad9ed1a5b8280e95c2c4d35d1a",
+      "bytes": 11390
+    },
+    {
+      "path": "test/adapters/pi/pi-adapter.test.js",
+      "corpus": "code",
+      "blob": "37887241ad595b1cfe0936f2a0f514a0fa6e61be",
+      "bytes": 14479
+    },
+    {
+      "path": "test/adapters/pi/pi-mcp.test.js",
+      "corpus": "code",
+      "blob": "4e58125ccd1385f20c4f3996c6e16a57f78372c9",
+      "bytes": 39700
+    },
+    {
+      "path": "test/artifact-validator-grammar.test.js",
+      "corpus": "code",
+      "blob": "d174044ecebf27dd10c01b9b0be627a697e28623",
+      "bytes": 30793
+    },
+    {
+      "path": "test/bench/advice-bench.test.js",
+      "corpus": "code",
+      "blob": "5a8a1e1fa03c1fdcde3176d2437b669cf3cd876c",
+      "bytes": 10974
+    },
+    {
+      "path": "test/bench/bench-runner.test.js",
+      "corpus": "code",
+      "blob": "fae43a20e69568fd32c7517c21627c610d6212af",
+      "bytes": 56429
+    },
+    {
+      "path": "test/bench/native-corpus.test.js",
+      "corpus": "code",
+      "blob": "febbd82841e50b142125280b1f860967fbd0bcda",
+      "bytes": 7180
+    },
+    {
+      "path": "test/code-review-fixtures.sh",
+      "corpus": "code",
+      "blob": "517de7a713664d036a199e4d27278a28ce4175e7",
+      "bytes": 7786
+    },
+    {
+      "path": "test/doflow-chain-test.sh",
+      "corpus": "code",
+      "blob": "c3eba0025a2c78272ee0654374f6c513e6115a77",
+      "bytes": 64866
+    },
+    {
+      "path": "test/e2e/backup-harness-parity.e2e.test.js",
+      "corpus": "code",
+      "blob": "36bc67758e7dd391b0939770aa768b8f25fb5545",
+      "bytes": 4420
+    },
+    {
+      "path": "test/e2e/backup-scope.e2e.test.js",
+      "corpus": "code",
+      "blob": "a76fc9b160c997fd118ff45e4808846d48996169",
+      "bytes": 28847
+    },
+    {
+      "path": "test/e2e/cli-e2e-harness.test.js",
+      "corpus": "code",
+      "blob": "4e9afe2c97d787b81fa863c32a6db695a672ca0a",
+      "bytes": 21882
+    },
+    {
+      "path": "test/e2e/cli-e2e-mcp.test.js",
+      "corpus": "code",
+      "blob": "cc247edb22412121362d21a2739e531e6db64197",
+      "bytes": 28520
+    },
+    {
+      "path": "test/e2e/cli-e2e.shared.js",
+      "corpus": "code",
+      "blob": "dbd6f43b786385f2b26bab1a4cd44d5a8028a9cf",
+      "bytes": 4632
+    },
+    {
+      "path": "test/e2e/cli-e2e.test.js",
+      "corpus": "code",
+      "blob": "ebdfb56d8288eed955c035bcd38bf7d048c8c9c3",
+      "bytes": 32108
+    },
+    {
+      "path": "test/e2e/codex-correctness.e2e.test.js",
+      "corpus": "code",
+      "blob": "1bfe8a41a355d1e6b20266f6f049a1fe239f0ad9",
+      "bytes": 10158
+    },
+    {
+      "path": "test/e2e/compile-cache.test.js",
+      "corpus": "code",
+      "blob": "6b07cc75f7607beb3f5fedd657ae982d2c1230c2",
+      "bytes": 3743
+    },
+    {
+      "path": "test/e2e/decision-register.e2e.test.js",
+      "corpus": "code",
+      "blob": "ba138a58d4681cf447989882cf13697467cf2dd9",
+      "bytes": 26207
+    },
+    {
+      "path": "test/e2e/dropped-source-file.e2e.test.js",
+      "corpus": "code",
+      "blob": "3be8b8c875dc4fa00e6646abd747ea49315253db",
+      "bytes": 6223
+    },
+    {
+      "path": "test/e2e/failure-capture-cli.test.js",
+      "corpus": "code",
+      "blob": "b2d8247a11456f45fc2104b9250be4099945428a",
+      "bytes": 20407
+    },
+    {
+      "path": "test/e2e/failure-hooks.test.js",
+      "corpus": "code",
+      "blob": "6b232936cb1ea3a1cc5c736c5a8cd36b36b9032d",
+      "bytes": 4375
+    },
+    {
+      "path": "test/e2e/feature-research.test.js",
+      "corpus": "code",
+      "blob": "da179a30f1333dc6163b66d24f231fb068aa027f",
+      "bytes": 10921
+    },
+    {
+      "path": "test/e2e/home-project-refusal.e2e.test.js",
+      "corpus": "code",
+      "blob": "cf13f6847b458e7d2aa530e9bcc3d9af4b27e369",
+      "bytes": 7077
+    },
+    {
+      "path": "test/e2e/install-shapes.test.js",
+      "corpus": "code",
+      "blob": "2425425cf435d7f26a31ccbe0d15f85ba831cecf",
+      "bytes": 36049
+    },
+    {
+      "path": "test/e2e/lifecycle-codex-e2e.test.js",
+      "corpus": "code",
+      "blob": "1729a2b6ecddbdcddfc9a94ad4fd832d6cd4a611",
+      "bytes": 4086
+    },
+    {
+      "path": "test/e2e/lifecycle-loop-capture.e2e.test.js",
+      "corpus": "code",
+      "blob": "0588a36d7936a944ee349546d4342d6c545ab00f",
+      "bytes": 17644
+    },
+    {
+      "path": "test/e2e/lifecycle-loop-install-facts.e2e.test.js",
+      "corpus": "code",
+      "blob": "dec02cbc45d0bc157b7f3a9c367a3cdbf2a7b7bf",
+      "bytes": 8457
+    },
+    {
+      "path": "test/e2e/lifecycle-loop-install-store.e2e.test.js",
+      "corpus": "code",
+      "blob": "3ecf0d925015ea4e9a3ace8cd8acbb06c49dda7f",
+      "bytes": 5568
+    },
+    {
+      "path": "test/e2e/lifecycle-loop-install.e2e.test.js",
+      "corpus": "code",
+      "blob": "63b0d1c67d56e82827482a939fc75a51b11952d9",
+      "bytes": 10606
+    },
+    {
+      "path": "test/e2e/lifecycle-loop-install.shared.js",
+      "corpus": "code",
+      "blob": "204f86a4490a760ade0b1a8aaba25832cb04c237",
+      "bytes": 2771
+    },
+    {
+      "path": "test/e2e/lifecycle-loop-legacy.e2e.test.js",
+      "corpus": "code",
+      "blob": "801d865ca31da9672c7814d93a207bab12f21482",
+      "bytes": 15425
+    },
+    {
+      "path": "test/e2e/lifecycle-loop.e2e.test.js",
+      "corpus": "code",
+      "blob": "7ac8b0b74d3a3aeecd997631200f89daef43bea2",
+      "bytes": 12809
+    },
+    {
+      "path": "test/e2e/lifecycle-loop.shared.js",
+      "corpus": "code",
+      "blob": "014c9d3bacc4ee5346e88eee7ae139a5c6009c15",
+      "bytes": 6583
+    },
+    {
+      "path": "test/e2e/mcp-ownership-recorded.test.js",
+      "corpus": "code",
+      "blob": "070db4c456d98827421a124fdd8bbf1a13ac078a",
+      "bytes": 2227
+    },
+    {
+      "path": "test/e2e/mcp-user-entry.test.js",
+      "corpus": "code",
+      "blob": "b9cacb6f9bc36844c3e77d71bea07e0c8f9d009d",
+      "bytes": 4398
+    },
+    {
+      "path": "test/e2e/node-floor-guard.test.js",
+      "corpus": "code",
+      "blob": "20300faebc7368a38e49ce19a7ce4343421e225b",
+      "bytes": 2801
+    },
+    {
+      "path": "test/e2e/readiness-enforcement.e2e.test.js",
+      "corpus": "code",
+      "blob": "8d5d282631c35cb150dbd965d8c1bd6668947003",
+      "bytes": 20659
+    },
+    {
+      "path": "test/e2e/register-followups-slugs.e2e.test.js",
+      "corpus": "code",
+      "blob": "5499a48c24d633c651fd6bb9718bcc7d5eaf95a0",
+      "bytes": 6705
+    },
+    {
+      "path": "test/e2e/register-followups-tasks.e2e.test.js",
+      "corpus": "code",
+      "blob": "9db74dc23e64916cf4ed6118d33b21a97ed6da65",
+      "bytes": 10765
+    },
+    {
+      "path": "test/e2e/register-followups.e2e.test.js",
+      "corpus": "code",
+      "blob": "78114ca39ad27a74328d990323bf6fde80243ace",
+      "bytes": 25371
+    },
+    {
+      "path": "test/e2e/register-followups.shared.js",
+      "corpus": "code",
+      "blob": "f57d0c1419087ea0fe46e0cec90224af0bf7f6f7",
+      "bytes": 6219
+    },
+    {
+      "path": "test/e2e/run-lock.e2e.test.js",
+      "corpus": "code",
+      "blob": "b49e4e8ff8220eda5bc7248b5219301fadf2670e",
+      "bytes": 13566
+    },
+    {
+      "path": "test/e2e/runtime-reach.e2e.test.js",
+      "corpus": "code",
+      "blob": "ab1e871238ae582e6eebfe8fe732e049b93dd241",
+      "bytes": 23852
+    },
+    {
+      "path": "test/e2e/storage-gitignore.test.js",
+      "corpus": "code",
+      "blob": "ff9c8a167a50ccc17902edf2097b024fb559ca42",
+      "bytes": 2590
+    },
+    {
+      "path": "test/e2e/storage-uninstall.test.js",
+      "corpus": "code",
+      "blob": "442c5274d62f7e41335590a5c82921ceab10cbcb",
+      "bytes": 4963
+    },
+    {
+      "path": "test/e2e/storage-verb-moment.test.js",
+      "corpus": "code",
+      "blob": "a4baf0bfd0fe0c791dde56e010b82e714d4a77a6",
+      "bytes": 7160
+    },
+    {
+      "path": "test/e2e/task-attempt-gate.e2e.test.js",
+      "corpus": "code",
+      "blob": "63f9f234cc340349496be6cd1095a1647e945e7f",
+      "bytes": 7127
+    },
+    {
+      "path": "test/e2e/upgrade-1.18.test.js",
+      "corpus": "code",
+      "blob": "d01da96b6aa52a81793a87083e4c2849e0f4bf6b",
+      "bytes": 9815
+    },
+    {
+      "path": "test/e2e/verify-worktree.e2e.test.js",
+      "corpus": "code",
+      "blob": "6043a733ccffd822899fcb88ba1bdfe1a2c2d8e6",
+      "bytes": 13948
+    },
+    {
+      "path": "test/fixtures/decision-register/history-2-specs.md",
+      "corpus": "code",
+      "blob": "e6e57d5a9c9578c2b967a78c3254f4fad8479f84",
+      "bytes": 371
+    },
+    {
+      "path": "test/fixtures/decision-register/history-3-data-model-revised.md",
+      "corpus": "code",
+      "blob": "f0040600da0032c78216218d8451d8327922037f",
+      "bytes": 191
+    },
+    {
+      "path": "test/fixtures/decision-register/history-3-data-model.md",
+      "corpus": "code",
+      "blob": "d95d546f393459e41b6a7911b6b63fa3e4c51484",
+      "bytes": 112
+    },
+    {
+      "path": "test/fixtures/decision-register/history-9-fenced-content.md",
+      "corpus": "code",
+      "blob": "6aee0629a8fef04e7f6c9ef3a008fe821c9d6cf3",
+      "bytes": 276
+    },
+    {
+      "path": "test/fixtures/decision-register/history-9-fenced-example.md",
+      "corpus": "code",
+      "blob": "50d1ea25ac48c3137182e7657927354f4c5375ca",
+      "bytes": 122
+    },
+    {
+      "path": "test/fixtures/decision-register/history-9-initial.md",
+      "corpus": "code",
+      "blob": "c5f601119c6c036a2a6d9e7a47ff70744448a050",
+      "bytes": 112
+    },
+    {
+      "path": "test/fixtures/decision-register/history-9-open-fence.md",
+      "corpus": "code",
+      "blob": "bc227151dd4ef2c2bade6dff229e1216c1f6731d",
+      "bytes": 55
+    },
+    {
+      "path": "test/fixtures/decision-register/history-9-plan.md",
+      "corpus": "code",
+      "blob": "73adcbd50df37a57106898bfd630c60c2cd1eedf",
+      "bytes": 395
+    },
+    {
+      "path": "test/fixtures/scaffold/005-evidence-ledger-readiness/design.md",
+      "corpus": "code",
+      "blob": "32299ae77323747f918d88fc89b97f783f36439f",
+      "bytes": 19056
+    },
+    {
+      "path": "test/fixtures/scaffold/005-evidence-ledger-readiness/plan.md",
+      "corpus": "code",
+      "blob": "df0037781416cd1cc6609cf2f5535e0266bc2d9f",
+      "bytes": 9693
+    },
+    {
+      "path": "test/fixtures/scaffold/005-evidence-ledger-readiness/requirement.md",
+      "corpus": "code",
+      "blob": "954d1c60dd32be24dd038a30e80586813322557d",
+      "bytes": 12241
+    },
+    {
+      "path": "test/fixtures/transcripts/claude.jsonl",
+      "corpus": "code",
+      "blob": "a6cad8ea56b5411eb0d4ac16d011bf74341ff5dd",
+      "bytes": 845
+    },
+    {
+      "path": "test/fixtures/transcripts/codex.jsonl",
+      "corpus": "code",
+      "blob": "00fafceae0538c0cdec809c9bbce0da3f8de1e2f",
+      "bytes": 723
+    },
+    {
+      "path": "test/fixtures/transcripts/legacy.jsonl",
+      "corpus": "code",
+      "blob": "7b8def3d2cfb2d4a54e36613fa3bfd1b6b3c29fd",
+      "bytes": 233
+    },
+    {
+      "path": "test/fixtures/v1.18.0/README.md",
+      "corpus": "code",
+      "blob": "32f861327bf2aa09e3785e92c36e42d582af1b40",
+      "bytes": 1942
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-kiro/doflow/.install-manifest.json",
+      "corpus": "code",
+      "blob": "6d9088af1b3467cb7d5d7ccd5343f2c3be358f6b",
+      "bytes": 327
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-kiro/doflow/doflow.lock",
+      "corpus": "code",
+      "blob": "4d6a617c3331a1ee96dc8ce4964751a81027419b",
+      "bytes": 1387
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-kiro/kiro/settings/mcp.json",
+      "corpus": "code",
+      "blob": "a2c51eea39ab1d746a7901fa2729e06043b3a9e9",
+      "bytes": 405
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-kiro/mcp-ledger-rows.json",
+      "corpus": "code",
+      "blob": "7dc9ed34b87024a6f100a9fa3308b511918c90c1",
+      "bytes": 937
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-multi/claude.json",
+      "corpus": "code",
+      "blob": "a2c51eea39ab1d746a7901fa2729e06043b3a9e9",
+      "bytes": 405
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-multi/codex/config.toml",
+      "corpus": "code",
+      "blob": "fcc7b0828d9912e4269bce7a7e73ba51971bdac6",
+      "bytes": 292
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-multi/config/opencode/opencode.json",
+      "corpus": "code",
+      "blob": "bb4bc834c54a07622d2388c6a28a20a778bfa7a1",
+      "bytes": 559
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-multi/doflow/.install-manifest.json",
+      "corpus": "code",
+      "blob": "aed481b31f2a1fbb3e931f19a3a9a5bad0043191",
+      "bytes": 764
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-multi/doflow/doflow.lock",
+      "corpus": "code",
+      "blob": "45287f4717d0ff661ed74fbcb0bf57beda40bbfa",
+      "bytes": 5975
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-multi/mcp-ledger-rows.json",
+      "corpus": "code",
+      "blob": "1c1ffa0ae217e55b225f20476c904352f70f9353",
+      "bytes": 2169
+    },
+    {
+      "path": "test/fixtures/v1.18.0/global-multi/pi/agent/mcp.json",
+      "corpus": "code",
+      "blob": "a2c51eea39ab1d746a7901fa2729e06043b3a9e9",
+      "bytes": 405
+    },
+    {
+      "path": "test/fixtures/v1.18.0/project-claude-copilot/doflow/.install-manifest.json",
+      "corpus": "code",
+      "blob": "3ebfa9589c7a50f4a9e325c84066d44c9af3e948",
+      "bytes": 462
+    },
+    {
+      "path": "test/fixtures/v1.18.0/project-claude-copilot/doflow/doflow.lock",
+      "corpus": "code",
+      "blob": "5d98a4134b3649c1e08ea898402533f1e71a0e38",
+      "bytes": 2761
+    },
+    {
+      "path": "test/fixtures/v1.18.0/project-claude-copilot/mcp-ledger-rows.json",
+      "corpus": "code",
+      "blob": "78b81b540ea5a55dbac6fc77b51a1406024d4cb4",
+      "bytes": 431
+    },
+    {
+      "path": "test/fixtures/v1.18.0/project-claude-copilot/mcp.json",
+      "corpus": "code",
+      "blob": "e26ef4678a6b236364702b3bd88a19875c833275",
+      "bytes": 248
+    },
+    {
+      "path": "test/guards/_shared.js",
+      "corpus": "code",
+      "blob": "e8bbe7994f03a5f29613d882316e2d4a5b3b4047",
+      "bytes": 3624
+    },
+    {
+      "path": "test/guards/adapter-force.test.js",
+      "corpus": "code",
+      "blob": "05970e2be01f1bc410a474d3b53d6945e43f0f25",
+      "bytes": 5578
+    },
+    {
+      "path": "test/guards/adopt-path.test.js",
+      "corpus": "code",
+      "blob": "aa4c6368a26dd54358d388b37a41e90be253924a",
+      "bytes": 5238
+    },
+    {
+      "path": "test/guards/advice.test.js",
+      "corpus": "code",
+      "blob": "2640fef6b94e7f33f81f5e868e8523a789ba09d9",
+      "bytes": 15969
+    },
+    {
+      "path": "test/guards/agent-specs.test.js",
+      "corpus": "code",
+      "blob": "2725fc98acce67cf48d2c3343457063a9d3f8af5",
+      "bytes": 5935
+    },
+    {
+      "path": "test/guards/artifact-conventions.test.js",
+      "corpus": "code",
+      "blob": "8d5922074bd63b89f846e8819ee0981421d35248",
+      "bytes": 22543
+    },
+    {
+      "path": "test/guards/boundaries.test.js",
+      "corpus": "code",
+      "blob": "2179e5b921ba8dedfefdd6ea9f961c2bb6168d29",
+      "bytes": 3421
+    },
+    {
+      "path": "test/guards/brief-tools-registry.test.js",
+      "corpus": "code",
+      "blob": "9829e342e8bbb55eb1a4cd7c41b29c644c6617b8",
+      "bytes": 18297
+    },
+    {
+      "path": "test/guards/cli-boundary.test.js",
+      "corpus": "code",
+      "blob": "d03f20f62078907d69ab73206e8c7965557ff3f6",
+      "bytes": 3926
+    },
+    {
+      "path": "test/guards/consumers.test.js",
+      "corpus": "code",
+      "blob": "cbf79fc1c2a3c88a385235382acd2045faaf58c1",
+      "bytes": 6262
+    },
+    {
+      "path": "test/guards/context-budget.test.js",
+      "corpus": "code",
+      "blob": "2031f4ceb4168fbb32835eacdf37a26321fee8ab",
+      "bytes": 17413
+    },
+    {
+      "path": "test/guards/dispatch.test.js",
+      "corpus": "code",
+      "blob": "fc0bf8dea17cc07f2719e02aaf6b736a15106cca",
+      "bytes": 2279
+    },
+    {
+      "path": "test/guards/docs.test.js",
+      "corpus": "code",
+      "blob": "977278874462cf98590f9307c61b96dc902680ce",
+      "bytes": 10953
+    },
+    {
+      "path": "test/guards/evals.test.js",
+      "corpus": "code",
+      "blob": "613129343763aaf45d629e7aa3acdf3a2e667b95",
+      "bytes": 30559
+    },
+    {
+      "path": "test/guards/fields.test.js",
+      "corpus": "code",
+      "blob": "80338f1cf44d6da3ee7857557eace8f9025c725a",
+      "bytes": 2577
+    },
+    {
+      "path": "test/guards/flag-index.test.js",
+      "corpus": "code",
+      "blob": "fd718d0324a30070a39309c381ebdd31a74a3ba4",
+      "bytes": 2425
+    },
+    {
+      "path": "test/guards/flags.test.js",
+      "corpus": "code",
+      "blob": "68ab071bd78c0c2b6c0eccf16dc3db64a4b69668",
+      "bytes": 5432
+    },
+    {
+      "path": "test/guards/frozen-behaviour.test.js",
+      "corpus": "code",
+      "blob": "648386711257954a8f80a9527c7a7b03fb8c3e49",
+      "bytes": 15401
+    },
+    {
+      "path": "test/guards/harness-paths.test.js",
+      "corpus": "code",
+      "blob": "a07152e5a9f07c832f512a28344e7a7b13181a3b",
+      "bytes": 5223
+    },
+    {
+      "path": "test/guards/hidden-unicode.test.js",
+      "corpus": "code",
+      "blob": "299bef100dafdc986c260270198cc9c3b4433ba1",
+      "bytes": 14692
+    },
+    {
+      "path": "test/guards/instruction-lint.json",
+      "corpus": "code",
+      "blob": "efd2040adbbe01d1f456736bad0408ca2ea0e0e5",
+      "bytes": 1866
+    },
+    {
+      "path": "test/guards/instruction-lint.test.js",
+      "corpus": "code",
+      "blob": "96a1c2d74e8d0f0bfd0b6ab52a61ffe7c3adec8d",
+      "bytes": 18863
+    },
+    {
+      "path": "test/guards/mcp-claims.test.js",
+      "corpus": "code",
+      "blob": "7394a0428bde95b0a4cd31a4354d380cb93c099d",
+      "bytes": 15046
+    },
+    {
+      "path": "test/guards/module-reachability.test.js",
+      "corpus": "code",
+      "blob": "51cc33f83af0945232f3727c73970d70a75c20f7",
+      "bytes": 14690
+    },
+    {
+      "path": "test/guards/ownership-identity.test.js",
+      "corpus": "code",
+      "blob": "1fa69926e53836bba21c097cd6318db7ab52268f",
+      "bytes": 16013
+    },
+    {
+      "path": "test/guards/package.test.js",
+      "corpus": "code",
+      "blob": "26df10af5465b666fab8f88f6501c347e5e7c809",
+      "bytes": 2743
+    },
+    {
+      "path": "test/guards/paths.test.js",
+      "corpus": "code",
+      "blob": "639750d18a360605795742133ec3a7d60df894f1",
+      "bytes": 7326
+    },
+    {
+      "path": "test/guards/prompt-nudge-registry.test.js",
+      "corpus": "code",
+      "blob": "d96a6df7c6628650e34e4a8936bfb548eb17e53d",
+      "bytes": 6472
+    },
+    {
+      "path": "test/guards/provider-source-mode.test.js",
+      "corpus": "code",
+      "blob": "50abe84b132e7b7a2ff2537e93e4e39acb06b9a6",
+      "bytes": 3273
+    },
+    {
+      "path": "test/guards/reachability.test.js",
+      "corpus": "code",
+      "blob": "ce9c25b4fb8e7473e1271f3addf1ffb5a8e822ce",
+      "bytes": 32120
+    },
+    {
+      "path": "test/guards/registry.test.js",
+      "corpus": "code",
+      "blob": "af9617af566e17e23d80d04b5cd1d41f1948a489",
+      "bytes": 10612
+    },
+    {
+      "path": "test/guards/runtime-tree.test.js",
+      "corpus": "code",
+      "blob": "8f8bec68af3d2f58c61f038aa51e9816cbcbdaf4",
+      "bytes": 9976
+    },
+    {
+      "path": "test/guards/runtime-unification.test.js",
+      "corpus": "code",
+      "blob": "9564d9984298d46258d47c01c7c6c391502be41c",
+      "bytes": 43135
+    },
+    {
+      "path": "test/guards/scaffold.test.js",
+      "corpus": "code",
+      "blob": "dd650e7dd264ae9afe9c57cef1f39a2592904d21",
+      "bytes": 21178
+    },
+    {
+      "path": "test/guards/skill-caps.test.js",
+      "corpus": "code",
+      "blob": "34268b5e2783af098df5769da7e884216b5c18f1",
+      "bytes": 10009
+    },
+    {
+      "path": "test/guards/skill-seam.test.js",
+      "corpus": "code",
+      "blob": "c69ec8eafffbf74dca0c4d43650c1923e9c6aa8f",
+      "bytes": 12046
+    },
+    {
+      "path": "test/guards/storage-declarations.test.js",
+      "corpus": "code",
+      "blob": "0b5ced4c9562e3a2aca973c161919351e32ffd87",
+      "bytes": 28045
+    },
+    {
+      "path": "test/guards/test-tempdirs.test.js",
+      "corpus": "code",
+      "blob": "71d7a9200a120545f06e98ee5e4f7e2b2cae0f3b",
+      "bytes": 5945
+    },
+    {
+      "path": "test/guards/verb-reachability.test.js",
+      "corpus": "code",
+      "blob": "7495ccaff5a5c1f74858c4f4489296618ae25699",
+      "bytes": 8323
+    },
+    {
+      "path": "test/guards/wholesale-assets.test.js",
+      "corpus": "code",
+      "blob": "4c7157fb6f1121bde8dae8dde8185a76f908c907",
+      "bytes": 10724
+    },
+    {
+      "path": "test/guards/workflows.test.js",
+      "corpus": "code",
+      "blob": "afa5fbdd850b6d8685d0eeac3b47744b61695eb4",
+      "bytes": 17207
+    },
+    {
+      "path": "test/helper-platform.js",
+      "corpus": "code",
+      "blob": "24cc2210efa2d31c41b7a46ae32e695fac223f8a",
+      "bytes": 3795
+    },
+    {
+      "path": "test/helper/backup-v1-fixture.js",
+      "corpus": "code",
+      "blob": "470e8797cfadf1ddbdc71ef59da2f99ac144cbc0",
+      "bytes": 2092
+    },
+    {
+      "path": "test/helper/fake-decision-server.js",
+      "corpus": "code",
+      "blob": "800fdfa23567852683d8c221752ec28842898088",
+      "bytes": 5538
+    },
+    {
+      "path": "test/helper/lifecycle-derivation-reference.js",
+      "corpus": "code",
+      "blob": "1079d7515c7cf2b706642cf648db339f99c54d25",
+      "bytes": 21996
+    },
+    {
+      "path": "test/helper/lifecycle-git-fixtures.js",
+      "corpus": "code",
+      "blob": "5eac1aa881330c7688bad759e629aaf7e0779496",
+      "bytes": 12918
+    },
+    {
+      "path": "test/helper/marker-merge.test.js",
+      "corpus": "code",
+      "blob": "3a240dd8e51c17f3e48aca5ce09f6fd6e9daa74d",
+      "bytes": 16505
+    },
+    {
+      "path": "test/helper/scratch-env.js",
+      "corpus": "code",
+      "blob": "136aeff8b1b5daa026803f2f6978c8719d33a2e0",
+      "bytes": 3353
+    },
+    {
+      "path": "test/helper/settings-merge.test.js",
+      "corpus": "code",
+      "blob": "b2ee12cf1543e4434cd8c8fd1173731acae319d4",
+      "bytes": 2608
+    },
+    {
+      "path": "test/helper/settings-scope.test.js",
+      "corpus": "code",
+      "blob": "390a520dcc9f1151e7f071fdfb85e5360309224c",
+      "bytes": 2256
+    },
+    {
+      "path": "test/helper/skill-resolver.js",
+      "corpus": "code",
+      "blob": "b4dae8db004636231a8dd270cc57507e7d1de7e7",
+      "bytes": 1122
+    },
+    {
+      "path": "test/helper/tmp.js",
+      "corpus": "code",
+      "blob": "bf30cfe688a9beb6300e278de0e36dc5f6c2c9dc",
+      "bytes": 2353
+    },
+    {
+      "path": "test/helper/tmp.test.js",
+      "corpus": "code",
+      "blob": "fabed52b43988c5e44775a091db11d146794dc24",
+      "bytes": 6418
+    },
+    {
+      "path": "test/helper/toml.test.js",
+      "corpus": "code",
+      "blob": "d41b5c65c23afee21baad1fd252a5b5f44a932f3",
+      "bytes": 1494
+    },
+    {
+      "path": "test/hooks/build-install-mirror.sh",
+      "corpus": "code",
+      "blob": "a6927c3f1560f9263207cb0271762c326e126f15",
+      "bytes": 1852
+    },
+    {
+      "path": "test/hooks/capture-failure.test.js",
+      "corpus": "code",
+      "blob": "a91e4de163c6f839328b9e59a6f15b985f9b0f8f",
+      "bytes": 20821
+    },
+    {
+      "path": "test/hooks/compact-summary.test.js",
+      "corpus": "code",
+      "blob": "d861d3caed8460fa21953fd966de8e3099d6bb0b",
+      "bytes": 16913
+    },
+    {
+      "path": "test/hooks/kiro-bridge.test.js",
+      "corpus": "code",
+      "blob": "e6b9ca21bb22f2b96a18533690e14a972a59f114",
+      "bytes": 12878
+    },
+    {
+      "path": "test/hooks/pre-implementation-gate-readiness.test.js",
+      "corpus": "code",
+      "blob": "5697b0b36bfe539c69f24b7c0e76631443f3658d",
+      "bytes": 24455
+    },
+    {
+      "path": "test/hooks/prompt-nudge-decision.test.js",
+      "corpus": "code",
+      "blob": "05277a59f50963d780e625f3dc1aac46a48ac561",
+      "bytes": 23166
+    },
+    {
+      "path": "test/hooks/prompt-nudge-failures.test.js",
+      "corpus": "code",
+      "blob": "4f74c4bc73cb9dda868e830348ced842ba27b41b",
+      "bytes": 4859
+    },
+    {
+      "path": "test/hooks/prompt-nudge-gates.test.js",
+      "corpus": "code",
+      "blob": "d6596141b825c966e0e5055424f514c6afb70a76",
+      "bytes": 26185
+    },
+    {
+      "path": "test/hooks/prompt-nudge-process.test.js",
+      "corpus": "code",
+      "blob": "1471045aaf551b3ff3ac920a72bf071fa2d8ca51",
+      "bytes": 7053
+    },
+    {
+      "path": "test/hooks/prompt-nudge-session.test.js",
+      "corpus": "code",
+      "blob": "7ea9600c7bad9dc43d992a4772857e1e0dfe8c22",
+      "bytes": 12055
+    },
+    {
+      "path": "test/hooks/prompt-nudge.corpus.json",
+      "corpus": "code",
+      "blob": "9d766833d978fccc0bca015de8b95dfc2ab13c80",
+      "bytes": 40508
+    },
+    {
+      "path": "test/hooks/prompt-nudge.shared.js",
+      "corpus": "code",
+      "blob": "28fa1d28e6a9ae807205aa91b83cc4f04f0355ea",
+      "bytes": 7118
+    },
+    {
+      "path": "test/hooks/prompt-nudge.test.js",
+      "corpus": "code",
+      "blob": "ef4aff5b15b2b6375087e301950bd48503fd3213",
+      "bytes": 9010
+    },
+    {
+      "path": "test/hooks/stop-check.test.js",
+      "corpus": "code",
+      "blob": "7f513dc8f3c40ab88257dc7e4cf117a4aa0c1836",
+      "bytes": 11370
+    },
+    {
+      "path": "test/hooks/storage-upkeep-hook.test.js",
+      "corpus": "code",
+      "blob": "80dbecd991ad89320cb3eff18581bf2ea7332fdc",
+      "bytes": 9857
+    },
+    {
+      "path": "test/hooks/stream-hook-runner.test.js",
+      "corpus": "code",
+      "blob": "c94556d08515416f018b6cabb3fe88e219f193d5",
+      "bytes": 24345
+    },
+    {
+      "path": "test/hooks/test-hooks.sh",
+      "corpus": "code",
+      "blob": "4368124be554113bf697e04375e94122d57ca220",
+      "bytes": 44207
+    },
+    {
+      "path": "test/install/backup-format.test.js",
+      "corpus": "code",
+      "blob": "0cc52d600cea4e5ecf08337ac760c53c9e748f17",
+      "bytes": 16852
+    },
+    {
+      "path": "test/install/backup-manifest.test.js",
+      "corpus": "code",
+      "blob": "8185ecdd446317d9e98f09c87410050e0d9e9af2",
+      "bytes": 17236
+    },
+    {
+      "path": "test/install/backup-restore.test.js",
+      "corpus": "code",
+      "blob": "805b099cd1fb9ae4e9ff4f62fa2a51039babd538",
+      "bytes": 20441
+    },
+    {
+      "path": "test/install/backup-retention.test.js",
+      "corpus": "code",
+      "blob": "3b25bb59daf708a1318e1a2e70305c837eaf3256",
+      "bytes": 12149
+    },
+    {
+      "path": "test/install/backup-set.test.js",
+      "corpus": "code",
+      "blob": "dd87f5464278f8d8ef17db44a7cc7deb046caad6",
+      "bytes": 11739
+    },
+    {
+      "path": "test/install/deprecated-compatibility.test.js",
+      "corpus": "code",
+      "blob": "993236c568f3d7a3059209fd49c61e7120410aea",
+      "bytes": 2559
+    },
+    {
+      "path": "test/install/doflow.test.js",
+      "corpus": "code",
+      "blob": "f6d9f48be1a77bf998c009b4998eadcb405e424d",
+      "bytes": 10095
+    },
+    {
+      "path": "test/install/home-scope.test.js",
+      "corpus": "code",
+      "blob": "7d95683908988f59d3250cdcf2c120e340786e4a",
+      "bytes": 2113
+    },
+    {
+      "path": "test/install/mcp-index.test.js",
+      "corpus": "code",
+      "blob": "b8ebe8091dcbd9b563b7f019c0e8cb6626cbd41f",
+      "bytes": 6683
+    },
+    {
+      "path": "test/install/mcp-selection-line.test.js",
+      "corpus": "code",
+      "blob": "6bca4b1e2dc656fd18139522740600b39cf16b43",
+      "bytes": 2288
+    },
+    {
+      "path": "test/install/mcp.test.js",
+      "corpus": "code",
+      "blob": "e27502da8f83cffe8862475f46170a067df1042f",
+      "bytes": 10814
+    },
+    {
+      "path": "test/install/prune-flag.test.js",
+      "corpus": "code",
+      "blob": "6cdcb712b3d01b439a6903d0dcc43d1d62f3d557",
+      "bytes": 2113
+    },
+    {
+      "path": "test/install/storage-install.test.js",
+      "corpus": "code",
+      "blob": "d2d336937d3b7382002466e67861422e003efe8b",
+      "bytes": 2564
+    },
+    {
+      "path": "test/install/tool-lifecycle.test.js",
+      "corpus": "code",
+      "blob": "2cbd9f2d28dd7cf986afba14b2398f0c3a8f65cb",
+      "bytes": 5288
+    },
+    {
+      "path": "test/install/universal-harness.test.js",
+      "corpus": "code",
+      "blob": "127ef80df61a69ac9093d7d9cc93b1486c9223bf",
+      "bytes": 2102
+    },
+    {
+      "path": "test/lifecycle/dual-scope-read.test.js",
+      "corpus": "code",
+      "blob": "c536d7d926270ce0492672601d1cca77f51aff73",
+      "bytes": 7089
+    },
+    {
+      "path": "test/lifecycle/lifecycle-bash-availability.test.js",
+      "corpus": "code",
+      "blob": "82a757ef0e15809d6907a7d72f25d542c44553df",
+      "bytes": 12989
+    },
+    {
+      "path": "test/lifecycle/lifecycle-orchestrator.test.js",
+      "corpus": "code",
+      "blob": "06ecbd14d3dca0c4ede335afa68941ae6e3d1f18",
+      "bytes": 23864
+    },
+    {
+      "path": "test/lifecycle/lifecycle-policies.test.js",
+      "corpus": "code",
+      "blob": "49d85feff7d4f0d296d38d13131377dde5fc99f0",
+      "bytes": 1904
+    },
+    {
+      "path": "test/lifecycle/lifecycle-projection.test.js",
+      "corpus": "code",
+      "blob": "ae44a2bf9880221e6f61d5e7a0df404a8ce16924",
+      "bytes": 11180
+    },
+    {
+      "path": "test/lifecycle/lifecycle-shared-ownership.test.js",
+      "corpus": "code",
+      "blob": "cc84b289ad905884d103600fc5b0c05dfe8ff75d",
+      "bytes": 26376
+    },
+    {
+      "path": "test/lifecycle/lifecycle-view.test.js",
+      "corpus": "code",
+      "blob": "096bd84377d571e456a9c0712603872043dc8ae8",
+      "bytes": 4371
+    },
+    {
+      "path": "test/lifecycle/lock-view.test.js",
+      "corpus": "code",
+      "blob": "0396726f32bc044335514fe4738aa3e230a0091b",
+      "bytes": 9351
+    },
+    {
+      "path": "test/lifecycle/plan-notices.test.js",
+      "corpus": "code",
+      "blob": "b990eb5e0c11d77403a9376c1d344ae6cde4e611",
+      "bytes": 5978
+    },
+    {
+      "path": "test/lifecycle/runtime-prune.test.js",
+      "corpus": "code",
+      "blob": "628c2a00140e69e30692908601606ed5ded41e1e",
+      "bytes": 21907
+    },
+    {
+      "path": "test/lifecycle/tombstones.test.js",
+      "corpus": "code",
+      "blob": "6cc44c853241150e398ddbd8528b4e2ee355ec27",
+      "bytes": 5283
+    },
+    {
+      "path": "test/registry/models.test.js",
+      "corpus": "code",
+      "blob": "d98bb2e2fe412a83c2dd794fa3bb86ba7c4d2cbf",
+      "bytes": 6582
+    },
+    {
+      "path": "test/registry/registry.test.js",
+      "corpus": "code",
+      "blob": "4537ed1f5d5962b4dc8828b2b2e467d6e0779298",
+      "bytes": 16084
+    },
+    {
+      "path": "test/release/sync-plugin-versions.test.js",
+      "corpus": "code",
+      "blob": "89d3f89d4caafbd407e0166847dc01464fcac53a",
+      "bytes": 3253
+    },
+    {
+      "path": "test/runtime/advice-brief-tools.test.js",
+      "corpus": "code",
+      "blob": "09fef4f30dbe120f6b374cba48901c4fad3d7a76",
+      "bytes": 6482
+    },
+    {
+      "path": "test/runtime/advice-classify.test.js",
+      "corpus": "code",
+      "blob": "99c7396f868a13accc09df4210188fd704e70a83",
+      "bytes": 12550
+    },
+    {
+      "path": "test/runtime/advice-client.test.js",
+      "corpus": "code",
+      "blob": "4456437a5c0d1cfbc57ab4b594089c909a5ecea4",
+      "bytes": 18962
+    },
+    {
+      "path": "test/runtime/advice-config.test.js",
+      "corpus": "code",
+      "blob": "de735624984724601b40f9bda85765d5974b929a",
+      "bytes": 9587
+    },
+    {
+      "path": "test/runtime/advice-doctor.test.js",
+      "corpus": "code",
+      "blob": "7bd54d1b6262fe66d7445ec81c167a54c0e26e5a",
+      "bytes": 15156
+    },
+    {
+      "path": "test/runtime/advice-endpoint-guard.test.js",
+      "corpus": "code",
+      "blob": "686d515c4e88523ebac85fc069404b6380da6e76",
+      "bytes": 5034
+    },
+    {
+      "path": "test/runtime/advice-handoff.test.js",
+      "corpus": "code",
+      "blob": "1f313dea224c2a705a09d44de680f13aae4c9b73",
+      "bytes": 9137
+    },
+    {
+      "path": "test/runtime/advice-kinds.test.js",
+      "corpus": "code",
+      "blob": "a09122592f32ca5bedbe3144cf391a097d6d6e8c",
+      "bytes": 8809
+    },
+    {
+      "path": "test/runtime/advice-ollama-adapter.test.js",
+      "corpus": "code",
+      "blob": "c8d97cd3a991c6e6ef92a486fc3420e001b67ff6",
+      "bytes": 9439
+    },
+    {
+      "path": "test/runtime/advice-record.test.js",
+      "corpus": "code",
+      "blob": "64f093bbcd8f6200a6f803a24206240ee4ea3cfc",
+      "bytes": 10542
+    },
+    {
+      "path": "test/runtime/advice-registry.test.js",
+      "corpus": "code",
+      "blob": "9be8ca48ccfde32b04342e60213819b08f57c324",
+      "bytes": 4404
+    },
+    {
+      "path": "test/runtime/advice-retention.test.js",
+      "corpus": "code",
+      "blob": "cbb0e6b07dfa386ff540f129949db077351ac484",
+      "bytes": 2228
+    },
+    {
+      "path": "test/runtime/advice-strength.test.js",
+      "corpus": "code",
+      "blob": "587e50d555cb0896630913ecace2b1c275a485e3",
+      "bytes": 3592
+    },
+    {
+      "path": "test/runtime/advice-verb.test.js",
+      "corpus": "code",
+      "blob": "72da5c9ad7eed451d5427e0210e21cdbe0684ab3",
+      "bytes": 14740
+    },
+    {
+      "path": "test/runtime/bash-helper.test.js",
+      "corpus": "code",
+      "blob": "ad5ab2ec61c64df6b1e8133e3fc95ceca98db632",
+      "bytes": 2536
+    },
+    {
+      "path": "test/runtime/brief-tools.test.js",
+      "corpus": "code",
+      "blob": "6b0e3b6bfc7c1b24139dfe334578587d1a7e0386",
+      "bytes": 21078
+    },
+    {
+      "path": "test/runtime/c4-project.test.js",
+      "corpus": "code",
+      "blob": "3539190c37f7162b8fd1cc6fd3602e848edaaceb",
+      "bytes": 22292
+    },
+    {
+      "path": "test/runtime/capability-execution.test.js",
+      "corpus": "code",
+      "blob": "47bce248a59e4f8051224afd2034217f47e8b7c5",
+      "bytes": 5303
+    },
+    {
+      "path": "test/runtime/checkouts.test.js",
+      "corpus": "code",
+      "blob": "a231d8a520b2c8f903a2f2cbe7007149c935a0f5",
+      "bytes": 7860
+    },
+    {
+      "path": "test/runtime/closed-sets.test.js",
+      "corpus": "code",
+      "blob": "39801cf6166b62e5ac25e7f9e549358b61a7d0fe",
+      "bytes": 9223
+    },
+    {
+      "path": "test/runtime/context-pack-budget.test.js",
+      "corpus": "code",
+      "blob": "ae03b74360b8c8e962b218486ba584c79e1be0c8",
+      "bytes": 5498
+    },
+    {
+      "path": "test/runtime/context-pack-decisions.test.js",
+      "corpus": "code",
+      "blob": "775923866131ed4125681a5917ebc2b8b4d733ad",
+      "bytes": 5457
+    },
+    {
+      "path": "test/runtime/context-pack-research.test.js",
+      "corpus": "code",
+      "blob": "0fcee541c0cf4c9e803729232aa67d6ee796a66f",
+      "bytes": 2636
+    },
+    {
+      "path": "test/runtime/decision-register.test.js",
+      "corpus": "code",
+      "blob": "a924d6a4870bd5b3c2cdf96decc2d40198de3743",
+      "bytes": 31584
+    },
+    {
+      "path": "test/runtime/default-args.test.js",
+      "corpus": "code",
+      "blob": "df19a6ac8c52e4ce022ea62bada257c7d5aaf689",
+      "bytes": 999
+    },
+    {
+      "path": "test/runtime/dispatcher-capture.test.js",
+      "corpus": "code",
+      "blob": "c32d2425d5812155ac50233948f751ed196c30c7",
+      "bytes": 20172
+    },
+    {
+      "path": "test/runtime/doctor-mcp.test.js",
+      "corpus": "code",
+      "blob": "2d00868e901e5110b79edf3482dd075d6223d7ed",
+      "bytes": 22899
+    },
+    {
+      "path": "test/runtime/doctor-reach.test.js",
+      "corpus": "code",
+      "blob": "c4c2afa8742974fb96f2304e8f9c6f454f0b3eb2",
+      "bytes": 6346
+    },
+    {
+      "path": "test/runtime/failure-capture.test.js",
+      "corpus": "code",
+      "blob": "fb01723a606c3f4a7e83bc86dfd88241729ad5e0",
+      "bytes": 33892
+    },
+    {
+      "path": "test/runtime/failure-verb.test.js",
+      "corpus": "code",
+      "blob": "ec119573be4d1de664b3867a79f711086e69128b",
+      "bytes": 37058
+    },
+    {
+      "path": "test/runtime/feature-resolve.test.js",
+      "corpus": "code",
+      "blob": "faedb37323e95cf507da0fc1f4b6633ce8bc127e",
+      "bytes": 3249
+    },
+    {
+      "path": "test/runtime/freshness-observations.test.js",
+      "corpus": "code",
+      "blob": "ae6a1d0985538a07916d5cc33449462e255f2819",
+      "bytes": 5471
+    },
+    {
+      "path": "test/runtime/history-compactor.test.js",
+      "corpus": "code",
+      "blob": "3a38eec9d89b5ed185b5d9bf9d8beae615c3388a",
+      "bytes": 24576
+    },
+    {
+      "path": "test/runtime/implementation-gate.test.js",
+      "corpus": "code",
+      "blob": "c749735c2be696a08a2be257658bc8ac0bffa12f",
+      "bytes": 14719
+    },
+    {
+      "path": "test/runtime/indicators.test.js",
+      "corpus": "code",
+      "blob": "81b7d5c57ecca49b19cb8c56843626be7ce01122",
+      "bytes": 9714
+    },
+    {
+      "path": "test/runtime/inventory-command.test.js",
+      "corpus": "code",
+      "blob": "9986b4f758da39c03bfac23e5cf7dd0e37c5f7f7",
+      "bytes": 16087
+    },
+    {
+      "path": "test/runtime/inventory-coverage.test.js",
+      "corpus": "code",
+      "blob": "500ce39bc8fc383f0ed28c3bcaf3d568e4bf7ff7",
+      "bytes": 10863
+    },
+    {
+      "path": "test/runtime/inventory-identity.test.js",
+      "corpus": "code",
+      "blob": "3ef26717c04152b6b911daf392901eebcd22a45b",
+      "bytes": 5666
+    },
+    {
+      "path": "test/runtime/inventory-precedence.test.js",
+      "corpus": "code",
+      "blob": "af5ce7646e1a0d9385d52e9239434264ff5979c4",
+      "bytes": 9290
+    },
+    {
+      "path": "test/runtime/inventory-read-scopes.test.js",
+      "corpus": "code",
+      "blob": "9ed1932eecd530d6a76669e0639bf9e0d1a7685a",
+      "bytes": 22867
+    },
+    {
+      "path": "test/runtime/inventory-siblings.test.js",
+      "corpus": "code",
+      "blob": "63cd4cb0daa5c33cf9c4d2274ebbab506e5921b3",
+      "bytes": 16197
+    },
+    {
+      "path": "test/runtime/inventory-verb.test.js",
+      "corpus": "code",
+      "blob": "25403f454725843fb60501e822920191f9d805b2",
+      "bytes": 64341
+    },
+    {
+      "path": "test/runtime/knowledge-eval.test.js",
+      "corpus": "code",
+      "blob": "430061251d1ac3023434c1e4962c42089d7bba1f",
+      "bytes": 6602
+    },
+    {
+      "path": "test/runtime/knowledge-hybrid.test.js",
+      "corpus": "code",
+      "blob": "643f5a4d8ffe8ea29d3df57264f00f47ef7a9a16",
+      "bytes": 3037
+    },
+    {
+      "path": "test/runtime/knowledge.test.js",
+      "corpus": "code",
+      "blob": "ec151292a6ab3482c5172051ac864102b1629ace",
+      "bytes": 9685
+    },
+    {
+      "path": "test/runtime/lifecycle-cli.test.js",
+      "corpus": "code",
+      "blob": "1188a2804a0087257e9375b013b294378023fd74",
+      "bytes": 32306
+    },
+    {
+      "path": "test/runtime/lifecycle-derivation-differential-odd.test.js",
+      "corpus": "code",
+      "blob": "156f9a2bafb38e6f5c3e9d66c46365fd476c718a",
+      "bytes": 5371
+    },
+    {
+      "path": "test/runtime/lifecycle-derivation-differential.test.js",
+      "corpus": "code",
+      "blob": "cbe4564c45db01c8b36a0c4eccb1e4c91b7c62e7",
+      "bytes": 1607
+    },
+    {
+      "path": "test/runtime/lifecycle-fold.test.js",
+      "corpus": "code",
+      "blob": "355101171eb3500e98960d482f512d7b190bc2a2",
+      "bytes": 15058
+    },
+    {
+      "path": "test/runtime/lifecycle-followup.test.js",
+      "corpus": "code",
+      "blob": "daabe6770d9bb1c4a765bcb2cc6c4c2cfeb528f9",
+      "bytes": 25747
+    },
+    {
+      "path": "test/runtime/lifecycle-goal.test.js",
+      "corpus": "code",
+      "blob": "dbede0292c33b1b04176023272713e829fd5e678",
+      "bytes": 27492
+    },
+    {
+      "path": "test/runtime/lifecycle-migration.test.js",
+      "corpus": "code",
+      "blob": "fbd5537c8e9c98dbc46c24f420f48f95c8588096",
+      "bytes": 24551
+    },
+    {
+      "path": "test/runtime/lifecycle-overview.test.js",
+      "corpus": "code",
+      "blob": "282d1f46e5f1f46b19ef57ea89c8cbd99e6eada6",
+      "bytes": 8243
+    },
+    {
+      "path": "test/runtime/lifecycle-promote.test.js",
+      "corpus": "code",
+      "blob": "1ad5900c277e2c8e6046643f992062ea79883c02",
+      "bytes": 10751
+    },
+    {
+      "path": "test/runtime/lifecycle-release-merged.test.js",
+      "corpus": "code",
+      "blob": "71db55bb56ee6139e7ba097e896170310862d3de",
+      "bytes": 13244
+    },
+    {
+      "path": "test/runtime/lifecycle-release.shared.js",
+      "corpus": "code",
+      "blob": "95b859b81e54380226f06a00bd732ef8784de9e1",
+      "bytes": 2530
+    },
+    {
+      "path": "test/runtime/lifecycle-release.test.js",
+      "corpus": "code",
+      "blob": "cfb7838a043fd0e58d2d19e05eed3320860afb3d",
+      "bytes": 14204
+    },
+    {
+      "path": "test/runtime/lifecycle-report.test.js",
+      "corpus": "code",
+      "blob": "bea14f280c156d958c44a384b182181a469dcea0",
+      "bytes": 26469
+    },
+    {
+      "path": "test/runtime/lifecycle-retention.test.js",
+      "corpus": "code",
+      "blob": "4bc2606ea11af6c6f415d9b611188d6099f2a24b",
+      "bytes": 30188
+    },
+    {
+      "path": "test/runtime/lifecycle-status.test.js",
+      "corpus": "code",
+      "blob": "c6425a67220282124ff4357996d6890a433cee96",
+      "bytes": 22044
+    },
+    {
+      "path": "test/runtime/lifecycle-store.test.js",
+      "corpus": "code",
+      "blob": "59a72734d9950e6d59c4df0981680664d6d3d394",
+      "bytes": 33721
+    },
+    {
+      "path": "test/runtime/mask.test.js",
+      "corpus": "code",
+      "blob": "77cc05e189650af178b20291fb393ee97ab879ef",
+      "bytes": 11062
+    },
+    {
+      "path": "test/runtime/mcp-consultations.test.js",
+      "corpus": "code",
+      "blob": "136475e9e8c68cfc0c3ca58a958b923dade7cf64",
+      "bytes": 21279
+    },
+    {
+      "path": "test/runtime/mcp-handoff.test.js",
+      "corpus": "code",
+      "blob": "dca352690f8423954084cca19056d5eb91d15a51",
+      "bytes": 24331
+    },
+    {
+      "path": "test/runtime/mcp-reach.test.js",
+      "corpus": "code",
+      "blob": "7559296ecad7c70637e602aa247b43668d9886f1",
+      "bytes": 11069
+    },
+    {
+      "path": "test/runtime/model-router.test.js",
+      "corpus": "code",
+      "blob": "bffeadeb00bc483d14b2bdc6462430817156a299",
+      "bytes": 6303
+    },
+    {
+      "path": "test/runtime/performance-budget.test.js",
+      "corpus": "code",
+      "blob": "e5b47a7efce81627101fe60bb80c5cc8874adfee",
+      "bytes": 3885
+    },
+    {
+      "path": "test/runtime/reach.test.js",
+      "corpus": "code",
+      "blob": "cb76e7a3f014ce32396a7962e1608fd76911e937",
+      "bytes": 8293
+    },
+    {
+      "path": "test/runtime/readiness-bindings.test.js",
+      "corpus": "code",
+      "blob": "3b082800cc12a5121b2443adde9afb7abd96ecc9",
+      "bytes": 9449
+    },
+    {
+      "path": "test/runtime/readiness-record.test.js",
+      "corpus": "code",
+      "blob": "26d187eebbced5eb2ae30d97b0d2ae52cac274d9",
+      "bytes": 13213
+    },
+    {
+      "path": "test/runtime/readiness-stage-entry.test.js",
+      "corpus": "code",
+      "blob": "ea687de6ec5db5c4f0c6a3f7b6718a8130eff748",
+      "bytes": 4693
+    },
+    {
+      "path": "test/runtime/render-puml-stderr.test.js",
+      "corpus": "code",
+      "blob": "5fb6755ae7e0321b1b74897843546c12cb0e6ca0",
+      "bytes": 3052
+    },
+    {
+      "path": "test/runtime/research-request.test.js",
+      "corpus": "code",
+      "blob": "ff1c386c170de86fdd05d73dfd1a74d9356011ca",
+      "bytes": 7571
+    },
+    {
+      "path": "test/runtime/runtime-capability-router.test.js",
+      "corpus": "code",
+      "blob": "9b4297142d19fffb47b64fcafad356b270caba52",
+      "bytes": 4892
+    },
+    {
+      "path": "test/runtime/runtime-claim-status.test.js",
+      "corpus": "code",
+      "blob": "5e48fb844a8045490c7cc91fc909c27a3bbc55a6",
+      "bytes": 5068
+    },
+    {
+      "path": "test/runtime/runtime-claims.test.js",
+      "corpus": "code",
+      "blob": "3bb567c5f483e86b42c7a7aa6dc2f9ee7fbd0847",
+      "bytes": 9314
+    },
+    {
+      "path": "test/runtime/runtime-evidence-ledger.test.js",
+      "corpus": "code",
+      "blob": "0565e011eefa4825311aa3ca1e0d869db9340b34",
+      "bytes": 4749
+    },
+    {
+      "path": "test/runtime/runtime-evidence-write.test.js",
+      "corpus": "code",
+      "blob": "33ec33f672b7cc52cdc5e97999af4c7d69f1eb9d",
+      "bytes": 28899
+    },
+    {
+      "path": "test/runtime/runtime-leak-scan.test.js",
+      "corpus": "code",
+      "blob": "8eb70d7e5fded53c88305cb6df0d4469ede762e3",
+      "bytes": 6917
+    },
+    {
+      "path": "test/runtime/runtime-locator-resolve.test.js",
+      "corpus": "code",
+      "blob": "f8d877f4d6ce8843f00a790599495412758fb100",
+      "bytes": 4939
+    },
+    {
+      "path": "test/runtime/runtime-orchestrate.test.js",
+      "corpus": "code",
+      "blob": "9a13ef28457883c8dcf8093ad409a99eff7ad61e",
+      "bytes": 28683
+    },
+    {
+      "path": "test/runtime/runtime-outcome.test.js",
+      "corpus": "code",
+      "blob": "a79ecde413bbb72cbbca0205437c5e14ab32abf6",
+      "bytes": 17463
+    },
+    {
+      "path": "test/runtime/runtime-readiness.test.js",
+      "corpus": "code",
+      "blob": "b06e5d159cbbc898cbdceb0d11a7c5025a581ac4",
+      "bytes": 21732
+    },
+    {
+      "path": "test/runtime/runtime-research-request.test.js",
+      "corpus": "code",
+      "blob": "30bedbe36b362754d8217e046d0d2247c43ddcaa",
+      "bytes": 2228
+    },
+    {
+      "path": "test/runtime/runtime-retrieval-plan.test.js",
+      "corpus": "code",
+      "blob": "4ac58906d1d6e1728b51947259e0833dbd8017cb",
+      "bytes": 21442
+    },
+    {
+      "path": "test/runtime/runtime-task-classifier.test.js",
+      "corpus": "code",
+      "blob": "3232b428d19be21f2d49df318474a26f74214d00",
+      "bytes": 9855
+    },
+    {
+      "path": "test/runtime/slug-safety.test.js",
+      "corpus": "code",
+      "blob": "4976cca6769ba55fd37cddfd5f9b31fe6d942958",
+      "bytes": 10171
+    },
+    {
+      "path": "test/runtime/stage-outcome.test.js",
+      "corpus": "code",
+      "blob": "a23ef7efe7d4709033b7b1be95a0160a45005976",
+      "bytes": 4374
+    },
+    {
+      "path": "test/runtime/storage-cli.test.js",
+      "corpus": "code",
+      "blob": "9a9b4e1c48c32c6c52e9eb8151ff3357f69aa3ef",
+      "bytes": 13302
+    },
+    {
+      "path": "test/runtime/storage-containment.test.js",
+      "corpus": "code",
+      "blob": "1275b787c4410fca6f2219dce531e4b0295ac295",
+      "bytes": 2702
+    },
+    {
+      "path": "test/runtime/storage-crash.test.js",
+      "corpus": "code",
+      "blob": "4271d0d30c67397cdbed3128272129d79869afba",
+      "bytes": 19681
+    },
+    {
+      "path": "test/runtime/storage-engine.test.js",
+      "corpus": "code",
+      "blob": "041008b58c19f012c5d940165e56e930f008c21b",
+      "bytes": 15724
+    },
+    {
+      "path": "test/runtime/storage-perf.test.js",
+      "corpus": "code",
+      "blob": "fbd4ada41a0f7a102cb6a7642872c488d83185c7",
+      "bytes": 3348
+    },
+    {
+      "path": "test/runtime/storage-registry.test.js",
+      "corpus": "code",
+      "blob": "65c16f8c16ae97a7f813fd28630902d34f43ae16",
+      "bytes": 9759
+    },
+    {
+      "path": "test/runtime/storage-report-bodies.test.js",
+      "corpus": "code",
+      "blob": "2026c0229ae1f9472f2ef0499a57ff48cd82a5fe",
+      "bytes": 13546
+    },
+    {
+      "path": "test/runtime/storage-settings.test.js",
+      "corpus": "code",
+      "blob": "3947c8b011883d7c5654e646ddb8e3fc7673b13e",
+      "bytes": 5194
+    },
+    {
+      "path": "test/runtime/storage-upkeep.test.js",
+      "corpus": "code",
+      "blob": "56488aef8cdb95a0c6150a9cd548795bc7215db1",
+      "bytes": 22147
+    },
+    {
+      "path": "test/runtime/storage-verify-moment.test.js",
+      "corpus": "code",
+      "blob": "5df06412c12b15f4f5203b2598e9b39b93752e14",
+      "bytes": 4273
+    },
+    {
+      "path": "test/runtime/storage-work-status.test.js",
+      "corpus": "code",
+      "blob": "e660d19e24b8688e314d04e1bc04a7fbb4e4e98c",
+      "bytes": 16715
+    },
+    {
+      "path": "test/runtime/targeted-test-selection.test.js",
+      "corpus": "code",
+      "blob": "502582584546988ea698fa3d21ce9ffce6e6637d",
+      "bytes": 17401
+    },
+    {
+      "path": "test/runtime/task-attempts.test.js",
+      "corpus": "code",
+      "blob": "5c15ea14bbdd4af5042fc9a6e77d3008c579232d",
+      "bytes": 22477
+    },
+    {
+      "path": "test/runtime/task-brief-tools.test.js",
+      "corpus": "code",
+      "blob": "eaa4c0c932f0ee41927ffc0b9f76623ba1ee038c",
+      "bytes": 14722
+    },
+    {
+      "path": "test/runtime/task-scope.test.js",
+      "corpus": "code",
+      "blob": "c8f54845c25cfabb84e6dc45d3157b2927b15027",
+      "bytes": 13295
+    },
+    {
+      "path": "test/runtime/task-state-concurrency.test.js",
+      "corpus": "code",
+      "blob": "eb35fc7c6996db4c9d20dd5f5db43ac202ff68b0",
+      "bytes": 9426
+    },
+    {
+      "path": "test/runtime/verification-diagnostics.test.js",
+      "corpus": "code",
+      "blob": "c07526a624f4fcd7ed40c853384143caa6052c45",
+      "bytes": 5514
+    },
+    {
+      "path": "test/runtime/verification-input.test.js",
+      "corpus": "code",
+      "blob": "39ca63af00918e7ee2e39e26391c68a45a40de7e",
+      "bytes": 13905
+    },
+    {
+      "path": "test/runtime/verification-scope.test.js",
+      "corpus": "code",
+      "blob": "da5792371f0d5e812926fd2582134d455bccb6be",
+      "bytes": 39190
+    },
+    {
+      "path": "test/runtime/workflow-handoff.test.js",
+      "corpus": "code",
+      "blob": "41e7276645781cd783e1ec0def3e199aba858a95",
+      "bytes": 4071
+    },
+    {
+      "path": "test/runtime/workflow-orchestrator.test.js",
+      "corpus": "code",
+      "blob": "108ae129f5d07309ef49c1821177183b00ff3dae",
+      "bytes": 30175
+    },
+    {
+      "path": "test/state/ledger-v2.test.js",
+      "corpus": "code",
+      "blob": "69271e91b9f7a28b2da809ed386ef68c378e8f37",
+      "bytes": 2430
+    },
+    {
+      "path": "test/state/lockfile.test.js",
+      "corpus": "code",
+      "blob": "06367f6633a78b58146af38d696c6253dd51738b",
+      "bytes": 6393
+    },
+    {
+      "path": "test/state/run-lock.test.js",
+      "corpus": "code",
+      "blob": "0c9f430c81b37a3232933a879629817fa5bd2ac8",
+      "bytes": 17099
+    },
+    {
+      "path": "test/state/state-ledger.test.js",
+      "corpus": "code",
+      "blob": "2ceb7c2461dd4b86d2fcb2b202e511fce11e6be3",
+      "bytes": 8814
+    },
+    {
+      "path": "test/verify-hooks.sh",
+      "corpus": "code",
+      "blob": "5b9442e8202e145a2ec5e883de76c9a3f9f03e57",
+      "bytes": 43784
+    }
+  ]
+}

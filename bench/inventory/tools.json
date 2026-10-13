@@ -1,0 +1,1891 @@
+{
+  "schemaVersion": 1,
+  "refresh": {
+    "trigger": "A tool in the current stack changes version, a candidate crosses the star threshold, or a retrieval-profile proposal is revisited",
+    "owner": "maintainer"
+  },
+  "starThreshold": 20000,
+  "classes": [
+    "exact-search",
+    "structural-search",
+    "semantic-code-search",
+    "graph-query",
+    "reranking",
+    "output-compression"
+  ],
+  "rows": [
+    {
+      "id": "TOOL-001",
+      "name": "ripgrep",
+      "class": "exact-search",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/BurntSushi/ripgrep",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "15.2.0",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep/releases/latest → tag_name (published 2026-07-15T16:26:10Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Unlicense",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep/releases/latest → 28 release assets; prebuilt binaries named for macOS (ripgrep-15.2.0-aarch64-apple-darwin.tar.gz), Linux (ripgrep-15.2.0-aarch64-unknown-linux-gnu.tar.gz), Windows (ripgrep-15.2.0-aarch64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 69086,
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "ripgrep recursively searches directories for a regex pattern while respecting your gitignore",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-08-04T13:59:44Z",
+        "source": "https://api.github.com/repos/BurntSushi/ripgrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "ripgrep 15.2.0",
+        "source": "rg --version → ripgrep 15.2.0",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-002",
+      "name": "fd",
+      "class": "exact-search",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/sharkdp/fd",
+        "source": "https://api.github.com/repos/sharkdp/fd → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v10.5.0",
+        "source": "https://api.github.com/repos/sharkdp/fd/releases/latest → tag_name (published 2026-08-26T07:59:09Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/sharkdp/fd → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/sharkdp/fd/releases/latest → 22 release assets; prebuilt binaries named for macOS (fd-v10.5.0-aarch64-apple-darwin.tar.gz), Linux (fd-musl_10.5.0_amd64.deb), Windows (fd-v10.5.0-aarch64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 44765,
+        "source": "https://api.github.com/repos/sharkdp/fd → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A simple, fast and user-friendly alternative to 'find'",
+        "source": "https://api.github.com/repos/sharkdp/fd → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-07T17:42:40Z",
+        "source": "https://api.github.com/repos/sharkdp/fd → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "file-name search; assigned to exact-search because it matches file names literally or by regex",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "unverified": "binary absent on this machine",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-003",
+      "name": "jq",
+      "class": "structural-search",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/jqlang/jq",
+        "source": "https://api.github.com/repos/jqlang/jq → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "jq-1.8.2",
+        "source": "https://api.github.com/repos/jqlang/jq/releases/latest → tag_name (published 2026-06-20T14:11:27Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://github.com/jqlang/jq/blob/HEAD/COPYING → COPYING: MIT permission text for the source (\"Permission is hereby granted, free of charge...\"); docs/ under CC BY 3.0; incorporates David M. Gay's dtoa.c and g_fmt.c under their own notices (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/jqlang/jq/releases/latest → 29 release assets; prebuilt binaries named for macOS (jq-macos-amd64), Linux (jq-linux-amd64), Windows (jq-win64.exe)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 35792,
+        "source": "https://api.github.com/repos/jqlang/jq → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Command-line JSON processor",
+        "source": "https://api.github.com/repos/jqlang/jq → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T04:40:40Z",
+        "source": "https://api.github.com/repos/jqlang/jq → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "assigned to structural-search because it selects by position in a JSON structure; the plan names no class for jq (inference, not a source statement)",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "jq-1.7.1-apple",
+        "source": "jq --version → jq-1.7.1-apple",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-004",
+      "name": "RTK",
+      "class": "output-compression",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/rtk-ai/rtk",
+        "source": "https://api.github.com/repos/rtk-ai/rtk → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.51.0",
+        "source": "https://api.github.com/repos/rtk-ai/rtk/releases/latest → tag_name (published 2026-10-02T13:33:54Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/rtk-ai/rtk → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/rtk-ai/rtk/releases/latest → 10 release assets; prebuilt binaries named for macOS (rtk-aarch64-apple-darwin.tar.gz), Linux (rtk-0.51.0-1.x86_64.rpm), Windows (rtk-x86_64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 83070,
+        "source": "https://api.github.com/repos/rtk-ai/rtk → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "CLI proxy that reduces LLM token consumption by 60-90% on common dev commands. Single Rust binary, zero dependencies",
+        "source": "https://api.github.com/repos/rtk-ai/rtk → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T10:42:53Z",
+        "source": "https://api.github.com/repos/rtk-ai/rtk → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "rtk 0.50.0",
+        "source": "rtk --version → rtk 0.50.0",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-005",
+      "name": "semble",
+      "class": "semantic-code-search",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/MinishLab/semble",
+        "source": "https://api.github.com/repos/MinishLab/semble → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.6.2",
+        "source": "https://api.github.com/repos/MinishLab/semble/releases/latest → tag_name (published 2026-10-05T09:24:41Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/MinishLab/semble → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/semble/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 6197,
+        "source": "https://api.github.com/repos/MinishLab/semble → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Fast and Accurate Code Search for Agents. Uses 99% fewer tokens than grep+read",
+        "source": "https://api.github.com/repos/MinishLab/semble → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T12:02:42Z",
+        "source": "https://api.github.com/repos/MinishLab/semble → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "0.6.1",
+        "source": "semble --version → 0.6.1",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-006",
+      "name": "graphify",
+      "class": "graph-query",
+      "list": "stack",
+      "repo": {
+        "value": "https://github.com/Graphify-Labs/graphify",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.9.86",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify/releases/latest → tag_name (published 2026-10-11T20:22:14Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 1 asset(s) (graphify-self-graph.tar.gz) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/graphifyy/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 125749,
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Turn any codebase, with its docs, SQL schemas, configs, and PDFs, into a queryable knowledge graph. A /graphify skill for Claude Code, Cursor, Codex, and Gemini CLI: local deterministic AST parsing, every edge explained, no vector store.",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T14:10:36Z",
+        "source": "https://api.github.com/repos/Graphify-Labs/graphify → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "exemptFromStarFilter": true,
+      "localVersion": {
+        "value": "graphify 0.9.71",
+        "source": "graphify --version → graphify 0.9.71",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-007",
+      "name": "Serena",
+      "class": "semantic-code-search",
+      "list": "excluded",
+      "excludedBy": "ADR section 1",
+      "repo": {
+        "unverified": "excluded by ADR section 1; not evaluated",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "excluded by ADR section 1; not evaluated",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "unverified": "excluded by ADR section 1; not evaluated",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "excluded by ADR section 1; not evaluated",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "unverified": "excluded by ADR section 1; not evaluated, so no star count is recorded",
+        "verifiedOn": "2026-10-12"
+      }
+    },
+    {
+      "id": "TOOL-008",
+      "name": "The Silver Searcher (ag)",
+      "class": "exact-search",
+      "list": "main",
+      "repo": {
+        "value": "https://github.com/ggreer/the_silver_searcher",
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 27128,
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A code-searching tool similar to ack, but faster.",
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2024-06-16T19:37:41Z",
+        "source": "https://api.github.com/repos/ggreer/the_silver_searcher → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-009",
+      "name": "ugrep",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/Genivia/ugrep",
+        "source": "https://api.github.com/repos/Genivia/ugrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v7.8.5",
+        "source": "https://api.github.com/repos/Genivia/ugrep/releases/latest → tag_name (published 2026-09-15T11:46:12Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "BSD-3-Clause",
+        "source": "https://api.github.com/repos/Genivia/ugrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 1 asset(s) (ugrep-windows-x64.zip) that name 1 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 3310,
+        "source": "https://api.github.com/repos/Genivia/ugrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "🔍 ugrep 7.8 file pattern searcher -- a user-friendly, faster, more capable grep replacement. Includes a TUI, Google-like Boolean search with AND/OR/NOT, fuzzy search, hexdumps, searches (nested) archives (zip, 7z, tar, pax, cpio), compressed files (gz, Z, bz2, lzma, xz, lz4, zstd, brotli), pdfs, docs, and more",
+        "source": "https://api.github.com/repos/Genivia/ugrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T02:49:58Z",
+        "source": "https://api.github.com/repos/Genivia/ugrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-010",
+      "name": "ripgrep-all",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/phiresky/ripgrep-all",
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.10.10",
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all/releases/latest → tag_name (published 2025-11-09T20:25:38Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "AGPL-3.0",
+        "source": "https://github.com/phiresky/ripgrep-all/blob/HEAD/LICENSE.md → LICENSE.md: states the author settled on the AGPL as default, then carries the GNU Affero General Public License version 3 text (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux"
+        ],
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all/releases/latest → 5 release assets; prebuilt binaries named for macOS (ripgrep_all-v0.10.10-aarch64-apple-darwin.tar.gz), Linux (ripgrep_all-v0.10.10-aarch64-unknown-linux-gnu.tar.gz)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 9876,
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "rga: ripgrep, but also search in PDFs, E-Books, Office documents, zip, tar.gz, etc.",
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-17T11:25:07Z",
+        "source": "https://api.github.com/repos/phiresky/ripgrep-all → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-011",
+      "name": "Hound",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/hound-search/hound",
+        "source": "https://api.github.com/repos/hound-search/hound → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.7.1",
+        "source": "https://api.github.com/repos/hound-search/hound/releases/latest → tag_name (published 2023-05-03T19:10:10Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/hound-search/hound → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 5886,
+        "source": "https://api.github.com/repos/hound-search/hound → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Lightning fast code searching made easy",
+        "source": "https://api.github.com/repos/hound-search/hound → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-10T12:29:59Z",
+        "source": "https://api.github.com/repos/hound-search/hound → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-012",
+      "name": "livegrep",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/livegrep/livegrep",
+        "source": "https://api.github.com/repos/livegrep/livegrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "BSD-2-Clause",
+        "source": "https://github.com/livegrep/livegrep/blob/HEAD/COPYING → COPYING: two numbered redistribution conditions plus the standard disclaimer (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 2236,
+        "source": "https://api.github.com/repos/livegrep/livegrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Interactively grep source code. Source for http://livegrep.com/",
+        "source": "https://api.github.com/repos/livegrep/livegrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-02-10T15:03:35Z",
+        "source": "https://api.github.com/repos/livegrep/livegrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-013",
+      "name": "zoekt",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/sourcegraph/zoekt",
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 1956,
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Fast trigram based code search",
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-09T11:50:01Z",
+        "source": "https://api.github.com/repos/sourcegraph/zoekt → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-014",
+      "name": "ack3",
+      "class": "exact-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/beyondgrep/ack3",
+        "source": "https://api.github.com/repos/beyondgrep/ack3 → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Artistic-2.0",
+        "source": "https://github.com/beyondgrep/ack3/blob/HEAD/LICENSE.md → LICENSE.md: \"ack is released under the Artistic License 2.0\" (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "any platform that runs Perl"
+        ],
+        "source": "https://github.com/beyondgrep/ack3/blob/dev/README.md → \"portable and runs on any platform that runs Perl\"",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 830,
+        "source": "https://api.github.com/repos/beyondgrep/ack3 → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "ack is a grep-like search tool optimized for source code.",
+        "source": "https://api.github.com/repos/beyondgrep/ack3 → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-06T01:03:39Z",
+        "source": "https://api.github.com/repos/beyondgrep/ack3 → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "readme-statement"
+    },
+    {
+      "id": "TOOL-015",
+      "name": "tree-sitter",
+      "class": "structural-search",
+      "list": "main",
+      "repo": {
+        "value": "https://github.com/tree-sitter/tree-sitter",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.27.1",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter/releases/latest → tag_name (published 2026-10-08T17:43:54Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter/releases/latest → 21 release assets; prebuilt binaries named for macOS (tree-sitter-cli-macos-arm64.zip), Linux (tree-sitter-cli-linux-arm.zip), Windows (tree-sitter-cli-windows-arm64.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 27168,
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "An incremental parsing system for programming tools",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T05:35:54Z",
+        "source": "https://api.github.com/repos/tree-sitter/tree-sitter → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "a parsing system with a query language over syntax trees; not a search command by itself (inference from the repository description)"
+    },
+    {
+      "id": "TOOL-016",
+      "name": "Semgrep",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/semgrep/semgrep",
+        "source": "https://api.github.com/repos/semgrep/semgrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v1.180.0",
+        "source": "https://api.github.com/repos/semgrep/semgrep/releases/latest → tag_name (published 2026-10-07T23:17:11Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "LGPL-2.1",
+        "source": "https://api.github.com/repos/semgrep/semgrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Windows",
+          "Linux"
+        ],
+        "source": "https://pypi.org/pypi/semgrep/json → classifiers \"Operating System :: MacOS\", \"Operating System :: Microsoft :: Windows\", \"Operating System :: POSIX :: Linux\"",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 16998,
+        "source": "https://api.github.com/repos/semgrep/semgrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Lightweight static analysis for many languages. Find bug variants with patterns that look like source code.",
+        "source": "https://api.github.com/repos/semgrep/semgrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T00:04:11Z",
+        "source": "https://api.github.com/repos/semgrep/semgrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "pypi-classifier"
+    },
+    {
+      "id": "TOOL-017",
+      "name": "ast-grep",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/ast-grep/ast-grep",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "0.50.0",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep/releases/latest → tag_name (published 2026-10-09T14:19:44Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/ast-grep/ast-grep/releases/latest → 7 release assets; prebuilt binaries named for macOS (app-aarch64-apple-darwin.zip), Linux (app-aarch64-unknown-linux-gnu.zip), Windows (app-aarch64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 16204,
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "⚡A CLI tool for code structural search, lint and rewriting. Written in Rust",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T15:34:09Z",
+        "source": "https://api.github.com/repos/ast-grep/ast-grep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-018",
+      "name": "CodeQL",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/github/codeql",
+        "source": "https://api.github.com/repos/github/codeql → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "unverified": "no GitHub release is published; the tags endpoint does not order by date, so a latest tag is not read",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/github/codeql → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 10192,
+        "source": "https://api.github.com/repos/github/codeql → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "CodeQL: the libraries and queries that power security researchers around the world, as well as code scanning in GitHub Advanced Security",
+        "source": "https://api.github.com/repos/github/codeql → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T13:55:46Z",
+        "source": "https://api.github.com/repos/github/codeql → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-019",
+      "name": "Opengrep",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/opengrep/opengrep",
+        "source": "https://api.github.com/repos/opengrep/opengrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v1.30.2",
+        "source": "https://api.github.com/repos/opengrep/opengrep/releases/latest → tag_name (published 2026-10-07T20:55:40Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "LGPL-2.1",
+        "source": "https://api.github.com/repos/opengrep/opengrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/opengrep/opengrep/releases/latest → 26 release assets; prebuilt binaries named for macOS (opengrep-core_osx_aarch64.tar.gz), Linux (opengrep-core_linux_aarch64.tar.gz), Windows (opengrep-core_windows_x86.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 3170,
+        "source": "https://api.github.com/repos/opengrep/opengrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "🔎 Static code analysis engine to find security issues in code.",
+        "source": "https://api.github.com/repos/opengrep/opengrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T11:42:10Z",
+        "source": "https://api.github.com/repos/opengrep/opengrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-020",
+      "name": "Comby",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/comby-tools/comby",
+        "source": "https://api.github.com/repos/comby-tools/comby → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "1.8.1",
+        "source": "https://api.github.com/repos/comby-tools/comby/releases/latest → tag_name (published 2022-06-28T02:35:51Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/comby-tools/comby → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 2 asset(s) (comby-1.8.1-x86_64-linux, comby-1.8.1-x86_64-linux.tar.gz) that name 1 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 2680,
+        "source": "https://api.github.com/repos/comby-tools/comby → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A code rewrite tool for structural search and replace that supports ~every language.",
+        "source": "https://api.github.com/repos/comby-tools/comby → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-06-08T07:27:09Z",
+        "source": "https://api.github.com/repos/comby-tools/comby → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-021",
+      "name": "weggli",
+      "class": "structural-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/weggli-rs/weggli",
+        "source": "https://api.github.com/repos/weggli-rs/weggli → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.2.4",
+        "source": "https://api.github.com/repos/weggli-rs/weggli/releases/latest → tag_name (published 2022-05-31T12:23:06Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/weggli-rs/weggli → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 2503,
+        "source": "https://api.github.com/repos/weggli-rs/weggli → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "weggli is a fast and robust semantic search tool for C and C++ codebases. It is designed to help security researchers identify interesting functionality in large codebases.",
+        "source": "https://api.github.com/repos/weggli-rs/weggli → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2024-07-12T16:50:14Z",
+        "source": "https://api.github.com/repos/weggli-rs/weggli → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-022",
+      "name": "GitNexus",
+      "class": "semantic-code-search",
+      "list": "main",
+      "repo": {
+        "value": "https://github.com/abhigyanpatwari/GitNexus",
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v1.6.12",
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus/releases/latest → tag_name (published 2026-09-12T21:40:04Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "PolyForm-Noncommercial-1.0.0",
+        "source": "https://github.com/abhigyanpatwari/GitNexus/blob/HEAD/LICENSE → LICENSE: \"PolyForm Noncommercial License 1.0.0\" (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 47848,
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "GitNexus: The Zero-Server Code Intelligence Engine",
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T06:28:10Z",
+        "source": "https://api.github.com/repos/abhigyanpatwari/GitNexus → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "its README describes both a knowledge graph and embeddings; classed here for embedding search (inference); not evaluated"
+    },
+    {
+      "id": "TOOL-023",
+      "name": "claude-context",
+      "class": "semantic-code-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/zilliztech/claude-context",
+        "source": "https://api.github.com/repos/zilliztech/claude-context → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "0.1.15 (npm @zilliz/claude-context-core latest)",
+        "source": "https://registry.npmjs.org/@zilliz%2Fclaude-context-core/latest",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/zilliztech/claude-context → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "no GitHub release is published, and no package-registry or README statement of supported platforms was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 12604,
+        "source": "https://api.github.com/repos/zilliztech/claude-context → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Code search MCP for Claude Code. Make entire codebase the context for any coding agent.",
+        "source": "https://api.github.com/repos/zilliztech/claude-context → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-07-14T12:00:38Z",
+        "source": "https://api.github.com/repos/zilliztech/claude-context → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-024",
+      "name": "mgrep",
+      "class": "semantic-code-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/mixedbread-ai/mgrep",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.1.13",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep/releases/latest → tag_name (published 2026-04-25T18:08:57Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 4416,
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A calm, CLI-native way to semantically grep everything, like code, images, pdfs and more.",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-04-25T17:26:31Z",
+        "source": "https://api.github.com/repos/mixedbread-ai/mgrep → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-025",
+      "name": "ck",
+      "class": "semantic-code-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/BeaconBay/ck",
+        "source": "https://api.github.com/repos/BeaconBay/ck → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "0.8.1",
+        "source": "https://api.github.com/repos/BeaconBay/ck/releases/latest → tag_name (published 2026-10-11T13:48:18Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/BeaconBay/ck → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/BeaconBay/ck/releases/latest → 12 release assets; prebuilt binaries named for macOS (ck-0.8.1-aarch64-apple-darwin.tar.gz), Linux (ck-0.8.1-aarch64-unknown-linux-gnu.tar.gz), Windows (ck-0.8.1-aarch64-pc-windows-msvc.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 1743,
+        "source": "https://api.github.com/repos/BeaconBay/ck → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Local first semantic and hybrid BM25 grep / search tool for use by AI and humans!",
+        "source": "https://api.github.com/repos/BeaconBay/ck → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T12:37:15Z",
+        "source": "https://api.github.com/repos/BeaconBay/ck → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-026",
+      "name": "grepai",
+      "class": "semantic-code-search",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/yoanbernabeu/grepai",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.37.0",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai/releases/latest → tag_name (published 2026-09-10T12:02:33Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai/releases/latest → 7 release assets; prebuilt binaries named for macOS (grepai_0.37.0_darwin_amd64.tar.gz), Linux (grepai_0.37.0_linux_amd64.tar.gz), Windows (grepai_0.37.0_windows_amd64.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 1909,
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Semantic Search & Call Graphs for AI Agents (100% Local)",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-21T05:34:06Z",
+        "source": "https://api.github.com/repos/yoanbernabeu/grepai → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-027",
+      "name": "Dgraph",
+      "class": "graph-query",
+      "list": "main",
+      "repo": {
+        "value": "https://github.com/dgraph-io/dgraph",
+        "source": "https://api.github.com/repos/dgraph-io/dgraph → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v25.4.1",
+        "source": "https://api.github.com/repos/dgraph-io/dgraph/releases/latest → tag_name (published 2026-08-24T19:28:23Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/dgraph-io/dgraph → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "Linux"
+        ],
+        "source": "https://github.com/dgraph-io/dgraph/blob/main/README.md → \"support for platforms other than Linux/amd64 and Linux/arm64 is not available\"",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 21805,
+        "source": "https://api.github.com/repos/dgraph-io/dgraph → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "high-performance graph database for real-time use cases",
+        "source": "https://api.github.com/repos/dgraph-io/dgraph → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T07:09:02Z",
+        "source": "https://api.github.com/repos/dgraph-io/dgraph → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "readme-statement",
+      "classBasis": "a general graph database, not a code-graph tool (inference from the repository description)"
+    },
+    {
+      "id": "TOOL-028",
+      "name": "Joern",
+      "class": "graph-query",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/joernio/joern",
+        "source": "https://api.github.com/repos/joernio/joern → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v4.0.653",
+        "source": "https://api.github.com/repos/joernio/joern/releases/latest → tag_name (published 2026-10-10T08:01:38Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/joernio/joern → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/joernio/joern/releases/latest → 15 release assets; prebuilt binaries named for macOS (joern-cli-macos-arm64.zip), Linux (joern-cli-linux-arm64.zip), Windows (joern-cli-windows-arm64.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 3563,
+        "source": "https://api.github.com/repos/joernio/joern → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Open-source code analysis platform for C/C++/Java/Binary/Javascript/Python/Kotlin based on code property graphs. Discord https://discord.gg/vv4MH284Hc",
+        "source": "https://api.github.com/repos/joernio/joern → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T13:13:58Z",
+        "source": "https://api.github.com/repos/joernio/joern → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-029",
+      "name": "Universal Ctags",
+      "class": "graph-query",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/universal-ctags/ctags",
+        "source": "https://api.github.com/repos/universal-ctags/ctags → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v6.2.1",
+        "source": "https://api.github.com/repos/universal-ctags/ctags/releases/latest → tag_name (published 2025-10-25T13:19:36Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "GPL-2.0",
+        "source": "https://api.github.com/repos/universal-ctags/ctags → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 1 asset(s) (universal-ctags-6.2.1.tar.gz) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 7294,
+        "source": "https://api.github.com/repos/universal-ctags/ctags → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A maintained ctags implementation",
+        "source": "https://api.github.com/repos/universal-ctags/ctags → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T00:19:07Z",
+        "source": "https://api.github.com/repos/universal-ctags/ctags → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "a symbol index generator, the nearest listed class is graph-query (inference)"
+    },
+    {
+      "id": "TOOL-030",
+      "name": "SCIP",
+      "class": "graph-query",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/scip-code/scip",
+        "source": "https://api.github.com/repos/scip-code/scip → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.10.0",
+        "source": "https://api.github.com/repos/scip-code/scip/releases/latest → tag_name (published 2026-09-03T18:53:52Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/scip-code/scip → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux"
+        ],
+        "source": "https://api.github.com/repos/scip-code/scip/releases/latest → 8 release assets; prebuilt binaries named for macOS (scip-darwin-amd64.tar.gz), Linux (scip-linux-amd64.tar.gz)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 827,
+        "source": "https://api.github.com/repos/scip-code/scip → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "SCIP Code Intelligence Protocol",
+        "source": "https://api.github.com/repos/scip-code/scip → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-10T06:03:56Z",
+        "source": "https://api.github.com/repos/scip-code/scip → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "a code-intelligence indexing protocol (inference from the repository description)"
+    },
+    {
+      "id": "TOOL-031",
+      "name": "Kuzu",
+      "class": "graph-query",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/kuzudb/kuzu",
+        "source": "https://api.github.com/repos/kuzudb/kuzu → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.11.3",
+        "source": "https://api.github.com/repos/kuzudb/kuzu/releases/latest → tag_name (published 2025-10-10T14:32:42Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/kuzudb/kuzu → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/kuzudb/kuzu/releases/latest → 10 release assets; prebuilt binaries named for macOS (kuzu_cli-osx-universal.tar.gz), Linux (kuzu_cli-linux-aarch64.tar.gz), Windows (kuzu_cli-windows-x86_64.zip)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 4021,
+        "source": "https://api.github.com/repos/kuzudb/kuzu → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Embedded property graph database built for speed. Vector search and full-text search built in. Implements Cypher.",
+        "source": "https://api.github.com/repos/kuzudb/kuzu → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived true; last push 2025-10-10T15:34:00Z",
+        "source": "https://api.github.com/repos/kuzudb/kuzu → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "an embedded graph database; the repository is archived"
+    },
+    {
+      "id": "TOOL-032",
+      "name": "Memgraph",
+      "class": "graph-query",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/memgraph/memgraph",
+        "source": "https://api.github.com/repos/memgraph/memgraph → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v3.13.2",
+        "source": "https://api.github.com/repos/memgraph/memgraph/releases/latest → tag_name (published 2026-10-09T12:05:41Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "variously BSL-1.1 and the Memgraph Enterprise License (MEL)",
+        "source": "https://github.com/memgraph/memgraph/blob/HEAD/LICENSE → LICENSE: \"Source code in this repository is variously licensed under the Business Source License 1.1 (BSL), the Memgraph Enterprise License (MEL)\" (GitHub API license.spdx_id is NOASSERTION)",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 4609,
+        "source": "https://api.github.com/repos/memgraph/memgraph → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "High-performance open-source in-memory graph database for GraphRAG, AI memory, agentic AI, and real-time graph analytics. Cypher-compatible, built in C++.",
+        "source": "https://api.github.com/repos/memgraph/memgraph → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T14:10:12Z",
+        "source": "https://api.github.com/repos/memgraph/memgraph → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "a general graph database (inference)"
+    },
+    {
+      "id": "TOOL-033",
+      "name": "code-graph-rag",
+      "class": "graph-query",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/vitali87/code-graph-rag",
+        "source": "https://api.github.com/repos/vitali87/code-graph-rag → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.1.38",
+        "source": "https://api.github.com/repos/vitali87/code-graph-rag/releases/latest → tag_name (published 2026-09-29T09:17:48Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/vitali87/code-graph-rag → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/vitali87/code-graph-rag/releases/latest → 17 release assets; prebuilt binaries named for macOS (code-graph-rag-darwin-amd64), Linux (code-graph-rag-linux-amd64), Windows (code-graph-rag-windows-amd64.exe)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 5245,
+        "source": "https://api.github.com/repos/vitali87/code-graph-rag → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "The ultimate RAG for your monorepo. Query, understand, and edit multi-language codebases with the power of AI and knowledge graphs",
+        "source": "https://api.github.com/repos/vitali87/code-graph-rag → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T13:42:30Z",
+        "source": "https://api.github.com/repos/vitali87/code-graph-rag → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets"
+    },
+    {
+      "id": "TOOL-034",
+      "name": "sentence-transformers",
+      "class": "reranking",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/huggingface/sentence-transformers",
+        "source": "https://api.github.com/repos/huggingface/sentence-transformers → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v6.1.0",
+        "source": "https://api.github.com/repos/huggingface/sentence-transformers/releases/latest → tag_name (published 2026-09-18T10:44:39Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/huggingface/sentence-transformers → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/sentence-transformers/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 19166,
+        "source": "https://api.github.com/repos/huggingface/sentence-transformers → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "State-of-the-Art Embeddings, Retrieval, and Reranking",
+        "source": "https://api.github.com/repos/huggingface/sentence-transformers → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-12T14:13:56Z",
+        "source": "https://api.github.com/repos/huggingface/sentence-transformers → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "a library with cross-encoder reranking models among its features; its README mentions reranking 17 times (count of the string \"rerank\")"
+    },
+    {
+      "id": "TOOL-035",
+      "name": "FlagEmbedding",
+      "class": "reranking",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/FlagOpen/FlagEmbedding",
+        "source": "https://api.github.com/repos/FlagOpen/FlagEmbedding → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v1.4.2",
+        "source": "https://api.github.com/repos/FlagOpen/FlagEmbedding/releases/latest → tag_name (published 2026-08-24T02:55:16Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/FlagOpen/FlagEmbedding → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/FlagEmbedding/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 12230,
+        "source": "https://api.github.com/repos/FlagOpen/FlagEmbedding → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Retrieval and Retrieval-augmented LLMs",
+        "source": "https://api.github.com/repos/FlagOpen/FlagEmbedding → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-08-24T02:57:42Z",
+        "source": "https://api.github.com/repos/FlagOpen/FlagEmbedding → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-036",
+      "name": "rerankers",
+      "class": "reranking",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/AnswerDotAI/rerankers",
+        "source": "https://api.github.com/repos/AnswerDotAI/rerankers → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "0.6.0",
+        "source": "https://api.github.com/repos/AnswerDotAI/rerankers/releases/latest → tag_name (published 2024-11-12T08:19:07Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/AnswerDotAI/rerankers → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/rerankers/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 1641,
+        "source": "https://api.github.com/repos/AnswerDotAI/rerankers → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A lightweight, low-dependency, unified API to use all common reranking and cross-encoder models.",
+        "source": "https://api.github.com/repos/AnswerDotAI/rerankers → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2025-12-20T13:10:13Z",
+        "source": "https://api.github.com/repos/AnswerDotAI/rerankers → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none"
+    },
+    {
+      "id": "TOOL-037",
+      "name": "ColBERT",
+      "class": "reranking",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/stanford-futuredata/ColBERT",
+        "source": "https://api.github.com/repos/stanford-futuredata/ColBERT → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.2.22",
+        "source": "https://api.github.com/repos/stanford-futuredata/ColBERT/releases/latest → tag_name (published 2025-08-11T03:22:44Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/stanford-futuredata/ColBERT → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/colbert-ai/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 3947,
+        "source": "https://api.github.com/repos/stanford-futuredata/ColBERT → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "ColBERT: state-of-the-art neural search (SIGIR'20, TACL'21, NeurIPS'21, NAACL'22, CIKM'22, ACL'23, EMNLP'23)",
+        "source": "https://api.github.com/repos/stanford-futuredata/ColBERT → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2025-10-14T18:50:11Z",
+        "source": "https://api.github.com/repos/stanford-futuredata/ColBERT → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "a late-interaction retrieval model; its README mentions reranking once, so the class is an inference"
+    },
+    {
+      "id": "TOOL-038",
+      "name": "Repomix",
+      "class": "output-compression",
+      "list": "main",
+      "repo": {
+        "value": "https://github.com/yamadashy/repomix",
+        "source": "https://api.github.com/repos/yamadashy/repomix → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v1.18.1",
+        "source": "https://api.github.com/repos/yamadashy/repomix/releases/latest → tag_name (published 2026-09-21T08:34:49Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/yamadashy/repomix → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms, and no package-registry or README statement was read",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 28806,
+        "source": "https://api.github.com/repos/yamadashy/repomix → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "📦 Repomix is a powerful tool that packs your entire repository into a single, AI-friendly file. Perfect for when you need to feed your codebase to Large Language Models (LLMs) or other AI tools like Claude, ChatGPT, DeepSeek, Perplexity, Gemini, Gemma, Llama, Grok, and more.",
+        "source": "https://api.github.com/repos/yamadashy/repomix → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T16:00:19Z",
+        "source": "https://api.github.com/repos/yamadashy/repomix → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "packs a repository into one file with a compress option (README mentions compress or token 122 times); it shrinks input context, not command output"
+    },
+    {
+      "id": "TOOL-039",
+      "name": "gitingest",
+      "class": "output-compression",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/coderamp-labs/gitingest",
+        "source": "https://api.github.com/repos/coderamp-labs/gitingest → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.3.1",
+        "source": "https://api.github.com/repos/coderamp-labs/gitingest/releases/latest → tag_name (published 2025-07-31T13:55:15Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/coderamp-labs/gitingest → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/gitingest/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 15904,
+        "source": "https://api.github.com/repos/coderamp-labs/gitingest → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Replace 'hub' with 'ingest' in any GitHub URL to get a prompt-friendly extract of a codebase",
+        "source": "https://api.github.com/repos/coderamp-labs/gitingest → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-10-11T01:30:46Z",
+        "source": "https://api.github.com/repos/coderamp-labs/gitingest → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "turns a repository into a prompt-friendly text digest (inference)"
+    },
+    {
+      "id": "TOOL-040",
+      "name": "code2prompt",
+      "class": "output-compression",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/mufeedvh/code2prompt",
+        "source": "https://api.github.com/repos/mufeedvh/code2prompt → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v4.2.0",
+        "source": "https://api.github.com/repos/mufeedvh/code2prompt/releases/latest → tag_name (published 2025-12-11T21:02:21Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/mufeedvh/code2prompt → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "value": [
+          "macOS",
+          "Linux",
+          "Windows"
+        ],
+        "source": "https://api.github.com/repos/mufeedvh/code2prompt/releases/latest → 4 release assets; prebuilt binaries named for macOS (code2prompt-aarch64-apple-darwin), Linux (code2prompt-x86_64-unknown-linux-gnu), Windows (code2prompt-x86_64-pc-windows-msvc.exe)",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 7724,
+        "source": "https://api.github.com/repos/mufeedvh/code2prompt → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "A CLI tool to convert your codebase into a single LLM prompt with source tree, prompt templating, and token counting.",
+        "source": "https://api.github.com/repos/mufeedvh/code2prompt → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-25T18:24:47Z",
+        "source": "https://api.github.com/repos/mufeedvh/code2prompt → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "prebuilt-release-assets",
+      "classBasis": "converts a codebase into one prompt (inference)"
+    },
+    {
+      "id": "TOOL-041",
+      "name": "files-to-prompt",
+      "class": "output-compression",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/simonw/files-to-prompt",
+        "source": "https://api.github.com/repos/simonw/files-to-prompt → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "0.6",
+        "source": "https://api.github.com/repos/simonw/files-to-prompt/releases/latest → tag_name (published 2025-02-19T05:57:43Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "Apache-2.0",
+        "source": "https://api.github.com/repos/simonw/files-to-prompt → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/files-to-prompt/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 2793,
+        "source": "https://api.github.com/repos/simonw/files-to-prompt → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "Concatenate a directory full of files into a single prompt for use with LLMs",
+        "source": "https://api.github.com/repos/simonw/files-to-prompt → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2025-02-19T05:57:43Z",
+        "source": "https://api.github.com/repos/simonw/files-to-prompt → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "concatenates files into one prompt (inference)"
+    },
+    {
+      "id": "TOOL-042",
+      "name": "LLMLingua",
+      "class": "output-compression",
+      "list": "small",
+      "repo": {
+        "value": "https://github.com/microsoft/LLMLingua",
+        "source": "https://api.github.com/repos/microsoft/LLMLingua → html_url",
+        "verifiedOn": "2026-10-12"
+      },
+      "version": {
+        "value": "v0.2.2",
+        "source": "https://api.github.com/repos/microsoft/LLMLingua/releases/latest → tag_name (published 2024-04-09T08:19:16Z)",
+        "verifiedOn": "2026-10-12"
+      },
+      "licence": {
+        "value": "MIT",
+        "source": "https://api.github.com/repos/microsoft/LLMLingua → license.spdx_id",
+        "verifiedOn": "2026-10-12"
+      },
+      "platforms": {
+        "unverified": "the latest release publishes 0 asset(s) (none) that name 0 operating-system family; that does not describe supported platforms; https://pypi.org/pypi/llmlingua/json carries no Operating System classifier, and no README statement of platforms was found",
+        "verifiedOn": "2026-10-12"
+      },
+      "stars": {
+        "value": 6745,
+        "source": "https://api.github.com/repos/microsoft/LLMLingua → stargazers_count",
+        "verifiedOn": "2026-10-12"
+      },
+      "description": {
+        "value": "[EMNLP'23, ACL'24] To speed up LLMs' inference and enhance LLM's perceive of key information, compress the prompt and KV-Cache, which achieves up to 20x compression with minimal performance loss.",
+        "source": "https://api.github.com/repos/microsoft/LLMLingua → description",
+        "verifiedOn": "2026-10-12"
+      },
+      "maintenance": {
+        "value": "archived false; last push 2026-09-10T23:37:23Z",
+        "source": "https://api.github.com/repos/microsoft/LLMLingua → archived, pushed_at",
+        "verifiedOn": "2026-10-12"
+      },
+      "platformsBasis": "none",
+      "classBasis": "prompt compression with a language model"
+    }
+  ],
+  "replacementStatement": "No current-stack replacement is recommended.",
+  "localAdvisor": {
+    "configurationName": "clef-flash",
+    "modelId": {
+      "value": "clef-flash:latest",
+      "source": "~/.config/doflow/decision-model.json → \"model\": \"clef-flash:latest\"",
+      "verifiedOn": "2026-10-12"
+    },
+    "backend": {
+      "value": "ollama",
+      "source": "~/.config/doflow/decision-model.json → \"provider\": \"ollama\"",
+      "verifiedOn": "2026-10-12"
+    },
+    "backendVersion": {
+      "value": "0.40.3",
+      "source": "curl http://127.0.0.1:11434/api/version → {\"version\":\"0.40.3\"}; ollama --version → ollama version is 0.40.3",
+      "verifiedOn": "2026-10-12"
+    },
+    "structuredOutput": {
+      "value": "closed-schema",
+      "source": "src/runtime/advice/providers/ollama-systemone.ts:24 buildRequest sends each question as a closed type (choice, score or noul) to POST /v1/systemone, and the reply parser rejects any answer outside the declared criteria (same file, parseScore at line 59)",
+      "verifiedOn": "2026-10-12"
+    },
+    "modelDetail": {
+      "value": "size 12387093750 bytes on disk; format safetensors; quantization mxfp8; runner mlx; capabilities decision, vision",
+      "source": "curl http://127.0.0.1:11434/api/tags → models[0].size, details, capabilities",
+      "verifiedOn": "2026-10-12"
+    },
+    "rssAloneMB": {
+      "unmeasured": "not loaded: curl http://127.0.0.1:11434/api/ps listed no loaded model, and loading a 12.4 GB model would compete for memory with the concurrent sessions that share this machine and perturb their timings; resident memory of an mlx runner is also unified memory, which ps rss does not isolate"
+    },
+    "rssWithCodingModelMB": {
+      "unmeasured": "needs a coding model loaded beside clef-flash, which no recorded run provides; not run for the same memory reason as rssAloneMB"
+    }
+  }
+}
