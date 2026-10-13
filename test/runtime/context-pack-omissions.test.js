@@ -2,8 +2,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp');
 const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
 const { formatMarkdown, formatJson } = require('../../src/runtime/context/compose.ts');
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const CLI_PATH = path.join(REPO_ROOT, 'bin', 'doflow.js');
 
 function maskDynamicFields(jsonObj) {
   const clone = JSON.parse(JSON.stringify(jsonObj));
@@ -134,4 +141,47 @@ test('context-pack-omissions: negative control — dropping one omission fails n
   assert.throws(() => {
     verifyAllExpectedOmissions(corruptedOmissions, ['file:src/file2.ts']);
   }, /missing-omission: dropped id 'file:src\/file2\.ts'/);
+});
+
+test('context-pack-omissions: recorded perf-fixture CLI renders every omission and range count within cap', (t) => {
+  const root = tempDir(t, 'doflow-recorded-omissions-');
+  const fixture = path.join(REPO_ROOT, 'bench/perf/fixtures/context-pack-project');
+  fs.cpSync(fixture, root, { recursive: true });
+  const result = spawnSync(process.execPath, [
+    CLI_PATH, 'context-pack', '--task-id', 'perf-cp', '--slug', 'perf-feature', '--task-class', 'feature',
+    '--max-bytes', '225000', '--reason', 'FX.1 omission completeness', '--json',
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, FORCE_COLOR: '0' } });
+  assert.equal(result.status, 0, `Recorded JSON run failed: ${result.stderr}`);
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.delivery.recorded, true);
+
+  const markdownResult = spawnSync(process.execPath, [
+    CLI_PATH, 'context-pack', '--task-id', 'perf-cp', '--slug', 'perf-feature', '--task-class', 'feature',
+    '--max-bytes', '225000', '--reason', 'FX.1 omission completeness',
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, FORCE_COLOR: '0' } });
+  assert.equal(markdownResult.status, 0, `Recorded Markdown run failed: ${markdownResult.stderr}`);
+  assert.equal(Buffer.byteLength(markdownResult.stdout, 'utf8') <= 225000, true);
+
+  for (const omitted of json.deliveryOmissions || []) {
+    const match = /^(.+?)(\d+)$/.exec(omitted.id);
+    const coveredByRange = (json.omissions.groups || []).some(group =>
+      (group.ranges || []).some(range => range.from === omitted.id || (
+        match && range.from.startsWith(match[1]) && range.to.startsWith(match[1]) &&
+        Number(range.from.slice(match[1].length)) <= Number(match[2]) &&
+        Number(range.to.slice(match[1].length)) >= Number(match[2])
+      )),
+    );
+    assert.ok(markdownResult.stdout.includes(omitted.id) || coveredByRange,
+      `Omitted id ${omitted.id} is neither named nor covered by a recorded range`);
+  }
+
+  for (const group of json.omissions.groups || []) {
+    const rendered = markdownResult.stdout.split('\n').find(line => line.startsWith(`- ${group.reason}`));
+    assert.ok(rendered, `Missing markdown omission group ${group.reason}`);
+    assert.match(rendered, new RegExp(`\\(${group.count}\\)`), `Omission count differs for ${group.reason}`);
+    for (const range of group.ranges || []) {
+      assert.ok(markdownResult.stdout.includes(`${range.from}..${range.to} (${range.count})`),
+        `Missing range ${range.from}..${range.to} (${range.count})`);
+    }
+  }
 });

@@ -457,7 +457,11 @@ function computeEnvelopes({
     }
     if (hasMandatoryItems['claims.conflicts']) {
       md += `### Blocking Conflicts\n\n`;
+    } else {
+      md += `### Blocking Conflicts\n- not supplied: none-recorded\n\n`;
     }
+    // The decisions:reason item shares this section heading with live decisions.
+    md += `### Live decisions\n`;
     if (mandatory) {
       md += `### Mandatory Sources\n`;
       const mandKeys = ['objective', 'acceptanceCriteria', 'constraints', 'verificationRequirements', 'scopeExcluded', 'blockingGaps'];
@@ -484,7 +488,7 @@ function computeEnvelopes({
   const paddedBytes = '000000000';
   const maxBytes = budget?.maxBytes || 225000;
   const source = budget?.source || 'task-class';
-  const tokensEst = Math.round(maxBytes / 4);
+  const tokensEst = Math.ceil(maxBytes / 4);
   if (mode !== 'bare') {
     md += `_Budget ${maxBytes} B (${source}) · emitted ${paddedBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
   }
@@ -495,7 +499,7 @@ function computeEnvelopes({
   const capDigits = String(maxBytes).length;
   const renderedWidth = selfRefWidth !== null && selfRefWidth !== undefined ? selfRefWidth : capDigits;
   const selfRefBytes = Number('9'.repeat(Math.max(1, renderedWidth)));
-  const selfRefTokens = Math.round(selfRefBytes / 4);
+  const selfRefTokens = Math.ceil(selfRefBytes / 4);
 
   const provMap = mandatory?.provenance || mandatory || {};
   const skeletonOrdered: any = {
@@ -1002,6 +1006,8 @@ function formatMarkdown(pack: any, options: any = {}): string {
       md += `- CONFLICT ${c.statement} (supports: ${sup}; contradicts: ${con})\n`;
     }
     md += '\n';
+  } else {
+    md += `### Blocking Conflicts\n- not supplied: none-recorded\n\n`;
   }
 
   const blockingUnanswered = (pack.researchRequests || []).filter((r: any) => r.blocking && r.status !== 'ANSWERED');
@@ -1047,9 +1053,12 @@ function formatMarkdown(pack: any, options: any = {}): string {
   }
 
   // Optional sections
-  if (pack.decisions?.live && pack.decisions.live.length > 0) {
+  if ((pack.decisions?.live && pack.decisions.live.length > 0) || pack.decisions?.reason) {
     md += `### Live decisions\n`;
-    for (const d of pack.decisions.live) {
+    if (pack.decisions?.reason) {
+      md += `- not supplied: register unreadable: ${pack.decisions.reason}\n`;
+    }
+    for (const d of pack.decisions.live || []) {
       md += `- ${d.id} (${d.topic}): ${d.statement}\n`;
     }
     md += '\n';
@@ -1132,7 +1141,11 @@ function formatMarkdown(pack: any, options: any = {}): string {
     md += `### Omitted\n`;
     for (const g of pack.omissions.groups) {
       const fresh = g.freshness ? ` ${g.freshness}` : '';
-      md += `- ${g.reason}${fresh} (${g.count}): ${g.ids.join(', ')}\n`;
+      const entries = [
+        ...g.ids,
+        ...(g.ranges || []).map((range: any) => `${range.from}..${range.to} (${range.count})`),
+      ];
+      md += `- ${g.reason}${fresh} (${g.count}): ${entries.join(', ')}\n`;
     }
     md += '\n';
   }
@@ -1165,7 +1178,7 @@ function formatMarkdown(pack: any, options: any = {}): string {
       pack.toolLimitNotice = null;
     }
 
-    const tokensEst = Math.round(totalBytes / 4);
+    const tokensEst = Math.ceil(totalBytes / 4);
     const footer = mode === 'bare'
       ? ''
       : `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
@@ -1204,7 +1217,7 @@ function formatMarkdown(pack: any, options: any = {}): string {
   } else {
     pack.toolLimitNotice = null;
   }
-  const tokensEst = Math.round(totalBytes / 4);
+  const tokensEst = Math.ceil(totalBytes / 4);
   const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
   const paddedBytes = String(totalBytes).padStart(9, '0');
   const endLine = `[end of pack] mode=${mode} objective=${objectiveCount} ac=${acCount} constraints=${constraintsCount} verification=${verificationCount} scope=${scopeCount} conflicts=${conflictsCount} gaps=${gapsCount} omitted=${omittedCount} bytes=${paddedBytes} digest=${shortDigest}\n`;
