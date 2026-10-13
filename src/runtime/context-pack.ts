@@ -16,17 +16,7 @@ const {
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
-const TASK_CLASS_BUDGETS: Record<string, any> = Object.freeze({
-  feature: 225000,
-  'dependency-change': 85000,
-  bug: 71000,
-  refactor: 71000,
-  documentation: 57000,
-  operations: 45000,
-  review: 42000,
-  research: 35302,
-  'trivial-edit': 30000,
-});
+const { TASK_CLASS_BUDGETS, resolveBudget } = require('./context/budget.ts');
 
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
@@ -286,9 +276,8 @@ class ContextPackCompiler {
       optional = {},
     } = options;
 
-    const budgetBytes = Number.isInteger(maxBytes) && maxBytes > 0
-      ? maxBytes
-      : (TASK_CLASS_BUDGETS[taskClass] || 225000);
+    const resolvedBudget = resolveBudget({ taskClass, maxBytes });
+    const budgetBytes = resolvedBudget.maxBytes;
 
     const acceptanceCriteria = Array.isArray(mandatory.acceptanceCriteria) ? [...mandatory.acceptanceCriteria] : [];
     const constraints = Array.isArray(mandatory.constraints) ? [...mandatory.constraints] : [];
