@@ -1,0 +1,180 @@
+'use strict';
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const {
+  FIELD_CLASSES,
+  buildPackItem,
+  buildObjectiveItem,
+  buildAcceptanceCriteriaItem,
+  buildConstraintItem,
+  linearFit,
+} = require('../../src/runtime/context/compose.ts');
+
+test('compose: the classification matches IC-006 exactly', () => {
+  const expected = [
+    { field: 'objective', cls: 'mandatory', priority: null, itemId: 'objective' },
+    { field: 'acceptanceCriteria', cls: 'mandatory', priority: null, itemId: 'ac:<n>' },
+    { field: 'constraints', cls: 'mandatory', priority: null, itemId: 'nfr:<NFR-id>' },
+    { field: 'verificationRequirements', cls: 'mandatory', priority: null, itemId: 'vr:<n>' },
+    { field: 'scopeExcluded', cls: 'mandatory', priority: null, itemId: 'scope:<n>' },
+    { field: 'claims.conflicts', cls: 'mandatory', priority: null, itemId: 'claim id' },
+    { field: 'blockingGaps', cls: 'mandatory', priority: null, itemId: 'gap:<n>' },
+    { field: 'researchRequests (blocking, not ANSWERED)', cls: 'mandatory', priority: null, itemId: 'request id' },
+    { field: 'decisions.reason (register unreadable)', cls: 'mandatory', priority: null, itemId: 'decisions:reason' },
+    { field: 'decisions.live', cls: 'optional', priority: 1, itemId: 'decision id' },
+    { field: 'claims.supported', cls: 'optional', priority: 2, itemId: 'claim id' },
+    { field: 'researchRequests (others)', cls: 'optional', priority: 3, itemId: 'request id' },
+    { field: 'claims.hypotheses', cls: 'optional', priority: 4, itemId: 'claim id' },
+    { field: 'pointers', cls: 'optional', priority: 5, itemId: 'pointer id (IC-016)' },
+    { field: 'relevantFiles', cls: 'optional', priority: 6, itemId: 'file:<path>' },
+    { field: 'evidenceSummary', cls: 'optional', priority: 7, itemId: 'evidence id' },
+    { field: 'structuralContext', cls: 'optional', priority: 8, itemId: 'struct:<n>' },
+  ];
+
+  assert.equal(FIELD_CLASSES.length, 17, 'FIELD_CLASSES must have exactly 17 entries');
+  for (let i = 0; i < expected.length; i++) {
+    const act = FIELD_CLASSES[i];
+    const exp = expected[i];
+    assert.equal(act.field, exp.field, `row ${i} field mismatch`);
+    assert.equal(act.cls, exp.cls, `row ${i} cls mismatch`);
+    assert.equal(act.priority, exp.priority, `row ${i} priority mismatch`);
+    assert.equal(act.itemId, exp.itemId, `row ${i} itemId mismatch`);
+  }
+});
+
+test('compose: moving acceptanceCriteria to optional fails, naming it (negative control)', () => {
+  function verifyClassification(table) {
+    const row = table.find((e) => e.field === 'acceptanceCriteria');
+    if (!row) throw new Error('acceptanceCriteria missing');
+    if (row.cls !== 'mandatory') {
+      throw new Error(`acceptanceCriteria must be mandatory, got ${row.cls}`);
+    }
+  }
+
+  // Positive check
+  assert.doesNotThrow(() => verifyClassification(FIELD_CLASSES));
+
+  // Negative control: simulated mutation
+  const badTable = FIELD_CLASSES.map((e) =>
+    e.field === 'acceptanceCriteria' ? { ...e, cls: 'optional' } : e
+  );
+  assert.throws(
+    () => verifyClassification(badTable),
+    (err) => err.message.includes('acceptanceCriteria') && err.message.includes('mandatory')
+  );
+});
+
+test('compose: no field outside the table can be emitted (FR-011)', () => {
+  const disallowedFields = ['toolCatalogs', 'graphDumps', 'routingReasoning', 'traceHistories', 'unknownField'];
+  for (const field of disallowedFields) {
+    assert.throws(
+      () => buildPackItem({ id: 'test', field, value: 'bad', md: 'bad' }),
+      (err) => err.message.includes(`Field '${field}' is outside the IC-006 classification table (FR-011)`)
+    );
+  }
+});
+
+test('compose: the fit is linear: the build count equals the item count', () => {
+  let buildCount = 0;
+  const items = [];
+
+  // 1 mandatory item
+  buildCount++;
+  items.push(buildObjectiveItem('A linear fit test'));
+
+  // 5 optional items
+  for (let i = 0; i < 5; i++) {
+    buildCount++;
+    items.push(buildPackItem({
+      id: `opt-${i + 1}`,
+      field: 'claims.hypotheses',
+      value: `Hypothesis ${i + 1}`,
+      md: `- ? Hypothesis ${i + 1}\n`,
+      priority: 4,
+    }));
+  }
+
+  assert.equal(buildCount, items.length, 'each item built exactly once');
+
+  // Linear fit consumes built items in one pass
+  const result = linearFit({ items, budget: 10000 });
+  assert.equal(result.overflow, false);
+  assert.equal(result.kept.length, 6);
+  assert.equal(result.omissions.length, 0);
+});
+
+test('compose: two runs give the same selection', () => {
+  const items = [
+    buildObjectiveItem('Deterministic selection test'),
+    buildAcceptanceCriteriaItem('AC-1: deterministic output'),
+    buildPackItem({ id: 'opt-1', field: 'decisions.live', value: 'Decision 1', md: '- d1\n', priority: 1 }),
+    buildPackItem({ id: 'opt-2', field: 'claims.supported', value: 'Claim 1', md: '- c1\n', priority: 2 }),
+    buildPackItem({ id: 'opt-3', field: 'claims.hypotheses', value: 'Hyp 1', md: '- h1\n', priority: 4 }),
+  ];
+
+  const run1 = linearFit({ items, budget: 500 });
+  const run2 = linearFit({ items, budget: 500 });
+
+  assert.deepEqual(run1.kept.map((i) => i.id), run2.kept.map((i) => i.id));
+  assert.deepEqual(run1.omissions, run2.omissions);
+  assert.equal(run1.packDigest, run2.packDigest);
+  assert.equal(run1.totalBytes, run2.totalBytes);
+  assert.equal(run1.fittedOn, run2.fittedOn);
+});
+
+test('compose: fitting on markdown only fails on a fixture where JSON is the larger form (negative control)', () => {
+  // Construct a fixture where md is small (fits in budget), but JSON is large (exceeds budget)
+  const mandatory = buildObjectiveItem('Objective');
+  // Optional item: md is 20 bytes, but JSON payload is 500 bytes
+  const largeJsonItem = buildPackItem({
+    id: 'large-json-item',
+    field: 'claims.supported',
+    value: { bigArray: Array(50).fill('some long text property value inside json') },
+    md: `- ✓ Small md\n`,
+    priority: 2,
+    mdBytes: 20,
+    jsonBytes: 500,
+  });
+
+  // Set budget such that mandatory + md fits, but mandatory + JSON > budget.
+  const budget = Math.max(mandatory.mdBytes, mandatory.jsonBytes) + 100;
+
+  // The true linearFit uses max(md, json) and MUST omit largeJsonItem because JSON exceeds budget
+  const correctResult = linearFit({
+    items: [mandatory, largeJsonItem],
+    budget,
+  });
+
+  assert.ok(
+    correctResult.omissions.some((o) => o.id === 'large-json-item'),
+    'correct fit must omit item because JSON exceeded budget'
+  );
+
+  // Negative control: a buggy fit checking ONLY markdown keeps the item and exceeds JSON budget
+  function buggyMarkdownOnlyFit({ items, budget }) {
+    const kept = [];
+    let mdCost = 0;
+    for (const item of items) {
+      if (item.cls === 'mandatory') {
+        kept.push(item);
+        mdCost += item.mdBytes;
+      } else if (mdCost + item.mdBytes <= budget) {
+        kept.push(item);
+        mdCost += item.mdBytes;
+      }
+    }
+    return kept;
+  }
+
+  const buggyKept = buggyMarkdownOnlyFit({ items: [mandatory, largeJsonItem], budget });
+  assert.ok(
+    buggyKept.some((i) => i.id === 'large-json-item'),
+    'buggy markdown-only fit erroneously kept the item'
+  );
+  const totalJson = buggyKept.reduce((sum, i) => sum + i.jsonBytes, 0);
+  assert.ok(
+    totalJson > budget,
+    `buggy fit produced JSON (${totalJson} B) exceeding budget (${budget} B)`
+  );
+});

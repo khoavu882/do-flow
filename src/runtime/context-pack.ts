@@ -8,6 +8,11 @@ const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
 const { readRegister } = require('./decision-register.ts');
+const {
+  FIELD_CLASSES,
+  buildPackItem,
+  linearFit,
+} = require('./context/compose.ts');
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
