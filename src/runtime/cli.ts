@@ -90,7 +90,7 @@ function handleCapabilitiesCommand({ json = false, check = false, repoRoot }: an
  * @returns {number} exit code: 0 once the evaluation is recorded, whatever its state
  */
 function handleReadinessCommand({
-  taskClass = 'feature', taskId = 'default', json = false, repoRoot, stateRoot,
+  taskClass = 'feature', taskId = 'default', json = false, repoRoot, stateRoot, sourceRoot,
   verificationPlan, scopeClear, invariants, userDecisionPending = false, mode = 'workflow', now, slug = null,
 }: any = {}) {
   // Two different roots, previously conflated into one. `root` locates the *registry* (the
@@ -111,7 +111,7 @@ function handleReadinessCommand({
 
   let report;
   try {
-    report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state, mode });
+    report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state, treeRoot: sourceRoot || state, mode });
   } catch (error: any) {
     return usageError('readiness', error.message, json, error);
   }
@@ -245,7 +245,7 @@ function readEvidenceBatch(batchPath: any, taskId: any, root: any, slug: any = n
  * The `--action add` arm: validate the whole batch, then write it.
  * @returns {number} exit code
  */
-function addEvidence({ ledger, root, taskId, item, batchPath, json, slug = null }: any) {
+function addEvidence({ ledger, root, sourceRoot = root, taskId, item, batchPath, json, slug = null }: any) {
   const flagged = item && Object.keys(item).length > 0;
   if (flagged && batchPath) {
     return usageError('evidence', '--batch and the single-item flags are two spellings of the same write; use one', json);
@@ -269,6 +269,9 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json, slug = null 
   // The whole batch is validated before any of it is written. A half-written stage batch is worse
   // than a rejected one: the half that landed looks complete to every later reader.
   const treeState = measureTreeState(root);
+  const hasAbsence = raws.some((raw: any) => raw?.absence === true);
+  const absenceTreeState = hasAbsence && path.resolve(sourceRoot) !== path.resolve(root)
+    ? measureTreeState(sourceRoot) : null;
   const providerFreshness = new Map();
   let sourceModeOf: any = null;
   const validated = [];
@@ -277,7 +280,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json, slug = null 
       if (raw && raw.absence && !sourceModeOf) {
         sourceModeOf = sourceModeLookup(new CapabilityRouter({ repoRoot: REPO_ROOT }).capabilities);
       }
-      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, slug, providerFreshness, sourceModeOf }));
+      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, absenceTreeState, probeRoot: sourceRoot, slug, providerFreshness, sourceModeOf }));
     } catch (error: any) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json, error);
@@ -315,7 +318,8 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json, slug = null 
   }
   console.log('─'.repeat(78));
   console.log(`Wrote ${written.length} item(s) to ${stateFile}`);
-  console.log(`Commit at observation: ${treeState.gitCommit || 'not a git worktree — freshness cannot expire by diff'}`);
+  const observedTree = absenceTreeState || treeState;
+  console.log(`Commit at observation: ${observedTree.gitCommit || (observedTree.prefix !== null ? 'not measured' : 'not a git worktree — freshness cannot expire by diff')}`);
   console.log('═'.repeat(78) + '\n');
   return finish(0);
 }
@@ -373,7 +377,7 @@ function supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json }: any
  * @param {string} [options.stateRoot]
  * @returns {number} exit code
  */
-function handleEvidenceCommand({ taskId = 'default', action = 'list', item = null, batchPath = null, evidenceId = null, replacedBy = null, json = false, repoRoot, stateRoot, slug = null }: any = {}) {
+function handleEvidenceCommand({ taskId = 'default', action = 'list', item = null, batchPath = null, evidenceId = null, replacedBy = null, json = false, repoRoot, stateRoot, sourceRoot, slug = null }: any = {}) {
   // See handleReadinessCommand: evidence is the caller's project state, not DoFlow package state.
   const root = stateRoot || repoRoot || process.cwd();
   const isQuery = action === 'list' || action === 'status';
@@ -393,7 +397,7 @@ function handleEvidenceCommand({ taskId = 'default', action = 'list', item = nul
     return usageError('evidence', error.message, json, error);
   }
 
-  if (action === 'add') return addEvidence({ ledger, root, taskId, item, batchPath, json, slug });
+  if (action === 'add') return addEvidence({ ledger, root, sourceRoot: sourceRoot || root, taskId, item, batchPath, json, slug });
   if (action === 'supersede') return supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json });
 
   const items = ledger.queryEvidence({ taskId });

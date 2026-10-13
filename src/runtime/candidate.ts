@@ -56,6 +56,8 @@ interface BuildContext {
   absence?: boolean;
   plan?: any;
   treeState?: any;
+  absenceTreeState?: any;
+  probeRoot?: string;
   attemptRef?: string;
   slug?: string | null;
   providerFreshness?: Map<string, any>;
@@ -379,7 +381,7 @@ function toEvidence(
     }
 
     for (const key of Object.keys(candidate)) {
-      if (!CANDIDATE_FIELDS.includes(key)) {
+      if (!CANDIDATE_FIELDS.includes(key) && key !== 'absence') {
         throw new Error(
           `unknown candidate field '${key}'. Accepted: ${CANDIDATE_FIELDS.join(', ')}`
         );
@@ -418,6 +420,8 @@ function toEvidence(
       content: ctx.content,
       establishes: ctx.establishes,
     };
+    const absence = candidate.absence ?? ctx.absence;
+    if (absence !== undefined) rawItem.absence = absence;
     if (candidate.need !== undefined) {
       rawItem.need = candidate.need;
     }
@@ -452,7 +456,8 @@ function toEvidence(
   let freshness: any;
   if (validated.absence) {
     delete validated.absence;
-    const probe = getProviderFreshness(source.provider, root, ctx);
+    const absenceTreeState = ctx.absenceTreeState || treeState;
+    const probe = getProviderFreshness(source.provider, ctx.probeRoot || root, ctx);
     let status = 'UNKNOWN';
     if (probe?.state === 'FRESH' || probe?.state === 'NOT_APPLICABLE') {
       status = 'FRESH';
@@ -460,19 +465,19 @@ function toEvidence(
       status = 'STALE';
     }
 
-    if (!treeState || treeState.gitCommit === null) {
+    if (!absenceTreeState || absenceTreeState.gitCommit === null) {
       status = 'UNKNOWN';
     }
 
     freshness = {
-      gitCommit: treeState ? treeState.gitCommit : null,
+      gitCommit: absenceTreeState ? absenceTreeState.gitCommit : null,
       fileHash: null,
       isDirty: null,
       observedAt: new Date().toISOString(),
       status,
     };
-    if (treeState && treeState.gitCommit !== null && treeState.fingerprint) {
-      freshness.treeFingerprint = treeState.fingerprint;
+    if (absenceTreeState && absenceTreeState.gitCommit !== null && absenceTreeState.fingerprint) {
+      freshness.treeFingerprint = absenceTreeState.fingerprint;
     }
   } else {
     freshness = {

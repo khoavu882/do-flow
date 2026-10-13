@@ -455,7 +455,7 @@ class ReadinessEngine {
 /** One live snapshot for readiness inspection and orchestration transitions. Reads never persist
  * derived freshness or claim status; every invocation evaluates the current project again.
  * `mode` defaults to 'workflow' — fail closed: the standalone exemption must be declared. */
-function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), mode = 'workflow' }: any) {
+function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), treeRoot = projectRoot, mode = 'workflow' }: any) {
   // Validated before any ledger work, not just inside stageEntryFor at the end — an invalid mode
   // used to pay a full freshness/claims evaluation before erroring (review suggestion, 026).
   if (!EXECUTION_MODES.has(mode)) {
@@ -466,7 +466,7 @@ function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot 
   const { FreshnessValidator } = require('./freshness.ts');
   const ledger = new EvidenceLedger({ repoRoot: projectRoot });
   ledger.load(taskProfile.taskId);
-  new FreshnessValidator({ repoRoot: projectRoot }).validateLedgerFreshness(ledger);
+  new FreshnessValidator({ repoRoot: projectRoot, treeRoot }).validateLedgerFreshness(ledger);
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: projectRoot });
   claims.load(taskProfile.taskId);
   claims.evaluateAll();
