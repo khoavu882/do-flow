@@ -19,7 +19,9 @@ const { spawnSync } = require('node:child_process');
 
 const snapshotLib = require('../../bench/retrieval/lib/snapshot.js');
 const { validateTaskFile } = require('../../bench/retrieval/lib/tasks.js');
-const { sha256Hex } = require('../../bench/retrieval/lib/seal.js');
+const sealLib = require('../../bench/retrieval/lib/seal.js');
+const { sha256Hex } = sealLib;
+const { classesFor } = require('../../bench/retrieval/lib/metrics.js');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
@@ -91,6 +93,126 @@ test('G33.3 control: mutated in-memory task missing a required field or anchor i
   const badAnchor = f2.find((f) => f.taskId === qrelTask.id && f.code === 'E_QREL_ANCHOR');
   assert.ok(badAnchor, 'must report E_QREL_ANCHOR when anchorSha does not match');
   assert.ok(badAnchor.message.includes('anchorSha'), 'error message must name anchorSha');
+});
+
+// ---- H.3: Holdout splits and canary checks (G33.4, G33.5) ----
+const holdoutDir = path.join(REPO, 'bench/retrieval/holdout');
+
+function h3LoadSeals() {
+  const seals = [];
+  for (const corpus of ['code', 'guidance']) {
+    const gens = sealLib.listGenerations(holdoutDir, corpus);
+    assert.ok(gens.length > 0, `holdout directory must contain at least one generation for corpus ${corpus}`);
+    const latestGen = gens[gens.length - 1];
+    const seal = sealLib.readSeal(holdoutDir, corpus, latestGen);
+    const relSealPath = path.relative(REPO, sealLib.sealPath(holdoutDir, corpus, latestGen));
+    seals.push({ corpus, generation: latestGen, seal, relSealPath });
+  }
+  return seals;
+}
+
+function h3SplitProblems({ devTaskFile, seals }) {
+  const p = [];
+  const devIds = new Set((devTaskFile.tasks || []).map((t) => t.id));
+
+  for (const { corpus, seal, relSealPath } of seals) {
+    for (const id of seal.ids || []) {
+      if (devIds.has(id)) {
+        p.push(`${relSealPath}: holdout task id ${id} appears in tasks/dev.json`);
+      }
+    }
+
+    const applicable = classesFor(corpus);
+    const devClassCounts = {};
+    for (const t of devTaskFile.tasks || []) {
+      if (t.corpus === corpus) {
+        devClassCounts[t.class] = (devClassCounts[t.class] || 0) + 1;
+      }
+    }
+
+    for (const cls of applicable) {
+      const devCount = devClassCounts[cls] || 0;
+      const holdoutCount = (seal.classCounts && seal.classCounts[cls]) || 0;
+      if (devCount === 0) {
+        p.push(`${corpus}: applicable class '${cls}' has 0 dev tasks in tasks/dev.json`);
+      }
+      if (holdoutCount === 0) {
+        p.push(`${corpus}: applicable class '${cls}' has 0 holdout tasks in latest generation classCounts`);
+      }
+    }
+  }
+  return p;
+}
+
+function h3CanaryProblems({ repoRoot, seals, grepFn = null }) {
+  const p = [];
+  for (const { seal, relSealPath } of seals) {
+    const canary = seal.canary;
+    if (!canary) {
+      p.push(`${relSealPath}: seal has no canary`);
+      continue;
+    }
+    const lines = grepFn
+      ? grepFn(canary)
+      : spawnSync('git', ['-C', repoRoot, 'grep', '-F', canary], { encoding: 'utf8' })
+          .stdout.trim().split('\n').filter(Boolean);
+
+    for (const line of lines) {
+      const matchFile = line.split(':')[0];
+      if (matchFile !== relSealPath) {
+        p.push(`${relSealPath}: canary leaked in tracked file ${matchFile}`);
+      }
+    }
+  }
+  return p;
+}
+
+test('G33.4: no seal ids entry in tasks/dev.json and every applicable class has dev and holdout tasks', () => {
+  const snapshot = snapshotLib.loadSnapshot();
+  const devFile = path.join(REPO, snapshot.taskFiles.dev.path);
+  const devTaskFile = JSON.parse(fs.readFileSync(devFile, 'utf8'));
+  const seals = h3LoadSeals();
+  assert.deepEqual(h3SplitProblems({ devTaskFile, seals }), []);
+});
+
+test('G33.4 control: duplicate id, missing dev class and missing holdout class are reported', () => {
+  const snapshot = snapshotLib.loadSnapshot();
+  const devFile = path.join(REPO, snapshot.taskFiles.dev.path);
+  const devTaskFile = JSON.parse(fs.readFileSync(devFile, 'utf8'));
+  const seals = h3LoadSeals();
+
+  // Control 1: duplicate id from seal into dev
+  const d1 = structuredClone(devTaskFile);
+  d1.tasks[0].id = seals[0].seal.ids[0];
+  const p1 = h3SplitProblems({ devTaskFile: d1, seals }).join('\n');
+  assert.match(p1, /holdout task id .* appears in tasks\/dev\.json/);
+
+  // Control 2: 0 dev tasks for an applicable class
+  const d2 = structuredClone(devTaskFile);
+  d2.tasks = d2.tasks.filter((t) => t.corpus !== 'code' || t.class !== 'exact-lookup');
+  const p2 = h3SplitProblems({ devTaskFile: d2, seals }).join('\n');
+  assert.match(p2, /code: applicable class 'exact-lookup' has 0 dev tasks/);
+
+  // Control 3: 0 holdout tasks in classCounts
+  const s3 = structuredClone(seals);
+  s3[0].seal.classCounts['exact-lookup'] = 0;
+  const p3 = h3SplitProblems({ devTaskFile, seals: s3 }).join('\n');
+  assert.match(p3, /code: applicable class 'exact-lookup' has 0 holdout tasks/);
+});
+
+test('G33.5: each seal canary appears in no tracked file other than its seal file', () => {
+  const seals = h3LoadSeals();
+  assert.deepEqual(h3CanaryProblems({ repoRoot: REPO, seals }), []);
+});
+
+test('G33.5 control: canary appearance in another tracked file is reported', () => {
+  const seals = h3LoadSeals();
+  const mockGrep = (canary) => [
+    `bench/retrieval/holdout/code.g1.seal.json:  "canary": "${canary}",`,
+    `src/runtime/leaked.ts:  const c = "${canary}";`,
+  ];
+  const got = h3CanaryProblems({ repoRoot: REPO, seals: [seals[0]], grepFn: mockGrep }).join('\n');
+  assert.match(got, /canary leaked in tracked file src\/runtime\/leaked\.ts/);
 });
 
 // ---- K.2: Inventory, registry and contract checks (G33.12, G33.13, G33.15, G33.16) ----
