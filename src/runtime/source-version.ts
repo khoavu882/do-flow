@@ -56,6 +56,7 @@ function defaultGitRunner(args: string[], cwd: string): string | null {
       cwd,
       encoding: 'utf8',
       timeout: 2000,
+      maxBuffer: 256 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
   } catch {
@@ -84,12 +85,15 @@ function measureTreeState(root: string, runner?: GitRunner): TreeState {
     return unmeasured;
   }
 
-  const args = ['-C', absRoot, 'status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'];
+  const args = ['-C', absRoot, 'status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all', '--ignored=matching'];
   const raw = runner ? runner(args, absRoot) : defaultGitRunner(args, absRoot);
 
   if (raw === null || raw === undefined) {
+    const commit = runner
+      ? runner(['-C', absRoot, 'rev-parse', 'HEAD'], absRoot)
+      : defaultGitRunner(['-C', absRoot, 'rev-parse', 'HEAD'], absRoot);
     const failed: TreeState = {
-      gitCommit: null,
+      gitCommit: commit?.trim() || null,
       dirty: null,
       prefix,
       fingerprint: null,
@@ -115,6 +119,16 @@ function measureTreeState(root: string, runner?: GitRunner): TreeState {
       continue;
     }
     if (token.startsWith('# ')) {
+      continue;
+    }
+
+    if (token.startsWith('! ')) {
+      const ignoredPath = token.slice(2);
+      if (prefix && (ignoredPath === prefix.slice(0, -1) || ignoredPath === `${prefix.slice(0, -1)}/`)) {
+        const ignored: TreeState = { gitCommit, dirty: null, prefix, fingerprint: null };
+        if (!runner) treeStateMemo.set(absRoot, ignored);
+        return ignored;
+      }
       continue;
     }
 
@@ -145,6 +159,34 @@ function measureTreeState(root: string, runner?: GitRunner): TreeState {
     }
 
     if (dirtyPath !== null) {
+      const statePath = `${prefix}.doflow/state/`;
+      const normalizedDirtyPath = dirtyPath.split(path.sep).join('/');
+      const shouldFingerprint = !normalizedDirtyPath.startsWith(statePath);
+      if (shouldFingerprint && /^(?:1|2|u) \S+ S\.M /.test(token)) {
+        const nestedRoot = path.resolve(workTreeTop, dirtyPath);
+        const nested = measureNestedRepository(nestedRoot);
+        if (nested === null) {
+          const unknown: TreeState = { gitCommit, dirty: null, prefix, fingerprint: null };
+          if (!runner) treeStateMemo.set(absRoot, unknown);
+          return unknown;
+        }
+        entryRecords.push(`${entryText}:nested:${nested}`);
+        continue;
+      }
+      if (shouldFingerprint && token.startsWith('? ')) {
+        const nestedRoot = path.resolve(workTreeTop, dirtyPath.replace(/\/$/, ''));
+        if (fs.existsSync(path.join(nestedRoot, '.git'))) {
+          const nested = measureNestedRepository(nestedRoot);
+          if (nested === null) {
+            const unknown: TreeState = { gitCommit, dirty: null, prefix, fingerprint: null };
+            if (!runner) treeStateMemo.set(absRoot, unknown);
+            return unknown;
+          }
+          entryRecords.push(`${entryText}:nested:${nested}`);
+          continue;
+        }
+      }
+      if (!shouldFingerprint) continue;
       let statTerm = 'absent';
       try {
         const absPath = path.resolve(workTreeTop, dirtyPath);
@@ -184,6 +226,24 @@ function measureTreeState(root: string, runner?: GitRunner): TreeState {
   return state;
 }
 
+function measureNestedRepository(root: string): string | null {
+  try {
+    const gitEntry = path.join(root, '.git');
+    const gitStat = fs.statSync(gitEntry);
+    const gitDir = gitStat.isFile()
+      ? path.resolve(root, fs.readFileSync(gitEntry, 'utf8').trim().replace(/^gitdir:\s*/, ''))
+      : gitEntry;
+    const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
+    const headRef = head.startsWith('ref: ')
+      ? fs.readFileSync(path.join(gitDir, head.slice('ref: '.length)), 'utf8').trim()
+      : head;
+    const index = fs.statSync(path.join(gitDir, 'index'));
+    return `${head}:${headRef}:${index.mtimeMs}:${index.size}`;
+  } catch {
+    return null;
+  }
+}
+
 function fileHash(root: string, locator: any): string | null {
   if (!locator?.file) return null;
   try {
@@ -209,7 +269,10 @@ function sourceVersionFor(root: string, locator: any, state: TreeState): SourceV
   }
 
   const prefix = state.prefix || '';
-  const candidate = (prefix + locator.file).split(path.sep).join('/').replace(/^\.\//, '');
+  if (path.isAbsolute(locator.file)) {
+    return { gitCommit: state.gitCommit ?? null, fileHash: hash, isDirty: null };
+  }
+  const candidate = path.posix.normalize(`${prefix}${locator.file.split(path.sep).join('/')}`).replace(/^\.\//, '');
   const isDirty = state.dirty.has(candidate);
 
   return {
