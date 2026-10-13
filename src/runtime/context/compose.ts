@@ -540,13 +540,14 @@ function linearFit({
   taskClass = 'feature',
   envelopeMd = 0,
   envelopeJson = 0,
+  includeOmissionCosts = true,
   itemCapLimits = ITEM_CAP_LIMITS,
   initialOmissions = [],
   sectionHeadingsMd = OPTIONAL_HEADING_BYTES_MD,
   sectionHeadingsJson = OPTIONAL_HEADING_BYTES_JSON,
 }: any): any {
-  const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory');
-  const allOptional = items.filter((i: any) => i.cls === 'optional');
+  const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory');
+  const allOptional = items.filter((i: any) => i.cls === 'optional' || i.class === 'optional');
 
   // Enforce item limits on optional items (reason: 'item-cap')
   const fieldCounts: Record<string, number> = {};
@@ -584,7 +585,7 @@ function linearFit({
     })),
     ...cappedOmissions,
   ];
-  const allOmittedBytes = computeOmissionBytes(allOmitted);
+  const allOmittedBytes = includeOmissionCosts ? computeOmissionBytes(allOmitted) : { md: 0, json: 0 };
 
   const initialCostMd = mandatoryMdBytes + allOmittedBytes.md;
   const initialCostJson = mandatoryJsonBytes + allOmittedBytes.json;
@@ -647,7 +648,7 @@ function linearFit({
       })),
       ...cappedOmissions,
     ];
-    const trialOmissionsBytes = computeOmissionBytes(trialOmitted);
+    const trialOmissionsBytes = includeOmissionCosts ? computeOmissionBytes(trialOmitted) : { md: 0, json: 0 };
 
     const trialCostMd = mandatoryMdBytes + trialKeptMd + trialHeadingsMd + trialOmissionsBytes.md;
     const trialCostJson = mandatoryJsonBytes + trialKeptJson + trialHeadingsJson + trialOmissionsBytes.json;
@@ -670,7 +671,7 @@ function linearFit({
     })),
     ...cappedOmissions,
   ];
-  const finalOmissionsBytes = computeOmissionBytes(finalOmissions);
+  const finalOmissionsBytes = includeOmissionCosts ? computeOmissionBytes(finalOmissions) : { md: 0, json: 0 };
   const finalHeadingsMd = Array.from(activeSections).reduce((sum: number, f: string) => sum + (sectionHeadingsMd[f] || 0), 0);
   const finalHeadingsJson = Array.from(activeSections).reduce((sum: number, f: string) => sum + (sectionHeadingsJson[f] || 0), 0);
   const finalKeptMd = keptOptional.reduce((acc: number, i: any) => acc + i.mdBytes, 0);

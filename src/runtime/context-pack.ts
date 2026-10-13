@@ -10,6 +10,7 @@ const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
 const featureResolve = require('./feature-resolve.ts');
 const { readRegister } = require('./decision-register.ts');
+const compose = require('./context/compose.ts');
 const {
   FIELD_CLASSES,
   buildPackItem,
@@ -478,17 +479,75 @@ class ContextPackCompiler {
 
     const mandatoryBytes = Buffer.byteLength(mandatoryMd, 'utf8');
 
-    // Rule 1: Mandatory content is never truncated; if mandatoryBytes > budgetBytes, returns overflow: true.
-    if (mandatoryBytes > budgetBytes) {
-      const omissions = [];
-      const narrativeList = Array.isArray(optional.narrative) ? optional.narrative : [];
-      const claimsList = Array.isArray(optional.unverifiedClaims) ? optional.unverifiedClaims : [];
-      const hypList = Array.isArray(optional.hypotheses) ? optional.hypotheses : [];
+    const hypotheses = Array.isArray(optional.hypotheses) ? [...optional.hypotheses] : [];
+    const unverifiedClaims = Array.isArray(optional.unverifiedClaims) ? [...optional.unverifiedClaims] : [];
+    const narrative = Array.isArray(optional.narrative) ? [...optional.narrative] : [];
 
-      for (let i = 0; i < narrativeList.length; i++) omissions.push({ id: `narrative-${i + 1}`, reason: 'budget-cap-exceeded' });
-      for (let i = 0; i < claimsList.length; i++) omissions.push({ id: `claim-${i + 1}`, reason: 'budget-cap-exceeded' });
-      for (let i = 0; i < hypList.length; i++) omissions.push({ id: `hypothesis-${i + 1}`, reason: 'budget-cap-exceeded' });
+    const items: any[] = [];
+    hypotheses.forEach((h: string, idx: number) => {
+      const line = `- ? ${h}\n`;
+      items.push({
+        id: `hypothesis-${idx + 1}`,
+        field: 'hypotheses',
+        value: h,
+        class: 'optional',
+        cls: 'optional',
+        priority: 1,
+        md: line,
+        mdBytes: Buffer.byteLength(line, 'utf8'),
+        jsonBytes: 0,
+      });
+    });
 
+    unverifiedClaims.forEach((c: string, idx: number) => {
+      const line = `- ? ${c}\n`;
+      items.push({
+        id: `claim-${idx + 1}`,
+        field: 'unverifiedClaims',
+        value: c,
+        class: 'optional',
+        cls: 'optional',
+        priority: 2,
+        md: line,
+        mdBytes: Buffer.byteLength(line, 'utf8'),
+        jsonBytes: 0,
+      });
+    });
+
+    narrative.forEach((n: string, idx: number) => {
+      const line = `- ${n}\n`;
+      items.push({
+        id: `narrative-${idx + 1}`,
+        field: 'narrative',
+        value: n,
+        class: 'optional',
+        cls: 'optional',
+        priority: 3,
+        md: line,
+        mdBytes: Buffer.byteLength(line, 'utf8'),
+        jsonBytes: 0,
+      });
+    });
+
+    const fit = compose.linearFit({
+      items,
+      budget: budgetBytes,
+      taskId,
+      taskClass,
+      envelopeMd: mandatoryBytes,
+      envelopeJson: mandatoryBytes,
+      includeOmissionCosts: false,
+      sectionHeadingsMd: {
+        hypotheses: Buffer.byteLength('### Active Hypotheses (Unverified)\n\n', 'utf8'),
+        unverifiedClaims: Buffer.byteLength('### Unverified Claims\n\n', 'utf8'),
+        narrative: Buffer.byteLength('### Background Narrative\n\n', 'utf8'),
+      },
+      sectionHeadingsJson: {},
+      itemCapLimits: {},
+    });
+
+    if (fit.overflow) {
+      const omissions = items.map((i: any) => ({ id: i.id, reason: 'budget-cap-exceeded' }));
       return {
         taskId,
         taskClass,
@@ -503,74 +562,30 @@ class ContextPackCompiler {
       };
     }
 
-    // Rule 2: Optional content is trimmed in reverse priority order when mandatoryBytes + optionalBytes > budgetBytes.
-    // Priority order: 1. hypotheses, 2. unverifiedClaims, 3. narrative.
-    // Trimming in reverse priority: narrative first, then claims, then hypotheses.
-    const hypotheses = Array.isArray(optional.hypotheses) ? [...optional.hypotheses] : [];
-    const unverifiedClaims = Array.isArray(optional.unverifiedClaims) ? [...optional.unverifiedClaims] : [];
-    const narrative = Array.isArray(optional.narrative) ? [...optional.narrative] : [];
+    const keptHypotheses = fit.kept.filter((i: any) => i.field === 'hypotheses').map((i: any) => i.value);
+    const keptClaims = fit.kept.filter((i: any) => i.field === 'unverifiedClaims').map((i: any) => i.value);
+    const keptNarrative = fit.kept.filter((i: any) => i.field === 'narrative').map((i: any) => i.value);
 
-    const keptHypotheses = [];
-    const keptClaims = [];
-    const keptNarrative = [];
-    const omissions = [];
-
-    const buildPayload = (hList: any, cList: any, nList: any) => {
-      let md = mandatoryMd;
-      if (hList.length > 0) {
-        md += `### Active Hypotheses (Unverified)\n`;
-        for (const h of hList) md += `- ? ${h}\n`;
-        md += '\n';
-      }
-      if (cList.length > 0) {
-        md += `### Unverified Claims\n`;
-        for (const c of cList) md += `- ? ${c}\n`;
-        md += '\n';
-      }
-      if (nList.length > 0) {
-        md += `### Background Narrative\n`;
-        for (const n of nList) md += `- ${n}\n`;
-        md += '\n';
-      }
-      return md;
-    };
-
-    // Forward trial fitting: hypotheses first
-    for (let i = 0; i < hypotheses.length; i++) {
-      const trial = [...keptHypotheses, hypotheses[i]];
-      const trialMd = buildPayload(trial, [], []);
-      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
-        keptHypotheses.push(hypotheses[i]);
-      } else {
-        omissions.push({ id: `hypothesis-${i + 1}`, reason: 'budget-cap-exceeded' });
-      }
+    let payload = mandatoryMd;
+    if (keptHypotheses.length > 0) {
+      payload += `### Active Hypotheses (Unverified)\n`;
+      for (const h of keptHypotheses) payload += `- ? ${h}\n`;
+      payload += '\n';
+    }
+    if (keptClaims.length > 0) {
+      payload += `### Unverified Claims\n`;
+      for (const c of keptClaims) payload += `- ? ${c}\n`;
+      payload += '\n';
+    }
+    if (keptNarrative.length > 0) {
+      payload += `### Background Narrative\n`;
+      for (const n of keptNarrative) payload += `- ${n}\n`;
+      payload += '\n';
     }
 
-    // unverifiedClaims next
-    for (let i = 0; i < unverifiedClaims.length; i++) {
-      const trial = [...keptClaims, unverifiedClaims[i]];
-      const trialMd = buildPayload(keptHypotheses, trial, []);
-      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
-        keptClaims.push(unverifiedClaims[i]);
-      } else {
-        omissions.push({ id: `claim-${i + 1}`, reason: 'budget-cap-exceeded' });
-      }
-    }
-
-    // narrative next
-    for (let i = 0; i < narrative.length; i++) {
-      const trial = [...keptNarrative, narrative[i]];
-      const trialMd = buildPayload(keptHypotheses, keptClaims, trial);
-      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
-        keptNarrative.push(narrative[i]);
-      } else {
-        omissions.push({ id: `narrative-${i + 1}`, reason: 'budget-cap-exceeded' });
-      }
-    }
-
-    const payload = buildPayload(keptHypotheses, keptClaims, keptNarrative);
     const totalBytes = Buffer.byteLength(payload, 'utf8');
     const optionalBytes = totalBytes - mandatoryBytes;
+    const omissions = fit.omissions.map((o: any) => ({ id: o.id, reason: 'budget-cap-exceeded' }));
 
     return {
       taskId,

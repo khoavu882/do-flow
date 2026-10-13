@@ -178,3 +178,53 @@ test('compose: fitting on markdown only fails on a fixture where JSON is the lar
     `buggy fit produced JSON (${totalJson} B) exceeding budget (${budget} B)`
   );
 });
+
+test('compose: compileBoundedContextPack is an adapter over linearFit and calls it once (negative control)', () => {
+  const compose = require('../../src/runtime/context/compose.ts');
+  const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
+  const compiler = new ContextPackCompiler();
+
+  let fitCalls = 0;
+  const originalLinearFit = compose.linearFit;
+  compose.linearFit = function (...args) {
+    fitCalls++;
+    return originalLinearFit.apply(this, args);
+  };
+
+  try {
+    const res = compiler.compileBoundedContextPack({
+      taskId: 'adapter-test',
+      taskClass: 'feature',
+      objective: 'Adapter test objective',
+      mandatory: {
+        acceptanceCriteria: ['AC-1'],
+        constraints: ['C-1'],
+      },
+      optional: {
+        hypotheses: ['H-1', 'H-2'],
+        unverifiedClaims: ['C-1', 'C-2'],
+        narrative: ['N-1', 'N-2'],
+      },
+      maxBytes: 5000,
+    });
+
+    assert.equal(fitCalls, 1, `linearFit must be called exactly once by compileBoundedContextPack, got ${fitCalls}`);
+    assert.equal(res.overflow, false);
+    assert.ok(res.totalBytes > 0);
+  } finally {
+    compose.linearFit = originalLinearFit;
+  }
+
+  // Negative control: spying on linearFit fails if the adapter calls it per trial
+  function assertSingleFitCall(count) {
+    if (count !== 1) {
+      throw new Error(`Negative control: linearFit called ${count} times; adapter serialised per trial`);
+    }
+  }
+
+  assert.doesNotThrow(() => assertSingleFitCall(1));
+  assert.throws(
+    () => assertSingleFitCall(6),
+    /adapter serialised per trial/
+  );
+});
