@@ -37,20 +37,25 @@ test('computeStartupContext returns records for all 8 harnesses with IC-019 sche
   }
 });
 
-test('computeContextBudgets returns IC-019 budget rows with profile-required defaults', () => {
-  const budgets = context.computeContextBudgets();
+test('computeContextBudgets reports injected unverified IC-019 profile facts', () => {
+  const harnesses = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+  const contextProfiles = Object.fromEntries(harnesses.map((harness) => [harness, {
+    capacityTokens: { unverified: 'fixture capacity', verifiedOn: '2026-10-13' },
+    reserveTokens: { unverified: 'fixture reserve', verifiedOn: '2026-10-13' },
+  }]));
+  const budgets = context.computeContextBudgets({ contextProfiles });
   assert.equal(Array.isArray(budgets), true);
   assert.equal(budgets.length, 8);
 
   for (const b of budgets) {
     assert.equal(typeof b.harness, 'string');
     assert.equal(b.capacityTokens, null);
-    assert.equal(b.capacityBasis, 'profile-required');
+    assert.equal(b.capacityBasis, 'unverified:fixture capacity');
     assert.equal(typeof b.startupTokens, 'number');
     assert.ok(b.startupTokens > 0);
     assert.equal(b.startupBasis, 'estimated');
-    assert.equal(b.reserveTokens, 0);
-    assert.equal(b.reserveBasis, 'estimated');
+    assert.equal(b.reserveTokens, null);
+    assert.equal(b.reserveBasis, 'unverified:fixture reserve');
     assert.equal(b.availableTokens, null);
     assert.equal(b.availableBasis, 'profile-required');
   }
@@ -109,7 +114,7 @@ test('computeStartupContext executes session-start hook with fixture when presen
   assert.equal(row.tokensEst, 15);
 });
 
-test('computeContextBudgets calculates availableTokens when capacity is declared', () => {
+test('computeContextBudgets calculates availableTokens from declared contextProfile facts', () => {
   const startup = [
     {
       harness: 'claude',
@@ -119,8 +124,11 @@ test('computeContextBudgets calculates availableTokens when capacity is declared
 
   const budgets = context.computeContextBudgets({
     startupContext: startup,
-    declaredCapacities: {
-      claude: 200000,
+    contextProfiles: {
+      claude: {
+        capacityTokens: { value: 200000, source: 'fixture', verifiedOn: '2026-10-13' },
+        reserveTokens: { value: 0, source: 'fixture', verifiedOn: '2026-10-13' },
+      },
     },
   });
 
@@ -128,7 +136,7 @@ test('computeContextBudgets calculates availableTokens when capacity is declared
   const b = budgets[0];
   assert.equal(b.harness, 'claude');
   assert.equal(b.capacityTokens, 200000);
-  assert.equal(b.capacityBasis, 'declared');
+  assert.equal(b.capacityBasis, 'fixture');
   assert.equal(b.startupTokens, 2500);
   assert.equal(b.reserveTokens, 0);
   // available = 200000 - 2500 - 0 = 197500
