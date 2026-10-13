@@ -31,7 +31,7 @@ function measureExecution(cmd, args, options = {}) {
 }
 
 function median(values) {
-  if (values.length === 0) return 0;
+  if (!values || values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
@@ -44,6 +44,85 @@ function measureControlMedian() {
     controlSamples.push(res.ms);
   }
   return median(controlSamples);
+}
+
+/**
+ * Normalises a sample latency by paired control against baseline row control.
+ * Formula: sample * min(1, controlP50Ms / pairedControl).
+ * If controlP50Ms is not provided (e.g. intent fallback), no normalisation is applied.
+ * Normalisation only scales down, never up.
+ */
+function normaliseSample(sample, pairedControl, controlP50Ms) {
+  if (controlP50Ms == null || pairedControl == null || pairedControl <= 0) {
+    return sample;
+  }
+  const factor = Math.min(1, controlP50Ms / pairedControl);
+  return sample * factor;
+}
+
+function normaliseSamples(samples, pairedControls, controlP50Ms) {
+  if (!Array.isArray(samples)) return [];
+  return samples.map((s, i) => normaliseSample(s, pairedControls?.[i], controlP50Ms));
+}
+
+function evaluateRound(samples, pairedControls, controlP50Ms) {
+  const rawMedian = median(samples);
+  const controlMedian = pairedControls && pairedControls.length > 0 ? median(pairedControls) : null;
+  const normalisedSamples = normaliseSamples(samples, pairedControls, controlP50Ms);
+  const normalisedMedian = median(normalisedSamples);
+  return {
+    samples,
+    pairedControls,
+    normalisedSamples,
+    rawMedian,
+    controlMedian,
+    normalisedMedian,
+  };
+}
+
+/**
+ * Decides whether the performance budget test passes.
+ * If round 1 normalised median > ceilingMs, a second round can be run.
+ * The lower of the two normalised medians decides.
+ */
+function decideVerdict(round1, round2OrFn, ceilingMs) {
+  let round2 = null;
+  if (round1.normalisedMedian > ceilingMs) {
+    if (typeof round2OrFn === 'function') {
+      round2 = round2OrFn();
+    } else {
+      round2 = round2OrFn || null;
+    }
+  } else if (round2OrFn && typeof round2OrFn !== 'function') {
+    round2 = round2OrFn;
+  }
+  const decidingMedian = round2
+    ? Math.min(round1.normalisedMedian, round2.normalisedMedian)
+    : round1.normalisedMedian;
+  const pass = decidingMedian <= ceilingMs;
+  return {
+    pass,
+    round1,
+    round2,
+    decidingMedian,
+    ceilingMs,
+  };
+}
+
+function collectPairedSamples(cmd, args, execOptions) {
+  const samples = [];
+  const pairedControls = [];
+  const results = [];
+  const controlResults = [];
+  for (let i = 0; i < 5; i++) {
+    const ctrl = measureExecution(process.execPath, ['-e', '0']);
+    const res = measureExecution(cmd, args, execOptions);
+    pairedControls.push(ctrl.ms);
+    samples.push(res.ms);
+    controlResults.push(ctrl);
+    results.push(res);
+  }
+  return { samples, pairedControls, results, controlResults };
 }
 
 function pickApprovedRow(budgets, surfaceId) {
@@ -86,6 +165,78 @@ test('performance-budget: in-process compileBoundedContextPack executes in under
   assert.ok(ms < 5, `expected in-process compilation < 5 ms, got ${ms.toFixed(2)} ms`);
 });
 
+// Unit tests for AM8 load-normalisation and verdict (no timing)
+test('performance-budget AM8 unit (i): control equal to row control leaves samples unchanged', () => {
+  const rowControl = 25;
+  const pairedControls = [25, 25, 25, 25, 25];
+  const samples = [80, 85, 90, 95, 100];
+  const normalised = normaliseSamples(samples, pairedControls, rowControl);
+  assert.deepEqual(normalised, samples);
+  assert.equal(normaliseSample(90, 25, rowControl), 90);
+});
+
+test('performance-budget AM8 unit (ii): control at 2x row control halves samples', () => {
+  const rowControl = 25;
+  const pairedControls = [50, 50, 50, 50, 50];
+  const samples = [80, 90, 100, 110, 120];
+  const normalised = normaliseSamples(samples, pairedControls, rowControl);
+  assert.deepEqual(normalised, [40, 45, 50, 55, 60]);
+  assert.equal(normaliseSample(100, 50, rowControl), 50);
+});
+
+test('performance-budget AM8 unit (iii): control faster than row control never scales a sample up', () => {
+  const rowControl = 25;
+  const pairedControls = [10, 12.5, 15, 20, 5];
+  const samples = [80, 85, 90, 95, 100];
+  const normalised = normaliseSamples(samples, pairedControls, rowControl);
+  assert.deepEqual(normalised, samples);
+  assert.equal(normaliseSample(100, 10, rowControl), 100);
+});
+
+test('performance-budget AM8 unit (iv): synthetic regression (samples 2x ceiling, controls equal to row control) fails', () => {
+  const ceiling = 100;
+  const rowControl = 25;
+  const pairedControls = [25, 25, 25, 25, 25];
+  const samples = [200, 200, 200, 200, 200];
+  const round1 = evaluateRound(samples, pairedControls, rowControl);
+  const verdict = decideVerdict(round1, null, ceiling);
+  assert.equal(verdict.pass, false);
+
+  const round2 = evaluateRound(samples, pairedControls, rowControl);
+  const verdictWithRound2 = decideVerdict(round1, round2, ceiling);
+  assert.equal(verdictWithRound2.pass, false);
+});
+
+test('performance-budget AM8 unit (v): second round passes verdict only when its own normalised median is at or below ceiling', () => {
+  const ceiling = 100;
+  const rowControl = 25;
+  const pairedControls = [25, 25, 25, 25, 25];
+  const failingSamples = [140, 145, 150, 155, 160];
+  const round1 = evaluateRound(failingSamples, pairedControls, rowControl);
+
+  // Passing second round: normalised median 90 <= ceiling 100
+  const passingSamples = [80, 85, 90, 95, 98];
+  const round2Passing = evaluateRound(passingSamples, pairedControls, rowControl);
+  const verdictPass = decideVerdict(round1, round2Passing, ceiling);
+  assert.equal(verdictPass.pass, true);
+  assert.equal(verdictPass.decidingMedian, round2Passing.normalisedMedian);
+
+  // Failing second round: normalised median 120 > ceiling 100
+  const failingSamples2 = [110, 115, 120, 125, 130];
+  const round2Failing = evaluateRound(failingSamples2, pairedControls, rowControl);
+  const verdictFail = decideVerdict(round1, round2Failing, ceiling);
+  assert.equal(verdictFail.pass, false);
+  assert.equal(verdictFail.decidingMedian, round2Failing.normalisedMedian);
+});
+
+test('performance-budget AM8 unit: intent fallback applies no normalisation', () => {
+  const pairedControls = [50, 50, 50, 50, 50];
+  const samples = [80, 90, 100, 110, 120];
+  const normalised = normaliseSamples(samples, pairedControls, undefined);
+  assert.deepEqual(normalised, samples);
+  assert.equal(normaliseSample(100, 50, null), 100);
+});
+
 const budgets = JSON.parse(fs.readFileSync(BUDGETS_PATH, 'utf8'));
 const enforcedSurfaces = (budgets.surfaces || []).filter((s) => s.enforced);
 
@@ -123,55 +274,107 @@ for (const surface of enforcedSurfaces) {
     const args = surface.argv.slice(1);
     const execOptions = input !== undefined ? { input } : {};
 
-    // 1 warm-up
+    // Round 1: 1 warm-up
     measureExecution(cmd, args, execOptions);
 
-    // 5 samples
-    const samples = [];
-    const results = [];
-    for (let i = 0; i < 5; i++) {
-      const res = measureExecution(cmd, args, execOptions);
-      samples.push(res.ms);
-      results.push(res);
+    // Round 1: 5 paired samples
+    const r1Data = collectPairedSamples(cmd, args, execOptions);
+    const nonZero1 = r1Data.results.find((r) => r.status !== 0);
+    if (nonZero1) {
+      const freshControl = measureControlMedian();
+      const rowControl = row && row.controlP50Ms != null ? `${row.controlP50Ms} ms` : 'n/a';
+      const detail = [
+        `surface ${surface.id} failed with exit status ${nonZero1.status}`,
+        `stderr: ${nonZero1.stderr}`,
+        `samples: [${r1Data.samples.map((s) => s.toFixed(2)).join(', ')}] ms`,
+        `paired controls: [${r1Data.pairedControls.map((c) => c.toFixed(2)).join(', ')}] ms`,
+        `ceiling: ${ceilingMs} ms`,
+        `source: ${ceilingSource}`,
+        `fresh control median: ${freshControl.toFixed(2)} ms`,
+        `row controlP50Ms: ${rowControl}`,
+      ].join('\n');
+      assert.equal(nonZero1.status, 0, detail);
     }
 
-    const medianMs = median(samples);
+    const round1 = evaluateRound(r1Data.samples, r1Data.pairedControls, row?.controlP50Ms);
+
+    let round2 = null;
+    if (round1.normalisedMedian > ceilingMs) {
+      // Round 2: 1 warm-up
+      measureExecution(cmd, args, execOptions);
+      // Round 2: 5 paired samples
+      const r2Data = collectPairedSamples(cmd, args, execOptions);
+      const nonZero2 = r2Data.results.find((r) => r.status !== 0);
+      if (nonZero2) {
+        const freshControl = measureControlMedian();
+        const rowControl = row && row.controlP50Ms != null ? `${row.controlP50Ms} ms` : 'n/a';
+        const detail = [
+          `surface ${surface.id} round 2 failed with exit status ${nonZero2.status}`,
+          `stderr: ${nonZero2.stderr}`,
+          `samples: [${r2Data.samples.map((s) => s.toFixed(2)).join(', ')}] ms`,
+          `paired controls: [${r2Data.pairedControls.map((c) => c.toFixed(2)).join(', ')}] ms`,
+          `ceiling: ${ceilingMs} ms`,
+          `source: ${ceilingSource}`,
+          `fresh control median: ${freshControl.toFixed(2)} ms`,
+          `row controlP50Ms: ${rowControl}`,
+        ].join('\n');
+        assert.equal(nonZero2.status, 0, detail);
+      }
+      round2 = evaluateRound(r2Data.samples, r2Data.pairedControls, row?.controlP50Ms);
+    }
+
+    const verdict = decideVerdict(round1, round2, ceilingMs);
+
     if (t && typeof t.diagnostic === 'function') {
-      t.diagnostic(`surface ${surface.id}: median ${medianMs.toFixed(2)} ms / ceiling ${ceilingMs} ms`);
+      const r2Msg = round2
+        ? ` (round 2 raw median ${round2.rawMedian.toFixed(2)} ms, normalised ${round2.normalisedMedian.toFixed(2)} ms)`
+        : '';
+      t.diagnostic(
+        `surface ${surface.id}: raw median ${round1.rawMedian.toFixed(2)} ms / normalised median ${round1.normalisedMedian.toFixed(2)} ms / ceiling ${ceilingMs} ms${r2Msg}`
+      );
     }
 
-    const nonZero = results.find((r) => r.status !== 0);
-    if (nonZero) {
+    if (!verdict.pass) {
       const freshControl = measureControlMedian();
       const rowControl = row && row.controlP50Ms != null ? `${row.controlP50Ms} ms` : 'n/a';
-      const detail = [
-        `surface ${surface.id} failed with exit status ${nonZero.status}`,
-        `stderr: ${nonZero.stderr}`,
-        `samples: [${samples.map((s) => s.toFixed(2)).join(', ')}] ms`,
-        `median: ${medianMs.toFixed(2)} ms`,
+      const detailLines = [
+        `surface ${surface.id} normalised latency exceeded ceiling`,
         `ceiling: ${ceilingMs} ms`,
         `source: ${ceilingSource}`,
-        `fresh control median: ${freshControl.toFixed(2)} ms`,
         `row controlP50Ms: ${rowControl}`,
-      ].join('\n');
-      assert.equal(nonZero.status, 0, detail);
-    }
-
-    if (medianMs > ceilingMs) {
-      const freshControl = measureControlMedian();
-      const rowControl = row && row.controlP50Ms != null ? `${row.controlP50Ms} ms` : 'n/a';
-      const detail = [
-        `surface ${surface.id} median latency exceeded ceiling`,
-        `samples: [${samples.map((s) => s.toFixed(2)).join(', ')}] ms`,
-        `median: ${medianMs.toFixed(2)} ms`,
-        `ceiling: ${ceilingMs} ms`,
-        `source: ${ceilingSource}`,
-        `fresh control median: ${freshControl.toFixed(2)} ms`,
-        `row controlP50Ms: ${rowControl}`,
-      ].join('\n');
-      assert.ok(medianMs <= ceilingMs, detail);
+        `deciding median: ${verdict.decidingMedian.toFixed(2)} ms`,
+        `round 1 raw samples: [${round1.samples.map((s) => s.toFixed(2)).join(', ')}] ms`,
+        `round 1 paired controls: [${round1.pairedControls.map((c) => c.toFixed(2)).join(', ')}] ms`,
+        `round 1 normalised samples: [${round1.normalisedSamples.map((s) => s.toFixed(2)).join(', ')}] ms`,
+        `round 1 raw median: ${round1.rawMedian.toFixed(2)} ms`,
+        `round 1 normalised median: ${round1.normalisedMedian.toFixed(2)} ms`,
+      ];
+      if (round2) {
+        detailLines.push(
+          `round 2 raw samples: [${round2.samples.map((s) => s.toFixed(2)).join(', ')}] ms`,
+          `round 2 paired controls: [${round2.pairedControls.map((c) => c.toFixed(2)).join(', ')}] ms`,
+          `round 2 normalised samples: [${round2.normalisedSamples.map((s) => s.toFixed(2)).join(', ')}] ms`,
+          `round 2 raw median: ${round2.rawMedian.toFixed(2)} ms`,
+          `round 2 normalised median: ${round2.normalisedMedian.toFixed(2)} ms`
+        );
+      }
+      detailLines.push(
+        `both medians: round 1 normalised ${round1.normalisedMedian.toFixed(2)} ms, round 2 normalised ${round2 ? round2.normalisedMedian.toFixed(2) + ' ms' : 'not run'}`,
+        `fresh control median: ${freshControl.toFixed(2)} ms`
+      );
+      assert.ok(verdict.pass, detailLines.join('\n'));
     } else {
-      assert.ok(medianMs <= ceilingMs);
+      assert.ok(verdict.pass);
     }
   });
 }
+
+module.exports = {
+  normaliseSample,
+  normaliseSamples,
+  evaluateRound,
+  decideVerdict,
+  collectPairedSamples,
+  median,
+  pickApprovedRow,
+};
