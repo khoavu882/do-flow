@@ -470,6 +470,63 @@ test('perf runner: copy-fixture-project setup creates git repo, substitutes {pro
   assert.equal(fs.existsSync(path.join(REPO_ROOT, 'created-in-temp.txt')), false, 'never writes under repoRoot');
 });
 
+test('perf runner: copy-fixture-project generates deterministic files before git init', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-generate-');
+  const fixtureDir = path.join(dir, 'fixture');
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  const markerFile = path.join(dir, 'observed-generated.txt');
+  const surface = {
+    id: 'stub.generate',
+    kind: 'cli',
+    setup: {
+      kind: 'copy-fixture-project',
+      fixture: fixtureDir,
+      git: true,
+      generate: { dir: 'src/gen', count: 3 },
+    },
+    argv: [
+      'node', '-e', `
+        const fs = require('node:fs');
+        const path = require('node:path');
+        const { execFileSync } = require('node:child_process');
+        const root = process.argv[1];
+        const marker = process.argv[2];
+        const generated = path.join(root, 'src/gen');
+        const names = fs.readdirSync(generated).sort();
+        if (JSON.stringify(names) !== JSON.stringify(['f0.js', 'f1.js', 'f2.js'])) process.exit(1);
+        for (let i = 0; i < 3; i++) {
+          if (fs.readFileSync(path.join(generated, 'f' + i + '.js'), 'utf8') !== 'export const v' + i + ' = ' + i + ';\\n') process.exit(2);
+        }
+        const tracked = execFileSync('git', ['ls-files', 'src/gen'], { cwd: root, encoding: 'utf8' }).trim().split('\\n');
+        if (tracked.length !== 3) process.exit(3);
+        fs.writeFileSync(marker, root, 'utf8');
+      `,
+      '{project}',
+      markerFile,
+    ],
+  };
+  assert.equal(typeof runner.runSurfaceProcess(surface, REPO_ROOT), 'number');
+  const generatedProject = fs.readFileSync(markerFile, 'utf8');
+  assert.equal(fs.existsSync(generatedProject), false, 'the generated temp project is cleaned up');
+});
+
+test('perf runner: copy-fixture-project refuses an invalid generated file count', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-generate-invalid-');
+  const fixtureDir = path.join(dir, 'fixture');
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  const surface = {
+    id: 'stub.generate-invalid',
+    kind: 'cli',
+    setup: {
+      kind: 'copy-fixture-project',
+      fixture: fixtureDir,
+      generate: { dir: 'src/gen', count: 0 },
+    },
+    argv: ['node', '-e', 'process.exit(0)'],
+  };
+  assert.throws(() => runner.runSurfaceProcess(surface, REPO_ROOT), /positive integer count no greater than 10000/);
+});
+
 test('perf measure: copy-fixture-project fixture that exits 3 fails with no row (negative control)', (t) => {
   const dir = tempDir(t, 'doflow-test-perf-copy-fail-');
   const budgetsPath = path.join(dir, 'budgets.json');
