@@ -64,12 +64,12 @@ a `design.md` for it invents an artifact its workflow never reads.
    ```bash
    "$DOFLOW" context-pack --task-id "<task id>" --json
    ```
-   **Exit 1 means the pack came back empty.** This early in the chain that is ordinary rather than a
-   problem — a feature reaching design for the first time has nothing recorded against it yet, and
-   `do-brainstorm` may not have batched evidence at all. Treat it the same way step 3's precondition
-   treats a missing `requirement.md`: note the gap in this stage's report and fall through to
-   reading `requirement.md` directly, which this step always did. When the pack is non-empty, read
-   it alongside `requirement.md` for the user stories, FRs, and NFRs the design must serve.
+   **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on
+   `overflowAction.message` and report the gap.** Early in the chain an empty pack is ordinary — a
+   new feature has nothing recorded yet, and `do-brainstorm` may not have batched evidence. Treat
+   it like step 3's precondition treats missing `requirement.md`: note the gap in this stage's report
+   and fall through to reading `requirement.md` directly. When non-empty, read it alongside
+   `requirement.md` for the user stories, FRs, and NFRs the design must serve.
 
 5. **Design** — per `--type` (architecture/api/component/database), produce the system-shape
    decisions: a C4 System Context diagram (actors + external systems this feature touches) and,
