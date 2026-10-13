@@ -15,6 +15,39 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-14
+
+First stable 2.x release. It consolidates 2.0.0-beta.1 to 2.0.0-beta.4 (the TypeScript runtime, the perf budgets and retrieval benchmark, and the packed JavaScript npm package) with context delivery (075) and evidence attempts (076). Upgrading from 1.24.1 needs Node `^22.18.0 || >=24.3.0`; see the 2.0.0-beta.3 entry for the Node floor and the `.js` to `.ts` runtime rename.
+
+### Added
+- `doflow context-pack` caps the whole payload it emits, in both the markdown and the JSON form, in UTF-8 bytes. The cap is the task class's default, or `--max-bytes <n>`, or the budget of `--harness <id>`; when a harness declares no capacity the pack says so and uses the default. Defaults are 225000 (`feature`), 85000 (`dependency-change`), 71000 (`bug`, `refactor`), 57000 (`documentation`), 45000 (`operations`), 42000 (`review`), 35302 (`research`) and 30000 (`trivial-edit`).
+- Context packs separate mandatory content (objective, acceptance criteria, constraints, verification requirements, blocking gaps) from optional content. The verb now reads the mandatory content from the task's recorded requirement; `--mandatory-file <path|->` supplies it from a file or stdin. Mandatory content is always emitted whole, in both forms.
+- Optional content that does not fit is trimmed in a fixed order and every omission is listed with an id and a reason. Evidence left out because it is not `FRESH` is listed with its freshness state instead of being dropped without a record.
+- A delivery record per pack: the pack digest, an estimated token count labelled `estimated:bytes/4` (the actual count is reported as unmeasured), and the reason for any later expansion. Records are kept under `.doflow/state/delivery/`, at most 5 per task. `--no-record` skips the write.
+- Pointer delivery for material the receiver can load itself, with `--expand <pointerId> --reason <text>` to ask for the inline content, `--since <digest>` to request a delta, and `--bare` for a header, objective and end line only.
+- `doflow evidence --action add --need <intent>` binds an item to one declared retrieval need and stamps `source.queryRef`; `source.attemptRef` is read from the active task attempt. `--absence` records an empty answer for a need (`result: EMPTY`) and measures the provider index's freshness at write time.
+- `doflow retrieval-plan --action attempt --need <intent> --provider <id> --status EMPTY|UNREACHED|UNVERIFIED --reason <code> [--note <text>]` records a fallback or failed lookup as its own attempt. `declare` mints a `planId` and a `queryRef` (`<planId>#<intent>`) per need, and reports list `attempts[]` and an `unbound` count for evidence not linked to a current need.
+- Evidence file items record the source version inside `freshness`: `gitCommit`, `fileHash` (file locators only) and `isDirty`.
+- Readiness reason codes `stale-absence-unverified` and `unbound-retrieval-evidence`.
+
+### Changed
+- **`doflow context-pack` exits 3 (`OVERFLOW`) when mandatory content plus omission records exceed the cap.** The whole pack is still emitted and `overflowAction.message` says to split the task or its context, or start a new session. Exit precedence is 2, then 3, then 1 (empty pack), then 0.
+- The markdown form of the context pack now carries constraints, verification requirements and conflicts, which it left out before.
+- `retrieval-plan` matches evidence to a need by `queryRef` and `attemptRef` instead of by provider or capability, so two needs that share a provider no longer share evidence. A plan declared before this release has no `planId` and keeps provider matching.
+- A claim backed only by evidence of `UNKNOWN` freshness stays a hypothesis; only `FRESH` evidence supports it, and `STALE` evidence invalidates it. Before, any evidence that was not `STALE` counted as support.
+- Score-shaped fields (`score`, `confidence`, `relevance`, `rank` and the rest of the existing list) are refused on the programmatic and candidate-bridge write paths, as they already were on the CLI. Candidates are not persisted; rank and score are dropped before an item reaches the ledger.
+- The context-mode spec (`docs/specs/orchestrator-context-modes.md`) is rewritten: no downgrade away from mandatory content on overflow, and each stage states its real status.
+
+### Upgrade notes
+- A script that runs `doflow context-pack` and treats any non-zero exit as "no context" must now tell exit 3 (mandatory content over the cap; the pack is complete) from exit 1 (nothing recorded). The four skills that call `context-pack` (`do-design`, `do-plan`, `do-execute-plan`, `do-implement`) already handle exit 3.
+- `recorded: false` with `reason: "store-locked"`, `"store-unwritable"` or `"store-unreadable"` in the pack means the delivery record was not written (the lock was held, the store is read-only, or an existing record file is torn or from a newer version); the pack itself is unaffected and the exit code does not change.
+- Delta delivery is present but inactive: harness retention of earlier context is unproven for all eight harnesses, so `--since` is answered with a full pack and `deltaRefused: "retention-unproven"` or `"harness-unstated"`.
+- Retrieval evidence for a plan that has a `planId` must be recorded with `--need <intent>`. An item recorded without it stays readable but is unbound: it is not linked to any need, and a readiness requirement that only unbound `FRESH` evidence could satisfy returns `NEEDS_EVIDENCE` with `unbound-retrieval-evidence`. Re-record it with `--need <intent>`.
+- A caller-supplied `queryRef`, `attemptRef` or `result` on `evidence --action add` is refused with the command that fixes it (`--need`, a claimed task attempt, or `--absence --need`).
+- A requirement that rests only on an empty answer from a `STALE` or `UNKNOWN` index returns `NEEDS_EVIDENCE` with `stale-absence-unverified`. Refresh the index and record the absence again, run the lookup with a live provider such as `native.rg`, or record a positive item. `retrieval-plan` does not run refresh commands.
+- Outcome precedence for a need with several attempts is `RETRIEVED`, then fresh `EMPTY`, then stale `EMPTY`, then `UNVERIFIED`, then `UNREACHED`; ties go to the lowest attempt number. `RETRIEVED` is derived from bound evidence and cannot be entered with `--action attempt`.
+- Existing evidence ledgers, retrieval plans and claim stores load unchanged.
+
 ## [2.0.0-beta.4] - 2026-10-13
 
 Prerelease of 2.0.0 on the npm `beta` dist-tag (`npx @khoavu882/doflow@beta`). It replaces 2.0.0-beta.3, which is deprecated because it could not run when installed from npm.
