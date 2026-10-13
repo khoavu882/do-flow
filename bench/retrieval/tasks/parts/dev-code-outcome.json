@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": 1,
+  "split": "dev",
+  "tasks": [
+    {
+      "id": "DC-037",
+      "split": "dev",
+      "corpus": "code",
+      "class": "unavailable-provider",
+      "query": "validateCapabilityProviders capabilities verification",
+      "capability": "code.semantic-search",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/registry/index.ts",
+          "startLine": 343,
+          "endLine": 345,
+          "rel": 2,
+          "anchorSha": "4bc84444489956035541b9fb115b39fa901ab4dfc0df0850eebc140ed1d527c0"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED",
+          "UNREACHED"
+        ]
+      },
+      "setup": {
+        "disable": [
+          "semble.search"
+        ]
+      },
+      "queryOverlap": 0.667,
+      "truthSource": [
+        "src/registry/index.ts:343"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-038",
+      "split": "dev",
+      "corpus": "code",
+      "class": "unavailable-provider",
+      "query": "nativeProjectionFor adapter graph relationship",
+      "capability": "code.relationships",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/adapters/index.ts",
+          "startLine": 20,
+          "endLine": 22,
+          "rel": 2,
+          "anchorSha": "1b4e470a97bde524a332052d1307ce242af857f77029343e6fb51cd618815bac"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED",
+          "UNREACHED"
+        ]
+      },
+      "setup": {
+        "disable": [
+          "graphify.query"
+        ]
+      },
+      "queryOverlap": 0.5,
+      "truthSource": [
+        "src/adapters/index.ts:20"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-039",
+      "split": "dev",
+      "corpus": "code",
+      "class": "unavailable-provider",
+      "query": "sanitizeRunEvent blast radius impact",
+      "capability": "code.impact-analysis",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/trace/ledger.ts",
+          "startLine": 277,
+          "endLine": 280,
+          "rel": 2,
+          "anchorSha": "03014c307c7fc472a6775c5d6c8b9e55a4763840d849d080b30e6547b071a594"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED",
+          "UNREACHED"
+        ]
+      },
+      "setup": {
+        "disable": [
+          "graphify.query"
+        ]
+      },
+      "queryOverlap": 0.25,
+      "truthSource": [
+        "src/runtime/trace/ledger.ts:277"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-040",
+      "split": "dev",
+      "corpus": "code",
+      "class": "oversized-context",
+      "query": "PROVIDER_SOURCE_MODES provider modes live index",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/registry/index.ts",
+          "startLine": 38,
+          "endLine": 38,
+          "rel": 2,
+          "anchorSha": "f793f843c54ad7834c2800b45df4fddcf080c51c82078bfd24691e0673f587ac"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "budgetBytes": 2000,
+        "mustInclude": [
+          "q1"
+        ]
+      },
+      "queryOverlap": 1,
+      "truthSource": [
+        "src/registry/index.ts:38"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-041",
+      "split": "dev",
+      "corpus": "code",
+      "class": "oversized-context",
+      "query": "EVIDENCE_SCORE_FIELDS prohibited fact metrics",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/cli.ts",
+          "startLine": 229,
+          "endLine": 232,
+          "rel": 2,
+          "anchorSha": "54c6685a12d96b6aaab70d3ad32d4d2ac0312ae585c89ffd0ebef287385d9864"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "budgetBytes": 2000,
+        "mustInclude": [
+          "q1"
+        ]
+      },
+      "queryOverlap": 0.5,
+      "truthSource": [
+        "src/runtime/cli.ts:229"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-042",
+      "split": "dev",
+      "corpus": "code",
+      "class": "oversized-context",
+      "query": "scoreFieldRefusal retrieval score refusal message",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/cli.ts",
+          "startLine": 235,
+          "endLine": 237,
+          "rel": 2,
+          "anchorSha": "8c08a55bf52b765ae5f5e8e28167d12f69afbd7cb0959dee8673d52d3f6c5902"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "budgetBytes": 2000,
+        "mustInclude": [
+          "q1"
+        ]
+      },
+      "queryOverlap": 0.6,
+      "truthSource": [
+        "src/runtime/cli.ts:235"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-043",
+      "split": "dev",
+      "corpus": "code",
+      "class": "verification-failure",
+      "query": "test suite execution failure verification",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/verification/engine.ts",
+          "startLine": 98,
+          "endLine": 100,
+          "rel": 2,
+          "anchorSha": "e818903db197d8688f3c8334a9a76d9dea2fc364977e214e97f66b0c109f519b"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "mustSurvive": {
+          "exitCode": 1,
+          "lines": [
+            "assertion failed: expected PASS but received UNRESOLVED"
+          ]
+        }
+      },
+      "setup": {
+        "command": [
+          "node",
+          "-e",
+          "console.error('assertion failed: expected PASS but received UNRESOLVED'); process.exit(1);"
+        ]
+      },
+      "queryOverlap": 0,
+      "truthSource": [
+        "src/runtime/verification/engine.ts:98"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-044",
+      "split": "dev",
+      "corpus": "code",
+      "class": "verification-failure",
+      "query": "runtime contract runner error verification",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/verification/contract-runner.ts",
+          "startLine": 91,
+          "endLine": 93,
+          "rel": 2,
+          "anchorSha": "ac660d971d19d839ffef36b516391b9457799dd5545cf20740b091241b1bd185"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "mustSurvive": {
+          "exitCode": 2,
+          "lines": [
+            "contract violation: precondition failed"
+          ]
+        }
+      },
+      "setup": {
+        "command": [
+          "node",
+          "-e",
+          "console.error('contract violation: precondition failed'); process.exit(2);"
+        ]
+      },
+      "queryOverlap": 0,
+      "truthSource": [
+        "src/runtime/verification/contract-runner.ts:91"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-045",
+      "split": "dev",
+      "corpus": "code",
+      "class": "verification-failure",
+      "query": "typecheck compilation syntax error verification",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/registry/index.ts",
+          "startLine": 63,
+          "endLine": 65,
+          "rel": 2,
+          "anchorSha": "71fdf0d4c3dfcd8137e28926b579f2b7fe728e2f54941922d2a4354ac85e65e0"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "mustSurvive": {
+          "exitCode": 1,
+          "lines": [
+            "TypeScript error TS2304: Cannot find name"
+          ]
+        }
+      },
+      "setup": {
+        "command": [
+          "node",
+          "-e",
+          "console.error('TypeScript error TS2304: Cannot find name'); process.exit(1);"
+        ]
+      },
+      "queryOverlap": 0.2,
+      "truthSource": [
+        "src/registry/index.ts:63"
+      ],
+      "author": "worker:agy"
+    }
+  ]
+}
