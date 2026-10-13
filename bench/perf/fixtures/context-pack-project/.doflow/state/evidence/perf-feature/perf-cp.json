@@ -1,0 +1,849 @@
+{
+  "version": 1,
+  "revision": 1,
+  "taskId": "perf-cp",
+  "updatedAt": "2026-10-13T00:00:00.000Z",
+  "evidenceCount": 30,
+  "evidence": [
+    {
+      "id": "ev_01",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_1.ts",
+        "line": 10
+      },
+      "content": "Evidence content observation for item 1 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_01"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_02",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_2.ts",
+        "line": 20
+      },
+      "content": "Evidence content observation for item 2 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_02"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_03",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_3.ts",
+        "line": 30
+      },
+      "content": "Evidence content observation for item 3 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_03"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_04",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_4.ts",
+        "line": 40
+      },
+      "content": "Evidence content observation for item 4 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_04"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_05",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_5.ts",
+        "line": 50
+      },
+      "content": "Evidence content observation for item 5 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_05"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_06",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_6.ts",
+        "line": 60
+      },
+      "content": "Evidence content observation for item 6 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_06"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_07",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_7.ts",
+        "line": 70
+      },
+      "content": "Evidence content observation for item 7 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_07"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_08",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_8.ts",
+        "line": 80
+      },
+      "content": "Evidence content observation for item 8 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_08"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_09",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_9.ts",
+        "line": 90
+      },
+      "content": "Evidence content observation for item 9 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_09"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_10",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_10.ts",
+        "line": 100
+      },
+      "content": "Evidence content observation for item 10 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_10"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_11",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_11.ts",
+        "line": 110
+      },
+      "content": "Evidence content observation for item 11 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_11"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_12",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_12.ts",
+        "line": 120
+      },
+      "content": "Evidence content observation for item 12 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_12"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_13",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_13.ts",
+        "line": 130
+      },
+      "content": "Evidence content observation for item 13 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_13"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_14",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_14.ts",
+        "line": 140
+      },
+      "content": "Evidence content observation for item 14 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_14"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_15",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_15.ts",
+        "line": 150
+      },
+      "content": "Evidence content observation for item 15 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_15"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_16",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_16.ts",
+        "line": 160
+      },
+      "content": "Evidence content observation for item 16 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_16"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_17",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_17.ts",
+        "line": 170
+      },
+      "content": "Evidence content observation for item 17 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_17"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_18",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_18.ts",
+        "line": 180
+      },
+      "content": "Evidence content observation for item 18 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_18"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_19",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_19.ts",
+        "line": 190
+      },
+      "content": "Evidence content observation for item 19 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_19"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_20",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_20.ts",
+        "line": 200
+      },
+      "content": "Evidence content observation for item 20 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_20"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_21",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_21.ts",
+        "line": 210
+      },
+      "content": "Evidence content observation for item 21 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_21"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_22",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_22.ts",
+        "line": 220
+      },
+      "content": "Evidence content observation for item 22 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_22"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_23",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_23.ts",
+        "line": 230
+      },
+      "content": "Evidence content observation for item 23 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_23"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_24",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_24.ts",
+        "line": 240
+      },
+      "content": "Evidence content observation for item 24 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_24"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_25",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_25.ts",
+        "line": 250
+      },
+      "content": "Evidence content observation for item 25 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_25"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_26",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_26.ts",
+        "line": 260
+      },
+      "content": "Evidence content observation for item 26 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_26"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_27",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_27.ts",
+        "line": 270
+      },
+      "content": "Evidence content observation for item 27 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_27"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_28",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_28.ts",
+        "line": 280
+      },
+      "content": "Evidence content observation for item 28 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_28"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_29",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_29.ts",
+        "line": 290
+      },
+      "content": "Evidence content observation for item 29 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_29"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_30",
+      "taskId": "perf-cp",
+      "kind": "exact-search",
+      "provenance": "extracted",
+      "source": {
+        "provider": "grep",
+        "capability": "search"
+      },
+      "locator": {
+        "file": "src/runtime/context/file_30.ts",
+        "line": 300
+      },
+      "content": "Evidence content observation for item 30 demonstrating functionality.",
+      "freshness": {
+        "gitCommit": "abcdef123456",
+        "fileHash": "123456abcdef",
+        "observedAt": "2026-10-13T00:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "supports": [
+        "cl_30"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    }
+  ]
+}

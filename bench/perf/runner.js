@@ -255,45 +255,86 @@ function parseFlags(args, allowed) {
 function runSurfaceProcess(surface, repoRoot, tempHome) {
   const argv = surface.argv || [];
   if (argv.length === 0) return 0;
-  let [cmd, ...args] = argv;
-  if (cmd === 'node') {
-    cmd = process.execPath;
-  }
-  const env = { ...process.env, DOFLOW_QUIET: '1' };
-  if (surface.kind === 'install' || surface.intentClass === 'install' || surface.id === 'install.dry-run') {
-    if (tempHome) env.HOME = tempHome;
-  }
-  const timeoutMs = surface.timeoutMs != null
-    ? surface.timeoutMs
-    : (surface.timeout != null ? surface.timeout : 30000);
-  const spawnOpts = {
-    cwd: repoRoot,
-    env,
-    encoding: 'utf8',
-    timeout: timeoutMs,
-  };
-  if (surface.stdinFixture) {
-    const fixturePath = path.isAbsolute(surface.stdinFixture)
-      ? surface.stdinFixture
-      : path.join(repoRoot, surface.stdinFixture);
-    if (!fs.existsSync(fixturePath)) {
-      throw new Error(`missing stdin fixture: ${surface.stdinFixture}`);
+
+  let tempProjectDir = null;
+  try {
+    if (surface.setup && surface.setup.kind === 'copy-fixture-project') {
+      tempProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-fixture-'));
+      const fixtureSrc = path.isAbsolute(surface.setup.fixture)
+        ? surface.setup.fixture
+        : path.join(repoRoot, surface.setup.fixture);
+      if (!fs.existsSync(fixtureSrc)) {
+        throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
+      }
+      fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
+      if (surface.setup.git !== false) {
+        spawnSync('git', ['init', '-q'], { cwd: tempProjectDir });
+        spawnSync('git', ['add', '-A'], { cwd: tempProjectDir });
+        spawnSync(
+          'git',
+          [
+            '-c', 'user.name=DoFlow Perf',
+            '-c', 'user.email=perf@doflow.dev',
+            'commit', '-q', '-m', 'fixture',
+            '--date=2026-10-13T00:00:00Z',
+          ],
+          { cwd: tempProjectDir }
+        );
+      }
     }
-    spawnOpts.input = fs.readFileSync(fixturePath, 'utf8');
-  }
-  const start = process.hrtime.bigint();
-  const res = spawnSync(cmd, args, spawnOpts);
-  const end = process.hrtime.bigint();
-  if (res.error) {
-    if (res.error.code === 'ETIMEDOUT') {
-      throw new Error(`timed out after ${spawnOpts.timeout / 1000}s`);
+
+    const effectiveArgv = tempProjectDir
+      ? argv.map((a) => (typeof a === 'string' ? a.replace(/\{project\}/g, tempProjectDir) : a))
+      : argv;
+
+    let [cmd, ...args] = effectiveArgv;
+    if (cmd === 'node') {
+      cmd = process.execPath;
     }
-    throw new Error(`process error: ${res.error.message}`);
+    const env = { ...process.env, DOFLOW_QUIET: '1' };
+    if (surface.kind === 'install' || surface.intentClass === 'install' || surface.id === 'install.dry-run') {
+      if (tempHome) env.HOME = tempHome;
+    }
+    const timeoutMs = surface.timeoutMs != null
+      ? surface.timeoutMs
+      : (surface.timeout != null ? surface.timeout : 30000);
+    const spawnOpts = {
+      cwd: repoRoot,
+      env,
+      encoding: 'utf8',
+      timeout: timeoutMs,
+    };
+    if (surface.stdinFixture) {
+      const fixturePath = path.isAbsolute(surface.stdinFixture)
+        ? surface.stdinFixture
+        : path.join(repoRoot, surface.stdinFixture);
+      if (!fs.existsSync(fixturePath)) {
+        throw new Error(`missing stdin fixture: ${surface.stdinFixture}`);
+      }
+      spawnOpts.input = fs.readFileSync(fixturePath, 'utf8');
+    }
+    const start = process.hrtime.bigint();
+    const res = spawnSync(cmd, args, spawnOpts);
+    const end = process.hrtime.bigint();
+    if (res.error) {
+      if (res.error.code === 'ETIMEDOUT') {
+        throw new Error(`timed out after ${spawnOpts.timeout / 1000}s`);
+      }
+      throw new Error(`process error: ${res.error.message}`);
+    }
+    if (res.status !== 0) {
+      throw new Error(`process exited with status ${res.status}`);
+    }
+    return Number(end - start) / 1_000_000;
+  } finally {
+    if (tempProjectDir) {
+      try {
+        fs.rmSync(tempProjectDir, { recursive: true, force: true });
+      } catch {
+        // ignored
+      }
+    }
   }
-  if (res.status !== 0) {
-    throw new Error(`process exited with status ${res.status}`);
-  }
-  return Number(end - start) / 1_000_000;
 }
 
 function cmdMeasure(flags, options = {}) {
