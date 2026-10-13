@@ -5,12 +5,12 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger.ts');
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { measureFreshness } = require('./freshness.ts');
+const { measureTreeState, sourceVersionFor } = require('./source-version.ts');
 const { evaluateTaskReadiness } = require('./readiness.ts');
 const { writeReadinessRecord } = require('./readiness-record.ts');
 const { parseDeclaredScope } = require('./verification/scope-bound.ts');
@@ -220,35 +220,11 @@ const EVIDENCE_REFUSED_FIELDS = new Map([
   ['status', "lifecycle status starts 'active' and changes only through `evidence --action supersede` — asserting it here would let a caller declare an item superseded without naming what replaces it"],
 ]);
 
-/** The names a retrieval score arrives under, in camelCase (`--relevance-score` normalises here).
- *  Exported because `bin/doflow.js` refuses the same names on the command line, and because
- *  `retrieval-plan.ts` and `outcome.ts` refuse them on the option object a declared plan and a
- *  terminal record are built from: one definition, three input surfaces (argv, a `--batch` JSON
- *  file, and a verb's own options), each with exactly one enforcement point. A second copy of
- *  this list is how one of them drifts. */
-const EVIDENCE_SCORE_FIELDS = new Set([
-  'confidence', 'score', 'relevance', 'relevanceScore', 'similarity',
-  'certainty', 'probability', 'rank', 'distance', 'weight',
-]);
-
-/** The one refusal message for a score offered as a property of a fact. */
-function scoreFieldRefusal(name: any) {
-  return `'${name}' is a retrieval score and this boundary records none (FR-007). Relevance is a `
-    + 'property of a search, not of a fact: stored beside the fact it is read as confidence by the '
-    + 'next worker, which is the specific interpretation the requirement forbids. Record the '
-    + 'locator and the content instead — a reader who can see where a fact came from does not need '
-    + 'to be told how sure to be.';
-}
-
-/** Refuses a score-shaped key anywhere in an item, including nested under source or locator. */
-function assertNoScoreFields(value: any, prefix: any) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
-  for (const [key, inner] of Object.entries(value)) {
-    const dotted = prefix ? `${prefix}.${key}` : key;
-    if (EVIDENCE_SCORE_FIELDS.has(key)) throw new Error(scoreFieldRefusal(dotted));
-    assertNoScoreFields(inner, dotted);
-  }
-}
+const {
+  EVIDENCE_SCORE_FIELDS,
+  scoreFieldRefusal,
+  assertNoScoreFields,
+} = require('./evidence-fields.ts');
 
 /**
  * Normalises a locator given either as an object or as a `file[:line]` / URI string.
@@ -435,16 +411,6 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
   };
 }
 
-/** HEAD of the tree the evidence was observed in, or null outside a repo. Measured, not asserted. */
-function headCommit(root: any) {
-  try {
-    return execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
-      encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim() || null;
-  } catch {
-    return null;
-  }
-}
 
 
 /**
@@ -516,15 +482,19 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }: any) {
     }
   }
 
-  const gitCommit = headCommit(root);
+  const treeState = measureTreeState(root);
   const written = [];
   let stateFile;
   try {
     for (const record of validated) {
+      const sv = sourceVersionFor(root, record.locator, treeState);
       const id = ledger.addEvidence({
         ...record,
         taskId,
-        freshness: measureFreshness(root, record.locator, gitCommit),
+        freshness: {
+          ...measureFreshness(root, record.locator, sv.gitCommit),
+          isDirty: sv.isDirty,
+        },
       });
       written.push(ledger.getEvidence(id));
     }
@@ -552,7 +522,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }: any) {
   }
   console.log('─'.repeat(78));
   console.log(`Wrote ${written.length} item(s) to ${stateFile}`);
-  console.log(`Commit at observation: ${gitCommit || 'not a git worktree — freshness cannot expire by diff'}`);
+  console.log(`Commit at observation: ${treeState.gitCommit || 'not a git worktree — freshness cannot expire by diff'}`);
   console.log('═'.repeat(78) + '\n');
   return finish(0);
 }
