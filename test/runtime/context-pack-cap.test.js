@@ -276,46 +276,35 @@ None.
 });
 
 test('context-pack-cap: dropping the envelope term from the cost fails (negative control)', (t) => {
-  const root = tempDir(t, 'doflow-cap-envelope-neg-');
-  const featDir = path.join(root, 'agent-docs/doflow/feat-env-neg/intention');
-  fs.mkdirSync(featDir, { recursive: true });
-
-  const reqContent = `# Feature: EnvNeg
-## 1. Summary
-Summary text.
-## 6. Acceptance Criteria
-- [ ] AC1
-`;
-  fs.writeFileSync(path.join(featDir, 'requirement.md'), reqContent, 'utf8');
-
-  const tightCap = 2000;
-  const realRes = runPack({
-    taskId: 't-env',
-    taskClass: 'feature',
-    maxBytes: tightCap,
-    reason: 'tight budget',
-    stateRoot: root,
-    slug: 'feat-env-neg',
-    json: true,
+  const { linearFit, buildObjectiveItem, buildPackItem } = require('../../src/runtime/context/compose.ts');
+  const mandatory = buildObjectiveItem('Objective');
+  const optional = buildPackItem({
+    id: 'opt-1',
+    field: 'claims.supported',
+    value: 'claim',
+    md: '- claim\n',
+    priority: 2,
+    mdBytes: 200,
+    jsonBytes: 200,
   });
 
-  function assertEnvelopeGuarded(packRes, budget) {
-    if (packRes.code === EXIT.OK) {
-      const bytes = Buffer.byteLength(packRes.out, 'utf8');
-      if (bytes > budget) {
-        throw new Error(`Dropping envelope failed: emitted size ${bytes} B exceeds budget ${budget} B`);
-      }
-    }
-  }
+  // With envelope included (300 B), mandatory + envelope + optional exceeds budget (500 B).
+  // Thus optional item must be omitted with reason budget.
+  const fitWithEnvelope = linearFit({
+    items: [mandatory, optional],
+    budget: 500,
+    envelopeMd: 300,
+    envelopeJson: 300,
+  });
 
-  // Real run passes (it overflowed, exit 3, never emitted over cap as OK)
-  assertEnvelopeGuarded(realRes, tightCap);
-
-  // Negative control: simulated buggy output where envelope was dropped from cost so pack was emitted as OK with size > budget
-  const buggyOverCapRes = { code: EXIT.OK, out: 'X'.repeat(3000) };
-  assert.throws(
-    () => assertEnvelopeGuarded(buggyOverCapRes, tightCap),
-    (err) => err.message.includes('Dropping envelope failed') && err.message.includes('exceeds budget')
+  assert.equal(fitWithEnvelope.overflow, false);
+  assert.ok(
+    fitWithEnvelope.omissions.some((o) => o.id === 'opt-1' && o.reason === 'budget'),
+    'linearFit must omit optional item with reason budget when envelope term pushes cost over budget'
+  );
+  assert.ok(
+    !fitWithEnvelope.kept.some((i) => i.id === 'opt-1'),
+    'linearFit must not keep optional item when envelope term pushes cost over budget'
   );
 });
 

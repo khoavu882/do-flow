@@ -146,19 +146,30 @@ test('context-pack-cli: readiness --invariants flag is accepted and not a usage 
 });
 
 test('context-pack-cli: negative control — removing null fallback fails', (t) => {
-  // A runner simulating the bug where taskClass is null
-  function runWithNullTaskClass(taskClass) {
-    if (taskClass === null || taskClass === undefined) {
-      // Prior bug: null taskClass passed directly to resolveBudget throws TypeError
-      throw new TypeError("Cannot read properties of null (reading 'toUpperCase')");
-    }
-    return 'feature';
-  }
+  const { handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
+  const root = setupTestProject(t, 'doflow-cli-neg-null-');
 
-  assert.throws(
-    () => runWithNullTaskClass(null),
-    /Cannot read properties of null/
-  );
+  let output = '';
+  const origLog = console.log;
+  const origWrite = process.stdout.write;
+  const origExit = process.exitCode;
+  console.log = (t) => { output += t; };
+  process.stdout.write = (t) => { output += t; return true; };
+  try {
+    const code = handleContextPackCommand({
+      taskId: 'task-cli',
+      taskClass: null,
+      stateRoot: root,
+      slug: 'feat-cli',
+      json: false,
+    });
+    assert.ok(code === 0 || code === 1, `must exit 0 or 1, got ${code}`);
+    assert.ok(output.includes('## ContextPack: [FEATURE]'), 'null taskClass must fallback to feature');
+  } finally {
+    console.log = origLog;
+    process.stdout.write = origWrite;
+    process.exitCode = origExit;
+  }
 });
 
 test('context-pack-cli: negative control — adding extra newline causes byte mismatch and empty last line', (t) => {
@@ -166,24 +177,41 @@ test('context-pack-cli: negative control — adding extra newline causes byte mi
   const mdRes = runCli(root, ['context-pack', '--task-id', 'task-cli', '--slug', 'feat-cli']);
   assert.equal(mdRes.code, 0);
 
-  // Simulating console.log appending extra newline
-  const buggyStdout = mdRes.stdout + '\n';
-  const match = buggyStdout.match(/\[end of pack\][^\n]*\bbytes=(\d{9})\b/);
+  const match = mdRes.stdout.match(/\[end of pack\][^\n]*\bbytes=(\d{9})\b/);
+  assert.ok(match, 'must find [end of pack] line');
   const reportedBytes = parseInt(match[1], 10);
-  const buggyBytes = Buffer.byteLength(buggyStdout, 'utf8');
+  const stdoutBytes = Buffer.byteLength(mdRes.stdout, 'utf8');
 
-  assert.notEqual(buggyBytes, reportedBytes, 'Extra newline must cause byte count mismatch');
-  assert.equal(buggyStdout.endsWith('\n\n'), true, 'Extra newline creates double newline');
-  const buggyLines = buggyStdout.endsWith('\n') ? buggyStdout.slice(0, -1).split('\n') : buggyStdout.split('\n');
-  assert.equal(buggyLines[buggyLines.length - 1], '', 'Last line is empty when extra newline added');
+  // Negative control assertion on production output:
+  // Adding back the extra newline causes stdout byte count to mismatch reported packEnd bytes,
+  // and produces trailing empty line (double newline).
+  assert.equal(
+    stdoutBytes,
+    reportedBytes,
+    `adding extra newline causes byte mismatch: reported ${reportedBytes}, actual ${stdoutBytes}`
+  );
+  assert.equal(
+    mdRes.stdout.endsWith('\n\n'),
+    false,
+    'adding extra newline causes trailing empty line'
+  );
+  const lines = mdRes.stdout.endsWith('\n') ? mdRes.stdout.slice(0, -1).split('\n') : mdRes.stdout.split('\n');
+  assert.ok(
+    lines[lines.length - 1].startsWith('[end of pack]'),
+    'last line must be [end of pack], not empty'
+  );
 });
 
 test('context-pack-cli: negative control — missing --invariants flag is rejected', (t) => {
   const root = setupTestProject(t, 'doflow-cli-neg-invariants-');
-  // Pass a dummy unknown flag to verify rejection behavior
-  const res = runCli(root, ['readiness', '--task-class', 'feature', '--task-id', 'task-cli', '--unknown-flag-test', 'val']);
-  assert.equal(res.code, 1);
-  assert.ok(res.stderr.includes("unknown flag '--unknown-flag-test'"));
+  // Pass --invariants to readiness: deleting the flag line from RUNTIME_STRING_FLAGS causes CLI to reject it
+  const res = runCli(root, ['readiness', '--task-class', 'feature', '--task-id', 'task-cli', '--invariants', 'val']);
+  assert.equal(
+    res.stderr.includes("unknown flag '--invariants'"),
+    false,
+    `missing --invariants flag line causes CLI to reject flag: ${res.stderr}`
+  );
+  assert.ok(res.code === 0 || res.code === 1);
 });
 
 test('context-pack-cli: three CLI spawn points near the boundary emit valid pack without crash or empty exit 1 (CX.7)', (t) => {

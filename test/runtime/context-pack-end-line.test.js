@@ -202,6 +202,10 @@ test('context-pack-end-line: negative control — omitting end-of-pack line fail
   });
 
   const md = formatMarkdown(pack);
+  // Production output must have valid end line; omitting it from production fails verification
+  const prodVerify = verifyPackEndLine(md);
+  assert.equal(prodVerify.ok, true, 'production output must pass end-of-pack verification');
+
   const strippedMd = md.replace(/\[end of pack\][^\n]*\n?$/, '');
 
   const res = verifyPackEndLine(strippedMd);
