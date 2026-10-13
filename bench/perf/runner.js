@@ -192,7 +192,7 @@ function enumerateHookSurfaces({
   if (fs.existsSync(sharedPoliciesDir) && fs.statSync(sharedPoliciesDir).isDirectory()) {
     const entries = fs.readdirSync(sharedPoliciesDir);
     for (const file of entries) {
-      if (!file.endsWith('.sh') || file === 'lib.sh' || file === 'deny-json.sh') continue;
+      if (!file.endsWith('.sh') || file === 'lib.sh' || file === 'deny-json.sh' || file === 'contract.sh') continue;
       const stem = file.slice(0, -3);
       const surfaceId = `hook.shared.${stem}`;
       const fixtureRel = path.join('bench', 'perf', 'fixtures', 'shared', `${stem}.json`);
