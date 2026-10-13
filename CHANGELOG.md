@@ -15,6 +15,10 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.0-beta.4] - 2026-10-13
+
+Prerelease of 2.0.0 on the npm `beta` dist-tag (`npx @khoavu882/doflow@beta`). It replaces 2.0.0-beta.3, which is deprecated because it could not run when installed from npm.
+
 ### Fixed
 - The npm package now runs when installed from npm. It ships JavaScript built at pack time from the TypeScript sources with Node's built-in type stripper and adds no dependency. Version 2.0.0-beta.3 is deprecated because it shipped `.ts` files under `node_modules`, which Node refuses to run.
 
