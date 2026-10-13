@@ -449,11 +449,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-thirty-nine test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-thirty-two entries across thirty-one test files and carries thirty distinct G-numbers.
+forty test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+thirty-three entries across thirty-two test files and carries thirty-one distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G32 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G33 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eight
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -648,6 +648,23 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/...` or a `../runtime/...` hop — so a prune can never
   delete a file a not-yet-updated harness calls by path. A reference already broken when the guard
   landed is listed in `KNOWN_STALE` with its reason and fails once it resolves.
+- **G33** (`baseline-contracts.test.js`) — the eighteen baseline and measurement contract checks of
+  P0 (074, IC-030): the pinned snapshot commit exists in git history (G33.1); the manifest matches
+  `git ls-tree` at that commit (G33.2); dev tasks satisfy IC-013 validation against blobs at the commit
+  and match `snapshot.taskFiles.dev.sha256` (G33.3); holdout ids never appear in dev tasks and every
+  applicable class has dev and holdout coverage (G33.4); seal canaries appear in no other tracked file
+  (G33.5); thresholds carry valid status and `approvedOn` with the verbatim roadmap sentence (G33.6);
+  `thresholds.json` was committed before any holdout results (G33.7); holdout results files expose no
+  task queries or qrels (G33.8); dev baseline matches snapshot/tasks digests with all configurations
+  and classes covered (G33.9); perf budget rows have ≥30 runs, formulaic ceilings within intent budgets,
+  and full hook surface coverage (G33.10); `performance-budget.test.js` references `budgets.json` without
+  hardcoded millisecond ceiling literals (G33.11); inventory rows and Facts carry required fields,
+  valid dates, and sources (G33.12); tool alternatives obey the 20,000-star boundary with only Serena
+  excluded (G33.13); ADR section 8 proposals require user approval (G33.14); all eight harnesses declare
+  valid orchestration operations (G33.15); operating-mode and candidate-evidence documents follow contract
+  headings, states, and examples with score rejection (G33.16); retrieval README includes the three gate
+  sentences verbatim (G33.17); and every deliverable defines refresh metadata and avoids transient
+  feature-doc paths (G33.18).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
