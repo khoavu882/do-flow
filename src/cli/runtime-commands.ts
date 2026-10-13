@@ -111,6 +111,9 @@ function evidenceItemFromFlags(o: any): any {
   if (o.locator !== undefined) item.locator = o.locator;
   if (o.content !== undefined) item.content = o.content;
   if (o.establishes !== undefined) item.establishes = o.establishes;
+  if (o.need !== undefined) item.need = o.need;
+  if (o.result !== undefined) item.result = o.result;
+  if (o.absence !== undefined) item.absence = o.absence;
   // Both halves of an observation travel together; a lone half must reach the write boundary as
   // the partial object it is, so the refusal names the missing field instead of dropping the pair.
   if (o.observedCommand !== undefined || o.observedExit !== undefined) {
@@ -212,7 +215,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // all this does: the handler names them back under `callerAsserted` so a stated input is
     // never mistaken for a measured one.
     case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, mode: o.mode, slug: storeSlug, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot });
-    case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, evidenceId: o.evidenceId, replacedBy: o.replacedBy, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot });
+    case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, evidenceId: o.evidenceId, replacedBy: o.replacedBy, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, slug: storeSlug });
     // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
     // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so
     // a view invoked from a subdirectory reads the runs that were actually recorded.

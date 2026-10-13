@@ -154,6 +154,8 @@ class EvidenceLedger {
       fileHash: item.freshness?.fileHash || null,
       observedAt: item.freshness?.observedAt || new Date().toISOString(),
       status: item.freshness?.status || 'FRESH',
+      isDirty: item.freshness?.isDirty !== undefined ? item.freshness.isDirty : null,
+      ...(item.freshness?.treeFingerprint ? { treeFingerprint: item.freshness.treeFingerprint } : {}),
     };
 
     const evidenceRecord = {
@@ -165,6 +167,7 @@ class EvidenceLedger {
       provenance,
       content: item.content || null,
       freshness,
+      ...(item.result !== undefined ? { result: item.result } : {}),
       // Which template requirements this item claims to establish. Readiness counts an item toward
       // a requirement only when the writer named it here — kind-matching alone let an item saying
       // "tests failed" satisfy a passing-baseline requirement (architecture review R1, P1).
@@ -210,6 +213,8 @@ class EvidenceLedger {
       if (filter.capability && item.source.capability !== filter.capability) continue;
       if (filter.file && item.locator.file !== filter.file) continue;
       if (filter.status && item.freshness.status !== filter.status) continue;
+      if (filter.queryRef && item.source?.queryRef !== filter.queryRef) continue;
+      if (filter.attemptRef && item.source?.attemptRef !== filter.attemptRef) continue;
       results.push(item);
     }
     return results;

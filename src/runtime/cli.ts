@@ -225,7 +225,8 @@ function readEvidenceBatch(batchPath: any) {
   if (data && typeof data === 'object') {
     for (const key of Object.keys(data)) {
       if (key === 'evidence') continue;
-      const named = EVIDENCE_REFUSED_FIELDS.has(key) ? ` — ${EVIDENCE_REFUSED_FIELDS.get(key)}` : '';
+      const refusedVal = EVIDENCE_REFUSED_FIELDS.get(key);
+      const named = refusedVal ? ` — ${typeof refusedVal === 'function' ? refusedVal('', '') : refusedVal}` : '';
       throw new Error(`unknown batch field '${key}'${named}. A batch is a JSON array of items, `
         + "or an object whose only key is 'evidence'");
     }
@@ -239,7 +240,7 @@ function readEvidenceBatch(batchPath: any) {
  * The `--action add` arm: validate the whole batch, then write it.
  * @returns {number} exit code
  */
-function addEvidence({ ledger, root, taskId, item, batchPath, json }: any) {
+function addEvidence({ ledger, root, taskId, item, batchPath, json, slug = null }: any) {
   const flagged = item && Object.keys(item).length > 0;
   if (flagged && batchPath) {
     return usageError('evidence', '--batch and the single-item flags are two spellings of the same write; use one', json);
@@ -263,10 +264,11 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }: any) {
   // The whole batch is validated before any of it is written. A half-written stage batch is worse
   // than a rejected one: the half that landed looks complete to every later reader.
   const treeState = measureTreeState(root);
+  const providerFreshness = new Map();
   const validated = [];
   for (const [index, raw] of raws.entries()) {
     try {
-      validated.push(toEvidence({ item: raw }, { taskId, root, treeState }));
+      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, slug, providerFreshness }));
     } catch (error: any) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json, error);
@@ -362,7 +364,7 @@ function supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json }: any
  * @param {string} [options.stateRoot]
  * @returns {number} exit code
  */
-function handleEvidenceCommand({ taskId = 'default', action = 'list', item = null, batchPath = null, evidenceId = null, replacedBy = null, json = false, repoRoot, stateRoot }: any = {}) {
+function handleEvidenceCommand({ taskId = 'default', action = 'list', item = null, batchPath = null, evidenceId = null, replacedBy = null, json = false, repoRoot, stateRoot, slug = null }: any = {}) {
   // See handleReadinessCommand: evidence is the caller's project state, not DoFlow package state.
   const root = stateRoot || repoRoot || process.cwd();
   const isQuery = action === 'list' || action === 'status';
@@ -382,7 +384,7 @@ function handleEvidenceCommand({ taskId = 'default', action = 'list', item = nul
     return usageError('evidence', error.message, json, error);
   }
 
-  if (action === 'add') return addEvidence({ ledger, root, taskId, item, batchPath, json });
+  if (action === 'add') return addEvidence({ ledger, root, taskId, item, batchPath, json, slug });
   if (action === 'supersede') return supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json });
 
   const items = ledger.queryEvidence({ taskId });
