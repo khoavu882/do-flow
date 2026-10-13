@@ -165,3 +165,59 @@ test('rssFromTime reads the darwin and linux /usr/bin/time formats', () => {
   assert.equal(a.rssFromTime('\tMaximum resident set size (kbytes): 20480\n'), 20);
   assert.equal(a.rssFromTime('nothing'), null);
 });
+
+test('extractIdentifier: deterministic extraction on sample queries', () => {
+  assert.equal(a.extractIdentifier('which call sites depend on validateCapabilityProviders'), 'validateCapabilityProviders');
+  assert.equal(a.extractIdentifier('what call sites depend on sanitizeRunEvent'), 'sanitizeRunEvent');
+  assert.equal(a.extractIdentifier('where is Foo_Bar referenced'), 'Foo_Bar');
+  assert.equal(a.extractIdentifier('who uses $schema in runtime'), '$schema');
+  assert.equal(a.extractIdentifier('where is config.port defined'), 'config.port');
+  assert.equal(a.extractIdentifier('does ProviderA call ProviderB'), 'ProviderB');
+  assert.equal(a.extractIdentifier('what callers depend on searchGuidance?'), 'searchGuidance');
+  assert.equal(a.extractIdentifier('who calls tokenize'), 'tokenize');
+  assert.equal(a.extractIdentifier('If I rename foo what fails'), 'foo');
+  assert.equal(a.extractIdentifier('What calls tokenize'), 'tokenize');
+  assert.equal(a.extractIdentifier('Which callers depend on Registry'), 'Registry');
+  assert.equal(a.extractIdentifier('What breaks if I change runVerb?'), 'runVerb');
+});
+
+test('graphify impact: the symbol, not the sentence, is passed to graphify affected', { skip: posix }, (t) => {
+  const w = world(t);
+  const bin = tempDir(t, 'doflow-adapter-a-symbin-');
+  const recorder = stub(bin, 'graphify', `
+const [cmd, target] = process.argv.slice(2);
+if (cmd === 'affected') {
+  if (target === 'validateCapabilityProviders') {
+    console.log('Affected nodes for validateCapabilityProviders()\\n- dep() [calls] src/dep.ts:L7');
+  } else {
+    console.log('UNEXPECTED: ' + target);
+  }
+}
+`);
+  const ans = a.runA({
+    task: task({ class: 'impact-refactor', query: 'which call sites depend on validateCapabilityProviders' }),
+    exportRoot: w.root, capabilities: CAPS, bins: { ...w.bins, graphify: recorder }, semble: w.semble, scratchDir: w.scratchDir,
+  });
+  assert.equal(ans.result, 'RETRIEVED');
+  assert.equal(ans.candidates.length, 1);
+  assert.equal(ans.candidates[0].path, 'src/dep.ts');
+});
+
+test('graphify impact: a stub graphify printing No unique node match yields unreached', { skip: posix }, (t) => {
+  const w = world(t);
+  const bin = tempDir(t, 'doflow-adapter-a-nomatch-');
+  const noMatch = stub(bin, 'graphify', `
+const [cmd] = process.argv.slice(2);
+if (cmd === 'affected') {
+  console.log('No unique node match for missingSymbol');
+}
+`);
+  const ans = a.runA({
+    task: task({ class: 'impact-refactor', query: 'which call sites depend on missingSymbol' }),
+    exportRoot: w.root, capabilities: CAPS, bins: { ...w.bins, graphify: noMatch }, semble: w.semble, scratchDir: w.scratchDir,
+  });
+  assert.equal(ans.result, 'UNREACHED');
+  assert.equal(ans.providers[0].id, 'graphify.query');
+  assert.equal(ans.providers[0].state, 'unreached');
+  assert.equal(ans.providers[0].cause, 'No unique node match');
+});

@@ -22,6 +22,8 @@ sessions/
 shell-snapshots/
 statsig/
 tasks/
+# Benchmark ground-truth task definitions under bench/retrieval/tasks/ are tracked
+!bench/retrieval/tasks/
 telemetry/
 todos/
 

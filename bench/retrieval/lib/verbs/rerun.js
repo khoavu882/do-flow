@@ -105,7 +105,7 @@ function rerun({ snapshotPath, repoRoot, tmp, keepTmp, env, home, deps, machine 
 
   const out = runVerb.execute({
     args: { config: 'A,B', corpus: 'all', split: 'dev' }, snapshotPath, repoRoot, tmp, keepTmp, env, home,
-    deps: { ...(deps || {}), verifySnapshot: () => verified },
+    deps: { ...runVerb.defaultDeps(), ...(deps || {}), verifySnapshot: () => verified },
   });
   if (out.exitCode !== 0) return { exitCode: out.exitCode, codes: out.codes, verify: verified.result, message: (out.lines || []).join('; '), diffs: [], latency: { compared: false, reason: 'the dev run did not complete' } };
 

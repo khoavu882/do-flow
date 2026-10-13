@@ -83,7 +83,17 @@
       "source": "agent-docs/doflow/073-typescript-migration/state.md F5"
     }
   ],
-  "machines": [],
+  "machines": [
+    {
+      "machineId": "6295d410c5bc",
+      "os": "darwin",
+      "arch": "arm64",
+      "cpuModel": "Apple M3 Max",
+      "cpuCount": 14,
+      "totalMemMB": 98304,
+      "node": "v26.8.1"
+    }
+  ],
   "surfaces": [
     {
       "id": "cli.version",
@@ -202,7 +212,590 @@
       "enforced": false
     }
   ],
-  "rows": [],
-  "startupContext": [],
-  "contextBudgets": []
+  "rows": [
+    {
+      "surfaceId": "cli.version",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 56.45,
+      "p95Ms": 65.3,
+      "maxMs": 73.9,
+      "madMs": 2.74,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 16.32,
+      "ceilingMs": 82,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "cli.help",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 54.47,
+      "p95Ms": 68.36,
+      "maxMs": 77.01,
+      "madMs": 2.65,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 17.09,
+      "ceilingMs": 86,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "verb.goal-list",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 119.33,
+      "p95Ms": 134.25,
+      "maxMs": 138.52,
+      "madMs": 4.84,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 33.56,
+      "ceilingMs": 150,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "verb.capabilities",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 74.09,
+      "p95Ms": 86.87,
+      "maxMs": 118.83,
+      "madMs": 4,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 21.72,
+      "ceilingMs": 109,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "diag.doctor",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 407.13,
+      "p95Ms": 549.81,
+      "maxMs": 597.66,
+      "madMs": 19.99,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 137.45,
+      "ceilingMs": 500,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "install.dry-run",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 97.91,
+      "p95Ms": 111.6,
+      "maxMs": 152.02,
+      "madMs": 5.96,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 27.9,
+      "ceilingMs": 140,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 15.83,
+      "p95Ms": 21.98,
+      "maxMs": 29.64,
+      "madMs": 0.56,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 32,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.user-prompt-submit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 12.5,
+      "p95Ms": 16.58,
+      "maxMs": 23.63,
+      "madMs": 0.93,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 27,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "suite.guard-file",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 114.21,
+      "p95Ms": 128.09,
+      "maxMs": 136.93,
+      "madMs": 4.42,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 32.02,
+      "ceilingMs": 161,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "suite.guards",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-13",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 5135.42,
+      "p95Ms": 6219.01,
+      "maxMs": 6383.14,
+      "madMs": 88.78,
+      "controlP50Ms": 26.56,
+      "redos": 0,
+      "headroomMs": 1554.75,
+      "ceilingMs": 7774,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.mcp-tool-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.permission-audit",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.post-compact",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.post-edit-lint",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.post-tool-failure",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.pre-bash-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.pre-compact",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.pre-implement-gate",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.session-end",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.session-start",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.skill-config-audit",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.stop-check",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.subagent-audit",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.claude.user-prompt-submit",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.mcp-tool-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.post-edit-lint",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.pre-bash-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.pre-compact",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.pre-implement-gate",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.session-end",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.session-start",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.stop-check",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.subagent-audit",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.codex.user-prompt-submit",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.gemini.mcp-tool-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.gemini.post-edit-lint",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.gemini.pre-bash-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.gemini.pre-compact",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.gemini.pre-implement-gate",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.gemini.session-end",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.gemini.session-start",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.opencode",
+      "unmeasured": "hooks projected through a native plugin with no shell entry point"
+    },
+    {
+      "surfaceId": "hook.pi",
+      "unmeasured": "hooks projected through a native plugin with no shell entry point"
+    },
+    {
+      "surfaceId": "hook.copilot",
+      "unmeasured": "hooks projected through a native plugin with no shell entry point"
+    },
+    {
+      "surfaceId": "hook.kiro.mcp-tool-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-bash-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-implement-gate",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.kiro.session-start",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.kiro.stop-check",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.antigravity.pre-implementation-gate",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.antigravity.stop-check",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.shared.capture-failure",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.shared.mcp-tool-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.shared.pre-implementation-gate",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.shared.session-context",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.shared.stop-check",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.shared.subagent-audit",
+      "unmeasured": "no fixture"
+    }
+  ],
+  "startupContext": [
+    {
+      "harness": "claude",
+      "installedVersion": "2.1.287 (Claude Code)",
+      "doflowProjectedBytes": 9992,
+      "sessionStartStdoutBytes": {
+        "unmeasured": "no fixture"
+      },
+      "tokensEst": 2498,
+      "tokensBasis": "estimated:bytes/4",
+      "harnessNative": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "harness": "codex",
+      "installedVersion": "codex-cli 0.162.1",
+      "doflowProjectedBytes": 9992,
+      "sessionStartStdoutBytes": {
+        "unmeasured": "no fixture"
+      },
+      "tokensEst": 2498,
+      "tokensBasis": "estimated:bytes/4",
+      "harnessNative": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": "0.55.1",
+      "doflowProjectedBytes": 9992,
+      "sessionStartStdoutBytes": {
+        "unmeasured": "no fixture"
+      },
+      "tokensEst": 2498,
+      "tokensBasis": "estimated:bytes/4",
+      "harnessNative": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "harness": "opencode",
+      "installedVersion": "1.18.30",
+      "doflowProjectedBytes": 9992,
+      "sessionStartStdoutBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "tokensEst": 2498,
+      "tokensBasis": "estimated:bytes/4",
+      "harnessNative": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "harness": "pi",
+      "installedVersion": "1.1.0",
+      "doflowProjectedBytes": 9992,
+      "sessionStartStdoutBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "tokensEst": 2498,
+      "tokensBasis": "estimated:bytes/4",
+      "harnessNative": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "harness": "copilot",
+      "installedVersion": "GitHub Copilot CLI 1.0.78.",
+      "doflowProjectedBytes": 9992,
+      "sessionStartStdoutBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "tokensEst": 2498,
+      "tokensBasis": "estimated:bytes/4",
+      "harnessNative": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "harness": "kiro",
+      "installedVersion": "kiro-cli 2.30.0",
+      "doflowProjectedBytes": 9992,
+      "sessionStartStdoutBytes": {
+        "unmeasured": "no fixture"
+      },
+      "tokensEst": 2498,
+      "tokensBasis": "estimated:bytes/4",
+      "harnessNative": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    },
+    {
+      "harness": "antigravity",
+      "installedVersion": "1.3.3",
+      "doflowProjectedBytes": 9992,
+      "sessionStartStdoutBytes": {
+        "unmeasured": "no session-start hook"
+      },
+      "tokensEst": 2498,
+      "tokensBasis": "estimated:bytes/4",
+      "harnessNative": {
+        "unmeasured": "needs a model call (paid)"
+      }
+    }
+  ],
+  "contextBudgets": [
+    {
+      "harness": "claude",
+      "capacityTokens": null,
+      "capacityBasis": "profile-required",
+      "startupTokens": 2498,
+      "startupBasis": "estimated",
+      "reserveTokens": 0,
+      "reserveBasis": "estimated",
+      "availableTokens": null,
+      "availableBasis": "profile-required"
+    },
+    {
+      "harness": "codex",
+      "capacityTokens": null,
+      "capacityBasis": "profile-required",
+      "startupTokens": 2498,
+      "startupBasis": "estimated",
+      "reserveTokens": 0,
+      "reserveBasis": "estimated",
+      "availableTokens": null,
+      "availableBasis": "profile-required"
+    },
+    {
+      "harness": "gemini",
+      "capacityTokens": null,
+      "capacityBasis": "profile-required",
+      "startupTokens": 2498,
+      "startupBasis": "estimated",
+      "reserveTokens": 0,
+      "reserveBasis": "estimated",
+      "availableTokens": null,
+      "availableBasis": "profile-required"
+    },
+    {
+      "harness": "opencode",
+      "capacityTokens": null,
+      "capacityBasis": "profile-required",
+      "startupTokens": 2498,
+      "startupBasis": "estimated",
+      "reserveTokens": 0,
+      "reserveBasis": "estimated",
+      "availableTokens": null,
+      "availableBasis": "profile-required"
+    },
+    {
+      "harness": "pi",
+      "capacityTokens": null,
+      "capacityBasis": "profile-required",
+      "startupTokens": 2498,
+      "startupBasis": "estimated",
+      "reserveTokens": 0,
+      "reserveBasis": "estimated",
+      "availableTokens": null,
+      "availableBasis": "profile-required"
+    },
+    {
+      "harness": "copilot",
+      "capacityTokens": null,
+      "capacityBasis": "profile-required",
+      "startupTokens": 2498,
+      "startupBasis": "estimated",
+      "reserveTokens": 0,
+      "reserveBasis": "estimated",
+      "availableTokens": null,
+      "availableBasis": "profile-required"
+    },
+    {
+      "harness": "kiro",
+      "capacityTokens": null,
+      "capacityBasis": "profile-required",
+      "startupTokens": 2498,
+      "startupBasis": "estimated",
+      "reserveTokens": 0,
+      "reserveBasis": "estimated",
+      "availableTokens": null,
+      "availableBasis": "profile-required"
+    },
+    {
+      "harness": "antigravity",
+      "capacityTokens": null,
+      "capacityBasis": "profile-required",
+      "startupTokens": 2498,
+      "startupBasis": "estimated",
+      "reserveTokens": 0,
+      "reserveBasis": "estimated",
+      "availableTokens": null,
+      "availableBasis": "profile-required"
+    }
+  ]
 }

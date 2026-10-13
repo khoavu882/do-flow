@@ -135,7 +135,8 @@ function defaultDeps() {
  * Runs the selected configurations over the selected corpora and split. Returns
  * `{exitCode, codes?, lines, report?, results?, error?}`. `deps` lets a test inject adapters.
  */
-function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = process.env, home, deps = defaultDeps(), now = new Date() }) {
+function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = process.env, home, deps: rawDeps, now = new Date() }) {
+  const deps = { ...defaultDeps(), ...(rawDeps || {}) };
   const selection = parseSelection(args);
   const { configs, corpora, split, cls } = selection;
   const verified = deps.verifySnapshot({ snapshotPath, repoRoot });
@@ -333,4 +334,4 @@ function run(ctx) {
   return { exitCode, codes, lines, ...extra };
 }
 
-module.exports = { flags, WARMUPS, RUNS, PRIMARY, parseSelection, measureLatency, componentsOf, execute, run };
+module.exports = { flags, WARMUPS, RUNS, PRIMARY, parseSelection, measureLatency, componentsOf, execute, run, defaultDeps };
