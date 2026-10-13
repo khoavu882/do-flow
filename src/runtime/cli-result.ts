@@ -11,6 +11,13 @@
  * it, and requires only the mask module.
  */
 
+const EXIT: Record<string, number> = Object.freeze({
+  OK: 0,
+  EMPTY: 1,
+  USAGE: 2,
+  OVERFLOW: 3,
+});
+
 /**
  * Sets the process exit code.
  * @param {number} code
@@ -46,10 +53,10 @@ function captureCaught(error: any, command: string, exit: number): void {
  * @returns {number} 2 (USAGE error exit code)
  */
 function usageError(verb: string, message: string, json?: boolean, error?: Error): number {
-  if (error !== undefined) captureCaught(error, verb, 2);
-  if (json) console.log(JSON.stringify({ ok: false, status: 'USAGE', exitCode: 2, error: 'usage', summary: message }, null, 2));
+  if (error !== undefined) captureCaught(error, verb, EXIT.USAGE);
+  if (json) console.log(JSON.stringify({ ok: false, status: 'USAGE', exitCode: EXIT.USAGE, error: 'usage', summary: message }, null, 2));
   else console.error(`doflow ${verb}: ${message}`);
-  return finishRuntime(2);
+  return finishRuntime(EXIT.USAGE);
 }
 
-module.exports = { finishRuntime, usageError, captureCaught };
+module.exports = { finishRuntime, usageError, captureCaught, EXIT };

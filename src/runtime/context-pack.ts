@@ -2,26 +2,52 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
-const { finishRuntime, usageError } = require('./cli-result.ts');
-const { resolveActiveFeature } = require('./feature-resolve.ts');
+const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
+const nativeConsoleLog = console.log;
+const featureResolve = require('./feature-resolve.ts');
 const { readRegister } = require('./decision-register.ts');
+const compose = require('./context/compose.ts');
+const {
+  FIELD_CLASSES,
+  buildPackItem,
+  buildObjectiveItem,
+  buildConstraintItem,
+  buildAcceptanceCriteriaItem,
+  buildVerificationRequirementItem,
+  buildScopeExcludedItem,
+  buildClaimConflictItem,
+  buildBlockingGapItem,
+  buildResearchRequestItem,
+  buildDecisionReasonItem,
+  buildDecisionLiveItem,
+  buildClaimSupportedItem,
+  buildClaimHypothesisItem,
+  buildPointerItem,
+  buildRelevantFileItem,
+  buildEvidenceSummaryItem,
+  buildStructuralContextItem,
+  computeEnvelopes,
+  linearFit,
+  groupOmissions,
+  computePackDigest,
+  formatOverflowMessage,
+  formatMarkdown,
+  formatJson,
+} = require('./context/compose.ts');
+const {
+  extractMandatory,
+  parseMandatoryFile,
+  applyMandatoryOverride,
+} = require('./context/mandatory.ts');
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
-const TASK_CLASS_BUDGETS: Record<string, any> = Object.freeze({
-  feature: 225000,
-  'dependency-change': 85000,
-  bug: 71000,
-  refactor: 71000,
-  documentation: 57000,
-  operations: 45000,
-  review: 42000,
-  research: 35302,
-  'trivial-edit': 30000,
-});
+const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds } = require('./context/budget.ts');
 
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
@@ -32,9 +58,9 @@ const TASK_CLASS_BUDGETS: Record<string, any> = Object.freeze({
  * @param {{projectRoot:string, slug?:string|null}} options
  * @returns {{available:boolean, live:Array<Object>, liveCount:number, reason?:string}}
  */
-function loadLiveDecisions({ projectRoot, slug = null }: any) {
+function loadLiveDecisions({ projectRoot, slug = null, feature: preloadedFeature = null }: any) {
   try {
-    const feature = resolveActiveFeature({ projectRoot, slug });
+    const feature = preloadedFeature || featureResolve.resolveActiveFeature({ projectRoot, slug });
     if (feature.error) return { ...NO_DECISIONS };
     let register;
     try {
@@ -69,189 +95,426 @@ class ContextPackCompiler {
       maxClaims: defaultOptions.maxClaims || 20,
       maxEvidenceItems: defaultOptions.maxEvidenceItems || 25,
       maxResearchRequests: defaultOptions.maxResearchRequests || 20,
+      maxStructuralItems: defaultOptions.maxStructuralItems || 5,
+      enableCorrective: defaultOptions.enableCorrective !== false,
+      selfRefWidth: defaultOptions.selfRefWidth ?? null,
     };
   }
 
   /**
-   * Compiles a ContextPack from task evidence and claims.
+   * Compiles a ContextPack from task evidence and claims through compose.ts.
    * @param {Object} params
-   * @param {string} params.taskId
-   * @param {string} [params.taskClass='feature']
-   * @param {string} [params.objective='']
-   * @param {Array<string>} [params.constraints=[]]
-   * @param {Array<string>} [params.acceptanceCriteria=[]]
-   * @param {Object} params.evidenceLedger
-   * @param {Object} params.claimsManager
    * @param {Object} [budgetOverrides={}]
    * @returns {Object} ContextPack
    */
   compileContextPack(params: any, budgetOverrides: any = {}) {
     const {
-      taskId,
+      taskId = 'default',
       taskClass = 'feature',
-      objective = '',
-      constraints = [],
-      acceptanceCriteria = [],
+      objective: paramObjective,
+      constraints: paramConstraints = [],
+      acceptanceCriteria: paramAc = [],
+      verificationRequirements: paramVr = [],
+      scopeExcluded: paramScope = [],
+      blockingGaps: paramGaps = [],
       evidenceLedger,
       claimsManager,
       researchRequests = [],
       decisions = NO_DECISIONS,
+      mandatory: paramMandatory,
+      budget: paramBudget,
+      maxBytes,
+      harness,
+      bare = false,
+      mode: paramMode,
+      noRecord = false,
+      reason,
+      since,
+      expand,
     } = params;
 
     const limits = { ...this.options, ...budgetOverrides };
 
-    const rawClaims = claimsManager ? claimsManager.getClaims(taskId) : [];
-    const rawEvidence = evidenceLedger ? evidenceLedger.queryEvidence({ taskId }) : [];
+    const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
+    const resolvedBudget = paramBudget || resolveBudget({ taskClass: effectiveTaskClass, maxBytes, harnessFlag: harness });
 
-    // Filter claims
-    const supportedClaims = [];
-    const activeHypotheses = [];
-    const conflictedClaims = [];
+    // Determine mandatory fields and provenance
+    const mandatoryFields = paramMandatory?.fields || {};
+    const mandatoryProv = paramMandatory?.provenance || {};
+
+    const hasParamObjective = paramObjective !== undefined && paramObjective !== null;
+    const objective = hasParamObjective
+      ? paramObjective
+      : (mandatoryFields.objective || '');
+
+    const acSource = (paramAc.length > 0 ? paramAc : (mandatoryFields.acceptanceCriteria || []));
+    const constraintsSource = (paramConstraints.length > 0 ? paramConstraints : (mandatoryFields.constraints || []));
+    const vrSource = (paramVr.length > 0 ? paramVr : (mandatoryFields.verificationRequirements || []));
+    const scopeSource = (paramScope.length > 0 ? paramScope : (mandatoryFields.scopeExcluded || []));
+    const gapsSource = (paramGaps.length > 0 ? paramGaps : (mandatoryFields.blockingGaps || []));
+
+    const mandatoryProvenance = {
+      objective: hasParamObjective
+        ? { supplied: Boolean(objective), source: 'caller', locator: null, digest: null, maturity: null, reason: objective ? null : 'caller-supplied-empty', gaps: [] }
+        : (mandatoryProv.objective || { supplied: Boolean(objective), source: objective ? 'caller' : 'none', locator: null, digest: null, maturity: null, reason: objective ? null : 'none-in-artifact', gaps: [] }),
+      acceptanceCriteria: mandatoryProv.acceptanceCriteria || { supplied: acSource.length > 0, source: acSource.length > 0 ? 'requirement' : 'none', locator: null, digest: null, maturity: null, reason: acSource.length > 0 ? null : 'artifact-absent', gaps: [] },
+      constraints: mandatoryProv.constraints || { supplied: constraintsSource.length > 0, source: constraintsSource.length > 0 ? 'requirement' : 'none', locator: null, digest: null, maturity: null, reason: constraintsSource.length > 0 ? null : 'artifact-absent', gaps: [] },
+      verificationRequirements: mandatoryProv.verificationRequirements || { supplied: vrSource.length > 0, source: vrSource.length > 0 ? 'requirement' : 'none', locator: null, digest: null, maturity: null, reason: vrSource.length > 0 ? null : 'artifact-absent', gaps: [] },
+      scopeExcluded: mandatoryProv.scopeExcluded || { supplied: scopeSource.length > 0, source: scopeSource.length > 0 ? 'requirement' : 'none', locator: null, digest: null, maturity: null, reason: scopeSource.length > 0 ? null : 'artifact-absent', gaps: [] },
+      blockingGaps: mandatoryProv.blockingGaps || { supplied: gapsSource.length > 0, source: gapsSource.length > 0 ? 'requirement' : 'none', locator: null, digest: null, maturity: null, reason: gapsSource.length > 0 ? null : 'artifact-absent', gaps: [] },
+    };
+
+    // Claims
+    let rawClaims: any[] = [];
+    if (claimsManager) {
+      rawClaims = claimsManager.getClaims(taskId);
+    } else if (params.claims) {
+      if (Array.isArray(params.claims)) {
+        rawClaims = params.claims;
+      } else {
+        const cList = (params.claims.conflicts || []).map((c: any) => ({ ...c, status: 'conflicted' }));
+        const sList = (params.claims.supported || []).map((s: any) => ({ ...s, status: s.status || 'supported' }));
+        const hList = (params.claims.hypotheses || []).map((h: any) => ({ ...h, status: h.status || 'hypothesis' }));
+        rawClaims = [...cList, ...sList, ...hList];
+      }
+    }
+    const conflictedClaims: any[] = [];
+    const supportedClaims: any[] = [];
+    const activeHypotheses: any[] = [];
 
     for (const claim of rawClaims) {
-      if (claim.status === 'supported') {
-        if (supportedClaims.length < limits.maxClaims) {
-          supportedClaims.push({
-            id: claim.id,
-            statement: claim.statement,
-            evidenceIds: claim.supportingEvidence,
-          });
-        }
+      if (claim.status === 'conflicted' || (Array.isArray(claim.contradictingEvidence) && claim.contradictingEvidence.length > 0)) {
+        conflictedClaims.push(claim);
+      } else if (claim.status === 'supported') {
+        supportedClaims.push({
+          ...claim,
+          evidenceIds: Array.isArray(claim.evidenceIds)
+            ? claim.evidenceIds
+            : (Array.isArray(claim.supportingEvidence) ? claim.supportingEvidence : []),
+        });
       } else if (claim.status === 'hypothesis') {
-        activeHypotheses.push({
-          id: claim.id,
-          statement: claim.statement,
-        });
-      } else if (claim.status === 'conflicted') {
-        conflictedClaims.push({
-          id: claim.id,
-          statement: claim.statement,
-          supportingEvidence: claim.supportingEvidence,
-          contradictingEvidence: claim.contradictingEvidence,
-        });
+        activeHypotheses.push(claim);
       }
     }
 
-    // Extract relevant files and structural context from fresh evidence
-    const relevantFileSet = new Set();
-    const structuralNodes = [];
-    const freshEvidenceItems = [];
+    // Evidence
+    const rawEvidence = evidenceLedger ? evidenceLedger.queryEvidence({ taskId }) : (params.evidence || []);
+    const relevantFileSet = new Set<string>();
+    const structuralNodes: any[] = [];
+    const freshEvidenceItems: any[] = [];
+    const nonFreshOmissions: any[] = [];
 
     for (const ev of rawEvidence) {
       if (ev.freshness?.status === 'FRESH') {
-        if (ev.locator?.file) {
-          relevantFileSet.add(ev.locator.file);
+        if (ev.locator?.file) relevantFileSet.add(ev.locator.file);
+        if (ev.kind === 'structural' && ev.content) structuralNodes.push(ev.content);
+        freshEvidenceItems.push({
+          id: ev.id,
+          kind: ev.kind,
+          locator: ev.locator,
+          summary: typeof ev.content === 'string' ? ev.content.slice(0, 120) : null,
+          freshness: 'FRESH',
+        });
+      } else {
+        const status = ev.freshness?.status === 'STALE' ? 'STALE' : 'UNKNOWN';
+        nonFreshOmissions.push({
+          id: ev.id,
+          field: 'evidenceSummary',
+          reason: 'not-fresh',
+          freshness: status,
+        });
+      }
+    }
+    const relevantFiles = params.relevantFiles
+      ? Array.from(new Set([...params.relevantFiles, ...relevantFileSet]))
+      : Array.from(relevantFileSet);
+
+    // Build items
+    const items: any[] = [];
+    if (objective) items.push(buildObjectiveItem(objective));
+
+    const blockingUnanswered = researchRequests.filter((r: any) => r.blocking && r.status !== 'ANSWERED');
+    const otherRequests = researchRequests.filter((r: any) => !(r.blocking && r.status !== 'ANSWERED'));
+
+    if (!bare) {
+      acSource.forEach((ac: any, i: number) => items.push(buildAcceptanceCriteriaItem(ac, i)));
+      constraintsSource.forEach((c: any, i: number) => items.push(buildConstraintItem(c, i)));
+      vrSource.forEach((vr: any, i: number) => items.push(buildVerificationRequirementItem(vr, i)));
+      scopeSource.forEach((se: any, i: number) => items.push(buildScopeExcludedItem(se, i)));
+      gapsSource.forEach((bg: any, i: number) => items.push(buildBlockingGapItem(bg, i)));
+      conflictedClaims.forEach((c: any) => items.push(buildClaimConflictItem(c)));
+
+      blockingUnanswered.forEach((r: any) => items.push(buildResearchRequestItem(r)));
+      if (decisions.reason) items.push(buildDecisionReasonItem(decisions.reason));
+
+      if (decisions.available && Array.isArray(decisions.live)) {
+        decisions.live.forEach((d: any) => items.push(buildDecisionLiveItem(d)));
+      }
+      supportedClaims.forEach((c: any) => items.push(buildClaimSupportedItem(c)));
+      otherRequests.forEach((r: any) => items.push(buildResearchRequestItem(r)));
+      activeHypotheses.forEach((h: any) => items.push(buildClaimHypothesisItem(h)));
+      relevantFiles.forEach((f: any) => items.push(buildRelevantFileItem(f)));
+      freshEvidenceItems.forEach((ev: any) => items.push(buildEvidenceSummaryItem(ev)));
+      structuralNodes.forEach((sn: any, i: number) => items.push(buildStructuralContextItem(sn, i)));
+    }
+
+    const hasMandatoryItems = {
+      objective: Boolean(objective),
+      acceptanceCriteria: !bare && acSource.length > 0,
+      constraints: !bare && constraintsSource.length > 0,
+      verificationRequirements: !bare && vrSource.length > 0,
+      scopeExcluded: !bare && scopeSource.length > 0,
+      blockingGaps: !bare && (gapsSource.length > 0 || blockingUnanswered.length > 0),
+      'claims.conflicts': !bare && conflictedClaims.length > 0,
+      researchRequests: !bare && blockingUnanswered.length > 0,
+    };
+
+    const empty = rawEvidence.length === 0
+      && rawClaims.length === 0
+      && researchRequests.length === 0
+      && (!decisions || decisions.liveCount === 0);
+
+    const enableCorrective = budgetOverrides.enableCorrective !== undefined
+      ? budgetOverrides.enableCorrective
+      : (this.options.enableCorrective !== false);
+    const selfRefWidth = budgetOverrides.selfRefWidth ?? this.options.selfRefWidth ?? null;
+
+    const { envelopeMd, envelopeJson } = computeEnvelopes({
+      taskId,
+      taskClass: effectiveTaskClass,
+      budget: resolvedBudget,
+      mandatory: paramMandatory,
+      empty,
+      mode: bare ? 'bare' : (paramMode || 'full'),
+      hasMandatoryItems,
+      limits,
+      selfRefWidth,
+    });
+
+    const hasMandatoryRequests = !bare && blockingUnanswered.length > 0;
+    const fit = linearFit({
+      items,
+      budget: resolvedBudget.maxBytes,
+      taskId,
+      taskClass: effectiveTaskClass,
+      envelopeMd,
+      envelopeJson,
+      initialOmissions: bare ? [] : nonFreshOmissions,
+      sectionHeadingsJson: {
+        'decisions.live': 5,
+        'claims.supported': 5,
+        'researchRequests (others)': hasMandatoryRequests ? 0 : 3,
+        'claims.hypotheses': 4,
+        pointers: 3,
+        relevantFiles: 3,
+        evidenceSummary: 3,
+        structuralContext: 3,
+      },
+      itemCapLimits: {
+        relevantFiles: limits.maxFiles ?? 15,
+        'claims.supported': limits.maxClaims ?? 20,
+        'claims.hypotheses': limits.maxClaims ?? 20,
+        evidenceSummary: limits.maxEvidenceItems ?? 25,
+        'researchRequests (others)': Math.max(0, (limits.maxResearchRequests ?? 20) - blockingUnanswered.length),
+        structuralContext: limits.maxStructuralItems ?? 5,
+      },
+    });
+
+    const assemblePack = (keptItems: any[], omissionsList: any[], isOverflow: boolean = false, overflowCause: any = null) => {
+      const keptAc = keptItems.filter((i: any) => i.field === 'acceptanceCriteria').map((i: any) => i.value);
+      const keptConstraints = keptItems.filter((i: any) => i.field === 'constraints').map((i: any) => i.value);
+      const keptVr = keptItems.filter((i: any) => i.field === 'verificationRequirements').map((i: any) => i.value);
+      const keptScope = keptItems.filter((i: any) => i.field === 'scopeExcluded').map((i: any) => i.value);
+      const keptGaps = keptItems.filter((i: any) => i.field === 'blockingGaps').map((i: any) => i.value);
+      const keptConflicts = keptItems.filter((i: any) => i.field === 'claims.conflicts').map((i: any) => i.value);
+      const keptLiveDecisions = keptItems.filter((i: any) => i.field === 'decisions.live').map((i: any) => i.value);
+      const keptSupported = keptItems.filter((i: any) => i.field === 'claims.supported').map((i: any) => i.value);
+      const keptRequests = keptItems.filter((i: any) => i.field.startsWith('researchRequests')).map((i: any) => i.value);
+      const keptHypotheses = keptItems.filter((i: any) => i.field === 'claims.hypotheses').map((i: any) => i.value);
+      const keptPointers = keptItems.filter((i: any) => i.field === 'pointers').map((i: any) => i.value);
+      const keptFiles = keptItems.filter((i: any) => i.field === 'relevantFiles').map((i: any) => i.value);
+      const keptEvidence = keptItems.filter((i: any) => i.field === 'evidenceSummary').map((i: any) => i.value);
+      const keptStructural = keptItems.filter((i: any) => i.field === 'structuralContext').map((i: any) => i.value);
+
+      const omissions = groupOmissions(omissionsList);
+      const packDigest = computePackDigest(keptItems);
+
+      const cause = overflowCause || (isOverflow ? (fit.cause || 'mandatory') : null);
+      const packTotalBytes = isOverflow ? Math.max(fit.mandatoryBytes, resolvedBudget.maxBytes) : fit.totalBytes;
+      const packMandatoryBytes = fit.mandatoryBytes;
+      const packOptionalBytes = isOverflow ? 0 : Math.max(0, fit.totalBytes - fit.mandatoryBytes);
+
+      return {
+        version: 1,
+        status: isOverflow ? 'OVERFLOW' : (empty ? 'EMPTY' : 'OK'),
+        exitCode: isOverflow ? EXIT.OVERFLOW : (empty ? EXIT.EMPTY : EXIT.OK),
+        taskId,
+        taskClass: effectiveTaskClass,
+        compiledAt: new Date().toISOString(),
+        mode: bare ? 'bare' : (paramMode || 'full'),
+        budget: resolvedBudget,
+        overflow: isOverflow ? {
+          cause,
+          mandatoryBytes: packMandatoryBytes,
+          budgetBytes: resolvedBudget.maxBytes,
+          excessBytes: Math.max(0, (cause === 'mandatory' ? packMandatoryBytes : packTotalBytes) - resolvedBudget.maxBytes),
+          action: 'split-or-new-session',
+        } : null,
+        overflowAction: isOverflow ? {
+          message: formatOverflowMessage({
+            cause,
+            mandatoryBytes: packMandatoryBytes,
+            totalBytes: packTotalBytes,
+            budgetBytes: resolvedBudget.maxBytes,
+            source: resolvedBudget.source,
+          }),
+        } : null,
+        toolLimitNotice: null,
+        objective,
+        acceptanceCriteria: keptAc,
+        constraints: keptConstraints,
+        verificationRequirements: keptVr,
+        scopeExcluded: keptScope,
+        blockingGaps: keptGaps,
+        claims: {
+          conflicts: keptConflicts,
+          supported: keptSupported,
+          hypotheses: keptHypotheses,
+        },
+        researchRequests: keptRequests,
+        mandatory: mandatoryProvenance,
+        decisions: {
+          available: Boolean(decisions && decisions.available),
+          live: keptLiveDecisions,
+          liveCount: keptLiveDecisions.length,
+          ...(decisions?.reason ? { reason: decisions.reason } : {}),
+        },
+        pointers: keptPointers,
+        relevantFiles: keptFiles,
+        evidenceCount: keptEvidence.length,
+        evidenceSummary: keptEvidence,
+        structuralContext: keptStructural,
+        budgetEnforcement: {
+          totalFiles: relevantFiles.length,
+          totalSupportedClaims: supportedClaims.length,
+          totalActiveHypotheses: activeHypotheses.length,
+          limits,
+        },
+        empty,
+        omissions: bare ? { total: 0, groups: [] } : omissions,
+        size: {
+          totalBytes: packTotalBytes,
+          mandatoryBytes: packMandatoryBytes,
+          optionalBytes: packOptionalBytes,
+          fittedOn: fit.fittedOn,
+        },
+        accounting: {
+          tokens: {
+            inlineTokensEst: Math.round(packTotalBytes / 4),
+            netTokensEst: Math.round(packTotalBytes / 4),
+            basis: 'estimated:bytes/4',
+            actual: { unmeasured: 'needs a model call (paid)' },
+          },
+        },
+        delivery: {
+          key: null,
+          packDigest,
+          recorded: false,
+          reason: null,
+          since: null,
+          deltaRefused: null,
+        },
+        delta: null,
+        packEnd: {
+          mode: bare ? 'bare' : (paramMode || 'full'),
+          objective: objective ? 1 : 0,
+          acceptanceCriteria: keptAc.length,
+          constraints: keptConstraints.length,
+          verificationRequirements: keptVr.length,
+          scopeExcluded: keptScope.length,
+          conflicts: keptConflicts.length,
+          blockingGaps: keptGaps.length,
+          omitted: bare ? 0 : omissions.total,
+          bytes: packTotalBytes,
+          digest: packDigest.slice(0, 19),
+        },
+      };
+    };
+
+    let pack: any = assemblePack(fit.kept, fit.omissions, fit.overflow, fit.cause);
+
+    if (enableCorrective && pack.status === 'OK') {
+      let currentKept = [...fit.kept];
+      let currentOmissions = [...fit.omissions];
+
+      while (pack.status === 'OK') {
+        const mdOut = formatMarkdown(pack, { throwOnOverBudget: false });
+        const jsonOut = formatJson(pack, { throwOnOverBudget: false });
+        const mdLen = Buffer.byteLength(mdOut, 'utf8');
+        const jsonLen = Buffer.byteLength(jsonOut, 'utf8');
+
+        if (mdLen <= resolvedBudget.maxBytes && jsonLen <= resolvedBudget.maxBytes) {
+          pack.size.fittedOn = jsonLen >= mdLen ? 'json' : 'markdown';
+          break;
         }
-        if (ev.kind === 'structural' && ev.content) {
-          structuralNodes.push(ev.content);
+
+        let lastOptIdx = -1;
+        for (let idx = currentKept.length - 1; idx >= 0; idx--) {
+          const it = currentKept[idx];
+          if (it.cls === 'optional' || it.class === 'optional') {
+            lastOptIdx = idx;
+            break;
+          }
         }
-        if (freshEvidenceItems.length < limits.maxEvidenceItems) {
-          freshEvidenceItems.push({
-            id: ev.id,
-            kind: ev.kind,
-            locator: ev.locator,
-            summary: typeof ev.content === 'string' ? ev.content.slice(0, 120) : null,
-          });
+
+        if (lastOptIdx === -1) {
+          const mandatoryOnlyKept = currentKept.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory');
+          const allOptOmitted = [
+            ...(bare ? [] : nonFreshOmissions),
+            ...items.filter((i: any) => i.cls === 'optional' || i.class === 'optional').map((i: any) => ({
+              id: i.id,
+              field: i.field,
+              reason: 'mandatory-overflow',
+              ...(i.freshness ? { freshness: i.freshness } : {}),
+            })),
+          ];
+          const cause = Math.max(fit.mandatoryBytes, mdLen, jsonLen) > resolvedBudget.maxBytes ? 'mandatory' : 'accounting';
+          pack = assemblePack(mandatoryOnlyKept, allOptOmitted, true, cause);
+          break;
         }
+
+        const [dropped] = currentKept.splice(lastOptIdx, 1);
+        currentOmissions.push({
+          id: dropped.id,
+          field: dropped.field,
+          reason: 'budget',
+          ...(dropped.freshness ? { freshness: dropped.freshness } : {}),
+        });
+        pack = assemblePack(currentKept, currentOmissions, false, null);
       }
     }
 
-    const relevantFiles = Array.from(relevantFileSet).slice(0, limits.maxFiles);
-
-    return {
-      version: 1,
-      taskId: taskId || 'default',
-      taskClass,
-      compiledAt: new Date().toISOString(),
-      objective,
-      constraints: [...constraints],
-      // Ported from `evidence/context_pack.py` (plan task B.3): the only field the Python pack
-      // carried that this one did not. What the task must satisfy belongs beside the evidence
-      // gathered to satisfy it, otherwise the verification engine has to re-read the requirement
-      // to find out what it is verifying against.
-      verificationRequirements: [...acceptanceCriteria],
-      claims: {
-        supported: supportedClaims,
-        hypotheses: activeHypotheses,
-        conflicts: conflictedClaims,
-      },
-      relevantFiles,
-      structuralContext: structuralNodes.slice(0, 5),
-      evidenceCount: freshEvidenceItems.length,
-      evidenceSummary: freshEvidenceItems,
-      researchRequests: [...researchRequests]
-        .sort((a, b) => Number(b.blocking && b.status !== 'ANSWERED')
-          - Number(a.blocking && a.status !== 'ANSWERED'))
-        .slice(0, limits.maxResearchRequests).map(r => ({
-          id: r.id, stageId: r.stageId, question: r.question, status: r.status,
-          blocking: r.blocking, claimId: r.claimId, evidenceIds: r.evidenceIds, gap: r.gap,
-        })),
-      decisions: {
-        available: decisions.available, live: [...decisions.live], liveCount: decisions.liveCount,
-        ...(decisions.reason ? { reason: decisions.reason } : {}),
-      },
-      budgetEnforcement: {
-        totalFiles: relevantFiles.length,
-        totalSupportedClaims: supportedClaims.length,
-        totalActiveHypotheses: activeHypotheses.length,
-        limits,
-      },
-    };
+    return pack;
   }
 
   /**
-   * Formats a ContextPack into a concise markdown context block.
+   * Formats a ContextPack into markdown per IC-005.
    * @param {Object} pack
+   * @param {Object} [options]
    * @returns {string}
    */
-  formatMarkdown(pack: any) {
-    let md = `## ContextPack: [${pack.taskClass.toUpperCase()}] ${pack.taskId}\n`;
-    if (pack.objective) {
-      md += `**Objective:** ${pack.objective}\n\n`;
-    }
+  formatMarkdown(pack: any, options: any = {}) {
+    return formatMarkdown(pack, options);
+  }
 
-    if (pack.claims.supported.length > 0) {
-      md += `### Supported Facts & Invariants\n`;
-      for (const c of pack.claims.supported) {
-        md += `- ✓ ${c.statement} *(ev: ${c.evidenceIds.join(', ')})*\n`;
-      }
-      md += '\n';
-    }
-
-    if (pack.claims.hypotheses.length > 0) {
-      md += `### Active Hypotheses (Unverified)\n`;
-      for (const h of pack.claims.hypotheses) {
-        md += `- ? ${h.statement}\n`;
-      }
-      md += '\n';
-    }
-
-    if (pack.researchRequests.length > 0) {
-      md += `### Feature Research Requests\n`;
-      for (const r of pack.researchRequests) {
-        md += `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
-        if (r.gap) md += ` — ${r.gap}`;
-        if (r.claimId) md += ` (claim: ${r.claimId})`;
-        md += '\n';
-      }
-      md += '\n';
-    }
-
-    if (pack.decisions && pack.decisions.liveCount > 0) {
-      md += `### Live decisions\n`;
-      for (const d of pack.decisions.live) md += `- ${d.id} (${d.topic}): ${d.statement}\n`;
-      md += '\n';
-    }
-
-    if (pack.relevantFiles.length > 0) {
-      md += `### Relevant File Locators\n`;
-      for (const f of pack.relevantFiles) {
-        md += `- \`${f}\`\n`;
-      }
-      md += '\n';
-    }
-
-    return md;
+  /**
+   * Formats a ContextPack into JSON per IC-004.
+   * @param {Object} pack
+   * @param {Object} [options]
+   * @returns {string}
+   */
+  formatJson(pack: any, options: any = {}) {
+    return formatJson(pack, options);
   }
 
   /**
@@ -281,9 +544,8 @@ class ContextPackCompiler {
       optional = {},
     } = options;
 
-    const budgetBytes = Number.isInteger(maxBytes) && maxBytes > 0
-      ? maxBytes
-      : (TASK_CLASS_BUDGETS[taskClass] || 225000);
+    const resolvedBudget = resolveBudget({ taskClass, maxBytes });
+    const budgetBytes = resolvedBudget.maxBytes;
 
     const acceptanceCriteria = Array.isArray(mandatory.acceptanceCriteria) ? [...mandatory.acceptanceCriteria] : [];
     const constraints = Array.isArray(mandatory.constraints) ? [...mandatory.constraints] : [];
@@ -314,17 +576,75 @@ class ContextPackCompiler {
 
     const mandatoryBytes = Buffer.byteLength(mandatoryMd, 'utf8');
 
-    // Rule 1: Mandatory content is never truncated; if mandatoryBytes > budgetBytes, returns overflow: true.
-    if (mandatoryBytes > budgetBytes) {
-      const omissions = [];
-      const narrativeList = Array.isArray(optional.narrative) ? optional.narrative : [];
-      const claimsList = Array.isArray(optional.unverifiedClaims) ? optional.unverifiedClaims : [];
-      const hypList = Array.isArray(optional.hypotheses) ? optional.hypotheses : [];
+    const hypotheses = Array.isArray(optional.hypotheses) ? [...optional.hypotheses] : [];
+    const unverifiedClaims = Array.isArray(optional.unverifiedClaims) ? [...optional.unverifiedClaims] : [];
+    const narrative = Array.isArray(optional.narrative) ? [...optional.narrative] : [];
 
-      for (let i = 0; i < narrativeList.length; i++) omissions.push({ id: `narrative-${i + 1}`, reason: 'budget-cap-exceeded' });
-      for (let i = 0; i < claimsList.length; i++) omissions.push({ id: `claim-${i + 1}`, reason: 'budget-cap-exceeded' });
-      for (let i = 0; i < hypList.length; i++) omissions.push({ id: `hypothesis-${i + 1}`, reason: 'budget-cap-exceeded' });
+    const items: any[] = [];
+    hypotheses.forEach((h: string, idx: number) => {
+      const line = `- ? ${h}\n`;
+      items.push({
+        id: `hypothesis-${idx + 1}`,
+        field: 'hypotheses',
+        value: h,
+        class: 'optional',
+        cls: 'optional',
+        priority: 1,
+        md: line,
+        mdBytes: Buffer.byteLength(line, 'utf8'),
+        jsonBytes: 0,
+      });
+    });
 
+    unverifiedClaims.forEach((c: string, idx: number) => {
+      const line = `- ? ${c}\n`;
+      items.push({
+        id: `claim-${idx + 1}`,
+        field: 'unverifiedClaims',
+        value: c,
+        class: 'optional',
+        cls: 'optional',
+        priority: 2,
+        md: line,
+        mdBytes: Buffer.byteLength(line, 'utf8'),
+        jsonBytes: 0,
+      });
+    });
+
+    narrative.forEach((n: string, idx: number) => {
+      const line = `- ${n}\n`;
+      items.push({
+        id: `narrative-${idx + 1}`,
+        field: 'narrative',
+        value: n,
+        class: 'optional',
+        cls: 'optional',
+        priority: 3,
+        md: line,
+        mdBytes: Buffer.byteLength(line, 'utf8'),
+        jsonBytes: 0,
+      });
+    });
+
+    const fit = compose.linearFit({
+      items,
+      budget: budgetBytes,
+      taskId,
+      taskClass,
+      envelopeMd: mandatoryBytes,
+      envelopeJson: mandatoryBytes,
+      includeOmissionCosts: false,
+      sectionHeadingsMd: {
+        hypotheses: Buffer.byteLength('### Active Hypotheses (Unverified)\n\n', 'utf8'),
+        unverifiedClaims: Buffer.byteLength('### Unverified Claims\n\n', 'utf8'),
+        narrative: Buffer.byteLength('### Background Narrative\n\n', 'utf8'),
+      },
+      sectionHeadingsJson: {},
+      itemCapLimits: {},
+    });
+
+    if (fit.overflow) {
+      const omissions = items.map((i: any) => ({ id: i.id, reason: 'budget-cap-exceeded' }));
       return {
         taskId,
         taskClass,
@@ -339,74 +659,30 @@ class ContextPackCompiler {
       };
     }
 
-    // Rule 2: Optional content is trimmed in reverse priority order when mandatoryBytes + optionalBytes > budgetBytes.
-    // Priority order: 1. hypotheses, 2. unverifiedClaims, 3. narrative.
-    // Trimming in reverse priority: narrative first, then claims, then hypotheses.
-    const hypotheses = Array.isArray(optional.hypotheses) ? [...optional.hypotheses] : [];
-    const unverifiedClaims = Array.isArray(optional.unverifiedClaims) ? [...optional.unverifiedClaims] : [];
-    const narrative = Array.isArray(optional.narrative) ? [...optional.narrative] : [];
+    const keptHypotheses = fit.kept.filter((i: any) => i.field === 'hypotheses').map((i: any) => i.value);
+    const keptClaims = fit.kept.filter((i: any) => i.field === 'unverifiedClaims').map((i: any) => i.value);
+    const keptNarrative = fit.kept.filter((i: any) => i.field === 'narrative').map((i: any) => i.value);
 
-    const keptHypotheses = [];
-    const keptClaims = [];
-    const keptNarrative = [];
-    const omissions = [];
-
-    const buildPayload = (hList: any, cList: any, nList: any) => {
-      let md = mandatoryMd;
-      if (hList.length > 0) {
-        md += `### Active Hypotheses (Unverified)\n`;
-        for (const h of hList) md += `- ? ${h}\n`;
-        md += '\n';
-      }
-      if (cList.length > 0) {
-        md += `### Unverified Claims\n`;
-        for (const c of cList) md += `- ? ${c}\n`;
-        md += '\n';
-      }
-      if (nList.length > 0) {
-        md += `### Background Narrative\n`;
-        for (const n of nList) md += `- ${n}\n`;
-        md += '\n';
-      }
-      return md;
-    };
-
-    // Forward trial fitting: hypotheses first
-    for (let i = 0; i < hypotheses.length; i++) {
-      const trial = [...keptHypotheses, hypotheses[i]];
-      const trialMd = buildPayload(trial, [], []);
-      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
-        keptHypotheses.push(hypotheses[i]);
-      } else {
-        omissions.push({ id: `hypothesis-${i + 1}`, reason: 'budget-cap-exceeded' });
-      }
+    let payload = mandatoryMd;
+    if (keptHypotheses.length > 0) {
+      payload += `### Active Hypotheses (Unverified)\n`;
+      for (const h of keptHypotheses) payload += `- ? ${h}\n`;
+      payload += '\n';
+    }
+    if (keptClaims.length > 0) {
+      payload += `### Unverified Claims\n`;
+      for (const c of keptClaims) payload += `- ? ${c}\n`;
+      payload += '\n';
+    }
+    if (keptNarrative.length > 0) {
+      payload += `### Background Narrative\n`;
+      for (const n of keptNarrative) payload += `- ${n}\n`;
+      payload += '\n';
     }
 
-    // unverifiedClaims next
-    for (let i = 0; i < unverifiedClaims.length; i++) {
-      const trial = [...keptClaims, unverifiedClaims[i]];
-      const trialMd = buildPayload(keptHypotheses, trial, []);
-      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
-        keptClaims.push(unverifiedClaims[i]);
-      } else {
-        omissions.push({ id: `claim-${i + 1}`, reason: 'budget-cap-exceeded' });
-      }
-    }
-
-    // narrative next
-    for (let i = 0; i < narrative.length; i++) {
-      const trial = [...keptNarrative, narrative[i]];
-      const trialMd = buildPayload(keptHypotheses, keptClaims, trial);
-      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
-        keptNarrative.push(narrative[i]);
-      } else {
-        omissions.push({ id: `narrative-${i + 1}`, reason: 'budget-cap-exceeded' });
-      }
-    }
-
-    const payload = buildPayload(keptHypotheses, keptClaims, keptNarrative);
     const totalBytes = Buffer.byteLength(payload, 'utf8');
     const optionalBytes = totalBytes - mandatoryBytes;
+    const omissions = fit.omissions.map((o: any) => ({ id: o.id, reason: 'budget-cap-exceeded' }));
 
     return {
       taskId,
@@ -446,8 +722,133 @@ class ContextPackCompiler {
  * @param {string} [options.slug] feature slug, when the task id is not the feature's own
  * @returns {number} exit code
  */
-function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot, slug }: any = {}) {
+function handleContextPackCommand({
+  taskId,
+  taskClass = 'feature',
+  objective,
+  json = false,
+  stateRoot,
+  slug,
+  mandatoryFile,
+  harness = null,
+  maxBytes,
+  bare = false,
+  noRecord = false,
+  reason = null,
+  since = null,
+  expand = null,
+}: any = {}) {
   const root = stateRoot || process.cwd();
+  const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
+
+  // IC-001 Usage errors
+  if (!taskId || typeof taskId !== 'string' || taskId.trim() === '') {
+    return usageError('context-pack', '--task-id is required', json);
+  }
+  if (bare && expand) {
+    return usageError('context-pack', '--bare cannot be combined with --expand', json);
+  }
+  if (since && !/^sha256:[0-9a-f]{64}$/.test(since)) {
+    return usageError('context-pack', "--since must be 'sha256:' followed by 64 lowercase hex", json);
+  }
+  if (expand && (!since || !reason)) {
+    return usageError('context-pack', '--expand requires both --since and --reason', json);
+  }
+  if (harness) {
+    const validIds = getRegisteredHarnessIds();
+    if (!validIds.includes(harness)) {
+      return usageError('context-pack', `Unknown harness '${harness}'. Valid harnesses: ${validIds.join(', ')}`, json);
+    }
+  }
+
+  let parsedMaxBytes: number | undefined;
+  if (maxBytes !== undefined && maxBytes !== null) {
+    const parsed = typeof maxBytes === 'number' ? maxBytes : parseInt(String(maxBytes).trim(), 10);
+    if (!Number.isInteger(parsed) || parsed <= 0 || (typeof maxBytes === 'string' && !/^[1-9]\d*$/.test(maxBytes.trim()))) {
+      return usageError('context-pack', '--max-bytes must be a positive integer', json);
+    }
+    parsedMaxBytes = parsed;
+
+    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness });
+    if (parsedMaxBytes > baseBudget.maxBytes && !reason) {
+      return usageError('context-pack', `--max-bytes (${parsedMaxBytes}) exceeds resolved budget (${baseBudget.maxBytes}) and requires --reason`, json);
+    }
+  }
+
+  const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness });
+
+  const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
+
+  let reqText: string | null = null;
+  let reqPath = 'requirement.md';
+  if (!feature.error && feature.featureDir) {
+    reqPath = feature.paths?.requirement
+      ? path.resolve(feature.repoRoot || root, feature.paths.requirement)
+      : path.join(feature.featureDir, 'intention', 'requirement.md');
+    try {
+      if (fs.existsSync(reqPath)) {
+        reqText = fs.readFileSync(reqPath, 'utf8');
+      }
+    } catch {
+      reqText = null;
+    }
+  }
+
+  let taskStories: string[] = [];
+  if (!feature.error && feature.featureDir && taskId) {
+    let planPath: string | null = null;
+    if (feature.paths?.plan) {
+      planPath = path.resolve(feature.repoRoot || root, feature.paths.plan);
+    } else {
+      const nestedPlan = path.join(feature.featureDir, 'plan', 'plan.md');
+      const flatPlan = path.join(feature.featureDir, 'plan.md');
+      if (fs.existsSync(nestedPlan)) planPath = nestedPlan;
+      else if (fs.existsSync(flatPlan)) planPath = flatPlan;
+    }
+    if (planPath && fs.existsSync(planPath)) {
+      try {
+        const planText = fs.readFileSync(planPath, 'utf8');
+        const { parsePlan } = require('./scaffold/artifacts.ts');
+        const parsedPlan = parsePlan(planText);
+        const matchedTask = (parsedPlan.tasks || []).find(
+          (t: any) => t.id === taskId || t.id.toLowerCase() === taskId.toLowerCase()
+        );
+        if (matchedTask && Array.isArray(matchedTask.stories)) {
+          taskStories = matchedTask.stories;
+        }
+      } catch {
+        taskStories = [];
+      }
+    }
+  }
+
+  let mandatory = extractMandatory({
+    text: reqText,
+    path: reqPath,
+    featureError: feature.error ? (feature.message || feature.error) : null,
+    taskStories,
+  });
+
+  if (mandatoryFile) {
+    try {
+      let fileContent: string;
+      if (mandatoryFile === '-') {
+        fileContent = fs.readFileSync(0, 'utf8');
+      } else {
+        if (!fs.existsSync(mandatoryFile)) {
+          const err: any = new Error(`--mandatory-file '${mandatoryFile}' does not exist`);
+          err.code = 'USAGE_ERROR';
+          throw err;
+        }
+        fileContent = fs.readFileSync(mandatoryFile, 'utf8');
+      }
+      const override = parseMandatoryFile(fileContent, mandatoryFile);
+      mandatory = applyMandatoryOverride(mandatory, override);
+    } catch (err: any) {
+      return usageError('context-pack', err.message, json, err);
+    }
+  }
+
   const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug });
@@ -458,30 +859,34 @@ function handleContextPackCommand({ taskId, taskClass, objective, json = false, 
   const compiler = new ContextPackCompiler();
   const pack = compiler.compileContextPack({
     taskId,
-    // The library's own default. Passed through rather than substituted here so there is one
-    // place that decides what an unstated class means for a *label* — which is all it is in a
-    // pack, unlike readiness where it selects the contract.
-    ...(taskClass ? { taskClass } : {}),
-    objective: objective || '',
+    taskClass: effectiveTaskClass,
+    objective: objective !== undefined && objective !== null ? objective : undefined,
+    mandatory,
+    budget,
+    harness,
+    maxBytes: parsedMaxBytes,
+    bare,
+    noRecord,
+    reason,
+    since,
+    expand,
     evidenceLedger: ledger,
     claimsManager: claims,
     researchRequests,
-    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null }),
+    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null, feature }),
   });
 
-  const empty = pack.evidenceCount === 0
-    && pack.claims.supported.length === 0
-    && pack.claims.hypotheses.length === 0
-    && pack.claims.conflicts.length === 0
-    && pack.researchRequests.length === 0
-    && pack.decisions.liveCount === 0;
-
-  if (json) console.log(JSON.stringify({ ...pack, empty }, null, 2));
-  else {
-    console.log(compiler.formatMarkdown(pack));
-    if (empty) console.log(`_No evidence or claims are recorded for task '${taskId}'; this pack states nothing._\n`);
+  const output = json ? compiler.formatJson(pack) : compiler.formatMarkdown(pack);
+  const emittedBytes = Buffer.byteLength(output, 'utf8');
+  if (pack.status === 'OK' && emittedBytes > budget.maxBytes) {
+    throw new Error(`Emitted ${json ? 'JSON' : 'markdown'} pack size (${emittedBytes} B) exceeds budget (${budget.maxBytes} B)`);
   }
-  return finishRuntime(empty ? 1 : 0);
+  if (console.log !== nativeConsoleLog) {
+    console.log(output);
+  } else {
+    process.stdout.write(output);
+  }
+  return finishRuntime(pack.exitCode);
 }
 
 module.exports = {
