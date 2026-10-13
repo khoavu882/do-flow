@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 1,
+  "refresh": {
+    "trigger": "A CLI command, hook policy, or runtime startup path changes, or latency budgets are re-measured",
+    "owner": "maintainer",
+    "command": "npm run bench -- perf measure --write"
+  },
+  "intentBudgetsMs": {
+    "help": 100,
+    "verb": 150,
+    "diagnostic": 500,
+    "install": 200,
+    "hook": 100,
+    "guardFile": 250,
+    "source": "agent-docs/intent/typescript-and-performance.md §2 (untracked; quoted here)"
+  },
+  "headroom": {
+    "minMs": 10,
+    "pct": 25,
+    "status": "proposed"
+  },
+  "resolutions": [
+    {
+      "id": "RES-1",
+      "conflict": "Help 100 ms intent vs 350 ms test",
+      "resolution": "The ceiling is the formula, capped at 100 (A5)",
+      "source": "agent-docs/intent/typescript-and-performance.md §2"
+    },
+    {
+      "id": "RES-2",
+      "conflict": "Verb 150 ms vs 400 ms",
+      "resolution": "As RES-1, capped at 150",
+      "source": "agent-docs/intent/typescript-and-performance.md §2"
+    },
+    {
+      "id": "RES-3",
+      "conflict": "Hook 100 ms vs 250 ms",
+      "resolution": "As RES-1, capped at 100",
+      "source": "agent-docs/intent/typescript-and-performance.md §2"
+    },
+    {
+      "id": "RES-4",
+      "conflict": "Intent §2 100 ms hook ceiling vs §3 sub-50 ms target",
+      "resolution": "100 ms ceiling; the measured p95 is the target (A5)",
+      "source": "agent-docs/intent/typescript-and-performance.md §2-§3"
+    },
+    {
+      "id": "RES-5",
+      "conflict": "Intent §3 \"sub-100ms startup for CLI verbs\" vs §2 verb budget 150 ms",
+      "resolution": "§2 is the budget; §3 is a target",
+      "source": "agent-docs/intent/typescript-and-performance.md §2-§3"
+    }
+  ],
+  "priorEvidence": [
+    {
+      "surface": "--version",
+      "medianMs": 60.2,
+      "runs": 30,
+      "source": "agent-docs/doflow/073-typescript-migration/state.md F5"
+    },
+    {
+      "surface": "--help",
+      "medianMs": 58.7,
+      "runs": 30,
+      "source": "agent-docs/doflow/073-typescript-migration/state.md F5"
+    },
+    {
+      "surface": "goal list",
+      "medianMs": 118.9,
+      "runs": 30,
+      "source": "agent-docs/doflow/073-typescript-migration/state.md F5"
+    },
+    {
+      "surface": "capabilities",
+      "medianMs": 68.8,
+      "runs": 30,
+      "source": "agent-docs/doflow/073-typescript-migration/state.md F5"
+    },
+    {
+      "surface": "paths",
+      "medianMs": 53.9,
+      "runs": 30,
+      "source": "agent-docs/doflow/073-typescript-migration/state.md F5"
+    }
+  ],
+  "machines": [],
+  "surfaces": [
+    {
+      "id": "cli.version",
+      "kind": "cli",
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "--version"
+      ],
+      "intentClass": "help",
+      "enforced": false
+    },
+    {
+      "id": "cli.help",
+      "kind": "cli",
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "--help"
+      ],
+      "intentClass": "help",
+      "enforced": true
+    },
+    {
+      "id": "verb.goal-list",
+      "kind": "cli",
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "goal",
+        "--action",
+        "list"
+      ],
+      "intentClass": "verb",
+      "enforced": true
+    },
+    {
+      "id": "verb.capabilities",
+      "kind": "cli",
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "capabilities"
+      ],
+      "intentClass": "verb",
+      "enforced": false
+    },
+    {
+      "id": "diag.doctor",
+      "kind": "cli",
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "doctor"
+      ],
+      "intentClass": "diagnostic",
+      "enforced": false
+    },
+    {
+      "id": "install.dry-run",
+      "kind": "install",
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "install",
+        "--dry-run",
+        "-g"
+      ],
+      "intentClass": "install",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/pre-bash-guard.sh"
+      ],
+      "stdinFixture": "bench/perf/fixtures/shared/pre-bash-guard.json",
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": true
+    },
+    {
+      "id": "hook.shared.user-prompt-submit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/user-prompt-submit.sh"
+      ],
+      "stdinFixture": "bench/perf/fixtures/shared/user-prompt-submit.json",
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": true
+    },
+    {
+      "id": "suite.guard-file",
+      "kind": "suite",
+      "argv": [
+        "node",
+        "--test",
+        "test/guards/context-budget.test.js"
+      ],
+      "intentClass": "guardFile",
+      "enforced": false
+    },
+    {
+      "id": "suite.guards",
+      "kind": "suite",
+      "argv": [
+        "node",
+        "--test",
+        "test/guards/"
+      ],
+      "intentClass": "none",
+      "enforced": false
+    }
+  ],
+  "rows": [],
+  "startupContext": [],
+  "contextBudgets": []
+}
