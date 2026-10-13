@@ -36,12 +36,24 @@ test('code match rule is span overlap; null lines hit only at file level', () =>
   assert.equal(m.hits('code', cand('src/a.ts', null, null, 1), q, true), true);
 });
 
-test('guidance match rule is path plus normalised heading', () => {
+test('guidance match rule is path plus normalised heading, including frontmatter title and bare heading', () => {
   const q = { id: 'q1', path: 'g.md', heading: '## Safety rules', rel: 2, startLine: 1, endLine: 2 };
+  // bare heading
   assert.equal(m.hits('guidance', { path: 'g.md', heading: '  Safety rules ' }, q), true);
-  assert.equal(m.hits('guidance', { path: 'g.md', heading: '### Other' }, q), false);
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: 'Safety rules' }, q), true);
+  // frontmatter title: Title › Heading matches by part after last ' › '
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: 'Core Guidance › Safety rules' }, q), true);
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: 'Top › Sub › Safety rules' }, q), true);
+  const qTitle = { id: 'q2', path: 'g.md', heading: 'Core Guidance', rel: 2, startLine: 1, endLine: 2 };
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: 'Core Guidance' }, qTitle), true);
+  // null heading never matches a non-empty qrel heading
   assert.equal(m.hits('guidance', { path: 'g.md', heading: null }, q), false);
-  assert.equal(m.hits('guidance', { path: 'g.md', heading: null }, q, true), true);
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: null }, q, true), true, 'file-level match allows null heading');
+  // near-miss: different heading or prefix
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: '### Other' }, q), false);
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: 'Core Guidance › Other rules' }, q), false);
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: 'Safety rule' }, q), false);
+  assert.equal(m.hits('guidance', { path: 'g.md', heading: 'Safety rules extra' }, q), false);
 });
 
 test('recall, MRR and success are computed from best ranks, each qrel credited once', () => {
