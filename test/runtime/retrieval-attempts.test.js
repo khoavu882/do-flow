@@ -170,16 +170,17 @@ test('EMPTY on an UNKNOWN index stores UNVERIFIED with index-unverifiable (IC-01
   assert.equal(attempts[0].indexState, 'UNKNOWN');
 });
 
-test('attempt 1 semble.search UNREACHED provider-unavailable is recorded with role primary (IC-013)', (t) => {
+test('attempt with the declared provider is recorded with role primary (IC-013)', (t) => {
   const root = tempDir(t, 'doflow-attempt-primary-');
   const taskId = 't-primary';
-  declareFixturePlan(root, taskId);
+  const declaredPlan = declareFixturePlan(root, taskId);
+  const declaredProvider = declaredPlan.needs[0].provider;
 
   const res = callVerb({
     taskId,
     action: 'attempt',
     need: 'locate-concept',
-    provider: 'semble.search',
+    provider: declaredProvider,
     attemptStatus: 'UNREACHED',
     reason: 'provider-unavailable',
     stateRoot: root,
@@ -193,7 +194,7 @@ test('attempt 1 semble.search UNREACHED provider-unavailable is recorded with ro
   assert.equal(need.attempts.length, 1);
   const att = need.attempts[0];
   assert.equal(att.n, 1);
-  assert.equal(att.provider, 'semble.search');
+  assert.equal(att.provider, declaredProvider);
   assert.equal(att.capability, 'code.semantic-search');
   assert.equal(att.role, 'primary', 'role must be primary when provider matches declared provider');
   assert.equal(att.status, 'UNREACHED');
@@ -208,13 +209,14 @@ test('the declared fields deep-equal their declare-time values after attempt (DE
   const taskId = 't-deep-equal';
   const declaredPlan = declareFixturePlan(root, taskId);
   const declaredNeed = declaredPlan.needs[0];
+  const fallbackProvider = declaredNeed.provider === 'native.rg' ? 'semble.search' : 'native.rg';
 
-  // Record fallback attempt with native.rg
+  // Record a provider registered under the same capability, different from the declared provider.
   const res = callVerb({
     taskId,
     action: 'attempt',
     need: 'locate-concept',
-    provider: 'native.rg',
+    provider: fallbackProvider,
     attemptStatus: 'UNREACHED',
     reason: 'provider-unavailable',
     stateRoot: root,
@@ -236,7 +238,7 @@ test('the declared fields deep-equal their declare-time values after attempt (DE
   assert.deepEqual(declaredCurrent, declaredOriginal, 'declared fields must deep-equal declare-time values');
 
   // Verify the attempt role is fallback
-  assert.equal(currentNeed.attempts[0].role, 'fallback', 'attempt with native.rg must have role fallback');
+  assert.equal(currentNeed.attempts[0].role, 'fallback', 'attempt with another provider must have role fallback');
 });
 
 test('flags reach the handler through bin/doflow.js (IC-021)', (t) => {

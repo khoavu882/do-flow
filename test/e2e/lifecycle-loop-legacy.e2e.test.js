@@ -120,7 +120,15 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
 
   /** Every leaf of `old` is present, unchanged, in `neu`; returns the paths only `neu` has. */
   function additions(old, neu, at = '$', expandNewPaths = []) {
-    if (Array.isArray(old) || old === null || typeof old !== 'object') {
+    if (Array.isArray(old)) {
+      if (Array.isArray(neu) && old.length === neu.length && old.every((item) => item && typeof item === 'object' && !Array.isArray(item))
+          && neu.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
+        return old.flatMap((item, index) => additions(item, neu[index], `${at}[]`, expandNewPaths));
+      }
+      assert.deepEqual(neu, old, `${at} changed`);
+      return [];
+    }
+    if (old === null || typeof old !== 'object') {
       assert.deepEqual(neu, old, `${at} changed`);
       return [];
     }
@@ -208,6 +216,9 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
     const recordAdditions = [
       'classify --task-class feature: $.secondOpinion', // IC-010: null when no second opinion was requested.
       'readiness --task-class feature: $.record', 'readiness --task-class feature: $.declaredScope',
+      'readiness --task-class feature: $.requirements[].reasonCode', // 076 IC-018: null when no reason code applies.
+      'readiness --task-class feature: $.staleAbsence', // 076 IC-018: query-bound absence report.
+      'evidence --task-id 045-legacy-shape: $.evidence[].freshness.isDirty', // IC-004: source version for file locators.
       'orchestrate --action handoff: $.consultations', 'orchestrate --action handoff: $.mcpWarnings',
     ];
     assert.deepEqual([...added].filter((a) => !recordAdditions.includes(a) && !contextPackAdditions.has(a)), [], 'the new runtime adds nothing to a chain verb\'s output');
