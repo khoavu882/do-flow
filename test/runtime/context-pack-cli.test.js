@@ -310,3 +310,131 @@ test('context-pack-cli: three CLI spawn points near the boundary emit valid pack
     );
   }
 });
+
+function setupGitTestProject(t, prefix, slug = 'feat-cli') {
+  const root = tempDir(t, prefix);
+  const execOpts = { cwd: root, stdio: 'ignore' };
+  spawnSync('git', ['init', '-q'], execOpts);
+  spawnSync('git', ['config', 'user.name', 'test'], execOpts);
+  spawnSync('git', ['config', 'user.email', 'test@test.com'], execOpts);
+  spawnSync('git', ['checkout', '-q', '-b', `feat/${slug}`], execOpts);
+  spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], execOpts);
+
+  const featDir = path.join(root, 'agent-docs', 'doflow', slug, 'intention');
+  fs.mkdirSync(featDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(featDir, 'requirement.md'),
+    `# Feature: ${slug}\n## 1. Summary\nCLI spawn count test.\n## 6. Acceptance Criteria\n- [ ] **Scenario: First**\n`,
+    'utf8'
+  );
+  return root;
+}
+
+function createSpawnTracerPreload(dir) {
+  const preloadFile = path.join(dir, 'spawn-tracer.js');
+  const spawnLog = path.join(dir, 'spawns.log');
+  const code = `
+const cp = require('node:child_process');
+const fs = require('node:fs');
+const logFile = process.env.DOFLOW_TEST_SPAWN_LOG;
+function logCall(cmd, args) {
+  if (logFile) {
+    fs.appendFileSync(logFile, cmd + ' ' + (args || []).join(' ') + '\\n', 'utf8');
+  }
+}
+const origSpawnSync = cp.spawnSync;
+cp.spawnSync = function(file, args, opts) {
+  logCall(file, args);
+  return origSpawnSync.apply(this, arguments);
+};
+const origExecFileSync = cp.execFileSync;
+let injected = false;
+cp.execFileSync = function(file, args, opts) {
+  logCall(file, args);
+  const result = origExecFileSync.apply(this, arguments);
+  if (process.env.DOFLOW_TEST_INJECT_EXTRA_RESOLVE === '1' && !injected && String(args).includes('do-paths.sh')) {
+    injected = true;
+    logCall(file, args);
+    origExecFileSync.apply(this, arguments);
+  }
+  return result;
+};
+`;
+  fs.writeFileSync(preloadFile, code, 'utf8');
+  return { preloadFile, spawnLog };
+}
+
+function runCliWithPreload(cwd, args, preloadFile, spawnLog, extraEnv = {}) {
+  if (fs.existsSync(spawnLog)) fs.unlinkSync(spawnLog);
+  const res = spawnSync(process.execPath, ['--require', preloadFile, CLI_PATH, ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, DOFLOW_TEST_SPAWN_LOG: spawnLog, FORCE_COLOR: '0', ...extraEnv },
+  });
+  const logContent = fs.existsSync(spawnLog) ? fs.readFileSync(spawnLog, 'utf8').trim() : '';
+  const spawns = logContent ? logContent.split('\n') : [];
+  return {
+    code: res.status,
+    stdout: res.stdout || '',
+    stderr: res.stderr || '',
+    spawns,
+  };
+}
+
+test('context-pack-cli: child-process spawns at most reached count on git repo with feature', (t) => {
+  const root = setupGitTestProject(t, 'doflow-cli-spawns-');
+  const { preloadFile, spawnLog } = createSpawnTracerPreload(root);
+
+  // Branch-coupled context-pack resolves active feature exactly once (1 spawn)
+  const res = runCliWithPreload(root, ['context-pack', '--task-id', 'task-cli', '--json'], preloadFile, spawnLog);
+  assert.ok(res.code === 0 || res.code === 1, `exit code must be 0 or 1, got ${res.code}`);
+
+  // Reached count: 1 spawn for branch-coupled (do-paths.sh feature resolution)
+  const REACHED_SPAWN_COUNT = 1;
+  assert.ok(
+    res.spawns.length <= REACHED_SPAWN_COUNT,
+    `child-process spawns (${res.spawns.length}) must be at most ${REACHED_SPAWN_COUNT}: ${res.spawns.join('; ')}`
+  );
+  assert.equal(res.spawns.length, 1, 'must have exactly 1 spawn for feature resolution');
+  assert.ok(res.spawns[0].includes('do-paths.sh'), 'the single spawn must be do-paths.sh');
+
+  // With explicit slug, validation in CLI + resolution in handler: at most 2 spawns
+  const resSlug = runCliWithPreload(root, ['context-pack', '--task-id', 'task-cli', '--slug', 'feat-cli', '--json'], preloadFile, spawnLog);
+  assert.ok(resSlug.code === 0 || resSlug.code === 1);
+  assert.ok(
+    resSlug.spawns.length <= 2,
+    `with --slug, spawns (${resSlug.spawns.length}) must be at most 2: ${resSlug.spawns.join('; ')}`
+  );
+});
+
+test('context-pack-cli: negative control — resolving feature twice makes spawn count assertion fail', (t) => {
+  const root = setupGitTestProject(t, 'doflow-cli-spawns-neg-');
+  const { preloadFile, spawnLog } = createSpawnTracerPreload(root);
+
+  const REACHED_SPAWN_COUNT = 1;
+  function assertSpawnsWithinLimit(spawns, maxAllowed) {
+    assert.ok(
+      spawns.length <= maxAllowed,
+      `child-process spawns (${spawns.length}) must be at most ${maxAllowed}`
+    );
+  }
+
+  // Normal run passes the limit
+  const normalRes = runCliWithPreload(root, ['context-pack', '--task-id', 'task-cli', '--json'], preloadFile, spawnLog);
+  assert.doesNotThrow(() => assertSpawnsWithinLimit(normalRes.spawns, REACHED_SPAWN_COUNT));
+
+  // Injected second resolution (simulating resolving feature twice) causes assertion to fail
+  const doubleRes = runCliWithPreload(
+    root,
+    ['context-pack', '--task-id', 'task-cli', '--json'],
+    preloadFile,
+    spawnLog,
+    { DOFLOW_TEST_INJECT_EXTRA_RESOLVE: '1' }
+  );
+  assert.equal(doubleRes.spawns.length, 2, 'injected double resolve must produce 2 spawns');
+  assert.throws(
+    () => assertSpawnsWithinLimit(doubleRes.spawns, REACHED_SPAWN_COUNT),
+    (err) => err.message.includes(`child-process spawns (2) must be at most ${REACHED_SPAWN_COUNT}`)
+  );
+});
+

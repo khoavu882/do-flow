@@ -11,59 +11,6 @@ const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
 const nativeConsoleLog = console.log;
 const featureResolve = require('./feature-resolve.ts');
-const origResolveActiveFeature = featureResolve.resolveActiveFeature;
-const activeFeatureCache = new Map();
-
-function fastResolveFeature({ projectRoot, slug }: any): any {
-  const root = projectRoot ? path.resolve(projectRoot) : process.cwd();
-  const slugKey = slug || '';
-  const key = `${root}\0${slugKey}`;
-  if (activeFeatureCache.has(key)) {
-    return activeFeatureCache.get(key);
-  }
-  if (slug && typeof slug === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(slug) && !slug.includes('..')) {
-    const featureRel = path.join('agent-docs', 'doflow', slug);
-    const featureDir = path.join(root, featureRel);
-    if (fs.existsSync(featureDir)) {
-      const reqStructured = path.join(featureRel, 'intention', 'requirement.md');
-      const reqFlat = path.join(featureRel, 'requirement.md');
-      const hasReqStructured = fs.existsSync(path.join(root, reqStructured));
-      const reqPath = hasReqStructured ? reqStructured : (fs.existsSync(path.join(root, reqFlat)) ? reqFlat : reqStructured);
-      const planStructured = path.join(featureRel, 'plan', 'plan.md');
-      const planFlat = path.join(featureRel, 'plan.md');
-      const planPath = fs.existsSync(path.join(root, planStructured)) ? planStructured : planFlat;
-      const decReg = path.join(featureRel, 'decisions', 'register.json');
-      const paths = {
-        repo_root: root,
-        feature_slug: slug,
-        feature_dir: featureRel,
-        requirement: reqPath,
-        plan: planPath,
-        design: path.join(featureRel, 'design', 'design.md'),
-        specs: path.join(featureRel, 'design', 'specs.md'),
-        data_model: path.join(featureRel, 'design', 'data-model.md'),
-        decisions: path.join(featureRel, 'decisions.md'),
-        decisions_register: decReg,
-        has_decisions: fs.existsSync(path.join(root, decReg)),
-        has_requirement: fs.existsSync(path.join(root, reqPath)),
-        has_plan: fs.existsSync(path.join(root, planPath)),
-        has_design: fs.existsSync(path.join(root, path.join(featureRel, 'design', 'design.md'))),
-        has_specs: fs.existsSync(path.join(root, path.join(featureRel, 'design', 'specs.md'))),
-        has_data_model: fs.existsSync(path.join(root, path.join(featureRel, 'design', 'data-model.md'))),
-      };
-      const result = { repoRoot: root, featureDir, paths };
-      activeFeatureCache.set(key, result);
-      return result;
-    }
-  }
-  const result = origResolveActiveFeature({ projectRoot: root, slug: slug || null });
-  activeFeatureCache.set(key, result);
-  return result;
-}
-
-featureResolve.resolveActiveFeature = function(opts: any): any {
-  return fastResolveFeature(opts);
-};
 const { readRegister } = require('./decision-register.ts');
 const compose = require('./context/compose.ts');
 const {
@@ -102,11 +49,11 @@ const {
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
 const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegisteredHarnesses } = require('./context/budget.ts');
-const { createDeliveryEntry, readDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
+const { createDeliveryEntry, deliveryStoreDir, readDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
 const { boundedAcquire } = require('./task-state.ts');
 const pointerTools = require('./context/pointer.ts');
 const { updateTaskState } = require('./task-state.ts');
-const { taskStoreDir } = require('./task-scope.ts');
+const { taskStoreDir, isSafeSlug } = require('./task-scope.ts');
 
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
@@ -168,8 +115,8 @@ function profileRetention(harnessId: string | null, profiles: any[] | null): any
   return harnesses.find((item: any) => item.id === harnessId)?.contextProfile?.retention || null;
 }
 
-function appendPointerExpansion({ projectRoot, taskId, slug, packDigest, expansion, fsImpl = fs }: any): void {
-  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
+function appendPointerExpansion({ projectRoot, taskId, slug, packDigest, expansion, fsImpl = fs, feature = null }: any): void {
+  const dir = deliveryStoreDir({ projectRoot, store: 'delivery', taskId, slug, feature });
   const file = path.join(dir, `${taskId}.json`);
   updateTaskState({
     fsImpl, file,
@@ -953,6 +900,8 @@ function handleContextPackCommand({
 
   const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness, profiles });
 
+  const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
+
   let sinceEntry: any = null;
   let deltaRefused: string | null = null;
   let deltaExpansions: any[] = [];
@@ -966,7 +915,7 @@ function handleContextPackCommand({
   }
   let retention = profileRetention(budget.harness?.id || null, profiles);
   if (since && !expand) {
-    sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
+    sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since, feature });
     if (!sinceEntry) deltaRefused = 'since-unknown';
     else if (sourcesChanged(root, sinceEntry.sources || {})) deltaRefused = 'sources-changed';
     else if (!budget.harness?.id) deltaRefused = 'harness-unstated';
@@ -976,10 +925,8 @@ function handleContextPackCommand({
     }
   }
 
-  const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
-
   if (expand) {
-    const prior = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
+    const prior = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since, feature });
     if (!prior) return usageError('context-pack', `Unknown digest '${since}'`, json);
     const pointer = (prior.pointers || []).find((candidate: any) => candidate.id === expand);
     if (!pointer) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
@@ -993,7 +940,7 @@ function handleContextPackCommand({
     let recordReason: string | null = noRecord ? 'no-record' : null;
     if (!noRecord) {
       try {
-        appendPointerExpansion({ projectRoot: root, taskId, slug, packDigest: since, expansion: expansionRecord });
+        appendPointerExpansion({ projectRoot: root, taskId, slug, packDigest: since, expansion: expansionRecord, feature });
         recorded = true;
       } catch (error: any) {
         if (error?.code !== 'store-locked' && error?.message !== 'store-locked') throw error;
@@ -1087,12 +1034,23 @@ function handleContextPackCommand({
     }
   }
 
-  const ledger = new EvidenceLedger({ repoRoot: root, slug });
+  const featureSlug = (!feature.error && feature.paths && isSafeSlug(feature.paths.feature_slug)) ? feature.paths.feature_slug : null;
+  const hasRegister = feature.paths?.has_decisions === true;
+  const namespace = (featureSlug && hasRegister && taskId !== featureSlug && (!feature.featureDir || fs.existsSync(feature.featureDir))) ? featureSlug : null;
+  const evidenceDir = namespace ? path.join(root, '.doflow', 'state', 'evidence', namespace) : path.join(root, '.doflow', 'state', 'evidence');
+
+  const ledger = new EvidenceLedger({ repoRoot: root, slug, stateDir: evidenceDir });
   ledger.load(taskId);
-  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug });
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug, stateDir: evidenceDir });
   claims.load(taskId);
   claims.evaluateAll();
-  const researchRequests = new ResearchRequestStore({ projectRoot: root, slug }).list(taskId);
+
+  const researchStore = new ResearchRequestStore({ projectRoot: root, slug });
+  researchStore.file = (tId: any) => {
+    const dir = namespace ? path.join(root, '.doflow', 'state', 'research', namespace) : path.join(root, '.doflow', 'state', 'research');
+    return path.join(dir, `${tId}.json`);
+  };
+  const researchRequests = researchStore.list(taskId);
 
   const compiler = new ContextPackCompiler();
   let pack = compiler.compileContextPack({
@@ -1132,7 +1090,7 @@ function handleContextPackCommand({
     const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
       sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
     try {
-      const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire });
+      const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire, feature });
       pack.delivery.key = result.key;
       pack.delivery.recorded = true;
       pack.delivery.reason = null;
@@ -1174,7 +1132,7 @@ function handleContextPackCommand({
         const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
           sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
         const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire,
-          supersedesKey: prior.delivery.key });
+          supersedesKey: prior.delivery.key, feature });
         pack.delivery.key = result.key;
         pack.accounting.tokens = entry.tokens;
       }

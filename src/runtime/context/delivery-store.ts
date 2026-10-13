@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { boundedAcquire, updateTaskState } = require('../task-state.ts');
-const { taskStoreDir } = require('../task-scope.ts');
+const { taskStoreDir, isSafeSlug } = require('../task-scope.ts');
 
 const MAX_DELIVERIES = 5;
 const ACTUAL_UNMEASURED = 'no harness reports token usage to an external CLI; profile tokenTelemetry unverified';
@@ -63,8 +63,27 @@ function createDeliveryEntry({ pack, form, harness = null, sources = {}, expansi
   return entry;
 }
 
-function readDeliveryEntry({ projectRoot, taskId, slug = null, packDigest, fsImpl = fs }: any): any | null {
-  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
+function deliveryStoreDir({ projectRoot, store = 'delivery', taskId, slug = null, feature = null }: any): string {
+  if (feature) {
+    const base = path.join(projectRoot, '.doflow', 'state', store);
+    if (feature.error || !feature.paths || !isSafeSlug(feature.paths.feature_slug)) {
+      return base;
+    }
+    const featureSlug = feature.paths.feature_slug;
+    const hasRegister = feature.paths.has_decisions === true;
+    if (!hasRegister || taskId === featureSlug) {
+      return base;
+    }
+    if (feature.featureDir && !fs.existsSync(feature.featureDir)) {
+      return base;
+    }
+    return path.join(base, featureSlug);
+  }
+  return taskStoreDir({ projectRoot, store, taskId, slug });
+}
+
+function readDeliveryEntry({ projectRoot, taskId, slug = null, packDigest, fsImpl = fs, feature = null }: any): any | null {
+  const dir = deliveryStoreDir({ projectRoot, store: 'delivery', taskId, slug, feature });
   const file = path.join(dir, `${taskId}.json`);
   try {
     const disk = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
@@ -75,12 +94,12 @@ function readDeliveryEntry({ projectRoot, taskId, slug = null, packDigest, fsImp
 }
 
 /** Persist a delivery under the same bounded lock used by task state. */
-function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, acquire = boundedAcquire, supersedesKey = null }: any): any {
+function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, acquire = boundedAcquire, supersedesKey = null, feature = null }: any): any {
   assertValidDeliveryEntry(entry);
   if (typeof taskId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId) || taskId.includes('..')) {
     throw new Error(`Invalid task id '${taskId}'`);
   }
-  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
+  const dir = deliveryStoreDir({ projectRoot, store: 'delivery', taskId, slug, feature });
   const file = path.join(dir, `${taskId}.json`);
   updateTaskState({
     fsImpl,
@@ -98,4 +117,4 @@ function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, 
   return { key: entry.key, recorded: true, reason: null };
 }
 
-module.exports = { ACTUAL_UNMEASURED, assertValidDeliveryEntry, createDeliveryEntry, makeTokenRecord, readDeliveryEntry, recordDelivery };
+module.exports = { ACTUAL_UNMEASURED, assertValidDeliveryEntry, createDeliveryEntry, deliveryStoreDir, makeTokenRecord, readDeliveryEntry, recordDelivery };
