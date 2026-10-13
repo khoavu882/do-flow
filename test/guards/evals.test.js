@@ -464,18 +464,34 @@ test('G11b: the run contract in bench/README.md still requires provenance', () =
 
 }
 
+// The structural check behind G11, as a function so the negative control below can exercise it on
+// strings: loosening the check makes the control fail rather than silently accepting anything.
+function testScriptProblems(script) {
+  const problems = [];
+  const prefix = 'node --test ';
+  if (!script.startsWith(prefix)) return [`must start with "${prefix}"`];
+  const args = script.slice(prefix.length).trim().split(/\s+/).filter(Boolean)
+    .map((arg) => arg.replace(/^(["'])(.*)\1$/, '$2'));
+  if (args.length === 0) problems.push('a bare `node --test` has no scoping argument');
+  for (const arg of args) {
+    if (!arg.startsWith('test/')) problems.push(`argument "${arg}" is not scoped to test/`);
+  }
+  if (script.includes('bench')) problems.push('must not mention bench');
+  return problems;
+}
+
 test('G11: the bench harness is not wired into the default test command', () => {
   // npm test is pure offline Node in ~14s. Pulling paid model calls into it would make the suite
   // cost money and stop being runnable in CI without credentials.
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  // Discovery is scoped by a directory argument, not a shell glob: `node --test test/` recurses
-  // exactly test/ on every platform (directory recursion has been in the runner since Node 18,
-  // and no shell expansion is involved), while a bare `node --test` walks the whole repository
-  // and would execute captured *.test.js artifacts under bench/runs/. The former wrapper
-  // (scripts/run-tests.js) that did this walk by hand was removed with the rest of scripts/.
-  assert.strictEqual(
-    pkg.scripts.test, 'node --test test/',
-    'npm test must scope discovery to test/ via the directory argument — an unscoped node --test '
+  // Discovery is a quoted glob scoped to test/ that Node itself expands. Node 22.18 and 24 do not
+  // recurse a directory argument (`node --test test/` fails there with "Cannot find module"; only
+  // newer Node accepts it), and an unquoted glob would be expanded by the shell, which differs per
+  // platform. A bare `node --test` walks the whole repository and would execute captured
+  // *.test.js artifacts under bench/runs/, so every argument must stay under test/.
+  assert.deepStrictEqual(
+    testScriptProblems(pkg.scripts.test), [],
+    'npm test must scope discovery to test/ with a quoted glob — an unscoped node --test '
     + 'also executes any *.test.js a bench case produced under bench/runs/',
   );
   assert.ok(pkg.scripts.bench, 'the bench harness needs its own npm script');
@@ -483,6 +499,13 @@ test('G11: the bench harness is not wired into the default test command', () => 
     !pkg.scripts.test.includes('bench'),
     'npm test must not invoke the bench harness — it makes paid model calls',
   );
+});
+
+test('G11: the structural check on the test script rejects an unscoped or bench-reaching command', () => {
+  assert.deepStrictEqual(testScriptProblems('node --test "test/**/*.test.js"'), []);
+  for (const bad of ['node --test', 'node --test test/ bench/', 'node --test "**/*.test.js"']) {
+    assert.notDeepStrictEqual(testScriptProblems(bad), [], `${bad} must be rejected`);
+  }
 });
 
 test('G11/034: an outputs-scoped assertion is graded from outputs/, not gated on a transcript', (t) => {

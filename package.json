@@ -29,7 +29,7 @@
     "node": "^22.18.0 || >=24.3.0"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test \"test/**/*.test.js\"",
     "typecheck": "npx -y -p typescript@5.7.2 tsc -p tsconfig.json",
     "bench": "node bench/runner.js",
     "drift": "node scripts/check-format-drift.js",
