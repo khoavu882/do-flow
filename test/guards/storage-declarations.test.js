@@ -302,6 +302,8 @@ function runScenario() {
       ['research-request', verb('research-request', '--task-id', 'g26-task', '--action', 'open', '--stage-id', 'discovery', '--question', 'a question', '--reason', 'user-request'), 0],
       ['outcome', verb('outcome', '--task-id', 'g26-task', '--action', 'record', '--state', 'BLOCKED', '--task-class', 'bug'), 0],
       ['retrieval-plan', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'declare', '--need', 'locate-concept'), 0],
+      ['retrieval-plan attempt', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'attempt', '--need', 'locate-concept', '--provider', 'semble.search', '--status', 'UNREACHED', '--reason', 'provider-unavailable'), 0],
+      ['evidence add absence', verb('evidence', '--task-id', 'g26-task', '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'native.rg', '--capability', 'code.exact-search', '--absence', '--need', 'locate-concept'), 0],
       ['task-attempt claim', verb('task-attempt', '--action', 'claim', '--slug', 'g26-task', '--task', 'A.1', '--owner', 'core-implementer', '--mode', 'manual'), 0],
       ['verify', verb('verify', '--task-id', 'g26-task', '--plan-path', 'plan.md'), 1],
       ['followup report', verb('followup', '--action', 'report', '--statement', 'a problem', '--text', 'its body'), 0],
