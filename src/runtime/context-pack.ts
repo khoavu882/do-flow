@@ -129,7 +129,8 @@ class ContextPackCompiler {
 
     const limits = { ...this.options, ...budgetOverrides };
 
-    const resolvedBudget = paramBudget || resolveBudget({ taskClass, maxBytes, harnessFlag: harness });
+    const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
+    const resolvedBudget = paramBudget || resolveBudget({ taskClass: effectiveTaskClass, maxBytes, harnessFlag: harness });
 
     // Determine mandatory fields and provenance
     const mandatoryFields = paramMandatory?.fields || {};
@@ -258,7 +259,7 @@ class ContextPackCompiler {
 
     const { envelopeMd, envelopeJson } = computeEnvelopes({
       taskId,
-      taskClass,
+      taskClass: effectiveTaskClass,
       budget: resolvedBudget,
       mandatory: paramMandatory,
       empty,
@@ -270,7 +271,7 @@ class ContextPackCompiler {
       items,
       budget: resolvedBudget.maxBytes,
       taskId,
-      taskClass,
+      taskClass: effectiveTaskClass,
       envelopeMd,
       envelopeJson,
       initialOmissions: nonFreshOmissions,
@@ -306,7 +307,7 @@ class ContextPackCompiler {
       status: fit.overflow ? 'OVERFLOW' : (empty ? 'EMPTY' : 'OK'),
       exitCode: fit.overflow ? EXIT.OVERFLOW : (empty ? EXIT.EMPTY : EXIT.OK),
       taskId,
-      taskClass,
+      taskClass: effectiveTaskClass,
       compiledAt: new Date().toISOString(),
       mode: bare ? 'bare' : (paramMode || 'full'),
       budget: resolvedBudget,
@@ -626,6 +627,7 @@ function handleContextPackCommand({
   expand = null,
 }: any = {}) {
   const root = stateRoot || process.cwd();
+  const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
 
   // IC-001 Usage errors
   if (!taskId || typeof taskId !== 'string' || taskId.trim() === '') {
@@ -655,13 +657,13 @@ function handleContextPackCommand({
     }
     parsedMaxBytes = parsed;
 
-    const baseBudget = resolveBudget({ taskClass, harnessFlag: harness });
+    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness });
     if (parsedMaxBytes > baseBudget.maxBytes && !reason) {
       return usageError('context-pack', `--max-bytes (${parsedMaxBytes}) exceeds resolved budget (${baseBudget.maxBytes}) and requires --reason`, json);
     }
   }
 
-  const budget = resolveBudget({ taskClass, maxBytes: parsedMaxBytes, harnessFlag: harness });
+  const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness });
 
   const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
 
@@ -714,7 +716,7 @@ function handleContextPackCommand({
   const compiler = new ContextPackCompiler();
   const pack = compiler.compileContextPack({
     taskId,
-    taskClass,
+    taskClass: effectiveTaskClass,
     objective: objective || mandatory.fields.objective || '',
     mandatory,
     budget,
@@ -736,7 +738,7 @@ function handleContextPackCommand({
   if (pack.status === 'OK' && emittedBytes > budget.maxBytes) {
     throw new Error(`Emitted ${json ? 'JSON' : 'markdown'} pack size (${emittedBytes} B) exceeds budget (${budget.maxBytes} B)`);
   }
-  console.log(output);
+  process.stdout.write(output);
   return finishRuntime(pack.exitCode);
 }
 
