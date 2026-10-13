@@ -4,6 +4,7 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
+const { loadRegistry } = require('../../registry/index.ts');
 
 const TASK_CLASS_BUDGETS: Record<string, number> = Object.freeze({
   feature: 225000,
@@ -17,21 +18,9 @@ const TASK_CLASS_BUDGETS: Record<string, number> = Object.freeze({
   'trivial-edit': 30000,
 });
 
-let cachedHarnesses: any = null;
-
 function getRegisteredHarnesses(): any {
-  if (cachedHarnesses) return cachedHarnesses;
-  try {
-    const harnessesPath = path.resolve(__dirname, '../../../core/registry/harnesses.json');
-    if (fs.existsSync(harnessesPath)) {
-      const data = JSON.parse(fs.readFileSync(harnessesPath, 'utf8'));
-      cachedHarnesses = data.harnesses || [];
-      return cachedHarnesses;
-    }
-  } catch {
-    // fallback if unreadable
-  }
-  return [];
+  const repoRoot = path.resolve(__dirname, '../../../');
+  return loadRegistry({ repoRoot }).harnesses;
 }
 
 function getRegisteredHarnessIds(): string[] {
@@ -115,10 +104,9 @@ function resolveBudget({
       basis: `unknown:${contextProfile.capacityTokens.unverified}`,
     };
   } else {
-    // PD-2: treat missing contextProfile as unverified
     capacity = {
       value: null,
-      basis: 'unknown:unverified',
+      basis: 'unknown:profile-value-unavailable',
     };
   }
 
