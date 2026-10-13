@@ -412,6 +412,94 @@ function validateOrchestration(value: any, location: string, errors: string[]): 
   }
 }
 
+const CONTEXT_PROFILE_FIELDS = Object.freeze([
+  'capacityTokens',
+  'reserveTokens',
+  'tokenTelemetry',
+  'toolResultLimitBytes',
+  'retention',
+]);
+
+/** Validates one harness's `contextProfile` block (075 IC-013): capacity, reserve, telemetry,
+ * toolResultLimitBytes and retention. Each is a Fact<T> with {value, source, verifiedOn} or
+ * {unverified, verifiedOn}. */
+function validateContextProfile(value: any, location: string, errors: string[]): void {
+  if (!object(value)) {
+    issue(errors, location, 'contextProfile block is required and must be an object');
+    return;
+  }
+  for (const field of CONTEXT_PROFILE_FIELDS) {
+    if (!Object.hasOwn(value, field)) {
+      issue(errors, location, `contextProfile is missing field '${field}'`);
+    }
+  }
+  for (const key of Object.keys(value)) {
+    if (!CONTEXT_PROFILE_FIELDS.includes(key)) {
+      issue(errors, location, `contextProfile has unknown key '${key}'`);
+    }
+  }
+  for (const field of CONTEXT_PROFILE_FIELDS) {
+    if (!Object.hasOwn(value, field)) continue;
+    const at = `${location} contextProfile '${field}'`;
+    const fact = value[field];
+    if (!object(fact)) {
+      issue(errors, at, 'must be a Fact object');
+      continue;
+    }
+    const hasUnverified = Object.hasOwn(fact, 'unverified');
+    const hasValue = Object.hasOwn(fact, 'value');
+
+    if (hasUnverified) {
+      if (typeof fact.unverified !== 'string' || !fact.unverified.trim()) {
+        issue(errors, at, 'unverified must be a non-empty string');
+      }
+      if (hasValue) {
+        issue(errors, at, 'cannot declare both value and unverified');
+      }
+    } else if (hasValue) {
+      if (typeof fact.source !== 'string' || !fact.source.trim()) {
+        issue(errors, at, 'a declared value requires a non-empty source');
+      }
+    } else {
+      issue(errors, at, 'requires either value with source or a non-empty unverified');
+    }
+
+    if (
+      typeof fact.verifiedOn !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(fact.verifiedOn) ||
+      Number.isNaN(Date.parse(fact.verifiedOn)) ||
+      new Date(fact.verifiedOn).toISOString().slice(0, 10) !== fact.verifiedOn
+    ) {
+      issue(errors, at, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
+    }
+
+    if (hasValue && fact.value !== undefined) {
+      const val = fact.value;
+      if (field === 'capacityTokens') {
+        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
+          issue(errors, at, 'value must be a positive integer');
+        }
+      } else if (field === 'reserveTokens') {
+        if (typeof val !== 'number' || !Number.isInteger(val) || val < 0) {
+          issue(errors, at, 'value must be a non-negative integer');
+        }
+      } else if (field === 'tokenTelemetry') {
+        if (val !== 'harness-reported' && val !== 'none') {
+          issue(errors, at, "value must be 'harness-reported' or 'none'");
+        }
+      } else if (field === 'toolResultLimitBytes') {
+        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
+          issue(errors, at, 'value must be a positive integer');
+        }
+      } else if (field === 'retention') {
+        if (val !== 'supported' && val !== 'unsupported') {
+          issue(errors, at, "value must be 'supported' or 'unsupported'");
+        }
+      }
+    }
+  }
+}
+
 function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?: string, fsImpl?: any } = {}): { ok: boolean, errors: string[] } {
   const errors: string[] = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
@@ -451,6 +539,7 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
       validateCapability(declaration, `${at} capability '${capability}'`, errors);
     }
     validateOrchestration(harness.orchestration, at, errors);
+    validateContextProfile(harness.contextProfile, at, errors);
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl }, errors);
   }
 
@@ -605,7 +694,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
+  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry,
   harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };
