@@ -15,13 +15,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, execFileSync } = require('node:child_process');
 
 const snapshotLib = require('../../bench/retrieval/lib/snapshot.js');
 const { validateTaskFile } = require('../../bench/retrieval/lib/tasks.js');
 const sealLib = require('../../bench/retrieval/lib/seal.js');
 const { sha256Hex } = sealLib;
 const { classesFor } = require('../../bench/retrieval/lib/metrics.js');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
@@ -611,5 +612,190 @@ test('G33.14 control: approved proposal missing approvedOn, missing approvedBy o
   assert.match(pGot, /S8-01\.approvedOn: required valid date when approved/);
   assert.match(pGot, /S8-01\.approvedBy: must be "user"/);
   assert.match(pGot, /S8-02\.approvedBy: must be "user"/);
+});
+
+// ---- O.2: Fifth step (G33.7, G33.8, G33.11) ----
+const FORBIDDEN_RESULT_KEYS = new Set(['perTask', 'query', 'qrels', 'tasks']);
+
+function getFirstAddCommit(repoRoot, relPath) {
+  const run = spawnSync('git', ['-C', repoRoot, 'log', '--diff-filter=A', '--format=%H', '--', relPath], {
+    encoding: 'utf8',
+  });
+  if (run.status !== 0) {
+    throw new Error(`git log failed for ${relPath}: ${run.stderr}`);
+  }
+  const lines = run.stdout.trim().split('\n').filter(Boolean);
+  if (lines.length === 0) return null;
+  return lines[lines.length - 1];
+}
+
+function isAncestor(repoRoot, ancestorCommit, descendantCommit) {
+  const run = spawnSync('git', ['-C', repoRoot, 'merge-base', '--is-ancestor', ancestorCommit, descendantCommit]);
+  return run.status === 0;
+}
+
+function o2OrderProblems({ repoRoot }) {
+  const p = [];
+  const thresholdsRel = 'bench/retrieval/thresholds.json';
+  const thresholdsCommit = getFirstAddCommit(repoRoot, thresholdsRel);
+  if (!thresholdsCommit) {
+    p.push(`${thresholdsRel}: no first-add commit found in git log`);
+    return p;
+  }
+
+  const resultsDir = path.join(repoRoot, 'bench/retrieval/results');
+  if (!fs.existsSync(resultsDir)) {
+    p.push('bench/retrieval/results: directory does not exist');
+    return p;
+  }
+  const files = fs.readdirSync(resultsDir)
+    .filter((f) => /^holdout-.*\.json$/.test(f))
+    .sort();
+  if (files.length === 0) {
+    p.push('bench/retrieval/results: no holdout-*.json files found');
+    return p;
+  }
+
+  for (const f of files) {
+    const relFile = path.join('bench/retrieval/results', f);
+    const holdoutCommit = getFirstAddCommit(repoRoot, relFile);
+    if (!holdoutCommit) {
+      p.push(`${relFile}: no first-add commit found in git log`);
+      continue;
+    }
+    if (!isAncestor(repoRoot, thresholdsCommit, holdoutCommit)) {
+      p.push(`${relFile}: first-add commit ${holdoutCommit} is not descended from thresholds.json first-add commit ${thresholdsCommit}`);
+    }
+  }
+  return p;
+}
+
+function o2ForbiddenKeysInObject(obj, prefix = '') {
+  const found = [];
+  if (!obj || typeof obj !== 'object') return found;
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      found.push(...o2ForbiddenKeysInObject(obj[i], `${prefix}[${i}]`));
+    }
+  } else {
+    for (const [key, val] of Object.entries(obj)) {
+      const loc = prefix ? `${prefix}.${key}` : key;
+      if (FORBIDDEN_RESULT_KEYS.has(key)) {
+        found.push(loc);
+      }
+      found.push(...o2ForbiddenKeysInObject(val, loc));
+    }
+  }
+  return found;
+}
+
+function o2ResultsShapeProblems({ repoRoot }) {
+  const p = [];
+  const resultsDir = path.join(repoRoot, 'bench/retrieval/results');
+  if (!fs.existsSync(resultsDir)) {
+    p.push('bench/retrieval/results: directory does not exist');
+    return p;
+  }
+  const files = fs.readdirSync(resultsDir)
+    .filter((f) => /^holdout-.*\.json$/.test(f))
+    .sort();
+  if (files.length === 0) {
+    p.push('bench/retrieval/results: no holdout-*.json files found');
+    return p;
+  }
+  for (const f of files) {
+    const relFile = path.join('bench/retrieval/results', f);
+    const fullPath = path.join(resultsDir, f);
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+    } catch (e) {
+      p.push(`${relFile}: invalid JSON: ${e.message}`);
+      continue;
+    }
+    const forbidden = o2ForbiddenKeysInObject(parsed);
+    for (const keyPath of forbidden) {
+      p.push(`${relFile}: carries forbidden key '${keyPath}'`);
+    }
+  }
+  return p;
+}
+
+function o2PerfTestProblems(content) {
+  const p = [];
+  if (!content.includes('bench/perf/budgets.json')) {
+    p.push('performance-budget.test.js: does not name bench/perf/budgets.json');
+  }
+  if (/ms\s*<=\s*\d{3}/.test(content)) {
+    p.push('performance-budget.test.js: matches forbidden literal pattern /ms\\s*<=\\s*\\d{3}/');
+  }
+  return p;
+}
+
+test('G33.7: the first-add commit of thresholds.json is an ancestor of the first-add commit of every holdout-*.json', () => {
+  assert.deepEqual(o2OrderProblems({ repoRoot: REPO }), []);
+});
+
+test('G33.7 control: non-ancestor thresholds first-add commit is reported', (t) => {
+  const dir = tempDir(t, 'doflow-g33-order-');
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+
+  // Commit 1: add holdout result first
+  const resultsDir = path.join(dir, 'bench/retrieval/results');
+  fs.mkdirSync(resultsDir, { recursive: true });
+  fs.writeFileSync(path.join(resultsDir, 'holdout-1-g1-code-A.json'), JSON.stringify({ schemaVersion: 1 }));
+  git('add', '-A');
+  git('commit', '-q', '-m', 'add holdout results');
+
+  // Commit 2: add thresholds.json after holdout results
+  const retDir = path.join(dir, 'bench/retrieval');
+  fs.mkdirSync(retDir, { recursive: true });
+  fs.writeFileSync(path.join(retDir, 'thresholds.json'), JSON.stringify({ schemaVersion: 1 }));
+  git('add', '-A');
+  git('commit', '-q', '-m', 'add thresholds');
+
+  const problems = o2OrderProblems({ repoRoot: dir });
+  assert.ok(problems.length > 0, 'must report order problem when thresholds is committed after holdout');
+  assert.match(problems.join('\n'), /thresholds\.json first-add commit/);
+});
+
+test('G33.8: no holdout results file carries perTask, query, qrels or tasks', () => {
+  assert.deepEqual(o2ResultsShapeProblems({ repoRoot: REPO }), []);
+});
+
+test('G33.8 control: holdout results file carrying forbidden keys is reported', (t) => {
+  const dir = tempDir(t, 'doflow-g33-shape-');
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+
+  const resultsDir = path.join(dir, 'bench/retrieval/results');
+  fs.mkdirSync(resultsDir, { recursive: true });
+  fs.writeFileSync(path.join(resultsDir, 'holdout-1-g1-code-A.json'), JSON.stringify({
+    schemaVersion: 1,
+    perTask: [{ id: 't1' }],
+    nested: { query: 'test', qrels: [], tasks: [] },
+  }));
+  const problems = o2ResultsShapeProblems({ repoRoot: dir });
+  const joined = problems.join('\n');
+  assert.match(joined, /forbidden key 'perTask'/);
+  assert.match(joined, /forbidden key 'nested\.query'/);
+  assert.match(joined, /forbidden key 'nested\.qrels'/);
+  assert.match(joined, /forbidden key 'nested\.tasks'/);
+});
+
+test('G33.11: performance-budget.test.js names bench/perf/budgets.json and matches no /ms\\s*<=\\s*\\d{3}/', () => {
+  const content = fs.readFileSync(path.join(REPO, 'test/runtime/performance-budget.test.js'), 'utf8');
+  assert.deepEqual(o2PerfTestProblems(content), []);
+});
+
+test('G33.11 control: missing budgets path and matching forbidden literal pattern are reported', () => {
+  const badContent1 = 'const x = 1;';
+  const p1 = o2PerfTestProblems(badContent1);
+  assert.match(p1.join('\n'), /does not name bench\/perf\/budgets\.json/);
+
+  const badContent2 = "require('bench/perf/budgets.json'); assert.ok(ms <= 100);";
+  const p2 = o2PerfTestProblems(badContent2);
+  assert.match(p2.join('\n'), /matches forbidden literal pattern/);
 });
 
