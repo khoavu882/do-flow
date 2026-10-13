@@ -8,12 +8,42 @@ const { VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger.ts
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { assertNoScoreFields } = require('./evidence-fields.ts');
 const { readPlan, resolveNeed, activeAttemptRef } = require('./retrieval-record.ts');
+const { freshnessEntry, sourceModeLookup } = require('./retrieval-plan.ts');
+const { CapabilityRouter } = require('./capability-router.ts');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
+
+let _sourceModeOf: ((providerId: string) => string | null) | null = null;
+function getSourceModeOf(): (providerId: string) => string | null {
+  if (!_sourceModeOf) {
+    try {
+      const router = new CapabilityRouter({ repoRoot: REPO_ROOT });
+      _sourceModeOf = sourceModeLookup(router.capabilities);
+    } catch {
+      _sourceModeOf = () => null;
+    }
+  }
+  return _sourceModeOf || (() => null);
+}
+
+function getProviderFreshness(provider: string, root: string, ctx?: any): any {
+  const cache = ctx?.providerFreshness;
+  if (cache && cache.has(provider)) {
+    return cache.get(provider);
+  }
+  const sourceModeOf = getSourceModeOf();
+  const entry = freshnessEntry(provider, root, sourceModeOf);
+  if (cache) {
+    cache.set(provider, entry);
+  }
+  return entry;
+}
 
 interface Candidate {
   locator?: any;
   provider?: string;
   capability?: string;
   need?: string;
+  absence?: boolean;
   sourceVersion?: {
     gitCommit?: string | null;
     fileHash?: string | null;
@@ -35,6 +65,7 @@ interface BuildContext {
   treeState?: any;
   attemptRef?: string;
   slug?: string | null;
+  providerFreshness?: Map<string, any>;
 }
 
 const CANDIDATE_FIELDS: readonly string[] = [
@@ -48,7 +79,7 @@ const CANDIDATE_FIELDS: readonly string[] = [
 ];
 
 /** Every field an evidence item may carry here. Anything else is refused, never dropped. */
-const EVIDENCE_ITEM_FIELDS = ['kind', 'provenance', 'source', 'locator', 'content', 'taskId', 'establishes', 'observation', 'need'];
+const EVIDENCE_ITEM_FIELDS = ['kind', 'provenance', 'source', 'locator', 'content', 'taskId', 'establishes', 'observation', 'need', 'absence'];
 const EVIDENCE_SOURCE_FIELDS = ['provider', 'capability'];
 const EVIDENCE_LOCATOR_FIELDS = ['file', 'line', 'symbol', 'uri'];
 const EVIDENCE_OBSERVATION_FIELDS = ['command', 'exitCode'];
@@ -160,6 +191,27 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
     throw new Error(`item names task '${raw.taskId}' but this write targets '${taskId}' — one write, one task`);
   }
 
+  const isAbsence = Boolean(raw.absence);
+  if (isAbsence) {
+    if (raw.need === undefined || raw.need === null || raw.need === '') {
+      const plan = readPlan(repoRoot || process.cwd(), taskId);
+      const declaredIntents = Array.isArray(plan?.needs)
+        ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
+        : [];
+      const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
+      throw new Error(`--absence needs --need <intent>: an empty answer means nothing without the query it answered. Declared intents for task '${taskId}': ${list}.`);
+    }
+    if (raw.locator !== undefined && raw.locator !== null) {
+      throw new Error('an absence record carries no locator: it states that the provider found nothing. Drop --locator, or record what was found as an ordinary item with --need <intent>.');
+    }
+    if (raw.provenance !== 'extracted') {
+      throw new Error("an absence record must be 'extracted': it is the provider's answer as you read it. Re-run with --provenance extracted.");
+    }
+    if (raw.observation !== undefined && raw.observation !== null) {
+      throw new Error('an absence record carries no observation: it records a lookup, not an execution. Drop the observation.');
+    }
+  }
+
   const kinds = [...VALID_EVIDENCE_KINDS].sort().join(', ');
   if (typeof raw.kind !== 'string' || raw.kind.trim() === '') throw new Error(`kind is required. Valid: ${kinds}`);
   if (!VALID_EVIDENCE_KINDS.has(raw.kind)) throw new Error(`unknown evidence kind '${raw.kind}'. Valid: ${kinds}`);
@@ -200,10 +252,10 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
     }
   }
 
-  const locator = raw.locator === undefined ? null : parseLocator(raw.locator);
+  const locator = (isAbsence || raw.locator === undefined) ? null : parseLocator(raw.locator);
   // An item carrying an observation is anchored by the command it records — that command is what
   // the next worker re-runs to check it — so the locator becomes optional there and only there.
-  if (raw.provenance === 'extracted' && !locator && raw.observation === undefined) {
+  if (!isAbsence && raw.provenance === 'extracted' && !locator && raw.observation === undefined) {
     throw new Error("provenance 'extracted' requires a locator — a fact read from the repository "
       + 'must name where it was read, or the next worker cannot check it and cannot tell when it goes stale');
   }
@@ -212,7 +264,7 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
   // item naming line 799 of a 28-line file be recorded as support and counted by the readiness
   // gate. The refusal names what the file actually offers, so the writer can correct it here rather
   // than discover it at the gate.
-  if (raw.provenance === 'extracted' && locator) {
+  if (!isAbsence && raw.provenance === 'extracted' && locator) {
     const resolution = resolveLocator({ locator, repoRoot });
     if (!resolution.resolved) {
       throw new Error(`the locator does not resolve: ${describeResolution(locator, resolution)}. `
@@ -301,11 +353,12 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
     kind: raw.kind,
     provenance: raw.provenance,
     source: { provider: raw.source.provider, capability: raw.source.capability },
-    locator: locator || {},
+    locator: isAbsence ? {} : (locator || {}),
     content,
     establishes,
     observation,
     ...(needIntent !== null ? { need: needIntent } : {}),
+    ...(isAbsence ? { absence: true, result: 'EMPTY' } : {}),
   };
 }
 
@@ -412,14 +465,45 @@ function toEvidence(
     source.attemptRef = attemptRef;
   }
 
+  let freshness: any;
+  if (validated.absence) {
+    delete validated.absence;
+    const probe = getProviderFreshness(source.provider, root, ctx);
+    let status = 'UNKNOWN';
+    if (probe && (probe.state === 'FRESH' || probe.state === 'NOT_APPLICABLE')) {
+      status = 'FRESH';
+    } else if (probe && probe.state === 'STALE') {
+      status = 'STALE';
+    } else if (probe && probe.state === 'UNKNOWN') {
+      status = 'UNKNOWN';
+    }
+
+    if (!treeState || treeState.gitCommit === null) {
+      status = 'UNKNOWN';
+    }
+
+    freshness = {
+      gitCommit: treeState ? treeState.gitCommit : null,
+      fileHash: null,
+      isDirty: null,
+      observedAt: new Date().toISOString(),
+      status,
+    };
+    if (treeState && treeState.gitCommit !== null && treeState.fingerprint) {
+      freshness.treeFingerprint = treeState.fingerprint;
+    }
+  } else {
+    freshness = {
+      ...measureFreshness(root, validated.locator, sv.gitCommit),
+      isDirty: sv.isDirty,
+    };
+  }
+
   return {
     ...validated,
     taskId,
     source,
-    freshness: {
-      ...measureFreshness(root, validated.locator, sv.gitCommit),
-      isDirty: sv.isDirty,
-    },
+    freshness,
   };
 }
 

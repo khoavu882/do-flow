@@ -113,6 +113,7 @@ function evidenceItemFromFlags(o: any): any {
   if (o.establishes !== undefined) item.establishes = o.establishes;
   if (o.need !== undefined) item.need = o.need;
   if (o.result !== undefined) item.result = o.result;
+  if (o.absence !== undefined) item.absence = o.absence;
   // Both halves of an observation travel together; a lone half must reach the write boundary as
   // the partial object it is, so the refusal names the missing field instead of dropping the pair.
   if (o.observedCommand !== undefined || o.observedExit !== undefined) {

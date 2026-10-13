@@ -264,10 +264,11 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json, slug = null 
   // The whole batch is validated before any of it is written. A half-written stage batch is worse
   // than a rejected one: the half that landed looks complete to every later reader.
   const treeState = measureTreeState(root);
+  const providerFreshness = new Map();
   const validated = [];
   for (const [index, raw] of raws.entries()) {
     try {
-      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, slug }));
+      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, slug, providerFreshness }));
     } catch (error: any) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json, error);
