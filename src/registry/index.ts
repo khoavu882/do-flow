@@ -83,6 +83,7 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs }: { repoRoot?: string, dir?:
     assets: loaded.assets.assets,
     mcp: loaded.mcp.servers,
     lifecycle: loaded.lifecycle.policies,
+    coverage: loaded.lifecycle.coverage ?? null,
     contracts: loaded.contracts.contracts,
     externalTools: loaded.externalTools.tools,
     modelProviders: loaded.models.providers,
@@ -518,7 +519,7 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
   idsUnique(mcp, 'mcp', errors); idsUnique(lifecycle, 'lifecycle', errors);
   idsUnique(externalTools, 'externalTools', errors);
 
-  const harnessIds = new Set((harnesses || []).filter(object).map((item: any) => item.id));
+  const harnessIds = new Set<string>((harnesses || []).filter(object).map((item: any) => item.id as string));
   for (const harness of harnesses || []) {
     const at = `harness '${harness?.id ?? '?'}'`;
     if (!object(harness)) { issue(errors, 'harnesses', 'entries must be objects'); continue; }
@@ -609,6 +610,8 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
       if (mapping.status === 'unavailable' && typeof mapping.fallback !== 'string') issue(errors, at, `unavailable mapping '${harnessId}' requires fallback guidance`);
     }
   }
+
+  validateCoverage(registry?.coverage, registry?.lifecycle, harnessIds, errors);
   for (const tool of externalTools || []) validateExternalTool(tool, `external tool '${tool?.id ?? '?'}'`, errors);
 
   const modelProviders = Array.isArray(registry?.modelProviders) ? registry.modelProviders : null;
@@ -632,6 +635,45 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
     for (const slot of modelSlots) validateModelSlot(slot, `model slot '${slot?.id ?? '?'}'`, errors, providerIds);
   }
   return { ok: errors.length === 0, errors };
+}
+
+const COVERAGE_CLASSES = new Set(['blocking', 'observation', 'advisory', 'unsupported', 'unknown']);
+const COVERAGE_TIMINGS = new Set(['pre-tool', 'post-tool', 'session', 'prompt', 'stop', 'compact', 'subagent']);
+const COVERAGE_PROFILES = new Set(['any', 'user-interactive', 'user-headless', 'project-interactive', 'project-headless', 'cli-extension', 'no-extensions', 'ide', 'cli-v3', 'cli-v3-agent', 'cli-2x-agent']);
+const COVERAGE_KINDS = new Set(['doc', 'types', 'fixture', 'live']);
+
+function validateCoverage(value: any, lifecycle: any[], harnessIds: Set<string>, errors: string[]): void {
+  if (value === undefined || value === null) return;
+  const at = 'lifecycle.coverage';
+  if (!object(value)) { issue(errors, at, 'must be an object'); return; }
+  if (value.schemaVersion !== 1) issue(errors, `${at}.schemaVersion`, 'must be 1');
+  if (!Number.isInteger(value.revision) || value.revision < 1) issue(errors, `${at}.revision`, 'must be a positive integer');
+  if (typeof value.rowsDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value.rowsDigest)) issue(errors, `${at}.rowsDigest`, 'must be sha256 followed by 64 lowercase hex characters');
+  if (!object(value.refresh) || typeof value.refresh.trigger !== 'string' || !value.refresh.trigger.trim() || typeof value.refresh.owner !== 'string' || !value.refresh.owner.trim()) issue(errors, `${at}.refresh`, 'requires non-empty trigger and owner');
+  if (!object(value.profiles) || [...COVERAGE_PROFILES].some((profile) => typeof value.profiles?.[profile] !== 'string' || !value.profiles[profile].trim())) issue(errors, `${at}.profiles`, 'must define every supported profile with a non-empty meaning');
+  if (!Array.isArray(value.notShipped) || value.notShipped.some((item: any) => !object(item) || typeof item.path !== 'string' || !item.path || typeof item.reason !== 'string' || !item.reason || item.decision !== 'DEC-014')) issue(errors, `${at}.notShipped`, 'must contain paths, reasons and decision DEC-014');
+  if (!Array.isArray(value.rows)) { issue(errors, `${at}.rows`, 'must be an array'); return; }
+  const keys = new Set<string>();
+  for (const [index, row] of value.rows.entries()) {
+    const rowAt = `${at}.rows[${index}]`;
+    if (!object(row)) { issue(errors, rowAt, 'must be an object'); continue; }
+    for (const field of ['policy', 'harness', 'event']) if (typeof row[field] !== 'string' || !row[field]) issue(errors, `${rowAt}.${field}`, 'must be a non-empty string');
+    if (row.policy !== '*' && !(lifecycle || []).some((policy: any) => policy.id === row.policy)) issue(errors, `${rowAt}.policy`, 'must name a lifecycle policy or *');
+    if (!harnessIds.has(row.harness)) issue(errors, `${rowAt}.harness`, 'must name a registry harness');
+    if (!COVERAGE_TIMINGS.has(row.timing)) issue(errors, `${rowAt}.timing`, 'has an invalid timing');
+    if (!COVERAGE_PROFILES.has(row.profile)) issue(errors, `${rowAt}.profile`, 'has an invalid profile');
+    if (typeof row.wired !== 'boolean') issue(errors, `${rowAt}.wired`, 'must be a boolean');
+    if (row.configSource !== null && (typeof row.configSource !== 'string' || !row.configSource)) issue(errors, `${rowAt}.configSource`, 'must be a path:line or null');
+    if (row.wired && typeof row.configSource !== 'string') issue(errors, `${rowAt}.configSource`, 'is required when wired');
+    if (!object(row.harnessVersion) || typeof row.harnessVersion.tested !== 'string' || !row.harnessVersion.tested || (row.harnessVersion.range !== undefined && typeof row.harnessVersion.range !== 'string')) issue(errors, `${rowAt}.harnessVersion`, 'requires tested and optional range strings');
+    if (!COVERAGE_CLASSES.has(row.class)) issue(errors, `${rowAt}.class`, 'has an invalid class');
+    if (!['verified', 'unverified'].includes(row.verification)) issue(errors, `${rowAt}.verification`, 'must be verified or unverified');
+    for (const field of ['prerequisites', 'covers', 'doesNotCover', 'caveats']) if (!Array.isArray(row[field]) || row[field].some((item: any) => typeof item !== 'string')) issue(errors, `${rowAt}.${field}`, 'must be an array of strings');
+    if (!Array.isArray(row.provenance) || row.provenance.some((item: any) => !object(item) || !COVERAGE_KINDS.has(item.kind) || typeof item.locator !== 'string' || !item.locator || (['doc', 'types', 'live'].includes(item.kind) && (typeof item.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(item.date))))) issue(errors, `${rowAt}.provenance`, 'contains malformed provenance');
+    const key = JSON.stringify([row.policy, row.harness, row.event, row.profile]);
+    if (keys.has(key)) issue(errors, rowAt, 'duplicates a policy/harness/event/profile tuple');
+    keys.add(key);
+  }
 }
 
 function harnessFor(registry: any, id: string): any {
@@ -694,7 +736,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
+  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry,
   harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };

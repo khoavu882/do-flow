@@ -288,6 +288,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--owner', 'owner'],                // brief-tools: the agent type the brief is for
   ['--tier', 'tier'],                  // brief-tools: the task line's tier (light | standard | frontier)
   ['--harness', 'harness'],            // brief-tools: the harness the brief is for
+  ['--policy', 'policy'],              // enforcement: lifecycle policy id
+  ['--profile', 'profile'],             // enforcement: coverage profile filter
   ['--heading-level', 'headingLevel'], // brief-tools: 2 (default) or 3
   ['--tasks', 'tasks'],               // brief-tools: comma-separated plan task ids for tier advice
   ['--plan-path', 'planPath'],         // verify: a feature plan.md whose doflow-verification
@@ -395,6 +397,7 @@ Commands:
   self-update          git pull + reinstall
   tools                Inspect or manage registered external tools
   capabilities         Show registered abstract capabilities and resolved providers
+  enforcement          Report lifecycle policy enforcement coverage (--harness, --policy)
   doctor               System health and capability smoke check diagnostics
   readiness            Evaluate task readiness contract (--task-class, --task-id, both required)
   evidence             Record a stage's evidence batch, or inspect what is recorded (--task-id)

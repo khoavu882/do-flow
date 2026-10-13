@@ -24,6 +24,8 @@ const path = require('node:path');
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
 } = require('../runtime/cli.ts');
+const { loadRegistry } = require('../registry/index.ts');
+const { enforcementFor, UnknownEnforcementTarget } = require('../lifecycle/coverage.ts');
 // `doctor` comes from the health module rather than src/runtime/cli.ts: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../runtime/health.ts');
@@ -208,6 +210,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // REPO_ROOT locates the capability registry; projectRoot is the tree whose index freshness
     // and build/test commands are being reported on, which follows the usual scope rules.
     case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
+    case 'enforcement': return handleEnforcementCommand(o);
     case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT, projectRoot: evidenceRoot(o), adapters: buildAdapterRegistry() });
     // REPO_ROOT locates the registry (templates ship with the package); stateRoot locates the
     // caller's evidence, which follows the same scope rules as every other command: -g means
@@ -287,6 +290,31 @@ async function dispatchRuntimeCommand(o: any): Promise<any> {
   const result = await dispatchRuntimeCommandInner(o, moment);
   if (o.cmd !== 'storage') upkeepAfterVerb({ projectRoot: moment.projectRoot });
   return result;
+}
+
+function handleEnforcementCommand(o: any): number {
+  const fail = (error: string, detail: string): number => {
+    if (o.json) console.log(JSON.stringify({ error, detail }));
+    else console.error(`doflow enforcement: ${detail}`);
+    process.exitCode = 2;
+    return 2;
+  };
+  if (typeof o.harness !== 'string' || !o.harness || typeof o.policy !== 'string' || !o.policy || (o.profile !== undefined && typeof o.profile !== 'string')) return fail('usage', 'requires --harness <id> --policy <id> [--profile <id>]');
+  try {
+    const registry = loadRegistry({ repoRoot: REPO_ROOT });
+    const answer = enforcementFor(registry.coverage, { harness: o.harness, policy: o.policy, ...(o.profile ? { profile: o.profile } : {}) });
+    if (o.json) console.log(JSON.stringify(answer));
+    else {
+      console.log(`${answer.harness} ${answer.policy}: ${answer.enforced ? 'enforced' : 'not enforced'} (${answer.class}, ${answer.verification})`);
+      for (const item of answer.doesNotCover) console.log(`does not cover: ${item}`);
+      for (const item of answer.prerequisites) console.log(`prerequisite: ${item}`);
+    }
+    process.exitCode = answer.enforced ? 0 : 1;
+    return process.exitCode;
+  } catch (error: any) {
+    if (error instanceof UnknownEnforcementTarget) return fail(error.code, error.message);
+    return fail('usage', error.message);
+  }
 }
 
 module.exports = { dispatchRuntimeCommand };
