@@ -54,6 +54,8 @@ const {
   sourceModeLookup,
 } = require('../../src/runtime/retrieval-plan.ts');
 const { resolveNeed, activeAttemptRef } = require('../../src/runtime/retrieval-record.ts');
+const retrievalPlan = require('../../src/runtime/retrieval-plan.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 
 /** A scratch project root. Nothing here needs git — the plan record stamps no commit. */
 function project(label) {
@@ -541,7 +543,7 @@ test('resolveNeed maps declared intents and yields IC-002 refusals (IC-020, IC-0
   assert.equal(noPlanId.refusal, undefined, 'refusal key must be dropped');
   assert.equal(
     noPlanId.message,
-    "the retrieval plan for task 'task-legacy' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-legacy --action declare --need intent-a, intent-b, then re-run.",
+    "the retrieval plan for task 'task-legacy' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-legacy --action declare --need intent-a,intent-b, then re-run.",
   );
 
   // 3. Plan with planId but undeclared intent
@@ -577,6 +579,52 @@ test('resolveNeed maps declared intents and yields IC-002 refusals (IC-020, IC-0
     corrupt.message,
     "the retrieval plan for task 'task-corrupt' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-corrupt --action declare --need intent-a, then re-run.",
   );
+});
+
+test('a multi-intent re-declare command printed by resolveNeed can be executed intact', (t) => {
+  const root = project('comma-command');
+  const old = { version: 1, taskId: 't-legacy-command', needs: [
+    { intent: 'inspect-history' }, { intent: 'locate-known-symbol' },
+  ] };
+  fs.mkdirSync(path.dirname(planPath(root, old.taskId)), { recursive: true });
+  fs.writeFileSync(planPath(root, old.taskId), JSON.stringify(old));
+  const refusal = resolveNeed(old, 'inspect-history', old.taskId).message;
+  const command = refusal.match(/(doflow retrieval-plan --task-id .*?), then re-run\./)[1];
+  const args = command.replace(/^doflow /, '').split(' ');
+  const result = spawnSync(process.execPath, [DOFLOW, ...args], { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const declared = readRecord(root, old.taskId);
+  assert.deepEqual(declared.needs.map((need) => need.intent).sort(), ['inspect-history', 'locate-known-symbol']);
+});
+
+test('report probes missing positive-item providers before acquiring the plan lock', (t) => {
+  const root = project('probe-outside-lock');
+  const plan = callVerb({ taskId: 't-probe-lock', action: 'declare', need: 'inspect-history', stateRoot: root, json: true });
+  assert.equal(plan.code, 0, plan.out);
+  const record = readRecord(root, 't-probe-lock');
+  const need = record.needs[0];
+  record.providers = {};
+  fs.writeFileSync(planPath(root, 't-probe-lock'), JSON.stringify(record));
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load('t-probe-lock');
+  ledger.addEvidence({ taskId: 't-probe-lock', kind: 'structural', provenance: 'extracted', locator: { file: 'a.js', line: 1 },
+    content: 'found', source: { provider: need.provider, capability: need.capability, queryRef: need.queryRef, attemptRef: null } });
+  ledger.save('t-probe-lock');
+  const planFile = planPath(root, 't-probe-lock');
+  const originalProbe = retrievalPlan._probe;
+  let called = false;
+  retrievalPlan._probe = () => {
+    called = true;
+    assert.equal(fs.existsSync(`${planFile}.lock`), false, 'provider probe ran while plan lock was held');
+    return { state: 'FRESH', artifact: null, refresh: null, label: null, reason: null };
+  };
+  try {
+    const report = callVerb({ taskId: 't-probe-lock', action: 'report', stateRoot: root, json: true });
+    assert.equal(report.code, 0, report.out);
+    assert.equal(called, true);
+  } finally {
+    retrievalPlan._probe = originalProbe;
+  }
 });
 
 test('activeAttemptRef reads attempt from task-attempts store and returns null on failure (IC-005)', (t) => {

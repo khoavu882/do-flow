@@ -689,7 +689,7 @@ test('076 C.2: IC-002 refusals exit 2 with exact messages and refused batch writ
   assert.equal(resLegacy.status, 2);
   assert.equal(
     resLegacy.stderr.trim(),
-    "doflow evidence: the retrieval plan for task 'task-legacy' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-legacy --action declare --need inspect-history, locate-known-symbol, then re-run."
+    "doflow evidence: the retrieval plan for task 'task-legacy' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-legacy --action declare --need inspect-history,locate-known-symbol, then re-run."
   );
 
   // 10. --need with more than one intent

@@ -9,6 +9,8 @@ const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { handleRetrievalPlanCommand } = require('../../src/runtime/retrieval-plan.ts');
 const { readPlan, planPath } = require('../../src/runtime/retrieval-record.ts');
 const { bindEvidence } = require('../../src/runtime/retrieval-record.ts');
+const { deriveOutcome } = require('../../src/runtime/retrieval-record.ts');
+const retrievalPlan = require('../../src/runtime/retrieval-plan.ts');
 
 function call(options) {
   const lines = [];
@@ -197,6 +199,65 @@ test('superseded evidence refreshes derived links and no longer supports the nee
   assert.equal(output.result, 'UNREACHED');
   assert.deepEqual(output.evidenceIds, []);
   assert.deepEqual(output.attempts.find((attempt) => attempt.recordedBy === 'derived').evidenceIds, []);
+});
+
+test('superseded absence evidence no longer counts as a derived EMPTY attempt (DEC-024)', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-superseded-absence-');
+  const plan = declare(root, 't-superseded-absence', ['inspect-history']);
+  const need = plan.needs[0];
+  const first = add(root, 't-superseded-absence', { result: 'EMPTY', freshness: { status: 'FRESH' }, source: {
+    provider: need.provider, capability: need.capability, queryRef: need.queryRef, attemptRef: null,
+  } });
+  assert.equal(call({ taskId: 't-superseded-absence', action: 'report', stateRoot: root, json: true }).code, 0);
+  const replacement = add(root, 't-superseded-absence', { content: 'replacement', source: {
+    provider: need.provider, capability: need.capability, attemptRef: null,
+  } });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load('t-superseded-absence');
+  ledger.supersedeEvidence(first, replacement);
+  ledger.save('t-superseded-absence');
+  const result = call({ taskId: 't-superseded-absence', action: 'report', stateRoot: root, json: true });
+  assert.equal(result.code, 1, result.out);
+  const reported = JSON.parse(result.out).needs[0];
+  assert.equal(reported.result, 'UNREACHED');
+  assert.equal(deriveOutcome(reported).result, 'UNREACHED');
+});
+
+test('an absent plan during report or attempt update is refused', () => {
+  for (const apply of [retrievalPlan.applyReport, retrievalPlan.applyAttempt]) {
+    assert.throws(() => apply(null, 't-removed'), /retrieval plan for task t-removed was removed during the update; re-declare it/);
+  }
+});
+
+test('a null-provider report attempt is primary and never a fallback (IC-013)', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-null-provider-');
+  const plan = declare(root, 't-null-provider', ['locate-known-symbol']);
+  const file = planPath(root, 't-null-provider');
+  const changed = readPlan(root, 't-null-provider');
+  changed.needs[0].provider = null;
+  fs.writeFileSync(file, JSON.stringify(changed));
+  const result = call({ taskId: 't-null-provider', action: 'report', need: 'locate-known-symbol', stateRoot: root, json: true });
+  assert.equal(result.code, 0, result.out);
+  const reported = JSON.parse(result.out).needs[0];
+  const attempt = reported.attempts[0];
+  assert.equal(attempt.provider, null);
+  assert.equal(attempt.role, 'primary');
+  assert.equal(reported.viaFallback, false);
+});
+
+test('declare moves a torn plan aside but refuses a valid future version', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-declare-corrupt-');
+  const taskId = 't-corrupt-plan';
+  const file = planPath(root, taskId);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{bad');
+  const recovered = call({ taskId, action: 'declare', need: 'locate-known-symbol', stateRoot: root, json: true });
+  assert.equal(recovered.code, 0, recovered.out);
+  assert.ok(fs.readdirSync(path.dirname(file)).some((name) => name.startsWith(`${taskId}.json.corrupt-`)));
+  fs.writeFileSync(file, JSON.stringify({ version: 2 }));
+  const future = call({ taskId, action: 'declare', need: 'locate-known-symbol', stateRoot: root, json: true });
+  assert.equal(future.code, 2, future.out);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).version, 2);
 });
 
 test('query refs from undeclared needs in the active plan are replaced-plan unbound evidence', (t) => {
