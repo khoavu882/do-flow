@@ -51,6 +51,30 @@ const TARGET_PATTERN_TOKEN = '{pattern}';
 /** A `package.json` test script that is `node --test` over files or directories, and nothing else:
  * the one npm shape whose runner is known to take file arguments (feature 071, FR-002). */
 const NODE_TEST_SCRIPT = /^node --test( \S+)+$/;
+/** A character that makes a script argument a glob pattern rather than a literal path. */
+const GLOB_CHARS = /[*?[{]/;
+
+/**
+ * The directory roots a `node --test` script's arguments name. One pair of surrounding quotes is
+ * stripped; an argument holding a glob character reduces to the path segments before the first
+ * segment that has one (`test/**\/*.test.js` -> `test`, `**\/*.test.js` -> `.`); a plain file or
+ * directory is kept as written. Duplicates are dropped.
+ */
+function testRootsFromArgs(args: Array<string>): Array<string> {
+  const roots: Array<string> = [];
+  for (const arg of args) {
+    const bare = arg.replace(/^(["'])(.*)\1$/, '$2');
+    let root = bare;
+    if (GLOB_CHARS.test(bare)) {
+      const segments = bare.split('/');
+      const firstGlob = segments.findIndex((segment: string) => GLOB_CHARS.test(segment));
+      root = segments.slice(0, firstGlob).join('/') || (bare.startsWith('/') ? '/' : '.');
+    }
+    if (!roots.includes(root)) roots.push(root);
+  }
+  return roots;
+}
+
 /** A script chaining other commands is not only `node --test`: a targeted form would drop the rest. */
 const SHELL_SYNTAX = /[&|;<>$`()\\]/;
 
@@ -158,8 +182,9 @@ function detectNode(root: string, fsImpl: any): any {
     // A flag (`--require ./setup.js`) would be dropped by the targeted form, so it is not declared.
     if (NODE_TEST_SCRIPT.test(testText) && !SHELL_SYNTAX.test(testText) && !scriptArgs.some((arg: string) => arg.startsWith('-'))) {
       // The runner is named by the script itself, so the targeted form is declared, not guessed.
-      // `testDirs` are the arguments the script already passes: where its test files live.
-      const testDirs = scriptArgs;
+      // `testDirs` are the roots the script's arguments name: where its test files live. A quoted
+      // argument loses its quotes and a glob keeps only the path before its first glob segment.
+      const testDirs = testRootsFromArgs(scriptArgs);
       roles.testTargeted = { command: `node --test ${TARGET_PATTERN_TOKEN}`, derivation: 'declared', testDirs };
     } else {
       // Whether the underlying runner accepts a trailing path or pattern depends on the runner, not
