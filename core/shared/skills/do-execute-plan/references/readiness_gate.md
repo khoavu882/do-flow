@@ -153,3 +153,5 @@ checklist it is. Do not halt indefinitely on a persistent `NEEDS_EVIDENCE` — r
 actually established, state which requirements it covers, and say what remains. And do not write
 `READY` yourself. The gate did not say it, and saying it on the gate's behalf is precisely the
 failure this page exists to prevent.
+
+Record an absence with `--absence --need <intent>`; a positive item never states `--absence`.
