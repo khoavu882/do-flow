@@ -411,5 +411,5 @@ function handleTaskAttemptCommand({
 
 module.exports = {
   handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, loadPlan, taskLineHash,
-  storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS,
+  storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS, activeAttempt,
 };
