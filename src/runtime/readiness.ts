@@ -213,7 +213,14 @@ class ReadinessEngine {
     }
 
     const allTaskEvidence = evidenceLedger ? evidenceLedger.queryEvidence({ taskId }) : [];
-    const plan = readPlan(this.projectRoot, taskId);
+    let plan = null;
+    let unreadablePlan = null;
+    try {
+      plan = readPlan(this.projectRoot, taskId);
+    } catch (error: any) {
+      if (error.code !== 'store-unreadable') throw error;
+      unreadablePlan = { unreadable: true, reason: error.message };
+    }
     const queryBound = Boolean(plan?.planId);
     const binding = queryBound ? bindEvidence(plan, allTaskEvidence) : null;
     const unboundIds = new Set(binding ? binding.unbound.map((item: any) => item.id) : []);
@@ -254,7 +261,8 @@ class ReadinessEngine {
     const staleAbsenceByRequirement = new Map<string, any[]>();
     for (const item of allTaskEvidence) {
       if (item.result !== 'EMPTY' || item.status !== 'active'
-          || !['STALE', 'UNKNOWN'].includes(item.freshness?.status)) continue;
+          || !['STALE', 'UNKNOWN'].includes(item.freshness?.status)
+          || (queryBound && unboundIds.has(item.id))) continue;
       for (const requirement of Array.isArray(item.establishes) ? item.establishes : []) {
         const entry = { evidenceId: item.id, requirement, provider: item.source?.provider || null,
           freshness: item.freshness.status, refresh: plan?.providers?.[item.source?.provider]?.refresh || null };
@@ -353,15 +361,23 @@ class ReadinessEngine {
             const { item, entry } = staleAbsences[0];
             const refresh = entry.refresh || 'none declared';
             reasonCode = 'stale-absence-unverified';
-            reason = `'${reqId}' rests only on an empty answer from ${entry.provider || 'unknown provider'}, whose index was ${entry.freshness} when it was recorded (${item.id}). An empty answer from that index cannot establish absence. Run the declared refresh command (${refresh}) and record the absence again, or re-run the lookup with a live provider such as native.rg: doflow evidence --task-id ${taskId} --action add --absence --need <intent> --provider native.rg ...`;
+            const prefix = `'${reqId}' rests only on an empty answer from ${entry.provider || 'unknown provider'}, whose index was ${entry.freshness} when it was recorded (${item.id}). An empty answer from that index cannot establish absence. `;
+            if (item.freshness?.staleReason === 'tree-changed-since-recorded'
+                || item.freshness?.staleReason === 'tree-unverifiable') {
+              reason = `${prefix}the working tree changed since it was recorded; re-run the lookup and record the absence again.`;
+            } else if (item.freshness?.gitCommit === null) {
+              reason = `${prefix}absence cannot be established outside a git work tree; record a positive item.`;
+            } else {
+              reason = `${prefix}Run the declared refresh command (${refresh}) and record the absence again, or re-run the lookup with a live provider such as native.rg: doflow evidence --task-id ${taskId} --action add --absence --need <intent> --provider native.rg ...`;
+            }
           } else if (queryBound) {
             const unboundKind = rawKindMatched.filter((ev: any) => unboundIds.has(ev.id));
             const unboundQualifying = unboundKind.filter((ev: any) =>
               ev.freshness?.status === 'FRESH' && qualifies(ev));
             if (unboundQualifying.length > 0) {
-              const ids = binding.unbound.slice(0, 5).map((item: any) => item.id).join(', ');
+              const ids = unboundQualifying.slice(0, 5).map((item: any) => item.id).join(', ');
               reasonCode = 'unbound-retrieval-evidence';
-              reason = `${binding.unbound.length} item(s) of the right kind are not bound to a declared need of plan ${plan.planId} (${ids}), so they do not count. Re-record them with --need <intent>; declared: ${declaredIntentList(plan)}.`;
+              reason = `${unboundQualifying.length} item(s) of the right kind are not bound to a declared need of plan ${plan.planId} (${ids}), so they do not count. Re-record them with --need <intent>; declared: ${declaredIntentList(plan)}.`;
             }
           }
         }
@@ -430,6 +446,10 @@ class ReadinessEngine {
         + 'Re-record them against the tree as it stands.';
     }
 
+    if (unreadablePlan) {
+      summary += ` Warning: retrieval plan is unreadable and was treated as absent: ${unreadablePlan.reason}`;
+    }
+
     return {
       taskId,
       taskClass,
@@ -447,6 +467,7 @@ class ReadinessEngine {
       unresolvableEvidence,
       staleEvidence,
       staleAbsence,
+      ...(unreadablePlan ? { retrievalPlan: unreadablePlan } : {}),
       ...(unboundEvidence ? { unboundEvidence } : {}),
     };
   }
