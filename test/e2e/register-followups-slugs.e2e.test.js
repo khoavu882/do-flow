@@ -6,8 +6,9 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const {
-  REPO, SCRATCH, SKIP, git, makeRepo, run, decision, initRegister,
+  REPO, SCRATCH, SKIP, git, makeRepo, run, decision, initRegister, baseEnv,
 } = require('./register-followups.shared');
 
 // ── US6: slug safety ────────────────────────────────────────────────────────────────────────────────
@@ -87,18 +88,39 @@ describe('RK5: slugs that work today are still accepted', { skip: SKIP }, () => 
     }
   });
 
-  test('every feature folder under agent-docs/doflow/ of this checkout passes `paths --slug` (skipped when absent: gitignored)', (t) => {
-    const root = path.join(REPO, 'agent-docs', 'doflow');
-    // agent-docs/ is gitignored, so a clean CI checkout never has it: skipped with the reason rather
-    // than passing silently, and not a CI failure (the hardcoded shapes above cover the same rule).
-    if (!fs.existsSync(root)) { t.skip('agent-docs/doflow is absent (gitignored); the hardcoded shapes cover this'); return; }
-    const names = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  test('committed feature layout fixtures resolve and unnumbered folders are excluded from candidates', () => {
     const repo = makeRepo({ branch: 'feat/046-shapes' });
-    for (const slug of names) {
+    const fixtureRoot = path.join(__dirname, '..', 'fixtures', 'feature-layouts');
+    const shapes = [
+      ['041-structured', 'structured', false],
+      ['042-structured-register', 'structured', true],
+      ['043-legacy', 'legacy', false],
+      ['044-legacy-register', 'legacy', true],
+    ];
+    for (const [slug, layout, hasDecisions] of shapes) {
+      fs.cpSync(path.join(fixtureRoot, slug), path.join(repo, 'agent-docs', 'doflow', slug), { recursive: true });
       const res = run(repo, ['paths', `--slug=${slug}`, '--json']);
-      assert.strictEqual(res.status, 0, `existing feature folder "${slug}" refused: ${res.stdout}${res.stderr}`);
+      assert.strictEqual(res.status, 0, `${slug}: ${res.stdout}${res.stderr}`);
       assert.strictEqual(res.json.feature_slug, slug);
+      assert.strictEqual(res.json.layout, layout, slug);
+      assert.strictEqual(res.json.has_requirement, true, slug);
+      assert.strictEqual(res.json.has_decisions, hasDecisions, slug);
     }
+
+    // Exercise the directory-scan filter: only numeric-prefixed feature names become candidates.
+    const scanRoot = path.join(SCRATCH, 'feature-layout-scan');
+    const scanFeatures = path.join(scanRoot, 'agent-docs', 'doflow');
+    fs.cpSync(fixtureRoot, scanFeatures, { recursive: true });
+    const helper = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
+    const scanned = spawnSync('bash', [helper, '--json'], {
+      cwd: scanRoot,
+      env: { ...baseEnv(), DOFLOW_CONFIG_DIR: path.join(scanRoot, '.doflow') },
+      encoding: 'utf8',
+    });
+    assert.strictEqual(scanned.status, 0, scanned.stdout + scanned.stderr);
+    const scanJson = JSON.parse(scanned.stdout);
+    assert.deepStrictEqual(scanJson.candidate_slugs, shapes.map(([slug]) => slug));
+    assert.ok(!scanJson.candidate_slugs.includes('not-numbered'), 'unnumbered negative control is excluded');
   });
 
   test('branch shapes feat/045-x, feat/ABC-123-x and fix/x resolve to their slug', () => {
