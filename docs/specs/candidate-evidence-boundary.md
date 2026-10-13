@@ -43,11 +43,12 @@ Evidence is a recorded fact with a locator and content. It carries no field name
 `certainty`, `probability`, `rank`, `distance` and `weight`. The ledger refuses these names at three
 input surfaces: argv, a batch file and a verb's option object.
 
-Evidence is bound to the query or attempt that produced it. Binding by provider alone is not enough,
-because two queries to one provider yield different evidence and a provider name cannot tell a reader
-which query an item answers. Today `evidenceIdsFor` links an item to a need by `source.provider` or
-`source.capability` only (`src/runtime/retrieval-plan.ts:251-259`), which is the partial state the
-capability inventory records. The `queryRef` in the examples below is the target field.
+Evidence binding is implemented. Passing `--need <intent>` resolves the task's current plan and
+stamps `source.queryRef`; when a task attempt is active, the writer also stamps
+`source.attemptRef`. Binding by provider alone is not enough, because two queries to one provider
+yield different evidence and a provider name cannot tell a reader which query an item answers.
+Query-bound plans link evidence by `source.queryRef` and compatible attempt reference. Legacy plans
+without a `planId` keep provider matching for compatibility.
 
 ## Absence
 
@@ -113,12 +114,26 @@ rejected by this document, not by that function.
 <!-- example: invalid-stale-absence invalid -->
 ```json
 {
-  "absence": {
-    "claim": "no caller of fuseHybridResults exists in the repository",
-    "provider": "semble",
-    "queryRef": "plan-074#need-4",
-    "result": "EMPTY",
-    "freshness": { "status": "STALE" }
+  "id": "ev_076_0004",
+  "kind": "structural",
+  "provenance": "extracted",
+  "source": {
+    "provider": "graphify.query",
+    "capability": "code.dependents",
+    "queryRef": "rp_m1x2y3_ab12#impact.dependents",
+    "attemptRef": "A.1#1"
+  },
+  "locator": {},
+  "content": "no dependents of fuseHybridResults",
+  "establishes": ["architecture_mapped"],
+  "result": "EMPTY",
+  "freshness": {
+    "gitCommit": "6ae3de7...",
+    "fileHash": null,
+    "isDirty": null,
+    "treeFingerprint": "sha256:...",
+    "observedAt": "2026-10-14T00:00:00.000Z",
+    "status": "STALE"
   }
 }
 ```

@@ -193,22 +193,28 @@ class ClaimsManager {
     }
 
     let hasFreshSupport = false;
-    let hasFreshContradiction = false;
     let hasStaleSupport = false;
+    let hasFreshContradiction = false;
+    let hasUnknownContradiction = false;
 
     for (const evId of claim.supportingEvidence) {
       const ev = this.evidenceLedger ? this.evidenceLedger.getEvidence(evId) : null;
       if (!ev || ev.freshness?.status === 'STALE') {
         hasStaleSupport = true;
-      } else {
+      } else if (ev.freshness?.status === 'FRESH') {
         hasFreshSupport = true;
       }
     }
 
     for (const evId of claim.contradictingEvidence) {
       const ev = this.evidenceLedger ? this.evidenceLedger.getEvidence(evId) : null;
-      if (ev && ev.freshness?.status !== 'STALE') {
-        hasFreshContradiction = true;
+      if (ev) {
+        const status = ev.freshness?.status;
+        if (status === 'FRESH') {
+          hasFreshContradiction = true;
+        } else if (status !== 'STALE') {
+          hasUnknownContradiction = true;
+        }
       }
     }
 
@@ -219,9 +225,12 @@ class ClaimsManager {
       // settled. Support that has merely gone stale still counts as support, so a claim that once
       // had backing stays 'conflicted' rather than being declared false on a technicality.
       claim.status = claim.supportingEvidence.length === 0 ? 'rejected' : 'conflicted';
+    } else if (hasUnknownContradiction) {
+      // A contradiction whose freshness is unknown cannot prove the claim false, so it never yields 'rejected' (DEC-016).
+      claim.status = claim.supportingEvidence.length > 0 ? 'conflicted' : 'hypothesis';
     } else if (hasFreshSupport) {
       claim.status = 'supported';
-    } else if (hasStaleSupport && !hasFreshSupport) {
+    } else if (hasStaleSupport) {
       claim.status = 'invalidated';
     } else {
       claim.status = 'hypothesis';

@@ -267,6 +267,27 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
         throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
       }
       fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
+      let untrackedGeneratedDir = null;
+      if (surface.setup.generate !== undefined) {
+        const { dir, count } = surface.setup.generate || {};
+        if (typeof dir !== 'string' || !dir || path.isAbsolute(dir)
+          || !Number.isInteger(count) || count < 1 || count > 10000) {
+          throw new Error('copy-fixture-project setup generate needs a relative dir and a positive integer count no greater than 10000');
+        }
+        const generatedDir = path.resolve(tempProjectDir, dir);
+        const relativeDir = path.relative(tempProjectDir, generatedDir);
+        if (relativeDir === '..' || relativeDir.startsWith(`..${path.sep}`)) {
+          throw new Error('copy-fixture-project setup generate dir must stay inside the project');
+        }
+        if (surface.setup.generate.untracked === true) {
+          untrackedGeneratedDir = { generatedDir, count };
+        } else {
+          fs.mkdirSync(generatedDir, { recursive: true });
+          for (let i = 0; i < count; i++) {
+            fs.writeFileSync(path.join(generatedDir, `f${i}.js`), `export const v${i} = ${i};\n`, 'utf8');
+          }
+        }
+      }
       if (surface.setup.git !== false) {
         spawnSync('git', ['init', '-q'], { cwd: tempProjectDir });
         spawnSync('git', ['add', '-A'], { cwd: tempProjectDir });
@@ -280,6 +301,12 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
           ],
           { cwd: tempProjectDir }
         );
+      }
+      if (untrackedGeneratedDir) {
+        fs.mkdirSync(untrackedGeneratedDir.generatedDir, { recursive: true });
+        for (let i = 0; i < untrackedGeneratedDir.count; i++) {
+          fs.writeFileSync(path.join(untrackedGeneratedDir.generatedDir, `f${i}.js`), `export const v${i} = ${i};\n`, 'utf8');
+        }
       }
     }
 

@@ -58,7 +58,7 @@ const { handleStorageCommand } = require('../runtime/storage/cli.ts');
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
-const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
+const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature, resolveFeature } = require('../runtime/task-scope.ts');
 const { listCheckouts } = require('../runtime/checkouts.ts');
 const { featureSlugFor } = require('../runtime/implementation-gate.ts');
 const { handleBriefToolsCommand } = require('../runtime/brief-tools.ts');
@@ -111,6 +111,9 @@ function evidenceItemFromFlags(o: any): any {
   if (o.locator !== undefined) item.locator = o.locator;
   if (o.content !== undefined) item.content = o.content;
   if (o.establishes !== undefined) item.establishes = o.establishes;
+  if (o.need !== undefined) item.need = o.need;
+  if (o.result !== undefined) item.result = o.result;
+  if (o.absence !== undefined) item.absence = o.absence;
   // Both halves of an observation travel together; a lone half must reach the write boundary as
   // the partial object it is, so the refusal names the missing field instead of dropping the pair.
   if (o.observedCommand !== undefined || o.observedExit !== undefined) {
@@ -128,9 +131,9 @@ function evidenceItemFromFlags(o: any): any {
 /** Verbs that read or write per-task records, and so accept `--slug` (IC-002). */
 const TASK_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'context-pack', 'research-request', 'outcome', 'retrieval-plan']);
 
-/** Verbs that build a task's readiness: run from a linked worktree whose feature folder lives only
- * in the main checkout, they keep the task's records there, beside the folder their evidence names. */
-const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness']);
+/** Verbs whose task records live beside the feature folder when run from a linked worktree that
+ * does not contain it. */
+const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'retrieval-plan']);
 
 /**
  * The main checkout, when `o` runs one of FEATURE_STORE_VERBS in a linked worktree that lacks the
@@ -139,11 +142,16 @@ const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness']);
  * the readiness record written there is the one verify, orchestrate and the edit hook read from
  * the worktree.
  */
-function featureStoreRoot(o: any): { root: string; slug: string } | null {
+function featureStoreRoot(o: any, checkouts: any): { root: string; slug: string } | null {
   if (!FEATURE_STORE_VERBS.has(o.cmd) || o.global) return null;
-  const checkouts = listCheckouts({ cwd: evidenceRoot(o) });
   if (!checkouts.isLinked) return null;
-  const slug = featureSlugFor({ projectRoot: checkouts.current, slug: o.slug });
+  let slug = o.slug || null;
+  if (!slug) {
+    try {
+      const feature = resolveFeature({ projectRoot: checkouts.current });
+      slug = !feature.error && feature.paths ? feature.paths.feature_slug : null;
+    } catch { /* a failed branch lookup cannot route state to a guessed feature */ }
+  }
   const folder = (root: string) => path.join(root, 'agent-docs', 'doflow', slug || '');
   if (!slug || fs.existsSync(folder(checkouts.current)) || !fs.existsSync(folder(checkouts.main))) return null;
   return { root: checkouts.main, slug };
@@ -169,8 +177,11 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   // here so the verbs whose handlers build their own ledger (readiness, evidence) route the same
   // way as the ones that take `slug` directly. The orchestration journal is keyed by slug already.
   // Reset on every dispatch, so one invocation's slug can never carry into the next in-process call.
-  const featureStore = featureStoreRoot(o);
+  const checkouts = FEATURE_STORE_VERBS.has(o.cmd) && !o.global
+    ? listCheckouts({ cwd: evidenceRoot(o) }) : null;
+  const featureStore = featureStoreRoot(o, checkouts);
   const storeRoot = featureStore ? featureStore.root : evidenceRoot(o);
+  const attemptRoot = checkouts?.ok && !checkouts.sandbox ? (checkouts.main || checkouts.current || null) : null;
   // Use the same root resolver as the handler: task redirection, the nearest run ledger,
   // and lifecycle's shared main-worktree store are deliberately different scopes.
   try {
@@ -211,8 +222,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // than from evidence, so the gate had one reachable answer for every task. Forwarding is
     // all this does: the handler names them back under `callerAsserted` so a stated input is
     // never mistaken for a measured one.
-    case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, mode: o.mode, slug: storeSlug, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot });
-    case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, evidenceId: o.evidenceId, replacedBy: o.replacedBy, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot });
+    case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, mode: o.mode, slug: storeSlug, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o) });
+    case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, evidenceId: o.evidenceId, replacedBy: o.replacedBy, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, slug: storeSlug, sourceRoot: evidenceRoot(o), attemptRoot });
     // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
     // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so
     // a view invoked from a subdirectory reads the runs that were actually recorded.
@@ -261,7 +272,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
     case 'claim': return handleClaimCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: storeRoot });
     case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o), slug: o.slug, mandatoryFile: o.mandatoryFile, harness: o.harness, maxBytes: o.maxBytes, bare: o.bare, noRecord: o.noRecord, reason: o.reason, since: o.since, expand: o.expand });
-    case 'retrieval-plan': return handleRetrievalPlanCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+    case 'retrieval-plan': return handleRetrievalPlanCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, provider: o.provider, attemptStatus: o.attemptStatus, reason: o.reason, note: o.note, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o) });
     case 'outcome': return handleOutcomeCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, scope: o.scope, verificationInput: o.verificationInput, verificationPhase: o.verificationPhase, baselineRef: o.baselineRef, json: o.json, projectRoot: evidenceRoot(o) });
     case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });

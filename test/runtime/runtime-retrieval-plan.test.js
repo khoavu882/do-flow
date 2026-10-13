@@ -53,6 +53,9 @@ const {
   freshnessEntry,
   sourceModeLookup,
 } = require('../../src/runtime/retrieval-plan.ts');
+const { resolveNeed, activeAttemptRef } = require('../../src/runtime/retrieval-record.ts');
+const retrievalPlan = require('../../src/runtime/retrieval-plan.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 
 /** A scratch project root. Nothing here needs git — the plan record stamps no commit. */
 function project(label) {
@@ -81,8 +84,8 @@ function callVerb(options) {
   return { code, out: lines.join('\n') };
 }
 
-function readRecord(root, taskId) {
-  return JSON.parse(fs.readFileSync(planPath(root, taskId), 'utf8'));
+function readRecord(root, taskId, slug = null) {
+  return JSON.parse(fs.readFileSync(planPath(root, taskId, slug), 'utf8'));
 }
 
 // ── R8: one probe per distinct provider, never one per need ──────────────────────────────────
@@ -138,7 +141,7 @@ test('a need stores a provider id and nothing about that provider index (plan D7
 
   const record = readRecord(root, 'norm');
   for (const need of record.needs) {
-    assert.deepEqual(Object.keys(need).sort(), ['capability', 'evidenceIds', 'intent', 'provider', 'result'],
+    assert.deepEqual(Object.keys(need).sort(), ['capability', 'evidenceIds', 'intent', 'provider', 'queryRef', 'result'],
       'a need carrying a freshness field of its own would let two needs resolving to the same '
       + 'provider disagree about that provider index — a contradiction the record must be unable to hold');
     if (need.provider) {
@@ -333,6 +336,7 @@ test('recorded evidence lifts a declared need to RETRIEVED and links what it yie
   const cwd = project('retrieved');
   json(cwd, ['retrieval-plan', '--task-id', 'g1', '--action', 'declare', '--need', 'inspect-history']);
   const written = json(cwd, ['evidence', '--task-id', 'g1', '--action', 'add',
+    '--need', 'inspect-history',
     '--kind', 'historical', '--provenance', 'extracted',
     '--provider', 'git.native', '--capability', 'history.search', '--locator', 'a.js:1']);
   assert.equal(written.status, 0, written.stderr);
@@ -436,4 +440,222 @@ test('the dispatcher help lists the verb it now dispatches', () => {
   assert.equal(help.status, 0);
   assert.match(help.stdout, /^ {2}retrieval-plan {2,}\S/m,
     'G12 reads this list as the only verb inventory a user ever sees');
+});
+
+// ── 076 B.1: planId, queryRefs and active attemptRef at declare (IC-010, IC-011, IC-005) ────
+
+test('declare writes the fields, and version stays 1 (IC-010, B.1)', () => {
+  const root = project('declare-fields');
+  const { code } = callVerb({
+    taskId: 'b1-fields',
+    action: 'declare',
+    need: ['trace-dependency', 'estimate-blast-radius'],
+    stateRoot: root,
+    repoRoot: REPO,
+    json: true,
+  });
+  assert.equal(code, 0);
+
+  const record = readRecord(root, 'b1-fields');
+  assert.ok(record.planId, 'planId must be present');
+  assert.match(record.planId, /^rp_[0-9a-z]+_[0-9a-f]{4}$/, 'planId must match rp_<base36 ms>_<4 hex>');
+  assert.equal(record.binding, 'query', 'binding must be query');
+  assert.equal(record.version, 1, 'version must stay 1');
+  assert.equal(record.attemptRef, null, 'attemptRef is null when no attempt is active');
+
+  assert.equal(record.needs.length, 2);
+  for (const need of record.needs) {
+    assert.equal(need.queryRef, `${record.planId}#${need.intent}`, 'need.queryRef must be <planId>#<intent>');
+  }
+});
+
+test('re-declare mints a new planId (IC-011, B.1)', () => {
+  const root = project('re-declare');
+  callVerb({
+    taskId: 'redec',
+    action: 'declare',
+    need: ['trace-dependency'],
+    stateRoot: root,
+    repoRoot: REPO,
+    json: true,
+  });
+  const firstRecord = readRecord(root, 'redec');
+  assert.ok(firstRecord.planId);
+
+  callVerb({
+    taskId: 'redec',
+    action: 'declare',
+    need: ['trace-dependency'],
+    stateRoot: root,
+    repoRoot: REPO,
+    json: true,
+  });
+  const secondRecord = readRecord(root, 'redec');
+  assert.ok(secondRecord.planId);
+
+  assert.notEqual(secondRecord.planId, firstRecord.planId, 're-declaring must mint a new planId');
+});
+
+test("with a claimed 070 attempt the plan's attemptRef is A.1#1 (IC-005, B.1)", (t) => {
+  const scratch = createScratch('doflow-declare-attempt-');
+  t.after(() => scratch.remove());
+  const dir = path.join(scratch.dir, 'project');
+  const slug = 'feat-b1';
+  fs.mkdirSync(path.join(dir, 'agent-docs', 'doflow', slug), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'agent-docs', 'doflow', slug, 'plan.md'), [
+    '# Plan', '', '## Tasks', '',
+    '### Phase A', '',
+    '- [ ] A.1 test task; owner: core-implementer; files: a.js',
+  ].join('\n'));
+  spawnSync('git', ['init', '-q'], { cwd: dir, env: scratch.env() });
+
+  const claimRes = spawnSync(process.execPath, [
+    DOFLOW, 'task-attempt', '--action', 'claim', '--slug', slug, '--task', 'A.1',
+    '--owner', 'core-implementer', '--mode', 'subagent', '--json',
+  ], { cwd: dir, env: scratch.env(), encoding: 'utf8' });
+  assert.equal(claimRes.status, 0, claimRes.stderr);
+
+  const declareRes = json(dir, [
+    'retrieval-plan', '--task-id', 'A.1', '--action', 'declare',
+    '--need', 'locate-known-symbol', '--slug', slug,
+  ]);
+  assert.equal(declareRes.status, 0, declareRes.stderr);
+  assert.equal(declareRes.data.attemptRef, 'A.1#1');
+
+  const record = readRecord(dir, 'A.1', slug);
+  assert.equal(record.attemptRef, 'A.1#1', 'declared plan must stamp attemptRef A.1#1');
+});
+
+test('resolveNeed maps declared intents and yields IC-002 refusals (IC-020, IC-002)', () => {
+  // 1. Missing plan
+  const noPlan = resolveNeed(null, 'need-x', 'task-1');
+  assert.equal(noPlan.ok, false);
+  assert.equal(noPlan.refusal, undefined, 'refusal key must be dropped');
+  assert.equal(
+    noPlan.message,
+    "no retrieval plan is declared for task 'task-1', so --need 'need-x' names nothing. Declare one first: doflow retrieval-plan --task-id task-1 --action declare --need need-x, then re-run.",
+  );
+
+  // 2. Legacy plan without planId
+  const legacyPlan = { taskId: 'task-legacy', needs: [{ intent: 'intent-a' }, { intent: 'intent-b' }] };
+  const noPlanId = resolveNeed(legacyPlan, 'intent-a', 'task-legacy');
+  assert.equal(noPlanId.ok, false);
+  assert.equal(noPlanId.refusal, undefined, 'refusal key must be dropped');
+  assert.equal(
+    noPlanId.message,
+    "the retrieval plan for task 'task-legacy' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-legacy --action declare --need intent-a,intent-b, then re-run.",
+  );
+
+  // 3. Plan with planId but undeclared intent
+  const plan = {
+    taskId: 'task-bound',
+    planId: 'rp_m1_ab12',
+    needs: [{ intent: 'intent-a', queryRef: 'rp_m1_ab12#intent-a' }, { intent: 'intent-b', queryRef: 'rp_m1_ab12#intent-b' }],
+  };
+  const undeclared = resolveNeed(plan, 'intent-c', 'task-bound');
+  assert.equal(undeclared.ok, false);
+  assert.equal(undeclared.refusal, undefined, 'refusal key must be dropped');
+  assert.equal(
+    undeclared.message,
+    "'intent-c' is not a declared need of task 'task-bound' (plan rp_m1_ab12). Declared: intent-a, intent-b. Re-run with one of them, or re-declare the plan with this need.",
+  );
+
+  // 4. Declared need resolved
+  const resolved = resolveNeed(plan, 'intent-a', 'task-bound');
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.queryRef, 'rp_m1_ab12#intent-a');
+  assert.equal(resolved.need.intent, 'intent-a');
+
+  // 5. Corrupt plan: planId exists but need has missing queryRef
+  const corruptPlan = {
+    taskId: 'task-corrupt',
+    planId: 'rp_m1_ab12',
+    needs: [{ intent: 'intent-a' }],
+  };
+  const corrupt = resolveNeed(corruptPlan, 'intent-a', 'task-corrupt');
+  assert.equal(corrupt.ok, false);
+  assert.equal(corrupt.refusal, undefined, 'refusal key must be dropped');
+  assert.equal(
+    corrupt.message,
+    "the retrieval plan for task 'task-corrupt' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-corrupt --action declare --need intent-a, then re-run.",
+  );
+});
+
+test('a multi-intent re-declare command printed by resolveNeed can be executed intact', (t) => {
+  const root = project('comma-command');
+  const old = { version: 1, taskId: 't-legacy-command', needs: [
+    { intent: 'inspect-history' }, { intent: 'locate-known-symbol' },
+  ] };
+  fs.mkdirSync(path.dirname(planPath(root, old.taskId)), { recursive: true });
+  fs.writeFileSync(planPath(root, old.taskId), JSON.stringify(old));
+  const refusal = resolveNeed(old, 'inspect-history', old.taskId).message;
+  const command = refusal.match(/(doflow retrieval-plan --task-id .*?), then re-run\./)[1];
+  const args = command.replace(/^doflow /, '').split(' ');
+  const result = spawnSync(process.execPath, [DOFLOW, ...args], { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const declared = readRecord(root, old.taskId);
+  assert.deepEqual(declared.needs.map((need) => need.intent).sort(), ['inspect-history', 'locate-known-symbol']);
+});
+
+test('report probes missing positive-item providers before acquiring the plan lock', (t) => {
+  const root = project('probe-outside-lock');
+  const plan = callVerb({ taskId: 't-probe-lock', action: 'declare', need: 'inspect-history', stateRoot: root, json: true });
+  assert.equal(plan.code, 0, plan.out);
+  const record = readRecord(root, 't-probe-lock');
+  const need = record.needs[0];
+  record.providers = {};
+  fs.writeFileSync(planPath(root, 't-probe-lock'), JSON.stringify(record));
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load('t-probe-lock');
+  ledger.addEvidence({ taskId: 't-probe-lock', kind: 'structural', provenance: 'extracted', locator: { file: 'a.js', line: 1 },
+    content: 'found', source: { provider: need.provider, capability: need.capability, queryRef: need.queryRef, attemptRef: null } });
+  ledger.save('t-probe-lock');
+  const planFile = planPath(root, 't-probe-lock');
+  const originalProbe = retrievalPlan._probe;
+  let called = false;
+  retrievalPlan._probe = () => {
+    called = true;
+    assert.equal(fs.existsSync(`${planFile}.lock`), false, 'provider probe ran while plan lock was held');
+    return { state: 'FRESH', artifact: null, refresh: null, label: null, reason: null };
+  };
+  try {
+    const report = callVerb({ taskId: 't-probe-lock', action: 'report', stateRoot: root, json: true });
+    assert.equal(report.code, 0, report.out);
+    assert.equal(called, true);
+  } finally {
+    retrievalPlan._probe = originalProbe;
+  }
+});
+
+test('activeAttemptRef reads attempt from task-attempts store and returns null on failure (IC-005)', (t) => {
+  const scratch = createScratch('doflow-active-ref-');
+  t.after(() => scratch.remove());
+  const dir = path.join(scratch.dir, 'project');
+  const slug = 'feat-active-ref';
+  fs.mkdirSync(path.join(dir, 'agent-docs', 'doflow', slug), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'agent-docs', 'doflow', slug, 'plan.md'), [
+    '# Plan', '', '## Tasks', '',
+    '### Phase A', '',
+    '- [ ] A.1 test task; owner: core-implementer; files: a.js',
+  ].join('\n'));
+  spawnSync('git', ['init', '-q'], { cwd: dir, env: scratch.env() });
+
+  // No store yet -> null
+  assert.equal(activeAttemptRef(dir, 'A.1', slug), null);
+
+  // Claim task A.1
+  const claimRes = spawnSync(process.execPath, [
+    DOFLOW, 'task-attempt', '--action', 'claim', '--slug', slug, '--task', 'A.1',
+    '--owner', 'core-implementer', '--mode', 'subagent', '--json',
+  ], { cwd: dir, env: scratch.env(), encoding: 'utf8' });
+  assert.equal(claimRes.status, 0, claimRes.stderr);
+
+  // Active attempt exists -> A.1#1
+  assert.equal(activeAttemptRef(dir, 'A.1', slug), 'A.1#1');
+
+  // Non-existent task -> null
+  assert.equal(activeAttemptRef(dir, 'A.2', slug), null);
+
+  // Non-existent slug -> null
+  assert.equal(activeAttemptRef(dir, 'A.1', 'no-such-slug'), null);
 });

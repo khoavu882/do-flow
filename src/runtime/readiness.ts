@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router.ts');
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
+const { readPlan, bindEvidence, declaredIntentList } = require('./retrieval-record.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 const READINESS_STATES = new Set([
@@ -211,7 +212,20 @@ class ReadinessEngine {
       hasBlocked = true;
     }
 
-    const taskEvidence = evidenceLedger ? evidenceLedger.queryEvidence({ taskId, status: 'FRESH' }) : [];
+    const allTaskEvidence = evidenceLedger ? evidenceLedger.queryEvidence({ taskId }) : [];
+    let plan = null;
+    let unreadablePlan = null;
+    try {
+      plan = readPlan(this.projectRoot, taskId);
+    } catch (error: any) {
+      if (error.code !== 'store-unreadable') throw error;
+      unreadablePlan = { unreadable: true, reason: error.message };
+    }
+    const queryBound = Boolean(plan?.planId);
+    const binding = queryBound ? bindEvidence(plan, allTaskEvidence) : null;
+    const unboundIds = new Set(binding ? binding.unbound.map((item: any) => item.id) : []);
+    const taskEvidence = allTaskEvidence.filter((item: any) => item.freshness?.status === 'FRESH'
+      && (!queryBound || !unboundIds.has(item.id)));
 
     // An item accepted before FR-004 existed, or one whose target file has since shrunk, can be
     // FRESH and still point at nothing. *Stale* (the file changed at all) and *unresolvable* (the
@@ -225,7 +239,8 @@ class ReadinessEngine {
     // in evaluateClaim — it is not a claim that the file never changed. An item that genuinely went
     // stale and was never superseded still forces NEEDS_EVIDENCE exactly as before.
     const staleEvidence = (evidenceLedger ? evidenceLedger.getAllEvidence() : [])
-      .filter((item: any) => item.taskId === taskId && item.freshness?.status === 'STALE' && item.status !== 'superseded')
+      .filter((item: any) => item.taskId === taskId && item.result !== 'EMPTY'
+        && item.freshness?.status === 'STALE' && item.status !== 'superseded')
       .map((item: any) => ({ evidenceId: item.id, locator: item.locator, reason: 'file-modified-since-recorded' }));
 
     const unresolvableEvidence = [];
@@ -242,9 +257,30 @@ class ReadinessEngine {
       }
     }
 
+    const staleAbsence = [];
+    const staleAbsenceByRequirement = new Map<string, any[]>();
+    for (const item of allTaskEvidence) {
+      if (item.result !== 'EMPTY' || item.status !== 'active'
+          || !['STALE', 'UNKNOWN'].includes(item.freshness?.status)
+          || (queryBound && unboundIds.has(item.id))) continue;
+      for (const requirement of Array.isArray(item.establishes) ? item.establishes : []) {
+        const entry = { evidenceId: item.id, requirement, provider: item.source?.provider || null,
+          freshness: item.freshness.status, refresh: plan?.providers?.[item.source?.provider]?.refresh || null };
+        staleAbsence.push(entry);
+        const entries = staleAbsenceByRequirement.get(requirement) || [];
+        entries.push({ item, entry });
+        staleAbsenceByRequirement.set(requirement, entries);
+      }
+    }
+
+    const unboundEvidence = queryBound
+      ? { count: binding.unbound.length, ids: binding.unbound.slice(0, 5).map((item: any) => item.id) }
+      : undefined;
+
     for (const [reqId, reqDef] of Object.entries<any>(requirements)) {
       let isSatisfied = false;
       let reason = null;
+      let reasonCode = null;
       let matchedEvidenceIds = [];
 
       // Check verification plan requirement
@@ -286,18 +322,18 @@ class ReadinessEngine {
       // (review R1, P1 — reproduced through the public CLI).
       else if (Array.isArray(reqDef.evidenceKinds) && reqDef.evidenceKinds.length > 0) {
         const allowedKinds = new Set(reqDef.evidenceKinds);
+        const rawKindMatched = allTaskEvidence.filter((ev: any) => allowedKinds.has(ev.kind));
         const kindMatched = taskEvidence.filter((ev: any) => allowedKinds.has(ev.kind));
         const extracted = kindMatched.filter((ev: any) => ev.provenance === 'extracted');
         const bound = extracted.filter((ev: any) => Array.isArray(ev.establishes) && ev.establishes.includes(reqId));
-        let qualifying = bound;
-        if (reqDef.requiresObservation) {
-          qualifying = qualifying.filter((ev: any) => ev.observation && Number.isInteger(ev.observation.exitCode));
-          if (reqDef.expectedExit === 'zero') {
-            qualifying = qualifying.filter((ev: any) => ev.observation.exitCode === 0);
-          } else if (reqDef.expectedExit === 'nonzero') {
-            qualifying = qualifying.filter((ev: any) => ev.observation.exitCode !== 0);
-          }
-        }
+        const observationOk = (ev: any) => !reqDef.requiresObservation || (ev.observation
+          && Number.isInteger(ev.observation.exitCode)
+          && (reqDef.expectedExit !== 'zero' || ev.observation.exitCode === 0)
+          && (reqDef.expectedExit !== 'nonzero' || ev.observation.exitCode !== 0));
+        const qualifies = (ev: any) => ev.provenance === 'extracted'
+          && Array.isArray(ev.establishes) && ev.establishes.includes(reqId)
+          && observationOk(ev);
+        const qualifying = taskEvidence.filter((ev: any) => allowedKinds.has(ev.kind) && qualifies(ev));
         if (qualifying.length > 0) {
           isSatisfied = true;
           matchedEvidenceIds = qualifying.map((ev: any) => ev.id);
@@ -318,6 +354,32 @@ class ReadinessEngine {
           reason = 'The bound evidence lacks a typed observation ({command, exitCode})'
             + `${reqDef.expectedExit ? ` with a${reqDef.expectedExit === 'zero' ? ' passing (0)' : ' non-zero'} exit status` : ''} — `
             + 'record the execution itself, not a description of one.';
+        }
+        if (!isSatisfied && reqDef.required) {
+          const staleAbsences = staleAbsenceByRequirement.get(reqId) || [];
+          if (staleAbsences.length > 0) {
+            const { item, entry } = staleAbsences[0];
+            const refresh = entry.refresh || 'none declared';
+            reasonCode = 'stale-absence-unverified';
+            const prefix = `'${reqId}' rests only on an empty answer from ${entry.provider || 'unknown provider'}, whose index was ${entry.freshness} when it was recorded (${item.id}). An empty answer from that index cannot establish absence. `;
+            if (item.freshness?.staleReason === 'tree-changed-since-recorded'
+                || item.freshness?.staleReason === 'tree-unverifiable') {
+              reason = `${prefix}the working tree changed since it was recorded; re-run the lookup and record the absence again.`;
+            } else if (item.freshness?.gitCommit === null) {
+              reason = `${prefix}absence cannot be established outside a git work tree; record a positive item.`;
+            } else {
+              reason = `${prefix}Run the declared refresh command (${refresh}) and record the absence again, or re-run the lookup with a live provider such as native.rg: doflow evidence --task-id ${taskId} --action add --absence --need <intent> --provider native.rg ...`;
+            }
+          } else if (queryBound) {
+            const unboundKind = rawKindMatched.filter((ev: any) => unboundIds.has(ev.id));
+            const unboundQualifying = unboundKind.filter((ev: any) =>
+              ev.freshness?.status === 'FRESH' && qualifies(ev));
+            if (unboundQualifying.length > 0) {
+              const ids = unboundQualifying.slice(0, 5).map((item: any) => item.id).join(', ');
+              reasonCode = 'unbound-retrieval-evidence';
+              reason = `${unboundQualifying.length} item(s) of the right kind are not bound to a declared need of plan ${plan.planId} (${ids}), so they do not count. Re-record them with --need <intent>; declared: ${declaredIntentList(plan)}.`;
+            }
+          }
         }
       }
       // Scope verified / scope clear
@@ -347,6 +409,7 @@ class ReadinessEngine {
         required: Boolean(reqDef.required),
         satisfied: isSatisfied,
         reason,
+        reasonCode,
         evidenceIds: matchedEvidenceIds,
         recommendedAction: isSatisfied ? null : this.suggestAction(reqId, reqDef, taskProfile),
       });
@@ -383,6 +446,10 @@ class ReadinessEngine {
         + 'Re-record them against the tree as it stands.';
     }
 
+    if (unreadablePlan) {
+      summary += ` Warning: retrieval plan is unreadable and was treated as absent: ${unreadablePlan.reason}`;
+    }
+
     return {
       taskId,
       taskClass,
@@ -399,6 +466,9 @@ class ReadinessEngine {
       evidenceCount: taskEvidence.length,
       unresolvableEvidence,
       staleEvidence,
+      staleAbsence,
+      ...(unreadablePlan ? { retrievalPlan: unreadablePlan } : {}),
+      ...(unboundEvidence ? { unboundEvidence } : {}),
     };
   }
 }
@@ -406,7 +476,7 @@ class ReadinessEngine {
 /** One live snapshot for readiness inspection and orchestration transitions. Reads never persist
  * derived freshness or claim status; every invocation evaluates the current project again.
  * `mode` defaults to 'workflow' — fail closed: the standalone exemption must be declared. */
-function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), mode = 'workflow' }: any) {
+function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), treeRoot = projectRoot, mode = 'workflow' }: any) {
   // Validated before any ledger work, not just inside stageEntryFor at the end — an invalid mode
   // used to pay a full freshness/claims evaluation before erroring (review suggestion, 026).
   if (!EXECUTION_MODES.has(mode)) {
@@ -417,7 +487,7 @@ function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot 
   const { FreshnessValidator } = require('./freshness.ts');
   const ledger = new EvidenceLedger({ repoRoot: projectRoot });
   ledger.load(taskProfile.taskId);
-  new FreshnessValidator({ repoRoot: projectRoot }).validateLedgerFreshness(ledger);
+  new FreshnessValidator({ repoRoot: projectRoot, treeRoot }).validateLedgerFreshness(ledger);
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: projectRoot });
   claims.load(taskProfile.taskId);
   claims.evaluateAll();

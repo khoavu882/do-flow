@@ -7,6 +7,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
+const { measureTreeState } = require('./source-version.ts');
+
 
 // Freshness is measured against the bytes observed, not whether the file was clean at HEAD.
 // Git identity remains provenance and a conservative fallback for older records without hashes.
@@ -25,17 +27,23 @@ function measureFreshness(root: string, locator: any, gitCommit: any): any {
 
 class FreshnessValidator {
   repoRoot: string;
+  treeRoot: string;
   gitRunner: (args: string[], cwd?: string) => string | null;
   declare diffCache?: Map<string, Set<string>>;
+  declare treeFingerprint?: string | null;
+  validatingLedger: boolean;
 
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot]
+   * @param {string} [options.treeRoot]
    * @param {Function} [options.gitRunner]
    */
   constructor(options: any = {}) {
     this.repoRoot = options.repoRoot || REPO_ROOT;
+    this.treeRoot = options.treeRoot || this.repoRoot;
     this.gitRunner = options.gitRunner || this.defaultGitRunner.bind(this);
+    this.validatingLedger = false;
   }
 
   defaultGitRunner(args: string[], cwd: string = this.repoRoot): string | null {
@@ -121,6 +129,28 @@ class FreshnessValidator {
       return { status: 'STALE', reason: 'Already marked stale' };
     }
 
+    if (item.result === 'EMPTY' && item.freshness?.status === 'FRESH') {
+      let currentFingerprint;
+      if (this.validatingLedger) {
+        if (this.treeFingerprint === undefined) {
+          this.treeFingerprint = measureTreeState(this.treeRoot, this.gitRunner).fingerprint;
+        }
+        currentFingerprint = this.treeFingerprint;
+      } else {
+        currentFingerprint = measureTreeState(this.treeRoot, this.gitRunner).fingerprint;
+      }
+
+      if (!item.freshness?.treeFingerprint || !currentFingerprint) {
+        return { status: 'STALE', reason: 'tree-unverifiable' };
+      }
+
+      if (item.freshness.treeFingerprint !== currentFingerprint) {
+        return { status: 'STALE', reason: 'tree-changed-since-recorded' };
+      }
+
+      return { status: 'FRESH' };
+    }
+
     const targetFile = item.locator?.file;
     if (!targetFile) {
       // Evidence without a file locator (e.g. general documentation) remains fresh
@@ -157,15 +187,22 @@ class FreshnessValidator {
     
     let count = 0;
     const allEvidence = ledger.getAllEvidence();
-
-    for (const item of allEvidence) {
-      if (item.freshness?.status === 'FRESH') {
-        const check = this.checkEvidenceFreshness(item);
-        if (check.status === 'STALE') {
-          item.freshness.status = 'STALE';
-          count += 1;
+    this.treeFingerprint = undefined;
+    this.validatingLedger = true;
+    try {
+      for (const item of allEvidence) {
+        if (item.freshness?.status === 'FRESH') {
+          const check = this.checkEvidenceFreshness(item);
+          if (check.status === 'STALE') {
+            item.freshness.status = 'STALE';
+            item.freshness.staleReason = check.reason;
+            count += 1;
+          }
         }
       }
+    } finally {
+      this.treeFingerprint = undefined;
+      this.validatingLedger = false;
     }
     return count;
   }

@@ -4,7 +4,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { tempDir } = require('../helper/tmp');
 const fs = require('node:fs');
+const path = require('node:path');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS } = require('../../src/runtime/evidence-ledger.ts');
+const { EVIDENCE_SCORE_FIELDS } = require('../../src/runtime/evidence-fields.ts');
 
 test('EvidenceLedger records evidence with valid kinds and locators', () => {
   const ledger = new EvidenceLedger();
@@ -113,4 +115,70 @@ test('ordinary task ids are still accepted', (t) => {
   for (const good of ['default', 'test-1', 'FEAT_003.a', '005-evidence-ledger']) {
     assert.equal(ledger.load(good), 0, `${good} should load cleanly (absent file -> 0)`);
   }
+});
+
+test('EvidenceLedger.addEvidence({ score }) throws and registers nothing', () => {
+  const ledger = new EvidenceLedger();
+  assert.throws(() => {
+    ledger.addEvidence({ kind: 'exact-search', score: 0.95 });
+  }, /'score' is a retrieval score/);
+  assert.equal(ledger.getAllEvidence().length, 0);
+});
+
+test('EvidenceLedger.addEvidence({ source: { rank } }) throws and registers nothing', () => {
+  const ledger = new EvidenceLedger();
+  assert.throws(() => {
+    ledger.addEvidence({ kind: 'exact-search', source: { provider: 'native.rg', rank: 1 } });
+  }, /'source\.rank' is a retrieval score/);
+  assert.equal(ledger.getAllEvidence().length, 0);
+});
+
+test('a legacy ledger fixture loads byte-identical without refusal', (t) => {
+  const tmpDir = tempDir(t, 'doflow-legacy-ledger-');
+  const legacyRecord = {
+    taskId: 'legacy-task',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    evidenceCount: 1,
+    evidence: [
+      {
+        id: 'ev_legacy_1',
+        taskId: 'legacy-task',
+        kind: 'exact-search',
+        provenance: 'extracted',
+        source: { provider: 'legacy-provider', rank: 1 },
+        locator: { file: 'legacy.js' },
+        score: 0.95,
+        freshness: { status: 'FRESH' },
+        status: 'active',
+      },
+    ],
+  };
+  const filePath = path.join(tmpDir, 'legacy-task.json');
+  fs.writeFileSync(filePath, JSON.stringify(legacyRecord, null, 2), 'utf8');
+
+  const ledger = new EvidenceLedger({ stateDir: tmpDir });
+  const count = ledger.load('legacy-task');
+  assert.equal(count, 1);
+  const loaded = ledger.getEvidence('ev_legacy_1');
+  assert.deepEqual(loaded, legacyRecord.evidence[0]);
+});
+
+test('workflow-orchestrator tools-used items carry no score key and add cleanly to ledger', () => {
+  const toolsUsedItem = {
+    taskId: 'task_orch',
+    kind: 'generated-analysis',
+    provenance: 'asserted',
+    source: { provider: 'native.mcp', capability: 'tools.consult' },
+    content: 'Tools used: sem=used',
+    locator: { file: 'docs/report.md', line: 10 },
+    establishes: [],
+  };
+  for (const field of EVIDENCE_SCORE_FIELDS) {
+    assert.equal(field in toolsUsedItem, false);
+    assert.equal(field in toolsUsedItem.source, false);
+  }
+  const ledger = new EvidenceLedger();
+  const id = ledger.addEvidence(toolsUsedItem);
+  assert.ok(id);
+  assert.equal(ledger.getEvidence(id).kind, 'generated-analysis');
 });

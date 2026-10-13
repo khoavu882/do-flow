@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { updateTaskState, readTaskState, mergeRecords } = require('./task-state.ts');
 const { taskStoreDir } = require('./task-scope.ts');
+const { assertNoScoreFields } = require('./evidence-fields.ts');
 
 const VALID_EVIDENCE_KINDS = new Set([
   'exact-search',
@@ -129,6 +130,7 @@ class EvidenceLedger {
     if (!item || typeof item !== 'object') {
       throw new Error('Evidence item must be an object');
     }
+    assertNoScoreFields(item, '');
 
     if (!item.kind || !VALID_EVIDENCE_KINDS.has(item.kind)) {
       throw new Error(`Invalid evidence kind '${item.kind}'. Allowed: ${[...VALID_EVIDENCE_KINDS].join(', ')}`);
@@ -152,6 +154,8 @@ class EvidenceLedger {
       fileHash: item.freshness?.fileHash || null,
       observedAt: item.freshness?.observedAt || new Date().toISOString(),
       status: item.freshness?.status || 'FRESH',
+      isDirty: item.freshness?.isDirty !== undefined ? item.freshness.isDirty : null,
+      ...(item.freshness?.treeFingerprint ? { treeFingerprint: item.freshness.treeFingerprint } : {}),
     };
 
     const evidenceRecord = {
@@ -163,6 +167,7 @@ class EvidenceLedger {
       provenance,
       content: item.content || null,
       freshness,
+      ...(item.result !== undefined ? { result: item.result } : {}),
       // Which template requirements this item claims to establish. Readiness counts an item toward
       // a requirement only when the writer named it here — kind-matching alone let an item saying
       // "tests failed" satisfy a passing-baseline requirement (architecture review R1, P1).
@@ -208,6 +213,8 @@ class EvidenceLedger {
       if (filter.capability && item.source.capability !== filter.capability) continue;
       if (filter.file && item.locator.file !== filter.file) continue;
       if (filter.status && item.freshness.status !== filter.status) continue;
+      if (filter.queryRef && item.source?.queryRef !== filter.queryRef) continue;
+      if (filter.attemptRef && item.source?.attemptRef !== filter.attemptRef) continue;
       results.push(item);
     }
     return results;

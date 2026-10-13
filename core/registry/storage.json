@@ -180,7 +180,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/retrieval-plan.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/retrieval-record.ts"
       ]
     },
     {

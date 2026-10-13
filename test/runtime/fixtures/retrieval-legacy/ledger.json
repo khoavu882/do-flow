@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "revision": 1,
+  "taskId": "legacy-1",
+  "updatedAt": "2026-10-13T00:00:00.000Z",
+  "evidenceCount": 1,
+  "evidence": [
+    {
+      "id": "ev_legacy_1",
+      "taskId": "legacy-1",
+      "kind": "exact-search",
+      "source": { "provider": "native.rg", "capability": "code.exact-search" },
+      "locator": { "file": "src/legacy.ts", "line": 4 },
+      "provenance": "extracted",
+      "content": "legacy result",
+      "freshness": { "gitCommit": null, "fileHash": null, "observedAt": "2026-10-13T00:00:00.000Z", "status": "FRESH", "isDirty": null },
+      "establishes": [],
+      "observation": null,
+      "supports": [],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    }
+  ]
+}
