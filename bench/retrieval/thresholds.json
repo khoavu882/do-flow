@@ -25,7 +25,7 @@
     },
     {
       "id": "T-002",
-      "metric": "recallAt10",
+      "metric": "fileRecallAt10",
       "corpus": "code",
       "class": "conceptual-discovery",
       "comparator": ">=",
@@ -33,7 +33,7 @@
       "unit": "ratio",
       "relativeTo": "B",
       "requireCiLowerAboveZero": true,
-      "rationale": "Code conceptual-discovery recall@10 must improve by at least +0.10 relative to B with 95% bootstrap CI lower bound above zero. Baseline row: code conceptual-discovery A is 0.00, B is 0.00.",
+      "rationale": "Code conceptual-discovery fileRecall@10 must improve by at least +0.10 relative to B with 95% bootstrap CI lower bound above zero. Baseline row: code conceptual-discovery A is 0.60, B is 0.30.",
       "status": "proposed"
     },
     {
