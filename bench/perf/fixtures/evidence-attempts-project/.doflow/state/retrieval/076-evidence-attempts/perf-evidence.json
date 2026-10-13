@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "revision": 1,
+  "taskId": "perf-evidence",
+  "planId": "rp_abc123_076a",
+  "binding": "query",
+  "attemptRef": null,
+  "stage": "retrieval",
+  "declaredAt": "2026-10-14T00:00:00.000Z",
+  "reportedAt": null,
+  "providers": {
+    "graphify.query": {
+      "state": "FRESH",
+      "artifact": "graphify-out/graph.json",
+      "refresh": "graphify update ."
+    }
+  },
+  "needs": [
+    {
+      "intent": "inspect-history",
+      "queryRef": "rp_abc123_076a#inspect-history",
+      "capability": "code.relationships",
+      "provider": "graphify.query",
+      "result": "UNREACHED",
+      "resolvedBy": null,
+      "viaFallback": false,
+      "attempts": []
+    }
+  ]
+}
