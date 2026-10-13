@@ -42,25 +42,28 @@ test('boundedAcquire: on a free lock, acquires lock and returns a release functi
   reRelease();
 });
 
-test('boundedAcquire: on a held lock, throws store-locked within 40 ms', (t) => {
+test('boundedAcquire: on a held lock, makes one try plus three 5 ms retries', (t) => {
   const root = stateRoot(t);
   const file = path.join(root, 'held.json');
   const lockDir = `${file}.lock`;
   fs.mkdirSync(lockDir, { recursive: true });
 
-  const start = Date.now();
+  let attempts = 0;
+  const waits = [];
   let caught = null;
   try {
-    boundedAcquire(fs, file);
+    boundedAcquire(fs, file, {
+      tryAcquireLockFn: (fsImpl, lockFile) => { attempts += 1; return tryAcquireLock(fsImpl, lockFile); },
+      sleepFn: (ms) => waits.push(ms),
+    });
   } catch (err) {
     caught = err;
   }
-  const elapsed = Date.now() - start;
-
   assert.ok(caught, 'boundedAcquire must throw when lock is held');
   assert.equal(caught.message, 'store-locked');
   assert.equal(caught.code, 'store-locked');
-  assert.ok(elapsed < 40, `boundedAcquire must throw within 40 ms, took ${elapsed} ms`);
+  assert.equal(attempts, 4);
+  assert.deepEqual(waits, [5, 5, 5]);
   assert.ok(fs.existsSync(lockDir), 'held lock must not be removed by failed acquirer');
 });
 
@@ -84,30 +87,33 @@ test('updateTaskState: with acquire: boundedAcquire writes on free lock and rele
   assert.deepEqual(state.items, ['alpha', 'beta']);
 });
 
-test('updateTaskState: with acquire: boundedAcquire throws store-locked within 40 ms on held lock', (t) => {
+test('updateTaskState: boundedAcquire retry policy prevents write when lock is held', (t) => {
   const root = stateRoot(t);
   const file = path.join(root, 'update-held.json');
   const lockDir = `${file}.lock`;
   fs.mkdirSync(lockDir, { recursive: true });
 
-  const start = Date.now();
+  let attempts = 0;
+  const waits = [];
   let caught = null;
   try {
     updateTaskState({
       fsImpl: fs,
       file,
       build: () => ({ shouldNotWrite: true }),
-      acquire: boundedAcquire,
+      acquire: (fsImpl, lockFile) => boundedAcquire(fsImpl, lockFile, {
+        tryAcquireLockFn: (impl, target) => { attempts += 1; return tryAcquireLock(impl, target); },
+        sleepFn: (ms) => waits.push(ms),
+      }),
     });
   } catch (err) {
     caught = err;
   }
-  const elapsed = Date.now() - start;
-
   assert.ok(caught, 'updateTaskState must throw when lock is held');
   assert.equal(caught.message, 'store-locked');
   assert.equal(caught.code, 'store-locked');
-  assert.ok(elapsed < 40, `updateTaskState with boundedAcquire must throw within 40 ms, took ${elapsed} ms`);
+  assert.equal(attempts, 4);
+  assert.deepEqual(waits, [5, 5, 5]);
   assert.ok(!fs.existsSync(file), 'state file must not be created when lock cannot be acquired');
   assert.ok(fs.existsSync(lockDir), 'held lock must remain in place');
 });
@@ -129,50 +135,29 @@ test('updateTaskState: defaults to acquireLock when acquire parameter is omitted
   assert.equal(state.count, 42);
 });
 
-test('task-state-acquire: negative control - an unbounded wait fails the 40 ms assertion (IC-023)', (t) => {
+test('task-state-acquire: negative control - unbounded retries fail the retry-count assertion (IC-023)', (t) => {
   const root = stateRoot(t);
   const file = path.join(root, 'negative-control.json');
   fs.mkdirSync(`${file}.lock`, { recursive: true });
 
-  // Helper verifying that an acquirer fails with store-locked within 40 ms
-  function assertBoundedWait(acquirerFn) {
-    const start = Date.now();
-    let thrown = null;
-    try {
-      acquirerFn();
-    } catch (err) {
-      thrown = err;
-    }
-    const elapsed = Date.now() - start;
-    if (!thrown || thrown.message !== 'store-locked') {
-      throw new Error(`expected store-locked error, got: ${thrown ? thrown.message : 'none'}`);
-    }
-    if (elapsed >= 40) {
-      throw new Error(`unbounded wait: operation took ${elapsed} ms (>= 40 ms bound)`);
-    }
+  function assertRetryPolicy(attempts, waits) {
+    if (attempts !== 4) throw new Error(`expected 4 lock attempts, got ${attempts}`);
+    if (JSON.stringify(waits) !== JSON.stringify([5, 5, 5])) throw new Error(`expected three 5 ms waits, got ${waits}`);
   }
 
-  // Positive check: boundedAcquire passes the assertion on held lock
-  assertBoundedWait(() => boundedAcquire(fs, file));
+  // Positive check: production boundedAcquire follows the documented retry policy.
+  let attempts = 0;
+  const waits = [];
+  assert.throws(() => boundedAcquire(fs, file, {
+    tryAcquireLockFn: (fsImpl, lockFile) => { attempts += 1; return tryAcquireLock(fsImpl, lockFile); },
+    sleepFn: (ms) => waits.push(ms),
+  }), (err) => err.message === 'store-locked');
+  assertRetryPolicy(attempts, waits);
 
-  // Negative control 1: an unbounded wait simulation (sleep >= 40 ms) fails the 40 ms assertion
-  const unboundedWait = () => {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 45);
-    const err = new Error('store-locked');
-    err.code = 'store-locked';
-    throw err;
-  };
+  // Negative control: an unbounded retry count fails the attempt-count assertion.
   assert.throws(
-    () => assertBoundedWait(unboundedWait),
-    (err) => err.message.includes('unbounded wait: operation took') && err.message.includes('>= 40 ms bound')
+    () => assertRetryPolicy(5, [5, 5, 5, 5]),
+    (err) => err.message.includes('expected 4 lock attempts')
   );
 
-  // Negative control 2: a function throwing an error other than store-locked fails the assertion
-  const wrongError = () => {
-    throw new Error('something-else');
-  };
-  assert.throws(
-    () => assertBoundedWait(wrongError),
-    (err) => err.message.includes('expected store-locked error')
-  );
 });

@@ -172,3 +172,42 @@ test('computeContextBudgets derives capacity and reserve from contextProfile wit
   assert.equal(b.availableTokens, null);
   assert.equal(b.availableBasis, 'profile-required');
 });
+
+test('computePointerCost reports whole-file and sliced read costs with unmeasured labels', (t) => {
+  const fixtureRows = context.computePointerCost();
+  assert.equal(Array.isArray(fixtureRows), true);
+
+  const dir = tempDir(t, 'doflow-test-pointer-cost-');
+  const filePath = path.join(dir, 'agent-docs/doflow/perf-feature/design/design.md');
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, '# Design\nfirst line\nsecond line\n', 'utf8');
+
+  const rows = context.computePointerCost({
+    fixture: dir,
+    repoRoot: dir,
+    runPack: ({ formatRows }) => formatRows({ pointers: [{
+        id: 'ptr:agent-docs/doflow/perf-feature/design/design.md:2-3',
+        path: 'agent-docs/doflow/perf-feature/design/design.md',
+        range: { startLine: 2, endLine: 3 },
+        bytes: 23,
+        inlineBytes: 70,
+      }] }, dir),
+  });
+
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((row) => row.target), ['whole-file', 'slice']);
+  for (const row of rows) {
+    assert.equal(row.reads, 1);
+    assert.equal(row.path, 'agent-docs/doflow/perf-feature/design/design.md');
+    assert.deepEqual(row.range, { startLine: 2, endLine: 3 });
+    assert.equal(row.tokensEst.basis, 'estimated:bytes/4');
+    assert.deepEqual(row.readProbability, { unmeasured: 'needs a model call (paid)' });
+    assert.deepEqual(row.actual, { unmeasured: 'needs a model call (paid)' });
+    assert.equal(row.net, row.pointerBytes + row.targetBytes - row.inlineBytes);
+  }
+  assert.equal(rows[0].targetBytes, Buffer.byteLength('# Design\nfirst line\nsecond line\n', 'utf8'));
+  assert.equal(rows[1].targetBytes, Buffer.byteLength('first line\nsecond line\n', 'utf8'));
+
+  const estimatedActual = { ...rows[0], actual: { value: 3, basis: 'estimated:bytes/4' } };
+  assert.throws(() => context.validatePointerCostRows([estimatedActual]), /actual measurement cannot use an estimated basis/);
+});

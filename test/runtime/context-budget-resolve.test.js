@@ -108,6 +108,14 @@ test('budget-resolve: harness identity precedence: flag > env > unstated', () =>
 });
 
 test('budget-resolve: capacity basis: declared vs unknown', () => {
+  // The validated registry carries the real 075 profile; its declared capacity is intentionally
+  // unknown until 085 supplies those values (IC-012, IC-013).
+  const bRealRegistry = resolveBudget({ harnessFlag: 'claude' });
+  assert.deepEqual(bRealRegistry.capacity, {
+    value: null,
+    basis: 'unknown:values belong to 085 (A-19)',
+  });
+
   // Harness unstated
   const bUnstated = resolveBudget({ env: {} });
   assert.deepEqual(bUnstated.capacity, { value: null, basis: 'unknown:harness-unstated' });
@@ -138,6 +146,19 @@ test('budget-resolve: capacity basis: declared vs unknown', () => {
   const bVerified = resolveBudget({ harnessFlag: 'gemini', profiles: mockVerified });
   assert.deepEqual(bVerified.capacity, { value: 1000000, basis: 'declared:spec' });
   assert.equal(bVerified.toolResultLimitBytes, 65536);
+
+  const bDeclaredProfile = resolveBudget({
+    taskClass: 'feature',
+    harnessFlag: 'gemini',
+    profiles: mockVerified,
+    budgetsJson: { startupContext: [{ harness: 'gemini', tokensEst: 2500 }] },
+  });
+  assert.equal(bDeclaredProfile.source, 'profile');
+  assert.equal(bDeclaredProfile.maxBytes, (1000000 - 2500 - 20000) * 4);
+
+  // Negative control: ignoring declared capacity would use the task-class cap.
+  const ignoredCapacity = TASK_CLASS_BUDGETS.feature;
+  assert.notEqual(ignoredCapacity, bDeclaredProfile.maxBytes);
 });
 
 test('budget-resolve: substituting a model-name lookup for the harness id fails (negative control)', () => {

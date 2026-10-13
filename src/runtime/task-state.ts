@@ -131,15 +131,22 @@ function acquireLock(fsImpl: any, file: string): () => void {
 function boundedAcquire(
   fsImpl: any,
   file: string,
-  options: { retries?: number; waitMs?: number } = {}
+  options: {
+    retries?: number;
+    waitMs?: number;
+    sleepFn?: (ms: number) => void;
+    tryAcquireLockFn?: (fsImpl: any, file: string) => (() => void) | null;
+  } = {}
 ): () => void {
   const retries = options?.retries ?? 3;
   const waitMs = options?.waitMs ?? 5;
+  const sleepFn = options?.sleepFn ?? sleep;
+  const tryAcquire = options?.tryAcquireLockFn ?? tryAcquireLock;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const release = tryAcquireLock(fsImpl, file);
+    const release = tryAcquire(fsImpl, file);
     if (release) return release;
     if (attempt < retries && waitMs > 0) {
-      sleep(waitMs);
+      sleepFn(waitMs);
     }
   }
   const error = new Error('store-locked');
