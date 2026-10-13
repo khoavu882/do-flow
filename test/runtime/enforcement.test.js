@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { enforcementFor, UnknownEnforcementTarget } = require('../../src/lifecycle/coverage.ts');
+const { enforcementFor, renderEnforcementMatrix, rowsDigest, UnknownEnforcementTarget } = require('../../src/lifecycle/coverage.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const row = (values = {}) => ({ policy: 'gate', harness: 'claude', event: 'PreToolUse', timing: 'pre-tool', profile: 'any', wired: true, class: 'blocking', verification: 'verified', prerequisites: [], covers: ['edit', 'write'], doesNotCover: ['shell'], caveats: [], ...values });
 const coverage = (rows) => ({ schemaVersion: 1, revision: 1, rowsDigest: 'sha256:' + 'a'.repeat(64), profiles: { any: 'all', narrow: 'narrow' }, rows });
@@ -33,6 +33,75 @@ test('unknown targets throw typed errors', () => {
   assert.throws(() => enforcementFor(coverage([row()]), { harness: 'claude', policy: 'gate', profile: 'missing' }), (error) => error.code === 'unknown-profile');
 });
 
+test('wildcard policy rows do not hide known lifecycle policies', () => {
+  const block = coverage([
+    row({ policy: '*', harness: 'copilot', event: 'unavailable', timing: 'pre-tool', class: 'unsupported', verification: 'unverified', wired: false }),
+    row({ policy: 'pre-bash-guard', harness: 'claude' }),
+  ]);
+  const answer = enforcementFor(block, { harness: 'copilot', policy: 'pre-bash-guard' });
+  assert.equal(answer.enforced, false);
+  assert.equal(answer.class, 'unsupported');
+});
+
+test('matrix rendering sorts policy, harness, event and profile independent of row order', () => {
+  const rows = [
+    row({ policy: 'stop-check', harness: 'antigravity', event: 'Stop', profile: 'z' }),
+    row({ policy: 'pre-bash-guard', harness: 'codex', event: 'PreToolUse', profile: 'any' }),
+    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PostToolUse', profile: 'any' }),
+    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PreToolUse', profile: 'z' }),
+    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PreToolUse', profile: 'any' }),
+  ];
+  const rendered = renderEnforcementMatrix(coverage(rows));
+  const tuples = rendered.split('\n').slice(3).map(line => line.replace(/^\| /, '').replace(/ \|$/, '').split(' | ').slice(0, 5).join('/'));
+  assert.deepEqual(tuples, [
+    'pre-implementation-gate/claude/PostToolUse/any/blocking',
+    'pre-implementation-gate/claude/PreToolUse/any/blocking',
+    'pre-implementation-gate/claude/PreToolUse/z/blocking',
+    'pre-bash-guard/codex/PreToolUse/any/blocking',
+    'stop-check/antigravity/Stop/z/blocking',
+  ]);
+});
+
+test('shipped coverage digest matches its rows and contains explicit unavailable policy rows', () => {
+  const lifecycle = require('../../core/registry/lifecycle.json');
+  assert.equal(lifecycle.coverage.rowsDigest, rowsDigest(lifecycle.coverage.rows));
+  for (const harness of ['copilot', 'opencode']) {
+    for (const policy of lifecycle.policies.map(item => item.id)) {
+      assert.ok(lifecycle.coverage.rows.some(item => item.harness === harness && item.policy === policy && item.class === 'unsupported'));
+    }
+  }
+  assert.ok(lifecycle.coverage.rows.every(item => item.policy !== '*' && item.event !== '*'));
+});
+
+test('enforcement CLI returns exit 0 for an enforced synthetic registry answer', async () => {
+  const registryPath = require.resolve('../../src/registry/index.ts');
+  const upkeepPath = require.resolve('../../src/runtime/storage/upkeep.ts');
+  const runtimePath = require.resolve('../../src/cli/runtime-commands.ts');
+  const previousRegistry = require.cache[registryPath];
+  const previousUpkeep = require.cache[upkeepPath];
+  const previousRuntime = require.cache[runtimePath];
+  require.cache[registryPath] = { id: registryPath, filename: registryPath, loaded: true, exports: { loadRegistry: () => ({ coverage: coverage([row()]) }) } };
+  require.cache[upkeepPath] = { id: upkeepPath, filename: upkeepPath, loaded: true, exports: { upkeepAfterVerb() {} } };
+  delete require.cache[runtimePath];
+  const oldExitCode = process.exitCode;
+  const oldLog = console.log;
+  let output = '';
+  console.log = value => { output += `${value}\n`; };
+  try {
+    const { dispatchRuntimeCommand } = require('../../src/cli/runtime-commands.ts');
+    const result = await dispatchRuntimeCommand({ cmd: 'enforcement', harness: 'claude', policy: 'gate', json: true, positional: [] });
+    assert.equal(result, 0);
+    assert.equal(process.exitCode, 0);
+    assert.equal(JSON.parse(output).enforced, true);
+  } finally {
+    console.log = oldLog;
+    process.exitCode = oldExitCode;
+    if (previousRegistry) require.cache[registryPath] = previousRegistry; else delete require.cache[registryPath];
+    if (previousUpkeep) require.cache[upkeepPath] = previousUpkeep; else delete require.cache[upkeepPath];
+    if (previousRuntime) require.cache[runtimePath] = previousRuntime; else delete require.cache[runtimePath];
+  }
+});
+
 test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass-through', () => {
   const run = (args, executable = path.join(ROOT, 'bin/doflow.js')) => spawnSync(executable.endsWith('.js') ? process.execPath : executable, executable.endsWith('.js') ? [executable, ...args] : args, { cwd: ROOT, encoding: 'utf8' });
   let result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json']);
@@ -40,7 +109,23 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate']);
   assert.equal(result.status, 1); assert.match(result.stdout, /claude pre-implementation-gate: not enforced/);
   result = run(['enforcement', '--harness', 'unknown', '--policy', 'pre-implementation-gate', '--json']);
-  assert.equal(result.status, 2); assert.equal(JSON.parse(result.stdout).error, 'unknown-harness');
+  assert.equal(result.status, 2); assert.deepEqual(JSON.parse(result.stdout).error, 'unknown-harness');
+  for (const harness of ['copilot', 'opencode']) {
+    result = run(['enforcement', '--harness', harness, '--policy', 'pre-implementation-gate', '--json']);
+    assert.equal(result.status, 1);
+    assert.ok(['unsupported', 'unknown'].includes(JSON.parse(result.stdout).class));
+  }
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'missing', '--json']);
+  assert.equal(result.status, 2);
+  assert.deepEqual(JSON.parse(result.stdout), { error: 'unknown-policy', detail: "Unknown policy 'missing'" });
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--profile', 'missing', '--json']);
+  assert.equal(result.status, 2);
+  assert.deepEqual(JSON.parse(result.stdout), { error: 'unknown-profile', detail: "Unknown profile 'missing'" });
+  result = run(['enforcement', '--harness', 'codex', '--policy', 'pre-implementation-gate']);
+  assert.match(result.stdout, /does not cover: writes via shell commands/);
+  assert.match(result.stdout, /prerequisite: hook-review/);
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'missing']);
+  assert.equal(result.status, 2); assert.match(result.stderr, /Unknown policy/);
   result = run(['enforcement', '--json']); assert.equal(result.status, 2); assert.equal(JSON.parse(result.stdout).error, 'usage');
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json'], path.join(ROOT, 'core/shared/scripts/doflow/bin/doflow-run'));
   assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).enforced, false);

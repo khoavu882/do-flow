@@ -2,6 +2,8 @@
 
 const crypto = require('node:crypto');
 const CLASS_ORDER = Object.freeze(['unknown', 'unsupported', 'observation', 'advisory', 'blocking']);
+const POLICY_ORDER = Object.freeze(['pre-implementation-gate', 'pre-bash-guard', 'session-context', 'mcp-tool-guard', 'stop-check']);
+const HARNESS_ORDER = Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
 const NEVER_BLOCKING_EVENTS = new Set([
   'pi\u0000tool_execution_start', 'antigravity\u0000PostToolUse', 'antigravity\u0000PreInvocation',
   'antigravity\u0000PostInvocation', 'gemini\u0000AfterTool', 'claude\u0000PostToolUse', 'codex\u0000PostToolUse',
@@ -20,7 +22,7 @@ function enforcementFor(coverage: any, query: { harness: string; policy: string;
   const rows = coverage?.rows || [];
   const profiles = coverage?.profiles || {};
   if (!rows.some((row: any) => row.harness === query.harness)) throw new UnknownEnforcementTarget('unknown-harness', `Unknown harness '${query.harness}'`);
-  if (query.policy !== '*' && !rows.some((row: any) => row.policy === query.policy && row.harness === query.harness)) throw new UnknownEnforcementTarget('unknown-policy', `Unknown policy '${query.policy}' for harness '${query.harness}'`);
+  if (query.policy !== '*' && !rows.some((row: any) => row.policy === query.policy)) throw new UnknownEnforcementTarget('unknown-policy', `Unknown policy '${query.policy}'`);
   if (query.profile !== undefined && !Object.hasOwn(profiles, query.profile)) throw new UnknownEnforcementTarget('unknown-profile', `Unknown profile '${query.profile}'`);
   const pairRows = rows.filter((row: any) => row.harness === query.harness && (row.policy === query.policy || row.policy === '*'));
   const applicable = pairRows.filter((row: any) => row.timing === 'pre-tool' && (query.profile === undefined || row.profile === query.profile || row.profile === 'any'));
@@ -39,9 +41,15 @@ function enforcementFor(coverage: any, query: { harness: string; policy: string;
   };
 }
 function renderEnforcementMatrix(coverage: any): string {
-  const rows = coverage.rows.map((row: any, index: number) => ({ row, index })).sort((a: any, b: any) => a.index - b.index || a.row.harness.localeCompare(b.row.harness) || a.row.event.localeCompare(b.row.event) || a.row.profile.localeCompare(b.row.profile));
+  const order = (items: readonly string[], value: string) => {
+    const index = items.indexOf(value);
+    return index < 0 ? items.length : index;
+  };
+  const rows = [...coverage.rows].sort((a: any, b: any) => order(POLICY_ORDER, a.policy) - order(POLICY_ORDER, b.policy)
+    || order(HARNESS_ORDER, a.harness) - order(HARNESS_ORDER, b.harness)
+    || a.event.localeCompare(b.event) || a.profile.localeCompare(b.profile));
   const lines = [`Schema ${coverage.schemaVersion}; revision ${coverage.revision}; ${coverage.rowsDigest}`, '| Policy | Harness | Native event | Profile | Class | Verification | Prerequisites | Does not cover |', '|---|---|---|---|---|---|---|---|'];
-  for (const { row } of rows) lines.push(`| ${row.policy} | ${row.harness} | ${row.event} | ${row.profile} | ${row.class} | ${row.verification} | ${(row.prerequisites || []).join(', ')} | ${(row.doesNotCover || []).join(', ')} |`);
+  for (const row of rows) lines.push(`| ${row.policy} | ${row.harness} | ${row.event} | ${row.profile} | ${row.class} | ${row.verification} | ${(row.prerequisites || []).join(', ')} | ${(row.doesNotCover || []).join(', ')} |`);
   return lines.join('\n');
 }
 module.exports = { enforcementFor, renderEnforcementMatrix, rowsDigest, UnknownEnforcementTarget, NEVER_BLOCKING_EVENTS };
