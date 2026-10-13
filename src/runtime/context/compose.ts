@@ -459,6 +459,349 @@ function linearFit({
   };
 }
 
+/**
+ * Groups omissions according to IC-008.
+ * Order: not-fresh STALE, not-fresh UNKNOWN, mandatory-overflow, budget, item-cap, unchanged.
+ */
+function groupOmissions(omissionsList: any[] = []): { total: number; groups: any[] } {
+  if (!omissionsList || omissionsList.length === 0) {
+    return { total: 0, groups: [] };
+  }
+
+  const rank = (g: any): number => {
+    if (g.reason === 'not-fresh' && g.freshness === 'STALE') return 1;
+    if (g.reason === 'not-fresh' && g.freshness === 'UNKNOWN') return 2;
+    if (g.reason === 'not-fresh') return 2;
+    if (g.reason === 'mandatory-overflow') return 3;
+    if (g.reason === 'budget') return 4;
+    if (g.reason === 'item-cap') return 5;
+    if (g.reason === 'unchanged') return 6;
+    return 7;
+  };
+
+  const groupMap = new Map<string, { reason: string; freshness?: string; ids: string[]; ranges: any[] }>();
+
+  for (const item of omissionsList) {
+    const key = `${item.reason}:${item.freshness || ''}`;
+    if (!groupMap.has(key)) {
+      groupMap.set(key, {
+        reason: item.reason,
+        ...(item.freshness ? { freshness: item.freshness } : {}),
+        ids: [],
+        ranges: [],
+      });
+    }
+    groupMap.get(key)!.ids.push(item.id);
+  }
+
+  const groups = Array.from(groupMap.values())
+    .map((g) => ({
+      ...g,
+      count: g.ids.length,
+    }))
+    .sort((a, b) => rank(a) - rank(b));
+
+  return {
+    total: omissionsList.length,
+    groups,
+  };
+}
+
+/**
+ * Formats the OVERFLOW notice per IC-005.
+ */
+function formatOverflowMessage({ cause, mandatoryBytes, totalBytes, budgetBytes, source }: any): string {
+  const secondSentence = cause === 'accounting'
+    ? `The omission record brings the pack to ${totalBytes} B against a ${budgetBytes} B budget.`
+    : `It is ${mandatoryBytes} B against a ${budgetBytes} B budget (${source}).`;
+  return `OVERFLOW (exit 3): mandatory content is complete and nothing in it was dropped. ${secondSentence} Split the task or its context, or start a new session, then request the pack again.`;
+}
+
+/**
+ * Formats a ContextPack into markdown per IC-005.
+ */
+function formatMarkdown(pack: any): string {
+  let md = `## ContextPack: [${pack.taskClass.toUpperCase()}] ${pack.taskId}\n`;
+  if (pack.overflowAction?.message) {
+    md += `> ${pack.overflowAction.message}\n`;
+  }
+  if (pack.toolLimitNotice?.message) {
+    md += `> ${pack.toolLimitNotice.message}\n`;
+  }
+  if (pack.objective) {
+    md += `**Objective:** ${pack.objective}\n\n`;
+  }
+
+  const mode = pack.mode || 'full';
+  if (mode === 'bare') {
+    const shortDigest = (pack.delivery?.packDigest || '').slice(0, 19);
+    let totalBytes = pack.size?.totalBytes || 1000;
+    for (let iter = 0; iter < 3; iter++) {
+      const tokensEst = Math.round(totalBytes / 4);
+      const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+      const paddedBytes = String(totalBytes).padStart(9, '0');
+      const endLine = `[end of pack] mode=bare objective=${pack.objective ? 1 : 0} ac=0 constraints=0 verification=0 scope=0 conflicts=0 gaps=0 omitted=0 bytes=${paddedBytes} digest=${shortDigest}\n`;
+      const full = md + footer + endLine;
+      const actualLen = Buffer.byteLength(full, 'utf8');
+      if (actualLen === totalBytes) {
+        if (pack.size) pack.size.totalBytes = actualLen;
+        if (pack.packEnd) pack.packEnd.bytes = actualLen;
+        return full;
+      }
+      totalBytes = actualLen;
+    }
+    const tokensEst = Math.round(totalBytes / 4);
+    const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+    const paddedBytes = String(totalBytes).padStart(9, '0');
+    const endLine = `[end of pack] mode=bare objective=${pack.objective ? 1 : 0} ac=0 constraints=0 verification=0 scope=0 conflicts=0 gaps=0 omitted=0 bytes=${paddedBytes} digest=${shortDigest}\n`;
+    return md + footer + endLine;
+  }
+
+  // Mandatory sections
+  md += `### Acceptance Criteria\n`;
+  if (pack.acceptanceCriteria && pack.acceptanceCriteria.length > 0) {
+    for (const ac of pack.acceptanceCriteria) {
+      const text = typeof ac === 'object' ? ac.text : ac;
+      const reqs = typeof ac === 'object' && Array.isArray(ac.requirements) && ac.requirements.length > 0
+        ? ` (${ac.requirements.join(', ')})`
+        : '';
+      md += `- [ ] ${text}${reqs}\n`;
+    }
+  } else {
+    const reason = pack.mandatory?.acceptanceCriteria?.reason || 'none';
+    md += `- not supplied: ${reason}\n`;
+  }
+  md += '\n';
+
+  md += `### Constraints\n`;
+  if (pack.constraints && pack.constraints.length > 0) {
+    for (const c of pack.constraints) {
+      const id = typeof c === 'object' && c.id ? c.id : '';
+      const text = typeof c === 'object' ? c.text : c;
+      const kind = typeof c === 'object' && c.kind ? ` (${c.kind})` : '';
+      md += `- ! ${id ? id + ' ' : ''}${text}${kind}\n`;
+    }
+  } else {
+    const reason = pack.mandatory?.constraints?.reason || 'none';
+    md += `- not supplied: ${reason}\n`;
+  }
+  md += '\n';
+
+  md += `### Verification Requirements\n`;
+  if (pack.verificationRequirements && pack.verificationRequirements.length > 0) {
+    for (const vr of pack.verificationRequirements) {
+      const text = typeof vr === 'object' ? vr.text : vr;
+      md += `- ${text}\n`;
+    }
+  } else {
+    const reason = pack.mandatory?.verificationRequirements?.reason || 'none';
+    md += `- not supplied: ${reason}\n`;
+  }
+  md += '\n';
+
+  md += `### Out of Scope\n`;
+  if (pack.scopeExcluded && pack.scopeExcluded.length > 0) {
+    for (const se of pack.scopeExcluded) {
+      const text = typeof se === 'object' ? se.text : se;
+      md += `- ${text}\n`;
+    }
+  } else {
+    const reason = pack.mandatory?.scopeExcluded?.reason || 'none';
+    md += `- not supplied: ${reason}\n`;
+  }
+  md += '\n';
+
+  if (pack.claims?.conflicts && pack.claims.conflicts.length > 0) {
+    md += `### Blocking Conflicts\n`;
+    for (const c of pack.claims.conflicts) {
+      const sup = Array.isArray(c.supportingEvidence) ? c.supportingEvidence.join(', ') : '';
+      const con = Array.isArray(c.contradictingEvidence) ? c.contradictingEvidence.join(', ') : '';
+      md += `- CONFLICT ${c.statement} (supports: ${sup}; contradicts: ${con})\n`;
+    }
+    md += '\n';
+  }
+
+  md += `### Blocking Gaps\n`;
+  if (pack.blockingGaps && pack.blockingGaps.length > 0) {
+    for (const bg of pack.blockingGaps) {
+      const text = typeof bg === 'object' ? bg.text : bg;
+      md += `- ${text}\n`;
+    }
+  } else {
+    const reason = pack.mandatory?.blockingGaps?.reason || 'none';
+    md += `- not supplied: ${reason}\n`;
+  }
+  md += '\n';
+
+  if (pack.mandatory) {
+    md += `### Mandatory Sources\n`;
+    const mandKeys = ['objective', 'acceptanceCriteria', 'constraints', 'verificationRequirements', 'scopeExcluded', 'blockingGaps'];
+    for (const k of mandKeys) {
+      const prov = pack.mandatory[k];
+      if (prov) {
+        if (prov.supplied) {
+          const digest12 = prov.digest ? prov.digest.slice(7, 19) : '';
+          const loc = prov.locator ? `${prov.locator}@${digest12}` : `@${digest12}`;
+          md += `- ${k}: ${prov.source} ${loc}\n`;
+        } else {
+          md += `- ${k}: not supplied: ${prov.reason || 'unknown'}\n`;
+        }
+      }
+    }
+    md += '\n';
+  }
+
+  // Optional sections
+  if (pack.decisions?.live && pack.decisions.live.length > 0) {
+    md += `### Live decisions\n`;
+    for (const d of pack.decisions.live) {
+      md += `- ${d.id} (${d.topic}): ${d.statement}\n`;
+    }
+    md += '\n';
+  }
+
+  if (pack.claims?.supported && pack.claims.supported.length > 0) {
+    md += `### Supported Facts & Invariants\n`;
+    for (const c of pack.claims.supported) {
+      const ev = Array.isArray(c.evidenceIds) && c.evidenceIds.length > 0 ? ` *(ev: ${c.evidenceIds.join(', ')})*` : '';
+      md += `- ✓ ${c.statement}${ev}\n`;
+    }
+    md += '\n';
+  }
+
+  if (pack.researchRequests && pack.researchRequests.length > 0) {
+    md += `### Feature Research Requests\n`;
+    for (const r of pack.researchRequests) {
+      let line = `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
+      if (r.gap) line += ` — ${r.gap}`;
+      if (r.claimId) line += ` (claim: ${r.claimId})`;
+      md += `${line}\n`;
+    }
+    md += '\n';
+  }
+
+  if (pack.claims?.hypotheses && pack.claims.hypotheses.length > 0) {
+    md += `### Active Hypotheses (Unverified)\n`;
+    for (const h of pack.claims.hypotheses) {
+      const statement = typeof h === 'object' ? h.statement : h;
+      md += `- ? ${statement}\n`;
+    }
+    md += '\n';
+  }
+
+  if (pack.pointers && pack.pointers.length > 0) {
+    md += `### Pointers\n`;
+    for (const p of pack.pointers) {
+      const range = p.range ? `:${p.range.startLine}-${p.range.endLine}` : '';
+      md += `- ${p.id} ${p.path}${range} ${p.bytes} B\n`;
+    }
+    md += '\n';
+  }
+
+  if (pack.relevantFiles && pack.relevantFiles.length > 0) {
+    md += `### Relevant File Locators\n`;
+    for (const f of pack.relevantFiles) {
+      md += `- \`${f}\`\n`;
+    }
+    md += '\n';
+  }
+
+  if (pack.evidenceSummary && pack.evidenceSummary.length > 0) {
+    md += `### Evidence\n`;
+    for (const ev of pack.evidenceSummary) {
+      md += `- [${ev.kind}] ${ev.summary || ''} (${ev.locator?.file || ''})\n`;
+    }
+    md += '\n';
+  }
+
+  if (pack.structuralContext && pack.structuralContext.length > 0) {
+    md += `### Structural Context\n`;
+    for (const s of pack.structuralContext) {
+      md += `- ${s}\n`;
+    }
+    md += '\n';
+  }
+
+  if (pack.empty) {
+    md += `_No evidence or claims are recorded for task '${pack.taskId}'; this pack states nothing._\n\n`;
+  }
+
+  if (pack.omissions?.groups && pack.omissions.groups.length > 0) {
+    md += `### Omitted\n`;
+    for (const g of pack.omissions.groups) {
+      const fresh = g.freshness ? ` ${g.freshness}` : '';
+      md += `- ${g.reason}${fresh} (${g.count}): ${g.ids.join(', ')}\n`;
+    }
+    md += '\n';
+  }
+
+  // Iteratively compute footer bytes
+  const shortDigest = (pack.delivery?.packDigest || '').slice(0, 19);
+  const endObj = pack.packEnd || {};
+  let totalBytes = pack.size?.totalBytes || 1000;
+
+  for (let iter = 0; iter < 3; iter++) {
+    const tokensEst = Math.round(totalBytes / 4);
+    const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+    const paddedBytes = String(totalBytes).padStart(9, '0');
+    const endLine = `[end of pack] mode=${mode} objective=${endObj.objective ?? (pack.objective ? 1 : 0)} ac=${endObj.acceptanceCriteria ?? 0} constraints=${endObj.constraints ?? 0} verification=${endObj.verificationRequirements ?? 0} scope=${endObj.scopeExcluded ?? 0} conflicts=${endObj.conflicts ?? 0} gaps=${endObj.blockingGaps ?? 0} omitted=${endObj.omitted ?? 0} bytes=${paddedBytes} digest=${shortDigest}\n`;
+    const full = md + footer + endLine;
+    const actualLen = Buffer.byteLength(full, 'utf8');
+    if (actualLen === totalBytes) {
+      if (pack.size) pack.size.totalBytes = actualLen;
+      if (pack.packEnd) pack.packEnd.bytes = actualLen;
+      return full;
+    }
+    totalBytes = actualLen;
+  }
+  const tokensEst = Math.round(totalBytes / 4);
+  const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+  const paddedBytes = String(totalBytes).padStart(9, '0');
+  const endLine = `[end of pack] mode=${mode} objective=${endObj.objective ?? (pack.objective ? 1 : 0)} ac=${endObj.acceptanceCriteria ?? 0} constraints=${endObj.constraints ?? 0} verification=${endObj.verificationRequirements ?? 0} scope=${endObj.scopeExcluded ?? 0} conflicts=${endObj.conflicts ?? 0} gaps=${endObj.blockingGaps ?? 0} omitted=${endObj.omitted ?? 0} bytes=${paddedBytes} digest=${shortDigest}\n`;
+  return md + footer + endLine;
+}
+
+/**
+ * Formats a ContextPack into JSON per IC-004.
+ */
+function formatJson(pack: any): string {
+  const ordered: any = {};
+  const keys = [
+    'version', 'status', 'exitCode', 'taskId', 'taskClass', 'compiledAt', 'mode',
+    'budget', 'overflow', 'overflowAction', 'toolLimitNotice', 'objective',
+    'acceptanceCriteria', 'constraints', 'verificationRequirements', 'scopeExcluded',
+    'blockingGaps', 'claims', 'researchRequests', 'mandatory', 'decisions',
+    'pointers', 'relevantFiles', 'evidenceCount', 'evidenceSummary', 'structuralContext',
+    'budgetEnforcement', 'empty', 'omissions', 'size', 'accounting', 'delivery',
+    'delta', 'packEnd',
+  ];
+
+  for (const k of keys) {
+    if (pack[k] !== undefined) {
+      ordered[k] = pack[k];
+    } else {
+      ordered[k] = null;
+    }
+  }
+
+  let totalBytes = pack.size?.totalBytes || 1000;
+  for (let iter = 0; iter < 3; iter++) {
+    ordered.size.totalBytes = totalBytes;
+    ordered.packEnd.bytes = totalBytes;
+    const jsonStr = JSON.stringify(ordered, null, 2) + '\n';
+    const actualLen = Buffer.byteLength(jsonStr, 'utf8');
+    if (actualLen === totalBytes) {
+      if (pack.size) pack.size.totalBytes = actualLen;
+      if (pack.packEnd) pack.packEnd.bytes = actualLen;
+      return jsonStr;
+    }
+    totalBytes = actualLen;
+  }
+  ordered.size.totalBytes = totalBytes;
+  ordered.packEnd.bytes = totalBytes;
+  return JSON.stringify(ordered, null, 2) + '\n';
+}
+
 module.exports = {
   FIELD_CLASSES,
   ITEM_CAP_LIMITS,
@@ -483,4 +826,8 @@ module.exports = {
   buildEvidenceSummaryItem,
   buildStructuralContextItem,
   linearFit,
+  groupOmissions,
+  formatOverflowMessage,
+  formatMarkdown,
+  formatJson,
 };
