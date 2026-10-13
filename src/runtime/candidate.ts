@@ -59,6 +59,7 @@ interface BuildContext {
   absenceTreeState?: any;
   probeRoot?: string;
   attemptRef?: string;
+  attemptRoot?: string;
   slug?: string | null;
   providerFreshness?: Map<string, any>;
   sourceModeOf?: (providerId: string) => string | null;
@@ -448,7 +449,7 @@ function toEvidence(
 
   const attemptRef = ctx.attemptRef !== undefined
     ? ctx.attemptRef
-    : activeAttemptRef(root, taskId, ctx.slug);
+    : activeAttemptRef(root, taskId, ctx.slug, undefined, ctx.attemptRoot);
   if (attemptRef) {
     source.attemptRef = attemptRef;
   }

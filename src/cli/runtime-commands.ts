@@ -58,7 +58,7 @@ const { handleStorageCommand } = require('../runtime/storage/cli.ts');
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
-const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
+const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature, resolveFeature } = require('../runtime/task-scope.ts');
 const { listCheckouts } = require('../runtime/checkouts.ts');
 const { featureSlugFor } = require('../runtime/implementation-gate.ts');
 const { handleBriefToolsCommand } = require('../runtime/brief-tools.ts');
@@ -142,11 +142,16 @@ const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'retrieva
  * the readiness record written there is the one verify, orchestrate and the edit hook read from
  * the worktree.
  */
-function featureStoreRoot(o: any): { root: string; slug: string } | null {
+function featureStoreRoot(o: any, checkouts: any): { root: string; slug: string } | null {
   if (!FEATURE_STORE_VERBS.has(o.cmd) || o.global) return null;
-  const checkouts = listCheckouts({ cwd: evidenceRoot(o) });
   if (!checkouts.isLinked) return null;
-  const slug = featureSlugFor({ projectRoot: checkouts.current, slug: o.slug });
+  let slug = o.slug || null;
+  if (!slug) {
+    try {
+      const feature = resolveFeature({ projectRoot: checkouts.current });
+      slug = !feature.error && feature.paths ? feature.paths.feature_slug : null;
+    } catch { /* a failed branch lookup cannot route state to a guessed feature */ }
+  }
   const folder = (root: string) => path.join(root, 'agent-docs', 'doflow', slug || '');
   if (!slug || fs.existsSync(folder(checkouts.current)) || !fs.existsSync(folder(checkouts.main))) return null;
   return { root: checkouts.main, slug };
@@ -172,8 +177,11 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   // here so the verbs whose handlers build their own ledger (readiness, evidence) route the same
   // way as the ones that take `slug` directly. The orchestration journal is keyed by slug already.
   // Reset on every dispatch, so one invocation's slug can never carry into the next in-process call.
-  const featureStore = featureStoreRoot(o);
+  const checkouts = FEATURE_STORE_VERBS.has(o.cmd) && !o.global
+    ? listCheckouts({ cwd: evidenceRoot(o) }) : null;
+  const featureStore = featureStoreRoot(o, checkouts);
   const storeRoot = featureStore ? featureStore.root : evidenceRoot(o);
+  const attemptRoot = checkouts?.ok && !checkouts.sandbox ? (checkouts.main || checkouts.current || null) : null;
   // Use the same root resolver as the handler: task redirection, the nearest run ledger,
   // and lifecycle's shared main-worktree store are deliberately different scopes.
   try {
@@ -215,7 +223,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // all this does: the handler names them back under `callerAsserted` so a stated input is
     // never mistaken for a measured one.
     case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, mode: o.mode, slug: storeSlug, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o) });
-    case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, evidenceId: o.evidenceId, replacedBy: o.replacedBy, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, slug: storeSlug, sourceRoot: evidenceRoot(o) });
+    case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, evidenceId: o.evidenceId, replacedBy: o.replacedBy, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, slug: storeSlug, sourceRoot: evidenceRoot(o), attemptRoot });
     // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
     // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so
     // a view invoked from a subdirectory reads the runs that were actually recorded.

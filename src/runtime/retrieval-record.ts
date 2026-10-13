@@ -141,12 +141,12 @@ function resolveNeed(plan: any, intent: string, taskId: string): any {
  * @param {any} [fsImpl]
  * @returns {string|null}
  */
-function activeAttemptRef(projectRoot: any, taskId: any, slug: any = null, fsImpl: any = fs): string | null {
+function activeAttemptRef(projectRoot: any, taskId: any, slug: any = null, fsImpl: any = fs, attemptRoot: any = null): string | null {
   try {
     const featureSlug = resolveTaskScope({ projectRoot, taskId, slug }).slug;
     if (!featureSlug) return null;
 
-    const file = storeFile(lifecycleProjectRoot(projectRoot), featureSlug);
+    const file = storeFile(attemptRoot || lifecycleProjectRoot(projectRoot), featureSlug);
     if (!fsImpl.existsSync(file)) return null;
 
     const data = readTaskState(fsImpl, file);
