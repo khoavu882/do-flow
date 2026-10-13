@@ -559,8 +559,8 @@ function linearFit({
   sectionHeadingsMd = OPTIONAL_HEADING_BYTES_MD,
   sectionHeadingsJson = OPTIONAL_HEADING_BYTES_JSON,
 }: any): any {
-  const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory');
-  const allOptional = items.filter((i: any) => i.cls === 'optional' || i.class === 'optional');
+  const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory' || i.deltaForced);
+  const allOptional = items.filter((i: any) => (i.cls === 'optional' || i.class === 'optional') && !i.deltaForced);
 
   // Enforce item limits on optional items (reason: 'item-cap')
   const fieldCounts: Record<string, number> = {};
@@ -1069,6 +1069,12 @@ function formatMarkdown(pack: any, options: any = {}): string {
 
   if (pack.empty) {
     md += `_No evidence or claims are recorded for task '${pack.taskId}'; this pack states nothing._\n\n`;
+  }
+
+  if (mode === 'delta' && pack.delta?.removed?.length) {
+    md += `### Removed since ${formatShortDigest(pack.delta.since)}\n`;
+    for (const id of pack.delta.removed) md += `- ${id}\n`;
+    md += '\n';
   }
 
   if (pack.omissions?.groups && pack.omissions.groups.length > 0) {

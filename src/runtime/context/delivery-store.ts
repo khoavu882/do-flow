@@ -33,8 +33,8 @@ function makeTokenRecord(bytes: number): any {
   };
 }
 
-function createDeliveryEntry({ pack, form, harness = null, sources = {}, expansions = [] }: any): any {
-  const items = pack.deliveryItems || [];
+function createDeliveryEntry({ pack, form, harness = null, sources = {}, expansions = [], retention = null }: any): any {
+  const items = pack.deliveryAllItems || pack.deliveryItems || [];
   const digests = Object.fromEntries(items.map((item: any) => [item.id, item.digest]));
   const mandatoryIds = items.filter((item: any) => item.cls === 'mandatory').map((item: any) => item.id);
   const harnessId = harness || 'unstated';
@@ -49,7 +49,7 @@ function createDeliveryEntry({ pack, form, harness = null, sources = {}, expansi
     budget: { maxBytes: pack.budget.maxBytes, source: pack.budget.source },
     since: pack.delivery.since || null,
     deltaRefused: pack.delivery.deltaRefused || null,
-    retention: { status: 'unknown', basis: 'contextProfile.retention is unverified' },
+    retention: retention || { status: 'unknown', basis: 'contextProfile.retention is unverified' },
     items: digests,
     mandatoryIds,
     sources,
@@ -61,6 +61,17 @@ function createDeliveryEntry({ pack, form, harness = null, sources = {}, expansi
   };
   assertValidDeliveryEntry(entry);
   return entry;
+}
+
+function readDeliveryEntry({ projectRoot, taskId, slug = null, packDigest, fsImpl = fs }: any): any | null {
+  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
+  const file = path.join(dir, `${taskId}.json`);
+  try {
+    const disk = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
+    return (Array.isArray(disk.deliveries) ? disk.deliveries : []).find((entry: any) => entry.packDigest === packDigest) || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Persist a delivery under the same bounded lock used by task state. */
@@ -86,4 +97,4 @@ function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, 
   return { key: entry.key, recorded: true, reason: null };
 }
 
-module.exports = { ACTUAL_UNMEASURED, assertValidDeliveryEntry, createDeliveryEntry, makeTokenRecord, recordDelivery };
+module.exports = { ACTUAL_UNMEASURED, assertValidDeliveryEntry, createDeliveryEntry, makeTokenRecord, readDeliveryEntry, recordDelivery };

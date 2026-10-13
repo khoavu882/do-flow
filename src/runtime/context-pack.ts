@@ -4,6 +4,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
@@ -47,8 +48,8 @@ const {
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
-const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds } = require('./context/budget.ts');
-const { createDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
+const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegisteredHarnesses } = require('./context/budget.ts');
+const { createDeliveryEntry, readDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
 const { boundedAcquire } = require('./task-state.ts');
 
 /**
@@ -81,6 +82,34 @@ function loadLiveDecisions({ projectRoot, slug = null, feature: preloadedFeature
   } catch {
     return { ...NO_DECISIONS };
   }
+}
+
+function hashSourceFiles(root: string, paths: string[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const source of [...new Set(paths)].sort()) {
+    if (typeof source !== 'string' || source === '') continue;
+    const absolute = path.resolve(root, source);
+    const relative = path.relative(path.resolve(root), absolute);
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) continue;
+    try {
+      result[relative.split(path.sep).join('/')] = `sha256:${crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex')}`;
+    } catch { /* unavailable source paths cannot be represented as verified sources */ }
+  }
+  return result;
+}
+
+function sourcesChanged(root: string, sources: Record<string, string>): boolean {
+  for (const [source, digest] of Object.entries(sources || {})) {
+    const current = hashSourceFiles(root, [source])[source];
+    if (current !== digest) return true;
+  }
+  return false;
+}
+
+function profileRetention(harnessId: string | null, profiles: any[] | null): any {
+  if (!harnessId) return null;
+  const harnesses = profiles || getRegisteredHarnesses();
+  return harnesses.find((item: any) => item.id === harnessId)?.contextProfile?.retention || null;
 }
 
 class ContextPackCompiler {
@@ -294,14 +323,45 @@ class ContextPackCompiler {
     });
 
     const hasMandatoryRequests = !bare && blockingUnanswered.length > 0;
+    let deltaInfo: any = null;
+    let unchangedOmissions: any[] = [];
+    let removedIds: string[] = [];
+    let fitItems = items;
+    if (params.deltaSinceEntry && paramMode === 'delta') {
+      const oldItems = params.deltaSinceEntry.items || {};
+      const currentIds = new Set(items.map((item: any) => item.id));
+      const added: string[] = [];
+      const changed: string[] = [];
+      const unchanged: string[] = [];
+      fitItems = [];
+      for (const item of items) {
+        const oldDigest = oldItems[item.id];
+        if (item.cls === 'mandatory') {
+          if (!oldDigest) added.push(item.id);
+          else if (oldDigest !== item.digest) changed.push(item.id);
+          else unchanged.push(item.id);
+          fitItems.push(item);
+        } else if (!oldDigest) {
+          added.push(item.id); fitItems.push({ ...item, deltaForced: true });
+        } else if (oldDigest === item.digest) {
+          unchanged.push(item.id);
+          unchangedOmissions.push({ id: item.id, field: item.field, reason: 'unchanged' });
+        } else {
+          changed.push(item.id); fitItems.push({ ...item, deltaForced: true });
+        }
+      }
+      removedIds = Object.keys(oldItems).filter((id: string) => !currentIds.has(id));
+      deltaInfo = { since, added, changed, removed: removedIds, unchanged };
+    }
+
     const fit = linearFit({
-      items,
+      items: fitItems,
       budget: resolvedBudget.maxBytes,
       taskId,
       taskClass: effectiveTaskClass,
       envelopeMd,
       envelopeJson,
-      initialOmissions: bare ? [] : nonFreshOmissions,
+      initialOmissions: bare ? [] : [...nonFreshOmissions, ...unchangedOmissions],
       sectionHeadingsJson: {
         'decisions.live': 5,
         'claims.supported': 5,
@@ -423,10 +483,10 @@ class ContextPackCompiler {
           packDigest,
           recorded: false,
           reason: null,
-          since: null,
-          deltaRefused: null,
+          since: since || null,
+          deltaRefused: params.deltaRefused || null,
         },
-        delta: null,
+        delta: deltaInfo,
         packEnd: {
           mode: bare ? 'bare' : (paramMode || 'full'),
           objective: objective ? 1 : 0,
@@ -444,6 +504,7 @@ class ContextPackCompiler {
       Object.defineProperties(packed, {
         deliveryItems: { value: keptItems.map((item: any) => ({ id: item.id, digest: item.digest, cls: item.cls || item.class })) },
         deliveryOmissions: { value: bare ? [] : omissionsList.map((item: any) => ({ ...item })) },
+        deliveryAllItems: { value: items.map((item: any) => ({ id: item.id, digest: item.digest, cls: item.cls || item.class })) },
       });
       return packed;
     };
@@ -468,17 +529,17 @@ class ContextPackCompiler {
         let lastOptIdx = -1;
         for (let idx = currentKept.length - 1; idx >= 0; idx--) {
           const it = currentKept[idx];
-          if (it.cls === 'optional' || it.class === 'optional') {
+          if ((it.cls === 'optional' || it.class === 'optional') && !it.deltaForced) {
             lastOptIdx = idx;
             break;
           }
         }
 
         if (lastOptIdx === -1) {
-          const mandatoryOnlyKept = currentKept.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory');
+          const mandatoryOnlyKept = currentKept.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory' || i.deltaForced);
           const allOptOmitted = [
             ...(bare ? [] : nonFreshOmissions),
-            ...items.filter((i: any) => i.cls === 'optional' || i.class === 'optional').map((i: any) => ({
+            ...items.filter((i: any) => (i.cls === 'optional' || i.class === 'optional') && !i.deltaForced).map((i: any) => ({
               id: i.id,
               field: i.field,
               reason: 'mandatory-overflow',
@@ -744,6 +805,7 @@ function handleContextPackCommand({
   reason = null,
   since = null,
   expand = null,
+  profiles = null,
 }: any = {}) {
   const root = stateRoot || process.cwd();
   const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
@@ -776,13 +838,28 @@ function handleContextPackCommand({
     }
     parsedMaxBytes = parsed;
 
-    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness });
+    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
     if (parsedMaxBytes > baseBudget.maxBytes && !reason) {
       return usageError('context-pack', `--max-bytes (${parsedMaxBytes}) exceeds resolved budget (${baseBudget.maxBytes}) and requires --reason`, json);
     }
   }
 
-  const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness });
+  const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness, profiles });
+
+  let sinceEntry: any = null;
+  let deltaRefused: string | null = null;
+  let deltaExpansions: any[] = [];
+  let retention = profileRetention(budget.harness?.id || null, profiles);
+  if (since && !expand) {
+    sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
+    if (!sinceEntry) deltaRefused = 'since-unknown';
+    else if (sourcesChanged(root, sinceEntry.sources || {})) deltaRefused = 'sources-changed';
+    else if (!budget.harness?.id) deltaRefused = 'harness-unstated';
+    else if (retention?.value !== 'supported') deltaRefused = 'retention-unproven';
+    if (deltaRefused) {
+      deltaExpansions.push({ at: new Date().toISOString(), kind: 'delta-widened', target: null, reason: deltaRefused, bytesAdded: null });
+    }
+  }
 
   const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
 
@@ -876,6 +953,9 @@ function handleContextPackCommand({
     noRecord,
     reason,
     since,
+    mode: since && !deltaRefused && !expand ? 'delta' : undefined,
+    deltaSinceEntry: since && !deltaRefused && !expand ? sinceEntry : null,
+    deltaRefused,
     expand,
     evidenceLedger: ledger,
     claimsManager: claims,
@@ -886,7 +966,12 @@ function handleContextPackCommand({
   if (noRecord) {
     pack.delivery.reason = 'no-record';
   } else {
-    const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness });
+    const sources = hashSourceFiles(root, pack.relevantFiles || []);
+    const retentionRecord = retention?.value === 'supported' || retention?.value === 'unsupported'
+      ? { status: retention.value, basis: `declared:${retention.source || 'profile'}` }
+      : { status: 'unknown', basis: retention?.unverified || 'contextProfile.retention is unverified' };
+    const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
+      sources, expansions: deltaExpansions, retention: retentionRecord });
     try {
       const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire });
       pack.delivery.key = result.key;
