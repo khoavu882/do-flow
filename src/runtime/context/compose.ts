@@ -518,46 +518,92 @@ function formatOverflowMessage({ cause, mandatoryBytes, totalBytes, budgetBytes,
 }
 
 /**
+ * Formats short pack digest: sha256:<first 12 hex> per IC-009.
+ */
+function formatShortDigest(packDigest: string): string {
+  if (!packDigest) return 'sha256:000000000000';
+  const hex = packDigest.replace(/^sha256:/, '');
+  return `sha256:${hex.slice(0, 12)}`;
+}
+
+/**
+ * Parses the [end of pack] line from the end of a markdown pack.
+ * Returns null if the line is missing or malformed.
+ */
+function parsePackEndLine(md: string): any {
+  if (typeof md !== 'string') return null;
+  const lines = md.trimEnd().split('\n');
+  const lastLine = lines[lines.length - 1];
+  if (!lastLine || !lastLine.startsWith('[end of pack] ')) return null;
+
+  const match = lastLine.match(
+    /^\[end of pack\] mode=(\S+) objective=(\d+) ac=(\d+) constraints=(\d+) verification=(\d+) scope=(\d+) conflicts=(\d+) gaps=(\d+) omitted=(\d+) bytes=(\d+) digest=(\S+)$/
+  );
+  if (!match) return null;
+
+  return {
+    mode: match[1],
+    objective: parseInt(match[2], 10),
+    acceptanceCriteria: parseInt(match[3], 10),
+    constraints: parseInt(match[4], 10),
+    verificationRequirements: parseInt(match[5], 10),
+    scopeExcluded: parseInt(match[6], 10),
+    conflicts: parseInt(match[7], 10),
+    blockingGaps: parseInt(match[8], 10),
+    omitted: parseInt(match[9], 10),
+    bytes: parseInt(match[10], 10),
+    rawBytes: match[10],
+    isPadded: match[10].length === 9,
+    digest: match[11],
+  };
+}
+
+/**
+ * Verifies that a markdown pack ends with a valid, padded [end of pack] line
+ * whose byte count equals the total byte length of the markdown.
+ */
+function verifyPackEndLine(md: string): { ok: boolean; reason?: string; parsed?: any } {
+  if (typeof md !== 'string') {
+    return { ok: false, reason: 'invalid-input' };
+  }
+  const parsed = parsePackEndLine(md);
+  if (!parsed) {
+    return { ok: false, reason: 'missing-end-of-pack-line' };
+  }
+  if (!parsed.isPadded) {
+    return { ok: false, reason: 'unpadded-bytes-field', parsed };
+  }
+  const actualLen = Buffer.byteLength(md, 'utf8');
+  if (parsed.bytes !== actualLen) {
+    return {
+      ok: false,
+      reason: `byte-count-mismatch: declared ${parsed.bytes}, actual ${actualLen}`,
+      parsed,
+    };
+  }
+  return { ok: true, parsed };
+}
+
+/**
  * Formats a ContextPack into markdown per IC-005.
  */
 function formatMarkdown(pack: any): string {
-  let md = `## ContextPack: [${pack.taskClass.toUpperCase()}] ${pack.taskId}\n`;
-  if (pack.overflowAction?.message) {
-    md += `> ${pack.overflowAction.message}\n`;
-  }
-  if (pack.toolLimitNotice?.message) {
-    md += `> ${pack.toolLimitNotice.message}\n`;
-  }
+  const toolLimitBytes = pack.budget?.toolResultLimitBytes;
+  const isToolLimitDeclared = typeof toolLimitBytes === 'number' && toolLimitBytes > 0;
+  const harnessName = pack.budget?.harness?.id || 'harness';
+
+  const getToolLimitMessage = (bytes: number) => {
+    return `TOOL LIMIT: this pack is ${bytes} B and ${harnessName} delivers tool output up to ${toolLimitBytes} B, so it may arrive cut. If the last line is not "[end of pack] ...", it was cut.`;
+  };
+
+  const mode = pack.mode || 'full';
+  let md = '';
   if (pack.objective) {
     md += `**Objective:** ${pack.objective}\n\n`;
   }
 
-  const mode = pack.mode || 'full';
-  if (mode === 'bare') {
-    const shortDigest = (pack.delivery?.packDigest || '').slice(0, 19);
-    let totalBytes = pack.size?.totalBytes || 1000;
-    for (let iter = 0; iter < 3; iter++) {
-      const tokensEst = Math.round(totalBytes / 4);
-      const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
-      const paddedBytes = String(totalBytes).padStart(9, '0');
-      const endLine = `[end of pack] mode=bare objective=${pack.objective ? 1 : 0} ac=0 constraints=0 verification=0 scope=0 conflicts=0 gaps=0 omitted=0 bytes=${paddedBytes} digest=${shortDigest}\n`;
-      const full = md + footer + endLine;
-      const actualLen = Buffer.byteLength(full, 'utf8');
-      if (actualLen === totalBytes) {
-        if (pack.size) pack.size.totalBytes = actualLen;
-        if (pack.packEnd) pack.packEnd.bytes = actualLen;
-        return full;
-      }
-      totalBytes = actualLen;
-    }
-    const tokensEst = Math.round(totalBytes / 4);
-    const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
-    const paddedBytes = String(totalBytes).padStart(9, '0');
-    const endLine = `[end of pack] mode=bare objective=${pack.objective ? 1 : 0} ac=0 constraints=0 verification=0 scope=0 conflicts=0 gaps=0 omitted=0 bytes=${paddedBytes} digest=${shortDigest}\n`;
-    return md + footer + endLine;
-  }
-
-  // Mandatory sections
+  if (mode !== 'bare') {
+    // Mandatory sections
   md += `### Acceptance Criteria\n`;
   if (pack.acceptanceCriteria && pack.acceptanceCriteria.length > 0) {
     for (const ac of pack.acceptanceCriteria) {
@@ -734,18 +780,41 @@ function formatMarkdown(pack: any): string {
     }
     md += '\n';
   }
+  }
 
-  // Iteratively compute footer bytes
-  const shortDigest = (pack.delivery?.packDigest || '').slice(0, 19);
+  const body = md;
   const endObj = pack.packEnd || {};
-  let totalBytes = pack.size?.totalBytes || 1000;
+  const shortDigest = endObj.digest || formatShortDigest(pack.delivery?.packDigest);
 
-  for (let iter = 0; iter < 3; iter++) {
+  const objectiveCount = endObj.objective ?? (pack.objective ? 1 : 0);
+  const acCount = endObj.acceptanceCriteria ?? (pack.acceptanceCriteria?.length || 0);
+  const constraintsCount = endObj.constraints ?? (pack.constraints?.length || 0);
+  const verificationCount = endObj.verificationRequirements ?? (pack.verificationRequirements?.length || 0);
+  const scopeCount = endObj.scopeExcluded ?? (pack.scopeExcluded?.length || 0);
+  const conflictsCount = endObj.conflicts ?? (pack.claims?.conflicts?.length || 0);
+  const gapsCount = endObj.blockingGaps ?? (pack.blockingGaps?.length || 0);
+  const omittedCount = endObj.omitted ?? (pack.omissions?.total || 0);
+
+  let totalBytes = pack.size?.totalBytes || 1000;
+  for (let iter = 0; iter < 5; iter++) {
+    let header = `## ContextPack: [${pack.taskClass.toUpperCase()}] ${pack.taskId}\n`;
+    if (pack.overflowAction?.message) {
+      header += `> ${pack.overflowAction.message}\n`;
+    }
+    if (isToolLimitDeclared && totalBytes > toolLimitBytes) {
+      const msg = getToolLimitMessage(totalBytes);
+      header += `> ${msg}\n`;
+      pack.toolLimitNotice = { message: msg };
+    } else {
+      pack.toolLimitNotice = null;
+    }
+
     const tokensEst = Math.round(totalBytes / 4);
     const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
     const paddedBytes = String(totalBytes).padStart(9, '0');
-    const endLine = `[end of pack] mode=${mode} objective=${endObj.objective ?? (pack.objective ? 1 : 0)} ac=${endObj.acceptanceCriteria ?? 0} constraints=${endObj.constraints ?? 0} verification=${endObj.verificationRequirements ?? 0} scope=${endObj.scopeExcluded ?? 0} conflicts=${endObj.conflicts ?? 0} gaps=${endObj.blockingGaps ?? 0} omitted=${endObj.omitted ?? 0} bytes=${paddedBytes} digest=${shortDigest}\n`;
-    const full = md + footer + endLine;
+    const endLine = `[end of pack] mode=${mode} objective=${objectiveCount} ac=${acCount} constraints=${constraintsCount} verification=${verificationCount} scope=${scopeCount} conflicts=${conflictsCount} gaps=${gapsCount} omitted=${omittedCount} bytes=${paddedBytes} digest=${shortDigest}\n`;
+
+    const full = header + body + footer + endLine;
     const actualLen = Buffer.byteLength(full, 'utf8');
     if (actualLen === totalBytes) {
       if (pack.size) pack.size.totalBytes = actualLen;
@@ -754,17 +823,40 @@ function formatMarkdown(pack: any): string {
     }
     totalBytes = actualLen;
   }
+
+  let header = `## ContextPack: [${pack.taskClass.toUpperCase()}] ${pack.taskId}\n`;
+  if (pack.overflowAction?.message) {
+    header += `> ${pack.overflowAction.message}\n`;
+  }
+  if (isToolLimitDeclared && totalBytes > toolLimitBytes) {
+    header += `> ${getToolLimitMessage(totalBytes)}\n`;
+    pack.toolLimitNotice = { message: getToolLimitMessage(totalBytes) };
+  } else {
+    pack.toolLimitNotice = null;
+  }
   const tokensEst = Math.round(totalBytes / 4);
   const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
   const paddedBytes = String(totalBytes).padStart(9, '0');
-  const endLine = `[end of pack] mode=${mode} objective=${endObj.objective ?? (pack.objective ? 1 : 0)} ac=${endObj.acceptanceCriteria ?? 0} constraints=${endObj.constraints ?? 0} verification=${endObj.verificationRequirements ?? 0} scope=${endObj.scopeExcluded ?? 0} conflicts=${endObj.conflicts ?? 0} gaps=${endObj.blockingGaps ?? 0} omitted=${endObj.omitted ?? 0} bytes=${paddedBytes} digest=${shortDigest}\n`;
-  return md + footer + endLine;
+  const endLine = `[end of pack] mode=${mode} objective=${objectiveCount} ac=${acCount} constraints=${constraintsCount} verification=${verificationCount} scope=${scopeCount} conflicts=${conflictsCount} gaps=${gapsCount} omitted=${omittedCount} bytes=${paddedBytes} digest=${shortDigest}\n`;
+  const full = header + body + footer + endLine;
+  const actualLen = Buffer.byteLength(full, 'utf8');
+  if (pack.size) pack.size.totalBytes = actualLen;
+  if (pack.packEnd) pack.packEnd.bytes = actualLen;
+  return full;
 }
 
 /**
  * Formats a ContextPack into JSON per IC-004.
  */
 function formatJson(pack: any): string {
+  const toolLimitBytes = pack.budget?.toolResultLimitBytes;
+  const isToolLimitDeclared = typeof toolLimitBytes === 'number' && toolLimitBytes > 0;
+  const harnessName = pack.budget?.harness?.id || 'harness';
+
+  const getToolLimitMessage = (bytes: number) => {
+    return `TOOL LIMIT: this pack is ${bytes} B and ${harnessName} delivers tool output up to ${toolLimitBytes} B, so it may arrive cut. If the last line is not "[end of pack] ...", it was cut.`;
+  };
+
   const ordered: any = {};
   const keys = [
     'version', 'status', 'exitCode', 'taskId', 'taskClass', 'compiledAt', 'mode',
@@ -784,10 +876,47 @@ function formatJson(pack: any): string {
     }
   }
 
+  const endObj = pack.packEnd || {};
+  const mode = endObj.mode || pack.mode || 'full';
+  const shortDigest = endObj.digest || formatShortDigest(pack.delivery?.packDigest);
+
+  const objectiveCount = endObj.objective ?? (pack.objective ? 1 : 0);
+  const acCount = endObj.acceptanceCriteria ?? (pack.acceptanceCriteria?.length || 0);
+  const constraintsCount = endObj.constraints ?? (pack.constraints?.length || 0);
+  const verificationCount = endObj.verificationRequirements ?? (pack.verificationRequirements?.length || 0);
+  const scopeCount = endObj.scopeExcluded ?? (pack.scopeExcluded?.length || 0);
+  const conflictsCount = endObj.conflicts ?? (pack.claims?.conflicts?.length || 0);
+  const gapsCount = endObj.blockingGaps ?? (pack.blockingGaps?.length || 0);
+  const omittedCount = endObj.omitted ?? (pack.omissions?.total || 0);
+
+  ordered.packEnd = {
+    mode,
+    objective: objectiveCount,
+    acceptanceCriteria: acCount,
+    constraints: constraintsCount,
+    verificationRequirements: verificationCount,
+    scopeExcluded: scopeCount,
+    conflicts: conflictsCount,
+    blockingGaps: gapsCount,
+    omitted: omittedCount,
+    bytes: pack.size?.totalBytes || 1000,
+    digest: shortDigest,
+  };
+
   let totalBytes = pack.size?.totalBytes || 1000;
-  for (let iter = 0; iter < 3; iter++) {
+  for (let iter = 0; iter < 5; iter++) {
     ordered.size.totalBytes = totalBytes;
     ordered.packEnd.bytes = totalBytes;
+    if (isToolLimitDeclared) {
+      if (totalBytes > toolLimitBytes) {
+        const msg = getToolLimitMessage(totalBytes);
+        ordered.toolLimitNotice = { message: msg };
+        pack.toolLimitNotice = ordered.toolLimitNotice;
+      } else {
+        ordered.toolLimitNotice = null;
+        pack.toolLimitNotice = null;
+      }
+    }
     const jsonStr = JSON.stringify(ordered, null, 2) + '\n';
     const actualLen = Buffer.byteLength(jsonStr, 'utf8');
     if (actualLen === totalBytes) {
@@ -797,9 +926,14 @@ function formatJson(pack: any): string {
     }
     totalBytes = actualLen;
   }
+
   ordered.size.totalBytes = totalBytes;
   ordered.packEnd.bytes = totalBytes;
-  return JSON.stringify(ordered, null, 2) + '\n';
+  const jsonStr = JSON.stringify(ordered, null, 2) + '\n';
+  const actualLen = Buffer.byteLength(jsonStr, 'utf8');
+  if (pack.size) pack.size.totalBytes = actualLen;
+  if (pack.packEnd) pack.packEnd.bytes = actualLen;
+  return jsonStr;
 }
 
 module.exports = {
@@ -808,6 +942,9 @@ module.exports = {
   canonicalJson,
   itemDigest,
   computePackDigest,
+  formatShortDigest,
+  parsePackEndLine,
+  verifyPackEndLine,
   buildPackItem,
   buildObjectiveItem,
   buildConstraintItem,
