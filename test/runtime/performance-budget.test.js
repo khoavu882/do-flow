@@ -79,6 +79,91 @@ function formatLoadGateDiagnostic(controlMedian, rowControlP50Ms, factor = LOAD_
 }
 
 /**
+ * Pure function counting concurrent test files from `ps -A -o pid=,command=` output.
+ * Lines of `ps -A -o pid=,command=`; count lines whose command matches a path ending in `.test.js`,
+ * excluding ownPid and commands running the same test file.
+ * The parent `node --test test/` line has no `.test.js` and is not counted.
+ *
+ * @param {string} psOutput
+ * @param {number|string} ownPid
+ * @param {string} [ownTestFile='performance-budget.test.js']
+ * @returns {number}
+ */
+function countConcurrentTestFiles(psOutput, ownPid, ownTestFile = 'performance-budget.test.js') {
+  if (!psOutput || typeof psOutput !== 'string') return 0;
+  const lines = psOutput.split('\n');
+  let count = 0;
+  const ownPidNum = ownPid != null ? Number(ownPid) : null;
+
+  let detectedOwnFile = ownTestFile;
+  if (ownPidNum !== null) {
+    for (const line of lines) {
+      const match = line.trim().match(/^(\d+)\s+(.+)$/);
+      if (match && Number(match[1]) === ownPidNum) {
+        const fileMatch = match[2].match(/(?:^|[\s"'/])([^\s"'/]+\.test\.js)(?:[\s"']|$)/);
+        if (fileMatch && !fileMatch[1].includes('*')) {
+          detectedOwnFile = path.basename(fileMatch[1]);
+        }
+        break;
+      }
+    }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^(\d+)\s+(.+)$/);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const command = match[2];
+
+    if (ownPidNum !== null && pid === ownPidNum) {
+      continue;
+    }
+
+    const testMatch = command.match(/(?:^|[\s"'/])([^\s"'/]+\.test\.js)(?:[\s"']|$)/);
+    if (!testMatch || testMatch[1].includes('*')) {
+      continue;
+    }
+
+    const matchedFile = path.basename(testMatch[1]);
+    if (detectedOwnFile && matchedFile === detectedOwnFile) {
+      continue;
+    }
+
+    count++;
+  }
+  return count;
+}
+
+function formatIsolationGateDiagnostic(count) {
+  return `other test files running concurrently (${count}); latency judged only in isolation — run node --test test/runtime/performance-budget.test.js alone or npm run bench -- perf measure`;
+}
+
+/**
+ * Small wrapper that runs ps via spawnSync.
+ * On win32 or ps failure, returns 0 so the gate is not applied.
+ * @param {number|string} [ownPid=process.pid]
+ * @returns {number}
+ */
+function getConcurrentTestFiles(ownPid = process.pid) {
+  if (process.platform === 'win32') {
+    return 0;
+  }
+  try {
+    const res = spawnSync('ps', ['-A', '-o', 'pid=,command='], {
+      encoding: 'utf8',
+    });
+    if (res.error || res.status !== 0 || !res.stdout) {
+      return 0;
+    }
+    return countConcurrentTestFiles(res.stdout, ownPid);
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Normalises a sample latency by paired control against baseline row control.
  * Formula: sample * min(1, controlP50Ms / pairedControl).
  * If controlP50Ms is not provided (e.g. intent fallback), no normalisation is applied.
@@ -372,11 +457,54 @@ test('performance-budget AM9 unit (x): both not judged -> skip outcome carrying 
   );
 });
 
+// Unit tests for AM10 test isolation gate (no timing)
+test('performance-budget AM10 unit (xi): ps text with own pid plus two other .test.js lines -> 2', () => {
+  const psText = [
+    '  100 node test/runtime/performance-budget.test.js',
+    '  101 node test/guards/guards.test.js',
+    '  102 node test/runtime/other.test.js',
+  ].join('\n');
+  assert.equal(countConcurrentTestFiles(psText, 100), 2);
+});
+
+test('performance-budget AM10 unit (xii): only the parent node --test test/ line and own pid -> 0', () => {
+  const psText = [
+    '   99 node --test test/',
+    '  100 node test/runtime/performance-budget.test.js',
+  ].join('\n');
+  assert.equal(countConcurrentTestFiles(psText, 100), 0);
+});
+
+test('performance-budget AM10 unit (xiii): a .test.js line from another repository path still counts', () => {
+  const psText = [
+    '  100 node test/runtime/performance-budget.test.js',
+    '  200 node /path/to/another/repo/test/feature.test.js',
+  ].join('\n');
+  assert.equal(countConcurrentTestFiles(psText, 100), 1);
+});
+
+test('performance-budget AM10 unit (xiv): the skip message carries the count', () => {
+  const msg = formatIsolationGateDiagnostic(3);
+  assert.ok(msg.includes('(3)'), 'skip message must carry count');
+  assert.equal(
+    msg,
+    'other test files running concurrently (3); latency judged only in isolation — run node --test test/runtime/performance-budget.test.js alone or npm run bench -- perf measure'
+  );
+});
+
 const budgets = JSON.parse(fs.readFileSync(BUDGETS_PATH, 'utf8'));
 const enforcedSurfaces = (budgets.surfaces || []).filter((s) => s.enforced);
 
 for (const surface of enforcedSurfaces) {
   test(`performance-budget: surface ${surface.id} executes within latency ceiling`, (t) => {
+    const concurrentCount = getConcurrentTestFiles();
+    if (concurrentCount > 0) {
+      if (t && typeof t.skip === 'function') {
+        t.skip(formatIsolationGateDiagnostic(concurrentCount));
+        return;
+      }
+    }
+
     const row = pickApprovedRow(budgets, surface.id);
     let ceilingMs;
     let ceilingSource;
@@ -526,4 +654,7 @@ module.exports = {
   collectPairedSamples,
   median,
   pickApprovedRow,
+  countConcurrentTestFiles,
+  getConcurrentTestFiles,
+  formatIsolationGateDiagnostic,
 };
