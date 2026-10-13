@@ -75,7 +75,7 @@ function readDeliveryEntry({ projectRoot, taskId, slug = null, packDigest, fsImp
 }
 
 /** Persist a delivery under the same bounded lock used by task state. */
-function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, acquire = boundedAcquire }: any): any {
+function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, acquire = boundedAcquire, supersedesKey = null }: any): any {
   assertValidDeliveryEntry(entry);
   if (typeof taskId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId) || taskId.includes('..')) {
     throw new Error(`Invalid task id '${taskId}'`);
@@ -91,7 +91,8 @@ function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, 
       if (deliveries.some((existing: any) => existing.key === entry.key)) {
         return { taskId, deliveries };
       }
-      return { taskId, deliveries: [...deliveries, entry].slice(-MAX_DELIVERIES) };
+      const current = supersedesKey ? deliveries.filter((existing: any) => existing.key !== supersedesKey) : deliveries;
+      return { taskId, deliveries: [...current, entry].slice(-MAX_DELIVERIES) };
     },
   });
   return { key: entry.key, recorded: true, reason: null };

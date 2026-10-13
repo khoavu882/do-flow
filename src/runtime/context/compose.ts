@@ -622,25 +622,8 @@ function linearFit({
   const initialCostMd = mandatoryMdBytes + allOmittedBytes.md;
   const initialCostJson = mandatoryJsonBytes + allOmittedBytes.json;
 
-  // Check overflow
-  if (Math.max(initialCostMd, initialCostJson) > budget) {
-    const cause = Math.max(mandatoryMdBytes, mandatoryJsonBytes) > budget ? 'mandatory' : 'accounting';
-    const fittedOn = initialCostJson > initialCostMd ? 'json' : 'markdown';
-    return {
-      taskId,
-      taskClass,
-      budgetBytes: budget,
-      totalBytes: Math.max(initialCostMd, initialCostJson),
-      mandatoryBytes: Math.max(mandatoryMdBytes, mandatoryJsonBytes),
-      optionalBytes: 0,
-      overflow: true,
-      cause,
-      fittedOn,
-      kept: mandatoryItems,
-      omissions: allOmitted,
-      packDigest: computePackDigest(mandatoryItems),
-    };
-  }
+  // Even when the all-omitted accounting form is over budget, test optional items
+  // in priority order: retaining an item can cost less than naming it as omitted.
 
   // Sort optional items by priority ascending, then source order
   const sortedOptional = [...eligibleOptional].sort((a: any, b: any) => {
@@ -717,6 +700,25 @@ function linearFit({
   const mandatoryBytes = Math.max(mandatoryMdBytes, mandatoryJsonBytes);
   const optionalBytes = totalBytes - mandatoryBytes;
   const kept = [...mandatoryItems, ...keptOptional];
+
+  // Overflow is final only after every optional item has had its fit decision.
+  if (totalBytes > budget) {
+    const cause = mandatoryBytes > budget ? 'mandatory' : 'accounting';
+    return {
+      taskId,
+      taskClass,
+      budgetBytes: budget,
+      totalBytes,
+      mandatoryBytes,
+      optionalBytes: 0,
+      overflow: true,
+      cause,
+      fittedOn,
+      kept: mandatoryItems,
+      omissions: allOmitted,
+      packDigest: computePackDigest(mandatoryItems),
+    };
+  }
 
   return {
     taskId,

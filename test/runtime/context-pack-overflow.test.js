@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { handleContextPackCommand, ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
+const { linearFit } = require('../../src/runtime/context/compose.ts');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { EXIT } = require('../../src/runtime/cli-result.ts');
 
@@ -143,6 +144,53 @@ test('context-pack-overflow: overflow with cause accounting when omission record
     assert.ok(pack.overflowAction.message.includes('The omission record brings the pack to'));
     assert.ok(pack.overflowAction.message.includes(`against a ${budget} B budget.`));
   }
+});
+
+test('context-pack-overflow: fit optional items before declaring accounting overflow (IC-007)', () => {
+  const fit = linearFit({
+    items: [
+      { id: 'objective', field: 'objective', cls: 'mandatory', priority: 0, mdBytes: 10, jsonBytes: 10, digest: 'm' },
+      { id: 'hypothesis-1', field: 'claims.hypotheses', cls: 'optional', priority: 4, mdBytes: 1, jsonBytes: 1, digest: 'o' },
+    ],
+    budget: 20,
+    taskId: 't-accounting-trim',
+    taskClass: 'feature',
+    sectionHeadingsMd: {},
+    sectionHeadingsJson: {},
+  });
+  assert.equal(fit.overflow, false);
+  assert.ok(fit.kept.some((item) => item.id === 'hypothesis-1'));
+
+  const compiler = new ContextPackCompiler();
+  const input = {
+    taskId: 't-accounting-trim',
+    taskClass: 'feature',
+    objective: 'Short',
+    acceptanceCriteria: ['AC1'],
+    constraints: ['C1'],
+    claims: {
+      conflicts: [],
+      supported: [],
+      hypotheses: Array.from({ length: 40 }, (_, i) => ({
+        id: `hyp_${i}`,
+        statement: `Claim number ${i + 1} with enough text to make omission entries`,
+        status: 'hypothesis',
+      })),
+    },
+  };
+  const roomy = compiler.compileContextPack(input);
+  let recovered = null;
+
+  for (let cap = roomy.size.mandatoryBytes + 1; cap < roomy.size.mandatoryBytes + 2000; cap += 1) {
+    const candidate = compiler.compileContextPack({ ...input, maxBytes: cap });
+    if (candidate.status === 'OK' && candidate.claims.hypotheses.length > 0
+        && candidate.claims.hypotheses.length < input.claims.hypotheses.length) {
+      recovered = candidate;
+      break;
+    }
+  }
+
+  assert.ok(recovered, 'an over-budget all-omitted accounting form must be retried through optional-item fitting');
 });
 
 test('context-pack-overflow: exit precedence across 2 (usage), 3 (overflow), 1 (empty), 0 (ok)', (t) => {

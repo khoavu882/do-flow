@@ -354,7 +354,9 @@ class ContextPackCompiler {
       limits,
       selfRefWidth,
       recordingExpected: params.recordingExpected === true,
-      form: params.form || 'json',
+      // Cost the longer delivery form key for both renderings so mandatory
+      // accounting and overflow messages agree across markdown and JSON.
+      form: 'markdown',
       harnessId: params.harness?.id || 'unstated',
     });
 
@@ -539,9 +541,23 @@ class ContextPackCompiler {
         },
       };
       Object.defineProperties(packed, {
-        deliveryItems: { value: keptItems.map((item: any) => ({ id: item.id, digest: item.digest, cls: item.cls || item.class })) },
+        deliveryItems: { value: keptItems.map((item: any) => ({ ...item, cls: item.cls || item.class })) },
         deliveryOmissions: { value: bare ? [] : omissionsList.map((item: any) => ({ ...item })) },
         deliveryAllItems: { value: items.map((item: any) => ({ id: item.id, digest: item.digest, cls: item.cls || item.class })) },
+        trimOptional: { value: () => {
+          const currentItems = (packed as any).deliveryItems as any[];
+          let trimIndex = -1;
+          for (let i = currentItems.length - 1; i >= 0; i -= 1) {
+            if (currentItems[i].cls === 'optional' && !currentItems[i].deltaForced) { trimIndex = i; break; }
+          }
+          if (trimIndex < 0) return null;
+          const dropped = currentItems[trimIndex];
+          const nextItems = currentItems.filter((_: any, i: number) => i !== trimIndex);
+          const nextOmissions = [...(packed as any).deliveryOmissions, {
+            id: dropped.id, field: dropped.field, reason: 'budget', ...(dropped.freshness ? { freshness: dropped.freshness } : {}),
+          }];
+          return assemblePack(nextItems, nextOmissions, false, null);
+        } },
       });
       return packed;
     };
@@ -1023,7 +1039,7 @@ function handleContextPackCommand({
   const researchRequests = new ResearchRequestStore({ projectRoot: root, slug }).list(taskId);
 
   const compiler = new ContextPackCompiler();
-  const pack = compiler.compileContextPack({
+  let pack = compiler.compileContextPack({
     taskId,
     taskClass: effectiveTaskClass,
     objective: objective !== undefined && objective !== null ? objective : undefined,
@@ -1048,15 +1064,17 @@ function handleContextPackCommand({
     decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null, feature }),
   });
 
+  let deliverySources: any = null;
+  let deliveryRetention: any = null;
   if (noRecord) {
     pack.delivery.reason = 'no-record';
   } else {
-    const sources = hashSourceFiles(root, pack.relevantFiles || []);
-    const retentionRecord = retention?.value === 'supported' || retention?.value === 'unsupported'
+    deliverySources = hashSourceFiles(root, pack.relevantFiles || []);
+    deliveryRetention = retention?.value === 'supported' || retention?.value === 'unsupported'
       ? { status: retention.value, basis: `declared:${retention.source || 'profile'}` }
       : { status: 'unknown', basis: retention?.unverified || 'contextProfile.retention is unverified' };
     const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
-      sources, expansions: deltaExpansions, retention: retentionRecord });
+      sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
     try {
       const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire });
       pack.delivery.key = result.key;
@@ -1072,19 +1090,63 @@ function handleContextPackCommand({
     }
   }
 
-  const output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
-  const emittedBytes = Buffer.byteLength(output, 'utf8');
-  if (pack.status === 'OK' && emittedBytes > budget.maxBytes) {
+  let output = '';
+  let emittedBytes = 0;
+  while (true) {
+    const mdOutput = compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+    const jsonOutput = compiler.formatJson(pack, { throwOnOverBudget: false });
+    const mdBytes = Buffer.byteLength(mdOutput, 'utf8');
+    const jsonBytes = Buffer.byteLength(jsonOutput, 'utf8');
+    if (pack.status !== 'OK' || (mdBytes <= budget.maxBytes && jsonBytes <= budget.maxBytes)) {
+      output = json ? jsonOutput : mdOutput;
+      emittedBytes = json ? jsonBytes : mdBytes;
+      break;
+    }
+
+    const trimmed = (pack as any).trimOptional?.();
+    if (trimmed) {
+      const prior = pack;
+      pack = trimmed;
+      pack.delivery.recorded = prior.delivery.recorded;
+      pack.delivery.reason = prior.delivery.reason;
+      pack.delivery.key = prior.delivery.recorded
+        ? `${pack.delivery.packDigest}.${json ? 'json' : 'markdown'}.${budget.harness?.id || 'unstated'}`
+        : null;
+      pack.accounting.tokens = prior.accounting.tokens;
+      pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, pack.delivery.recorded);
+      if (pack.delivery.recorded) {
+        const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
+          sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
+        const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire,
+          supersedesKey: prior.delivery.key });
+        pack.delivery.key = result.key;
+        pack.accounting.tokens = entry.tokens;
+      }
+      continue;
+    }
+
+    const cause = pack.size.mandatoryBytes > budget.maxBytes ? 'mandatory' : 'accounting';
     pack.status = 'OVERFLOW';
     pack.exitCode = EXIT.OVERFLOW;
-    pack.overflow = { cause: 'accounting', mandatoryBytes: pack.size.mandatoryBytes, budgetBytes: budget.maxBytes, excessBytes: emittedBytes - budget.maxBytes, action: 'split-or-new-session' };
-    pack.overflowAction = { message: 'The accounting fields exceed the available budget. Split the task or start a new session.' };
+    pack.overflow = { cause, mandatoryBytes: pack.size.mandatoryBytes, budgetBytes: budget.maxBytes,
+      excessBytes: Math.max(0, Math.max(mdBytes, jsonBytes) - budget.maxBytes), action: 'split-or-new-session' };
+    pack.overflowAction = { message: cause === 'accounting'
+      ? `The omission record brings the pack to ${Math.max(mdBytes, jsonBytes)} B against a ${budget.maxBytes} B budget.`
+      : `It is ${pack.size.mandatoryBytes} B against a ${budget.maxBytes} B budget (${budget.source}).` };
+    output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+    emittedBytes = Buffer.byteLength(output, 'utf8');
+    pack.overflowAction.message = cause === 'accounting'
+      ? `OVERFLOW (exit 3): mandatory content is complete and nothing in it was dropped. The omission record brings the pack to ${Math.max(mdBytes, jsonBytes)} B against a ${budget.maxBytes} B budget. Split the task or its context, or start a new session, then request the pack again.`
+      : `OVERFLOW (exit 3): mandatory content is complete and nothing in it was dropped. It is ${pack.size.mandatoryBytes} B against a ${budget.maxBytes} B budget (${budget.source}). Split the task or its context, or start a new session, then request the pack again.`;
+    output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+    emittedBytes = Buffer.byteLength(output, 'utf8');
     pack.packEnd.bytes = emittedBytes;
     pack.size.totalBytes = emittedBytes;
-    const overflowOutput = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
-    if (console.log !== nativeConsoleLog) console.log(overflowOutput);
-    else process.stdout.write(overflowOutput);
-    return finishRuntime(EXIT.OVERFLOW);
+    break;
+  }
+  if (pack.status === 'OVERFLOW') {
+    pack.packEnd.bytes = emittedBytes;
+    pack.size.totalBytes = emittedBytes;
   }
   if (console.log !== nativeConsoleLog) {
     console.log(output);

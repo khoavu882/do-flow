@@ -496,3 +496,53 @@ test('context-pack-cap: negative control — a delivery field appended after fit
   assert.throws(() => compiler.formatJson(pack), (error) => error.message.includes('exceeds budget'));
 });
 
+test('context-pack-cap: real requirement sweep keeps both forms aligned with recording on and off (DX.3)', (t) => {
+  const root = tempDir(t, 'doflow-cap-dx3-');
+  const slug = 'real-feature';
+  const reqDir = path.join(root, 'agent-docs/doflow', slug, 'intention');
+  fs.mkdirSync(reqDir, { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '../fixtures/context-pack/real-feature-requirement.md'), path.join(reqDir, 'requirement.md'));
+
+  const ledger = new EvidenceLedger({ repoRoot: root, slug });
+  ledger.load('dx3-sweep');
+  for (let i = 0; i < 30; i += 1) {
+    ledger.addEvidence({
+      taskId: 'dx3-sweep',
+      kind: 'exact-search',
+      locator: { file: `src/feature-${i}.ts` },
+      content: `Evidence summary ${i + 1}: ${'implementation detail '.repeat(5)}`,
+      freshness: { status: 'FRESH' },
+    });
+  }
+  ledger.save('dx3-sweep');
+
+  for (let cap = 15500; cap <= 25500; cap += 50) {
+    for (const noRecord of [false, true]) {
+      const results = {};
+      for (const json of [false, true]) {
+        const result = runPack({
+          taskId: 'dx3-sweep', taskClass: 'feature', stateRoot: root, slug,
+          maxBytes: cap, reason: 'DX.3 boundary sweep', json, noRecord,
+        });
+        assert.ok([EXIT.OK, EXIT.EMPTY, EXIT.OVERFLOW].includes(result.code), `cap ${cap}, json=${json}, noRecord=${noRecord}: ${result.out}`);
+        assert.ok(result.out.length > 0, `cap ${cap}, json=${json}, noRecord=${noRecord} emitted no pack`);
+        const bytes = Buffer.byteLength(result.out, 'utf8');
+        if (json) {
+          const pack = JSON.parse(result.out);
+          assert.equal(bytes, pack.size.totalBytes, `JSON bytes at cap ${cap}`);
+          assert.equal(bytes, pack.packEnd.bytes, `JSON end bytes at cap ${cap}`);
+          if (pack.status === 'OK') assert.ok(bytes <= cap, `OK JSON exceeded ${cap} B`);
+          results.json = { code: result.code, status: pack.status };
+        } else {
+          const end = result.out.match(/\[end of pack\][^\n]*bytes=(\d{9})/);
+          assert.ok(end, `Markdown end line missing at cap ${cap}`);
+          assert.equal(bytes, Number(end[1]), `Markdown bytes at cap ${cap}`);
+          results.markdown = { code: result.code, status: result.code === EXIT.OVERFLOW ? 'OVERFLOW' : result.code === EXIT.EMPTY ? 'EMPTY' : 'OK' };
+        }
+      }
+      assert.equal(results.json.status, results.markdown.status, `forms disagree at cap ${cap}, noRecord=${noRecord}`);
+      assert.equal(results.json.code, results.markdown.code, `exit codes disagree at cap ${cap}, noRecord=${noRecord}`);
+    }
+  }
+});
+
