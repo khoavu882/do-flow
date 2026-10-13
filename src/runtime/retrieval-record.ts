@@ -63,7 +63,7 @@ function moveCorruptPlanAside(projectRoot: any, taskId: any, slug: any = null, f
     return null;
   } catch (error: any) {
     if (!(error instanceof SyntaxError)) throw error;
-    const corruptFile = `${file}.corrupt-${new Date().toISOString()}`;
+    const corruptFile = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
     fsImpl.renameSync(file, corruptFile);
     return corruptFile;
   }

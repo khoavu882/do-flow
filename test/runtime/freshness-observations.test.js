@@ -216,6 +216,28 @@ test('one pass over three absence items spawns git once', (t) => {
   assert.equal(count, 0, 'items should stay fresh with no changes');
 });
 
+test('standalone absence checks remeasure while one ledger pass shares a fingerprint', (t) => {
+  const { root } = project(t, true);
+  const item = makeAbsenceItem(root);
+  let spawns = 0;
+  const countingRunner = (args, cwd) => {
+    spawns++;
+    return execFileSync('git', args, { cwd: cwd || root, encoding: 'utf8' });
+  };
+  const validator = new FreshnessValidator({ repoRoot: root, gitRunner: countingRunner });
+
+  assert.equal(validator.checkEvidenceFreshness(item).status, 'FRESH');
+  fs.writeFileSync(path.join(root, 'a.js'), 'changed after absence was recorded\n');
+  assert.equal(validator.checkEvidenceFreshness(item).status, 'STALE');
+
+  const ledger = new EvidenceLedger();
+  ledger.addEvidence(item);
+  ledger.addEvidence({ ...item, content: 'second absence' });
+  spawns = 0;
+  validator.validateLedgerFreshness(ledger);
+  assert.equal(spawns, 1, 'two absence items in one pass share one git status measurement');
+});
+
 test('a FRESH absence with missing or unmeasurable fingerprint returns STALE tree-unverifiable', (t) => {
   const { root, git } = project(t, true);
   const itemMissingFp = makeAbsenceItem(root);
