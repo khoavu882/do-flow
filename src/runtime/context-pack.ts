@@ -29,6 +29,7 @@ const {
   buildRelevantFileItem,
   buildEvidenceSummaryItem,
   buildStructuralContextItem,
+  computeEnvelopes,
   linearFit,
   groupOmissions,
   formatOverflowMessage,
@@ -241,11 +242,37 @@ class ContextPackCompiler {
       structuralNodes.forEach((sn: any, i: number) => items.push(buildStructuralContextItem(sn, i)));
     }
 
+    const hasMandatoryItems = {
+      acceptanceCriteria: acSource.length > 0,
+      constraints: constraintsSource.length > 0,
+      verificationRequirements: vrSource.length > 0,
+      scopeExcluded: scopeSource.length > 0,
+      blockingGaps: gapsSource.length > 0,
+      'claims.conflicts': conflictedClaims.length > 0,
+    };
+
+    const empty = rawEvidence.length === 0
+      && rawClaims.length === 0
+      && researchRequests.length === 0
+      && (!decisions || decisions.liveCount === 0);
+
+    const { envelopeMd, envelopeJson } = computeEnvelopes({
+      taskId,
+      taskClass,
+      budget: resolvedBudget,
+      mandatory: paramMandatory,
+      empty,
+      mode: bare ? 'bare' : (paramMode || 'full'),
+      hasMandatoryItems,
+    });
+
     const fit = linearFit({
       items,
       budget: resolvedBudget.maxBytes,
       taskId,
       taskClass,
+      envelopeMd,
+      envelopeJson,
       initialOmissions: nonFreshOmissions,
       itemCapLimits: {
         relevantFiles: limits.maxFiles,
@@ -271,10 +298,6 @@ class ContextPackCompiler {
     const keptEvidence = fit.kept.filter((i: any) => i.field === 'evidenceSummary').map((i: any) => i.value);
     const keptStructural = fit.kept.filter((i: any) => i.field === 'structuralContext').map((i: any) => i.value);
 
-    const empty = rawEvidence.length === 0
-      && rawClaims.length === 0
-      && researchRequests.length === 0
-      && (!decisions || decisions.liveCount === 0);
 
     const omissions = groupOmissions(fit.omissions);
 
@@ -708,11 +731,12 @@ function handleContextPackCommand({
     decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null, feature }),
   });
 
-  if (json) {
-    console.log(compiler.formatJson(pack));
-  } else {
-    console.log(compiler.formatMarkdown(pack));
+  const output = json ? compiler.formatJson(pack) : compiler.formatMarkdown(pack);
+  const emittedBytes = Buffer.byteLength(output, 'utf8');
+  if (pack.status === 'OK' && emittedBytes > budget.maxBytes) {
+    throw new Error(`Emitted ${json ? 'JSON' : 'markdown'} pack size (${emittedBytes} B) exceeds budget (${budget.maxBytes} B)`);
   }
+  console.log(output);
   return finishRuntime(pack.exitCode);
 }
 

@@ -69,6 +69,29 @@ function computePackDigest(items: any[]): string {
   return `sha256:${hash.digest('hex')}`;
 }
 
+function computeItemJsonBytes(field: string, value: any): number {
+  if (value === undefined || value === null) return 0;
+  if (field === 'objective') {
+    return Buffer.byteLength(`  "objective": ${JSON.stringify(value)},\n`, 'utf8');
+  }
+  if (field === 'decisions.reason (register unreadable)') {
+    const r = typeof value === 'object' && value.reason ? value.reason : value;
+    return Buffer.byteLength(`    "reason": ${JSON.stringify(r)},\n`, 'utf8');
+  }
+  let indent = '    '; // 4 spaces
+  if (field.startsWith('claims.') || field === 'decisions.live') {
+    indent = '      '; // 6 spaces
+  }
+  const raw = JSON.stringify(value, null, 2);
+  const lines = raw.split('\n');
+  let bytes = 0;
+  for (const line of lines) {
+    bytes += Buffer.byteLength(indent + line + '\n', 'utf8');
+  }
+  bytes += 1; // comma ','
+  return bytes;
+}
+
 /**
  * Constructs a PackItem, enforcing that `field` exists in FIELD_CLASSES (FR-011).
  */
@@ -92,7 +115,7 @@ function buildPackItem({
   const computedMdBytes = mdBytes !== undefined ? mdBytes : Buffer.byteLength(md, 'utf8');
   const computedJsonBytes = jsonBytes !== undefined
     ? jsonBytes
-    : (Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8') + 6);
+    : computeItemJsonBytes(field, value);
   const computedDigest = digest !== undefined ? digest : itemDigest(value);
 
   return {
@@ -327,6 +350,186 @@ function buildStructuralContextItem(struct: any, index: number = 0): any {
   });
 }
 
+const OPTIONAL_HEADING_BYTES_MD: Record<string, number> = Object.freeze({
+  'decisions.live': Buffer.byteLength('### Live decisions\n\n', 'utf8'),
+  'claims.supported': Buffer.byteLength('### Supported Facts & Invariants\n\n', 'utf8'),
+  'researchRequests (others)': Buffer.byteLength('### Feature Research Requests\n\n', 'utf8'),
+  'claims.hypotheses': Buffer.byteLength('### Active Hypotheses (Unverified)\n\n', 'utf8'),
+  pointers: Buffer.byteLength('### Pointers\n\n', 'utf8'),
+  relevantFiles: Buffer.byteLength('### Relevant File Locators\n\n', 'utf8'),
+  evidenceSummary: Buffer.byteLength('### Evidence\n\n', 'utf8'),
+  structuralContext: Buffer.byteLength('### Structural Context\n\n', 'utf8'),
+});
+
+const OPTIONAL_HEADING_BYTES_JSON: Record<string, number> = Object.freeze({
+  'decisions.live': 3,
+  'claims.supported': 3,
+  'researchRequests (others)': 3,
+  'claims.hypotheses': 3,
+  pointers: 3,
+  relevantFiles: 3,
+  evidenceSummary: 3,
+  structuralContext: 3,
+});
+
+function computeOmissionBytes(omissionsList: any[] = []): { md: number; json: number } {
+  if (!omissionsList || omissionsList.length === 0) {
+    return { md: 0, json: 0 };
+  }
+  const grouped = groupOmissions(omissionsList);
+  let mdStr = '### Omitted\n';
+  for (const g of grouped.groups) {
+    const fresh = g.freshness ? ` ${g.freshness}` : '';
+    mdStr += `- ${g.reason}${fresh} (${g.count}): ${g.ids.join(', ')}\n`;
+  }
+  mdStr += '\n';
+  const mdBytes = Buffer.byteLength(mdStr, 'utf8');
+
+  const jsonBlock = JSON.stringify(grouped, null, 2);
+  const jsonLines = jsonBlock.split('\n');
+  let jsonBytes = 0;
+  for (const line of jsonLines) {
+    jsonBytes += 2 + Buffer.byteLength(line, 'utf8') + 1; // 2 spaces indent + \n
+  }
+  const emptyBlock = JSON.stringify({ total: 0, groups: [] }, null, 2);
+  const emptyLines = emptyBlock.split('\n');
+  let emptyBytes = 0;
+  for (const line of emptyLines) {
+    emptyBytes += 2 + Buffer.byteLength(line, 'utf8') + 1;
+  }
+  const diffJson = Math.max(0, jsonBytes - emptyBytes);
+  return { md: mdBytes, json: diffJson };
+}
+
+/**
+ * Computes both envelopes per IC-007 step 2.
+ */
+function computeEnvelopes({
+  taskId = 'default',
+  taskClass = 'feature',
+  budget,
+  mandatory,
+  empty = false,
+  mode = 'full',
+  hasMandatoryItems = {},
+  overflow = false,
+  overflowAction = null,
+  toolLimitNotice = null,
+}: any): { envelopeMd: number; envelopeJson: number } {
+  // --- Markdown envelope ---
+  let md = `## ContextPack: [${taskClass.toUpperCase()}] ${taskId}\n`;
+  if (overflowAction?.message) {
+    md += `> ${overflowAction.message}\n`;
+  }
+  if (toolLimitNotice?.message) {
+    md += `> ${toolLimitNotice.message}\n`;
+  }
+  if (mode !== 'bare') {
+    const mandSections = [
+      { key: 'acceptanceCriteria', heading: '### Acceptance Criteria\n' },
+      { key: 'constraints', heading: '### Constraints\n' },
+      { key: 'verificationRequirements', heading: '### Verification Requirements\n' },
+      { key: 'scopeExcluded', heading: '### Out of Scope\n' },
+      { key: 'blockingGaps', heading: '### Blocking Gaps\n' },
+    ];
+    for (const sec of mandSections) {
+      if (hasMandatoryItems[sec.key]) {
+        md += sec.heading + '\n';
+      } else {
+        const prov = mandatory?.provenance?.[sec.key] || mandatory?.fields?.[sec.key] || mandatory?.[sec.key];
+        const reason = prov?.reason || 'none';
+        md += `${sec.heading}- not supplied: ${reason}\n\n`;
+      }
+    }
+    if (hasMandatoryItems['claims.conflicts']) {
+      md += `### Blocking Conflicts\n\n`;
+    }
+    if (mandatory) {
+      md += `### Mandatory Sources\n`;
+      const mandKeys = ['objective', 'acceptanceCriteria', 'constraints', 'verificationRequirements', 'scopeExcluded', 'blockingGaps'];
+      const provMap = mandatory.provenance || mandatory;
+      for (const k of mandKeys) {
+        const prov = provMap[k];
+        if (prov) {
+          if (prov.supplied) {
+            const digest12 = prov.digest ? prov.digest.slice(7, 19) : '000000000000';
+            const loc = prov.locator ? `${prov.locator}@${digest12}` : `@${digest12}`;
+            md += `- ${k}: ${prov.source} ${loc}\n`;
+          } else {
+            md += `- ${k}: not supplied: ${prov.reason || 'unknown'}\n`;
+          }
+        }
+      }
+      md += '\n';
+    }
+    if (empty) {
+      md += `_No evidence or claims are recorded for task '${taskId}'; this pack states nothing._\n\n`;
+    }
+  }
+
+  const paddedBytes = '000000000';
+  const maxBytes = budget?.maxBytes || 225000;
+  const source = budget?.source || 'task-class';
+  const tokensEst = Math.round(maxBytes / 4);
+  md += `_Budget ${maxBytes} B (${source}) · emitted ${paddedBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+  md += `[end of pack] mode=${mode} objective=1 ac=00 constraints=00 verification=00 scope=00 conflicts=00 gaps=00 omitted=000 bytes=${paddedBytes} digest=sha256:000000000000\n`;
+  const envelopeMd = Buffer.byteLength(md, 'utf8');
+
+  // --- JSON envelope ---
+  const provMap = mandatory?.provenance || mandatory || {};
+  const skeletonOrdered: any = {
+    version: 1,
+    status: overflow ? 'OVERFLOW' : (empty ? 'EMPTY' : 'OK'),
+    exitCode: overflow ? 3 : (empty ? 1 : 0),
+    taskId,
+    taskClass,
+    compiledAt: '2026-10-13T00:00:00.000Z',
+    mode,
+    budget: budget || { maxBytes, source, harness: { id: null, source: 'unstated' }, capacity: { value: null, basis: 'unknown:unstated' }, toolResultLimitBytes: null },
+    overflow: overflow ? { cause: 'mandatory', mandatoryBytes: 999999999, budgetBytes: maxBytes, excessBytes: 0, action: 'split-or-new-session' } : null,
+    overflowAction: overflowAction ? { message: overflowAction.message } : null,
+    toolLimitNotice: toolLimitNotice ? { message: toolLimitNotice.message } : null,
+    objective: '',
+    acceptanceCriteria: [],
+    constraints: [],
+    verificationRequirements: [],
+    scopeExcluded: [],
+    blockingGaps: [],
+    claims: { conflicts: [], supported: [], hypotheses: [] },
+    researchRequests: [],
+    mandatory: provMap,
+    decisions: { available: true, live: [], liveCount: 0 },
+    pointers: [],
+    relevantFiles: [],
+    evidenceCount: 0,
+    evidenceSummary: [],
+    structuralContext: [],
+    budgetEnforcement: { totalFiles: 0, totalSupportedClaims: 0, totalActiveHypotheses: 0, limits: {} },
+    empty,
+    omissions: { total: 0, groups: [] },
+    size: { totalBytes: 999999999, mandatoryBytes: 999999999, optionalBytes: 0, fittedOn: 'markdown' },
+    accounting: { tokens: { inlineTokensEst: 999999999, netTokensEst: 999999999, basis: 'estimated:bytes/4', actual: { unmeasured: 'needs a model call (paid)' } } },
+    delivery: { key: null, packDigest: 'sha256:' + '0'.repeat(64), recorded: false, reason: null, since: null, deltaRefused: null },
+    delta: null,
+    packEnd: { mode, objective: 1, acceptanceCriteria: 0, constraints: 0, verificationRequirements: 0, scopeExcluded: 0, conflicts: 0, blockingGaps: 0, omitted: 0, bytes: 999999999, digest: 'sha256:000000000000' },
+  };
+
+  const jsonStr = JSON.stringify(skeletonOrdered, null, 2) + '\n';
+  let envelopeJson = Buffer.byteLength(jsonStr, 'utf8');
+
+  const mandKeysWithItems = ['acceptanceCriteria', 'constraints', 'verificationRequirements', 'scopeExcluded', 'blockingGaps'];
+  for (const k of mandKeysWithItems) {
+    if (hasMandatoryItems[k]) {
+      envelopeJson += 3;
+    }
+  }
+  if (hasMandatoryItems['claims.conflicts']) {
+    envelopeJson += 3;
+  }
+
+  return { envelopeMd, envelopeJson };
+}
+
 /**
  * Linear fit on max(md, json) per IC-007.
  */
@@ -339,6 +542,8 @@ function linearFit({
   envelopeJson = 0,
   itemCapLimits = ITEM_CAP_LIMITS,
   initialOmissions = [],
+  sectionHeadingsMd = OPTIONAL_HEADING_BYTES_MD,
+  sectionHeadingsJson = OPTIONAL_HEADING_BYTES_JSON,
 }: any): any {
   const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory');
   const allOptional = items.filter((i: any) => i.cls === 'optional');
@@ -364,34 +569,29 @@ function linearFit({
     }
   }
 
-  // Cost functions for omissions
-  const omissionBytesMd = (item: any) => (item.id.length + 4);
-  const omissionBytesJson = (item: any) => (item.id.length + 8);
-
   // Mandatory costs
   const mandatoryMdBytes = mandatoryItems.reduce((acc: number, i: any) => acc + i.mdBytes, 0) + envelopeMd;
   const mandatoryJsonBytes = mandatoryItems.reduce((acc: number, i: any) => acc + i.jsonBytes, 0) + envelopeJson;
 
   // Uncompressed omissions cost when all optional items are omitted
-  const allOmittedMd = [...eligibleOptional, ...cappedOmissions, ...initialOmissions].reduce((acc: number, i: any) => acc + omissionBytesMd(i), 0);
-  const allOmittedJson = [...eligibleOptional, ...cappedOmissions, ...initialOmissions].reduce((acc: number, i: any) => acc + omissionBytesJson(i), 0);
+  const allOmitted = [
+    ...initialOmissions,
+    ...eligibleOptional.map((i: any) => ({
+      id: i.id,
+      field: i.field,
+      reason: 'mandatory-overflow',
+      ...(i.freshness ? { freshness: i.freshness } : {}),
+    })),
+    ...cappedOmissions,
+  ];
+  const allOmittedBytes = computeOmissionBytes(allOmitted);
 
-  const initialCostMd = mandatoryMdBytes + allOmittedMd;
-  const initialCostJson = mandatoryJsonBytes + allOmittedJson;
+  const initialCostMd = mandatoryMdBytes + allOmittedBytes.md;
+  const initialCostJson = mandatoryJsonBytes + allOmittedBytes.json;
 
   // Check overflow
   if (Math.max(initialCostMd, initialCostJson) > budget) {
     const cause = Math.max(mandatoryMdBytes, mandatoryJsonBytes) > budget ? 'mandatory' : 'accounting';
-    const allOmissions = [
-      ...initialOmissions,
-      ...eligibleOptional.map((i: any) => ({
-        id: i.id,
-        field: i.field,
-        reason: 'mandatory-overflow',
-        ...(i.freshness ? { freshness: i.freshness } : {}),
-      })),
-      ...cappedOmissions,
-    ];
     const fittedOn = initialCostJson > initialCostMd ? 'json' : 'markdown';
     return {
       taskId,
@@ -404,7 +604,7 @@ function linearFit({
       cause,
       fittedOn,
       kept: mandatoryItems,
-      omissions: allOmissions,
+      omissions: allOmitted,
       packDigest: computePackDigest(mandatoryItems),
     };
   }
@@ -415,32 +615,72 @@ function linearFit({
     return 0; // keeps source order
   });
 
-  let currentCostMd = initialCostMd;
-  let currentCostJson = initialCostJson;
   const keptOptional: any[] = [];
-  const omissions: any[] = [...initialOmissions, ...cappedOmissions];
+  const rejectedOptional: any[] = [];
+  const activeSections = new Set<string>();
 
   // One linear pass
   for (const opt of sortedOptional) {
-    const nextCostMd = currentCostMd + opt.mdBytes - omissionBytesMd(opt);
-    const nextCostJson = currentCostJson + opt.jsonBytes - omissionBytesJson(opt);
+    const trialKept = [...keptOptional, opt];
+    const trialSections = new Set(activeSections);
+    trialSections.add(opt.field);
 
-    if (Math.max(nextCostMd, nextCostJson) <= budget) {
-      keptOptional.push(opt);
-      currentCostMd = nextCostMd;
-      currentCostJson = nextCostJson;
-    } else {
-      omissions.push({
-        id: opt.id,
-        field: opt.field,
+    const trialHeadingsMd = Array.from(trialSections).reduce((sum: number, f: string) => sum + (sectionHeadingsMd[f] || 0), 0);
+    const trialHeadingsJson = Array.from(trialSections).reduce((sum: number, f: string) => sum + (sectionHeadingsJson[f] || 0), 0);
+
+    const trialKeptMd = trialKept.reduce((acc: number, i: any) => acc + i.mdBytes, 0);
+    const trialKeptJson = trialKept.reduce((acc: number, i: any) => acc + i.jsonBytes, 0);
+
+    const trialOmitted = [
+      ...initialOmissions,
+      ...rejectedOptional.map((i: any) => ({
+        id: i.id,
+        field: i.field,
         reason: 'budget',
-        ...(opt.freshness ? { freshness: opt.freshness } : {}),
-      });
+        ...(i.freshness ? { freshness: i.freshness } : {}),
+      })),
+      ...sortedOptional.slice(sortedOptional.indexOf(opt) + 1).map((i: any) => ({
+        id: i.id,
+        field: i.field,
+        reason: 'budget',
+        ...(i.freshness ? { freshness: i.freshness } : {}),
+      })),
+      ...cappedOmissions,
+    ];
+    const trialOmissionsBytes = computeOmissionBytes(trialOmitted);
+
+    const trialCostMd = mandatoryMdBytes + trialKeptMd + trialHeadingsMd + trialOmissionsBytes.md;
+    const trialCostJson = mandatoryJsonBytes + trialKeptJson + trialHeadingsJson + trialOmissionsBytes.json;
+
+    if (Math.max(trialCostMd, trialCostJson) <= budget) {
+      keptOptional.push(opt);
+      activeSections.add(opt.field);
+    } else {
+      rejectedOptional.push(opt);
     }
   }
 
-  const fittedOn = currentCostJson > currentCostMd ? 'json' : 'markdown';
-  const totalBytes = Math.max(currentCostMd, currentCostJson);
+  const finalOmissions = [
+    ...initialOmissions,
+    ...rejectedOptional.map((i: any) => ({
+      id: i.id,
+      field: i.field,
+      reason: 'budget',
+      ...(i.freshness ? { freshness: i.freshness } : {}),
+    })),
+    ...cappedOmissions,
+  ];
+  const finalOmissionsBytes = computeOmissionBytes(finalOmissions);
+  const finalHeadingsMd = Array.from(activeSections).reduce((sum: number, f: string) => sum + (sectionHeadingsMd[f] || 0), 0);
+  const finalHeadingsJson = Array.from(activeSections).reduce((sum: number, f: string) => sum + (sectionHeadingsJson[f] || 0), 0);
+  const finalKeptMd = keptOptional.reduce((acc: number, i: any) => acc + i.mdBytes, 0);
+  const finalKeptJson = keptOptional.reduce((acc: number, i: any) => acc + i.jsonBytes, 0);
+
+  const finalCostMd = mandatoryMdBytes + finalKeptMd + finalHeadingsMd + finalOmissionsBytes.md;
+  const finalCostJson = mandatoryJsonBytes + finalKeptJson + finalHeadingsJson + finalOmissionsBytes.json;
+
+  const fittedOn = finalCostJson > finalCostMd ? 'json' : 'markdown';
+  const totalBytes = Math.max(finalCostMd, finalCostJson);
   const mandatoryBytes = Math.max(mandatoryMdBytes, mandatoryJsonBytes);
   const optionalBytes = totalBytes - mandatoryBytes;
   const kept = [...mandatoryItems, ...keptOptional];
@@ -456,7 +696,7 @@ function linearFit({
     cause: null,
     fittedOn,
     kept,
-    omissions,
+    omissions: finalOmissions,
     packDigest: computePackDigest(kept),
   };
 }
@@ -819,8 +1059,20 @@ function formatMarkdown(pack: any): string {
     const full = header + body + footer + endLine;
     const actualLen = Buffer.byteLength(full, 'utf8');
     if (actualLen === totalBytes) {
-      if (pack.size) pack.size.totalBytes = actualLen;
+      if (pack.size) {
+        pack.size.totalBytes = actualLen;
+        if (pack.overflow) {
+          pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
+          pack.size.optionalBytes = 0;
+        } else {
+          pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
+          pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
+        }
+      }
       if (pack.packEnd) pack.packEnd.bytes = actualLen;
+      if (pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+        throw new Error(`Emitted markdown pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
+      }
       return full;
     }
     totalBytes = actualLen;
@@ -842,8 +1094,20 @@ function formatMarkdown(pack: any): string {
   const endLine = `[end of pack] mode=${mode} objective=${objectiveCount} ac=${acCount} constraints=${constraintsCount} verification=${verificationCount} scope=${scopeCount} conflicts=${conflictsCount} gaps=${gapsCount} omitted=${omittedCount} bytes=${paddedBytes} digest=${shortDigest}\n`;
   const full = header + body + footer + endLine;
   const actualLen = Buffer.byteLength(full, 'utf8');
-  if (pack.size) pack.size.totalBytes = actualLen;
+  if (pack.size) {
+    pack.size.totalBytes = actualLen;
+    if (pack.overflow) {
+      pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
+      pack.size.optionalBytes = 0;
+    } else {
+      pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
+      pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
+    }
+  }
   if (pack.packEnd) pack.packEnd.bytes = actualLen;
+  if (pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+    throw new Error(`Emitted markdown pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
+  }
   return full;
 }
 
@@ -922,8 +1186,24 @@ function formatJson(pack: any): string {
     const jsonStr = JSON.stringify(ordered, null, 2) + '\n';
     const actualLen = Buffer.byteLength(jsonStr, 'utf8');
     if (actualLen === totalBytes) {
-      if (pack.size) pack.size.totalBytes = actualLen;
+      if (pack.size) {
+        pack.size.totalBytes = actualLen;
+        if (pack.overflow) {
+          pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
+          pack.size.optionalBytes = 0;
+        } else {
+          pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
+          pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
+        }
+        ordered.size.totalBytes = pack.size.totalBytes;
+        ordered.size.mandatoryBytes = pack.size.mandatoryBytes;
+        ordered.size.optionalBytes = pack.size.optionalBytes;
+      }
       if (pack.packEnd) pack.packEnd.bytes = actualLen;
+      ordered.packEnd.bytes = actualLen;
+      if (pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+        throw new Error(`Emitted JSON pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
+      }
       return jsonStr;
     }
     totalBytes = actualLen;
@@ -933,8 +1213,24 @@ function formatJson(pack: any): string {
   ordered.packEnd.bytes = totalBytes;
   const jsonStr = JSON.stringify(ordered, null, 2) + '\n';
   const actualLen = Buffer.byteLength(jsonStr, 'utf8');
-  if (pack.size) pack.size.totalBytes = actualLen;
+  if (pack.size) {
+    pack.size.totalBytes = actualLen;
+    if (pack.overflow) {
+      pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
+      pack.size.optionalBytes = 0;
+    } else {
+      pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
+      pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
+    }
+    ordered.size.totalBytes = pack.size.totalBytes;
+    ordered.size.mandatoryBytes = pack.size.mandatoryBytes;
+    ordered.size.optionalBytes = pack.size.optionalBytes;
+  }
   if (pack.packEnd) pack.packEnd.bytes = actualLen;
+  ordered.packEnd.bytes = actualLen;
+  if (pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+    throw new Error(`Emitted JSON pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
+  }
   return jsonStr;
 }
 
@@ -964,6 +1260,11 @@ module.exports = {
   buildRelevantFileItem,
   buildEvidenceSummaryItem,
   buildStructuralContextItem,
+  computeItemJsonBytes,
+  computeOmissionBytes,
+  computeEnvelopes,
+  OPTIONAL_HEADING_BYTES_MD,
+  OPTIONAL_HEADING_BYTES_JSON,
   linearFit,
   groupOmissions,
   formatOverflowMessage,

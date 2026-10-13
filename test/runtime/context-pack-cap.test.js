@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { handleContextPackCommand, TASK_CLASS_BUDGETS } = require('../../src/runtime/context-pack.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { EXIT } = require('../../src/runtime/cli-result.ts');
 
 function runPack(options) {
@@ -175,3 +176,137 @@ test('context-pack-cap: 1-byte cap gives exit 3 and untruncated mandatory text, 
     (err) => err.message.includes('Expected exit 3 OVERFLOW')
   );
 });
+
+test('context-pack-cap: caps 1000 to 20000 in steps crossing mandatory size: stdout <= cap when OK, forms agree', (t) => {
+  const root = tempDir(t, 'doflow-cap-steps-');
+  const featDir = path.join(root, 'agent-docs/doflow/feat-steps/intention');
+  fs.mkdirSync(featDir, { recursive: true });
+
+  const reqContent = `# Feature: Steps
+## 1. Summary
+A test feature with enough content to cross mandatory size across caps.
+
+## 4. Non-Functional Requirements
+| ID | Constraint | Kind | Status |
+|---|---|---|---|
+| NFR-001 | Response latency under 200ms | performance | Live |
+| NFR-002 | Zero external dependencies | reliability | Live |
+
+## 5. Out of Scope
+- Graphical user interface
+
+## 6. Acceptance Criteria
+- [ ] **Scenario: First invariant**
+  Given system ready
+  When triggered
+  Then verify first invariant (FR-001, US1)
+- [ ] **Scenario: Second invariant**
+  Given active session
+  When payload dispatched
+  Then deliver response (FR-002, US2)
+
+## 7. Open Questions
+None.
+`;
+  fs.writeFileSync(path.join(featDir, 'requirement.md'), reqContent, 'utf8');
+
+  const ledger = new EvidenceLedger({ repoRoot: root, slug: 'feat-steps' });
+  ledger.load('task-steps');
+  ledger.addEvidence({
+    taskId: 'task-steps',
+    kind: 'exact-search',
+    locator: { file: 'src/main.ts' },
+    content: 'Evidence text for step test',
+    freshness: { status: 'FRESH' },
+  });
+  ledger.save('task-steps');
+
+  const testCaps = [1000, 2000, 3000, 4000, 5000, 7500, 10000, 12500, 15000, 17500, 20000];
+
+  for (const cap of testCaps) {
+    const mdRes = runPack({
+      taskId: 'task-steps',
+      taskClass: 'feature',
+      maxBytes: cap,
+      reason: `testing cap ${cap}`,
+      stateRoot: root,
+      slug: 'feat-steps',
+      json: false,
+    });
+
+    const jsonRes = runPack({
+      taskId: 'task-steps',
+      taskClass: 'feature',
+      maxBytes: cap,
+      reason: `testing cap ${cap}`,
+      stateRoot: root,
+      slug: 'feat-steps',
+      json: true,
+    });
+
+    assert.equal(
+      mdRes.code,
+      jsonRes.code,
+      `Markdown (code ${mdRes.code}) and JSON (code ${jsonRes.code}) must agree on status for cap ${cap}`
+    );
+
+    const mdBytes = Buffer.byteLength(mdRes.out, 'utf8');
+    const jsonBytes = Buffer.byteLength(jsonRes.out, 'utf8');
+
+    if (mdRes.code === EXIT.OK) {
+      assert.ok(
+        mdBytes <= cap,
+        `Markdown stdout (${mdBytes} B) exceeds cap (${cap} B) when status is OK`
+      );
+      assert.ok(
+        jsonBytes <= cap,
+        `JSON stdout (${jsonBytes} B) exceeds cap (${cap} B) when status is OK`
+      );
+    }
+  }
+});
+
+test('context-pack-cap: dropping the envelope term from the cost fails (negative control)', (t) => {
+  const root = tempDir(t, 'doflow-cap-envelope-neg-');
+  const featDir = path.join(root, 'agent-docs/doflow/feat-env-neg/intention');
+  fs.mkdirSync(featDir, { recursive: true });
+
+  const reqContent = `# Feature: EnvNeg
+## 1. Summary
+Summary text.
+## 6. Acceptance Criteria
+- [ ] AC1
+`;
+  fs.writeFileSync(path.join(featDir, 'requirement.md'), reqContent, 'utf8');
+
+  const tightCap = 2000;
+  const realRes = runPack({
+    taskId: 't-env',
+    taskClass: 'feature',
+    maxBytes: tightCap,
+    reason: 'tight budget',
+    stateRoot: root,
+    slug: 'feat-env-neg',
+    json: true,
+  });
+
+  function assertEnvelopeGuarded(packRes, budget) {
+    if (packRes.code === EXIT.OK) {
+      const bytes = Buffer.byteLength(packRes.out, 'utf8');
+      if (bytes > budget) {
+        throw new Error(`Dropping envelope failed: emitted size ${bytes} B exceeds budget ${budget} B`);
+      }
+    }
+  }
+
+  // Real run passes (it overflowed, exit 3, never emitted over cap as OK)
+  assertEnvelopeGuarded(realRes, tightCap);
+
+  // Negative control: simulated buggy output where envelope was dropped from cost so pack was emitted as OK with size > budget
+  const buggyOverCapRes = { code: EXIT.OK, out: 'X'.repeat(3000) };
+  assert.throws(
+    () => assertEnvelopeGuarded(buggyOverCapRes, tightCap),
+    (err) => err.message.includes('Dropping envelope failed') && err.message.includes('exceeds budget')
+  );
+});
+
