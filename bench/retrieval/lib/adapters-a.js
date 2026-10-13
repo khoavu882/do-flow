@@ -39,7 +39,8 @@ function failure(run, label) {
 }
 
 function runSemble({ task, indexRoot, bins, semble }) {
-  const run = runTool(bins.semble, ['search', task.query, indexRoot, '-k', '10', '--max-snippet-lines', '10', '--format', 'json'], { env: semble.env });
+  const env = { ...(semble && semble.env), HF_HUB_OFFLINE: '1' };
+  const run = runTool(bins.semble, ['search', task.query, indexRoot, '-k', '10', '--max-snippet-lines', '10', '--format', 'json'], { env });
   if (!run.ran || run.status !== 0) return { unreached: failure(run, 'semble') };
   let parsed;
   try { parsed = JSON.parse(run.stdout); } catch { return { unreached: 'semble printed output that is not JSON' }; }
@@ -266,7 +267,7 @@ function buildIndexes({ exportRoot, semble, bins = {}, patchFile }) {
   if (g.run.ran && g.run.status === 0) { buildMs += g.ms; measuredBuild = true; if (g.rssMB !== null) peak = Math.max(peak || 0, g.rssMB); }
   else reasons.push(`graphify: ${failure(g.run, 'graphify')}`);
 
-  const s = timedRun(sembleBin, ['search', 'index warm-up', exportRoot, '-k', '1', '--format', 'json'], { env: semble.env });
+  const s = timedRun(sembleBin, ['search', 'index warm-up', exportRoot, '-k', '1', '--format', 'json'], { env: { ...(semble && semble.env), HF_HUB_OFFLINE: '1' } });
   if (s.run.ran && s.run.status === 0) { buildMs += s.ms; measuredBuild = true; if (s.rssMB !== null) peak = Math.max(peak || 0, s.rssMB); }
   else reasons.push(`semble: ${failure(s.run, 'semble')}`);
 

@@ -138,7 +138,10 @@ test('latency is compared only on the baseline machine, and only gates with a to
   const same = go(w, deps({ wallMs: 500 }));
   assert.equal(same.latency.compared, true);
   assert.equal(same.exitCode, 0, 'no latency tolerance entry, so it is informational');
-  assert.ok(same.latency.diffs.some((d) => d.metric === 'p50Ms' && d.baseline === 1 && d.current === 500 && d.ok));
+  assert.ok(same.latency.diffs.some((d) => d.metric === 'p50Ms' && d.baseline === 1 && d.current === 500 && d.ok && d.note === 'not gated (no tolerance)'));
+  assert.ok(same.latency.diffs.every((d) => d.tolerance === null ? d.note === 'not gated (no tolerance)' : true));
+  const runRes = rerun.run({ snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, deps: deps({ wallMs: 500 }) });
+  assert.ok(runRes.lines.includes('latency not gated: thresholds.json has no latency tolerances'));
   fs.writeFileSync(path.join(w.outDir, 'thresholds.json'), JSON.stringify({ rerun: { tolerances: [{ config: 'B', metric: 'p95Ms', abs: 10 }] } }));
   const gated = go(w, deps({ wallMs: 500 }));
   assert.equal(gated.exitCode, 1);
@@ -162,3 +165,11 @@ test('through the runner the verb is discovered and a missing baseline exits 2 w
   assert.match(err.join('\n'), /run capture first/);
   assert.deepEqual(Object.keys(JSON.parse(lines[0])).slice(0, 4), ['verb', 'ok', 'exitCode', 'snapshotId']);
 });
+
+test('human-readable rerun output reports aggregates within tolerance summary', (t) => {
+  const w = captured(t);
+  const runRes = rerun.run({ snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, deps: deps() });
+  assert.equal(runRes.exitCode, 0);
+  assert.ok(runRes.lines.some((l) => /^\d+ of \d+ aggregates within tolerance$/.test(l)));
+});
+

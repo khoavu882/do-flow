@@ -5,9 +5,9 @@
   "split": "dev",
   "tasksSha256": "54cd15ffd5d4051dc08b900d99eb7496e34a7187521d1fa5879b9c9d9a5a601e",
   "capture": {
-    "capturedAt": "2026-10-13T03:46:42.569Z",
+    "capturedAt": "2026-10-13T07:32:19.049Z",
     "machineId": "6295d410c5bc",
-    "runnerBlob": "7ab91d28cbcd1113ee4ad7bdc97689b60ad4cb27",
+    "runnerBlob": "41262266364020e4d90a0bd86d742c96e7b7b4a3",
     "seed": 20261012,
     "node": "v26.8.1",
     "os": "darwin",
@@ -51,10 +51,10 @@
             }
           ],
           "index": {
-            "buildMs": 8458.834667000001,
-            "incrementalMs": 7393.090083,
-            "diskBytes": 9419086,
-            "peakRssMB": 526.453125
+            "buildMs": 8391.705792,
+            "incrementalMs": 7263.4755,
+            "diskBytes": 9419097,
+            "peakRssMB": 528.234375
           },
           "classes": {
             "exact-lookup": {
@@ -62,6 +62,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -160,9 +161,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 28.212541,
-                "p95Ms": 33.649958,
-                "maxMs": 37.886208
+                "p50Ms": 27.8275,
+                "p95Ms": 30.789208,
+                "maxMs": 32.00925
               },
               "context": {
                 "payloadBytesP50": 83,
@@ -177,6 +178,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -267,9 +269,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 652.162792,
-                "p95Ms": 721.323542,
-                "maxMs": 776.69725
+                "p50Ms": 608.225834,
+                "p95Ms": 664.859042,
+                "maxMs": 672.101125
               },
               "context": {
                 "payloadBytesP50": 5167,
@@ -284,6 +286,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "allDependenciesFound": {
                   "value": 0.5,
@@ -390,9 +393,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 235.67625,
-                "p95Ms": 259.495458,
-                "maxMs": 266.586209
+                "p50Ms": 221.343792,
+                "p95Ms": 242.256333,
+                "maxMs": 256.624167
               },
               "context": {
                 "payloadBytesP50": 585,
@@ -407,6 +410,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -497,9 +501,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 653.490125,
-                "p95Ms": 702.146334,
-                "maxMs": 703.188584
+                "p50Ms": 601.550083,
+                "p95Ms": 643.538667,
+                "maxMs": 651.305833
               },
               "context": {
                 "payloadBytesP50": 4844,
@@ -514,6 +518,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -604,9 +609,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 642.944,
-                "p95Ms": 734.191,
-                "maxMs": 779.223583
+                "p50Ms": 604.991458,
+                "p95Ms": 649.89475,
+                "maxMs": 658.558667
               },
               "context": {
                 "payloadBytesP50": 4423,
@@ -621,6 +626,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 1,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -711,9 +717,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 80.397167,
-                "p95Ms": 121.489625,
-                "maxMs": 126.238791
+                "p50Ms": 76.629375,
+                "p95Ms": 118.850917,
+                "maxMs": 120.132375
               },
               "context": {
                 "payloadBytesP50": 890,
@@ -728,6 +734,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -826,9 +833,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 610.378291,
-                "p95Ms": 663.110125,
-                "maxMs": 678.619167
+                "p50Ms": 583.645709,
+                "p95Ms": 624.009166,
+                "maxMs": 636.479167
               },
               "context": {
                 "payloadBytesP50": 5248,
@@ -843,6 +850,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -939,9 +947,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 34.611041,
-                "p95Ms": 39.785709,
-                "maxMs": 40.317291
+                "p50Ms": 34.361417,
+                "p95Ms": 40.809541,
+                "maxMs": 41.979917
               },
               "context": {
                 "payloadBytesP50": 42,
@@ -978,6 +986,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -1076,9 +1085,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 19.52825,
-                "p95Ms": 21.440125,
-                "maxMs": 21.9865
+                "p50Ms": 19.316625,
+                "p95Ms": 20.861708,
+                "maxMs": 20.930166
               },
               "context": {
                 "payloadBytesP50": 83,
@@ -1092,6 +1101,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -1182,9 +1192,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 154.523167,
-                "p95Ms": 222.936791,
-                "maxMs": 232.097375
+                "p50Ms": 140.155416,
+                "p95Ms": 189.283833,
+                "maxMs": 198.462875
               },
               "context": {
                 "payloadBytesP50": 845,
@@ -1198,6 +1208,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "allDependenciesFound": {
                   "value": 0,
@@ -1304,9 +1315,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 101.507041,
-                "p95Ms": 177.732833,
-                "maxMs": 191.427292
+                "p50Ms": 100.236041,
+                "p95Ms": 169.777291,
+                "maxMs": 225.642
               },
               "context": {
                 "payloadBytesP50": 899,
@@ -1320,6 +1331,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -1410,9 +1422,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 73.7235,
-                "p95Ms": 113.642584,
-                "maxMs": 160.538167
+                "p50Ms": 70.918417,
+                "p95Ms": 86.87475,
+                "maxMs": 87.931125
               },
               "context": {
                 "payloadBytesP50": 930,
@@ -1426,6 +1438,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -1516,9 +1529,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 82.901792,
-                "p95Ms": 90.425834,
-                "maxMs": 109.542708
+                "p50Ms": 79.730458,
+                "p95Ms": 88.731,
+                "maxMs": 95.128084
               },
               "context": {
                 "payloadBytesP50": 914,
@@ -1532,6 +1545,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -1622,9 +1636,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 84.066667,
-                "p95Ms": 111.737583,
-                "maxMs": 114.65025
+                "p50Ms": 82.299292,
+                "p95Ms": 109.375458,
+                "maxMs": 109.49675
               },
               "context": {
                 "payloadBytesP50": 890,
@@ -1638,6 +1652,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -1736,9 +1751,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 139.166958,
-                "p95Ms": 287.100167,
-                "maxMs": 288.323583
+                "p50Ms": 136.233708,
+                "p95Ms": 283.554917,
+                "maxMs": 285.625125
               },
               "context": {
                 "payloadBytesP50": 1098,
@@ -1752,6 +1767,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -1848,9 +1864,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 27.640458,
-                "p95Ms": 30.16925,
-                "maxMs": 31.052125
+                "p50Ms": 27.056125,
+                "p95Ms": 29.754541,
+                "maxMs": 31.649375
               },
               "context": {
                 "payloadBytesP50": 42,
@@ -1981,6 +1997,19 @@
           "pRandomization": 1
         },
         {
+          "metric": "fileRecallAt10",
+          "class": "conceptual-discovery",
+          "a": "A",
+          "b": "B",
+          "n": 10,
+          "diff": 0.3,
+          "ci95": [
+            0,
+            0.6
+          ],
+          "pRandomization": 0.24077592240775922
+        },
+        {
           "metric": "recallAt1",
           "class": "impact-refactor",
           "a": "A",
@@ -2031,6 +2060,19 @@
             -0.02
           ],
           "pRandomization": 0.1297870212978702
+        },
+        {
+          "metric": "missedDependencies",
+          "class": "impact-refactor",
+          "a": "A",
+          "b": "B",
+          "n": 10,
+          "diff": -0.7,
+          "ci95": [
+            -0.9,
+            -0.5
+          ],
+          "pRandomization": 0.0037996200379962005
         },
         {
           "metric": "statusMatch",
@@ -2142,6 +2184,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -2266,9 +2309,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 3.29225,
-                "p95Ms": 3.73025,
-                "maxMs": 3.772584
+                "p50Ms": 3.18275,
+                "p95Ms": 3.951125,
+                "maxMs": 4.335291
               },
               "context": {
                 "payloadBytesP50": 935,
@@ -2282,6 +2325,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -2398,9 +2442,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 3.417291,
-                "p95Ms": 3.875,
-                "maxMs": 3.881083
+                "p50Ms": 3.145792,
+                "p95Ms": 3.559458,
+                "maxMs": 3.755291
               },
               "context": {
                 "payloadBytesP50": 938,
@@ -2418,6 +2462,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -2534,9 +2579,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 5.439333,
-                "p95Ms": 6.16725,
-                "maxMs": 9.039875
+                "p50Ms": 5.223708,
+                "p95Ms": 6.059291,
+                "maxMs": 6.174416
               },
               "context": {
                 "payloadBytesP50": 962,
@@ -2550,6 +2595,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -2666,9 +2712,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 5.454708,
-                "p95Ms": 6.181458,
-                "maxMs": 6.837958
+                "p50Ms": 5.204834,
+                "p95Ms": 5.816417,
+                "maxMs": 6.216
               },
               "context": {
                 "payloadBytesP50": 928,
@@ -2686,6 +2732,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -2810,9 +2857,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 3.30425,
-                "p95Ms": 3.741541,
-                "maxMs": 3.752541
+                "p50Ms": 3.326875,
+                "p95Ms": 3.437042,
+                "maxMs": 3.573791
               },
               "context": {
                 "payloadBytesP50": 1002,
@@ -2841,6 +2888,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -2965,9 +3013,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 3.29225,
-                "p95Ms": 3.73025,
-                "maxMs": 3.772584
+                "p50Ms": 3.18275,
+                "p95Ms": 3.951125,
+                "maxMs": 4.335291
               },
               "context": {
                 "payloadBytesP50": 935,
@@ -2981,6 +3029,7 @@
               "n": 10,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -3097,9 +3146,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 3.417291,
-                "p95Ms": 3.875,
-                "maxMs": 3.881083
+                "p50Ms": 3.145792,
+                "p95Ms": 3.559458,
+                "maxMs": 3.755291
               },
               "context": {
                 "payloadBytesP50": 938,
@@ -3117,6 +3166,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -3233,9 +3283,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 5.439333,
-                "p95Ms": 6.16725,
-                "maxMs": 9.039875
+                "p50Ms": 5.223708,
+                "p95Ms": 6.059291,
+                "maxMs": 6.174416
               },
               "context": {
                 "payloadBytesP50": 962,
@@ -3249,6 +3299,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -3365,9 +3416,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 5.454708,
-                "p95Ms": 6.181458,
-                "maxMs": 6.837958
+                "p50Ms": 5.204834,
+                "p95Ms": 5.816417,
+                "maxMs": 6.216
               },
               "context": {
                 "payloadBytesP50": 928,
@@ -3385,6 +3436,7 @@
               "n": 3,
               "underpowered": false,
               "state": "measured",
+              "unreachedCount": 0,
               "metrics": {
                 "falseAbsence": {
                   "value": 0,
@@ -3509,9 +3561,9 @@
               },
               "latency": {
                 "runs": 30,
-                "p50Ms": 3.30425,
-                "p95Ms": 3.741541,
-                "maxMs": 3.752541
+                "p50Ms": 3.326875,
+                "p95Ms": 3.437042,
+                "maxMs": 3.573791
               },
               "context": {
                 "payloadBytesP50": 1002,
@@ -3634,6 +3686,19 @@
         },
         {
           "metric": "mrrAt5",
+          "class": "conceptual-discovery",
+          "a": "A",
+          "b": "B",
+          "n": 10,
+          "diff": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "pRandomization": 1
+        },
+        {
+          "metric": "fileRecallAt5",
           "class": "conceptual-discovery",
           "a": "A",
           "b": "B",

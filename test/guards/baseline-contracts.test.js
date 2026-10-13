@@ -99,15 +99,20 @@ test('G33.3 control: mutated in-memory task missing a required field or anchor i
 // ---- H.3: Holdout splits and canary checks (G33.4, G33.5) ----
 const holdoutDir = path.join(REPO, 'bench/retrieval/holdout');
 
+function toPosixPath(p) {
+  return p.split(path.sep).join('/').replace(/\\/g, '/');
+}
+
 function h3LoadSeals() {
   const seals = [];
-  for (const corpus of ['code', 'guidance']) {
-    const gens = sealLib.listGenerations(holdoutDir, corpus);
-    assert.ok(gens.length > 0, `holdout directory must contain at least one generation for corpus ${corpus}`);
-    const latestGen = gens[gens.length - 1];
-    const seal = sealLib.readSeal(holdoutDir, corpus, latestGen);
-    const relSealPath = path.relative(REPO, sealLib.sealPath(holdoutDir, corpus, latestGen));
-    seals.push({ corpus, generation: latestGen, seal, relSealPath });
+  assert.ok(fs.existsSync(holdoutDir), `holdout directory must exist at ${holdoutDir}`);
+  const files = fs.readdirSync(holdoutDir).filter((f) => f.endsWith('.seal.json')).sort();
+  assert.ok(files.length > 0, 'holdout directory must contain at least one *.seal.json');
+  for (const f of files) {
+    const fullPath = path.join(holdoutDir, f);
+    const seal = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+    const relSealPath = toPosixPath(path.relative(REPO, fullPath));
+    seals.push({ corpus: seal.corpus, generation: seal.generation, seal, relSealPath });
   }
   return seals;
 }
@@ -115,6 +120,21 @@ function h3LoadSeals() {
 function h3SplitProblems({ devTaskFile, seals }) {
   const p = [];
   const devIds = new Set((devTaskFile.tasks || []).map((t) => t.id));
+
+  const devClassCounts = { code: {}, guidance: {} };
+  for (const t of devTaskFile.tasks || []) {
+    if (devClassCounts[t.corpus]) {
+      devClassCounts[t.corpus][t.class] = (devClassCounts[t.corpus][t.class] || 0) + 1;
+    }
+  }
+
+  for (const corpus of ['code', 'guidance']) {
+    for (const cls of classesFor(corpus)) {
+      if (!devClassCounts[corpus] || !devClassCounts[corpus][cls]) {
+        p.push(`${corpus}: applicable class '${cls}' has 0 dev tasks in tasks/dev.json`);
+      }
+    }
+  }
 
   for (const { corpus, seal, relSealPath } of seals) {
     for (const id of seal.ids || []) {
@@ -124,19 +144,8 @@ function h3SplitProblems({ devTaskFile, seals }) {
     }
 
     const applicable = classesFor(corpus);
-    const devClassCounts = {};
-    for (const t of devTaskFile.tasks || []) {
-      if (t.corpus === corpus) {
-        devClassCounts[t.class] = (devClassCounts[t.class] || 0) + 1;
-      }
-    }
-
     for (const cls of applicable) {
-      const devCount = devClassCounts[cls] || 0;
       const holdoutCount = (seal.classCounts && seal.classCounts[cls]) || 0;
-      if (devCount === 0) {
-        p.push(`${corpus}: applicable class '${cls}' has 0 dev tasks in tasks/dev.json`);
-      }
       if (holdoutCount === 0) {
         p.push(`${corpus}: applicable class '${cls}' has 0 holdout tasks in latest generation classCounts`);
       }
@@ -153,15 +162,16 @@ function h3CanaryProblems({ repoRoot, seals, grepFn = null }) {
       p.push(`${relSealPath}: seal has no canary`);
       continue;
     }
+    const posixSealPath = toPosixPath(relSealPath);
     const lines = grepFn
       ? grepFn(canary)
       : spawnSync('git', ['-C', repoRoot, 'grep', '-F', canary], { encoding: 'utf8' })
           .stdout.trim().split('\n').filter(Boolean);
 
     for (const line of lines) {
-      const matchFile = line.split(':')[0];
-      if (matchFile !== relSealPath) {
-        p.push(`${relSealPath}: canary leaked in tracked file ${matchFile}`);
+      const matchFile = toPosixPath(line.split(':')[0]);
+      if (matchFile !== posixSealPath) {
+        p.push(`${posixSealPath}: canary leaked in tracked file ${matchFile}`);
       }
     }
   }
@@ -201,6 +211,19 @@ test('G33.4 control: duplicate id, missing dev class and missing holdout class a
   assert.match(p3, /code: applicable class 'exact-lookup' has 0 holdout tasks/);
 });
 
+test('G33.4 control: multiple generations of seals are all checked', () => {
+  const snapshot = snapshotLib.loadSnapshot();
+  const devFile = path.join(REPO, snapshot.taskFiles.dev.path);
+  const devTaskFile = JSON.parse(fs.readFileSync(devFile, 'utf8'));
+  const seals = h3LoadSeals();
+  const olderSeal = structuredClone(seals[0]);
+  olderSeal.generation = 0;
+  olderSeal.relSealPath = 'bench/retrieval/holdout/code.g0.seal.json';
+  olderSeal.seal.ids = [devTaskFile.tasks[0].id];
+  const p = h3SplitProblems({ devTaskFile, seals: [olderSeal, ...seals] });
+  assert.ok(p.some((msg) => msg.includes('code.g0.seal.json: holdout task id') && msg.includes('appears in tasks/dev.json')));
+});
+
 test('G33.5: each seal canary appears in no tracked file other than its seal file', () => {
   const seals = h3LoadSeals();
   assert.deepEqual(h3CanaryProblems({ repoRoot: REPO, seals }), []);
@@ -214,6 +237,30 @@ test('G33.5 control: canary appearance in another tracked file is reported', () 
   ];
   const got = h3CanaryProblems({ repoRoot: REPO, seals: [seals[0]], grepFn: mockGrep }).join('\n');
   assert.match(got, /canary leaked in tracked file src\/runtime\/leaked\.ts/);
+});
+
+test('G33.5 control: comparing repo paths handles path.win32-style input', () => {
+  const win32SealPath = path.win32.join('bench', 'retrieval', 'holdout', 'code.g1.seal.json');
+  const canary = 'mock-canary-uuid';
+  const seals = [{
+    corpus: 'code',
+    generation: 1,
+    seal: { canary },
+    relSealPath: win32SealPath,
+  }];
+  const mockGrep = () => [
+    `bench/retrieval/holdout/code.g1.seal.json:  "canary": "${canary}",`,
+  ];
+  const noProblems = h3CanaryProblems({ repoRoot: REPO, seals, grepFn: mockGrep });
+  assert.deepEqual(noProblems, [], 'must not report false leak when seal path uses win32 backslashes');
+
+  const mockLeak = () => [
+    `bench/retrieval/holdout/code.g1.seal.json:  "canary": "${canary}",`,
+    `src/runtime/leaked.ts:  const c = "${canary}";`,
+  ];
+  const leakProblems = h3CanaryProblems({ repoRoot: REPO, seals, grepFn: mockLeak });
+  assert.equal(leakProblems.length, 1);
+  assert.match(leakProblems[0], /canary leaked in tracked file src\/runtime\/leaked\.ts/);
 });
 
 // ---- K.2: Inventory, registry and contract checks (G33.12, G33.13, G33.15, G33.16) ----
@@ -590,8 +637,20 @@ test('G33.9: baseline snapshotId and tasksSha256 match, every configuration has 
 
 test('G33.10: budget rows carry required fields, at least 30 runs, ceilingMs matches formula, does not exceed intent, and all hook surfaces covered', () => {
   const budgets = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/perf/budgets.json'), 'utf8'));
-  const { surfaces: hookSurfaces } = enumerateHookSurfaces({ repoRoot: REPO });
+  const { surfaces: hookSurfaces } = enumerateHookSurfaces({ repoRoot: REPO, isToolInstalledFn: () => true });
   assert.deepEqual(m5BudgetProblems(budgets, { hookSurfaces }), []);
+});
+
+test('G33.10 control: hook surface enumeration does not depend on PATH and is identical with empty PATH', () => {
+  const normal = enumerateHookSurfaces({ repoRoot: REPO, isToolInstalledFn: () => true });
+  const origPath = process.env.PATH;
+  process.env.PATH = '';
+  try {
+    const withEmptyPath = enumerateHookSurfaces({ repoRoot: REPO, isToolInstalledFn: () => true });
+    assert.deepEqual(withEmptyPath, normal, 'enumeration with empty PATH must be identical');
+  } finally {
+    process.env.PATH = origPath;
+  }
 });
 
 test('G33.14: no proposal is approved without approvedOn and approvedBy: "user"', () => {
@@ -618,15 +677,53 @@ test('G33.14 control: approved proposal missing approvedOn, missing approvedBy o
 const FORBIDDEN_RESULT_KEYS = new Set(['perTask', 'query', 'qrels', 'tasks']);
 
 function getFirstAddCommit(repoRoot, relPath) {
-  const run = spawnSync('git', ['-C', repoRoot, 'log', '--diff-filter=A', '--format=%H', '--', relPath], {
+  const posixPath = toPosixPath(relPath);
+  const run = spawnSync('git', ['-C', repoRoot, 'log', '--diff-filter=A', '--format=%H', '--', posixPath], {
     encoding: 'utf8',
   });
   if (run.status !== 0) {
-    throw new Error(`git log failed for ${relPath}: ${run.stderr}`);
+    throw new Error(`git log failed for ${posixPath}: ${run.stderr}`);
   }
   const lines = run.stdout.trim().split('\n').filter(Boolean);
   if (lines.length === 0) return null;
   return lines[lines.length - 1];
+}
+
+function areAllThresholdsApproved(doc) {
+  if (!doc || typeof doc !== 'object') return false;
+  if (doc.minN?.status !== 'approved') return false;
+  if (doc.costCaps?.status !== 'approved') return false;
+  if (doc.rerun?.status !== 'approved') return false;
+  if (!Array.isArray(doc.thresholds) || doc.thresholds.length === 0 || !doc.thresholds.every((t) => t.status === 'approved')) return false;
+  if (!Array.isArray(doc.rules) || doc.rules.length === 0 || !doc.rules.every((r) => r.status === 'approved')) return false;
+  return true;
+}
+
+function getFirstApprovedCommit(repoRoot, relPath) {
+  const posixPath = toPosixPath(relPath);
+  const run = spawnSync('git', ['-C', repoRoot, 'log', '--reverse', '--format=%H', '--', posixPath], {
+    encoding: 'utf8',
+  });
+  if (run.status !== 0) {
+    throw new Error(`git log failed for ${posixPath}: ${run.stderr}`);
+  }
+  const commits = run.stdout.trim().split('\n').filter(Boolean);
+  for (const commit of commits) {
+    const show = spawnSync('git', ['-C', repoRoot, 'show', `${commit}:${posixPath}`], {
+      encoding: 'utf8',
+    });
+    if (show.status === 0) {
+      try {
+        const doc = JSON.parse(show.stdout);
+        if (areAllThresholdsApproved(doc)) {
+          return commit;
+        }
+      } catch {
+        // ignore parse errors in older commits
+      }
+    }
+  }
+  return null;
 }
 
 function isAncestor(repoRoot, ancestorCommit, descendantCommit) {
@@ -656,8 +753,13 @@ function o2OrderProblems({ repoRoot }) {
     return p;
   }
 
+  const approvedCommit = getFirstApprovedCommit(repoRoot, thresholdsRel);
+  if (!approvedCommit) {
+    p.push(`${thresholdsRel}: no commit found where every entry is approved`);
+  }
+
   for (const f of files) {
-    const relFile = path.join('bench/retrieval/results', f);
+    const relFile = toPosixPath(path.join('bench/retrieval/results', f));
     const holdoutCommit = getFirstAddCommit(repoRoot, relFile);
     if (!holdoutCommit) {
       p.push(`${relFile}: no first-add commit found in git log`);
@@ -665,6 +767,9 @@ function o2OrderProblems({ repoRoot }) {
     }
     if (!isAncestor(repoRoot, thresholdsCommit, holdoutCommit)) {
       p.push(`${relFile}: first-add commit ${holdoutCommit} is not descended from thresholds.json first-add commit ${thresholdsCommit}`);
+    }
+    if (approvedCommit && !isAncestor(repoRoot, approvedCommit, holdoutCommit)) {
+      p.push(`${relFile}: first-add commit ${holdoutCommit} is not descended from thresholds.json first-approval commit ${approvedCommit}`);
     }
   }
   return p;
@@ -758,6 +863,52 @@ test('G33.7 control: non-ancestor thresholds first-add commit is reported', (t) 
   const problems = o2OrderProblems({ repoRoot: dir });
   assert.ok(problems.length > 0, 'must report order problem when thresholds is committed after holdout');
   assert.match(problems.join('\n'), /thresholds\.json first-add commit/);
+});
+
+test('G33.7 control: non-ancestor thresholds first-approval commit is reported', (t) => {
+  const dir = tempDir(t, 'doflow-g33-approval-order-');
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+
+  const sampleThresholds = (status) => ({
+    schemaVersion: 1,
+    minN: { ranking: 10, outcome: 3, status },
+    costCaps: { status },
+    rerun: { status },
+    thresholds: [{ id: 'T-001', status }],
+    rules: [{ id: 'RULE-001', status }],
+  });
+
+  // Commit 1: add thresholds.json with status: "proposed"
+  const retDir = path.join(dir, 'bench/retrieval');
+  fs.mkdirSync(retDir, { recursive: true });
+  fs.writeFileSync(path.join(retDir, 'thresholds.json'), JSON.stringify(sampleThresholds('proposed')));
+  git('add', '-A');
+  git('commit', '-q', '-m', 'add proposed thresholds');
+
+  // Commit 2: add holdout result before approval
+  const resultsDir = path.join(dir, 'bench/retrieval/results');
+  fs.mkdirSync(resultsDir, { recursive: true });
+  fs.writeFileSync(path.join(resultsDir, 'holdout-1-g1-code-A.json'), JSON.stringify({ schemaVersion: 1 }));
+  git('add', '-A');
+  git('commit', '-q', '-m', 'add holdout results');
+
+  // Commit 3: approve thresholds after holdout
+  fs.writeFileSync(path.join(retDir, 'thresholds.json'), JSON.stringify(sampleThresholds('approved')));
+  git('add', '-A');
+  git('commit', '-q', '-m', 'approve thresholds');
+
+  const problems = o2OrderProblems({ repoRoot: dir });
+  assert.ok(problems.length > 0, 'must report order problem when thresholds is approved after holdout');
+  assert.match(problems.join('\n'), /thresholds\.json first-approval commit/);
+});
+
+test('G33.7 control: comparing repo paths handles path.win32-style input', () => {
+  const win32Rel = path.win32.join('bench', 'retrieval', 'thresholds.json');
+  const commit = getFirstAddCommit(REPO, win32Rel);
+  assert.ok(commit && /^[0-9a-f]{40}$/.test(commit), 'must resolve commit with win32 pathspec');
+  const approvedCommit = getFirstApprovedCommit(REPO, win32Rel);
+  assert.ok(approvedCommit && /^[0-9a-f]{40}$/.test(approvedCommit), 'must resolve approved commit with win32 pathspec');
 });
 
 test('G33.8: no holdout results file carries perTask, query, qrels or tasks', () => {

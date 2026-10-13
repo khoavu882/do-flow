@@ -221,3 +221,37 @@ if (cmd === 'affected') {
   assert.equal(ans.providers[0].state, 'unreached');
   assert.equal(ans.providers[0].cause, 'No unique node match');
 });
+
+test('adapter A: child env lacks DOFLOW_HOLDOUT_KEY and *_API_KEY, semble receives HF_HUB_OFFLINE=1', { skip: posix }, (t) => {
+  const w = world(t);
+  const bin = tempDir(t, 'doflow-adapter-a-envbin-');
+  const envFile = path.join(tempDir(t, 'doflow-adapter-a-envout-'), 'env.json');
+  const recorder = stub(bin, 'semble', `
+const fs = require('fs');
+fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify(process.env));
+console.log(JSON.stringify({ query: 'q', results: [] }));
+`);
+  const prevHoldout = process.env.DOFLOW_HOLDOUT_KEY;
+  const prevApiKey = process.env.TEST_API_KEY;
+  process.env.DOFLOW_HOLDOUT_KEY = 'secret-holdout-12345';
+  process.env.TEST_API_KEY = 'secret-api-key';
+  try {
+    a.runA({ task: task(), exportRoot: w.root, capabilities: CAPS, bins: { ...w.bins, semble: recorder }, semble: w.semble, scratchDir: w.scratchDir });
+    const captured = JSON.parse(fs.readFileSync(envFile, 'utf8'));
+    assert.equal(captured.HF_HUB_OFFLINE, '1');
+    assert.equal('DOFLOW_HOLDOUT_KEY' in captured, false);
+    assert.equal('TEST_API_KEY' in captured, false);
+
+    fs.rmSync(envFile, { force: true });
+    a.buildIndexes({ exportRoot: w.root, semble: { env: undefined }, bins: { ...w.bins, semble: recorder, graphify: w.bins.graphify } });
+    if (fs.existsSync(envFile)) {
+      const capturedBuild = JSON.parse(fs.readFileSync(envFile, 'utf8'));
+      assert.equal(capturedBuild.HF_HUB_OFFLINE, '1');
+      assert.equal('DOFLOW_HOLDOUT_KEY' in capturedBuild, false);
+      assert.equal('TEST_API_KEY' in capturedBuild, false);
+    }
+  } finally {
+    if (prevHoldout !== undefined) process.env.DOFLOW_HOLDOUT_KEY = prevHoldout; else delete process.env.DOFLOW_HOLDOUT_KEY;
+    if (prevApiKey !== undefined) process.env.TEST_API_KEY = prevApiKey; else delete process.env.TEST_API_KEY;
+  }
+});

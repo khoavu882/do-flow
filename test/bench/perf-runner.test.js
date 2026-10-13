@@ -274,3 +274,94 @@ test('bench runner forwards perf command to bench/perf/runner.js', () => {
   assert.equal(run.status, 2);
   assert.match(run.stderr, /usage: bench perf/);
 });
+
+test('perf measure: a surface with non-zero exit fails (no row, reported, exit 1)', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-fail-nonzero-');
+  const budgetsPath = path.join(dir, 'budgets.json');
+  const stubSurfaces = [
+    { id: 'stub.ok', kind: 'cli', argv: ['echo', 'ok'], intentClass: 'help', enforced: false },
+    { id: 'stub.failing', kind: 'cli', argv: ['exit1'], intentClass: 'help', enforced: false },
+  ];
+  const { lines, io } = capture();
+  const exitCode = runner.main(
+    ['measure', '--runs', '5', '--warmups', '1', '--budgets', budgetsPath],
+    {
+      ...io,
+      surfaces: stubSurfaces,
+      isAnotherNodeTestRunningFn: () => false,
+      runSurfaceFn: (surface) => {
+        if (surface.id === 'stub.failing') throw new Error('process exited with status 1');
+        return 10;
+      },
+    }
+  );
+  assert.equal(exitCode, 1);
+  assert.match(lines.err.join('\n'), /perf measure: surface stub\.failing failed: process exited with status 1/);
+  const outLines = lines.out.join('\n');
+  assert.ok(!outLines.includes('stub.failing p50='));
+});
+
+test('perf measure: a surface with timeout fails (no row, reported, exit 1)', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-fail-timeout-');
+  const budgetsPath = path.join(dir, 'budgets.json');
+  const stubSurfaces = [
+    { id: 'stub.timeout', kind: 'cli', argv: ['sleep', '100'], intentClass: 'help', enforced: false },
+  ];
+  const { lines, io } = capture();
+  const exitCode = runner.main(
+    ['measure', '--runs', '5', '--warmups', '1', '--budgets', budgetsPath],
+    {
+      ...io,
+      surfaces: stubSurfaces,
+      isAnotherNodeTestRunningFn: () => false,
+      runSurfaceFn: () => {
+        throw new Error('timed out after 30s');
+      },
+    }
+  );
+  assert.equal(exitCode, 1);
+  assert.match(lines.err.join('\n'), /perf measure: surface stub\.timeout failed: timed out after 30s/);
+});
+
+test('perf measure: a surface with missing stdin fixture fails (no row, reported, exit 1)', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-fail-stdin-');
+  const budgetsPath = path.join(dir, 'budgets.json');
+  const stubSurfaces = [
+    { id: 'stub.missing-stdin', kind: 'cli', argv: ['cat'], stdinFixture: 'nonexistent/fixture.json', intentClass: 'help', enforced: false },
+  ];
+  const { lines, io } = capture();
+  const exitCode = runner.main(
+    ['measure', '--runs', '5', '--warmups', '1', '--budgets', budgetsPath],
+    {
+      ...io,
+      surfaces: stubSurfaces,
+      isAnotherNodeTestRunningFn: () => false,
+    }
+  );
+  assert.equal(exitCode, 1);
+  assert.match(lines.err.join('\n'), /missing stdin fixture/);
+});
+
+test('perf measure: ceilingMs is computed from the stored (rounded) p95Ms', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-rounded-p95-');
+  const budgetsPath = path.join(dir, 'budgets.json');
+  const stubSurfaces = [
+    { id: 'stub.calc', kind: 'cli', argv: ['echo'], intentClass: 'none', enforced: false },
+  ];
+  const { lines, io } = capture();
+  const exitCode = runner.main(
+    ['measure', '--runs', '10', '--warmups', '1', '--json', '--budgets', budgetsPath],
+    {
+      ...io,
+      surfaces: stubSurfaces,
+      isAnotherNodeTestRunningFn: () => false,
+      runSurfaceFn: () => 10.004,
+    }
+  );
+  assert.equal(exitCode, 0);
+  const data = JSON.parse(lines.out.join(''));
+  const row = data.rows.find((r) => r.surfaceId === 'stub.calc');
+  assert.ok(row);
+  assert.equal(row.p95Ms, 10);
+  assert.equal(row.ceilingMs, 20);
+});

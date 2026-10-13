@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { childEnv } = require('../runner.js');
 const adaptersA = require('./adapters-a.js');
 const adaptersB = require('./adapters-b.js');
 const snapshotLib = require('./snapshot.js');
@@ -30,8 +31,11 @@ function applyPatch(task, copy, repoRoot) {
     return;
   }
   try {
-    const run = spawnSync('git', ['apply', '--unsafe-paths', `--directory=${fs.realpathSync(copy)}`, patchFile], { cwd: copy, encoding: 'utf8' });
+    const run = spawnSync('git', ['apply', '--unsafe-paths', `--directory=${fs.realpathSync(copy)}`, patchFile], { cwd: copy, env: childEnv(), encoding: 'utf8' });
     if (run.status !== 0) {
+      if (task.split === 'holdout' || (task.id && /^H[CG]-/.test(task.id))) {
+        throw new Error('setup patch failed for a holdout task');
+      }
       throw new Error(`setup patch for ${task.id || 'task'} does not apply: ${String(run.stderr).trim().split('\n')[0]}`);
     }
   } finally {

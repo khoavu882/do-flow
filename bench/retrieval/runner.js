@@ -19,7 +19,7 @@ const VERBS_DIR = path.join(__dirname, 'lib', 'verbs');
 const PRIORITY = [2, 3, 4, 1];
 const GLOBAL_FLAGS = { json: 'bool', snapshot: 'value', tmp: 'value', 'keep-tmp': 'bool' };
 /** Environment variable names that look like credentials; never forwarded to a child process. */
-const CREDENTIAL_RE = /(API_?KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|CREDENTIAL)/i;
+const CREDENTIAL_RE = /(API_?KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|DOFLOW_HOLDOUT_KEY)/i;
 
 class UsageError extends Error {}
 
@@ -33,7 +33,10 @@ function resolveExitCode(codes) {
 function childEnv(extra = {}) {
   const env = {};
   for (const name of Object.keys(process.env)) if (!CREDENTIAL_RE.test(name)) env[name] = process.env[name];
-  return { ...env, ...extra };
+  if (extra) {
+    for (const [name, val] of Object.entries(extra)) if (!CREDENTIAL_RE.test(name)) env[name] = val;
+  }
+  return env;
 }
 
 function parseFlags(args, allowed) {

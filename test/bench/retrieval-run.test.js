@@ -246,5 +246,89 @@ test('holdout: a missing seal or a key that does not decrypt is refused', (t) =>
   const w = world(t);
   assert.throws(() => exec(w, { config: 'A,B', corpus: 'code', split: 'holdout' }, stubDeps([])), /no sealed holdout for the code corpus/);
   sealHoldout(w);
-  assert.throws(() => run.execute({ args: { corpus: 'code', split: 'holdout' }, snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, env: { DOFLOW_HOLDOUT_KEY: 'x'.repeat(30) }, home: w.repo, deps: stubDeps([]) }), /does not decrypt/);
+  assert.throws(() => run.execute({ args: { config: 'A,B', corpus: 'code', split: 'holdout' }, snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, env: { DOFLOW_HOLDOUT_KEY: 'x'.repeat(30) }, home: w.repo, deps: stubDeps([]) }), /does not decrypt/);
+});
+
+test('FX.4: with --split holdout, --config and --corpus must be given explicitly', () => {
+  assert.throws(() => run.parseSelection({ split: 'holdout', corpus: 'code' }), (err) => {
+    assert.equal(err.exitCode, 2);
+    assert.match(err.message, /--config/);
+    return true;
+  });
+  assert.throws(() => run.parseSelection({ split: 'holdout', config: 'A,B' }), (err) => {
+    assert.equal(err.exitCode, 2);
+    assert.match(err.message, /--corpus/);
+    return true;
+  });
+});
+
+test('FX.2: unreachedCount reports count of unreached tasks and comparisons include headline metrics', (t) => {
+  const w = world(t, { devTaskCount: 5 });
+  const devPath = path.join(w.outDir, 'tasks', 'dev.json');
+  const devData = JSON.parse(fs.readFileSync(devPath, 'utf8'));
+  devData.tasks.push({
+    id: 'DC-099', split: 'dev', corpus: 'code', class: 'impact-refactor', query: 'what depends on thing',
+    literal: 'thing',
+    qrels: [{ id: 'q1', path: 'src/a.ts', startLine: 1, endLine: 2, rel: 2, anchorSha: 'placeholder' }],
+    dependencies: [{ id: 'q2', path: 'src/a.ts', startLine: 5, endLine: 6, rel: 2, anchorSha: 'placeholder' }],
+    expect: { result: ['RETRIEVED'] }, truthSource: ['src/a.ts:1'], author: 'worker:t', queryOverlap: 0.1,
+  });
+  const { taskFile } = tasksLib.fillTaskFile(devData, { snapshot: w.snapshot, manifest: w.manifest, repoRoot: w.repo, tokenize });
+  fs.writeFileSync(devPath, sealLib.toFileText(taskFile));
+
+  const calls = [];
+  const deps = {
+    runConfig: ({ config, corpus, task }) => {
+      calls.push(`${config}:${corpus}:${task.id}`);
+      if (task.class === 'conceptual-discovery' && (task.id === 'DC-001' || task.id === 'DC-002') && config === 'A') {
+        return {
+          result: 'UNREACHED', freshness: 'UNKNOWN', candidates: [],
+          providers: [{ id: 'semble.search', state: 'unreached', cause: 'process timed out' }],
+          payloadBytes: 0, wallMs: 1,
+        };
+      }
+      if (task.class === 'impact-refactor') {
+        const dep = task.dependencies[0];
+        const hit = config === 'A';
+        const candidate = {
+          path: hit ? dep.path : 'src/other.ts',
+          startLine: dep.startLine, endLine: dep.endLine, heading: null, rank: 1,
+          provider: 'graphify.query', snippet: 'abcd', snippetBytes: 4,
+        };
+        return {
+          result: 'RETRIEVED', freshness: 'UNKNOWN',
+          candidates: [candidate],
+          providers: [{ id: 'graphify.query', state: 'reached' }],
+          payloadBytes: 4, wallMs: 1,
+        };
+      }
+      const q = task.qrels[0];
+      return {
+        result: 'RETRIEVED', freshness: 'NOT_APPLICABLE',
+        candidates: [{ path: q.path, startLine: q.startLine, endLine: q.endLine, heading: null, rank: 1, provider: 'native.rg', snippet: 'abcd', snippetBytes: 4 }],
+        providers: [{ id: 'native.rg', state: 'reached' }],
+        payloadBytes: 4, wallMs: 1,
+      };
+    },
+    buildIndexes: () => ({ buildMs: 5, incrementalMs: 1, diskBytes: 10, peakRssMB: { unmeasured: 'no /usr/bin/time' } }),
+    materialiseExport: environment.materialiseExport,
+    verifySnapshot: verifyVerb.verifySnapshot,
+    preconditions: () => ({ check: () => ({ ok: true }) }),
+    latency: { warmups: 0, runs: 0 },
+  };
+
+  const out = exec(w, { config: 'A,B', corpus: 'code', split: 'dev' }, deps);
+  assert.equal(out.exitCode, 0);
+
+  const code = out.report.corpora.code;
+  const aConceptual = code.configs.A.classes['conceptual-discovery'];
+  assert.equal(aConceptual.unreachedCount, 2, 'a class with 2 unreached tasks reports unreachedCount 2');
+
+  const cmpConceptual = code.comparisons.find((c) => c.metric === 'fileRecallAt10' && c.class === 'conceptual-discovery');
+  assert.ok(cmpConceptual, 'comparison for conceptual fileRecallAt10 must exist');
+  assert.ok(Array.isArray(cmpConceptual.ci95), 'comparison for conceptual fileRecallAt10 must have ci95');
+
+  const cmpImpact = code.comparisons.find((c) => c.metric === 'missedDependencies' && c.class === 'impact-refactor');
+  assert.ok(cmpImpact, 'comparison for impact missedDependencies must exist');
+  assert.ok(Array.isArray(cmpImpact.ci95), 'comparison for impact missedDependencies must have ci95');
 });

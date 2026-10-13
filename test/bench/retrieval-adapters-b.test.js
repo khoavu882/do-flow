@@ -110,3 +110,25 @@ test('guidance corpus uses the snapshot BM25: organic hits, graph hits apart, FR
   assert.equal(empty.result, 'EMPTY');
   assert.equal(empty.freshness, 'FRESH');
 });
+
+test('adapter B: child env lacks DOFLOW_HOLDOUT_KEY and *_API_KEY', (t) => {
+  const root = codeTree(t, { 'src/a.ts': 'x\n' });
+  const bin = tempDir(t, 'doflow-adapter-b-envbin-');
+  const envFile = path.join(tempDir(t, 'doflow-adapter-b-envout-'), 'env.json');
+  const stubRg = path.join(bin, 'rg');
+  fs.writeFileSync(stubRg, `#!/usr/bin/env node\nconst fs = require('fs');\nfs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify(process.env));\nconsole.log('src/a.ts:1:x');\n`);
+  fs.chmodSync(stubRg, 0o755);
+  const prevHoldout = process.env.DOFLOW_HOLDOUT_KEY;
+  const prevApiKey = process.env.TEST_API_KEY;
+  process.env.DOFLOW_HOLDOUT_KEY = 'secret-holdout-12345';
+  process.env.TEST_API_KEY = 'secret-api-key';
+  try {
+    b.runB({ corpus: 'code', task: { query: 'q', literal: 'x' }, exportRoot: root, bins: { rg: stubRg }, hasFd: false });
+    const captured = JSON.parse(fs.readFileSync(envFile, 'utf8'));
+    assert.equal('DOFLOW_HOLDOUT_KEY' in captured, false);
+    assert.equal('TEST_API_KEY' in captured, false);
+  } finally {
+    if (prevHoldout !== undefined) process.env.DOFLOW_HOLDOUT_KEY = prevHoldout; else delete process.env.DOFLOW_HOLDOUT_KEY;
+    if (prevApiKey !== undefined) process.env.TEST_API_KEY = prevApiKey; else delete process.env.TEST_API_KEY;
+  }
+});
