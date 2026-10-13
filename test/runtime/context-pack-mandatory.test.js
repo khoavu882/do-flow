@@ -33,6 +33,37 @@ test('mandatory: extracts all fields from present.md fixture', () => {
   assert.equal(res.provenance.constraints.supplied, true);
 });
 
+test('mandatory: acceptance criterion ids follow document order across task story sorts', () => {
+  const text = [
+    '# Requirement: IDs',
+    '## 1. Summary',
+    'ID stability.',
+    '## 6. Acceptance Criteria',
+    '- [ ] **Scenario: First** (US1)',
+    '- [ ] **Scenario: Second** (US2)',
+  ].join('\n');
+
+  const firstTask = extractMandatory({ text, taskStories: ['US1'] }).fields.acceptanceCriteria;
+  const secondTask = extractMandatory({ text, taskStories: ['US2'] }).fields.acceptanceCriteria;
+
+  assert.equal(firstTask.find((ac) => ac.stories.includes('US1')).id, 'ac:1');
+  assert.equal(secondTask.find((ac) => ac.stories.includes('US2')).id, 'ac:2');
+});
+
+test('mandatory: scope owner clauses normalize both supported forms', () => {
+  const text = fs.readFileSync(path.join(FIXTURES_DIR, 'real-feature-requirement.md'), 'utf8');
+  const result = extractMandatory({ text });
+  assert.ok(result.fields.scopeExcluded.some((item) => item.text.includes('(owner: 080)')));
+
+  const custom = extractMandatory({
+    text: '# Requirement: Owners\n## 1. Summary\nOwners.\n## 5. Out of Scope\n- **First item** (owner: 080)\n- **Second item** — owner 080 (task-graph-lifecycle)\n',
+  });
+  assert.deepEqual(custom.fields.scopeExcluded.map((item) => item.text), [
+    'First item (owner: 080)',
+    'Second item (owner: 080)',
+  ]);
+});
+
 test('mandatory: handles absent requirement artifact with artifact-absent reason', () => {
   const res = extractMandatory({ text: null, path: 'absent.md' });
 
