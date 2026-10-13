@@ -266,7 +266,7 @@ function buildDecisionReasonItem(reason: string): any {
     id: 'decisions:reason',
     field: 'decisions.reason (register unreadable)',
     value: { reason },
-    md: `- not supplied: register unreadable: ${reason}\n`,
+    md: `- not supplied: ${reason}\n`,
     priority: 0,
   });
 }
@@ -1056,7 +1056,7 @@ function formatMarkdown(pack: any, options: any = {}): string {
   if ((pack.decisions?.live && pack.decisions.live.length > 0) || pack.decisions?.reason) {
     md += `### Live decisions\n`;
     if (pack.decisions?.reason) {
-      md += `- not supplied: register unreadable: ${pack.decisions.reason}\n`;
+      md += `- not supplied: ${pack.decisions.reason}\n`;
     }
     for (const d of pack.decisions.live || []) {
       md += `- ${d.id} (${d.topic}): ${d.statement}\n`;

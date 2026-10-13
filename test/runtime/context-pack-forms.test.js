@@ -242,7 +242,8 @@ test('context-pack-forms: unavailable decision reason appears in JSON and Markdo
   const json = formatJson(pack);
   const markdown = formatMarkdown(pack);
   assert.match(json, /register unreadable: x/);
-  assert.match(markdown, /register unreadable: x/);
+  assert.equal(markdown.split('- not supplied: register unreadable: x').length - 1, 1);
+  assert.doesNotMatch(markdown, /register unreadable: register unreadable/);
   assert.match(markdown, /### Live decisions/);
   assert.ok(Buffer.byteLength(markdown, 'utf8') <= pack.budget.maxBytes);
 });
