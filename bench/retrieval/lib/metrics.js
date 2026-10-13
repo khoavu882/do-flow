@@ -55,7 +55,17 @@ function hits(corpus, candidate, qrel, fileLevel = false) {
   if (candidate.path !== qrel.path) return false;
   if (fileLevel) return true;
   if (corpus === 'guidance') {
-    return candidate.heading != null && normHeading(candidate.heading) === normHeading(qrel.heading);
+    if (candidate.heading == null) return false;
+    const qrelNorm = normHeading(qrel.heading);
+    if (!qrelNorm) return false;
+    const candNorm = normHeading(candidate.heading);
+    if (candNorm === qrelNorm) return true;
+    const lastSep = candNorm.lastIndexOf(' › ');
+    if (lastSep !== -1) {
+      const partAfter = normHeading(candNorm.slice(lastSep + 3));
+      if (partAfter === qrelNorm) return true;
+    }
+    return false;
   }
   if (candidate.startLine == null || candidate.endLine == null) return false;
   return candidate.startLine <= qrel.endLine && qrel.startLine <= candidate.endLine;

@@ -1,0 +1,11 @@
+--- a/core/shared/guidance/PRINCIPLES.md
++++ b/core/shared/guidance/PRINCIPLES.md
+@@ -4,7 +4,7 @@
+ 
+ ## The loop
+ 
+-**Understand → Plan → Execute → Verify.** One name for it everywhere. Diagnosis is the same loop
++**Understand → Plan → Execute → Verify.** One name for it everywhere. <!-- stale 022 --> Diagnosis is the same loop
+ with Understand widened into reproduce-then-root-cause. Verify is not "it ran".
+ 
+ ## Contract before findings

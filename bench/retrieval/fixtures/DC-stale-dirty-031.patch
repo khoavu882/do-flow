@@ -1,0 +1,11 @@
+--- a/src/adapters/index.ts
++++ b/src/adapters/index.ts
+@@ -19,7 +19,7 @@
+ /** Dispatch a harness's nativeProjection declaration to its adapter's own normalizer. */
+ function nativeProjectionFor(registry: any, harness: any, mcp: any, context: any) {
+   if (!harness.nativeProjection) return {};
+-  const load = NATIVE_PROJECTION_NORMALIZERS[harness.adapter];
++  const load = NATIVE_PROJECTION_NORMALIZERS[harness.adapter]; // uncommitted stale probe 031
+   if (!load) {
+     throw new Error(`No native projection normalizer is registered for '${harness.adapter}'. `
+       + `Registered: ${Object.keys(NATIVE_PROJECTION_NORMALIZERS).join(', ')}`);

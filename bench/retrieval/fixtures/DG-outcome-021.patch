@@ -1,0 +1,11 @@
+--- a/core/shared/guidance/FLAGS.md
++++ b/core/shared/guidance/FLAGS.md
+@@ -11,7 +11,7 @@
+ sets. You do not pick a cycle count.
+ **Run tracing** — every runtime call is recorded as it happens and read back; where a run
+ stopped is read from that record, never reconstructed.
+-**Capability routing** — an information need resolves to a provider healthy on this machine, not to
++**Capability routing** — an information need resolves to a provider healthy on this machine <!-- stale 021 -->, not to
+ a habitual tool.
+ 
+ ## Flags

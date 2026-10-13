@@ -1,0 +1,11 @@
+--- a/src/runtime/workflow-engine.ts
++++ b/src/runtime/workflow-engine.ts
+@@ -62,7 +62,7 @@
+   return value;
+ }
+ 
+-class WorkflowEngine {
++class WorkflowEngine { // dirty worktree probe 036
+   declare fsImpl: any;
+   declare repoRoot: any;
+   declare registryPath: any;

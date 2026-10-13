@@ -1,0 +1,11 @@
+--- a/src/registry/index.ts
++++ b/src/registry/index.ts
+@@ -35,7 +35,7 @@
+ const MCP_NAME = /^[A-Za-z0-9_.-]+$/;
+ /** How a capability provider answers: from the current files or commands (`live`), or from a built
+  * artifact that can lag the source (`index`). Required on every provider (068). */
+-const PROVIDER_SOURCE_MODES = Object.freeze(['live', 'index']);
++const PROVIDER_SOURCE_MODES = Object.freeze(['live', 'index']); // uncommitted stale probe 032
+ 
+ function issue(errors: string[], location: string, message: string): void { errors.push(`${location}: ${message}`); }
+ function object(value: any): boolean { return value !== null && typeof value === 'object' && !Array.isArray(value); }
