@@ -5,12 +5,12 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger.ts');
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { measureFreshness } = require('./freshness.ts');
+const { measureTreeState, sourceVersionFor } = require('./source-version.ts');
 const { evaluateTaskReadiness } = require('./readiness.ts');
 const { writeReadinessRecord } = require('./readiness-record.ts');
 const { parseDeclaredScope } = require('./verification/scope-bound.ts');
@@ -411,16 +411,6 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
   };
 }
 
-/** HEAD of the tree the evidence was observed in, or null outside a repo. Measured, not asserted. */
-function headCommit(root: any) {
-  try {
-    return execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
-      encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim() || null;
-  } catch {
-    return null;
-  }
-}
 
 
 /**
@@ -492,15 +482,19 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }: any) {
     }
   }
 
-  const gitCommit = headCommit(root);
+  const treeState = measureTreeState(root);
   const written = [];
   let stateFile;
   try {
     for (const record of validated) {
+      const sv = sourceVersionFor(root, record.locator, treeState);
       const id = ledger.addEvidence({
         ...record,
         taskId,
-        freshness: measureFreshness(root, record.locator, gitCommit),
+        freshness: {
+          ...measureFreshness(root, record.locator, sv.gitCommit),
+          isDirty: sv.isDirty,
+        },
       });
       written.push(ledger.getEvidence(id));
     }
@@ -528,7 +522,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }: any) {
   }
   console.log('─'.repeat(78));
   console.log(`Wrote ${written.length} item(s) to ${stateFile}`);
-  console.log(`Commit at observation: ${gitCommit || 'not a git worktree — freshness cannot expire by diff'}`);
+  console.log(`Commit at observation: ${treeState.gitCommit || 'not a git worktree — freshness cannot expire by diff'}`);
   console.log('═'.repeat(78) + '\n');
   return finish(0);
 }
