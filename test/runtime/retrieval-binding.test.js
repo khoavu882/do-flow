@@ -26,8 +26,9 @@ function declare(root, taskId, needs) {
 function add(root, taskId, evidence) {
   const ledger = new EvidenceLedger({ repoRoot: root });
   ledger.load(taskId);
-  ledger.addEvidence({ taskId, kind: 'structural', provenance: 'extracted', locator: { file: 'src/a.ts', line: 1 }, ...evidence });
+  const id = ledger.addEvidence({ taskId, kind: 'structural', provenance: 'extracted', locator: { file: 'src/a.ts', line: 1 }, ...evidence });
   ledger.save(taskId);
+  return id;
 }
 
 test('query refs bind same-provider evidence to separate needs', (t) => {
@@ -150,4 +151,67 @@ test('unbound items report causes and index-backed unknown answers exit 1', (t) 
   assert.deepEqual(payload.unbound.causes, { 'no-query-ref': 1 });
   assert.equal(payload.unbound.count, 1);
   assert.equal(payload.needs[0].result, 'UNREACHED');
+});
+
+test('superseded evidence refreshes derived links and no longer supports the need', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-superseded-');
+  const plan = declare(root, 't-superseded', ['inspect-history']);
+  const need = plan.needs[0];
+  const first = add(root, 't-superseded', { content: 'first', source: {
+    provider: need.provider, capability: need.capability, queryRef: need.queryRef, attemptRef: null,
+  } });
+  const second = add(root, 't-superseded', { content: 'replacement', source: {
+    provider: need.provider, capability: need.capability, attemptRef: null,
+  } });
+  const firstReport = call({ taskId: 't-superseded', action: 'report', stateRoot: root, json: true });
+  assert.equal(firstReport.code, 0, firstReport.out);
+  assert.deepEqual(JSON.parse(firstReport.out).needs[0].evidenceIds, [first]);
+
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load('t-superseded');
+  ledger.supersedeEvidence(first, second);
+  ledger.save('t-superseded');
+  const persisted = new EvidenceLedger({ repoRoot: root });
+  persisted.load('t-superseded');
+  assert.equal(persisted.getEvidence(first).status, 'superseded');
+
+  const nextReport = call({ taskId: 't-superseded', action: 'report', stateRoot: root, json: true });
+  assert.equal(nextReport.code, 1, nextReport.out);
+  const output = JSON.parse(nextReport.out).needs[0];
+  assert.equal(output.result, 'UNREACHED');
+  assert.deepEqual(output.evidenceIds, []);
+  assert.deepEqual(output.attempts.find((attempt) => attempt.recordedBy === 'derived').evidenceIds, []);
+});
+
+test('query refs from undeclared needs in the active plan are replaced-plan unbound evidence', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-replaced-need-');
+  const plan = declare(root, 't-replaced-need', ['trace-dependency', 'estimate-blast-radius']);
+  const removedNeed = plan.needs.find((need) => need.intent === 'estimate-blast-radius');
+  const evidenceId = add(root, 't-replaced-need', { content: 'from removed need', source: {
+    provider: removedNeed.provider, capability: removedNeed.capability,
+    queryRef: removedNeed.queryRef, attemptRef: null,
+  } });
+  const file = planPath(root, 't-replaced-need');
+  const changed = readPlan(root, 't-replaced-need');
+  changed.needs = changed.needs.filter((need) => need.intent !== 'estimate-blast-radius');
+  fs.writeFileSync(file, JSON.stringify(changed));
+
+  const report = call({ taskId: 't-replaced-need', action: 'report', stateRoot: root, json: true });
+  assert.equal(report.code, 1, report.out);
+  const output = JSON.parse(report.out);
+  assert.equal(output.unbound.causes['replaced-plan'], 1);
+  assert.deepEqual(output.unbound.ids, [evidenceId]);
+  assert.equal(output.unbound.count, 1);
+});
+
+test('report does not construct the capability router when provider freshness is already cached', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-cached-provider-');
+  const plan = declare(root, 't-cached-provider', ['inspect-history']);
+  const need = plan.needs[0];
+  add(root, 't-cached-provider', { content: 'found', source: {
+    provider: need.provider, capability: need.capability, queryRef: need.queryRef, attemptRef: null,
+  } });
+  const report = call({ taskId: 't-cached-provider', action: 'report', stateRoot: root,
+    repoRoot: path.join(root, 'missing-registry-root'), json: true });
+  assert.equal(report.code, 0, report.out);
 });

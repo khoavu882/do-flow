@@ -380,8 +380,7 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
 
   const isQueryBound = Boolean(record.planId);
   let binding = isQueryBound ? bindEvidence(record, items) : null;
-  const reportRouter = isQueryBound ? new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT }) : null;
-  const reportSourceModeOf = reportRouter ? sourceModeLookup(reportRouter.capabilities) : null;
+  let reportSourceModeOf: any = null;
 
   let file: string;
   try {
@@ -393,6 +392,9 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
         for (const need of current.needs) {
           const bound = currentBinding.byNeed.get(need.intent) || [];
           if (!Array.isArray(need.attempts)) need.attempts = [];
+          for (const attempt of need.attempts) {
+            if (attempt.recordedBy === 'derived') attempt.evidenceIds = [];
+          }
           const groups = new Map<string, any[]>();
           for (const item of bound) {
             const absent = item.result === 'EMPTY';
@@ -418,6 +420,10 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
               continue;
             }
             if (status === RETRIEVED && provider && !current.providers?.[provider]) {
+              if (!reportSourceModeOf) {
+                const reportRouter = new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT });
+                reportSourceModeOf = sourceModeLookup(reportRouter.capabilities);
+              }
               current.providers ||= {};
               current.providers[provider] = freshnessEntry(provider, projectRoot, reportSourceModeOf);
             }
@@ -441,7 +447,8 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
           need.result = outcome.result;
           need.resolvedBy = outcome.resolvedBy;
           need.viaFallback = outcome.viaFallback;
-          need.evidenceIds = need.attempts.filter((entry: any) => entry.status === RETRIEVED)
+          need.evidenceIds = need.attempts.filter((entry: any) => entry.status === RETRIEVED
+            && !(entry.recordedBy === 'derived' && (!Array.isArray(entry.evidenceIds) || entry.evidenceIds.length === 0)))
             .flatMap((entry: any) => entry.evidenceIds || []);
         }
         record = current;

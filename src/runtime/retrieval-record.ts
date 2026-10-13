@@ -166,8 +166,7 @@ function bindEvidence(plan: any, items: any[]) {
       continue;
     }
     if (source.queryRef) {
-      const replaced = needs.find((need: any) => need.intent && source.queryRef.endsWith(`#${need.intent}`));
-      if (replaced) unbound.push({ id: item.id, cause: 'replaced-plan' });
+      unbound.push({ id: item.id, cause: 'replaced-plan' });
     } else if (needs.some((need: any) => need.capability && need.capability === source.capability)) {
       unbound.push({ id: item.id, cause: 'no-query-ref' });
     }
@@ -178,7 +177,9 @@ function bindEvidence(plan: any, items: any[]) {
 /** Selects the highest-precedence recorded attempt, with the earliest attempt winning ties. */
 function deriveOutcome(need: any) {
   const precedence: Record<string, number> = { RETRIEVED: 0, EMPTY: 1, UNVERIFIED: 3, UNREACHED: 4 };
-  const attempts = Array.isArray(need?.attempts) ? need.attempts : [];
+  const attempts = (Array.isArray(need?.attempts) ? need.attempts : []).filter((attempt: any) =>
+    !(attempt.recordedBy === 'derived' && attempt.status === 'RETRIEVED'
+      && (!Array.isArray(attempt.evidenceIds) || attempt.evidenceIds.length === 0)));
   const ranked = [...attempts].sort((a, b) => {
     const rank = (attempt: any) => attempt.status === 'EMPTY' && ['STALE', 'UNKNOWN'].includes(attempt.indexState)
       ? (attempt.indexState === 'STALE' ? 2 : 3)
