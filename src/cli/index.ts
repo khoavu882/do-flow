@@ -479,6 +479,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --kind, --provenance, --provider,
       --capability, --locator, --content,
       --absence                             evidence --action add (one item)
+      --need <intent>                       evidence --action add (bind evidence to retrieval needs)
       --batch <file|->                      evidence --action add (a stage's JSON batch)
       --evidence-id, --replaced-by          evidence --action supersede (retire one item, point
                                             forward to the item that replaces it)

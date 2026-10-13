@@ -360,7 +360,7 @@ Workflow and evidence:
   claim            record or update a claim and its support state
   readiness        evaluate readiness; return state and missing items
   context-pack     emit the compiled context pack for a stage
-  retrieval-plan   declare the needs a stage will resolve, then report every declared item
+  retrieval-plan   declare the needs a stage will resolve, attempt each need, then report every declared item
   outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
   decision         register, list or compact the active feature's decisions
