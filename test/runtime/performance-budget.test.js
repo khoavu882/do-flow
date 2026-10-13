@@ -9,6 +9,7 @@ const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const BUDGETS_PATH = path.join(REPO_ROOT, 'bench/perf/budgets.json');
+const LOAD_GATE_FACTOR = 1.5;
 
 /**
  * Runs a command and measures wall time in milliseconds using hrtime.
@@ -47,6 +48,37 @@ function measureControlMedian() {
 }
 
 /**
+ * Decides whether a round's latency can be judged based on paired control median.
+ * If controlP50Ms is not provided (e.g. intent fallback), there is no load gate (judged = true).
+ * Otherwise, if median(pairedControls) > factor * controlP50Ms, the machine was under load (judged = false).
+ * @param {number[]|{ pairedControls: number[] }} pairedControls
+ * @param {number|null} controlP50Ms
+ * @param {number} [factor=LOAD_GATE_FACTOR]
+ * @returns {boolean}
+ */
+function isRoundJudged(pairedControls, controlP50Ms, factor = LOAD_GATE_FACTOR) {
+  if (controlP50Ms == null) {
+    return true;
+  }
+  const controls = Array.isArray(pairedControls)
+    ? pairedControls
+    : (pairedControls && Array.isArray(pairedControls.pairedControls) ? pairedControls.pairedControls : []);
+  if (controls.length === 0) {
+    return true;
+  }
+  const ctrlMedian = median(controls);
+  return ctrlMedian <= factor * controlP50Ms;
+}
+
+function formatLoadGateDiagnostic(controlMedian, rowControlP50Ms, factor = LOAD_GATE_FACTOR) {
+  const x = typeof controlMedian === 'number' ? controlMedian.toFixed(2) : (controlMedian ?? 'n/a');
+  const y = typeof rowControlP50Ms === 'number'
+    ? (Number.isInteger(rowControlP50Ms) ? String(rowControlP50Ms) : rowControlP50Ms.toFixed(2))
+    : (rowControlP50Ms ?? 'n/a');
+  return `machine under load: control median ${x} ms vs row ${y} ms (factor ${factor}); latency not judged — run npm run bench -- perf measure on a quiet machine`;
+}
+
+/**
  * Normalises a sample latency by paired control against baseline row control.
  * Formula: sample * min(1, controlP50Ms / pairedControl).
  * If controlP50Ms is not provided (e.g. intent fallback), no normalisation is applied.
@@ -70,6 +102,7 @@ function evaluateRound(samples, pairedControls, controlP50Ms) {
   const controlMedian = pairedControls && pairedControls.length > 0 ? median(pairedControls) : null;
   const normalisedSamples = normaliseSamples(samples, pairedControls, controlP50Ms);
   const normalisedMedian = median(normalisedSamples);
+  const judged = isRoundJudged(pairedControls, controlP50Ms);
   return {
     samples,
     pairedControls,
@@ -77,17 +110,26 @@ function evaluateRound(samples, pairedControls, controlP50Ms) {
     rawMedian,
     controlMedian,
     normalisedMedian,
+    judged,
+    controlP50Ms,
   };
 }
 
 /**
  * Decides whether the performance budget test passes.
- * If round 1 normalised median > ceilingMs, a second round can be run.
- * The lower of the two normalised medians decides.
+ * If round 1 is not judged or its normalised median > ceilingMs, a second round can be run.
+ * If neither round is judged, skips with the AM9 load gate diagnostic.
+ * Any judged round(s) decide per AM8 (lower normalised median among judged rounds).
  */
-function decideVerdict(round1, round2OrFn, ceilingMs) {
+function decideVerdict(round1, round2OrFn, ceilingMs, controlP50Ms) {
+  const rowControl = controlP50Ms ?? round1?.controlP50Ms ?? null;
+  const round1Judged = round1?.judged !== undefined
+    ? round1.judged
+    : isRoundJudged(round1?.pairedControls, rowControl);
+
   let round2 = null;
-  if (round1.normalisedMedian > ceilingMs) {
+  const needRound2 = !round1Judged || (round1 && round1.normalisedMedian > ceilingMs);
+  if (needRound2) {
     if (typeof round2OrFn === 'function') {
       round2 = round2OrFn();
     } else {
@@ -96,12 +138,43 @@ function decideVerdict(round1, round2OrFn, ceilingMs) {
   } else if (round2OrFn && typeof round2OrFn !== 'function') {
     round2 = round2OrFn;
   }
-  const decidingMedian = round2
+
+  const round2Judged = round2
+    ? (round2.judged !== undefined
+        ? round2.judged
+        : isRoundJudged(round2.pairedControls, rowControl ?? round2.controlP50Ms))
+    : false;
+
+  const judgedRounds = [];
+  if (round1Judged && round1) judgedRounds.push(round1);
+  if (round2Judged && round2) judgedRounds.push(round2);
+
+  if (judgedRounds.length === 0) {
+    const ctrlMedian = round2?.controlMedian != null
+      ? round2.controlMedian
+      : (round1?.controlMedian != null ? round1.controlMedian : null);
+    const skipMessage = formatLoadGateDiagnostic(ctrlMedian, rowControl, LOAD_GATE_FACTOR);
+    return {
+      pass: false,
+      skip: true,
+      skipMessage,
+      message: skipMessage,
+      round1,
+      round2,
+      decidingMedian: null,
+      ceilingMs,
+      loadGateFactor: LOAD_GATE_FACTOR,
+    };
+  }
+
+  const decidingMedian = judgedRounds.length === 2
     ? Math.min(round1.normalisedMedian, round2.normalisedMedian)
-    : round1.normalisedMedian;
+    : judgedRounds[0].normalisedMedian;
   const pass = decidingMedian <= ceilingMs;
+
   return {
     pass,
+    skip: false,
     round1,
     round2,
     decidingMedian,
@@ -237,6 +310,68 @@ test('performance-budget AM8 unit: intent fallback applies no normalisation', ()
   assert.equal(normaliseSample(100, 50, null), 100);
 });
 
+// Unit tests for AM9 load gate and verdict (no timing)
+test('performance-budget AM9 unit (vi): controls at 1.7x row -> not judged', () => {
+  const rowControl = 25;
+  const pairedControls = [42.5, 42.5, 42.5, 42.5, 42.5];
+  assert.equal(isRoundJudged(pairedControls, rowControl), false);
+});
+
+test('performance-budget AM9 unit (vii): controls at 1.2x row -> judged', () => {
+  const rowControl = 25;
+  const pairedControls = [30, 30, 30, 30, 30];
+  assert.equal(isRoundJudged(pairedControls, rowControl), true);
+});
+
+test('performance-budget AM9 unit (viii): no row control -> judged', () => {
+  const pairedControls = [50, 50, 50, 50, 50];
+  assert.equal(isRoundJudged(pairedControls, null), true);
+  assert.equal(isRoundJudged(pairedControls, undefined), true);
+});
+
+test('performance-budget AM9 unit (ix): round 1 not judged and round 2 judged -> round 2 alone decides', () => {
+  const ceiling = 100;
+  const rowControl = 25;
+  const notJudgedControls = [42.5, 42.5, 42.5, 42.5, 42.5]; // 1.7x row -> not judged
+  const judgedControls = [25, 25, 25, 25, 25]; // 1.0x row -> judged
+
+  // Case A: round 1 has failing samples, round 2 has passing samples -> pass
+  const failingSamples = [150, 150, 150, 150, 150];
+  const passingSamples = [80, 80, 80, 80, 80];
+  const round1Failing = evaluateRound(failingSamples, notJudgedControls, rowControl);
+  const round2Passing = evaluateRound(passingSamples, judgedControls, rowControl);
+  const verdictPass = decideVerdict(round1Failing, round2Passing, ceiling);
+  assert.equal(verdictPass.pass, true);
+  assert.equal(verdictPass.skip, false);
+  assert.equal(verdictPass.decidingMedian, round2Passing.normalisedMedian);
+
+  // Case B: round 1 has passing samples, round 2 has failing samples -> fail
+  const round1Passing = evaluateRound(passingSamples, notJudgedControls, rowControl);
+  const round2Failing = evaluateRound(failingSamples, judgedControls, rowControl);
+  const verdictFail = decideVerdict(round1Passing, round2Failing, ceiling);
+  assert.equal(verdictFail.pass, false);
+  assert.equal(verdictFail.skip, false);
+  assert.equal(verdictFail.decidingMedian, round2Failing.normalisedMedian);
+});
+
+test('performance-budget AM9 unit (x): both not judged -> skip outcome carrying the factor in its message', () => {
+  const ceiling = 100;
+  const rowControl = 25;
+  const notJudgedControls1 = [42.5, 42.5, 42.5, 42.5, 42.5]; // 1.7x row
+  const notJudgedControls2 = [45, 45, 45, 45, 45]; // 1.8x row
+  const samples = [80, 85, 90, 95, 100];
+  const round1 = evaluateRound(samples, notJudgedControls1, rowControl);
+  const round2 = evaluateRound(samples, notJudgedControls2, rowControl);
+  const verdict = decideVerdict(round1, round2, ceiling);
+  assert.equal(verdict.skip, true);
+  assert.equal(verdict.pass, false);
+  assert.ok(verdict.skipMessage.includes(String(LOAD_GATE_FACTOR)), 'skip message must carry LOAD_GATE_FACTOR');
+  assert.match(
+    verdict.skipMessage,
+    /^machine under load: control median .+ ms vs row .+ ms \(factor 1\.5\); latency not judged — run npm run bench -- perf measure on a quiet machine$/
+  );
+});
+
 const budgets = JSON.parse(fs.readFileSync(BUDGETS_PATH, 'utf8'));
 const enforcedSurfaces = (budgets.surfaces || []).filter((s) => s.enforced);
 
@@ -299,7 +434,7 @@ for (const surface of enforcedSurfaces) {
     const round1 = evaluateRound(r1Data.samples, r1Data.pairedControls, row?.controlP50Ms);
 
     let round2 = null;
-    if (round1.normalisedMedian > ceilingMs) {
+    if (!round1.judged || round1.normalisedMedian > ceilingMs) {
       // Round 2: 1 warm-up
       measureExecution(cmd, args, execOptions);
       // Round 2: 5 paired samples
@@ -323,14 +458,22 @@ for (const surface of enforcedSurfaces) {
       round2 = evaluateRound(r2Data.samples, r2Data.pairedControls, row?.controlP50Ms);
     }
 
-    const verdict = decideVerdict(round1, round2, ceilingMs);
+    const verdict = decideVerdict(round1, round2, ceilingMs, row?.controlP50Ms);
+
+    if (verdict.skip) {
+      if (t && typeof t.skip === 'function') {
+        t.skip(verdict.skipMessage);
+        return;
+      }
+    }
 
     if (t && typeof t.diagnostic === 'function') {
+      const r1JudgeStr = round1.judged ? 'judged' : 'not judged';
       const r2Msg = round2
-        ? ` (round 2 raw median ${round2.rawMedian.toFixed(2)} ms, normalised ${round2.normalisedMedian.toFixed(2)} ms)`
+        ? ` (round 2 raw median ${round2.rawMedian.toFixed(2)} ms, normalised ${round2.normalisedMedian.toFixed(2)} ms [${round2.judged ? 'judged' : 'not judged'}])`
         : '';
       t.diagnostic(
-        `surface ${surface.id}: raw median ${round1.rawMedian.toFixed(2)} ms / normalised median ${round1.normalisedMedian.toFixed(2)} ms / ceiling ${ceilingMs} ms${r2Msg}`
+        `surface ${surface.id}: raw median ${round1.rawMedian.toFixed(2)} ms / normalised median ${round1.normalisedMedian.toFixed(2)} ms [${r1JudgeStr}] / ceiling ${ceilingMs} ms${r2Msg}`
       );
     }
 
@@ -348,6 +491,7 @@ for (const surface of enforcedSurfaces) {
         `round 1 normalised samples: [${round1.normalisedSamples.map((s) => s.toFixed(2)).join(', ')}] ms`,
         `round 1 raw median: ${round1.rawMedian.toFixed(2)} ms`,
         `round 1 normalised median: ${round1.normalisedMedian.toFixed(2)} ms`,
+        `round 1 judged: ${round1.judged}`,
       ];
       if (round2) {
         detailLines.push(
@@ -355,7 +499,8 @@ for (const surface of enforcedSurfaces) {
           `round 2 paired controls: [${round2.pairedControls.map((c) => c.toFixed(2)).join(', ')}] ms`,
           `round 2 normalised samples: [${round2.normalisedSamples.map((s) => s.toFixed(2)).join(', ')}] ms`,
           `round 2 raw median: ${round2.rawMedian.toFixed(2)} ms`,
-          `round 2 normalised median: ${round2.normalisedMedian.toFixed(2)} ms`
+          `round 2 normalised median: ${round2.normalisedMedian.toFixed(2)} ms`,
+          `round 2 judged: ${round2.judged}`
         );
       }
       detailLines.push(
@@ -370,6 +515,10 @@ for (const surface of enforcedSurfaces) {
 }
 
 module.exports = {
+  LOAD_GATE_FACTOR,
+  isRoundJudged,
+  isJudged: isRoundJudged,
+  formatLoadGateDiagnostic,
   normaliseSample,
   normaliseSamples,
   evaluateRound,
