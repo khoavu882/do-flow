@@ -55,6 +55,9 @@ const pointerTools = require('./context/pointer.ts');
 const { updateTaskState } = require('./task-state.ts');
 const { taskStoreDir } = require('./task-scope.ts');
 
+let correctiveTrimFallbackCount = 0;
+function getCorrectiveTrimFallbackCount(): number { return correctiveTrimFallbackCount; }
+
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
  * from the branch, or from `slug` when the task id is not the feature slug. A feature with no
@@ -352,12 +355,19 @@ class ContextPackCompiler {
     const enableCorrective = budgetOverrides.enableCorrective !== undefined
       ? budgetOverrides.enableCorrective
       : (this.options.enableCorrective !== false);
-    const selfRefWidth = budgetOverrides.selfRefWidth ?? this.options.selfRefWidth ?? null;
+    const registeredHarnessIds = getRegisteredHarnessIds();
+    const reservedHarnessWidth = Math.max(...registeredHarnessIds.map((id: string) => id.length), 0);
+    const selfRefWidth = Math.max(budgetOverrides.selfRefWidth ?? this.options.selfRefWidth ?? 0, reservedHarnessWidth);
+    const longestHarnessId = registeredHarnessIds.reduce((longest: string, id: string) => id.length > longest.length ? id : longest, 'unstated');
+    const envelopeBudget = {
+      ...resolvedBudget,
+      harness: { ...resolvedBudget.harness, id: longestHarnessId },
+    };
 
     const { envelopeMd, envelopeJson } = computeEnvelopes({
       taskId,
       taskClass: effectiveTaskClass,
-      budget: resolvedBudget,
+      budget: envelopeBudget,
       mandatory: paramMandatory,
       empty,
       mode: bare ? 'bare' : (paramMode || 'full'),
@@ -365,10 +375,9 @@ class ContextPackCompiler {
       limits,
       selfRefWidth,
       recordingExpected: params.recordingExpected === true,
-      // Cost the longer delivery form key for both renderings so mandatory
-      // accounting and overflow messages agree across markdown and JSON.
+      // Reserve the longest registered identity and delivery form for parity.
       form: 'markdown',
-      harnessId: params.harness?.id || 'unstated',
+      harnessId: longestHarnessId,
     });
 
     const hasMandatoryRequests = !bare && blockingUnanswered.length > 0;
@@ -451,9 +460,9 @@ class ContextPackCompiler {
       const packDigest = computePackDigest(keptItems);
 
       const cause = overflowCause || (isOverflow ? (fit.cause || 'mandatory') : null);
-      const packTotalBytes = isOverflow ? Math.max(fit.mandatoryBytes, resolvedBudget.maxBytes) : fit.totalBytes;
-      const packMandatoryBytes = fit.mandatoryBytes;
-      const packOptionalBytes = isOverflow ? 0 : Math.max(0, fit.totalBytes - fit.mandatoryBytes);
+      const packTotalBytes = fit.totalBytes;
+      const packMandatoryBytes = fit.mandatoryBytesByForm?.[params.form === 'markdown' ? 'markdown' : 'json'] ?? fit.mandatoryBytes;
+      const packOptionalBytes = packTotalBytes - packMandatoryBytes;
 
       const packed = {
         version: 1,
@@ -468,7 +477,7 @@ class ContextPackCompiler {
           cause,
           mandatoryBytes: packMandatoryBytes,
           budgetBytes: resolvedBudget.maxBytes,
-          excessBytes: Math.max(0, (cause === 'mandatory' ? packMandatoryBytes : packTotalBytes) - resolvedBudget.maxBytes),
+          excessBytes: Math.max(0, packTotalBytes - resolvedBudget.maxBytes),
           action: 'split-or-new-session',
         } : null,
         overflowAction: isOverflow ? {
@@ -521,12 +530,7 @@ class ContextPackCompiler {
           fittedOn: fit.fittedOn,
         },
         accounting: {
-          tokens: {
-            inlineTokensEst: params.recordingExpected ? Math.ceil(resolvedBudget.maxBytes / 4) : Math.round(packTotalBytes / 4),
-            netTokensEst: params.recordingExpected ? Math.ceil(resolvedBudget.maxBytes / 4) : Math.round(packTotalBytes / 4),
-            basis: 'estimated:bytes/4',
-            actual: { unmeasured: 'no harness reports token usage to an external CLI; profile tokenTelemetry unverified' },
-          },
+          tokens: makeTokenRecord(packTotalBytes),
         },
         delivery: {
           key: params.recordingExpected ? `${packDigest}.${params.form || 'json'}.${params.harness?.id || 'unstated'}` : null,
@@ -578,6 +582,7 @@ class ContextPackCompiler {
     if (enableCorrective && pack.status === 'OK') {
       let currentKept = [...fit.kept];
       let currentOmissions = [...fit.omissions];
+      let fallbackCounted = false;
 
       while (pack.status === 'OK') {
         const mdOut = formatMarkdown(pack, { throwOnOverBudget: false });
@@ -615,6 +620,10 @@ class ContextPackCompiler {
           break;
         }
 
+        if (!fallbackCounted) {
+          correctiveTrimFallbackCount += 1;
+          fallbackCounted = true;
+        }
         const [dropped] = currentKept.splice(lastOptIdx, 1);
         currentOmissions.push({
           id: dropped.id,
@@ -625,6 +634,14 @@ class ContextPackCompiler {
         pack = assemblePack(currentKept, currentOmissions, false, null);
       }
     }
+
+    const fittedOutput = params.form === 'markdown'
+      ? formatMarkdown(pack, { throwOnOverBudget: false })
+      : formatJson(pack, { throwOnOverBudget: false });
+    pack.size.totalBytes = Buffer.byteLength(fittedOutput, 'utf8');
+    pack.size.optionalBytes = pack.size.totalBytes - pack.size.mandatoryBytes;
+    pack.packEnd.bytes = pack.size.totalBytes;
+    pack.accounting.tokens = makeTokenRecord(pack.size.totalBytes);
 
     return pack;
   }
@@ -1132,22 +1149,31 @@ function handleContextPackCommand({
         mdBytes = Buffer.byteLength(mdOutput, 'utf8');
         jsonBytes = Buffer.byteLength(jsonOutput, 'utf8');
         const emitted = json ? jsonBytes : mdBytes;
+        const priorBytes = pack.size.totalBytes;
+        const priorOptionalBytes = pack.size.optionalBytes;
         const tokens = makeTokenRecord(emitted);
         const priorValue = pack.accounting.tokens?.estimated?.value;
+        pack.size.totalBytes = emitted;
+        pack.size.optionalBytes = emitted - pack.size.mandatoryBytes;
         pack.accounting.tokens = tokens;
-        if (priorValue === tokens.estimated.value) { stable = true; break; }
+        if (priorValue === tokens.estimated.value && priorBytes === emitted && priorOptionalBytes === pack.size.optionalBytes) { stable = true; break; }
       }
       if (!stable) {
         mdOutput = compiler.formatMarkdown(pack, { throwOnOverBudget: false });
         jsonOutput = compiler.formatJson(pack, { throwOnOverBudget: false });
         mdBytes = Buffer.byteLength(mdOutput, 'utf8');
         jsonBytes = Buffer.byteLength(jsonOutput, 'utf8');
+        pack.size.totalBytes = json ? jsonBytes : mdBytes;
+        pack.size.optionalBytes = pack.size.totalBytes - pack.size.mandatoryBytes;
+        pack.accounting.tokens = makeTokenRecord(pack.size.totalBytes);
       }
       if (pack.status !== 'OK' || (mdBytes <= budget.maxBytes && jsonBytes <= budget.maxBytes)) {
         const output = json ? jsonOutput : mdOutput;
         const bytes = json ? jsonBytes : mdBytes;
         pack.packEnd.bytes = bytes;
         pack.size.totalBytes = bytes;
+        pack.size.optionalBytes = bytes - pack.size.mandatoryBytes;
+        pack.accounting.tokens = makeTokenRecord(bytes);
         return { output, bytes };
       }
       const trimmed = (pack as any).trimOptional?.();
@@ -1214,6 +1240,17 @@ function handleContextPackCommand({
     emittedBytes = rendered.bytes;
   }
   if (pack.status === 'OVERFLOW') {
+    pack.overflow.excessBytes = Math.max(0, emittedBytes - budget.maxBytes);
+    pack.overflowAction.message = formatOverflowMessage({
+      cause: pack.overflow.cause,
+      mandatoryBytes: pack.size.mandatoryBytes,
+      totalBytes: emittedBytes,
+      budgetBytes: budget.maxBytes,
+      source: budget.source,
+    });
+    rendered = renderTrimmed();
+    output = rendered.output;
+    emittedBytes = rendered.bytes;
     pack.packEnd.bytes = emittedBytes;
     pack.size.totalBytes = emittedBytes;
   }
@@ -1230,4 +1267,5 @@ module.exports = {
   TASK_CLASS_BUDGETS,
   handleContextPackCommand,
   loadLiveDecisions,
+  getCorrectiveTrimFallbackCount,
 };

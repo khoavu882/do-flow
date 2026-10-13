@@ -517,6 +517,7 @@ test('context-pack-cap: real requirement sweep keeps both forms aligned with rec
 
   const baseline = runPack({ taskId: 'dx3-baseline', taskClass: 'feature', stateRoot: root, slug, maxBytes: 50000, json: true });
   const mandatorySize = JSON.parse(baseline.out).size.mandatoryBytes;
+  const mandatoryByRun = new Map();
   for (const cap of boundedSweepCaps(mandatorySize)) {
     for (const noRecord of [false, true]) {
       const results = {};
@@ -532,12 +533,24 @@ test('context-pack-cap: real requirement sweep keeps both forms aligned with rec
           const pack = JSON.parse(result.out);
           assert.equal(bytes, pack.size.totalBytes, `JSON bytes at cap ${cap}`);
           assert.equal(bytes, pack.packEnd.bytes, `JSON end bytes at cap ${cap}`);
+          assert.equal(pack.size.mandatoryBytes + pack.size.optionalBytes, pack.size.totalBytes, `size accounting at cap ${cap}`);
+          const mandatoryKey = noRecord ? 'no-record' : 'recorded';
+          if (mandatoryByRun.has(mandatoryKey)) assert.equal(pack.size.mandatoryBytes, mandatoryByRun.get(mandatoryKey), `mandatory bytes changed at cap ${cap}`);
+          else mandatoryByRun.set(mandatoryKey, pack.size.mandatoryBytes);
+          if (pack.overflow) {
+            assert.equal(pack.overflow.mandatoryBytes, pack.size.mandatoryBytes, `overflow mandatory bytes at cap ${cap}`);
+            if (pack.overflow.cause === 'accounting') {
+              assert.equal(pack.overflow.excessBytes, bytes - cap, `accounting excess at cap ${cap}`);
+              assert.ok(pack.overflow.excessBytes > 0);
+            }
+          }
           if (pack.status === 'OK') assert.ok(bytes <= cap, `OK JSON exceeded ${cap} B`);
           results.json = { code: result.code, status: pack.status };
         } else {
           const end = result.out.match(/\[end of pack\][^\n]*bytes=(\d{9})/);
           assert.ok(end, `Markdown end line missing at cap ${cap}`);
           assert.equal(bytes, Number(end[1]), `Markdown bytes at cap ${cap}`);
+          if (result.code === EXIT.OK || result.code === EXIT.EMPTY) assert.ok(bytes <= cap, `OK markdown exceeded ${cap} B`);
           results.markdown = { code: result.code, status: result.code === EXIT.OVERFLOW ? 'OVERFLOW' : result.code === EXIT.EMPTY ? 'EMPTY' : 'OK' };
         }
       }

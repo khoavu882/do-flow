@@ -79,10 +79,7 @@ function computeItemJsonBytes(field: string, value: any): number {
     const r = typeof value === 'object' && value.reason ? value.reason : value;
     return Buffer.byteLength(`    "reason": ${JSON.stringify(r)},\n`, 'utf8');
   }
-  let indent = '    '; // 4 spaces
-  if (field.startsWith('claims.') || field === 'decisions.live') {
-    indent = '      '; // 6 spaces
-  }
+  const indent = field.startsWith('claims.') || field === 'decisions.live' ? '        ' : '      ';
   const raw = JSON.stringify(value, null, 2);
   const lines = raw.split('\n');
   let bytes = 0;
@@ -592,15 +589,11 @@ function linearFit({
   const fieldCounts: Record<string, number> = {};
   const eligibleOptional: any[] = [];
   const cappedOmissions: any[] = [];
-  let combinedResearchAndStruct = 0;
 
   for (const item of allOptional) {
     const limit = itemCapLimits[item.field];
     const current = fieldCounts[item.field] || 0;
-    const isResearchOrStruct = item.field === 'researchRequests (others)' || item.field === 'structuralContext';
-    const combinedCap = 20;
-
-    if ((limit !== undefined && current >= limit) || (isResearchOrStruct && combinedResearchAndStruct >= combinedCap)) {
+    if (limit !== undefined && current >= limit) {
       cappedOmissions.push({
         id: item.id,
         field: item.field,
@@ -609,7 +602,6 @@ function linearFit({
       });
     } else {
       fieldCounts[item.field] = current + 1;
-      if (isResearchOrStruct) combinedResearchAndStruct++;
       eligibleOptional.push(item);
     }
   }
@@ -717,6 +709,7 @@ function linearFit({
 
   const fittedOn = finalCostJson > finalCostMd ? 'json' : 'markdown';
   const totalBytes = Math.max(finalCostMd, finalCostJson);
+  const mandatoryBytesByForm = { markdown: mandatoryMdBytes, json: mandatoryJsonBytes };
   const mandatoryBytes = Math.max(mandatoryMdBytes, mandatoryJsonBytes);
   const optionalBytes = totalBytes - mandatoryBytes;
   const kept = [...mandatoryItems, ...keptOptional];
@@ -730,6 +723,7 @@ function linearFit({
       budgetBytes: budget,
       totalBytes,
       mandatoryBytes,
+      mandatoryBytesByForm,
       optionalBytes: 0,
       overflow: true,
       cause,
@@ -746,6 +740,7 @@ function linearFit({
     budgetBytes: budget,
     totalBytes,
     mandatoryBytes,
+    mandatoryBytesByForm,
     optionalBytes,
     overflow: false,
     cause: null,
@@ -1190,13 +1185,6 @@ function formatMarkdown(pack: any, options: any = {}): string {
     if (actualLen === totalBytes) {
       if (pack.size) {
         pack.size.totalBytes = actualLen;
-        if (pack.overflow) {
-          pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
-          pack.size.optionalBytes = 0;
-        } else {
-          pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
-          pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
-        }
       }
       if (pack.packEnd) pack.packEnd.bytes = actualLen;
       if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
@@ -1225,13 +1213,6 @@ function formatMarkdown(pack: any, options: any = {}): string {
   const actualLen = Buffer.byteLength(full, 'utf8');
   if (pack.size) {
     pack.size.totalBytes = actualLen;
-    if (pack.overflow) {
-      pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
-      pack.size.optionalBytes = 0;
-    } else {
-      pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
-      pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
-    }
   }
   if (pack.packEnd) pack.packEnd.bytes = actualLen;
   if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
@@ -1318,16 +1299,7 @@ function formatJson(pack: any, options: any = {}): string {
     if (actualLen === totalBytes) {
       if (pack.size) {
         pack.size.totalBytes = actualLen;
-        if (pack.overflow) {
-          pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
-          pack.size.optionalBytes = 0;
-        } else {
-          pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
-          pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
-        }
         ordered.size.totalBytes = pack.size.totalBytes;
-        ordered.size.mandatoryBytes = pack.size.mandatoryBytes;
-        ordered.size.optionalBytes = pack.size.optionalBytes;
       }
       if (pack.packEnd) pack.packEnd.bytes = actualLen;
       ordered.packEnd.bytes = actualLen;
@@ -1345,16 +1317,7 @@ function formatJson(pack: any, options: any = {}): string {
   const actualLen = Buffer.byteLength(jsonStr, 'utf8');
   if (pack.size) {
     pack.size.totalBytes = actualLen;
-    if (pack.overflow) {
-      pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
-      pack.size.optionalBytes = 0;
-    } else {
-      pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
-      pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
-    }
     ordered.size.totalBytes = pack.size.totalBytes;
-    ordered.size.mandatoryBytes = pack.size.mandatoryBytes;
-    ordered.size.optionalBytes = pack.size.optionalBytes;
   }
   if (pack.packEnd) pack.packEnd.bytes = actualLen;
   ordered.packEnd.bytes = actualLen;
