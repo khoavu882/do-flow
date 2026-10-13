@@ -11,6 +11,8 @@ const { ClaimsManager } = require('../../src/runtime/claims.ts');
 const { FreshnessValidator } = require('../../src/runtime/freshness.ts');
 const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
 const { ReadinessEngine } = require('../../src/runtime/readiness.ts');
+const { updatePlan } = require('../../src/runtime/retrieval-record.ts');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
 
@@ -348,6 +350,74 @@ test('FR-005: unresolvable is distinct from BLOCKED — nothing contradicts anyt
   assert.equal(report.state, 'NEEDS_EVIDENCE');
   assert.equal(report.claimsSummary.conflicts, 0);
   assert.equal(report.unresolvableEvidence[0].reason, 'file-missing');
+});
+
+test('a stale absence blocks its requirement with the specific reason and stays out of staleEvidence', (t) => {
+  const root = tempDir(t, 'doflow-readiness-stale-absence-');
+  const taskId = 't-stale-absence';
+  updatePlan(root, taskId, null, () => ({ taskId, needs: [], providers: {
+    'graphify.query': { refresh: 'graphify refresh' },
+  } }));
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  const id = ledger.addEvidence({ taskId, kind: 'structural', result: 'EMPTY', establishes: ['architecture_mapped'],
+    source: { provider: 'graphify.query', capability: 'code.impact-analysis' }, freshness: { status: 'STALE' } });
+
+  const report = engine.evaluateReadiness({ taskId, taskClass: 'refactor' }, ledger, claims);
+  const requirement = report.requirements.find((item) => item.id === 'architecture_mapped');
+  assert.equal(report.state, 'NEEDS_EVIDENCE');
+  assert.equal(requirement.reasonCode, 'stale-absence-unverified');
+  assert.equal(requirement.reason, `'architecture_mapped' rests only on an empty answer from graphify.query, whose index was STALE when it was recorded (${id}). An empty answer from that index cannot establish absence. Run the declared refresh command (graphify refresh) and record the absence again, or re-run the lookup with a live provider such as native.rg: doflow evidence --task-id ${taskId} --action add --absence --need <intent> --provider native.rg ...`);
+  assert.deepEqual(report.staleAbsence, [{ evidenceId: id, requirement: 'architecture_mapped', provider: 'graphify.query', freshness: 'STALE', refresh: 'graphify refresh' }]);
+  assert.deepEqual(report.staleEvidence, []);
+});
+
+test('a fresh absence qualifies, while a query-bound unbound item does not', (t) => {
+  const root = tempDir(t, 'doflow-readiness-binding-');
+  const taskId = 't-readiness-binding';
+  updatePlan(root, taskId, null, () => ({ taskId, planId: 'rp_test_1234', needs: [
+    { intent: 'estimate-blast-radius', queryRef: 'rp_test_1234#estimate-blast-radius', capability: 'code.impact-analysis' },
+  ] }));
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  ledger.addEvidence({ taskId, kind: 'structural', result: 'EMPTY', establishes: ['architecture_mapped'],
+    source: { provider: 'native.rg', capability: 'code.impact-analysis', queryRef: 'rp_test_1234#estimate-blast-radius' },
+    freshness: { status: 'FRESH' } });
+  const fresh = engine.evaluateReadiness({ taskId, taskClass: 'refactor' }, ledger, claims);
+  assert.equal(fresh.requirements.find((item) => item.id === 'architecture_mapped').satisfied, true);
+
+  const otherTask = 't-unbound-readiness';
+  updatePlan(root, otherTask, null, () => ({ taskId: otherTask, planId: 'rp_test_5678', needs: [
+    { intent: 'estimate-blast-radius', queryRef: 'rp_test_5678#estimate-blast-radius', capability: 'code.impact-analysis' },
+  ] }));
+  const otherLedger = new EvidenceLedger({ repoRoot: root });
+  const id = otherLedger.addEvidence({ taskId: otherTask, kind: 'structural', establishes: ['architecture_mapped'],
+    source: { provider: 'native.rg', capability: 'code.impact-analysis' } });
+  const unbound = engine.evaluateReadiness({ taskId: otherTask, taskClass: 'refactor' }, otherLedger, claims);
+  const requirement = unbound.requirements.find((item) => item.id === 'architecture_mapped');
+  assert.equal(requirement.satisfied, false);
+  assert.equal(requirement.reasonCode, 'unbound-retrieval-evidence');
+  assert.equal(requirement.reason, `1 item(s) of the right kind are not bound to a declared need of plan rp_test_5678 (${id}), so they do not count. Re-record them with --need <intent>; declared: estimate-blast-radius.`);
+  assert.deepEqual(unbound.unboundEvidence, { count: 1, ids: [id] });
+});
+
+test('legacy retrieval plans keep unbound evidence eligible and expose null reason codes', (t) => {
+  const root = tempDir(t, 'doflow-readiness-legacy-');
+  const taskId = 't-legacy-readiness';
+  updatePlan(root, taskId, null, () => ({ taskId, needs: [{ intent: 'estimate-blast-radius', capability: 'code.impact-analysis' }] }));
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  ledger.addEvidence({ taskId, kind: 'structural', establishes: ['architecture_mapped'],
+    source: { provider: 'native.rg', capability: 'code.impact-analysis' } });
+
+  const report = engine.evaluateReadiness({ taskId, taskClass: 'refactor' }, ledger, claims);
+  const requirement = report.requirements.find((item) => item.id === 'architecture_mapped');
+  assert.equal(requirement.satisfied, true);
+  assert.equal(requirement.reasonCode, null);
+  assert.equal(Object.hasOwn(report, 'unboundEvidence'), false);
 });
 
 test('FR-005: resolvable evidence leaves the verdict untouched', () => {
