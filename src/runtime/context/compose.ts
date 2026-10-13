@@ -753,7 +753,7 @@ function linearFit({
 
 /**
  * Groups omissions according to IC-008.
- * Order: not-fresh STALE, not-fresh UNKNOWN, mandatory-overflow, budget, item-cap, unchanged.
+ * Order: not-fresh STALE, not-fresh UNKNOWN, superseded, mandatory-overflow, budget, item-cap, unchanged.
  */
 function groupOmissions(omissionsList: any[] = [], recorded = false): { total: number; groups: any[] } {
   if (!omissionsList || omissionsList.length === 0) {
@@ -764,11 +764,12 @@ function groupOmissions(omissionsList: any[] = [], recorded = false): { total: n
     if (g.reason === 'not-fresh' && g.freshness === 'STALE') return 1;
     if (g.reason === 'not-fresh' && g.freshness === 'UNKNOWN') return 2;
     if (g.reason === 'not-fresh') return 2;
-    if (g.reason === 'mandatory-overflow') return 3;
-    if (g.reason === 'budget') return 4;
-    if (g.reason === 'item-cap') return 5;
-    if (g.reason === 'unchanged') return 6;
-    return 7;
+    if (g.reason === 'superseded') return 3;
+    if (g.reason === 'mandatory-overflow') return 4;
+    if (g.reason === 'budget') return 5;
+    if (g.reason === 'item-cap') return 6;
+    if (g.reason === 'unchanged') return 7;
+    return 8;
   };
 
   const groupMap = new Map<string, { reason: string; freshness?: string; ids: string[]; ranges: any[] }>();

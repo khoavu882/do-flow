@@ -282,7 +282,13 @@ class ContextPackCompiler {
     const nonFreshOmissions: any[] = [];
 
     for (const ev of rawEvidence) {
-      if (ev.freshness?.status === 'FRESH') {
+      if (ev.status === 'superseded') {
+        nonFreshOmissions.push({
+          id: ev.id,
+          field: 'evidenceSummary',
+          reason: 'superseded',
+        });
+      } else if (ev.freshness?.status === 'FRESH') {
         if (ev.locator?.file) relevantFileSet.add(ev.locator.file);
         if (ev.kind === 'structural' && ev.content) structuralNodes.push(ev.content);
         freshEvidenceItems.push({
