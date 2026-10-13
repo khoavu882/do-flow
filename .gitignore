@@ -1,5 +1,6 @@
 .idea/
 tmp/
+.pack/
 
 # Machine-specific local settings (contain absolute paths, never share)
 .claude/settings.local.json
