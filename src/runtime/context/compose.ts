@@ -368,10 +368,10 @@ const OPTIONAL_HEADING_BYTES_MD: Record<string, number> = Object.freeze({
 });
 
 const OPTIONAL_HEADING_BYTES_JSON: Record<string, number> = Object.freeze({
-  'decisions.live': 3,
-  'claims.supported': 3,
+  'decisions.live': 5,
+  'claims.supported': 5,
   'researchRequests (others)': 3,
-  'claims.hypotheses': 3,
+  'claims.hypotheses': 4,
   pointers: 3,
   relevantFiles: 3,
   evidenceSummary: 3,
@@ -391,19 +391,14 @@ function computeOmissionBytes(omissionsList: any[] = []): { md: number; json: nu
   mdStr += '\n';
   const mdBytes = Buffer.byteLength(mdStr, 'utf8');
 
-  const jsonBlock = JSON.stringify(grouped, null, 2);
-  const jsonLines = jsonBlock.split('\n');
-  let jsonBytes = 0;
-  for (const line of jsonLines) {
-    jsonBytes += 2 + Buffer.byteLength(line, 'utf8') + 1; // 2 spaces indent + \n
-  }
+  const fullBlock = JSON.stringify(grouped, null, 2);
   const emptyBlock = JSON.stringify({ total: 0, groups: [] }, null, 2);
+  const fullLines = fullBlock.split('\n');
   const emptyLines = emptyBlock.split('\n');
-  let emptyBytes = 0;
-  for (const line of emptyLines) {
-    emptyBytes += 2 + Buffer.byteLength(line, 'utf8') + 1;
-  }
-  const diffJson = Math.max(0, jsonBytes - emptyBytes);
+
+  const fullBytes = Buffer.byteLength(fullBlock, 'utf8') + fullLines.length * 2;
+  const emptyBytes = Buffer.byteLength(emptyBlock, 'utf8') + emptyLines.length * 2;
+  const diffJson = Math.max(0, fullBytes - emptyBytes);
   return { md: mdBytes, json: diffJson };
 }
 
@@ -421,6 +416,8 @@ function computeEnvelopes({
   overflow = false,
   overflowAction = null,
   toolLimitNotice = null,
+  limits = null,
+  selfRefWidth = null,
 }: any): { envelopeMd: number; envelopeJson: number } {
   // --- Markdown envelope ---
   let md = `## ContextPack: [${taskClass.toUpperCase()}] ${taskId}\n`;
@@ -484,6 +481,11 @@ function computeEnvelopes({
   const envelopeMd = Buffer.byteLength(md, 'utf8');
 
   // --- JSON envelope ---
+  const capDigits = String(maxBytes).length;
+  const renderedWidth = selfRefWidth !== null && selfRefWidth !== undefined ? selfRefWidth : capDigits;
+  const selfRefBytes = Number('9'.repeat(Math.max(1, renderedWidth)));
+  const selfRefTokens = Math.round(selfRefBytes / 4);
+
   const provMap = mandatory?.provenance || mandatory || {};
   const skeletonOrdered: any = {
     version: 1,
@@ -494,10 +496,10 @@ function computeEnvelopes({
     compiledAt: '2026-10-13T00:00:00.000Z',
     mode,
     budget: budget || { maxBytes, source, harness: { id: null, source: 'unstated' }, capacity: { value: null, basis: 'unknown:unstated' }, toolResultLimitBytes: null },
-    overflow: overflow ? { cause: 'mandatory', mandatoryBytes: 999999999, budgetBytes: maxBytes, excessBytes: 0, action: 'split-or-new-session' } : null,
+    overflow: overflow ? { cause: 'mandatory', mandatoryBytes: selfRefBytes, budgetBytes: maxBytes, excessBytes: 0, action: 'split-or-new-session' } : null,
     overflowAction: overflowAction ? { message: overflowAction.message } : null,
     toolLimitNotice: toolLimitNotice ? { message: toolLimitNotice.message } : null,
-    objective: '',
+    ...(hasMandatoryItems.objective ? {} : { objective: '' }),
     acceptanceCriteria: [],
     constraints: [],
     verificationRequirements: [],
@@ -512,14 +514,14 @@ function computeEnvelopes({
     evidenceCount: 0,
     evidenceSummary: [],
     structuralContext: [],
-    budgetEnforcement: { totalFiles: 0, totalSupportedClaims: 0, totalActiveHypotheses: 0, limits: {} },
+    budgetEnforcement: { totalFiles: 0, totalSupportedClaims: 0, totalActiveHypotheses: 0, limits: limits || {} },
     empty,
     omissions: { total: 0, groups: [] },
-    size: { totalBytes: 999999999, mandatoryBytes: 999999999, optionalBytes: 0, fittedOn: 'markdown' },
-    accounting: { tokens: { inlineTokensEst: 999999999, netTokensEst: 999999999, basis: 'estimated:bytes/4', actual: { unmeasured: 'needs a model call (paid)' } } },
+    size: { totalBytes: selfRefBytes, mandatoryBytes: selfRefBytes, optionalBytes: selfRefBytes, fittedOn: 'json' },
+    accounting: { tokens: { inlineTokensEst: selfRefTokens, netTokensEst: selfRefTokens, basis: 'estimated:bytes/4', actual: { unmeasured: 'needs a model call (paid)' } } },
     delivery: { key: null, packDigest: 'sha256:' + '0'.repeat(64), recorded: false, reason: null, since: null, deltaRefused: null },
     delta: null,
-    packEnd: { mode, objective: 1, acceptanceCriteria: 0, constraints: 0, verificationRequirements: 0, scopeExcluded: 0, conflicts: 0, blockingGaps: 0, omitted: 0, bytes: 999999999, digest: 'sha256:000000000000' },
+    packEnd: { mode, objective: hasMandatoryItems.objective ? 1 : 0, acceptanceCriteria: 0, constraints: 0, verificationRequirements: 0, scopeExcluded: 0, conflicts: 0, blockingGaps: 0, omitted: 0, bytes: selfRefBytes, digest: 'sha256:000000000000' },
   };
 
   const jsonStr = JSON.stringify(skeletonOrdered, null, 2) + '\n';
@@ -532,6 +534,9 @@ function computeEnvelopes({
     }
   }
   if (hasMandatoryItems['claims.conflicts']) {
+    envelopeJson += 5;
+  }
+  if (hasMandatoryItems['researchRequests']) {
     envelopeJson += 3;
   }
 
@@ -843,7 +848,8 @@ function verifyPackEndLine(md: string): { ok: boolean; reason?: string; parsed?:
 /**
  * Formats a ContextPack into markdown per IC-005.
  */
-function formatMarkdown(pack: any): string {
+function formatMarkdown(pack: any, options: any = {}): string {
+  const throwOnOverBudget = options.throwOnOverBudget !== false;
   const toolLimitBytes = pack.budget?.toolResultLimitBytes;
   const isToolLimitDeclared = typeof toolLimitBytes === 'number' && toolLimitBytes > 0;
   const harnessName = pack.budget?.harness?.id || 'harness';
@@ -1099,7 +1105,7 @@ function formatMarkdown(pack: any): string {
         }
       }
       if (pack.packEnd) pack.packEnd.bytes = actualLen;
-      if (pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+      if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
         throw new Error(`Emitted markdown pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
       }
       return full;
@@ -1134,7 +1140,7 @@ function formatMarkdown(pack: any): string {
     }
   }
   if (pack.packEnd) pack.packEnd.bytes = actualLen;
-  if (pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+  if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
     throw new Error(`Emitted markdown pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
   }
   return full;
@@ -1143,7 +1149,8 @@ function formatMarkdown(pack: any): string {
 /**
  * Formats a ContextPack into JSON per IC-004.
  */
-function formatJson(pack: any): string {
+function formatJson(pack: any, options: any = {}): string {
+  const throwOnOverBudget = options.throwOnOverBudget !== false;
   const toolLimitBytes = pack.budget?.toolResultLimitBytes;
   const isToolLimitDeclared = typeof toolLimitBytes === 'number' && toolLimitBytes > 0;
   const harnessName = pack.budget?.harness?.id || 'harness';
@@ -1230,7 +1237,7 @@ function formatJson(pack: any): string {
       }
       if (pack.packEnd) pack.packEnd.bytes = actualLen;
       ordered.packEnd.bytes = actualLen;
-      if (pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+      if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
         throw new Error(`Emitted JSON pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
       }
       return jsonStr;
@@ -1257,7 +1264,7 @@ function formatJson(pack: any): string {
   }
   if (pack.packEnd) pack.packEnd.bytes = actualLen;
   ordered.packEnd.bytes = actualLen;
-  if (pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+  if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
     throw new Error(`Emitted JSON pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
   }
   return jsonStr;

@@ -34,6 +34,7 @@ const {
   computeEnvelopes,
   linearFit,
   groupOmissions,
+  computePackDigest,
   formatOverflowMessage,
   formatMarkdown,
   formatJson,
@@ -95,6 +96,8 @@ class ContextPackCompiler {
       maxEvidenceItems: defaultOptions.maxEvidenceItems || 25,
       maxResearchRequests: defaultOptions.maxResearchRequests || 20,
       maxStructuralItems: defaultOptions.maxStructuralItems || 5,
+      enableCorrective: defaultOptions.enableCorrective !== false,
+      selfRefWidth: defaultOptions.selfRefWidth ?? null,
     };
   }
 
@@ -263,12 +266,18 @@ class ContextPackCompiler {
       scopeExcluded: !bare && scopeSource.length > 0,
       blockingGaps: !bare && (gapsSource.length > 0 || blockingUnanswered.length > 0),
       'claims.conflicts': !bare && conflictedClaims.length > 0,
+      researchRequests: !bare && blockingUnanswered.length > 0,
     };
 
     const empty = rawEvidence.length === 0
       && rawClaims.length === 0
       && researchRequests.length === 0
       && (!decisions || decisions.liveCount === 0);
+
+    const enableCorrective = budgetOverrides.enableCorrective !== undefined
+      ? budgetOverrides.enableCorrective
+      : (this.options.enableCorrective !== false);
+    const selfRefWidth = budgetOverrides.selfRefWidth ?? this.options.selfRefWidth ?? null;
 
     const { envelopeMd, envelopeJson } = computeEnvelopes({
       taskId,
@@ -278,8 +287,11 @@ class ContextPackCompiler {
       empty,
       mode: bare ? 'bare' : (paramMode || 'full'),
       hasMandatoryItems,
+      limits,
+      selfRefWidth,
     });
 
+    const hasMandatoryRequests = !bare && blockingUnanswered.length > 0;
     const fit = linearFit({
       items,
       budget: resolvedBudget.maxBytes,
@@ -288,6 +300,16 @@ class ContextPackCompiler {
       envelopeMd,
       envelopeJson,
       initialOmissions: bare ? [] : nonFreshOmissions,
+      sectionHeadingsJson: {
+        'decisions.live': 5,
+        'claims.supported': 5,
+        'researchRequests (others)': hasMandatoryRequests ? 0 : 3,
+        'claims.hypotheses': 4,
+        pointers: 3,
+        relevantFiles: 3,
+        evidenceSummary: 3,
+        structuralContext: 3,
+      },
       itemCapLimits: {
         relevantFiles: limits.maxFiles ?? 15,
         'claims.supported': limits.maxClaims ?? 20,
@@ -298,119 +320,179 @@ class ContextPackCompiler {
       },
     });
 
-    const keptAc = fit.kept.filter((i: any) => i.field === 'acceptanceCriteria').map((i: any) => i.value);
-    const keptConstraints = fit.kept.filter((i: any) => i.field === 'constraints').map((i: any) => i.value);
-    const keptVr = fit.kept.filter((i: any) => i.field === 'verificationRequirements').map((i: any) => i.value);
-    const keptScope = fit.kept.filter((i: any) => i.field === 'scopeExcluded').map((i: any) => i.value);
-    const keptGaps = fit.kept.filter((i: any) => i.field === 'blockingGaps').map((i: any) => i.value);
-    const keptConflicts = fit.kept.filter((i: any) => i.field === 'claims.conflicts').map((i: any) => i.value);
-    const keptLiveDecisions = fit.kept.filter((i: any) => i.field === 'decisions.live').map((i: any) => i.value);
-    const keptSupported = fit.kept.filter((i: any) => i.field === 'claims.supported').map((i: any) => i.value);
-    const keptRequests = fit.kept.filter((i: any) => i.field.startsWith('researchRequests')).map((i: any) => i.value);
-    const keptHypotheses = fit.kept.filter((i: any) => i.field === 'claims.hypotheses').map((i: any) => i.value);
-    const keptPointers = fit.kept.filter((i: any) => i.field === 'pointers').map((i: any) => i.value);
-    const keptFiles = fit.kept.filter((i: any) => i.field === 'relevantFiles').map((i: any) => i.value);
-    const keptEvidence = fit.kept.filter((i: any) => i.field === 'evidenceSummary').map((i: any) => i.value);
-    const keptStructural = fit.kept.filter((i: any) => i.field === 'structuralContext').map((i: any) => i.value);
+    const assemblePack = (keptItems: any[], omissionsList: any[], isOverflow: boolean = false, overflowCause: any = null) => {
+      const keptAc = keptItems.filter((i: any) => i.field === 'acceptanceCriteria').map((i: any) => i.value);
+      const keptConstraints = keptItems.filter((i: any) => i.field === 'constraints').map((i: any) => i.value);
+      const keptVr = keptItems.filter((i: any) => i.field === 'verificationRequirements').map((i: any) => i.value);
+      const keptScope = keptItems.filter((i: any) => i.field === 'scopeExcluded').map((i: any) => i.value);
+      const keptGaps = keptItems.filter((i: any) => i.field === 'blockingGaps').map((i: any) => i.value);
+      const keptConflicts = keptItems.filter((i: any) => i.field === 'claims.conflicts').map((i: any) => i.value);
+      const keptLiveDecisions = keptItems.filter((i: any) => i.field === 'decisions.live').map((i: any) => i.value);
+      const keptSupported = keptItems.filter((i: any) => i.field === 'claims.supported').map((i: any) => i.value);
+      const keptRequests = keptItems.filter((i: any) => i.field.startsWith('researchRequests')).map((i: any) => i.value);
+      const keptHypotheses = keptItems.filter((i: any) => i.field === 'claims.hypotheses').map((i: any) => i.value);
+      const keptPointers = keptItems.filter((i: any) => i.field === 'pointers').map((i: any) => i.value);
+      const keptFiles = keptItems.filter((i: any) => i.field === 'relevantFiles').map((i: any) => i.value);
+      const keptEvidence = keptItems.filter((i: any) => i.field === 'evidenceSummary').map((i: any) => i.value);
+      const keptStructural = keptItems.filter((i: any) => i.field === 'structuralContext').map((i: any) => i.value);
 
+      const omissions = groupOmissions(omissionsList);
+      const packDigest = computePackDigest(keptItems);
 
-    const omissions = groupOmissions(fit.omissions);
+      const cause = overflowCause || (isOverflow ? (fit.cause || 'mandatory') : null);
+      const packTotalBytes = isOverflow ? Math.max(fit.mandatoryBytes, resolvedBudget.maxBytes) : fit.totalBytes;
+      const packMandatoryBytes = fit.mandatoryBytes;
+      const packOptionalBytes = isOverflow ? 0 : Math.max(0, fit.totalBytes - fit.mandatoryBytes);
 
-    const pack: any = {
-      version: 1,
-      status: fit.overflow ? 'OVERFLOW' : (empty ? 'EMPTY' : 'OK'),
-      exitCode: fit.overflow ? EXIT.OVERFLOW : (empty ? EXIT.EMPTY : EXIT.OK),
-      taskId,
-      taskClass: effectiveTaskClass,
-      compiledAt: new Date().toISOString(),
-      mode: bare ? 'bare' : (paramMode || 'full'),
-      budget: resolvedBudget,
-      overflow: fit.overflow ? {
-        cause: fit.cause,
-        mandatoryBytes: fit.mandatoryBytes,
-        budgetBytes: resolvedBudget.maxBytes,
-        excessBytes: Math.max(0, (fit.cause === 'mandatory' ? fit.mandatoryBytes : fit.totalBytes) - resolvedBudget.maxBytes),
-        action: 'split-or-new-session',
-      } : null,
-      overflowAction: fit.overflow ? {
-        message: formatOverflowMessage({
-          cause: fit.cause,
-          mandatoryBytes: fit.mandatoryBytes,
-          totalBytes: fit.totalBytes,
-          budgetBytes: resolvedBudget.maxBytes,
-          source: resolvedBudget.source,
-        }),
-      } : null,
-      toolLimitNotice: null,
-      objective,
-      acceptanceCriteria: keptAc,
-      constraints: keptConstraints,
-      verificationRequirements: keptVr,
-      scopeExcluded: keptScope,
-      blockingGaps: keptGaps,
-      claims: {
-        conflicts: keptConflicts,
-        supported: keptSupported,
-        hypotheses: keptHypotheses,
-      },
-      researchRequests: keptRequests,
-      mandatory: mandatoryProvenance,
-      decisions: {
-        available: Boolean(decisions && decisions.available),
-        live: keptLiveDecisions,
-        liveCount: keptLiveDecisions.length,
-        ...(decisions?.reason ? { reason: decisions.reason } : {}),
-      },
-      pointers: keptPointers,
-      relevantFiles: keptFiles,
-      evidenceCount: keptEvidence.length,
-      evidenceSummary: keptEvidence,
-      structuralContext: keptStructural,
-      budgetEnforcement: {
-        totalFiles: relevantFiles.length,
-        totalSupportedClaims: supportedClaims.length,
-        totalActiveHypotheses: activeHypotheses.length,
-        limits,
-      },
-      empty,
-      omissions: bare ? { total: 0, groups: [] } : omissions,
-      size: {
-        totalBytes: fit.totalBytes,
-        mandatoryBytes: fit.mandatoryBytes,
-        optionalBytes: fit.optionalBytes,
-        fittedOn: fit.fittedOn,
-      },
-      accounting: {
-        tokens: {
-          inlineTokensEst: Math.round(fit.totalBytes / 4),
-          netTokensEst: Math.round(fit.totalBytes / 4),
-          basis: 'estimated:bytes/4',
-          actual: { unmeasured: 'needs a model call (paid)' },
-        },
-      },
-      delivery: {
-        key: null,
-        packDigest: fit.packDigest,
-        recorded: false,
-        reason: null,
-        since: null,
-        deltaRefused: null,
-      },
-      delta: null,
-      packEnd: {
+      return {
+        version: 1,
+        status: isOverflow ? 'OVERFLOW' : (empty ? 'EMPTY' : 'OK'),
+        exitCode: isOverflow ? EXIT.OVERFLOW : (empty ? EXIT.EMPTY : EXIT.OK),
+        taskId,
+        taskClass: effectiveTaskClass,
+        compiledAt: new Date().toISOString(),
         mode: bare ? 'bare' : (paramMode || 'full'),
-        objective: objective ? 1 : 0,
-        acceptanceCriteria: keptAc.length,
-        constraints: keptConstraints.length,
-        verificationRequirements: keptVr.length,
-        scopeExcluded: keptScope.length,
-        conflicts: keptConflicts.length,
-        blockingGaps: keptGaps.length,
-        omitted: bare ? 0 : omissions.total,
-        bytes: fit.totalBytes,
-        digest: fit.packDigest.slice(0, 19),
-      },
+        budget: resolvedBudget,
+        overflow: isOverflow ? {
+          cause,
+          mandatoryBytes: packMandatoryBytes,
+          budgetBytes: resolvedBudget.maxBytes,
+          excessBytes: Math.max(0, (cause === 'mandatory' ? packMandatoryBytes : packTotalBytes) - resolvedBudget.maxBytes),
+          action: 'split-or-new-session',
+        } : null,
+        overflowAction: isOverflow ? {
+          message: formatOverflowMessage({
+            cause,
+            mandatoryBytes: packMandatoryBytes,
+            totalBytes: packTotalBytes,
+            budgetBytes: resolvedBudget.maxBytes,
+            source: resolvedBudget.source,
+          }),
+        } : null,
+        toolLimitNotice: null,
+        objective,
+        acceptanceCriteria: keptAc,
+        constraints: keptConstraints,
+        verificationRequirements: keptVr,
+        scopeExcluded: keptScope,
+        blockingGaps: keptGaps,
+        claims: {
+          conflicts: keptConflicts,
+          supported: keptSupported,
+          hypotheses: keptHypotheses,
+        },
+        researchRequests: keptRequests,
+        mandatory: mandatoryProvenance,
+        decisions: {
+          available: Boolean(decisions && decisions.available),
+          live: keptLiveDecisions,
+          liveCount: keptLiveDecisions.length,
+          ...(decisions?.reason ? { reason: decisions.reason } : {}),
+        },
+        pointers: keptPointers,
+        relevantFiles: keptFiles,
+        evidenceCount: keptEvidence.length,
+        evidenceSummary: keptEvidence,
+        structuralContext: keptStructural,
+        budgetEnforcement: {
+          totalFiles: relevantFiles.length,
+          totalSupportedClaims: supportedClaims.length,
+          totalActiveHypotheses: activeHypotheses.length,
+          limits,
+        },
+        empty,
+        omissions: bare ? { total: 0, groups: [] } : omissions,
+        size: {
+          totalBytes: packTotalBytes,
+          mandatoryBytes: packMandatoryBytes,
+          optionalBytes: packOptionalBytes,
+          fittedOn: fit.fittedOn,
+        },
+        accounting: {
+          tokens: {
+            inlineTokensEst: Math.round(packTotalBytes / 4),
+            netTokensEst: Math.round(packTotalBytes / 4),
+            basis: 'estimated:bytes/4',
+            actual: { unmeasured: 'needs a model call (paid)' },
+          },
+        },
+        delivery: {
+          key: null,
+          packDigest,
+          recorded: false,
+          reason: null,
+          since: null,
+          deltaRefused: null,
+        },
+        delta: null,
+        packEnd: {
+          mode: bare ? 'bare' : (paramMode || 'full'),
+          objective: objective ? 1 : 0,
+          acceptanceCriteria: keptAc.length,
+          constraints: keptConstraints.length,
+          verificationRequirements: keptVr.length,
+          scopeExcluded: keptScope.length,
+          conflicts: keptConflicts.length,
+          blockingGaps: keptGaps.length,
+          omitted: bare ? 0 : omissions.total,
+          bytes: packTotalBytes,
+          digest: packDigest.slice(0, 19),
+        },
+      };
     };
+
+    let pack: any = assemblePack(fit.kept, fit.omissions, fit.overflow, fit.cause);
+
+    if (enableCorrective && pack.status === 'OK') {
+      let currentKept = [...fit.kept];
+      let currentOmissions = [...fit.omissions];
+
+      while (pack.status === 'OK') {
+        const mdOut = formatMarkdown(pack, { throwOnOverBudget: false });
+        const jsonOut = formatJson(pack, { throwOnOverBudget: false });
+        const mdLen = Buffer.byteLength(mdOut, 'utf8');
+        const jsonLen = Buffer.byteLength(jsonOut, 'utf8');
+
+        if (mdLen <= resolvedBudget.maxBytes && jsonLen <= resolvedBudget.maxBytes) {
+          pack.size.fittedOn = jsonLen >= mdLen ? 'json' : 'markdown';
+          break;
+        }
+
+        let lastOptIdx = -1;
+        for (let idx = currentKept.length - 1; idx >= 0; idx--) {
+          const it = currentKept[idx];
+          if (it.cls === 'optional' || it.class === 'optional') {
+            lastOptIdx = idx;
+            break;
+          }
+        }
+
+        if (lastOptIdx === -1) {
+          const mandatoryOnlyKept = currentKept.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory');
+          const allOptOmitted = [
+            ...(bare ? [] : nonFreshOmissions),
+            ...items.filter((i: any) => i.cls === 'optional' || i.class === 'optional').map((i: any) => ({
+              id: i.id,
+              field: i.field,
+              reason: 'mandatory-overflow',
+              ...(i.freshness ? { freshness: i.freshness } : {}),
+            })),
+          ];
+          const cause = Math.max(fit.mandatoryBytes, mdLen, jsonLen) > resolvedBudget.maxBytes ? 'mandatory' : 'accounting';
+          pack = assemblePack(mandatoryOnlyKept, allOptOmitted, true, cause);
+          break;
+        }
+
+        const [dropped] = currentKept.splice(lastOptIdx, 1);
+        currentOmissions.push({
+          id: dropped.id,
+          field: dropped.field,
+          reason: 'budget',
+          ...(dropped.freshness ? { freshness: dropped.freshness } : {}),
+        });
+        pack = assemblePack(currentKept, currentOmissions, false, null);
+      }
+    }
 
     return pack;
   }
@@ -418,19 +500,21 @@ class ContextPackCompiler {
   /**
    * Formats a ContextPack into markdown per IC-005.
    * @param {Object} pack
+   * @param {Object} [options]
    * @returns {string}
    */
-  formatMarkdown(pack: any) {
-    return formatMarkdown(pack);
+  formatMarkdown(pack: any, options: any = {}) {
+    return formatMarkdown(pack, options);
   }
 
   /**
    * Formats a ContextPack into JSON per IC-004.
    * @param {Object} pack
+   * @param {Object} [options]
    * @returns {string}
    */
-  formatJson(pack: any) {
-    return formatJson(pack);
+  formatJson(pack: any, options: any = {}) {
+    return formatJson(pack, options);
   }
 
   /**

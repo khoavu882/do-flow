@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { handleContextPackCommand, TASK_CLASS_BUDGETS } = require('../../src/runtime/context-pack.ts');
+const { handleContextPackCommand, TASK_CLASS_BUDGETS, ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
+const { computeEnvelopes } = require('../../src/runtime/context/compose.ts');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { EXIT } = require('../../src/runtime/cli-result.ts');
 
@@ -307,6 +308,148 @@ Summary text.
   assert.throws(
     () => assertEnvelopeGuarded(buggyOverCapRes, tightCap),
     (err) => err.message.includes('Dropping envelope failed') && err.message.includes('exceeds budget')
+  );
+});
+
+function buildDenseSweepFixture() {
+  const acList = Array.from({ length: 16 }, (_, i) => ({
+    id: `ac:${i + 1}`,
+    text: `Scenario: Invariant condition ${i + 1} is upheld under concurrent load`,
+    requirements: [`FR-00${i + 1}`],
+    stories: [`US${(i % 3) + 1}`],
+  }));
+
+  const nfrList = Array.from({ length: 8 }, (_, i) => ({
+    id: `NFR-00${i + 1}`,
+    text: `Maximum response latency under ${(i + 1) * 50}ms`,
+    kind: 'performance',
+  }));
+
+  const evidence = Array.from({ length: 10 }, (_, i) => ({
+    id: `ev:${i + 1}`,
+    kind: 'exact-search',
+    locator: { file: `src/module_${i + 1}.ts` },
+    content: `Evidence sample ${i + 1} showing implementation details and search result for module ${i + 1}`,
+    freshness: { status: 'FRESH' },
+  }));
+
+  const claims = {
+    supported: Array.from({ length: 5 }, (_, i) => ({
+      id: `claim:s${i + 1}`,
+      subject: `Claim ${i + 1}: Module ${i + 1} operates predictably`,
+      status: 'supported',
+      evidenceIds: [`ev:${i + 1}`],
+    })),
+    hypotheses: Array.from({ length: 5 }, (_, i) => ({
+      id: `claim:h${i + 1}`,
+      subject: `Hypothesis ${i + 1}: Optimization ${i + 1} might reduce memory usage`,
+      status: 'hypothesis',
+    })),
+  };
+
+  const researchRequests = Array.from({ length: 5 }, (_, i) => ({
+    id: `rr-${i + 1}`,
+    topic: `Research topic ${i + 1} regarding performance under load`,
+    blocking: false,
+    status: 'answered',
+    decision: `Use strategy ${i + 1}`,
+  }));
+
+  const decisions = {
+    available: true,
+    live: [
+      { id: 'DEC-001', topic: 'Architecture choice', statement: 'Use layered compiler pipeline', decidedBy: 'architect', stage: 'design' },
+      { id: 'DEC-002', topic: 'Data representation', statement: 'Use JSON and markdown duality', decidedBy: 'architect', stage: 'design' },
+      { id: 'DEC-003', topic: 'Cache strategy', statement: 'In-memory LRU with file backing', decidedBy: 'lead', stage: 'design' },
+      { id: 'DEC-004', topic: 'Concurrency handling', statement: 'Bounded lock acquisition with retries', decidedBy: 'lead', stage: 'design' },
+      { id: 'DEC-005', topic: 'Fitting algorithm', statement: 'Single linear selection for both forms', decidedBy: 'architect', stage: 'design' },
+    ],
+    liveCount: 5,
+  };
+
+  return {
+    taskId: 'task-dense-sweep',
+    taskClass: 'feature',
+    objective: 'Feature: Dense sweep cap verification across boundary',
+    acceptanceCriteria: acList,
+    constraints: nfrList,
+    evidence,
+    claims,
+    researchRequests,
+    decisions,
+  };
+}
+
+test('context-pack-cap: dense sweep through compiler with no CLI spawn (CX.7)', () => {
+  const fixture = buildDenseSweepFixture();
+  const compiler = new ContextPackCompiler();
+
+  const initialPack = compiler.compileContextPack({ ...fixture, maxBytes: 50000 });
+  const mandSize = initialPack.size.mandatoryBytes;
+
+  for (let cap = mandSize - 1000; cap <= mandSize + 10000; cap += 50) {
+    const pack = compiler.compileContextPack({ ...fixture, maxBytes: cap });
+    const md = compiler.formatMarkdown(pack);
+    const json = compiler.formatJson(pack);
+
+    const mdBytes = Buffer.byteLength(md, 'utf8');
+    const jsonBytes = Buffer.byteLength(json, 'utf8');
+
+    assert.equal(pack.status === 'OK' || pack.status === 'OVERFLOW', true);
+
+    if (pack.status === 'OK') {
+      assert.ok(
+        mdBytes <= cap,
+        `Markdown stdout (${mdBytes} B) exceeds cap (${cap} B) at OK status`
+      );
+      assert.ok(
+        jsonBytes <= cap,
+        `JSON stdout (${jsonBytes} B) exceeds cap (${cap} B) at OK status`
+      );
+    }
+  }
+});
+
+test('context-pack-cap: negative control — removing the corrective step fails the sweep (CX.7)', () => {
+  const fixture = buildDenseSweepFixture();
+  const compiler = new ContextPackCompiler({ enableCorrective: false });
+  const initialPack = compiler.compileContextPack({ ...fixture, maxBytes: 50000 }, { enableCorrective: false });
+  const mandSize = initialPack.size.mandatoryBytes;
+
+  assert.throws(
+    () => {
+      for (let cap = mandSize - 1000; cap <= mandSize + 10000; cap += 50) {
+        const pack = compiler.compileContextPack({ ...fixture, maxBytes: cap }, { enableCorrective: false });
+        compiler.formatMarkdown(pack);
+        compiler.formatJson(pack);
+      }
+    },
+    (err) => err.message.includes('exceeds budget')
+  );
+});
+
+test('context-pack-cap: negative control — costing a self-referential field at a narrower width fails (CX.7)', () => {
+  const fixture = buildDenseSweepFixture();
+  const compiler = new ContextPackCompiler({ selfRefWidth: 1, enableCorrective: false });
+  const initialPack = compiler.compileContextPack({ ...fixture, maxBytes: 50000 }, { selfRefWidth: 1, enableCorrective: false });
+  const mandSize = initialPack.size.mandatoryBytes;
+
+  assert.throws(
+    () => {
+      for (let cap = mandSize - 1000; cap <= mandSize + 10000; cap += 50) {
+        const pack = compiler.compileContextPack({ ...fixture, maxBytes: cap }, { selfRefWidth: 1, enableCorrective: false });
+        compiler.formatMarkdown(pack);
+        compiler.formatJson(pack);
+      }
+    },
+    (err) => err.message.includes('exceeds budget')
+  );
+
+  const envAt5 = computeEnvelopes({ taskId: 't', taskClass: 'feature', budget: { maxBytes: 18000 } });
+  const envAt1 = computeEnvelopes({ taskId: 't', taskClass: 'feature', budget: { maxBytes: 18000 }, selfRefWidth: 1 });
+  assert.ok(
+    envAt5.envelopeJson > envAt1.envelopeJson,
+    `envelopeJson costed at width 5 (${envAt5.envelopeJson}) must exceed width 1 (${envAt1.envelopeJson})`
   );
 });
 

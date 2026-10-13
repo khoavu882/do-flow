@@ -185,3 +185,100 @@ test('context-pack-cli: negative control — missing --invariants flag is reject
   assert.equal(res.code, 1);
   assert.ok(res.stderr.includes("unknown flag '--unknown-flag-test'"));
 });
+
+test('context-pack-cli: three CLI spawn points near the boundary emit valid pack without crash or empty exit 1 (CX.7)', (t) => {
+  const root = setupTestProject(t, 'doflow-cli-boundary-');
+  const boundaryCaps = [4400, 4650, 4800];
+
+  for (const cap of boundaryCaps) {
+    // 1. Markdown form
+    const mdRes = runCli(root, [
+      'context-pack',
+      '--task-id', 'task-cli',
+      '--slug', 'feat-cli',
+      '--task-class', 'feature',
+      '--max-bytes', String(cap),
+      '--reason', 'cli boundary sweep',
+    ]);
+
+    assert.ok(
+      mdRes.code === 0 || mdRes.code === 3,
+      `Markdown form must exit 0 or 3 near boundary cap ${cap}, got ${mdRes.code}. Stderr: ${mdRes.stderr}`
+    );
+    assert.ok(
+      mdRes.stdout.length > 0,
+      `Markdown form stdout must not be empty at cap ${cap}`
+    );
+    assert.equal(
+      mdRes.stderr.includes('[ERROR]'),
+      false,
+      `Markdown form must not emit [ERROR] at cap ${cap}. Stderr: ${mdRes.stderr}`
+    );
+
+    const mdBytes = Buffer.byteLength(mdRes.stdout, 'utf8');
+    const mdMatch = mdRes.stdout.match(/\[end of pack\][^\n]*\bbytes=(\d{9})\b/);
+    assert.ok(mdMatch, `Markdown form must include [end of pack] line at cap ${cap}`);
+    const reportedMdBytes = parseInt(mdMatch[1], 10);
+    assert.equal(
+      mdBytes,
+      reportedMdBytes,
+      `Markdown stdout byte length (${mdBytes}) must equal reported packEnd bytes (${reportedMdBytes}) at cap ${cap}`
+    );
+    if (mdRes.code === 0) {
+      assert.ok(
+        mdBytes <= cap,
+        `Markdown stdout (${mdBytes} B) exceeds cap (${cap} B) when exit is 0`
+      );
+    }
+
+    // 2. JSON form
+    const jsonRes = runCli(root, [
+      'context-pack',
+      '--task-id', 'task-cli',
+      '--slug', 'feat-cli',
+      '--task-class', 'feature',
+      '--max-bytes', String(cap),
+      '--reason', 'cli boundary sweep',
+      '--json',
+    ]);
+
+    assert.ok(
+      jsonRes.code === 0 || jsonRes.code === 3,
+      `JSON form must exit 0 or 3 near boundary cap ${cap}, got ${jsonRes.code}. Stderr: ${jsonRes.stderr}`
+    );
+    assert.ok(
+      jsonRes.stdout.length > 0,
+      `JSON form stdout must not be empty at cap ${cap}`
+    );
+    assert.equal(
+      jsonRes.stderr.includes('[ERROR]'),
+      false,
+      `JSON form must not emit [ERROR] at cap ${cap}. Stderr: ${jsonRes.stderr}`
+    );
+
+    const jsonBytes = Buffer.byteLength(jsonRes.stdout, 'utf8');
+    const pack = JSON.parse(jsonRes.stdout);
+    assert.equal(
+      jsonBytes,
+      pack.size.totalBytes,
+      `JSON stdout byte length (${jsonBytes}) must equal pack.size.totalBytes (${pack.size.totalBytes}) at cap ${cap}`
+    );
+    assert.equal(
+      jsonBytes,
+      pack.packEnd.bytes,
+      `JSON stdout byte length (${jsonBytes}) must equal pack.packEnd.bytes (${pack.packEnd.bytes}) at cap ${cap}`
+    );
+    if (jsonRes.code === 0) {
+      assert.ok(
+        jsonBytes <= cap,
+        `JSON stdout (${jsonBytes} B) exceeds cap (${cap} B) when exit is 0`
+      );
+    }
+
+    assert.equal(
+      mdRes.code,
+      jsonRes.code,
+      `Markdown form (exit ${mdRes.code}) and JSON form (exit ${jsonRes.code}) must agree on status for cap ${cap}`
+    );
+  }
+});
