@@ -10,7 +10,7 @@ const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
 const nativeConsoleLog = console.log;
-const featureResolve = require('./feature-resolve.ts');
+const { resolveFeature } = require('./task-scope.ts');
 const { readRegister } = require('./decision-register.ts');
 const compose = require('./context/compose.ts');
 const {
@@ -64,9 +64,9 @@ const { taskStoreDir } = require('./task-scope.ts');
  * @param {{projectRoot:string, slug?:string|null}} options
  * @returns {{available:boolean, live:Array<Object>, liveCount:number, reason?:string}}
  */
-function loadLiveDecisions({ projectRoot, slug = null, feature: preloadedFeature = null }: any) {
+function loadLiveDecisions({ projectRoot, slug = null }: any) {
   try {
-    const feature = preloadedFeature || featureResolve.resolveActiveFeature({ projectRoot, slug });
+    const feature = resolveFeature({ projectRoot, slug });
     if (feature.error) return { ...NO_DECISIONS };
     let register;
     try {
@@ -884,6 +884,7 @@ function handleContextPackCommand({
   }
 
   let parsedMaxBytes: number | undefined;
+  let baseBudget: any = null;
   if (maxBytes !== undefined && maxBytes !== null) {
     const parsed = typeof maxBytes === 'number' ? maxBytes : parseInt(String(maxBytes).trim(), 10);
     if (!Number.isInteger(parsed) || parsed <= 0 || (typeof maxBytes === 'string' && !/^[1-9]\d*$/.test(maxBytes.trim()))) {
@@ -891,7 +892,7 @@ function handleContextPackCommand({
     }
     parsedMaxBytes = parsed;
 
-    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
+    baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
     if (parsedMaxBytes > baseBudget.maxBytes && !reason) {
       return usageError('context-pack', `--max-bytes (${parsedMaxBytes}) exceeds resolved budget (${baseBudget.maxBytes}) and requires --reason`, json);
     }
@@ -899,11 +900,15 @@ function handleContextPackCommand({
 
   const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness, profiles });
 
+  const feature = resolveFeature({ projectRoot: root, slug: slug || null });
+
   let sinceEntry: any = null;
   let deltaRefused: string | null = null;
   let deltaExpansions: any[] = [];
   if (parsedMaxBytes !== undefined) {
-    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
+    if (!baseBudget) {
+      baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
+    }
     if (parsedMaxBytes > baseBudget.maxBytes) {
       deltaExpansions.push({ at: new Date().toISOString(), kind: 'cap-raised', target: null, reason, bytesAdded: null });
     }
@@ -919,8 +924,6 @@ function handleContextPackCommand({
       deltaExpansions.push({ at: new Date().toISOString(), kind: 'delta-widened', target: null, reason: deltaRefused, bytesAdded: null });
     }
   }
-
-  const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
 
   if (expand) {
     const prior = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
@@ -1036,6 +1039,7 @@ function handleContextPackCommand({
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug });
   claims.load(taskId);
   claims.evaluateAll();
+
   const researchRequests = new ResearchRequestStore({ projectRoot: root, slug }).list(taskId);
 
   const compiler = new ContextPackCompiler();
@@ -1061,7 +1065,7 @@ function handleContextPackCommand({
     evidenceLedger: ledger,
     claimsManager: claims,
     researchRequests,
-    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null, feature }),
+    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null }),
   });
 
   let deliverySources: any = null;

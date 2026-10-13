@@ -15,10 +15,31 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
-const { resolveTaskScope, clearTaskScopeCache, setDefaultSlug } = require('../../src/runtime/task-scope.ts');
+const { resolveFeature, resolveTaskScope, clearTaskScopeCache, setDefaultSlug } = require('../../src/runtime/task-scope.ts');
 
 // The `--slug` default and the per-root cache are process-wide; every test leaves them as it found them.
 test.afterEach(() => { setDefaultSlug(null); clearTaskScopeCache(); });
+
+test('resolveFeature memoizes the raw result per root and slug until the cache is cleared', () => {
+  const root = suiteTempDir('doflow-task-scope-resolve-feature-');
+  const featureResolve = require('../../src/runtime/feature-resolve.ts');
+  const original = featureResolve.resolveActiveFeature;
+  const first = { paths: { feature_slug: 'feat-cache' } };
+  let calls = 0;
+  featureResolve.resolveActiveFeature = () => { calls += 1; return first; };
+  clearTaskScopeCache();
+  try {
+    assert.equal(resolveFeature({ projectRoot: root, slug: 'feat-cache' }), first);
+    assert.equal(resolveFeature({ projectRoot: root, slug: 'feat-cache' }), first);
+    assert.equal(calls, 1);
+    clearTaskScopeCache();
+    assert.equal(resolveFeature({ projectRoot: root, slug: 'feat-cache' }), first);
+    assert.equal(calls, 2);
+  } finally {
+    featureResolve.resolveActiveFeature = original;
+    clearTaskScopeCache();
+  }
+});
 
 const WITH = '046-with-register';
 const WITHOUT = '047-no-register';

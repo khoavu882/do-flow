@@ -310,3 +310,85 @@ test('context-pack-cli: three CLI spawn points near the boundary emit valid pack
     );
   }
 });
+
+function setupGitTestProject(t, prefix, slug = 'feat-cli') {
+  const root = tempDir(t, prefix);
+  const execOpts = { cwd: root, stdio: 'ignore' };
+  spawnSync('git', ['init', '-q'], execOpts);
+  spawnSync('git', ['config', 'user.name', 'test'], execOpts);
+  spawnSync('git', ['config', 'user.email', 'test@test.com'], execOpts);
+  spawnSync('git', ['checkout', '-q', '-b', `feat/${slug}`], execOpts);
+  spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], execOpts);
+
+  const featDir = path.join(root, 'agent-docs', 'doflow', slug, 'intention');
+  fs.mkdirSync(featDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(featDir, 'requirement.md'),
+    `# Feature: ${slug}\n## 1. Summary\nCLI spawn count test.\n## 6. Acceptance Criteria\n- [ ] **Scenario: First**\n`,
+    'utf8'
+  );
+  return root;
+}
+
+function createSpawnTracerPreload(dir) {
+  const preloadFile = path.join(dir, 'spawn-tracer.js');
+  const spawnLog = path.join(dir, 'spawns.log');
+  const code = `
+const cp = require('node:child_process');
+const fs = require('node:fs');
+const logFile = process.env.DOFLOW_TEST_SPAWN_LOG;
+function logCall(cmd, args) {
+  if (logFile) {
+    fs.appendFileSync(logFile, cmd + ' ' + (args || []).join(' ') + '\\n', 'utf8');
+  }
+}
+const origSpawnSync = cp.spawnSync;
+cp.spawnSync = function(file, args, opts) {
+  logCall(file, args);
+  return origSpawnSync.apply(this, arguments);
+};
+const origExecFileSync = cp.execFileSync;
+cp.execFileSync = function(file, args, opts) {
+  logCall(file, args);
+  return origExecFileSync.apply(this, arguments);
+};
+`;
+  fs.writeFileSync(preloadFile, code, 'utf8');
+  return { preloadFile, spawnLog };
+}
+
+function runCliWithPreload(cwd, args, preloadFile, spawnLog, extraEnv = {}) {
+  if (fs.existsSync(spawnLog)) fs.unlinkSync(spawnLog);
+  const res = spawnSync(process.execPath, ['--require', preloadFile, CLI_PATH, ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, DOFLOW_TEST_SPAWN_LOG: spawnLog, FORCE_COLOR: '0', ...extraEnv },
+  });
+  const logContent = fs.existsSync(spawnLog) ? fs.readFileSync(spawnLog, 'utf8').trim() : '';
+  const spawns = logContent ? logContent.split('\n') : [];
+  return {
+    code: res.status,
+    stdout: res.stdout || '',
+    stderr: res.stderr || '',
+    spawns,
+  };
+}
+
+test('context-pack-cli: each run resolves the feature with one do-paths.sh spawn and no other child process', (t) => {
+  const root = setupGitTestProject(t, 'doflow-cli-spawns-');
+  const { preloadFile, spawnLog } = createSpawnTracerPreload(root);
+
+  // Branch-coupled context-pack resolves active feature exactly once (1 spawn)
+  const res = runCliWithPreload(root, ['context-pack', '--task-id', 'task-cli', '--json'], preloadFile, spawnLog);
+  assert.ok(res.code === 0 || res.code === 1, `exit code must be 0 or 1, got ${res.code}`);
+
+  assert.equal(res.spawns.length, 1, `branch-coupled spawns: ${res.spawns.join('; ')}`);
+  assert.ok(res.spawns[0].includes('do-paths.sh'), `branch-coupled spawn must be do-paths.sh: ${res.spawns[0]}`);
+
+  // With explicit slug, the same single resolution serves the handler and every store.
+  const resSlug = runCliWithPreload(root, ['context-pack', '--task-id', 'task-cli', '--slug', 'feat-cli', '--json'], preloadFile, spawnLog);
+  assert.ok(resSlug.code === 0 || resSlug.code === 1);
+  assert.equal(resSlug.spawns.length, 1, `--slug spawns: ${resSlug.spawns.join('; ')}`);
+  assert.ok(resSlug.spawns[0].includes('do-paths.sh'), `--slug spawn must be do-paths.sh: ${resSlug.spawns[0]}`);
+});
+
