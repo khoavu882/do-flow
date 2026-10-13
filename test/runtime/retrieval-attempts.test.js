@@ -98,6 +98,19 @@ test('--status UNAVAILABLE exits 2 with unknown status message (IC-012)', (t) =>
   );
 });
 
+test('missing --status and a reason incompatible with status are refused (IC-013)', (t) => {
+  const root = tempDir(t, 'doflow-attempt-status-reason-');
+  declareFixturePlan(root, 't-status-reason');
+  const missing = callVerb({ taskId: 't-status-reason', action: 'attempt', need: 'locate-concept',
+    provider: 'semble.search', reason: 'provider-unavailable', stateRoot: root });
+  assert.equal(missing.code, 2);
+  assert.match(missing.out, /--status is required: EMPTY, UNREACHED or UNVERIFIED/);
+  const mismatch = callVerb({ taskId: 't-status-reason', action: 'attempt', need: 'locate-concept',
+    provider: 'semble.search', attemptStatus: 'EMPTY', reason: 'provider-unavailable', stateRoot: root });
+  assert.equal(mismatch.code, 2);
+  assert.match(mismatch.out, /not allowed for --status EMPTY\. Allowed: empty-answer, index-stale, index-unverifiable/);
+});
+
 test('missing reason exits 2 with reason requirement message (IC-012)', (t) => {
   const root = tempDir(t, 'doflow-attempt-missing-reason-');
   const taskId = 't-missing-reason';

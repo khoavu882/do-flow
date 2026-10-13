@@ -41,7 +41,7 @@
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { probeFreshness } = require('./health.ts');
-const { planPath, readPlan, updatePlan, mintPlanId, activeAttemptRef, resolveNeed, bindEvidence, deriveOutcome } = require('./retrieval-record.ts');
+const { planPath, readPlan, updatePlan, moveCorruptPlanAside, mintPlanId, activeAttemptRef, resolveNeed, bindEvidence, deriveOutcome } = require('./retrieval-record.ts');
 // One definition of the score refusal, applied at a second boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in src/runtime/evidence-fields.ts: relevance is a property of a search, not of a fact, and a plan
 // that recorded one would hand the next worker a confidence dressed as a measurement.
@@ -100,6 +100,13 @@ const EMPTY_ANSWER_BY_FRESHNESS: Record<string, any> = Object.freeze({
   FRESH: EMPTY,
   [NOT_APPLICABLE]: EMPTY,
 });
+
+function requirePlanForUpdate(disk: any, taskId: string) {
+  if (disk === null) {
+    throw new Error(`the retrieval plan for task ${taskId} was removed during the update; re-declare it`);
+  }
+  return disk;
+}
 
 /**
  * What an empty answer becomes, given the freshness of the index behind it.
@@ -291,7 +298,10 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
   };
   let file: string;
   try {
-    file = updatePlan(projectRoot, taskId, slug, () => record);
+    file = updatePlan(projectRoot, taskId, slug, () => record, undefined, () => {
+      const corruptFile = moveCorruptPlanAside(projectRoot, taskId, slug);
+      if (corruptFile) console.log(`Moved unreadable retrieval plan to ${corruptFile}; declaring a new plan.`);
+    });
   } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }
@@ -381,11 +391,30 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
   const isQueryBound = Boolean(record.planId);
   let binding = isQueryBound ? bindEvidence(record, items) : null;
   let reportSourceModeOf: any = null;
+  const probeByProvider = new Map<string, any>();
+  if (record.planId) {
+    const initialBinding = bindEvidence(record, items);
+    const missingProviders = new Set<string>();
+    for (const need of record.needs) {
+      for (const item of initialBinding.byNeed.get(need.intent) || []) {
+        if (item.result !== 'EMPTY' && !record.providers?.[item.source?.provider]) {
+          if (item.source?.provider) missingProviders.add(item.source.provider);
+        }
+      }
+    }
+    if (missingProviders.size > 0) {
+      const reportRouter = new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT });
+      reportSourceModeOf = sourceModeLookup(reportRouter.capabilities);
+      for (const providerId of missingProviders) {
+        probeByProvider.set(providerId, module.exports._probe(providerId, projectRoot, reportSourceModeOf));
+      }
+    }
+  }
 
   let file: string;
   try {
     file = updatePlan(projectRoot, taskId, slug, (disk: any) => {
-      const current = disk || record;
+      const current = requirePlanForUpdate(disk, taskId);
       if (current.planId) {
         const currentBinding = bindEvidence(current, items);
         binding = currentBinding;
@@ -401,46 +430,49 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
             const status = absent
               ? (item.freshness?.status === 'UNKNOWN' ? UNVERIFIED : EMPTY)
               : RETRIEVED;
-            const key = `${item.source?.provider || ''}\u0000${status}`;
+            const providerKey = item.source?.provider ?? '__no_provider__';
+            const key = `${providerKey}\u0000${status}`;
             if (!groups.has(key)) groups.set(key, []);
             const group = groups.get(key);
             if (group) group.push(item);
           }
-          if (reached.has(need.intent) && need.attempts.length === 0 && bound.length === 0) {
+          const countedAttempts = need.attempts.filter((attempt: any) =>
+            !(attempt.recordedBy === 'derived' && attempt.basis !== 'report-need'
+              && (!Array.isArray(attempt.evidenceIds) || attempt.evidenceIds.length === 0)));
+          if (reached.has(need.intent) && countedAttempts.length === 0 && bound.length === 0) {
             const provider = need.provider;
             const indexState = provider ? (current.providers?.[provider]?.state || 'UNKNOWN') : NOT_APPLICABLE;
-            groups.set(`${provider || ''}\u0000${resultForEmptyAnswer(indexState)}`, []);
+            groups.set(`${provider ?? '__no_provider__'}\u0000${resultForEmptyAnswer(indexState)}`, []);
           }
           for (const [key, group] of groups) {
-            const [provider, status] = key.split('\u0000');
+            const [providerKey, status] = key.split('\u0000');
+            const provider = providerKey === '__no_provider__' ? null : providerKey;
             let attempt = need.attempts.find((entry: any) => entry.recordedBy === 'derived'
               && entry.provider === provider && entry.status === status);
             if (attempt) {
               attempt.evidenceIds = group.map((item: any) => item.id);
               continue;
             }
-            if (status === RETRIEVED && provider && !current.providers?.[provider]) {
-              if (!reportSourceModeOf) {
-                const reportRouter = new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT });
-                reportSourceModeOf = sourceModeLookup(reportRouter.capabilities);
-              }
+            if (status === RETRIEVED && provider && !current.providers?.[provider] && probeByProvider.has(provider)) {
               current.providers ||= {};
-              current.providers[provider] = freshnessEntry(provider, projectRoot, reportSourceModeOf);
+              current.providers[provider] = probeByProvider.get(provider);
             }
+            const providerState = provider ? current.providers?.[provider]?.state : null;
             const indexState = status === RETRIEVED
-              ? (current.providers?.[provider]?.state || 'UNKNOWN')
-              : (group[0]?.freshness?.status || current.providers?.[provider]?.state || 'UNKNOWN');
+              ? (providerState || 'UNKNOWN')
+              : (group[0]?.freshness?.status || providerState || 'UNKNOWN');
             const reason = status === RETRIEVED ? null
               : indexState === 'STALE' ? 'index-stale'
                 : indexState === 'UNKNOWN' ? 'index-unverifiable' : 'empty-answer';
             const n = need.attempts.reduce((max: number, entry: any) => Math.max(max, entry.n || 0), 0) + 1;
             need.attempts.push({
               n, provider, capability: need.capability,
-              role: provider === need.provider ? 'primary' : 'fallback',
+              role: provider === null || provider === need.provider ? 'primary' : 'fallback',
               status, reason, note: null, indexState,
               attemptRef: current.attemptRef || null,
               evidenceIds: group.map((item: any) => item.id),
               recordedAt: new Date().toISOString(), recordedBy: 'derived',
+              ...(reached.has(need.intent) && group.length === 0 ? { basis: 'report-need' } : {}),
             });
           }
           const outcome = deriveOutcome(need);
@@ -597,6 +629,10 @@ function attemptPlan({
   }
   const declaredNeed = resolved.need;
 
+  if (attemptStatus === undefined || attemptStatus === null || attemptStatus === '') {
+    return usageError('retrieval-plan', '--status is required: EMPTY, UNREACHED or UNVERIFIED', json);
+  }
+
   if (attemptStatus === 'RETRIEVED') {
     return usageError(
       'retrieval-plan',
@@ -629,6 +665,15 @@ function attemptPlan({
       `unknown --reason '${reason}'. Codes: ${REASON_CODES_LIST}.`,
       json,
     );
+  }
+
+  const allowedReasons: Record<string, string[]> = {
+    EMPTY: ['empty-answer', 'index-stale', 'index-unverifiable'],
+    UNREACHED: ['provider-unavailable', 'policy-bypass', 'provider-error', 'timeout'],
+    UNVERIFIED: ['index-unverifiable'],
+  };
+  if (!allowedReasons[attemptStatus].includes(reason)) {
+    return usageError('retrieval-plan', `--reason '${reason}' is not allowed for --status ${attemptStatus}. Allowed: ${allowedReasons[attemptStatus].join(', ')}.`, json);
   }
 
   const capEntry = router.capabilities ? router.capabilities[declaredNeed.capability] : null;
@@ -672,6 +717,8 @@ function attemptPlan({
     finalStatus = resultForEmptyAnswer(indexState);
     if (finalStatus === 'UNVERIFIED') {
       finalReason = 'index-unverifiable';
+    } else if (indexState === 'STALE') {
+      finalReason = 'index-stale';
     }
   }
 
@@ -680,7 +727,7 @@ function attemptPlan({
   let file: string;
   try {
     file = updatePlan(projectRoot, taskId, slug, (disk: any) => {
-      const current = disk || record;
+      const current = requirePlanForUpdate(disk, taskId);
       const targetNeed = current.needs ? current.needs.find((n: any) => n.intent === intent) : null;
       if (!targetNeed) {
         throw new Error(`need '${intent}' missing from disk plan during update`);
@@ -867,4 +914,7 @@ module.exports = {
   FRESHNESS_STATES,
   EMPTY_ANSWER_BY_FRESHNESS,
   ATTEMPT_REASON_CODES,
+  applyReport: (disk: any, taskId: string) => requirePlanForUpdate(disk, taskId),
+  applyAttempt: (disk: any, taskId: string) => requirePlanForUpdate(disk, taskId),
+  _probe: (providerId: string, root: string, sourceModeOf: any) => freshnessEntry(providerId, root, sourceModeOf),
 };

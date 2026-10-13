@@ -49,9 +49,24 @@ function readPlan(projectRoot: any, taskId: any, slug: any = null, fsImpl: any =
  * @param {any} [fsImpl]
  * @returns {string} the written file path
  */
-function updatePlan(projectRoot: any, taskId: any, slug: any, build: any, fsImpl: any = fs): string {
+function updatePlan(projectRoot: any, taskId: any, slug: any, build: any, fsImpl: any = fs, prepare?: any): string {
   const file = planPath(projectRoot, taskId, slug);
-  return updateTaskState({ fsImpl, file, build });
+  return updateTaskState({ fsImpl, file, build, prepare });
+}
+
+/** Move a syntactically unreadable plan aside before its replacement is written under the lock. */
+function moveCorruptPlanAside(projectRoot: any, taskId: any, slug: any = null, fsImpl: any = fs): string | null {
+  const file = planPath(projectRoot, taskId, slug);
+  if (!fsImpl.existsSync(file)) return null;
+  try {
+    JSON.parse(fsImpl.readFileSync(file, 'utf8'));
+    return null;
+  } catch (error: any) {
+    if (!(error instanceof SyntaxError)) throw error;
+    const corruptFile = `${file}.corrupt-${new Date().toISOString()}`;
+    fsImpl.renameSync(file, corruptFile);
+    return corruptFile;
+  }
 }
 
 /**
@@ -68,11 +83,11 @@ function mintPlanId(): string {
  * @param {any} plan
  * @returns {string}
  */
-function declaredIntentList(plan: any): string {
+function declaredIntentList(plan: any, sep = ', '): string {
   const declaredIntents = Array.isArray(plan?.needs)
     ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
     : [];
-  return declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
+  return declaredIntents.length > 0 ? declaredIntents.join(sep) : 'none declared';
 }
 
 /**
@@ -91,7 +106,7 @@ function resolveNeed(plan: any, intent: string, taskId: string): any {
   const list = declaredIntentList(plan);
 
   if (!plan.planId) {
-    const message = `the retrieval plan for task '${taskId}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${taskId} --action declare --need ${list}, then re-run.`;
+    const message = `the retrieval plan for task '${taskId}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${taskId} --action declare --need ${declaredIntentList(plan, ',')}, then re-run.`;
     return { ok: false, message };
   }
 
@@ -102,7 +117,7 @@ function resolveNeed(plan: any, intent: string, taskId: string): any {
   }
 
   if (!need.queryRef) {
-    const message = `the retrieval plan for task '${taskId}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${taskId} --action declare --need ${list}, then re-run.`;
+    const message = `the retrieval plan for task '${taskId}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${taskId} --action declare --need ${declaredIntentList(plan, ',')}, then re-run.`;
     return { ok: false, message };
   }
 
@@ -178,7 +193,7 @@ function bindEvidence(plan: any, items: any[]) {
 function deriveOutcome(need: any) {
   const precedence: Record<string, number> = { RETRIEVED: 0, EMPTY: 1, UNVERIFIED: 3, UNREACHED: 4 };
   const attempts = (Array.isArray(need?.attempts) ? need.attempts : []).filter((attempt: any) =>
-    !(attempt.recordedBy === 'derived' && attempt.status === 'RETRIEVED'
+    !(attempt.recordedBy === 'derived' && attempt.basis !== 'report-need'
       && (!Array.isArray(attempt.evidenceIds) || attempt.evidenceIds.length === 0)));
   const ranked = [...attempts].sort((a, b) => {
     const rank = (attempt: any) => attempt.status === 'EMPTY' && ['STALE', 'UNKNOWN'].includes(attempt.indexState)
@@ -198,6 +213,7 @@ module.exports = {
   planPath,
   readPlan,
   updatePlan,
+  moveCorruptPlanAside,
   mintPlanId,
   resolveNeed,
   activeAttemptRef,
