@@ -9,7 +9,8 @@
   "minN": {
     "ranking": 10,
     "outcome": 3,
-    "status": "proposed"
+    "status": "approved",
+    "approvedOn": "2026-10-13"
   },
   "thresholds": [
     {
@@ -21,7 +22,8 @@
       "value": 0,
       "unit": "count",
       "rationale": "Hard gate: no false absence claims on known present artifacts across all corpora and classes.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "id": "T-002",
@@ -34,7 +36,8 @@
       "relativeTo": "B",
       "requireCiLowerAboveZero": true,
       "rationale": "Code conceptual-discovery fileRecall@10 must improve by at least +0.10 relative to B with 95% bootstrap CI lower bound above zero. Baseline row: code conceptual-discovery A is 0.60, B is 0.30.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "id": "T-003",
@@ -46,7 +49,8 @@
       "unit": "ratio",
       "relativeTo": "B",
       "rationale": "Exact-lookup success@1 must not regress relative to lexical baseline B. Baseline row: code exact-lookup success@1 is 0.50 for both A and B; guidance exact-lookup success@1 is 0.875 for both A and B.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "id": "T-004",
@@ -56,8 +60,9 @@
       "comparator": ">=",
       "value": 0.95,
       "unit": "ratio",
-      "rationale": "At least 0.95 locator validity across valid responses. Baseline row: ranking classes achieve 1.00; outcome classes achieve 0.80-1.00.",
-      "status": "proposed"
+      "rationale": "At least 0.95 locator validity across valid responses. Baseline row (AM.6): code exact-lookup is 0.90 in both A and B and code unavailable-provider is 0.90 (A) / 0.93 (B), so the current stack does not meet this bar; a new configuration must clear it. Guidance classes are 1.00.",
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "id": "T-005",
@@ -69,7 +74,8 @@
       "unit": "points",
       "relativeTo": "A",
       "rationale": "Task success rate must not regress by more than 0.05 points relative to A in paid grader evaluations.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "id": "T-006",
@@ -81,7 +87,8 @@
       "unit": "ratio",
       "relativeTo": "A",
       "rationale": "Per-task total tokens must not exceed configuration A by more than 10%.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "id": "T-007",
@@ -92,24 +99,41 @@
       "value": 1,
       "unit": "ratio",
       "rationale": "Outcome classes statusMatch must equal 1.0 (exact match with expected outcome). Baseline row: all outcome classes achieve 1.0 in baseline.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
+    },
+    {
+      "id": "T-008",
+      "metric": "missedDependencies",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "comparator": "<=",
+      "value": 0,
+      "unit": "ratio",
+      "relativeTo": "A",
+      "rationale": "Code impact-refactor missedDependencies (the IC-009 headline metric for the class, amendment AM5) must not regress relative to A. Baseline row (AM.6): A is 0.30, B is 1.00. Added at N.1 (DEC-016).",
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     }
   ],
   "rules": [
     {
       "id": "RULE-001",
       "text": "A ranking gain alone does not justify activation when task success does not improve.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "id": "RULE-002",
       "text": "If no qualifying semantic candidate passes, choose explicitly between an approved smaller-project experiment and lexical-only operation; never claim hybrid completion.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "id": "RULE-003",
       "text": "An underpowered class is not established and cannot pass a gate.",
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     }
   ],
   "costCaps": {
@@ -119,7 +143,8 @@
     "maxTasks": 74,
     "maxTokensTotal": 55500000,
     "unknownUsage": "never-zero",
-    "status": "proposed"
+    "status": "approved",
+    "approvedOn": "2026-10-13"
   },
   "latencyBudgetsRef": "bench/perf/budgets.json",
   "rerun": {
@@ -276,6 +301,7 @@
       }
     ],
     "latency": "same-machine-only",
-    "status": "proposed"
+    "status": "approved",
+    "approvedOn": "2026-10-13"
   }
 }

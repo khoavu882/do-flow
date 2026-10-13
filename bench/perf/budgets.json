@@ -17,7 +17,8 @@
   "headroom": {
     "minMs": 10,
     "pct": 25,
-    "status": "proposed"
+    "status": "approved",
+    "approvedOn": "2026-10-13"
   },
   "resolutions": [
     {
@@ -231,7 +232,8 @@
       "redos": 0,
       "headroomMs": 16.32,
       "ceilingMs": 82,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "cli.help",
@@ -251,7 +253,8 @@
       "redos": 0,
       "headroomMs": 17.09,
       "ceilingMs": 86,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "verb.goal-list",
@@ -271,7 +274,8 @@
       "redos": 0,
       "headroomMs": 33.56,
       "ceilingMs": 150,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "verb.capabilities",
@@ -291,7 +295,8 @@
       "redos": 0,
       "headroomMs": 21.72,
       "ceilingMs": 109,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "diag.doctor",
@@ -311,7 +316,8 @@
       "redos": 0,
       "headroomMs": 137.45,
       "ceilingMs": 500,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "install.dry-run",
@@ -331,7 +337,8 @@
       "redos": 0,
       "headroomMs": 27.9,
       "ceilingMs": 140,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "hook.shared.pre-bash-guard",
@@ -351,7 +358,8 @@
       "redos": 0,
       "headroomMs": 10,
       "ceilingMs": 32,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "hook.shared.user-prompt-submit",
@@ -371,7 +379,8 @@
       "redos": 0,
       "headroomMs": 10,
       "ceilingMs": 27,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "suite.guard-file",
@@ -391,7 +400,8 @@
       "redos": 0,
       "headroomMs": 32.02,
       "ceilingMs": 161,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "suite.guards",
@@ -411,7 +421,8 @@
       "redos": 0,
       "headroomMs": 1554.75,
       "ceilingMs": 7774,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-13"
     },
     {
       "surfaceId": "hook.claude.mcp-tool-guard",
