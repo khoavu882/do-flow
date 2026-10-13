@@ -163,3 +163,115 @@ test('an injected runner counts one spawn per write', (t) => {
   assert.equal(spawns, 1, 'expected exactly one spawn');
   assert.ok(state.gitCommit);
 });
+
+test('falls back to rev-parse for the commit when status fails', (t) => {
+  const { dir, git } = makeRepo(t, 'doflow-sv-status-fallback-');
+  fs.writeFileSync(path.join(dir, 'file.txt'), 'file\n');
+  git('add', 'file.txt');
+  git('commit', '-m', 'initial');
+  const head = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const runner = (args, cwd) => args.includes('status') ? null : execFileSync('git', args, { cwd, encoding: 'utf8' });
+
+  const state = measureTreeState(dir, runner);
+  assert.equal(state.gitCommit, head);
+  assert.equal(state.dirty, null);
+  assert.equal(state.fingerprint, null);
+});
+
+test('normalizes relative dirty locators and leaves absolute locators unknown', (t) => {
+  const { dir, git } = makeRepo(t, 'doflow-sv-normalized-');
+  fs.mkdirSync(path.join(dir, 'sub'));
+  fs.writeFileSync(path.join(dir, 'sub', 'a.js'), 'before\n');
+  git('add', 'sub/a.js');
+  git('commit', '-m', 'initial');
+  fs.writeFileSync(path.join(dir, 'sub', 'a.js'), 'after\n');
+  const state = measureTreeState(path.join(dir, 'sub'));
+
+  assert.equal(sourceVersionFor(path.join(dir, 'sub'), { file: './a.js' }, state).isDirty, true);
+  assert.equal(sourceVersionFor(path.join(dir, 'sub'), { file: path.join(dir, 'sub', 'a.js') }, state).isDirty, null);
+});
+
+test('ignores DoFlow state files in the fingerprint while retaining dirty paths', (t) => {
+  const { dir, git } = makeRepo(t, 'doflow-sv-state-');
+  fs.mkdirSync(path.join(dir, '.doflow', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.doflow', 'state', '.gitignore'), '*\n!.gitignore\n');
+  fs.writeFileSync(path.join(dir, 'tracked.txt'), 'base\n');
+  git('add', 'tracked.txt');
+  git('commit', '-m', 'initial');
+  fs.unlinkSync(path.join(dir, '.doflow', 'state', '.gitignore'));
+
+  clearTreeStateCache();
+  const before = measureTreeState(dir);
+  fs.mkdirSync(path.join(dir, '.doflow', 'state', 'evidence'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.doflow', 'state', 'evidence', 'item.json'), '{}\n');
+  clearTreeStateCache();
+  const after = measureTreeState(dir);
+
+  assert.equal(after.fingerprint, before.fingerprint);
+  assert.ok(after.dirty.has('.doflow/state/evidence/item.json'));
+});
+
+test('folds untracked nested repository state into the parent fingerprint', (t) => {
+  const { dir, git } = makeRepo(t, 'doflow-sv-nested-');
+  fs.writeFileSync(path.join(dir, 'base.txt'), 'base\n');
+  git('add', 'base.txt');
+  git('commit', '-m', 'initial');
+  const nested = path.join(dir, 'nested');
+  fs.mkdirSync(nested);
+  execFileSync('git', ['init', '-q', nested]);
+  execFileSync('git', ['-C', nested, 'config', 'user.email', 'test@example.com']);
+  execFileSync('git', ['-C', nested, 'config', 'user.name', 'Test']);
+  fs.writeFileSync(path.join(nested, 'inner.txt'), 'one\n');
+  execFileSync('git', ['-C', nested, 'add', 'inner.txt']);
+  execFileSync('git', ['-C', nested, 'commit', '-m', 'one'], { stdio: 'ignore' });
+
+  clearTreeStateCache();
+  const before = measureTreeState(dir).fingerprint;
+  fs.writeFileSync(path.join(nested, 'inner.txt'), 'two with changed size\n');
+  execFileSync('git', ['-C', nested, 'add', 'inner.txt']);
+  clearTreeStateCache();
+  const after = measureTreeState(dir).fingerprint;
+  assert.notEqual(after, before);
+});
+
+test('folds submodule HEAD state into the parent fingerprint', (t) => {
+  const bare = tempDir(t, 'doflow-sv-submodule-bare-');
+  execFileSync('git', ['init', '--bare', '-q', bare]);
+  const submodule = tempDir(t, 'doflow-sv-submodule-source-');
+  execFileSync('git', ['-C', submodule, 'init', '-q']);
+  execFileSync('git', ['-C', submodule, 'config', 'user.email', 'test@example.com']);
+  execFileSync('git', ['-C', submodule, 'config', 'user.name', 'Test']);
+  fs.writeFileSync(path.join(submodule, 'inner.txt'), 'one\n');
+  execFileSync('git', ['-C', submodule, 'add', 'inner.txt']);
+  execFileSync('git', ['-C', submodule, 'commit', '-m', 'one'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', submodule, 'remote', 'add', 'origin', bare]);
+  execFileSync('git', ['-C', submodule, 'push', '-u', 'origin', 'HEAD'], { stdio: 'ignore' });
+
+  const { dir, git } = makeRepo(t, 'doflow-sv-submodule-parent-');
+  execFileSync('git', ['-C', dir, '-c', 'protocol.file.allow=always', 'submodule', 'add', bare, 'module'], { stdio: 'ignore' });
+  git('commit', '-m', 'add submodule');
+  clearTreeStateCache();
+  const before = measureTreeState(dir).fingerprint;
+
+  fs.writeFileSync(path.join(dir, 'module', 'inner.txt'), 'two\n');
+  execFileSync('git', ['-C', path.join(dir, 'module'), 'add', 'inner.txt']);
+  execFileSync('git', ['-C', path.join(dir, 'module'), 'commit', '-m', 'two'], { stdio: 'ignore' });
+  clearTreeStateCache();
+  const after = measureTreeState(dir).fingerprint;
+  assert.notEqual(after, before);
+});
+
+test('fails closed when the project root is ignored by its parent repository', (t) => {
+  const { dir, git } = makeRepo(t, 'doflow-sv-ignored-root-');
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'project/\n');
+  git('add', '.gitignore');
+  git('commit', '-m', 'initial');
+  const project = path.join(dir, 'project');
+  fs.mkdirSync(project);
+
+  clearTreeStateCache();
+  const state = measureTreeState(project);
+  assert.equal(state.prefix, 'project/');
+  assert.equal(state.dirty, null);
+  assert.equal(state.fingerprint, null);
+});
