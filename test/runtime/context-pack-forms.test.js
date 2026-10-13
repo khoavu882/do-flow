@@ -8,6 +8,7 @@ const { tempDir } = require('../helper/tmp');
 const { handleContextPackCommand, ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { ClaimsManager } = require('../../src/runtime/claims.ts');
+const { formatMarkdown, formatJson } = require('../../src/runtime/context/compose.ts');
 
 function runPack(options) {
   let out = '';
@@ -231,6 +232,46 @@ test('context-pack-forms: caller-supplied objective sets provenance to source: c
   assert.equal(pack.mandatory.objective.supplied, true);
   const md = compiler.formatMarkdown(pack);
   assert.match(md, /- objective: caller/);
+});
+
+test('context-pack-forms: unavailable decision reason appears in JSON and Markdown within cap', () => {
+  const compiler = new ContextPackCompiler();
+  const pack = compiler.compileContextPack({ taskId: 't-decision-unavailable' });
+  pack.decisions = { available: false, reason: 'register unreadable: x', live: [] };
+
+  const json = formatJson(pack);
+  const markdown = formatMarkdown(pack);
+  assert.match(json, /register unreadable: x/);
+  assert.equal(markdown.split('- not supplied: register unreadable: x').length - 1, 1);
+  assert.doesNotMatch(markdown, /register unreadable: register unreadable/);
+  assert.match(markdown, /### Live decisions/);
+  assert.ok(Buffer.byteLength(markdown, 'utf8') <= pack.budget.maxBytes);
+});
+
+test('context-pack-forms: no conflicts still emits the mandatory conflicts section within cap', () => {
+  const compiler = new ContextPackCompiler();
+  const pack = compiler.compileContextPack({ taskId: 't-no-conflicts' });
+  const markdown = formatMarkdown(pack);
+
+  assert.match(markdown, /### Blocking Conflicts\n- not supplied: none-recorded/);
+  assert.ok(Buffer.byteLength(markdown, 'utf8') <= pack.budget.maxBytes);
+});
+
+test('context-pack-forms: markdown footer rounds estimated tokens up', () => {
+  const compiler = new ContextPackCompiler();
+  const pack = compiler.compileContextPack({ taskId: 't-token-ceil' });
+  let markdown;
+  let emittedBytes;
+  for (let length = 0; length < 4; length += 1) {
+    pack.objective = 'x'.repeat(length);
+    markdown = formatMarkdown(pack);
+    emittedBytes = Buffer.byteLength(markdown, 'utf8');
+    if (emittedBytes % 4 === 1) break;
+  }
+  assert.equal(emittedBytes % 4, 1, 'fixture must exercise a fractional token estimate below .5');
+  const estimate = Number(markdown.match(/tokens ~([0-9]+)/)[1]);
+  assert.equal(estimate, Math.ceil(emittedBytes / 4));
+  assert.ok(emittedBytes <= pack.budget.maxBytes);
 });
 
 test('context-pack-forms: bare mode drops mandatory items except objective and has no footer beyond end line (CX.4)', () => {
