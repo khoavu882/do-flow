@@ -256,8 +256,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--mode', 'mode'],                  // readiness: execution mode, workflow (default) | standalone
   ['--scope', 'scope'],                // readiness: the stated scope boundary; verify: the declared
                                        // change scope, <path>[,<path>...], unioned with the plan's bound
-  ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack
+  ['--mandatory-file', 'mandatoryFile'], // context-pack: caller-supplied mandatory fields
   ['--stage-id', 'stageId'],           // research-request: active feature stage
   ['--question', 'question'],           // research-request: external question
   ['--blocking', 'blocking'],           // research-request: true | false

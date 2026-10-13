@@ -2,17 +2,24 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
-const { resolveActiveFeature } = require('./feature-resolve.ts');
+const featureResolve = require('./feature-resolve.ts');
 const { readRegister } = require('./decision-register.ts');
 const {
   FIELD_CLASSES,
   buildPackItem,
   linearFit,
 } = require('./context/compose.ts');
+const {
+  extractMandatory,
+  parseMandatoryFile,
+  applyMandatoryOverride,
+} = require('./context/mandatory.ts');
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
@@ -27,9 +34,9 @@ const { TASK_CLASS_BUDGETS, resolveBudget } = require('./context/budget.ts');
  * @param {{projectRoot:string, slug?:string|null}} options
  * @returns {{available:boolean, live:Array<Object>, liveCount:number, reason?:string}}
  */
-function loadLiveDecisions({ projectRoot, slug = null }: any) {
+function loadLiveDecisions({ projectRoot, slug = null, feature: preloadedFeature = null }: any) {
   try {
-    const feature = resolveActiveFeature({ projectRoot, slug });
+    const feature = preloadedFeature || featureResolve.resolveActiveFeature({ projectRoot, slug });
     if (feature.error) return { ...NO_DECISIONS };
     let register;
     try {
@@ -440,8 +447,49 @@ class ContextPackCompiler {
  * @param {string} [options.slug] feature slug, when the task id is not the feature's own
  * @returns {number} exit code
  */
-function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot, slug }: any = {}) {
+function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot, slug, mandatoryFile }: any = {}) {
   const root = stateRoot || process.cwd();
+  const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
+
+  let reqText: string | null = null;
+  let reqPath = 'requirement.md';
+  if (!feature.error && feature.featureDir) {
+    reqPath = path.join(feature.featureDir, 'intention', 'requirement.md');
+    try {
+      if (fs.existsSync(reqPath)) {
+        reqText = fs.readFileSync(reqPath, 'utf8');
+      }
+    } catch {
+      reqText = null;
+    }
+  }
+
+  let mandatory = extractMandatory({
+    text: reqText,
+    path: reqPath,
+    featureError: feature.error || null,
+  });
+
+  if (mandatoryFile) {
+    try {
+      let fileContent: string;
+      if (mandatoryFile === '-') {
+        fileContent = fs.readFileSync(0, 'utf8');
+      } else {
+        if (!fs.existsSync(mandatoryFile)) {
+          const err: any = new Error(`--mandatory-file '${mandatoryFile}' does not exist`);
+          err.code = 'USAGE_ERROR';
+          throw err;
+        }
+        fileContent = fs.readFileSync(mandatoryFile, 'utf8');
+      }
+      const override = parseMandatoryFile(fileContent, mandatoryFile);
+      mandatory = applyMandatoryOverride(mandatory, override);
+    } catch (err: any) {
+      return usageError('context-pack', err.message, json, err);
+    }
+  }
+
   const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug });
@@ -456,11 +504,14 @@ function handleContextPackCommand({ taskId, taskClass, objective, json = false, 
     // place that decides what an unstated class means for a *label* — which is all it is in a
     // pack, unlike readiness where it selects the contract.
     ...(taskClass ? { taskClass } : {}),
-    objective: objective || '',
+    objective: objective || mandatory.fields.objective || '',
+    constraints: mandatory.fields.constraints.map((c: any) => c.text || c),
+    acceptanceCriteria: mandatory.fields.acceptanceCriteria.map((ac: any) => ac.text || ac),
+    verificationRequirements: mandatory.fields.verificationRequirements.map((vr: any) => vr.text || vr),
     evidenceLedger: ledger,
     claimsManager: claims,
     researchRequests,
-    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null }),
+    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null, feature }),
   });
 
   const empty = pack.evidenceCount === 0

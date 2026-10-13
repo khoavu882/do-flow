@@ -211,6 +211,9 @@ function parsePlan(text: string): any {
 }
 
 module.exports = {
+  section,
+  row,
+  joinWrapped,
   parseRequirement,
   parseDesign,
   parsePlan,
