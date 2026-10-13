@@ -11,6 +11,9 @@ const { readTaskState, updateTaskState } = require('./task-state.ts');
 
 /**
  * Path of a task's retrieval-plan store.
+ *
+ * The task id is validated by the evidence ledger's own rule, unchanged: it becomes a filename, so
+ * it must never be able to name a path.
  * @param {string} projectRoot
  * @param {string} taskId
  * @param {string|null} [slug]
@@ -44,12 +47,7 @@ function readPlan(projectRoot: any, taskId: any, slug: any = null, fsImpl: any =
  * @param {any} [fsImpl]
  * @returns {string} the written file path
  */
-function updatePlan(projectRoot: any, taskId: any, slug: any = null, build?: any, fsImpl: any = fs): string {
-  if (typeof slug === 'function') {
-    fsImpl = build || fs;
-    build = slug;
-    slug = null;
-  }
+function updatePlan(projectRoot: any, taskId: any, slug: any, build: any, fsImpl: any = fs): string {
   const file = planPath(projectRoot, taskId, slug);
   return updateTaskState({ fsImpl, file, build });
 }

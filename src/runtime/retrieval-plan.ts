@@ -38,11 +38,8 @@
  * emits are counts of records.
  */
 
-const fs = require('node:fs');
-const path = require('node:path');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
-const { taskStoreDir } = require('./task-scope.ts');
 const { probeFreshness } = require('./health.ts');
 const { planPath, readPlan, updatePlan } = require('./retrieval-record.ts');
 // One definition of the score refusal, applied at a second boundary. See the note on
@@ -499,7 +496,7 @@ function handleRetrievalPlanCommand(options: any = {}) {
 
   // The project the task belongs to owns both the state and the index whose age is being measured.
   // The package root owns the capability registries, and is a different directory in every install.
-  const projectRoot = options.projectRoot || stateRoot || process.cwd();
+  const projectRoot = stateRoot || process.cwd();
   const packageRoot = repoRoot || REPO_ROOT;
 
   try {
@@ -537,8 +534,6 @@ module.exports = {
   freshnessEntry,
   sourceModeLookup,
   planPath,
-  readPlan,
-  updatePlan,
   RESULTS,
   RETRIEVED,
   EMPTY,

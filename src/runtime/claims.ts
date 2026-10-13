@@ -219,8 +219,14 @@ class ClaimsManager {
     }
 
     if (hasFreshContradiction) {
+      // 'conflicted' means evidence disagrees and a human must reconcile it; 'rejected' means the
+      // evidence agrees and the claim is false. Collapsing the second into the first reported a
+      // dispute where none existed, and made the readiness gate block on a question already
+      // settled. Support that has merely gone stale still counts as support, so a claim that once
+      // had backing stays 'conflicted' rather than being declared false on a technicality.
       claim.status = claim.supportingEvidence.length === 0 ? 'rejected' : 'conflicted';
     } else if (hasUnknownContradiction) {
+      // A contradiction whose freshness is unknown cannot prove the claim false, so it never yields 'rejected' (DEC-016).
       claim.status = claim.supportingEvidence.length > 0 ? 'conflicted' : 'hypothesis';
     } else if (hasFreshSupport) {
       claim.status = 'supported';

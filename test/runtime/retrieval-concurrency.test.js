@@ -22,7 +22,6 @@ test('two child processes each run N reports against one plan; revision ends at 
       action: 'declare',
       need: ['locate-concept'],
       stateRoot: root,
-      projectRoot: root,
       json: true,
     });
   } finally {
@@ -47,7 +46,6 @@ test('two child processes each run N reports against one plan; revision ends at 
         action: 'report',
         need: [],
         stateRoot: root,
-        projectRoot: root,
         json: true,
       });
       if (code !== 1 && code !== 0) {
