@@ -246,7 +246,20 @@ test('holdout: a missing seal or a key that does not decrypt is refused', (t) =>
   const w = world(t);
   assert.throws(() => exec(w, { config: 'A,B', corpus: 'code', split: 'holdout' }, stubDeps([])), /no sealed holdout for the code corpus/);
   sealHoldout(w);
-  assert.throws(() => run.execute({ args: { corpus: 'code', split: 'holdout' }, snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, env: { DOFLOW_HOLDOUT_KEY: 'x'.repeat(30) }, home: w.repo, deps: stubDeps([]) }), /does not decrypt/);
+  assert.throws(() => run.execute({ args: { config: 'A,B', corpus: 'code', split: 'holdout' }, snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, env: { DOFLOW_HOLDOUT_KEY: 'x'.repeat(30) }, home: w.repo, deps: stubDeps([]) }), /does not decrypt/);
+});
+
+test('FX.4: with --split holdout, --config and --corpus must be given explicitly', () => {
+  assert.throws(() => run.parseSelection({ split: 'holdout', corpus: 'code' }), (err) => {
+    assert.equal(err.exitCode, 2);
+    assert.match(err.message, /--config/);
+    return true;
+  });
+  assert.throws(() => run.parseSelection({ split: 'holdout', config: 'A,B' }), (err) => {
+    assert.equal(err.exitCode, 2);
+    assert.match(err.message, /--corpus/);
+    return true;
+  });
 });
 
 test('FX.2: unreachedCount reports count of unreached tasks and comparisons include headline metrics', (t) => {

@@ -35,12 +35,16 @@ const TOOL_OF_PROVIDER = { 'native.rg': 'rg', fd: 'fd', 'semble.search': 'semble
 class Refused extends sealLib.SealError {}
 
 function parseSelection(args) {
+  const split = args.split || 'dev';
+  if (!['dev', 'holdout'].includes(split)) throw new Refused('--split must be dev or holdout');
+  if (split === 'holdout') {
+    if (!args.config) throw new Refused('--config must be given explicitly with --split holdout');
+    if (!args.corpus) throw new Refused('--corpus must be given explicitly with --split holdout');
+  }
   const configs = String(args.config || 'A,B').split(',').map((s) => s.trim());
   if (!configs.every((c) => c === 'A' || c === 'B') || new Set(configs).size !== configs.length) throw new Refused('--config must be A, B or A,B');
   const corpus = args.corpus || 'all';
   if (!['code', 'guidance', 'all'].includes(corpus)) throw new Refused('--corpus must be code, guidance or all');
-  const split = args.split || 'dev';
-  if (!['dev', 'holdout'].includes(split)) throw new Refused('--split must be dev or holdout');
   if (args.class && !metricsLib.CLASSES.includes(args.class)) throw new Refused(`--class must be one of ${metricsLib.CLASSES.join(', ')}`);
   return { configs: ['A', 'B'].filter((c) => configs.includes(c)), corpora: corpus === 'all' ? ['code', 'guidance'] : [corpus], split, cls: args.class };
 }

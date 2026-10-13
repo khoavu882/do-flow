@@ -124,3 +124,17 @@ test('applyPatch: child env lacks DOFLOW_HOLDOUT_KEY and *_API_KEY', { skip: pro
     if (prevApiKey !== undefined) process.env.TEST_API_KEY = prevApiKey; else delete process.env.TEST_API_KEY;
   }
 });
+
+test('FX.4: holdout setup patch failure carries no task id and no git-apply output', (t) => {
+  const root = exportTree(t);
+  const badPatch = PATCH.replace('-b', '-zzz');
+  assert.throws(
+    () => dispatcher.applyPatch({ id: 'HC-001', split: 'holdout', setup: { patchText: badPatch } }, root, root),
+    (err) => {
+      assert.equal(err.message, 'setup patch failed for a holdout task');
+      assert.ok(!err.message.includes('HC-001'));
+      assert.ok(!err.message.includes('error:'));
+      return true;
+    }
+  );
+});
