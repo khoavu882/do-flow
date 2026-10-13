@@ -175,6 +175,10 @@ test('extractIdentifier: deterministic extraction on sample queries', () => {
   assert.equal(a.extractIdentifier('does ProviderA call ProviderB'), 'ProviderB');
   assert.equal(a.extractIdentifier('what callers depend on searchGuidance?'), 'searchGuidance');
   assert.equal(a.extractIdentifier('who calls tokenize'), 'tokenize');
+  assert.equal(a.extractIdentifier('If I rename foo what fails'), 'foo');
+  assert.equal(a.extractIdentifier('What calls tokenize'), 'tokenize');
+  assert.equal(a.extractIdentifier('Which callers depend on Registry'), 'Registry');
+  assert.equal(a.extractIdentifier('What breaks if I change runVerb?'), 'runVerb');
 });
 
 test('graphify impact: the symbol, not the sentence, is passed to graphify affected', { skip: posix }, (t) => {

@@ -54,18 +54,32 @@ function graphPath(indexRoot) {
   return path.join(indexRoot, 'graphify-out', 'graph.json');
 }
 
-/** Extracts an identifier from a natural-language query deterministically (AM.5). */
+const STOP_WORDS = new Set([
+  'what', 'which', 'where', 'who', 'when', 'how', 'does', 'do',
+  'the', 'of', 'if', 'is', 'are', 'a', 'an', 'to', 'in', 'on',
+  'and', 'or', 'i', 'it', 'that', 'this',
+  'calls', 'call', 'uses', 'use', 'used', 'depend', 'depends',
+  'rename', 'change', 'breaks', 'break', 'fail', 'fails',
+]);
+
+/** Extracts an identifier from a natural-language query deterministically (AM.5, hardened AM.7). */
 function extractIdentifier(query) {
   if (!query || typeof query !== 'string') return '';
   const tokens = query.match(/[a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z0-9_$]+)*/g) || [];
-  if (tokens.length === 0) return '';
-  const special = tokens.filter((t) => /[A-Z_$.]/.test(t));
-  if (special.length > 0) return special[special.length - 1];
+  if (tokens.length === 0) return query;
+  const rule1 = tokens.filter((t) => t.includes('_') || t.includes('$') || t.includes('.') || /[A-Z]/.test(t.slice(1)));
+  if (rule1.length > 0) return rule1[rule1.length - 1];
+  const nonFirst = tokens.slice(1);
+  const rule2 = nonFirst.filter((t) => /^[A-Z]/.test(t) && t !== 'I');
+  if (rule2.length > 0) return rule2[rule2.length - 1];
   let longest = '';
   for (const t of tokens) {
-    if (t.length >= longest.length) longest = t;
+    if (!STOP_WORDS.has(t.toLowerCase())) {
+      if (t.length >= longest.length) longest = t;
+    }
   }
-  return longest;
+  if (longest) return longest;
+  return query;
 }
 
 function runGraphify({ task, indexRoot, bins }) {
