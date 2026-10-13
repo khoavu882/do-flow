@@ -110,3 +110,73 @@ test('support that has merely gone stale still counts as support', () => {
   assert.notEqual(claims.getClaim(id).status, 'rejected',
     'stale support is still support — the claim is conflicted, not disproven');
 });
+
+test('UNKNOWN-only support gives hypothesis (IC-017)', () => {
+  const { evidenceLedger, claims, add } = setup();
+  const id1 = add('unknown finding');
+  const ev1 = evidenceLedger.getEvidence(id1);
+  ev1.freshness = { ...(ev1.freshness || {}), status: 'UNKNOWN' };
+
+  const cid = claims.addClaim({
+    taskId: 'task_claims',
+    statement: 'claim backed only by unknown index',
+    supportingEvidence: [id1],
+  });
+  claims.evaluateClaim(cid);
+  assert.equal(claims.getClaim(cid).status, 'hypothesis');
+});
+
+test('FRESH plus UNKNOWN support gives supported (IC-017)', () => {
+  const { evidenceLedger, claims, add } = setup();
+  const idFresh = add('fresh finding');
+  const idUnknown = add('unknown finding');
+  evidenceLedger.getEvidence(idUnknown).freshness = { status: 'UNKNOWN' };
+
+  const cid = claims.addClaim({
+    taskId: 'task_claims',
+    statement: 'claim backed by fresh and unknown',
+    supportingEvidence: [idFresh, idUnknown],
+  });
+  claims.evaluateClaim(cid);
+  assert.equal(claims.getClaim(cid).status, 'supported');
+});
+
+test('STALE support gives invalidated (IC-017)', () => {
+  const { evidenceLedger, claims, add } = setup();
+  const idStale = add('stale finding');
+  evidenceLedger.getEvidence(idStale).freshness = { status: 'STALE' };
+
+  const cid = claims.addClaim({
+    taskId: 'task_claims',
+    statement: 'claim backed only by stale evidence',
+    supportingEvidence: [idStale],
+  });
+  claims.evaluateClaim(cid);
+  assert.equal(claims.getClaim(cid).status, 'invalidated');
+});
+
+test('an UNKNOWN contradiction gives conflicted with support and hypothesis without, never rejected (IC-017, DEC-016)', () => {
+  const { evidenceLedger, claims, add } = setup();
+  const idContra = add('unknown contradiction');
+  evidenceLedger.getEvidence(idContra).freshness = { status: 'UNKNOWN' };
+
+  // Without support -> hypothesis, never rejected
+  const cidWithout = claims.addClaim({
+    taskId: 'task_claims',
+    statement: 'claim with only unknown contradiction',
+    contradictingEvidence: [idContra],
+  });
+  claims.evaluateClaim(cidWithout);
+  assert.equal(claims.getClaim(cidWithout).status, 'hypothesis', 'never rejected');
+
+  // With support -> conflicted
+  const idSupport = add('supporting finding');
+  const cidWith = claims.addClaim({
+    taskId: 'task_claims',
+    statement: 'claim with support and unknown contradiction',
+    supportingEvidence: [idSupport],
+    contradictingEvidence: [idContra],
+  });
+  claims.evaluateClaim(cidWith);
+  assert.equal(claims.getClaim(cidWith).status, 'conflicted');
+});

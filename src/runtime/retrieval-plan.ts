@@ -38,12 +38,10 @@
  * emits are counts of records.
  */
 
-const fs = require('node:fs');
-const path = require('node:path');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
-const { taskStoreDir } = require('./task-scope.ts');
 const { probeFreshness } = require('./health.ts');
+const { planPath, readPlan, updatePlan } = require('./retrieval-record.ts');
 // One definition of the score refusal, applied at a second boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in cli.js: relevance is a property of a search, not of a fact, and a plan
 // that recorded one would hand the next worker a confidence dressed as a measurement.
@@ -107,50 +105,6 @@ function resultForEmptyAnswer(freshnessState: any) {
   return mapped;
 }
 
-// ── the record ────────────────────────────────────────────────────────────────────────────────
-
-/**
- * Where a task's plan lives, under the invoking project's state root.
- *
- * The task id is validated by the evidence ledger's own rule, unchanged: it becomes a filename, so
- * it must never be able to name a path.
- * @param {string} projectRoot
- * @param {string} taskId
- * @param {string|null} [slug] the feature the task belongs to, when not the branch's (task-scope.js)
- * @returns {string}
- */
-function planPath(projectRoot: any, taskId: any, slug: any = null) {
-  const dir = taskStoreDir({ projectRoot, store: 'retrieval', taskId: assertSafeTaskId(taskId), slug });
-  return path.join(dir, `${taskId}.json`);
-}
-
-/**
- * @param {string} projectRoot
- * @param {string} taskId
- * @returns {Object|null} the record, or null when no plan was declared
- */
-function readPlan(projectRoot: any, taskId: any, slug: any = null) {
-  const file = planPath(projectRoot, taskId, slug);
-  if (!fs.existsSync(file)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error: any) {
-    throw new Error(`the retrieval plan at '${file}' is not readable: ${error.message}`);
-  }
-}
-
-/**
- * @param {string} projectRoot
- * @param {string} taskId
- * @param {Object} record
- * @returns {string} the file written
- */
-function writePlan(projectRoot: any, taskId: any, record: any, slug: any = null) {
-  const file = planPath(projectRoot, taskId, slug);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
-  return file;
-}
 
 /**
  * The `sourceMode` each provider id declares, as a lookup the plan builds once per declare.
@@ -306,7 +260,7 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
     providers[need.provider] = freshnessEntry(need.provider, projectRoot, sourceModeOf);
   }
 
-  const record = {
+  const record: any = {
     version: 1,
     taskId,
     stage: stage || null,
@@ -314,7 +268,12 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
     providers,
     needs,
   };
-  const file = writePlan(projectRoot, taskId, record, slug);
+  let file: string;
+  try {
+    file = updatePlan(projectRoot, taskId, slug, () => record);
+  } catch (error: any) {
+    return usageError('retrieval-plan', error.message, json, error);
+  }
 
   const unresolvable = needs.filter((need) => !need.provider).map((need) => need.intent);
   if (json) {
@@ -368,7 +327,7 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
  * @returns {number} exit code
  */
 function reportPlan({ projectRoot, taskId, reached, json, slug }: any) {
-  let record;
+  let record: any;
   try {
     record = readPlan(projectRoot, taskId, slug);
   } catch (error: any) {
@@ -397,15 +356,23 @@ function reportPlan({ projectRoot, taskId, reached, json, slug }: any) {
   }
   const items = ledger.queryEvidence({ taskId });
 
-  for (const need of record.needs) {
-    need.evidenceIds = evidenceIdsFor(need, items);
-    if (need.evidenceIds.length > 0) need.result = RETRIEVED;
-    else if (reached.has(need.intent)) need.result = resultForEmptyAnswer(freshnessOf(record, need));
-    else need.result = UNREACHED;
+  let file: string;
+  try {
+    file = updatePlan(projectRoot, taskId, slug, (disk: any) => {
+      const current = disk || record;
+      for (const need of current.needs) {
+        need.evidenceIds = evidenceIdsFor(need, items);
+        if (need.evidenceIds.length > 0) need.result = RETRIEVED;
+        else if (reached.has(need.intent)) need.result = resultForEmptyAnswer(freshnessOf(current, need));
+        else need.result = UNREACHED;
+      }
+      current.reportedAt = new Date().toISOString();
+      record = current;
+      return current;
+    });
+  } catch (error: any) {
+    return usageError('retrieval-plan', error.message, json, error);
   }
-
-  record.reportedAt = new Date().toISOString();
-  const file = writePlan(projectRoot, taskId, record, slug);
 
   // Derived views, computed at emit and never stored on a need — a need holds a provider id and
   // nothing about that provider's index (plan D7).

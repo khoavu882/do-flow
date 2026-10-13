@@ -136,6 +136,7 @@ function parseArgs(argv: string[]): any {
         o.node = val; i++; break;
       }
       case '--forced': o.forced = true; break;
+      case '--absence': o.absence = true; break;
       case '--decision': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
@@ -266,6 +267,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--gap', 'gap'],                     // research-request: unresolved reason
   ['--stage', 'stage'],                // retrieval-plan: the stage id declaring the plan;
                                        // outcome: the stage writing it, refused unless terminal
+  ['--status', 'attemptStatus'],       // retrieval-plan: attempt status (EMPTY|UNREACHED|UNVERIFIED)
   ['--state', 'state'],                // outcome: the terminal state being recorded
   ['--result', 'result'],              // orchestrate complete-stage: the stage's own outcome, passed | failed (omit → unverified)
   // outcome: the verdicts the run saw, stated by it and validated against the vocabulary the
@@ -393,7 +395,7 @@ Commands:
   evidence             Record a stage's evidence batch, or inspect what is recorded (--task-id)
   claim                Record a claim, link evidence to it, or list them (--task-id, --action)
   context-pack         Compile a task's evidence and claims into a context block (--task-id)
-  retrieval-plan       Declare a stage's information needs, then report every declared item
+  retrieval-plan       Declare a stage's information needs, attempt retrieval, then report every declared item
   outcome              Record a task's terminal state with its basis, or show it (--task-id)
   classify             Validate a proposed task class and return its workflow (--task-class)
   workflow             Resolve a task class to its stages, gates and readiness templates
@@ -453,7 +455,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack, outcome --action record
       --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
-                       verify: report|contract · retrieval-plan: declare|report
+                       verify: report|contract · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status
@@ -470,7 +472,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --statement, --claim-id,
       --evidence-id, --relation             claim
       --kind, --provenance, --provider,
-      --capability, --locator, --content    evidence --action add (one item)
+      --capability, --locator, --content,
+      --absence                             evidence --action add (one item)
       --batch <file|->                      evidence --action add (a stage's JSON batch)
       --evidence-id, --replaced-by          evidence --action supersede (retire one item, point
                                             forward to the item that replaces it)
@@ -480,7 +483,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             evidence establishes; reported back as such
       --objective                           context-pack
       --need <intent[,intent]>,
-      --stage                               retrieval-plan (--need is repeatable), outcome
+      --stage, --status                     retrieval-plan (--need is repeatable), outcome
       --mcp-outcome <server>=<outcome>      orchestrate --action handoff, repeatable: used | nothing-usable |
                                             skipped:<reason> | unavailable (a server left out only warns)
       --state <COMPLETED|BLOCKED|
@@ -565,4 +568,4 @@ async function main(argv: string[]): Promise<any> {
   }
 }
 
-module.exports = { main, COMMANDS, commandName };
+module.exports = { main, COMMANDS, commandName, parseArgs };
