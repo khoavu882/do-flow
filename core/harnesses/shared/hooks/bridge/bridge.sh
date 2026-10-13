@@ -25,9 +25,11 @@ doflow_bridge_classify() {
       deny) DF_BRIDGE_OUTCOME=allow; DF_BRIDGE_CODE=decision-mismatch; DF_BRIDGE_REASON=decision-mismatch; DF_BRIDGE_POINT=decision-mismatch ;;
       *) DF_BRIDGE_OUTCOME=allow; DF_BRIDGE_CODE=allow; DF_BRIDGE_REASON=allow; DF_BRIDGE_POINT=""; DF_BRIDGE_VERSION=0 ;;
     esac
-  elif [ "$code" -gt 128 ] 2>/dev/null; then
-    local sig="TERM"
-    case "$code" in 129) sig=HUP;; 130) sig=INT;; 131) sig=QUIT;; 132) sig=ILL;; 134) sig=ABRT;; 137) sig=KILL;; 141) sig=PIPE;; 143) sig=TERM;; esac
+  elif [ "$code" -ge 129 ] && [ "$code" -le 255 ] && [ "$code" -ne 255 ] 2>/dev/null; then
+    local sig=""
+    sig="$(kill -l "$((code - 128))" 2>/dev/null)" || sig=""
+    sig="${sig#SIG}"
+    case "$sig" in ''|*[!A-Za-z0-9_-]*) return;; esac
     DF_BRIDGE_OUTCOME=error; DF_BRIDGE_CODE=signal-"$sig"; DF_BRIDGE_REASON="$DF_BRIDGE_CODE"; DF_BRIDGE_POINT="eval-error:signal-$sig"
   fi
 }
@@ -42,18 +44,19 @@ doflow_bridge_effect() {
   DF_BRIDGE_EFFECT=proceed
   if [ "$outcome" = deny ]; then DF_BRIDGE_EFFECT=block
   elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ]; }; then DF_BRIDGE_EFFECT=block
-  elif [ "$outcome" = error ] && [ -n "$DF_BRIDGE_POINT" ] && [ "$profile" = compat-1 ]; then
+  elif [ "$outcome" = error ] && [ "$DF_BRIDGE_CODE" != bridge-spawn ] && [ -n "$DF_BRIDGE_POINT" ] && [ "$profile" = compat-1 ]; then
     case "$harness:$event" in
-      claude:PreToolUse|codex:PreToolUse|gemini:BeforeTool|antigravity:PreToolUse|antigravity:Stop|pi:tool_call) DF_BRIDGE_EFFECT=block ;;
+      claude:PreToolUse|codex:PreToolUse|gemini:BeforeTool|pi:tool_call) DF_BRIDGE_EFFECT=block ;;
+      antigravity:PreToolUse|antigravity:Stop) case "$DF_BRIDGE_CODE" in signal-*) DF_BRIDGE_EFFECT=proceed;; *) DF_BRIDGE_EFFECT=block;; esac ;;
       kiro:PreToolUse) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block ;;
       claude:Stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block ;;
-      codex:Stop|codex:stop|kiro:Stop|kiro:stop) DF_BRIDGE_EFFECT=proceed ;;
+      codex:Stop|codex:stop|kiro:Stop|kiro:stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block || DF_BRIDGE_EFFECT=proceed ;;
     esac
   fi
 }
 
 doflow_bridge() {
-  local harness="${1:-}" event="${2:-}" policy="${3:-}" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 record="" reason="" stdout="" status=0 decision="" line="" spawn_failed=0
+  local harness="${1:-}" event="${2:-}" policy="${3:-}" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0
   . "$DOFLOW_BRIDGE_DIR/respond.sh"
   if [ "${4:-}" = --emit ]; then emit="${5:-native}"; fi
   payload="$(cat)"
@@ -67,7 +70,7 @@ doflow_bridge() {
     code=127; err=""; spawn_failed=1
   else
     exec 5>&1
-    captured="$(DOFLOW_AGENT="$harness" DOFLOW_DECISION_FD=3 bash "$policy_path" 2>&1 3>&1 1>&5 <<<"$payload")"; code=$?
+    if captured="$(DOFLOW_AGENT="$harness" DOFLOW_DECISION_FD=3 bash "$policy_path" 2>&1 3>&1 1>&5 <<<"$payload")"; then code=0; else code=$?; fi
     exec 5>&-
   fi
   while IFS= read -r line; do case "$line" in $'\036'*) record="${line#?}";; *) err="${err}${line}"$'\n';; esac; done <<EOF
@@ -76,17 +79,24 @@ EOF
   reason="${err%$'\n'}"
   doflow_bridge_classify "$code" "$record" "$reason"
   if [ "$spawn_failed" -eq 1 ]; then DF_BRIDGE_OUTCOME=error; DF_BRIDGE_CODE=bridge-spawn; DF_BRIDGE_REASON=bridge-spawn; DF_BRIDGE_VERSION=0; DF_BRIDGE_POINT=bridge-spawn; fi
-  if [ -n "$DF_BRIDGE_POINT" ] && [ "$DF_BRIDGE_POINT" != decision-mismatch ]; then doflow_bridge_failure "$policy" "$DF_BRIDGE_POINT"; fi
+  if [ -n "$DF_BRIDGE_POINT" ] && [ "$DF_BRIDGE_POINT" != decision-mismatch ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-TERM ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-INT ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-PIPE ]; then doflow_bridge_failure "$policy" "$DF_BRIDGE_POINT"; fi
   doflow_bridge_effect "$harness" "$event" "$policy" "$DF_BRIDGE_OUTCOME"
   if [ "$DF_BRIDGE_EFFECT" = block ] && [ "$DF_BRIDGE_OUTCOME" != deny ]; then reason="[$policy] DoFlow policy error; details: doflow-run failure list"; fi
-  if [ "$DF_BRIDGE_OUTCOME" != deny ] && [ "$DF_BRIDGE_EFFECT" = proceed ]; then reason="$DF_BRIDGE_CODE"; fi
+  if [ "$DF_BRIDGE_OUTCOME" != deny ] && [ "$DF_BRIDGE_EFFECT" = proceed ]; then
+    case "$harness:$event:$DF_BRIDGE_OUTCOME" in
+      kiro:PreToolUse:error|claude:Stop:error) reason="[$policy] DoFlow policy error; details: doflow-run failure list" ;;
+      *) reason="$DF_BRIDGE_CODE" ;;
+    esac
+  fi
+  decision_reason="$DF_BRIDGE_CODE"
+  if [ "$DF_BRIDGE_OUTCOME" = deny ]; then decision_reason="$reason"; fi
   if [ "$emit" = decision ] || [ -n "${DOFLOW_BRIDGE_TRACE:-}" ]; then
-    decision="$(jq -cn --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg outcome "$DF_BRIDGE_OUTCOME" --arg code "$DF_BRIDGE_CODE" --arg reason "${reason:-$DF_BRIDGE_CODE}" --arg profile "$DF_BRIDGE_PROFILE" --arg effect "$DF_BRIDGE_EFFECT" --argjson version "$DF_BRIDGE_VERSION" '{v:1,harness:$harness,event:$event,policy:$policy,policyVersion:$version,outcome:$outcome,code:$code,reason:$reason,faultProfile:$profile,effect:$effect}')"
+    decision="$(jq -cn --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg outcome "$DF_BRIDGE_OUTCOME" --arg code "$DF_BRIDGE_CODE" --arg reason "$decision_reason" --arg profile "$DF_BRIDGE_PROFILE" --arg effect "$DF_BRIDGE_EFFECT" --argjson version "$DF_BRIDGE_VERSION" '{v:1,harness:$harness,event:$event,policy:$policy,policyVersion:$version,outcome:$outcome,code:$code,reason:$reason,faultProfile:$profile,effect:$effect}')"
   fi
   if [ -n "${DOFLOW_BRIDGE_TRACE:-}" ]; then printf '%s\n' "$decision" >>"$DOFLOW_BRIDGE_TRACE" 2>/dev/null || true; fi
   if [ "$emit" = decision ]; then printf '%s\n' "$decision"; return 0; fi
   if [ "$DF_BRIDGE_EFFECT" = block ]; then status=2; else status=0; if [ "$DF_BRIDGE_OUTCOME" = error ]; then status="$code"; fi; fi
-  if [ "$DF_BRIDGE_OUTCOME" = deny ]; then doflow_render_response "$harness" "$event" deny "$reason" "$status"; return $?; fi
+  if [ "$DF_BRIDGE_EFFECT" = block ]; then doflow_render_response "$harness" "$event" deny "$reason" "$status"; return $?; fi
   doflow_render_response "$harness" "$event" "$DF_BRIDGE_OUTCOME" "$reason" "$status"
 }
 

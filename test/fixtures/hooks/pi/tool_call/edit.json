@@ -1,0 +1,7 @@
+{
+  "toolName": "edit",
+  "input": { "path": "/repo/a" },
+  "sessionId": "pi-session",
+  "toolCallId": "call-1",
+  "parentToolCallId": "call-0"
+}

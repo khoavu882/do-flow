@@ -16,13 +16,14 @@ doflow_render_response() {
       kiro:Stop|kiro:stop)
         if [ "$engine" = v3 ]; then jq -cn --arg reason "$reason" '{decision:"block",reason:$reason}'; return 0; fi
         printf '%s' "$reason" >&2; return 2 ;;
-      codex:Stop|codex:stop) printf '%s\n' '{}'; return 2 ;;
+      codex:Stop|codex:stop) printf '%s\n' '{}' >&1; printf '%s\n' "$reason" >&2; return 2 ;;
       *) printf '%s\n' "$reason" >&2; return 2 ;;
     esac
   fi
   case "$harness:$event" in
     codex:Stop|codex:stop) printf '%s\n' '{}' ;;
     antigravity:PreToolUse) printf '%s\n' '{"decision":"allow"}' ;;
+    kiro:PreToolUse|claude:Stop) if [ "$status" -ne 0 ]; then printf '%s' "$reason" >&2; fi ;;
   esac
   return "$status"
 }
