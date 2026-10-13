@@ -1,8 +1,38 @@
 {
-  "version": 1,
-  "revision": 1,
   "taskId": "perf-evidence",
-  "updatedAt": "2026-10-14T00:00:00.000Z",
-  "evidenceCount": 0,
-  "evidence": []
+  "updatedAt": "2026-10-13T20:48:32.973Z",
+  "evidenceCount": 1,
+  "evidence": [
+    {
+      "id": "ev_mv75l77w_f2d1cd2c_1",
+      "taskId": "perf-evidence",
+      "kind": "exact-search",
+      "source": {
+        "provider": "native.rg",
+        "capability": "code.relationships",
+        "queryRef": "rp_abc123_076a#inspect-history"
+      },
+      "locator": {
+        "file": "src/index.js",
+        "line": 1
+      },
+      "provenance": "extracted",
+      "content": "Fallback evidence for the benchmark fixture.",
+      "freshness": {
+        "gitCommit": "7f5a7f42415698c6b0b0f22db504850ab13577cb",
+        "fileHash": "sha256:ddf066ee341c060cca67ed6faa462602690b490d98c6fecdf607c447754e14bb",
+        "observedAt": "2026-10-13T20:48:32.972Z",
+        "status": "FRESH",
+        "isDirty": false
+      },
+      "establishes": [],
+      "observation": null,
+      "supports": [],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    }
+  ],
+  "version": 1,
+  "revision": 2
 }
