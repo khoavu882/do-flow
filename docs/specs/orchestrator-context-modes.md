@@ -124,15 +124,29 @@ These features are not scheduled and have no owning feature (A-10, A-11).
 
 Status of each section in this specification, cited with code locations and proving tests:
 
-- **Section 1 (Purpose and authority)**: Governed by ADR 3.4/3.11 and feature 075 contracts (`agent-docs/doflow/075-context-delivery/design/specs.md:16-41`).
-- **Section 2 (Delivery modes)**: Implemented in `src/runtime/context-pack.ts:128-134`, `src/runtime/context-pack.ts:354`; verified by `test/runtime/context-pack-forms.test.js`.
-- **Section 3 (Mandatory and optional)**: Implemented in `src/runtime/context/compose.ts:11-29` (`FIELD_CLASSES`) and `src/runtime/context/compose.ts:244-380`; verified by `test/runtime/context-pack-compose.test.js` and `test/runtime/context-pack-omissions.test.js`.
-- **Section 4 (Budget resolution)**: Implemented in `src/runtime/context/budget.ts:8-18` (`TASK_CLASS_BUDGETS`) and `src/runtime/context/budget.ts:64-176` (`resolveBudget`); verified by `test/runtime/context-budget-resolve.test.js` and `test/runtime/context-pack-cap.test.js`.
-- **Section 5 (Overflow handling)**: Implemented in `src/runtime/cli-result.ts:14-19` (`EXIT.OVERFLOW`), `src/runtime/context/compose.ts:611-622`, `src/runtime/context-pack.ts:347-365`; verified by `test/runtime/context-pack-overflow.test.js`.
-- **Section 6 (Delivery state, delta and retention)**: Bounded locking and atomic writes implemented in `src/runtime/task-state.ts:131-148`, `src/runtime/task-state.ts:174-213` and verified by `test/runtime/task-state-concurrency.test.js`. Delta rules implemented in IC-015 (dormant in 075).
-- **Section 7 (Telemetry and silence)**: Implemented in `src/runtime/context-pack.ts:411-416`; always-loaded budget guarded by `test/guards/context-budget.test.js:61`.
+- **Section 1 (Purpose and authority)**: Governed by ADR 3.4/3.11 and feature 075 contracts
+  (`agent-docs/doflow/075-context-delivery/design/specs.md`, IC-001 through IC-024).
+- **Section 2 (Delivery modes)**: Implemented by `handleContextPack` in
+  `src/runtime/context-pack.ts`; verified by `test/runtime/context-pack-forms.test.js`.
+- **Section 3 (Mandatory and optional)**: Implemented by `FIELD_CLASSES` and `linearFit` in
+  `src/runtime/context/compose.ts`; verified by `test/runtime/context-pack-compose.test.js` and
+  `test/runtime/context-pack-omissions.test.js`.
+- **Section 4 (Budget resolution)**: Implemented by `TASK_CLASS_BUDGETS` and `resolveBudget` in
+  `src/runtime/context/budget.ts`; verified by `test/runtime/context-budget-resolve.test.js` and
+  `test/runtime/context-pack-cap.test.js`.
+- **Section 5 (Overflow handling)**: Implemented by `EXIT.OVERFLOW` in `src/runtime/cli-result.ts`,
+  `linearFit` in `src/runtime/context/compose.ts`, and `handleContextPack` in
+  `src/runtime/context-pack.ts`; verified by `test/runtime/context-pack-overflow.test.js`.
+- **Section 6 (Delivery state, delta and retention)**: Bounded locking and atomic writes are
+  implemented by `boundedAcquire` and `updateTaskState` in `src/runtime/task-state.ts`; verified by
+  `test/runtime/task-state-concurrency.test.js` and `test/runtime/task-state-acquire.test.js`.
+  Delta rules are specified by IC-015 (dormant in 075).
+- **Section 7 (Telemetry and silence)**: Implemented by `handleContextPack` in
+  `src/runtime/context-pack.ts`; the always-loaded budget is guarded by
+  `test/guards/context-budget.test.js`.
 - **Section 8 (Edge modes, event bus, harness narrowing)**:
   - Stage 1 (Modes as data): not scheduled; no owning feature
-  - Stage 2 (Budget downgrade): superseded by 075 item-level overflow (`src/runtime/context-pack.ts:347-365`)
+  - Stage 2 (Budget downgrade): superseded by 075 item-level overflow in `handleContextPack`
+    (`src/runtime/context-pack.ts`).
   - Stage 3 (Handoff events): not scheduled; no owning feature
   - Stage 4 (Harness narrowing): not scheduled; no owning feature
