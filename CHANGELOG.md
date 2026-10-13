@@ -38,13 +38,9 @@ First stable 2.x release. It consolidates 2.0.0-beta.1 to 2.0.0-beta.4 (the Type
 - Score-shaped fields (`score`, `confidence`, `relevance`, `rank` and the rest of the existing list) are refused on the programmatic and candidate-bridge write paths, as they already were on the CLI. Candidates are not persisted; rank and score are dropped before an item reaches the ledger.
 - The context-mode spec (`docs/specs/orchestrator-context-modes.md`) is rewritten: no downgrade away from mandatory content on overflow, and each stage states its real status.
 
-### Fixed
-- `retrieval-plan` and `readiness` handle an unreadable plan file without failing the call.
-- Absence freshness is checked again when a retrieval report is built, so an absence recorded against an index that has since gone stale is reported as stale.
-
 ### Upgrade notes
-- A script that runs `doflow context-pack` and treats any non-zero exit as "no context" must now tell exit 3 (mandatory content over the cap; the pack is complete) from exit 1 (nothing recorded). The four skills that call `context-pack --task-id <id> --json` need no change.
-- `recorded: false` with `reason: "store-locked"` or `"store-unwritable"` in the pack means the delivery record was not written (the lock was held, or the store is read-only); the pack itself is unaffected and the exit code does not change.
+- A script that runs `doflow context-pack` and treats any non-zero exit as "no context" must now tell exit 3 (mandatory content over the cap; the pack is complete) from exit 1 (nothing recorded). The four skills that call `context-pack` (`do-design`, `do-plan`, `do-execute-plan`, `do-implement`) already handle exit 3.
+- `recorded: false` with `reason: "store-locked"`, `"store-unwritable"` or `"store-unreadable"` in the pack means the delivery record was not written (the lock was held, the store is read-only, or an existing record file is torn or from a newer version); the pack itself is unaffected and the exit code does not change.
 - Delta delivery is present but inactive: harness retention of earlier context is unproven for all eight harnesses, so `--since` is answered with a full pack and `deltaRefused: "retention-unproven"` or `"harness-unstated"`.
 - Retrieval evidence for a plan that has a `planId` must be recorded with `--need <intent>`. An item recorded without it stays readable but is unbound: it is not linked to any need, and a readiness requirement that only unbound `FRESH` evidence could satisfy returns `NEEDS_EVIDENCE` with `unbound-retrieval-evidence`. Re-record it with `--need <intent>`.
 - A caller-supplied `queryRef`, `attemptRef` or `result` on `evidence --action add` is refused with the command that fixes it (`--need`, a claimed task attempt, or `--absence --need`).
