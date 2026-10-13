@@ -318,7 +318,7 @@ test('context-pack-forms: bare mode drops mandatory items except objective and h
   assert.match(md, /\[end of pack\] mode=bare objective=1 ac=0 constraints=0 verification=0 scope=0 conflicts=0 gaps=0 omitted=0 bytes=\d{9} digest=sha256:[a-f0-9]{12}\n$/);
 });
 
-test('context-pack-forms: structural context capped at 5 and together with research requests stays within 20 (CX.4)', () => {
+test('context-pack-forms: structural context and research requests keep their separate limits (DEC-025)', () => {
   const compiler = new ContextPackCompiler();
   // 1. Structural context alone: 8 items -> exactly 5 kept, 3 omitted with item-cap
   const structPack = compiler.compileContextPack({
@@ -335,10 +335,10 @@ test('context-pack-forms: structural context capped at 5 and together with resea
   assert.ok(structOmissions);
   assert.equal(structOmissions.ids.filter(id => id.startsWith('struct:')).length, 3);
 
-  // 2. Together with non-blocking research requests: 18 requests + 5 structural = 23 -> exactly 20 kept (18 requests + 2 structural)
+  // 2. Each field keeps its own limit: 22 requests cap at 20 while all 5 structural items remain.
   const comboPack = compiler.compileContextPack({
     taskId: 't-combo-cap',
-    researchRequests: Array.from({ length: 18 }, (_, i) => ({
+    researchRequests: Array.from({ length: 22 }, (_, i) => ({
       id: `rr-nonblock-${i + 1}`,
       status: 'OPEN',
       blocking: false,
@@ -352,9 +352,10 @@ test('context-pack-forms: structural context capped at 5 and together with resea
       freshness: { status: 'FRESH' },
     })),
   });
-  assert.equal(comboPack.researchRequests.length, 18);
-  assert.equal(comboPack.structuralContext.length, 2);
+  assert.equal(comboPack.researchRequests.length, 20);
+  assert.equal(comboPack.structuralContext.length, 5);
   const comboOmissions = comboPack.omissions.groups.find(g => g.reason === 'item-cap');
   assert.ok(comboOmissions);
-  assert.equal(comboOmissions.ids.filter(id => id.startsWith('struct:')).length, 3);
+  assert.equal(comboOmissions.ids.filter(id => id.startsWith('rr-nonblock-')).length, 2);
+  assert.equal(comboOmissions.ids.filter(id => id.startsWith('struct:')).length, 0);
 });

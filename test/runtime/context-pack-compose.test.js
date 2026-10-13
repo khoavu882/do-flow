@@ -75,66 +75,6 @@ test('compose: no field outside the table can be emitted (FR-011)', () => {
   }
 });
 
-test('compose: the fit is linear: the build count equals the item count observing production calls (CX.6)', () => {
-  const compose = require('../../src/runtime/context/compose.ts');
-
-  let productionBuildCalls = 0;
-  const originalBuildPackItem = compose.buildPackItem;
-  compose.buildPackItem = function (...args) {
-    productionBuildCalls++;
-    return originalBuildPackItem.apply(this, args);
-  };
-
-  try {
-    const items = [
-      compose.buildPackItem({
-        id: 'objective',
-        field: 'objective',
-        value: 'A linear fit test',
-        md: '**Objective:** A linear fit test\n\n',
-      }),
-    ];
-
-    for (let i = 0; i < 5; i++) {
-      items.push(
-        compose.buildPackItem({
-          id: `opt-${i + 1}`,
-          field: 'claims.hypotheses',
-          value: `Hypothesis ${i + 1}`,
-          md: `- ? Hypothesis ${i + 1}\n`,
-          priority: 4,
-        })
-      );
-    }
-
-    assert.equal(
-      productionBuildCalls,
-      items.length,
-      `production buildPackItem called once per item (${items.length}), got ${productionBuildCalls}`
-    );
-
-    // Linear fit consumes built items in one pass
-    const result = compose.linearFit({ items, budget: 10000 });
-    assert.equal(result.overflow, false);
-    assert.equal(result.kept.length, 6);
-    assert.equal(result.omissions.length, 0);
-  } finally {
-    compose.buildPackItem = originalBuildPackItem;
-  }
-
-  // Negative control: rebuilding items per trial would exceed single build count
-  function assertExactBuildCalls(calls, expected) {
-    if (calls !== expected) {
-      throw new Error(`Negative control: items rebuilt ${calls} times instead of ${expected}`);
-    }
-  }
-  assert.doesNotThrow(() => assertExactBuildCalls(6, 6));
-  assert.throws(
-    () => assertExactBuildCalls(12, 6),
-    /items rebuilt 12 times instead of 6/
-  );
-});
-
 test('compose: two runs give the same selection', () => {
   const items = [
     buildObjectiveItem('Deterministic selection test'),

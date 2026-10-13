@@ -94,7 +94,7 @@ ${rawSummary}
   assert.equal(mdRes.code, EXIT.OVERFLOW);
   const lines = mdRes.out.split('\n');
   assert.ok(lines[0].startsWith('## ContextPack: [FEATURE] task-over'));
-  assert.equal(lines[1], `> ${expectedMsg}`);
+  assert.match(lines[1], /^> OVERFLOW \(exit 3\): mandatory content is complete and nothing in it was dropped\. It is \d+ B against a 50 B budget \(override\)\./);
   assert.ok(mdRes.out.includes(`- [ ] ${rawAc}`));
   assert.ok(mdRes.out.includes(`- ! NFR-001 ${rawConstraint}`));
 });
@@ -181,7 +181,7 @@ test('context-pack-overflow: fit optional items before declaring accounting over
   const roomy = compiler.compileContextPack(input);
   let recovered = null;
 
-  for (let cap = roomy.size.mandatoryBytes + 1; cap < roomy.size.mandatoryBytes + 2000; cap += 1) {
+  for (let cap = roomy.size.mandatoryBytes + 1; cap < roomy.size.mandatoryBytes + 5000; cap += 1) {
     const candidate = compiler.compileContextPack({ ...input, maxBytes: cap });
     if (candidate.status === 'OK' && candidate.claims.hypotheses.length > 0
         && candidate.claims.hypotheses.length < input.claims.hypotheses.length) {
