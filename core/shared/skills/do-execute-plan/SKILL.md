@@ -164,15 +164,16 @@ Branch on the returned `outcome` field, not the exit code.
      "$DOFLOW" context-pack --task-id "<task id>" --json
      ```
      **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on
-   `overflowAction.message` and report the gap.**
-     This call sits right at subagent dispatch — proceeding as though nothing happened is the defect this feature removes. An empty pack here can
-     still be legitimate: step 4 lets a task reach `READY` on `callerAsserted` inputs alone, which
-     link no evidence. Do not withhold dispatch on this alone — readiness already governs whether the
-     task may be worked. Instead, carry the empty result into the group's brief itself: state in the
-     dispatch, next to the task-brief output, that no prior evidence or claims were compiled for this
-     task, so the subagent works from the plan/design text `task-brief` already supplies without
-     assuming a grounding evidence base that isn't there. A non-empty pack is included in the brief
-     as the subagent's prior context, same handoff.
+     `overflowAction.message` and report the gap.**
+     This call sits right at subagent dispatch — proceeding as though nothing happened is the defect
+     this feature removes. An empty pack here can still be legitimate: step 4 lets a task reach
+     `READY` on `callerAsserted` inputs alone, which link no evidence. Do not withhold dispatch on
+     this alone — readiness already governs whether the task may be worked. Instead, carry the empty
+     result into the group's brief itself: state in the dispatch, next to the task-brief output, that
+     no prior evidence or claims were compiled for this task, so the subagent works from the
+     plan/design text `task-brief` already supplies without assuming a grounding evidence base that
+     isn't there. A non-empty pack is included in the brief as the subagent's prior context, same
+     handoff.
    - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`.
    - Dispatch tasks to appropriate specialist archetypes:
      - Architecture & Schema $\rightarrow$ `system-architect`
