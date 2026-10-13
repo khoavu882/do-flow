@@ -338,6 +338,7 @@ function linearFit({
   envelopeMd = 0,
   envelopeJson = 0,
   itemCapLimits = ITEM_CAP_LIMITS,
+  initialOmissions = [],
 }: any): any {
   const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory');
   const allOptional = items.filter((i: any) => i.cls === 'optional');
@@ -372,8 +373,8 @@ function linearFit({
   const mandatoryJsonBytes = mandatoryItems.reduce((acc: number, i: any) => acc + i.jsonBytes, 0) + envelopeJson;
 
   // Uncompressed omissions cost when all optional items are omitted
-  const allOmittedMd = [...eligibleOptional, ...cappedOmissions].reduce((acc: number, i: any) => acc + omissionBytesMd(i), 0);
-  const allOmittedJson = [...eligibleOptional, ...cappedOmissions].reduce((acc: number, i: any) => acc + omissionBytesJson(i), 0);
+  const allOmittedMd = [...eligibleOptional, ...cappedOmissions, ...initialOmissions].reduce((acc: number, i: any) => acc + omissionBytesMd(i), 0);
+  const allOmittedJson = [...eligibleOptional, ...cappedOmissions, ...initialOmissions].reduce((acc: number, i: any) => acc + omissionBytesJson(i), 0);
 
   const initialCostMd = mandatoryMdBytes + allOmittedMd;
   const initialCostJson = mandatoryJsonBytes + allOmittedJson;
@@ -382,6 +383,7 @@ function linearFit({
   if (Math.max(initialCostMd, initialCostJson) > budget) {
     const cause = Math.max(mandatoryMdBytes, mandatoryJsonBytes) > budget ? 'mandatory' : 'accounting';
     const allOmissions = [
+      ...initialOmissions,
       ...eligibleOptional.map((i: any) => ({
         id: i.id,
         field: i.field,
@@ -416,7 +418,7 @@ function linearFit({
   let currentCostMd = initialCostMd;
   let currentCostJson = initialCostJson;
   const keptOptional: any[] = [];
-  const omissions: any[] = [...cappedOmissions];
+  const omissions: any[] = [...initialOmissions, ...cappedOmissions];
 
   // One linear pass
   for (const opt of sortedOptional) {

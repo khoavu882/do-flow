@@ -154,15 +154,31 @@ class ContextPackCompiler {
     };
 
     // Claims
-    const rawClaims = claimsManager ? claimsManager.getClaims(taskId) : (params.claims ? [...(params.claims.conflicts || []), ...(params.claims.supported || []), ...(params.claims.hypotheses || [])] : []);
+    let rawClaims: any[] = [];
+    if (claimsManager) {
+      rawClaims = claimsManager.getClaims(taskId);
+    } else if (params.claims) {
+      if (Array.isArray(params.claims)) {
+        rawClaims = params.claims;
+      } else {
+        const cList = (params.claims.conflicts || []).map((c: any) => ({ ...c, status: 'conflicted' }));
+        const sList = (params.claims.supported || []).map((s: any) => ({ ...s, status: s.status || 'supported' }));
+        const hList = (params.claims.hypotheses || []).map((h: any) => ({ ...h, status: h.status || 'hypothesis' }));
+        rawClaims = [...cList, ...sList, ...hList];
+      }
+    }
     const conflictedClaims: any[] = [];
     const supportedClaims: any[] = [];
     const activeHypotheses: any[] = [];
 
     for (const claim of rawClaims) {
-      if (claim.status === 'conflicted') conflictedClaims.push(claim);
-      else if (claim.status === 'supported') supportedClaims.push(claim);
-      else if (claim.status === 'hypothesis') activeHypotheses.push(claim);
+      if (claim.status === 'conflicted' || (Array.isArray(claim.contradictingEvidence) && claim.contradictingEvidence.length > 0)) {
+        conflictedClaims.push(claim);
+      } else if (claim.status === 'supported') {
+        supportedClaims.push(claim);
+      } else if (claim.status === 'hypothesis') {
+        activeHypotheses.push(claim);
+      }
     }
 
     // Evidence
@@ -170,6 +186,7 @@ class ContextPackCompiler {
     const relevantFileSet = new Set<string>();
     const structuralNodes: any[] = [];
     const freshEvidenceItems: any[] = [];
+    const nonFreshOmissions: any[] = [];
 
     for (const ev of rawEvidence) {
       if (ev.freshness?.status === 'FRESH') {
@@ -180,11 +197,21 @@ class ContextPackCompiler {
           kind: ev.kind,
           locator: ev.locator,
           summary: typeof ev.content === 'string' ? ev.content.slice(0, 120) : null,
-          freshness: ev.freshness?.status,
+          freshness: 'FRESH',
+        });
+      } else {
+        const status = ev.freshness?.status === 'STALE' ? 'STALE' : 'UNKNOWN';
+        nonFreshOmissions.push({
+          id: ev.id,
+          field: 'evidenceSummary',
+          reason: 'not-fresh',
+          freshness: status,
         });
       }
     }
-    const relevantFiles = Array.from(relevantFileSet);
+    const relevantFiles = params.relevantFiles
+      ? Array.from(new Set([...params.relevantFiles, ...relevantFileSet]))
+      : Array.from(relevantFileSet);
 
     // Build items
     const items: any[] = [];
@@ -219,6 +246,7 @@ class ContextPackCompiler {
       budget: resolvedBudget.maxBytes,
       taskId,
       taskClass,
+      initialOmissions: nonFreshOmissions,
       itemCapLimits: {
         relevantFiles: limits.maxFiles,
         'claims.supported': limits.maxClaims,
