@@ -53,7 +53,7 @@ const {
   freshnessEntry,
   sourceModeLookup,
 } = require('../../src/runtime/retrieval-plan.ts');
-const { resolveNeed } = require('../../src/runtime/retrieval-record.ts');
+const { resolveNeed, activeAttemptRef } = require('../../src/runtime/retrieval-record.ts');
 
 /** A scratch project root. Nothing here needs git — the plan record stamps no commit. */
 function project(label) {
@@ -527,6 +527,7 @@ test('resolveNeed maps declared intents and yields IC-002 refusals (IC-020, IC-0
   // 1. Missing plan
   const noPlan = resolveNeed(null, 'need-x', 'task-1');
   assert.equal(noPlan.ok, false);
+  assert.equal(noPlan.refusal, undefined, 'refusal key must be dropped');
   assert.equal(
     noPlan.message,
     "no retrieval plan is declared for task 'task-1', so --need 'need-x' names nothing. Declare one first: doflow retrieval-plan --task-id task-1 --action declare --need need-x, then re-run.",
@@ -534,8 +535,9 @@ test('resolveNeed maps declared intents and yields IC-002 refusals (IC-020, IC-0
 
   // 2. Legacy plan without planId
   const legacyPlan = { taskId: 'task-legacy', needs: [{ intent: 'intent-a' }, { intent: 'intent-b' }] };
-  const noPlanId = resolveNeed(legacyPlan, 'intent-a');
+  const noPlanId = resolveNeed(legacyPlan, 'intent-a', 'task-legacy');
   assert.equal(noPlanId.ok, false);
+  assert.equal(noPlanId.refusal, undefined, 'refusal key must be dropped');
   assert.equal(
     noPlanId.message,
     "the retrieval plan for task 'task-legacy' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-legacy --action declare --need intent-a, intent-b, then re-run.",
@@ -547,16 +549,64 @@ test('resolveNeed maps declared intents and yields IC-002 refusals (IC-020, IC-0
     planId: 'rp_m1_ab12',
     needs: [{ intent: 'intent-a', queryRef: 'rp_m1_ab12#intent-a' }, { intent: 'intent-b', queryRef: 'rp_m1_ab12#intent-b' }],
   };
-  const undeclared = resolveNeed(plan, 'intent-c');
+  const undeclared = resolveNeed(plan, 'intent-c', 'task-bound');
   assert.equal(undeclared.ok, false);
+  assert.equal(undeclared.refusal, undefined, 'refusal key must be dropped');
   assert.equal(
     undeclared.message,
     "'intent-c' is not a declared need of task 'task-bound' (plan rp_m1_ab12). Declared: intent-a, intent-b. Re-run with one of them, or re-declare the plan with this need.",
   );
 
   // 4. Declared need resolved
-  const resolved = resolveNeed(plan, 'intent-a');
+  const resolved = resolveNeed(plan, 'intent-a', 'task-bound');
   assert.equal(resolved.ok, true);
   assert.equal(resolved.queryRef, 'rp_m1_ab12#intent-a');
   assert.equal(resolved.need.intent, 'intent-a');
+
+  // 5. Corrupt plan: planId exists but need has missing queryRef
+  const corruptPlan = {
+    taskId: 'task-corrupt',
+    planId: 'rp_m1_ab12',
+    needs: [{ intent: 'intent-a' }],
+  };
+  const corrupt = resolveNeed(corruptPlan, 'intent-a', 'task-corrupt');
+  assert.equal(corrupt.ok, false);
+  assert.equal(corrupt.refusal, undefined, 'refusal key must be dropped');
+  assert.equal(
+    corrupt.message,
+    "the retrieval plan for task 'task-corrupt' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-corrupt --action declare --need intent-a, then re-run.",
+  );
+});
+
+test('activeAttemptRef reads attempt from task-attempts store and returns null on failure (IC-005)', (t) => {
+  const scratch = createScratch('doflow-active-ref-');
+  t.after(() => scratch.remove());
+  const dir = path.join(scratch.dir, 'project');
+  const slug = 'feat-active-ref';
+  fs.mkdirSync(path.join(dir, 'agent-docs', 'doflow', slug), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'agent-docs', 'doflow', slug, 'plan.md'), [
+    '# Plan', '', '## Tasks', '',
+    '### Phase A', '',
+    '- [ ] A.1 test task; owner: core-implementer; files: a.js',
+  ].join('\n'));
+  spawnSync('git', ['init', '-q'], { cwd: dir, env: scratch.env() });
+
+  // No store yet -> null
+  assert.equal(activeAttemptRef(dir, 'A.1', slug), null);
+
+  // Claim task A.1
+  const claimRes = spawnSync(process.execPath, [
+    DOFLOW, 'task-attempt', '--action', 'claim', '--slug', slug, '--task', 'A.1',
+    '--owner', 'core-implementer', '--mode', 'subagent', '--json',
+  ], { cwd: dir, env: scratch.env(), encoding: 'utf8' });
+  assert.equal(claimRes.status, 0, claimRes.stderr);
+
+  // Active attempt exists -> A.1#1
+  assert.equal(activeAttemptRef(dir, 'A.1', slug), 'A.1#1');
+
+  // Non-existent task -> null
+  assert.equal(activeAttemptRef(dir, 'A.2', slug), null);
+
+  // Non-existent slug -> null
+  assert.equal(activeAttemptRef(dir, 'A.1', 'no-such-slug'), null);
 });

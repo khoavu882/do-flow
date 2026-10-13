@@ -67,14 +67,13 @@ function mintPlanId(): string {
  *
  * @param {any} plan
  * @param {string} intent
- * @param {string} [taskId]
- * @returns {{ queryRef: string, need: any } | { refusal: string, message: string, ok: false }}
+ * @param {string} taskId
+ * @returns {{ ok: true, queryRef: string, need: any } | { ok: false, message: string }}
  */
-function resolveNeed(plan: any, intent: string, taskId?: string): any {
-  const id = (plan && plan.taskId) || taskId || '<id>';
+function resolveNeed(plan: any, intent: string, taskId: string): any {
   if (!plan) {
-    const message = `no retrieval plan is declared for task '${id}', so --need '${intent}' names nothing. Declare one first: doflow retrieval-plan --task-id ${id} --action declare --need ${intent}, then re-run.`;
-    return { refusal: message, message, ok: false };
+    const message = `no retrieval plan is declared for task '${taskId}', so --need '${intent}' names nothing. Declare one first: doflow retrieval-plan --task-id ${taskId} --action declare --need ${intent}, then re-run.`;
+    return { ok: false, message };
   }
   const declaredIntents = Array.isArray(plan.needs)
     ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
@@ -82,60 +81,47 @@ function resolveNeed(plan: any, intent: string, taskId?: string): any {
   const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
 
   if (!plan.planId) {
-    const message = `the retrieval plan for task '${id}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${id} --action declare --need ${list}, then re-run.`;
-    return { refusal: message, message, ok: false };
+    const message = `the retrieval plan for task '${taskId}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${taskId} --action declare --need ${list}, then re-run.`;
+    return { ok: false, message };
   }
 
-  const need = plan.needs.find((n: any) => n.intent === intent);
+  const need = Array.isArray(plan.needs) ? plan.needs.find((n: any) => n.intent === intent) : null;
   if (!need) {
-    const message = `'${intent}' is not a declared need of task '${id}' (plan ${plan.planId}). Declared: ${list}. Re-run with one of them, or re-declare the plan with this need.`;
-    return { refusal: message, message, ok: false };
+    const message = `'${intent}' is not a declared need of task '${taskId}' (plan ${plan.planId}). Declared: ${list}. Re-run with one of them, or re-declare the plan with this need.`;
+    return { ok: false, message };
+  }
+
+  if (!need.queryRef) {
+    const message = `the retrieval plan for task '${taskId}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${taskId} --action declare --need ${list}, then re-run.`;
+    return { ok: false, message };
   }
 
   return {
-    queryRef: need.queryRef || `${plan.planId}#${intent}`,
-    need,
     ok: true,
+    queryRef: need.queryRef,
+    need,
   };
 }
 
 /**
  * Reads the 070 active attempt ref for a task, returning `${taskId}#${token}` or null.
  *
- * Resolves the feature slug via resolveTaskScope, reads storeFile(root, slug), and finds
- * the active attempt for the task. If no slug, no store, no entry or no active attempt exists,
- * or if the store cannot be read, returns null.
+ * Resolves the feature slug via resolveTaskScope, reads storeFile(lifecycleProjectRoot(projectRoot), featureSlug),
+ * and finds the active attempt for the task. If no slug, no store, no entry or no active attempt exists,
+ * or if any failure occurs finding or reading the store, returns null (IC-005: "no attempt" never fails the write).
  *
- * @param {string|object} projectRoot
- * @param {string} [taskId]
+ * @param {string} projectRoot
+ * @param {string} taskId
  * @param {string|null} [slug]
  * @param {any} [fsImpl]
  * @returns {string|null}
  */
-function activeAttemptRef(projectRoot: any, taskId?: any, slug: any = null, fsImpl: any = fs): string | null {
-  if (typeof projectRoot === 'object' && projectRoot !== null && !Array.isArray(projectRoot)) {
-    ({ projectRoot, taskId, slug = null, fsImpl = fs } = projectRoot);
-  }
+function activeAttemptRef(projectRoot: any, taskId: any, slug: any = null, fsImpl: any = fs): string | null {
   try {
-    let featureSlug = slug;
-    try {
-      const scope = resolveTaskScope({ projectRoot, taskId, slug });
-      if (scope && scope.slug) featureSlug = scope.slug;
-    } catch { /* ignore resolver errors */ }
-
+    const featureSlug = resolveTaskScope({ projectRoot, taskId, slug }).slug;
     if (!featureSlug) return null;
 
-    let root = projectRoot;
-    try {
-      const lr = lifecycleProjectRoot(projectRoot);
-      if (lr) root = lr;
-    } catch { /* ignore */ }
-
-    let file = storeFile(root, featureSlug);
-    if (!fsImpl.existsSync(file) && root !== projectRoot) {
-      const alt = storeFile(projectRoot, featureSlug);
-      if (fsImpl.existsSync(alt)) file = alt;
-    }
+    const file = storeFile(lifecycleProjectRoot(projectRoot), featureSlug);
     if (!fsImpl.existsSync(file)) return null;
 
     const data = readTaskState(fsImpl, file);
