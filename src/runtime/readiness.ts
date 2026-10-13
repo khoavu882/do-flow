@@ -318,15 +318,14 @@ class ReadinessEngine {
         const kindMatched = taskEvidence.filter((ev: any) => allowedKinds.has(ev.kind));
         const extracted = kindMatched.filter((ev: any) => ev.provenance === 'extracted');
         const bound = extracted.filter((ev: any) => Array.isArray(ev.establishes) && ev.establishes.includes(reqId));
-        let qualifying = bound;
-        if (reqDef.requiresObservation) {
-          qualifying = qualifying.filter((ev: any) => ev.observation && Number.isInteger(ev.observation.exitCode));
-          if (reqDef.expectedExit === 'zero') {
-            qualifying = qualifying.filter((ev: any) => ev.observation.exitCode === 0);
-          } else if (reqDef.expectedExit === 'nonzero') {
-            qualifying = qualifying.filter((ev: any) => ev.observation.exitCode !== 0);
-          }
-        }
+        const observationOk = (ev: any) => !reqDef.requiresObservation || (ev.observation
+          && Number.isInteger(ev.observation.exitCode)
+          && (reqDef.expectedExit !== 'zero' || ev.observation.exitCode === 0)
+          && (reqDef.expectedExit !== 'nonzero' || ev.observation.exitCode !== 0));
+        const qualifies = (ev: any) => ev.provenance === 'extracted'
+          && Array.isArray(ev.establishes) && ev.establishes.includes(reqId)
+          && observationOk(ev);
+        const qualifying = taskEvidence.filter((ev: any) => allowedKinds.has(ev.kind) && qualifies(ev));
         if (qualifying.length > 0) {
           isSatisfied = true;
           matchedEvidenceIds = qualifying.map((ev: any) => ev.id);
@@ -357,13 +356,8 @@ class ReadinessEngine {
             reason = `'${reqId}' rests only on an empty answer from ${entry.provider || 'unknown provider'}, whose index was ${entry.freshness} when it was recorded (${item.id}). An empty answer from that index cannot establish absence. Run the declared refresh command (${refresh}) and record the absence again, or re-run the lookup with a live provider such as native.rg: doflow evidence --task-id ${taskId} --action add --absence --need <intent> --provider native.rg ...`;
           } else if (queryBound) {
             const unboundKind = rawKindMatched.filter((ev: any) => unboundIds.has(ev.id));
-            const unboundExtracted = unboundKind.filter((ev: any) => ev.provenance === 'extracted');
-            const unboundQualifying = unboundExtracted.filter((ev: any) =>
-              ev.freshness?.status === 'FRESH'
-              && Array.isArray(ev.establishes) && ev.establishes.includes(reqId)
-              && (!reqDef.requiresObservation || (ev.observation && Number.isInteger(ev.observation.exitCode)
-                && (reqDef.expectedExit !== 'zero' || ev.observation.exitCode === 0)
-                && (reqDef.expectedExit !== 'nonzero' || ev.observation.exitCode !== 0))));
+            const unboundQualifying = unboundKind.filter((ev: any) =>
+              ev.freshness?.status === 'FRESH' && qualifies(ev));
             if (unboundQualifying.length > 0) {
               const ids = binding.unbound.slice(0, 5).map((item: any) => item.id).join(', ');
               reasonCode = 'unbound-retrieval-evidence';

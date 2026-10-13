@@ -403,6 +403,31 @@ test('a fresh absence qualifies, while a query-bound unbound item does not', (t)
   assert.deepEqual(unbound.unboundEvidence, { count: 1, ids: [id] });
 });
 
+test('an unbound observation with a failing exit does not qualify as retrieval evidence', (t) => {
+  const root = tempDir(t, 'doflow-readiness-unbound-observation-');
+  const taskId = 't-unbound-observation';
+  updatePlan(root, taskId, null, () => ({ taskId, planId: 'rp_test_9012', needs: [
+    { intent: 'run-baseline', queryRef: 'rp_test_9012#run-baseline', capability: 'code.exact-search' },
+  ] }));
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root, templates: {
+    custom: { name: 'Custom', requirements: { baseline_tests: {
+      description: 'Tests passed', required: true, evidenceKinds: ['test-result'],
+      requiresObservation: true, expectedExit: 'zero',
+    } } },
+  } });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  ledger.addEvidence({ taskId, kind: 'test-result', provenance: 'extracted', establishes: ['baseline_tests'],
+    observation: { command: 'npm test', exitCode: 1 },
+    source: { provider: 'native.rg', capability: 'code.exact-search' },
+    freshness: { status: 'FRESH' } });
+
+  const report = engine.evaluateReadiness({ taskId, taskClass: 'custom' }, ledger, claims);
+  const requirement = report.requirements.find((item) => item.id === 'baseline_tests');
+  assert.equal(requirement.satisfied, false);
+  assert.equal(requirement.reasonCode, null);
+});
+
 test('legacy retrieval plans keep unbound evidence eligible and expose null reason codes', (t) => {
   const root = tempDir(t, 'doflow-readiness-legacy-');
   const taskId = 't-legacy-readiness';
