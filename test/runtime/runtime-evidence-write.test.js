@@ -710,6 +710,23 @@ test('076 C.2: IC-002 refusals exit 2 with exact messages and refused batch writ
     "doflow evidence: batch item 2 of 2: --need takes one intent on evidence --action add, got 2. Record one write per need."
   );
 
+  // 11. Batch object with top-level queryRef key
+  const batchObjQuery = path.join(cwd, 'refuse-batch-obj-query.json');
+  fs.writeFileSync(batchObjQuery, JSON.stringify({ evidence: [base], queryRef: 'x' }));
+  const resObjQuery = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add', '--batch', batchObjQuery]);
+  assert.equal(resObjQuery.status, 2);
+  assert.equal(
+    resObjQuery.stderr.trim(),
+    "doflow evidence: unknown batch field 'queryRef' — the runtime stamps it from the need. Re-run with --need <intent> (in a batch, \"need\": \"<intent>\"). Declared intents for task 'task-plan': inspect-history, locate-known-symbol. A batch is a JSON array of items, or an object whose only key is 'evidence'"
+  );
+
+  // 12. Non-string need entry is refused
+  const batchNonStringNeed = path.join(cwd, 'refuse-nonstring-need.json');
+  fs.writeFileSync(batchNonStringNeed, JSON.stringify([{ ...base, need: 123 }]));
+  const resNonString = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add', '--batch', batchNonStringNeed]);
+  assert.equal(resNonString.status, 2);
+  assert.match(resNonString.stderr, /need must be an intent string/);
+
   // Refused batch writes nothing
   assert.equal(json(cwd, ['evidence', '--task-id', 'task-plan']).data.evidenceCount, 0);
 });
