@@ -82,19 +82,20 @@ function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, 
   }
   const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
   const file = path.join(dir, `${taskId}.json`);
-  updateTaskState({
+  const written = updateTaskState({
     fsImpl,
     file,
     acquire: (impl: any, target: string) => acquire(impl, target, { retries: 3, waitMs: 5 }),
     build(disk: any) {
       const deliveries = Array.isArray(disk?.deliveries) ? disk.deliveries : [];
       if (deliveries.some((existing: any) => existing.key === entry.key)) {
-        return { taskId, deliveries };
+        return null;
       }
       const current = supersedesKey ? deliveries.filter((existing: any) => existing.key !== supersedesKey) : deliveries;
       return { taskId, deliveries: [...current, entry].slice(-MAX_DELIVERIES) };
     },
   });
+  if (written === null) return null;
   return { key: entry.key, recorded: true, reason: null };
 }
 

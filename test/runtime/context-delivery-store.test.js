@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir, removeTree } = require('../helper/tmp');
 const { createDeliveryEntry, recordDelivery, makeTokenRecord } = require('../../src/runtime/context/delivery-store.ts');
 const { groupOmissions } = require('../../src/runtime/context/compose.ts');
 
@@ -34,6 +34,7 @@ test('context delivery store keeps newest five and preserves the first writer fo
     const after = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.equal(after.deliveries[4].firstAt, original);
     assert.equal(after.deliveries.length, 5);
+    assert.equal(after.revision, disk.revision, 'an identical delivery does not bump the state revision');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -95,7 +96,7 @@ test('context delivery reports a held lock without persisting or exposing a key'
   }
 });
 
-test('context pack records delivery, while no-record and a held lock preserve the pack exit', (t) => {
+test('context pack recording failures preserve the readable pack and exit status', (t) => {
   const root = tempDir(t, 'doflow-context-pack-delivery-');
   const cli = path.resolve(__dirname, '../../bin/doflow.js');
   const run = (args) => spawnSync(process.execPath, [cli, 'context-pack', '--task-id', 'T1', '--json', ...args, root], { encoding: 'utf8' });
@@ -105,12 +106,23 @@ test('context pack records delivery, while no-record and a held lock preserve th
     assert.equal(JSON.parse(noRecord.stdout).delivery.reason, 'no-record');
     assert.equal(JSON.parse(noRecord.stdout).delivery.key, null);
     assert.equal(fs.existsSync(path.join(root, '.doflow/state/delivery/T1.json')), false);
+    const noRecordPack = JSON.parse(noRecord.stdout);
+    assert.equal(noRecordPack.accounting.tokens.estimated.value, Math.ceil(Buffer.byteLength(noRecord.stdout) / 4));
+    assert.equal('inlineTokensEst' in noRecordPack.accounting, false);
 
     const recorded = run([]);
     assert.equal(recorded.status, 1);
     const deliveredPack = JSON.parse(recorded.stdout);
     assert.equal(deliveredPack.delivery.recorded, true);
     assert.ok(deliveredPack.delivery.key);
+    const deliveryFile = path.join(root, '.doflow/state/delivery/T1.json');
+    const diskEntry = JSON.parse(fs.readFileSync(deliveryFile, 'utf8')).deliveries[0];
+    assert.equal(diskEntry.bytes, Buffer.byteLength(recorded.stdout));
+    assert.equal(diskEntry.tokens.estimated.value, Math.ceil(Buffer.byteLength(recorded.stdout) / 4));
+    const firstRevision = JSON.parse(fs.readFileSync(deliveryFile, 'utf8')).revision;
+    const repeated = run([]);
+    assert.equal(repeated.status, recorded.status);
+    assert.equal(JSON.parse(fs.readFileSync(deliveryFile, 'utf8')).revision, firstRevision);
 
     const lockDir = path.join(root, '.doflow/state/delivery/T1.json.lock');
     fs.mkdirSync(lockDir);
@@ -120,7 +132,36 @@ test('context pack records delivery, while no-record and a held lock preserve th
     assert.equal(lockedPack.delivery.recorded, false);
     assert.equal(lockedPack.delivery.reason, 'store-locked');
     assert.equal(lockedPack.delivery.key, null);
+    assert.equal(lockedPack.accounting.tokens.estimated.value, Math.ceil(Buffer.byteLength(locked.stdout) / 4));
+    assert.equal('inlineTokensEst' in lockedPack.accounting, false);
+    fs.rmSync(lockDir, { recursive: true, force: true });
+
+    if (process.getuid?.() !== 0 && process.platform !== 'win32') {
+      fs.rmSync(deliveryFile, { force: true });
+      fs.chmodSync(path.dirname(deliveryFile), 0o555);
+      const lockedByPermissions = run([]);
+      assert.equal(lockedByPermissions.status, noRecord.status);
+      assert.ok(lockedByPermissions.stdout.length > 0);
+      const readonlyPack = JSON.parse(lockedByPermissions.stdout);
+      assert.equal(readonlyPack.delivery.recorded, false);
+      assert.equal(readonlyPack.delivery.key, null);
+      assert.equal(readonlyPack.delivery.reason, 'store-unwritable');
+      fs.chmodSync(path.dirname(deliveryFile), 0o755);
+    }
+
+    fs.rmSync(deliveryFile, { force: true });
+    for (const [contents, label] of [['{"deliveries":[', 'torn'], ['{"version":2,"deliveries":[]}', 'future']]) {
+      fs.writeFileSync(deliveryFile, contents, 'utf8');
+      const unreadable = run([]);
+      assert.equal(unreadable.status, noRecord.status, `${label} state preserves exit`);
+      assert.ok(unreadable.stdout.length > 0, `${label} state preserves pack output`);
+      const unreadablePack = JSON.parse(unreadable.stdout);
+      assert.equal(unreadablePack.delivery.recorded, false);
+      assert.equal(unreadablePack.delivery.key, null);
+      assert.equal(unreadablePack.delivery.reason, 'store-unreadable');
+    }
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    try { fs.chmodSync(path.join(root, '.doflow/state/delivery'), 0o755); } catch { /* absent or already writable */ }
+    removeTree(root);
   }
 });
