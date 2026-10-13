@@ -54,6 +54,38 @@ test('context-pack-freshness: stale-only evidence exits 0 with its omissions lis
   assert.deepEqual(unknownGroup.ids, ['ev-unknown-1']);
 });
 
+test('context-pack-freshness: FRESH superseded evidence is omitted while the recorded pack exits 0', () => {
+  const compiler = new ContextPackCompiler();
+  const pack = compiler.compileContextPack({
+    taskId: 't-superseded',
+    taskClass: 'feature',
+    objective: 'Test superseded evidence omission',
+    evidence: [{
+      id: 'ev-superseded',
+      kind: 'exact-search',
+      status: 'superseded',
+      content: 'Replaced evidence',
+      locator: { file: 'src/replaced.ts' },
+      freshness: { status: 'FRESH' },
+    }],
+  });
+
+  assert.equal(pack.empty, false);
+  assert.equal(pack.status, 'OK');
+  assert.equal(pack.exitCode, EXIT.OK);
+  assert.deepEqual(pack.evidenceSummary, []);
+  assert.deepEqual(pack.relevantFiles, []);
+  assert.equal(pack.evidenceCount, 0);
+  const supersededGroup = pack.omissions.groups.find(g => g.reason === 'superseded');
+  assert.ok(supersededGroup);
+  assert.deepEqual(supersededGroup.ids, ['ev-superseded']);
+  assert.match(formatMarkdown(pack), /- superseded \(1\): ev-superseded/);
+  assert.deepEqual(
+    pack.omissions.groups.map(g => g.reason),
+    ['superseded']
+  );
+});
+
 test('context-pack-freshness: negative control — restoring the silent FRESH filter fails', () => {
   const compiler = new ContextPackCompiler();
 
