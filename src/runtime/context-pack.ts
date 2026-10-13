@@ -346,6 +346,9 @@ class ContextPackCompiler {
       hasMandatoryItems,
       limits,
       selfRefWidth,
+      recordingExpected: params.recordingExpected === true,
+      form: params.form || 'json',
+      harnessId: params.harness?.id || 'unstated',
     });
 
     const hasMandatoryRequests = !bare && blockingUnanswered.length > 0;
@@ -499,16 +502,16 @@ class ContextPackCompiler {
         },
         accounting: {
           tokens: {
-            inlineTokensEst: Math.round(packTotalBytes / 4),
-            netTokensEst: Math.round(packTotalBytes / 4),
+            inlineTokensEst: params.recordingExpected ? Math.ceil(resolvedBudget.maxBytes / 4) : Math.round(packTotalBytes / 4),
+            netTokensEst: params.recordingExpected ? Math.ceil(resolvedBudget.maxBytes / 4) : Math.round(packTotalBytes / 4),
             basis: 'estimated:bytes/4',
-            actual: { unmeasured: 'needs a model call (paid)' },
+            actual: { unmeasured: 'no harness reports token usage to an external CLI; profile tokenTelemetry unverified' },
           },
         },
         delivery: {
-          key: null,
+          key: params.recordingExpected ? `${packDigest}.${params.form || 'json'}.${params.harness?.id || 'unstated'}` : null,
           packDigest,
-          recorded: false,
+          recorded: params.recordingExpected === true,
           reason: null,
           since: since || null,
           deltaRefused: params.deltaRefused || null,
@@ -1023,6 +1026,8 @@ function handleContextPackCommand({
     maxBytes: parsedMaxBytes,
     bare,
     noRecord,
+    recordingExpected: !noRecord,
+    form: json ? 'json' : 'markdown',
     reason,
     since,
     mode: since && !deltaRefused && !expand ? 'delta' : undefined,
@@ -1060,10 +1065,19 @@ function handleContextPackCommand({
     }
   }
 
-  const output = json ? compiler.formatJson(pack) : compiler.formatMarkdown(pack);
+  const output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
   const emittedBytes = Buffer.byteLength(output, 'utf8');
   if (pack.status === 'OK' && emittedBytes > budget.maxBytes) {
-    throw new Error(`Emitted ${json ? 'JSON' : 'markdown'} pack size (${emittedBytes} B) exceeds budget (${budget.maxBytes} B)`);
+    pack.status = 'OVERFLOW';
+    pack.exitCode = EXIT.OVERFLOW;
+    pack.overflow = { cause: 'accounting', mandatoryBytes: pack.size.mandatoryBytes, budgetBytes: budget.maxBytes, excessBytes: emittedBytes - budget.maxBytes, action: 'split-or-new-session' };
+    pack.overflowAction = { message: 'The accounting fields exceed the available budget. Split the task or start a new session.' };
+    pack.packEnd.bytes = emittedBytes;
+    pack.size.totalBytes = emittedBytes;
+    const overflowOutput = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+    if (console.log !== nativeConsoleLog) console.log(overflowOutput);
+    else process.stdout.write(overflowOutput);
+    return finishRuntime(EXIT.OVERFLOW);
   }
   if (console.log !== nativeConsoleLog) {
     console.log(output);

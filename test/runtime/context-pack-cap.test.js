@@ -453,3 +453,46 @@ test('context-pack-cap: negative control — costing a self-referential field at
   );
 });
 
+test('context-pack-cap: handler dense sweep costs recorded delivery and telemetry (DX.1)', (t) => {
+  const root = tempDir(t, 'doflow-cap-handler-dx1-');
+  const reqDir = path.join(root, 'agent-docs/doflow/dx1/intention');
+  fs.mkdirSync(reqDir, { recursive: true });
+  const criteria = Array.from({ length: 40 }, (_, i) => `- [ ] **Scenario: Criterion ${i + 1}**\n  Given ${'a'.repeat(250)}\n  When ${'b'.repeat(90)}\n  Then ${'c'.repeat(80)} (FR-${String(i + 1).padStart(3, '0')}, US1)`).join('\n');
+  fs.writeFileSync(path.join(reqDir, 'requirement.md'), `# Feature: DX.1 dense handler sweep\n\n## 1. Summary\n${'Dense cap verification. '.repeat(30)}\n\n## 6. Acceptance Criteria\n${criteria}\n`, 'utf8');
+
+  for (let cap = 18750; cap <= 24750; cap += 150) {
+    const taskId = `dx1-${cap}`;
+    const results = {};
+    for (const noRecord of [false, true]) {
+      for (const json of [false, true]) {
+        const result = runPack({ taskId, taskClass: 'feature', stateRoot: root, slug: 'dx1', maxBytes: cap, json, noRecord });
+        assert.ok([EXIT.OK, EXIT.EMPTY, EXIT.OVERFLOW].includes(result.code), `cap ${cap}, json=${json}, noRecord=${noRecord}: ${result.out}`);
+        assert.ok(result.out.length > 0, `cap ${cap}, json=${json}, noRecord=${noRecord} must emit a pack`);
+        const bytes = Buffer.byteLength(result.out, 'utf8');
+        if (json) {
+          const pack = JSON.parse(result.out);
+          assert.equal(bytes, pack.size.totalBytes, `JSON byte count at cap ${cap}`);
+          if (pack.status === 'OK') assert.ok(bytes <= cap, `OK JSON exceeds cap ${cap}`);
+        } else {
+          const end = result.out.match(/\[end of pack\][^\n]*bytes=(\d{9})/);
+          assert.ok(end, `markdown end line missing at cap ${cap}`);
+          assert.equal(bytes, Number(end[1]), `markdown byte count at cap ${cap}`);
+        }
+        (results[noRecord ? 'off' : 'on'] ||= {})[json ? 'json' : 'markdown'] = result;
+      }
+      assert.equal(results[noRecord ? 'off' : 'on'].json.code, results[noRecord ? 'off' : 'on'].markdown.code, `forms disagree at cap ${cap}, noRecord=${noRecord}`);
+    }
+  }
+});
+
+test('context-pack-cap: negative control — a delivery field appended after fit exceeds the cap (DX.1)', () => {
+  const fixture = buildDenseSweepFixture();
+  const compiler = new ContextPackCompiler();
+  const pack = compiler.compileContextPack({ ...fixture, maxBytes: 20000 });
+  const initial = compiler.formatJson(pack);
+  const cap = Buffer.byteLength(initial, 'utf8');
+  pack.budget.maxBytes = cap;
+  pack.delivery.lateField = true;
+  assert.throws(() => compiler.formatJson(pack), (error) => error.message.includes('exceeds budget'));
+});
+

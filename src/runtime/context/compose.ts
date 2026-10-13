@@ -418,6 +418,9 @@ function computeEnvelopes({
   toolLimitNotice = null,
   limits = null,
   selfRefWidth = null,
+  recordingExpected = false,
+  form = 'json',
+  harnessId = 'unstated',
 }: any): { envelopeMd: number; envelopeJson: number } {
   // --- Markdown envelope ---
   let md = `## ContextPack: [${taskClass.toUpperCase()}] ${taskId}\n`;
@@ -518,8 +521,8 @@ function computeEnvelopes({
     empty,
     omissions: { total: 0, groups: [] },
     size: { totalBytes: selfRefBytes, mandatoryBytes: selfRefBytes, optionalBytes: selfRefBytes, fittedOn: 'json' },
-    accounting: { tokens: { inlineTokensEst: selfRefTokens, netTokensEst: selfRefTokens, basis: 'estimated:bytes/4', actual: { unmeasured: 'needs a model call (paid)' } } },
-    delivery: { key: null, packDigest: 'sha256:' + '0'.repeat(64), recorded: false, reason: null, since: null, deltaRefused: null },
+    accounting: { tokens: { inlineTokensEst: Math.ceil(maxBytes / 4), netTokensEst: Math.ceil(maxBytes / 4), basis: 'estimated:bytes/4', actual: { unmeasured: 'no harness reports token usage to an external CLI; profile tokenTelemetry unverified' } } },
+    delivery: { key: recordingExpected ? `${'sha256:' + '0'.repeat(64)}.${form}.${harnessId}` : null, packDigest: 'sha256:' + '0'.repeat(64), recorded: recordingExpected, reason: null, since: null, deltaRefused: null },
     delta: null,
     packEnd: { mode, objective: hasMandatoryItems.objective ? 1 : 0, acceptanceCriteria: 0, constraints: 0, verificationRequirements: 0, scopeExcluded: 0, conflicts: 0, blockingGaps: 0, omitted: 0, bytes: selfRefBytes, digest: 'sha256:000000000000' },
   };
