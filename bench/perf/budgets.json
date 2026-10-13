@@ -143,6 +143,29 @@
       "enforced": false
     },
     {
+      "id": "verb.context-pack",
+      "kind": "cli",
+      "intentClass": "verb",
+      "enforced": false,
+      "status": "proposed",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/context-pack-project",
+        "git": true
+      },
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "context-pack",
+        "{project}",
+        "--task-id",
+        "perf-cp",
+        "--slug",
+        "perf-feature",
+        "--json"
+      ]
+    },
+    {
       "id": "diag.doctor",
       "kind": "cli",
       "argv": [
