@@ -102,14 +102,18 @@ test('STALE graph absence blocks readiness and a live absence clears it', (t) =>
 for (const [name, edit] of [['uncommitted edit', 'module.exports = { x: 2 };\n'], ['second edit to dirty file', 'module.exports = { x: 3 };\n']]) {
   test(`${name} after a FRESH absence makes readiness stale`, (t) => {
     const root = project(t), id = `f3-${name.startsWith('second') ? 'dirty2' : 'dirty1'}`;
+    // The second-edit flow records the absence while the file is already dirty, so only a change
+    // to the dirty file itself (same size, newer mtime) can make the absence stale.
+    if (name.startsWith('second')) fs.writeFileSync(path.join(root, 'a.js'), 'module.exports = { x: 2 };\n');
     assert.equal(declare(root, id, ['locate-known-symbol']).status, 0);
     const added = json(root, ['evidence', '--task-id', id, '--action', 'add', '--kind', 'structural', '--provenance', 'extracted',
       '--provider', 'native.rg', '--capability', 'code.exact-search', '--absence', '--need', 'locate-known-symbol',
       '--establishes', 'architecture_mapped', '--content', 'no result']);
     assert.equal(added.status, 0, added.stderr);
     assert.equal(added.data.evidence[0].freshness.status, 'FRESH');
-    if (name.startsWith('second')) fs.writeFileSync(path.join(root, 'a.js'), 'module.exports = { x: 2 };\n');
+    const future = Math.floor(Date.now() / 1000) + 10;
     fs.writeFileSync(path.join(root, 'a.js'), edit);
+    fs.utimesSync(path.join(root, 'a.js'), future, future);
     const report = readiness(root, id);
     assert.equal(report.data.requirements.find(x => x.id === 'architecture_mapped').reasonCode, 'stale-absence-unverified');
   });

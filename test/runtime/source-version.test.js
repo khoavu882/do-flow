@@ -99,6 +99,32 @@ test('the fingerprint changes after an uncommitted edit, after a second edit to 
   assert.notEqual(fp4, fp3, 'fingerprint must change after new file inside an untracked directory');
 });
 
+test('a file inside an untracked directory is dirty, and editing it changes the fingerprint', (t) => {
+  const { dir, git } = makeRepo(t, 'doflow-sv-untracked-dir-');
+  fs.writeFileSync(path.join(dir, 'file.txt'), 'initial\n');
+  git('add', 'file.txt');
+  git('commit', '-m', 'initial');
+
+  const nested = path.join(dir, 'untracked_dir', 'nested.txt');
+  fs.mkdirSync(path.dirname(nested));
+  fs.writeFileSync(nested, 'nested one\n');
+
+  clearTreeStateCache();
+  const before = measureTreeState(dir);
+  assert.equal(
+    sourceVersionFor(dir, { file: 'untracked_dir/nested.txt' }, before).isDirty,
+    true,
+    'a file inside an untracked directory is listed individually, so it is dirty',
+  );
+
+  const futureSec = Math.floor(Date.now() / 1000) + 10;
+  fs.writeFileSync(nested, 'nested two with more content\n');
+  fs.utimesSync(nested, futureSec, futureSec);
+  clearTreeStateCache();
+  const after = measureTreeState(dir);
+  assert.notEqual(after.fingerprint, before.fingerprint, 'editing a file inside an untracked directory must change the fingerprint');
+});
+
 test('the fingerprint does not change after git fetch', (t) => {
   const bareDir = tempDir(t, 'doflow-sv-bare-');
   execFileSync('git', ['init', '--bare', bareDir], { stdio: 'ignore' });

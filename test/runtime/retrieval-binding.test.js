@@ -119,6 +119,22 @@ test('unbound evidence names each IC-014 cause', () => {
   ]);
 });
 
+test('the report lists at most five unbound ids and states the total', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-unbound-cap-');
+  const plan = declare(root, 't-unbound-cap', ['locate-known-symbol']);
+  const need = plan.needs[0];
+  const ids = [];
+  for (let i = 0; i < 7; i += 1) {
+    ids.push(add(root, 't-unbound-cap', { content: `unbound ${i}`, source: { provider: need.provider, capability: need.capability } }));
+  }
+  const report = call({ taskId: 't-unbound-cap', action: 'report', stateRoot: root, json: true });
+  const output = JSON.parse(report.out);
+  assert.equal(output.unbound.count, 7);
+  assert.equal(output.unbound.ids.length, 5);
+  assert.deepEqual(output.unbound.ids, ids.slice(0, 5));
+  assert.deepEqual(output.unbound.causes, { 'no-query-ref': 7 });
+});
+
 test('legacy fixture retains legacy report shape and exit behavior', (t) => {
   const root = tempDir(t, 'doflow-retrieval-legacy-');
   const taskId = 'legacy-1';

@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { handleRetrievalPlanCommand } = require('../../src/runtime/retrieval-plan.ts');
-const { planPath, readPlan } = require('../../src/runtime/retrieval-record.ts');
+const { planPath, readPlan, updatePlan } = require('../../src/runtime/retrieval-record.ts');
 
 test('two child processes each run N reports against one plan; revision ends at 2N + 1', async (t) => {
   const root = tempDir(t, 'doflow-retrieval-concurrency-');
@@ -75,4 +75,18 @@ test('two child processes each run N reports against one plan; revision ends at 
   }, 'the file must always parse as valid JSON');
 
   assert.equal(parsed.revision, 2 * N + 1, `expected revision ${2 * N + 1}, got ${parsed.revision}`);
+});
+
+test('updatePlan runs build inside the cross-process lock and releases it afterwards', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-lock-');
+  const taskId = 'lock-task';
+  const file = planPath(root, taskId);
+  let lockedDuringBuild = null;
+  updatePlan(root, taskId, null, () => {
+    lockedDuringBuild = fs.existsSync(`${file}.lock`);
+    return { taskId, needs: [] };
+  });
+  assert.equal(lockedDuringBuild, true, 'build must run while the plan lock is held');
+  assert.equal(fs.existsSync(`${file}.lock`), false, 'the lock must be released after the write');
+  assert.equal(readPlan(root, taskId).revision, 1);
 });
