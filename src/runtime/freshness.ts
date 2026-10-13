@@ -31,6 +31,7 @@ class FreshnessValidator {
   gitRunner: (args: string[], cwd?: string) => string | null;
   declare diffCache?: Map<string, Set<string>>;
   declare treeFingerprint?: string | null;
+  validatingLedger: boolean;
 
   /**
    * @param {Object} [options]
@@ -42,6 +43,7 @@ class FreshnessValidator {
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.treeRoot = options.treeRoot || this.repoRoot;
     this.gitRunner = options.gitRunner || this.defaultGitRunner.bind(this);
+    this.validatingLedger = false;
   }
 
   defaultGitRunner(args: string[], cwd: string = this.repoRoot): string | null {
@@ -128,10 +130,15 @@ class FreshnessValidator {
     }
 
     if (item.result === 'EMPTY' && item.freshness?.status === 'FRESH') {
-      if (this.treeFingerprint === undefined) {
-        this.treeFingerprint = measureTreeState(this.treeRoot, this.gitRunner).fingerprint;
+      let currentFingerprint;
+      if (this.validatingLedger) {
+        if (this.treeFingerprint === undefined) {
+          this.treeFingerprint = measureTreeState(this.treeRoot, this.gitRunner).fingerprint;
+        }
+        currentFingerprint = this.treeFingerprint;
+      } else {
+        currentFingerprint = measureTreeState(this.treeRoot, this.gitRunner).fingerprint;
       }
-      const currentFingerprint = this.treeFingerprint;
 
       if (!item.freshness?.treeFingerprint || !currentFingerprint) {
         return { status: 'STALE', reason: 'tree-unverifiable' };
@@ -180,6 +187,8 @@ class FreshnessValidator {
     
     let count = 0;
     const allEvidence = ledger.getAllEvidence();
+    this.treeFingerprint = undefined;
+    this.validatingLedger = true;
     try {
       for (const item of allEvidence) {
         if (item.freshness?.status === 'FRESH') {
@@ -193,6 +202,7 @@ class FreshnessValidator {
       }
     } finally {
       this.treeFingerprint = undefined;
+      this.validatingLedger = false;
     }
     return count;
   }

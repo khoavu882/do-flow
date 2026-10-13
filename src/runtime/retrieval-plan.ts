@@ -40,6 +40,7 @@
 
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
+const { FreshnessValidator } = require('./freshness.ts');
 const { probeFreshness } = require('./health.ts');
 const { planPath, readPlan, updatePlan, moveCorruptPlanAside, mintPlanId, activeAttemptRef, resolveNeed, bindEvidence, deriveOutcome } = require('./retrieval-record.ts');
 // One definition of the score refusal, applied at a second boundary. See the note on
@@ -159,8 +160,8 @@ function sourceModeLookup(capabilities: any) {
  *   absent, every provider without an artifact layout is treated as unknown (fail closed)
  * @returns {{state: string, artifact: string|null, refresh: string|null, label: string|null, reason: string|null}}
  */
-function freshnessEntry(providerId: any, projectRoot: any, sourceModeOf: any = () => null) {
-  const probe = probeFreshness(providerId, { root: projectRoot });
+function freshnessEntry(providerId: any, sourceRoot: any, sourceModeOf: any = () => null) {
+  const probe = probeFreshness(providerId, { root: sourceRoot });
   if (!probe) {
     // `probeFreshness` returns null for a provider it has no artifact layout for. What that means
     // depends on how the provider answers: a `live` provider reads current files or commands, so
@@ -247,7 +248,7 @@ function evidenceIdsFor(need: any, items: any) {
  *
  * @returns {number} exit code
  */
-function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }: any) {
+function declarePlan({ router, projectRoot, sourceRoot, taskId, stage, intents, json, slug }: any) {
   const needs: any[] = [];
   for (const intent of intents) {
     let resolution;
@@ -276,7 +277,7 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
   const sourceModeOf: any = sourceModeLookup(router.capabilities);
   for (const need of needs) {
     if (!need.provider || providers[need.provider]) continue;
-    providers[need.provider] = freshnessEntry(need.provider, projectRoot, sourceModeOf);
+    providers[need.provider] = freshnessEntry(need.provider, sourceRoot, sourceModeOf);
   }
 
   const planId = mintPlanId();
@@ -358,7 +359,7 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
  *
  * @returns {number} exit code
  */
-function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any) {
+function reportPlan({ projectRoot, sourceRoot, taskId, reached, json, slug, repoRoot }: any) {
   let record: any;
   try {
     record = readPlan(projectRoot, taskId, slug);
@@ -386,6 +387,7 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
   } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }
+  new FreshnessValidator({ repoRoot: projectRoot, treeRoot: sourceRoot }).validateLedgerFreshness(ledger);
   const items = ledger.queryEvidence({ taskId });
 
   const isQueryBound = Boolean(record.planId);
@@ -406,7 +408,7 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
       const reportRouter = new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT });
       reportSourceModeOf = sourceModeLookup(reportRouter.capabilities);
       for (const providerId of missingProviders) {
-        probeByProvider.set(providerId, module.exports._probe(providerId, projectRoot, reportSourceModeOf));
+        probeByProvider.set(providerId, module.exports._probe(providerId, sourceRoot, reportSourceModeOf));
       }
     }
   }
@@ -431,7 +433,8 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
               ? (item.freshness?.status === 'UNKNOWN' ? UNVERIFIED : EMPTY)
               : RETRIEVED;
             const providerKey = item.source?.provider ?? '__no_provider__';
-            const key = `${providerKey}\u0000${status}`;
+            const freshness = item.freshness?.status || 'UNKNOWN';
+            const key = `${providerKey}\u0000${status}\u0000${freshness}`;
             if (!groups.has(key)) groups.set(key, []);
             const group = groups.get(key);
             if (group) group.push(item);
@@ -442,13 +445,13 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
           if (reached.has(need.intent) && countedAttempts.length === 0 && bound.length === 0) {
             const provider = need.provider;
             const indexState = provider ? (current.providers?.[provider]?.state || 'UNKNOWN') : NOT_APPLICABLE;
-            groups.set(`${provider ?? '__no_provider__'}\u0000${resultForEmptyAnswer(indexState)}`, []);
+            groups.set(`${provider ?? '__no_provider__'}\u0000${resultForEmptyAnswer(indexState)}\u0000${indexState}`, []);
           }
           for (const [key, group] of groups) {
-            const [providerKey, status] = key.split('\u0000');
+            const [providerKey, status, freshness] = key.split('\u0000');
             const provider = providerKey === '__no_provider__' ? null : providerKey;
             let attempt = need.attempts.find((entry: any) => entry.recordedBy === 'derived'
-              && entry.provider === provider && entry.status === status);
+              && entry.provider === provider && entry.status === status && entry.indexState === freshness);
             if (attempt) {
               attempt.evidenceIds = group.map((item: any) => item.id);
               continue;
@@ -460,7 +463,7 @@ function reportPlan({ projectRoot, taskId, reached, json, slug, repoRoot }: any)
             const providerState = provider ? current.providers?.[provider]?.state : null;
             const indexState = status === RETRIEVED
               ? (providerState || 'UNKNOWN')
-              : (group[0]?.freshness?.status || providerState || 'UNKNOWN');
+              : (freshness || providerState || 'UNKNOWN');
             const reason = status === RETRIEVED ? null
               : indexState === 'STALE' ? 'index-stale'
                 : indexState === 'UNKNOWN' ? 'index-unverifiable' : 'empty-answer';
@@ -606,6 +609,7 @@ function attemptPlan({
   note,
   json,
   slug,
+  sourceRoot,
 }: any) {
   if (intents.length !== 1) {
     return usageError(
@@ -707,7 +711,7 @@ function attemptPlan({
   }
 
   const sourceModeOf = sourceModeLookup(router.capabilities);
-  const probe = freshnessEntry(provider, projectRoot, sourceModeOf);
+  const probe = freshnessEntry(provider, sourceRoot, sourceModeOf);
   const indexState = probe.state;
 
   let finalStatus = attemptStatus;
@@ -821,11 +825,12 @@ function parseIntents(raw: any) {
  * @param {string} [options.stage] the stage id declaring the plan
  * @param {boolean} [options.json=false]
  * @param {string} [options.repoRoot] the DoFlow package root, holding the capability registries
- * @param {string} [options.stateRoot] the project the task belongs to; its state and its index
+ * @param {string} [options.stateRoot] the project the task belongs to; its state
+ * @param {string} [options.sourceRoot] the checkout whose source and index freshness are measured
  * @returns {number} exit code
  */
 function handleRetrievalPlanCommand(options: any = {}) {
-  const { taskId, action = 'report', need, stage, provider, attemptStatus, reason, note, json = false, repoRoot, stateRoot, slug } = options;
+  const { taskId, action = 'report', need, stage, provider, attemptStatus, reason, note, json = false, repoRoot, stateRoot, sourceRoot: requestedSourceRoot, slug } = options;
 
   // NFR-001, at the boundary where a caller's input first becomes a record. `bin/doflow.js` already
   // refuses every score-shaped flag name on the command line; this is the same rule applied to the
@@ -847,6 +852,7 @@ function handleRetrievalPlanCommand(options: any = {}) {
   // The project the task belongs to owns both the state and the index whose age is being measured.
   // The package root owns the capability registries, and is a different directory in every install.
   const projectRoot = stateRoot || process.cwd();
+  const sourceRoot = requestedSourceRoot || projectRoot;
   const packageRoot = repoRoot || REPO_ROOT;
 
   try {
@@ -872,7 +878,7 @@ function handleRetrievalPlanCommand(options: any = {}) {
     } catch (error: any) {
       return usageError('retrieval-plan', error.message, json, error);
     }
-    return declarePlan({ router, projectRoot, taskId, stage, intents, json, slug });
+    return declarePlan({ router, projectRoot, sourceRoot, taskId, stage, intents, json, slug });
   }
 
   if (resolvedAction === 'attempt') {
@@ -885,6 +891,7 @@ function handleRetrievalPlanCommand(options: any = {}) {
     return attemptPlan({
       router,
       projectRoot,
+      sourceRoot,
       taskId,
       intents,
       provider,
@@ -896,7 +903,7 @@ function handleRetrievalPlanCommand(options: any = {}) {
     });
   }
 
-  return reportPlan({ projectRoot, taskId, reached: new Set(intents), json, slug, repoRoot: packageRoot });
+  return reportPlan({ projectRoot, sourceRoot, taskId, reached: new Set(intents), json, slug, repoRoot: packageRoot });
 }
 
 module.exports = {
