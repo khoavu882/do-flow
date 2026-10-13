@@ -2,7 +2,14 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { suiteTempDir } = require('../helper/tmp');
 const { EXIT, usageError } = require('../../src/runtime/cli-result.ts');
+
+const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
+const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
 
 test('cli-result-exit: EXIT defines frozen status constants per IC-002', () => {
   assert.equal(EXIT.OK, 0);
@@ -44,5 +51,30 @@ test('cli-result-exit: changing OVERFLOW to 1 fails (negative control)', () => {
   assert.throws(
     () => verifyExitConstants(mutatedConstants),
     (err) => err.message.includes('OVERFLOW must equal 3')
+  );
+});
+
+test('cli-result-exit: context-pack overflow passes through without failure capture', () => {
+  const root = suiteTempDir('doflow-cli-result-overflow-');
+  const xdg = path.join(root, 'xdg');
+  fs.mkdirSync(xdg, { recursive: true });
+  const result = spawnSync(BASH, [
+    DISPATCHER,
+    'context-pack',
+    '--task-id', 'fx5-cli-result',
+    '--objective', 'x'.repeat(6000),
+    '--max-bytes', '5000',
+    '--no-record',
+    '--json',
+  ], {
+    cwd: path.resolve(__dirname, '..', '..'),
+    env: { ...process.env, HOME: root, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: 'codex' },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 3, `expected overflow exit 3; stdout=${result.stdout}; stderr=${result.stderr}`);
+  assert.equal(
+    fs.existsSync(path.join(xdg, 'doflow', 'failures', 'events.jsonl')),
+    false,
+    'overflow must not be captured as a dispatcher crash'
   );
 });

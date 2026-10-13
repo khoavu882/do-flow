@@ -104,6 +104,12 @@ describe('exit-status point', () => {
     assert.equal(lines(loud.on)[0].kind, 'exit-9');
     assert.equal(lines(loud.on)[0].command, 'task-brief');
   });
+  test('context-pack status 3 (overflow) is not recorded', () => {
+    const { on, a } = onOff('context-pack-overflow', ['context-pack', '--json'], { env: { FAKE_EXIT: '3' } });
+    assert.equal(a.status, 3);
+    assert.equal(lines(on).length, 0);
+    assert.equal(fs.existsSync(on.failures), false);
+  });
   test('stdout, stderr and status of the verb pass through untouched', () => {
     const t = tree('passthrough');
     const r = dispatch(t, ['paths'], { env: { FAKE_EXIT: '139' } });
