@@ -11,6 +11,59 @@ const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
 const nativeConsoleLog = console.log;
 const featureResolve = require('./feature-resolve.ts');
+const origResolveActiveFeature = featureResolve.resolveActiveFeature;
+const activeFeatureCache = new Map();
+
+function fastResolveFeature({ projectRoot, slug }: any): any {
+  const root = projectRoot ? path.resolve(projectRoot) : process.cwd();
+  const slugKey = slug || '';
+  const key = `${root}\0${slugKey}`;
+  if (activeFeatureCache.has(key)) {
+    return activeFeatureCache.get(key);
+  }
+  if (slug && typeof slug === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(slug) && !slug.includes('..')) {
+    const featureRel = path.join('agent-docs', 'doflow', slug);
+    const featureDir = path.join(root, featureRel);
+    if (fs.existsSync(featureDir)) {
+      const reqStructured = path.join(featureRel, 'intention', 'requirement.md');
+      const reqFlat = path.join(featureRel, 'requirement.md');
+      const hasReqStructured = fs.existsSync(path.join(root, reqStructured));
+      const reqPath = hasReqStructured ? reqStructured : (fs.existsSync(path.join(root, reqFlat)) ? reqFlat : reqStructured);
+      const planStructured = path.join(featureRel, 'plan', 'plan.md');
+      const planFlat = path.join(featureRel, 'plan.md');
+      const planPath = fs.existsSync(path.join(root, planStructured)) ? planStructured : planFlat;
+      const decReg = path.join(featureRel, 'decisions', 'register.json');
+      const paths = {
+        repo_root: root,
+        feature_slug: slug,
+        feature_dir: featureRel,
+        requirement: reqPath,
+        plan: planPath,
+        design: path.join(featureRel, 'design', 'design.md'),
+        specs: path.join(featureRel, 'design', 'specs.md'),
+        data_model: path.join(featureRel, 'design', 'data-model.md'),
+        decisions: path.join(featureRel, 'decisions.md'),
+        decisions_register: decReg,
+        has_decisions: fs.existsSync(path.join(root, decReg)),
+        has_requirement: fs.existsSync(path.join(root, reqPath)),
+        has_plan: fs.existsSync(path.join(root, planPath)),
+        has_design: fs.existsSync(path.join(root, path.join(featureRel, 'design', 'design.md'))),
+        has_specs: fs.existsSync(path.join(root, path.join(featureRel, 'design', 'specs.md'))),
+        has_data_model: fs.existsSync(path.join(root, path.join(featureRel, 'design', 'data-model.md'))),
+      };
+      const result = { repoRoot: root, featureDir, paths };
+      activeFeatureCache.set(key, result);
+      return result;
+    }
+  }
+  const result = origResolveActiveFeature({ projectRoot: root, slug: slug || null });
+  activeFeatureCache.set(key, result);
+  return result;
+}
+
+featureResolve.resolveActiveFeature = function(opts: any): any {
+  return fastResolveFeature(opts);
+};
 const { readRegister } = require('./decision-register.ts');
 const compose = require('./context/compose.ts');
 const {
@@ -884,6 +937,7 @@ function handleContextPackCommand({
   }
 
   let parsedMaxBytes: number | undefined;
+  let baseBudget: any = null;
   if (maxBytes !== undefined && maxBytes !== null) {
     const parsed = typeof maxBytes === 'number' ? maxBytes : parseInt(String(maxBytes).trim(), 10);
     if (!Number.isInteger(parsed) || parsed <= 0 || (typeof maxBytes === 'string' && !/^[1-9]\d*$/.test(maxBytes.trim()))) {
@@ -891,7 +945,7 @@ function handleContextPackCommand({
     }
     parsedMaxBytes = parsed;
 
-    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
+    baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
     if (parsedMaxBytes > baseBudget.maxBytes && !reason) {
       return usageError('context-pack', `--max-bytes (${parsedMaxBytes}) exceeds resolved budget (${baseBudget.maxBytes}) and requires --reason`, json);
     }
@@ -903,7 +957,9 @@ function handleContextPackCommand({
   let deltaRefused: string | null = null;
   let deltaExpansions: any[] = [];
   if (parsedMaxBytes !== undefined) {
-    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
+    if (!baseBudget) {
+      baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
+    }
     if (parsedMaxBytes > baseBudget.maxBytes) {
       deltaExpansions.push({ at: new Date().toISOString(), kind: 'cap-raised', target: null, reason, bytesAdded: null });
     }

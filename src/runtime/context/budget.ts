@@ -18,13 +18,43 @@ const TASK_CLASS_BUDGETS: Record<string, number> = Object.freeze({
   'trivial-edit': 30000,
 });
 
+let cachedHarnesses: any = null;
+let cachedHarnessIds: string[] | null = null;
+let registryLoadCount: number = 0;
+
+function clearRegistryCache(): void {
+  cachedHarnesses = null;
+  cachedHarnessIds = null;
+  cachedBudgetsJson = null;
+}
+
+function getRegistryLoadCount(): number {
+  return registryLoadCount;
+}
+
 function getRegisteredHarnesses(): any {
+  if (cachedHarnesses) return cachedHarnesses;
+  registryLoadCount++;
   const repoRoot = path.resolve(__dirname, '../../../');
-  return loadRegistry({ repoRoot }).harnesses;
+  const harnessesPath = path.join(repoRoot, 'core', 'registry', 'harnesses.json');
+  try {
+    const raw = JSON.parse(fs.readFileSync(harnessesPath, 'utf8'));
+    if (Array.isArray(raw?.harnesses)) {
+      cachedHarnesses = raw.harnesses;
+      return cachedHarnesses;
+    }
+  } catch {
+    // fallback if unreadable
+  }
+  cachedHarnesses = loadRegistry({ repoRoot }).harnesses;
+  return cachedHarnesses;
 }
 
 function getRegisteredHarnessIds(): string[] {
-  return getRegisteredHarnesses().map((h: any) => h.id);
+  if (cachedHarnessIds && cachedHarnesses) return cachedHarnessIds;
+  const ids = getRegisteredHarnesses().map((h: any) => h.id);
+  cachedHarnessIds = ids;
+  return ids;
 }
 
 let cachedBudgetsJson: any = null;
@@ -168,4 +198,6 @@ module.exports = {
   resolveBudget,
   getRegisteredHarnessIds,
   getRegisteredHarnesses,
+  clearRegistryCache,
+  getRegistryLoadCount,
 };

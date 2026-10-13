@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const {
   TASK_CLASS_BUDGETS,
   resolveBudget,
+  clearRegistryCache,
+  getRegistryLoadCount,
 } = require('../../src/runtime/context/budget.ts');
 
 test('budget-resolve: cap precedence: override > profile > task-class', () => {
@@ -195,3 +197,22 @@ test('budget-resolve: substituting a model-name lookup for the harness id fails 
   // Confirm that real resolveBudget does NOT do this
   assert.throws(() => resolveBudget({ harnessFlag: 'claude-3-7-sonnet' }));
 });
+
+test('budget-resolve: registry cache: second resolution within one process does not reload registry', () => {
+  clearRegistryCache();
+  const initialCount = getRegistryLoadCount();
+  resolveBudget({ harnessFlag: 'claude' });
+  const afterFirst = getRegistryLoadCount();
+  assert.equal(afterFirst, initialCount + 1, 'first resolution loads registry');
+
+  // Second resolution within one process does not reload
+  resolveBudget({ harnessFlag: 'claude' });
+  const afterSecond = getRegistryLoadCount();
+  assert.equal(afterSecond, afterFirst, 'second resolution within one process must not reload registry');
+
+  // Negative control: clearing cache causes a reload on next resolution
+  clearRegistryCache();
+  resolveBudget({ harnessFlag: 'claude' });
+  assert.equal(getRegistryLoadCount(), afterSecond + 1, 'negative control: clearing cache causes registry reload');
+});
+

@@ -378,6 +378,18 @@ const OPTIONAL_HEADING_BYTES_JSON: Record<string, number> = Object.freeze({
   structuralContext: 3,
 });
 
+const EMPTY_BLOCK_JSON = JSON.stringify({ total: 0, groups: [] }, null, 2);
+const EMPTY_LINES_COUNT = EMPTY_BLOCK_JSON.split('\n').length;
+const EMPTY_BYTES_JSON = Buffer.byteLength(EMPTY_BLOCK_JSON, 'utf8') + EMPTY_LINES_COUNT * 2;
+
+function countNewlines(str: string): number {
+  let count = 0;
+  for (let i = 0; i < str.length; i++) {
+    if (str.charCodeAt(i) === 10) count++;
+  }
+  return count;
+}
+
 function computeOmissionBytes(omissionsList: any[] = []): { md: number; json: number } {
   if (!omissionsList || omissionsList.length === 0) {
     return { md: 0, json: 0 };
@@ -392,13 +404,9 @@ function computeOmissionBytes(omissionsList: any[] = []): { md: number; json: nu
   const mdBytes = Buffer.byteLength(mdStr, 'utf8');
 
   const fullBlock = JSON.stringify(grouped, null, 2);
-  const emptyBlock = JSON.stringify({ total: 0, groups: [] }, null, 2);
-  const fullLines = fullBlock.split('\n');
-  const emptyLines = emptyBlock.split('\n');
-
-  const fullBytes = Buffer.byteLength(fullBlock, 'utf8') + fullLines.length * 2;
-  const emptyBytes = Buffer.byteLength(emptyBlock, 'utf8') + emptyLines.length * 2;
-  const diffJson = Math.max(0, fullBytes - emptyBytes);
+  const fullLinesCount = countNewlines(fullBlock) + 1;
+  const fullBytes = Buffer.byteLength(fullBlock, 'utf8') + fullLinesCount * 2;
+  const diffJson = Math.max(0, fullBytes - EMPTY_BYTES_JSON);
   return { md: mdBytes, json: diffJson };
 }
 
@@ -634,18 +642,20 @@ function linearFit({
   const keptOptional: any[] = [];
   const rejectedOptional: any[] = [];
   const activeSections = new Set<string>();
+  let keptMdSum = 0;
+  let keptJsonSum = 0;
+  let activeHeadingsMd = 0;
+  let activeHeadingsJson = 0;
 
   // One linear pass
-  for (const opt of sortedOptional) {
-    const trialKept = [...keptOptional, opt];
-    const trialSections = new Set(activeSections);
-    trialSections.add(opt.field);
+  for (let idx = 0; idx < sortedOptional.length; idx++) {
+    const opt = sortedOptional[idx];
+    const isNewSection = !activeSections.has(opt.field);
+    const trialHeadingsMd = activeHeadingsMd + (isNewSection ? (sectionHeadingsMd[opt.field] || 0) : 0);
+    const trialHeadingsJson = activeHeadingsJson + (isNewSection ? (sectionHeadingsJson[opt.field] || 0) : 0);
 
-    const trialHeadingsMd = Array.from(trialSections).reduce((sum: number, f: string) => sum + (sectionHeadingsMd[f] || 0), 0);
-    const trialHeadingsJson = Array.from(trialSections).reduce((sum: number, f: string) => sum + (sectionHeadingsJson[f] || 0), 0);
-
-    const trialKeptMd = trialKept.reduce((acc: number, i: any) => acc + i.mdBytes, 0);
-    const trialKeptJson = trialKept.reduce((acc: number, i: any) => acc + i.jsonBytes, 0);
+    const trialKeptMd = keptMdSum + opt.mdBytes;
+    const trialKeptJson = keptJsonSum + opt.jsonBytes;
 
     const trialOmitted = [
       ...initialOmissions,
@@ -655,7 +665,7 @@ function linearFit({
         reason: 'budget',
         ...(i.freshness ? { freshness: i.freshness } : {}),
       })),
-      ...sortedOptional.slice(sortedOptional.indexOf(opt) + 1).map((i: any) => ({
+      ...sortedOptional.slice(idx + 1).map((i: any) => ({
         id: i.id,
         field: i.field,
         reason: 'budget',
@@ -670,7 +680,13 @@ function linearFit({
 
     if (Math.max(trialCostMd, trialCostJson) <= budget) {
       keptOptional.push(opt);
-      activeSections.add(opt.field);
+      keptMdSum = trialKeptMd;
+      keptJsonSum = trialKeptJson;
+      if (isNewSection) {
+        activeSections.add(opt.field);
+        activeHeadingsMd = trialHeadingsMd;
+        activeHeadingsJson = trialHeadingsJson;
+      }
     } else {
       rejectedOptional.push(opt);
     }
