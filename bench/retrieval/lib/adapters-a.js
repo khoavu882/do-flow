@@ -54,13 +54,29 @@ function graphPath(indexRoot) {
   return path.join(indexRoot, 'graphify-out', 'graph.json');
 }
 
+/** Extracts an identifier from a natural-language query deterministically (AM.5). */
+function extractIdentifier(query) {
+  if (!query || typeof query !== 'string') return '';
+  const tokens = query.match(/[a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z0-9_$]+)*/g) || [];
+  if (tokens.length === 0) return '';
+  const special = tokens.filter((t) => /[A-Z_$.]/.test(t));
+  if (special.length > 0) return special[special.length - 1];
+  let longest = '';
+  for (const t of tokens) {
+    if (t.length >= longest.length) longest = t;
+  }
+  return longest;
+}
+
 function runGraphify({ task, indexRoot, bins }) {
   const impact = task.class === 'impact-refactor';
+  const symbol = (task.literal && String(task.literal).trim()) || extractIdentifier(task.query) || task.query;
   const args = impact
-    ? ['affected', task.literal || task.query, '--depth', '2', '--graph', graphPath(indexRoot)]
+    ? ['affected', symbol, '--depth', '2', '--graph', graphPath(indexRoot)]
     : ['query', task.query, '--budget', '2000', '--graph', graphPath(indexRoot)];
   const run = runTool(bins.graphify, args);
   if (!run.ran || run.status !== 0) return { unreached: failure(run, 'graphify') };
+  if (run.stdout.includes('No unique node match')) return { unreached: 'No unique node match' };
   const candidates = [];
   for (const line of run.stdout.split('\n')) {
     const m = impact ? /^- .+ \[[^\]]+\] (\S+):L(\d+)$/.exec(line) : /src=(\S+) loc=L(\d+)/.exec(line);
@@ -260,5 +276,5 @@ function buildIndexes({ exportRoot, semble, bins = {}, patchFile }) {
 }
 
 module.exports = {
-  CAPABILITY_BY_CLASS, capabilityFor, loadCapabilities, runA, runVerification, compressWithRtk, buildIndexes, rssFromTime, dirBytes,
+  CAPABILITY_BY_CLASS, capabilityFor, loadCapabilities, runA, runVerification, compressWithRtk, buildIndexes, rssFromTime, dirBytes, extractIdentifier, runGraphify,
 };
