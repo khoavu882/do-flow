@@ -15,7 +15,7 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
-## [2.0.0-beta.1] - 2026-10-13
+## [2.0.0-beta.2] - 2026-10-13
 
 Prerelease of 2.0.0 on the npm `beta` dist-tag (`npx @khoavu882/doflow@beta`); `latest` stays 1.24.1. 2.0.0 stable follows once the
 context-budget and evidence-attempt work (P1) lands.
@@ -60,6 +60,7 @@ context-budget and evidence-attempt work (P1) lands.
     1.24.x; without it start-up is slower.
 
 ### Fixed
+- `npm test` runs on the supported Node versions: the script discovers `test/**/*.test.js` with Node's own glob, because Node 22.18 and 24 do not recurse a directory argument. 2.0.0-beta.1 was tagged but never published (its release gate failed on this).
 - Failures you settled on 1.24.x reappear once after upgrading. A failure's fingerprint includes the
   module path of its frame, which now ends `.ts` instead of `.js`, so each distinct failure shows up
   as a new, unsettled entry. List them with `doflow-run failure --action list` and settle each again
