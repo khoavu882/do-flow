@@ -57,6 +57,14 @@ function runHookProcess(hookPath, { cwd, homeDir, fixtureStdin, env: customEnv }
       timeout: 10000,
     });
     if (res.error) {
+      // Some hooks intentionally ignore stdin and exit immediately. Node can report EPIPE
+      // for the input write even though the child completed successfully and emitted output.
+      if (res.error.code === 'EPIPE' && res.status === 0) {
+        return {
+          stdoutBytes: Buffer.byteLength(res.stdout || '', 'utf8'),
+          stderrBytes: Buffer.byteLength(res.stderr || '', 'utf8'),
+        };
+      }
       if (res.error.code === 'ETIMEDOUT') {
         return {
           stdoutBytes: { unmeasured: 'hook timed out after 10s' },

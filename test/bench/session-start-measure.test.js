@@ -2,9 +2,11 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
-const { measureSessionStart } = require('../../bench/perf/lib/session-start.js');
+const { measureSessionStart, runHookProcess } = require('../../bench/perf/lib/session-start.js');
 const { computeStartupContext } = require('../../bench/perf/lib/context.js');
+const { tempDir } = require('../helper/tmp');
 
 const FIXTURE_TREE = path.resolve(__dirname, '../fixtures/session-start-tree');
 
@@ -44,6 +46,21 @@ test('session-start-measure control: a stub hook exiting 1 gives hook failed wit
   const kiro = measureSessionStart('kiro', { homeDir: FIXTURE_TREE });
   assert.deepEqual(kiro.stdoutBytes, { unmeasured: 'hook failed with exit code 1' });
   assert.deepEqual(kiro.stderrBytes, { unmeasured: 'hook failed with exit code 1' });
+});
+
+test('session-start-measure: successful hook that ignores stdin is still measured after EPIPE', (t) => {
+  const homeDir = tempDir(t, 'doflow-session-start-epipe-');
+  const hookPath = path.join(homeDir, 'ignore-stdin.sh');
+  fs.writeFileSync(hookPath, '#!/bin/sh\nprintf out\nprintf err >&2\n', 'utf8');
+  fs.chmodSync(hookPath, 0o755);
+
+  const measured = runHookProcess(hookPath, {
+    cwd: homeDir,
+    homeDir,
+    fixtureStdin: 'x'.repeat(1024 * 1024),
+  });
+  assert.equal(measured.stdoutBytes, 3);
+  assert.equal(measured.stderrBytes, 3);
 });
 
 test('session-start-measure: unmeasured reason - no session-start hook for opencode, pi, copilot, antigravity', () => {

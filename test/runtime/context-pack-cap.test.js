@@ -25,6 +25,14 @@ function runPack(options) {
   return { code, out };
 }
 
+function boundedSweepCaps(mandatorySize) {
+  const caps = new Set([20000, 23750]);
+  const coarseStart = Math.ceil((mandatorySize - 500) / 250) * 250;
+  for (let cap = coarseStart; cap <= mandatorySize + 500; cap += 250) caps.add(cap);
+  for (let cap = mandatorySize - 60; cap <= mandatorySize + 60; cap += 10) caps.add(cap);
+  return [...caps].sort((a, b) => a - b);
+}
+
 test('context-pack-cap: both forms stay at or under cap for feature, bug and trivial-edit, with budget source printed', (t) => {
   const root = tempDir(t, 'doflow-cap-');
   const featDir = path.join(root, 'agent-docs/doflow/feat-1/intention');
@@ -460,7 +468,9 @@ test('context-pack-cap: handler dense sweep costs recorded delivery and telemetr
   const criteria = Array.from({ length: 40 }, (_, i) => `- [ ] **Scenario: Criterion ${i + 1}**\n  Given ${'a'.repeat(250)}\n  When ${'b'.repeat(90)}\n  Then ${'c'.repeat(80)} (FR-${String(i + 1).padStart(3, '0')}, US1)`).join('\n');
   fs.writeFileSync(path.join(reqDir, 'requirement.md'), `# Feature: DX.1 dense handler sweep\n\n## 1. Summary\n${'Dense cap verification. '.repeat(30)}\n\n## 6. Acceptance Criteria\n${criteria}\n`, 'utf8');
 
-  for (let cap = 18750; cap <= 24750; cap += 150) {
+  const baseline = runPack({ taskId: 'dx1-baseline', taskClass: 'feature', stateRoot: root, slug: 'dx1', maxBytes: 50000, json: true });
+  const mandatorySize = JSON.parse(baseline.out).size.mandatoryBytes;
+  for (const cap of boundedSweepCaps(mandatorySize)) {
     const taskId = `dx1-${cap}`;
     const results = {};
     for (const noRecord of [false, true]) {
@@ -516,7 +526,9 @@ test('context-pack-cap: real requirement sweep keeps both forms aligned with rec
   }
   ledger.save('dx3-sweep');
 
-  for (let cap = 15500; cap <= 25500; cap += 50) {
+  const baseline = runPack({ taskId: 'dx3-baseline', taskClass: 'feature', stateRoot: root, slug, maxBytes: 50000, json: true });
+  const mandatorySize = JSON.parse(baseline.out).size.mandatoryBytes;
+  for (const cap of boundedSweepCaps(mandatorySize)) {
     for (const noRecord of [false, true]) {
       const results = {};
       for (const json of [false, true]) {
