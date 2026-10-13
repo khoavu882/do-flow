@@ -4,6 +4,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
@@ -47,7 +48,12 @@ const {
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
-const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds } = require('./context/budget.ts');
+const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegisteredHarnesses } = require('./context/budget.ts');
+const { createDeliveryEntry, readDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
+const { boundedAcquire } = require('./task-state.ts');
+const pointerTools = require('./context/pointer.ts');
+const { updateTaskState } = require('./task-state.ts');
+const { taskStoreDir } = require('./task-scope.ts');
 
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
@@ -79,6 +85,54 @@ function loadLiveDecisions({ projectRoot, slug = null, feature: preloadedFeature
   } catch {
     return { ...NO_DECISIONS };
   }
+}
+
+function hashSourceFiles(root: string, paths: string[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const source of [...new Set(paths)].sort()) {
+    if (typeof source !== 'string' || source === '') continue;
+    const absolute = path.resolve(root, source);
+    const relative = path.relative(path.resolve(root), absolute);
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) continue;
+    try {
+      result[relative.split(path.sep).join('/')] = `sha256:${crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex')}`;
+    } catch { /* unavailable source paths cannot be represented as verified sources */ }
+  }
+  return result;
+}
+
+function sourcesChanged(root: string, sources: Record<string, string>): boolean {
+  for (const [source, digest] of Object.entries(sources || {})) {
+    const current = hashSourceFiles(root, [source])[source];
+    if (current !== digest) return true;
+  }
+  return false;
+}
+
+function profileRetention(harnessId: string | null, profiles: any[] | null): any {
+  if (!harnessId) return null;
+  const harnesses = profiles || getRegisteredHarnesses();
+  return harnesses.find((item: any) => item.id === harnessId)?.contextProfile?.retention || null;
+}
+
+function appendPointerExpansion({ projectRoot, taskId, slug, packDigest, expansion, fsImpl = fs }: any): void {
+  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
+  const file = path.join(dir, `${taskId}.json`);
+  updateTaskState({
+    fsImpl, file,
+    acquire: (impl: any, target: string) => boundedAcquire(impl, target, { retries: 3, waitMs: 5 }),
+    build(disk: any) {
+      const deliveries = Array.isArray(disk?.deliveries) ? disk.deliveries : [];
+      let found = false;
+      const updated = deliveries.map((entry: any) => {
+        if (entry.packDigest !== packDigest) return entry;
+        found = true;
+        return { ...entry, expansions: [...(entry.expansions || []), expansion] };
+      });
+      if (!found) throw new Error('delivery entry disappeared');
+      return { taskId, deliveries: updated };
+    },
+  });
 }
 
 class ContextPackCompiler {
@@ -131,9 +185,18 @@ class ContextPackCompiler {
       reason,
       since,
       expand,
+      pointers: suppliedPointers = [],
+      expansion = null,
     } = params;
 
     const limits = { ...this.options, ...budgetOverrides };
+    const contentLimits = {
+      maxFiles: limits.maxFiles,
+      maxClaims: limits.maxClaims,
+      maxEvidenceItems: limits.maxEvidenceItems,
+      maxResearchRequests: limits.maxResearchRequests,
+      maxStructuralItems: limits.maxStructuralItems,
+    };
 
     const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
     const resolvedBudget = paramBudget || resolveBudget({ taskClass: effectiveTaskClass, maxBytes, harnessFlag: harness });
@@ -253,6 +316,7 @@ class ContextPackCompiler {
       supportedClaims.forEach((c: any) => items.push(buildClaimSupportedItem(c)));
       otherRequests.forEach((r: any) => items.push(buildResearchRequestItem(r)));
       activeHypotheses.forEach((h: any) => items.push(buildClaimHypothesisItem(h)));
+      suppliedPointers.forEach((p: any) => items.push(buildPointerItem(p)));
       relevantFiles.forEach((f: any) => items.push(buildRelevantFileItem(f)));
       freshEvidenceItems.forEach((ev: any) => items.push(buildEvidenceSummaryItem(ev)));
       structuralNodes.forEach((sn: any, i: number) => items.push(buildStructuralContextItem(sn, i)));
@@ -289,17 +353,53 @@ class ContextPackCompiler {
       hasMandatoryItems,
       limits,
       selfRefWidth,
+      recordingExpected: params.recordingExpected === true,
+      // Cost the longer delivery form key for both renderings so mandatory
+      // accounting and overflow messages agree across markdown and JSON.
+      form: 'markdown',
+      harnessId: params.harness?.id || 'unstated',
     });
 
     const hasMandatoryRequests = !bare && blockingUnanswered.length > 0;
+    let deltaInfo: any = null;
+    let unchangedOmissions: any[] = [];
+    let removedIds: string[] = [];
+    let fitItems = items;
+    if (params.deltaSinceEntry && paramMode === 'delta') {
+      const oldItems = params.deltaSinceEntry.items || {};
+      const currentIds = new Set(items.map((item: any) => item.id));
+      const added: string[] = [];
+      const changed: string[] = [];
+      const unchanged: string[] = [];
+      fitItems = [];
+      for (const item of items) {
+        const oldDigest = oldItems[item.id];
+        if (item.cls === 'mandatory') {
+          if (!oldDigest) added.push(item.id);
+          else if (oldDigest !== item.digest) changed.push(item.id);
+          else unchanged.push(item.id);
+          fitItems.push(item);
+        } else if (!oldDigest) {
+          added.push(item.id); fitItems.push({ ...item, deltaForced: true });
+        } else if (oldDigest === item.digest) {
+          unchanged.push(item.id);
+          unchangedOmissions.push({ id: item.id, field: item.field, reason: 'unchanged' });
+        } else {
+          changed.push(item.id); fitItems.push({ ...item, deltaForced: true });
+        }
+      }
+      removedIds = Object.keys(oldItems).filter((id: string) => !currentIds.has(id));
+      deltaInfo = { since, added, changed, removed: removedIds, unchanged };
+    }
+
     const fit = linearFit({
-      items,
+      items: fitItems,
       budget: resolvedBudget.maxBytes,
       taskId,
       taskClass: effectiveTaskClass,
       envelopeMd,
       envelopeJson,
-      initialOmissions: bare ? [] : nonFreshOmissions,
+      initialOmissions: bare ? [] : [...nonFreshOmissions, ...unchangedOmissions],
       sectionHeadingsJson: {
         'decisions.live': 5,
         'claims.supported': 5,
@@ -344,7 +444,7 @@ class ContextPackCompiler {
       const packMandatoryBytes = fit.mandatoryBytes;
       const packOptionalBytes = isOverflow ? 0 : Math.max(0, fit.totalBytes - fit.mandatoryBytes);
 
-      return {
+      const packed = {
         version: 1,
         status: isOverflow ? 'OVERFLOW' : (empty ? 'EMPTY' : 'OK'),
         exitCode: isOverflow ? EXIT.OVERFLOW : (empty ? EXIT.EMPTY : EXIT.OK),
@@ -390,6 +490,7 @@ class ContextPackCompiler {
           ...(decisions?.reason ? { reason: decisions.reason } : {}),
         },
         pointers: keptPointers,
+        ...(expansion ? { expansion } : {}),
         relevantFiles: keptFiles,
         evidenceCount: keptEvidence.length,
         evidenceSummary: keptEvidence,
@@ -398,7 +499,7 @@ class ContextPackCompiler {
           totalFiles: relevantFiles.length,
           totalSupportedClaims: supportedClaims.length,
           totalActiveHypotheses: activeHypotheses.length,
-          limits,
+          limits: contentLimits,
         },
         empty,
         omissions: bare ? { total: 0, groups: [] } : omissions,
@@ -410,21 +511,21 @@ class ContextPackCompiler {
         },
         accounting: {
           tokens: {
-            inlineTokensEst: Math.round(packTotalBytes / 4),
-            netTokensEst: Math.round(packTotalBytes / 4),
+            inlineTokensEst: params.recordingExpected ? Math.ceil(resolvedBudget.maxBytes / 4) : Math.round(packTotalBytes / 4),
+            netTokensEst: params.recordingExpected ? Math.ceil(resolvedBudget.maxBytes / 4) : Math.round(packTotalBytes / 4),
             basis: 'estimated:bytes/4',
-            actual: { unmeasured: 'needs a model call (paid)' },
+            actual: { unmeasured: 'no harness reports token usage to an external CLI; profile tokenTelemetry unverified' },
           },
         },
         delivery: {
-          key: null,
+          key: params.recordingExpected ? `${packDigest}.${params.form || 'json'}.${params.harness?.id || 'unstated'}` : null,
           packDigest,
-          recorded: false,
+          recorded: params.recordingExpected === true,
           reason: null,
-          since: null,
-          deltaRefused: null,
+          since: since || null,
+          deltaRefused: params.deltaRefused || null,
         },
-        delta: null,
+        delta: deltaInfo,
         packEnd: {
           mode: bare ? 'bare' : (paramMode || 'full'),
           objective: objective ? 1 : 0,
@@ -439,6 +540,26 @@ class ContextPackCompiler {
           digest: packDigest.slice(0, 19),
         },
       };
+      Object.defineProperties(packed, {
+        deliveryItems: { value: keptItems.map((item: any) => ({ ...item, cls: item.cls || item.class })) },
+        deliveryOmissions: { value: bare ? [] : omissionsList.map((item: any) => ({ ...item })) },
+        deliveryAllItems: { value: items.map((item: any) => ({ id: item.id, digest: item.digest, cls: item.cls || item.class })) },
+        trimOptional: { value: () => {
+          const currentItems = (packed as any).deliveryItems as any[];
+          let trimIndex = -1;
+          for (let i = currentItems.length - 1; i >= 0; i -= 1) {
+            if (currentItems[i].cls === 'optional' && !currentItems[i].deltaForced) { trimIndex = i; break; }
+          }
+          if (trimIndex < 0) return null;
+          const dropped = currentItems[trimIndex];
+          const nextItems = currentItems.filter((_: any, i: number) => i !== trimIndex);
+          const nextOmissions = [...(packed as any).deliveryOmissions, {
+            id: dropped.id, field: dropped.field, reason: 'budget', ...(dropped.freshness ? { freshness: dropped.freshness } : {}),
+          }];
+          return assemblePack(nextItems, nextOmissions, false, null);
+        } },
+      });
+      return packed;
     };
 
     let pack: any = assemblePack(fit.kept, fit.omissions, fit.overflow, fit.cause);
@@ -461,17 +582,17 @@ class ContextPackCompiler {
         let lastOptIdx = -1;
         for (let idx = currentKept.length - 1; idx >= 0; idx--) {
           const it = currentKept[idx];
-          if (it.cls === 'optional' || it.class === 'optional') {
+          if ((it.cls === 'optional' || it.class === 'optional') && !it.deltaForced) {
             lastOptIdx = idx;
             break;
           }
         }
 
         if (lastOptIdx === -1) {
-          const mandatoryOnlyKept = currentKept.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory');
+          const mandatoryOnlyKept = currentKept.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory' || i.deltaForced);
           const allOptOmitted = [
             ...(bare ? [] : nonFreshOmissions),
-            ...items.filter((i: any) => i.cls === 'optional' || i.class === 'optional').map((i: any) => ({
+            ...items.filter((i: any) => (i.cls === 'optional' || i.class === 'optional') && !i.deltaForced).map((i: any) => ({
               id: i.id,
               field: i.field,
               reason: 'mandatory-overflow',
@@ -737,6 +858,7 @@ function handleContextPackCommand({
   reason = null,
   since = null,
   expand = null,
+  profiles = null,
 }: any = {}) {
   const root = stateRoot || process.cwd();
   const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
@@ -769,15 +891,75 @@ function handleContextPackCommand({
     }
     parsedMaxBytes = parsed;
 
-    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness });
+    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
     if (parsedMaxBytes > baseBudget.maxBytes && !reason) {
       return usageError('context-pack', `--max-bytes (${parsedMaxBytes}) exceeds resolved budget (${baseBudget.maxBytes}) and requires --reason`, json);
     }
   }
 
-  const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness });
+  const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness, profiles });
+
+  let sinceEntry: any = null;
+  let deltaRefused: string | null = null;
+  let deltaExpansions: any[] = [];
+  if (parsedMaxBytes !== undefined) {
+    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
+    if (parsedMaxBytes > baseBudget.maxBytes) {
+      deltaExpansions.push({ at: new Date().toISOString(), kind: 'cap-raised', target: null, reason, bytesAdded: null });
+    }
+  }
+  let retention = profileRetention(budget.harness?.id || null, profiles);
+  if (since && !expand) {
+    sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
+    if (!sinceEntry) deltaRefused = 'since-unknown';
+    else if (sourcesChanged(root, sinceEntry.sources || {})) deltaRefused = 'sources-changed';
+    else if (!budget.harness?.id) deltaRefused = 'harness-unstated';
+    else if (retention?.value !== 'supported') deltaRefused = 'retention-unproven';
+    if (deltaRefused) {
+      deltaExpansions.push({ at: new Date().toISOString(), kind: 'delta-widened', target: null, reason: deltaRefused, bytesAdded: null });
+    }
+  }
 
   const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
+
+  if (expand) {
+    const prior = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
+    if (!prior) return usageError('context-pack', `Unknown digest '${since}'`, json);
+    const pointer = (prior.pointers || []).find((candidate: any) => candidate.id === expand);
+    if (!pointer) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
+    const current = pointerTools.readPointerSlice({ projectRoot: root, pointer });
+    if (!current) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
+    const expansionRecord = {
+      at: new Date().toISOString(), kind: 'pointer-followed', target: expand, reason,
+      bytesAdded: Buffer.byteLength(current.slice, 'utf8'), targetChanged: current.digest !== pointer.digest,
+    };
+    let recorded = false;
+    let recordReason: string | null = noRecord ? 'no-record' : null;
+    if (!noRecord) {
+      try {
+        appendPointerExpansion({ projectRoot: root, taskId, slug, packDigest: since, expansion: expansionRecord });
+        recorded = true;
+      } catch (error: any) {
+        if (error?.code !== 'store-locked' && error?.message !== 'store-locked') throw error;
+        recordReason = 'store-locked';
+      }
+    }
+    const compiler = new ContextPackCompiler();
+    const pack = compiler.compileContextPack({ taskId, taskClass: effectiveTaskClass, objective: '', mandatory: { fields: {}, provenance: {} }, budget,
+      mode: 'expand', expansion: { id: expand, path: pointer.path, content: current.slice, targetChanged: current.digest !== pointer.digest } });
+    pack.status = 'OK';
+    pack.exitCode = EXIT.OK;
+    pack.mode = 'expand';
+    pack.delivery = { key: prior.key, packDigest: since, recorded, reason: recordReason, since, deltaRefused: null, expansionRecorded: recorded };
+    pack.packEnd.mode = 'expand';
+    pack.packEnd.digest = since.slice(7, 19);
+    pack.expansionRecorded = recorded;
+    pack.accounting.tokens = prior.tokens;
+    const output = json ? compiler.formatJson(pack) : compiler.formatMarkdown(pack);
+    if (console.log !== nativeConsoleLog) console.log(output);
+    else process.stdout.write(output);
+    return finishRuntime(EXIT.OK);
+  }
 
   let reqText: string | null = null;
   let reqPath = 'requirement.md';
@@ -857,7 +1039,7 @@ function handleContextPackCommand({
   const researchRequests = new ResearchRequestStore({ projectRoot: root, slug }).list(taskId);
 
   const compiler = new ContextPackCompiler();
-  const pack = compiler.compileContextPack({
+  let pack = compiler.compileContextPack({
     taskId,
     taskClass: effectiveTaskClass,
     objective: objective !== undefined && objective !== null ? objective : undefined,
@@ -867,19 +1049,104 @@ function handleContextPackCommand({
     maxBytes: parsedMaxBytes,
     bare,
     noRecord,
+    recordingExpected: !noRecord,
+    form: json ? 'json' : 'markdown',
     reason,
     since,
+    mode: since && !deltaRefused && !expand ? 'delta' : undefined,
+    deltaSinceEntry: since && !deltaRefused && !expand ? sinceEntry : null,
+    deltaRefused,
     expand,
+    pointers: pointerTools.collectPointers({ projectRoot: root, feature }),
     evidenceLedger: ledger,
     claimsManager: claims,
     researchRequests,
     decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null, feature }),
   });
 
-  const output = json ? compiler.formatJson(pack) : compiler.formatMarkdown(pack);
-  const emittedBytes = Buffer.byteLength(output, 'utf8');
-  if (pack.status === 'OK' && emittedBytes > budget.maxBytes) {
-    throw new Error(`Emitted ${json ? 'JSON' : 'markdown'} pack size (${emittedBytes} B) exceeds budget (${budget.maxBytes} B)`);
+  let deliverySources: any = null;
+  let deliveryRetention: any = null;
+  if (noRecord) {
+    pack.delivery.reason = 'no-record';
+  } else {
+    deliverySources = hashSourceFiles(root, pack.relevantFiles || []);
+    deliveryRetention = retention?.value === 'supported' || retention?.value === 'unsupported'
+      ? { status: retention.value, basis: `declared:${retention.source || 'profile'}` }
+      : { status: 'unknown', basis: retention?.unverified || 'contextProfile.retention is unverified' };
+    const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
+      sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
+    try {
+      const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire });
+      pack.delivery.key = result.key;
+      pack.delivery.recorded = true;
+      pack.delivery.reason = null;
+      pack.accounting.tokens = entry.tokens;
+      pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, true);
+    } catch (error: any) {
+      if (error?.code !== 'store-locked' && error?.message !== 'store-locked') throw error;
+      pack.delivery.key = null;
+      pack.delivery.recorded = false;
+      pack.delivery.reason = 'store-locked';
+    }
+  }
+
+  let output = '';
+  let emittedBytes = 0;
+  while (true) {
+    const mdOutput = compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+    const jsonOutput = compiler.formatJson(pack, { throwOnOverBudget: false });
+    const mdBytes = Buffer.byteLength(mdOutput, 'utf8');
+    const jsonBytes = Buffer.byteLength(jsonOutput, 'utf8');
+    if (pack.status !== 'OK' || (mdBytes <= budget.maxBytes && jsonBytes <= budget.maxBytes)) {
+      output = json ? jsonOutput : mdOutput;
+      emittedBytes = json ? jsonBytes : mdBytes;
+      break;
+    }
+
+    const trimmed = (pack as any).trimOptional?.();
+    if (trimmed) {
+      const prior = pack;
+      pack = trimmed;
+      pack.delivery.recorded = prior.delivery.recorded;
+      pack.delivery.reason = prior.delivery.reason;
+      pack.delivery.key = prior.delivery.recorded
+        ? `${pack.delivery.packDigest}.${json ? 'json' : 'markdown'}.${budget.harness?.id || 'unstated'}`
+        : null;
+      pack.accounting.tokens = prior.accounting.tokens;
+      pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, pack.delivery.recorded);
+      if (pack.delivery.recorded) {
+        const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
+          sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
+        const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire,
+          supersedesKey: prior.delivery.key });
+        pack.delivery.key = result.key;
+        pack.accounting.tokens = entry.tokens;
+      }
+      continue;
+    }
+
+    const cause = pack.size.mandatoryBytes > budget.maxBytes ? 'mandatory' : 'accounting';
+    pack.status = 'OVERFLOW';
+    pack.exitCode = EXIT.OVERFLOW;
+    pack.overflow = { cause, mandatoryBytes: pack.size.mandatoryBytes, budgetBytes: budget.maxBytes,
+      excessBytes: Math.max(0, Math.max(mdBytes, jsonBytes) - budget.maxBytes), action: 'split-or-new-session' };
+    pack.overflowAction = { message: cause === 'accounting'
+      ? `The omission record brings the pack to ${Math.max(mdBytes, jsonBytes)} B against a ${budget.maxBytes} B budget.`
+      : `It is ${pack.size.mandatoryBytes} B against a ${budget.maxBytes} B budget (${budget.source}).` };
+    output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+    emittedBytes = Buffer.byteLength(output, 'utf8');
+    pack.overflowAction.message = cause === 'accounting'
+      ? `OVERFLOW (exit 3): mandatory content is complete and nothing in it was dropped. The omission record brings the pack to ${Math.max(mdBytes, jsonBytes)} B against a ${budget.maxBytes} B budget. Split the task or its context, or start a new session, then request the pack again.`
+      : `OVERFLOW (exit 3): mandatory content is complete and nothing in it was dropped. It is ${pack.size.mandatoryBytes} B against a ${budget.maxBytes} B budget (${budget.source}). Split the task or its context, or start a new session, then request the pack again.`;
+    output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+    emittedBytes = Buffer.byteLength(output, 'utf8');
+    pack.packEnd.bytes = emittedBytes;
+    pack.size.totalBytes = emittedBytes;
+    break;
+  }
+  if (pack.status === 'OVERFLOW') {
+    pack.packEnd.bytes = emittedBytes;
+    pack.size.totalBytes = emittedBytes;
   }
   if (console.log !== nativeConsoleLog) {
     console.log(output);

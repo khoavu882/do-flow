@@ -418,6 +418,9 @@ function computeEnvelopes({
   toolLimitNotice = null,
   limits = null,
   selfRefWidth = null,
+  recordingExpected = false,
+  form = 'json',
+  harnessId = 'unstated',
 }: any): { envelopeMd: number; envelopeJson: number } {
   // --- Markdown envelope ---
   let md = `## ContextPack: [${taskClass.toUpperCase()}] ${taskId}\n`;
@@ -514,12 +517,23 @@ function computeEnvelopes({
     evidenceCount: 0,
     evidenceSummary: [],
     structuralContext: [],
-    budgetEnforcement: { totalFiles: 0, totalSupportedClaims: 0, totalActiveHypotheses: 0, limits: limits || {} },
+    budgetEnforcement: {
+      totalFiles: 0,
+      totalSupportedClaims: 0,
+      totalActiveHypotheses: 0,
+      limits: limits ? {
+        maxFiles: limits.maxFiles,
+        maxClaims: limits.maxClaims,
+        maxEvidenceItems: limits.maxEvidenceItems,
+        maxResearchRequests: limits.maxResearchRequests,
+        maxStructuralItems: limits.maxStructuralItems,
+      } : {},
+    },
     empty,
     omissions: { total: 0, groups: [] },
     size: { totalBytes: selfRefBytes, mandatoryBytes: selfRefBytes, optionalBytes: selfRefBytes, fittedOn: 'json' },
-    accounting: { tokens: { inlineTokensEst: selfRefTokens, netTokensEst: selfRefTokens, basis: 'estimated:bytes/4', actual: { unmeasured: 'needs a model call (paid)' } } },
-    delivery: { key: null, packDigest: 'sha256:' + '0'.repeat(64), recorded: false, reason: null, since: null, deltaRefused: null },
+    accounting: { tokens: { inlineTokensEst: Math.ceil(maxBytes / 4), netTokensEst: Math.ceil(maxBytes / 4), basis: 'estimated:bytes/4', actual: { unmeasured: 'no harness reports token usage to an external CLI; profile tokenTelemetry unverified' } } },
+    delivery: { key: recordingExpected ? `${'sha256:' + '0'.repeat(64)}.${form}.${harnessId}` : null, packDigest: 'sha256:' + '0'.repeat(64), recorded: recordingExpected, reason: null, since: null, deltaRefused: null },
     delta: null,
     packEnd: { mode, objective: hasMandatoryItems.objective ? 1 : 0, acceptanceCriteria: 0, constraints: 0, verificationRequirements: 0, scopeExcluded: 0, conflicts: 0, blockingGaps: 0, omitted: 0, bytes: selfRefBytes, digest: 'sha256:000000000000' },
   };
@@ -559,8 +573,8 @@ function linearFit({
   sectionHeadingsMd = OPTIONAL_HEADING_BYTES_MD,
   sectionHeadingsJson = OPTIONAL_HEADING_BYTES_JSON,
 }: any): any {
-  const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory');
-  const allOptional = items.filter((i: any) => i.cls === 'optional' || i.class === 'optional');
+  const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory' || i.deltaForced);
+  const allOptional = items.filter((i: any) => (i.cls === 'optional' || i.class === 'optional') && !i.deltaForced);
 
   // Enforce item limits on optional items (reason: 'item-cap')
   const fieldCounts: Record<string, number> = {};
@@ -608,25 +622,8 @@ function linearFit({
   const initialCostMd = mandatoryMdBytes + allOmittedBytes.md;
   const initialCostJson = mandatoryJsonBytes + allOmittedBytes.json;
 
-  // Check overflow
-  if (Math.max(initialCostMd, initialCostJson) > budget) {
-    const cause = Math.max(mandatoryMdBytes, mandatoryJsonBytes) > budget ? 'mandatory' : 'accounting';
-    const fittedOn = initialCostJson > initialCostMd ? 'json' : 'markdown';
-    return {
-      taskId,
-      taskClass,
-      budgetBytes: budget,
-      totalBytes: Math.max(initialCostMd, initialCostJson),
-      mandatoryBytes: Math.max(mandatoryMdBytes, mandatoryJsonBytes),
-      optionalBytes: 0,
-      overflow: true,
-      cause,
-      fittedOn,
-      kept: mandatoryItems,
-      omissions: allOmitted,
-      packDigest: computePackDigest(mandatoryItems),
-    };
-  }
+  // Even when the all-omitted accounting form is over budget, test optional items
+  // in priority order: retaining an item can cost less than naming it as omitted.
 
   // Sort optional items by priority ascending, then source order
   const sortedOptional = [...eligibleOptional].sort((a: any, b: any) => {
@@ -704,6 +701,25 @@ function linearFit({
   const optionalBytes = totalBytes - mandatoryBytes;
   const kept = [...mandatoryItems, ...keptOptional];
 
+  // Overflow is final only after every optional item has had its fit decision.
+  if (totalBytes > budget) {
+    const cause = mandatoryBytes > budget ? 'mandatory' : 'accounting';
+    return {
+      taskId,
+      taskClass,
+      budgetBytes: budget,
+      totalBytes,
+      mandatoryBytes,
+      optionalBytes: 0,
+      overflow: true,
+      cause,
+      fittedOn,
+      kept: mandatoryItems,
+      omissions: allOmitted,
+      packDigest: computePackDigest(mandatoryItems),
+    };
+  }
+
   return {
     taskId,
     taskClass,
@@ -724,7 +740,7 @@ function linearFit({
  * Groups omissions according to IC-008.
  * Order: not-fresh STALE, not-fresh UNKNOWN, mandatory-overflow, budget, item-cap, unchanged.
  */
-function groupOmissions(omissionsList: any[] = []): { total: number; groups: any[] } {
+function groupOmissions(omissionsList: any[] = [], recorded = false): { total: number; groups: any[] } {
   if (!omissionsList || omissionsList.length === 0) {
     return { total: 0, groups: [] };
   }
@@ -755,11 +771,35 @@ function groupOmissions(omissionsList: any[] = []): { total: number; groups: any
     groupMap.get(key)!.ids.push(item.id);
   }
 
-  const groups = Array.from(groupMap.values())
-    .map((g) => ({
-      ...g,
-      count: g.ids.length,
-    }))
+  const groups = Array.from(groupMap.entries())
+    .map(([key, g]) => {
+      const matching = omissionsList.filter((item) => `${item.reason}:${item.freshness || ''}` === key);
+      const ranges: any[] = [];
+      const ranged = new Set<number>();
+      if (recorded) {
+        for (let start = 0; start < matching.length;) {
+          const first = matching[start];
+          const match = /^(.+?)(\d+)$/.exec(first.id);
+          let end = start;
+          if (match) {
+            let previous = Number(match[2]);
+            for (let i = start + 1; i < matching.length; i += 1) {
+              const next = /^(.+?)(\d+)$/.exec(matching[i].id);
+              if (matching[i].field !== first.field || !next || next[1] !== match[1] || Number(next[2]) !== previous + 1) break;
+              previous = Number(next[2]);
+              end = i;
+            }
+          }
+          if (end - start + 1 >= 3) {
+            for (let i = start; i <= end; i += 1) ranged.add(i);
+            ranges.push({ field: first.field, from: matching[start].id, to: matching[end].id, count: end - start + 1 });
+          }
+          start = end + 1;
+        }
+      }
+      const ids = g.ids.filter((_, index) => !ranged.has(index));
+      return { ...g, ids, ranges, count: g.ids.length };
+    })
     .sort((a, b) => rank(a) - rank(b));
 
   return {
@@ -859,6 +899,25 @@ function formatMarkdown(pack: any, options: any = {}): string {
   };
 
   const mode = pack.mode || 'full';
+  if (pack.expansion) {
+    const body = `### Expanded: ${pack.expansion.path}\n${pack.expansion.content}${pack.expansion.targetChanged ? '\n> Target changed since this pointer was recorded.\n' : ''}${pack.delivery?.recorded === false ? `\n> Expansion not recorded: ${pack.delivery.reason || 'unknown'}\n` : ''}\n`;
+    const digest = pack.packEnd?.digest || formatShortDigest(pack.delivery?.packDigest);
+    let total = pack.size?.totalBytes || 0;
+    for (let i = 0; i < 6; i++) {
+      const header = `## ContextPack: [${pack.taskClass.toUpperCase()}] ${pack.taskId}\n`;
+      const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${total} B · tokens ~${Math.round(total / 4)} (estimated:bytes/4) · actual unmeasured_\n`;
+      const end = `[end of pack] mode=expand objective=0 ac=0 constraints=0 verification=0 scope=0 conflicts=0 gaps=0 omitted=0 bytes=${String(total).padStart(9, '0')} digest=${digest}\n`;
+      const output = header + body + footer + end;
+      const actual = Buffer.byteLength(output, 'utf8');
+      if (actual === total) {
+        pack.size.totalBytes = actual;
+        pack.packEnd.bytes = actual;
+        if (throwOnOverBudget && actual > pack.budget.maxBytes) throw new Error(`Emitted markdown pack size (${actual} B) exceeds budget (${pack.budget.maxBytes} B)`);
+        return output;
+      }
+      total = actual;
+    }
+  }
   let md = '';
   if (pack.objective) {
     md += `**Objective:** ${pack.objective}\n\n`;
@@ -1047,6 +1106,12 @@ function formatMarkdown(pack: any, options: any = {}): string {
     md += `_No evidence or claims are recorded for task '${pack.taskId}'; this pack states nothing._\n\n`;
   }
 
+  if (mode === 'delta' && pack.delta?.removed?.length) {
+    md += `### Removed since ${formatShortDigest(pack.delta.since)}\n`;
+    for (const id of pack.delta.removed) md += `- ${id}\n`;
+    md += '\n';
+  }
+
   if (pack.omissions?.groups && pack.omissions.groups.length > 0) {
     md += `### Omitted\n`;
     for (const g of pack.omissions.groups) {
@@ -1167,7 +1232,7 @@ function formatJson(pack: any, options: any = {}): string {
     'blockingGaps', 'claims', 'researchRequests', 'mandatory', 'decisions',
     'pointers', 'relevantFiles', 'evidenceCount', 'evidenceSummary', 'structuralContext',
     'budgetEnforcement', 'empty', 'omissions', 'size', 'accounting', 'delivery',
-    'delta', 'packEnd',
+    'delta', 'expansion', 'expansionRecorded', 'packEnd',
   ];
 
   for (const k of keys) {
