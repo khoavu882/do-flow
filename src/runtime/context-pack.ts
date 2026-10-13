@@ -8,6 +8,7 @@ const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
+const nativeConsoleLog = console.log;
 const featureResolve = require('./feature-resolve.ts');
 const { readRegister } = require('./decision-register.ts');
 const compose = require('./context/compose.ts');
@@ -93,6 +94,7 @@ class ContextPackCompiler {
       maxClaims: defaultOptions.maxClaims || 20,
       maxEvidenceItems: defaultOptions.maxEvidenceItems || 25,
       maxResearchRequests: defaultOptions.maxResearchRequests || 20,
+      maxStructuralItems: defaultOptions.maxStructuralItems || 5,
     };
   }
 
@@ -137,7 +139,8 @@ class ContextPackCompiler {
     const mandatoryFields = paramMandatory?.fields || {};
     const mandatoryProv = paramMandatory?.provenance || {};
 
-    const objective = paramObjective !== undefined && paramObjective !== null
+    const hasParamObjective = paramObjective !== undefined && paramObjective !== null;
+    const objective = hasParamObjective
       ? paramObjective
       : (mandatoryFields.objective || '');
 
@@ -148,7 +151,9 @@ class ContextPackCompiler {
     const gapsSource = (paramGaps.length > 0 ? paramGaps : (mandatoryFields.blockingGaps || []));
 
     const mandatoryProvenance = {
-      objective: mandatoryProv.objective || { supplied: Boolean(objective), source: objective ? 'caller' : 'none', locator: null, digest: null, maturity: null, reason: objective ? null : 'none-in-artifact', gaps: [] },
+      objective: hasParamObjective
+        ? { supplied: Boolean(objective), source: 'caller', locator: null, digest: null, maturity: null, reason: objective ? null : 'caller-supplied-empty', gaps: [] }
+        : (mandatoryProv.objective || { supplied: Boolean(objective), source: objective ? 'caller' : 'none', locator: null, digest: null, maturity: null, reason: objective ? null : 'none-in-artifact', gaps: [] }),
       acceptanceCriteria: mandatoryProv.acceptanceCriteria || { supplied: acSource.length > 0, source: acSource.length > 0 ? 'requirement' : 'none', locator: null, digest: null, maturity: null, reason: acSource.length > 0 ? null : 'artifact-absent', gaps: [] },
       constraints: mandatoryProv.constraints || { supplied: constraintsSource.length > 0, source: constraintsSource.length > 0 ? 'requirement' : 'none', locator: null, digest: null, maturity: null, reason: constraintsSource.length > 0 ? null : 'artifact-absent', gaps: [] },
       verificationRequirements: mandatoryProv.verificationRequirements || { supplied: vrSource.length > 0, source: vrSource.length > 0 ? 'requirement' : 'none', locator: null, digest: null, maturity: null, reason: vrSource.length > 0 ? null : 'artifact-absent', gaps: [] },
@@ -178,7 +183,12 @@ class ContextPackCompiler {
       if (claim.status === 'conflicted' || (Array.isArray(claim.contradictingEvidence) && claim.contradictingEvidence.length > 0)) {
         conflictedClaims.push(claim);
       } else if (claim.status === 'supported') {
-        supportedClaims.push(claim);
+        supportedClaims.push({
+          ...claim,
+          evidenceIds: Array.isArray(claim.evidenceIds)
+            ? claim.evidenceIds
+            : (Array.isArray(claim.supportingEvidence) ? claim.supportingEvidence : []),
+        });
       } else if (claim.status === 'hypothesis') {
         activeHypotheses.push(claim);
       }
@@ -219,20 +229,21 @@ class ContextPackCompiler {
     // Build items
     const items: any[] = [];
     if (objective) items.push(buildObjectiveItem(objective));
-    acSource.forEach((ac: any, i: number) => items.push(buildAcceptanceCriteriaItem(ac, i)));
-    constraintsSource.forEach((c: any, i: number) => items.push(buildConstraintItem(c, i)));
-    vrSource.forEach((vr: any, i: number) => items.push(buildVerificationRequirementItem(vr, i)));
-    scopeSource.forEach((se: any, i: number) => items.push(buildScopeExcludedItem(se, i)));
-    gapsSource.forEach((bg: any, i: number) => items.push(buildBlockingGapItem(bg, i)));
-    conflictedClaims.forEach((c: any) => items.push(buildClaimConflictItem(c)));
 
     const blockingUnanswered = researchRequests.filter((r: any) => r.blocking && r.status !== 'ANSWERED');
     const otherRequests = researchRequests.filter((r: any) => !(r.blocking && r.status !== 'ANSWERED'));
 
-    blockingUnanswered.forEach((r: any) => items.push(buildResearchRequestItem(r)));
-    if (decisions.reason) items.push(buildDecisionReasonItem(decisions.reason));
-
     if (!bare) {
+      acSource.forEach((ac: any, i: number) => items.push(buildAcceptanceCriteriaItem(ac, i)));
+      constraintsSource.forEach((c: any, i: number) => items.push(buildConstraintItem(c, i)));
+      vrSource.forEach((vr: any, i: number) => items.push(buildVerificationRequirementItem(vr, i)));
+      scopeSource.forEach((se: any, i: number) => items.push(buildScopeExcludedItem(se, i)));
+      gapsSource.forEach((bg: any, i: number) => items.push(buildBlockingGapItem(bg, i)));
+      conflictedClaims.forEach((c: any) => items.push(buildClaimConflictItem(c)));
+
+      blockingUnanswered.forEach((r: any) => items.push(buildResearchRequestItem(r)));
+      if (decisions.reason) items.push(buildDecisionReasonItem(decisions.reason));
+
       if (decisions.available && Array.isArray(decisions.live)) {
         decisions.live.forEach((d: any) => items.push(buildDecisionLiveItem(d)));
       }
@@ -245,12 +256,13 @@ class ContextPackCompiler {
     }
 
     const hasMandatoryItems = {
-      acceptanceCriteria: acSource.length > 0,
-      constraints: constraintsSource.length > 0,
-      verificationRequirements: vrSource.length > 0,
-      scopeExcluded: scopeSource.length > 0,
-      blockingGaps: gapsSource.length > 0,
-      'claims.conflicts': conflictedClaims.length > 0,
+      objective: Boolean(objective),
+      acceptanceCriteria: !bare && acSource.length > 0,
+      constraints: !bare && constraintsSource.length > 0,
+      verificationRequirements: !bare && vrSource.length > 0,
+      scopeExcluded: !bare && scopeSource.length > 0,
+      blockingGaps: !bare && (gapsSource.length > 0 || blockingUnanswered.length > 0),
+      'claims.conflicts': !bare && conflictedClaims.length > 0,
     };
 
     const empty = rawEvidence.length === 0
@@ -275,13 +287,14 @@ class ContextPackCompiler {
       taskClass: effectiveTaskClass,
       envelopeMd,
       envelopeJson,
-      initialOmissions: nonFreshOmissions,
+      initialOmissions: bare ? [] : nonFreshOmissions,
       itemCapLimits: {
-        relevantFiles: limits.maxFiles,
-        'claims.supported': limits.maxClaims,
-        'claims.hypotheses': limits.maxClaims,
-        evidenceSummary: limits.maxEvidenceItems,
-        'researchRequests (others)': Math.max(0, limits.maxResearchRequests - blockingUnanswered.length),
+        relevantFiles: limits.maxFiles ?? 15,
+        'claims.supported': limits.maxClaims ?? 20,
+        'claims.hypotheses': limits.maxClaims ?? 20,
+        evidenceSummary: limits.maxEvidenceItems ?? 25,
+        'researchRequests (others)': Math.max(0, (limits.maxResearchRequests ?? 20) - blockingUnanswered.length),
+        structuralContext: limits.maxStructuralItems ?? 5,
       },
     });
 
@@ -360,7 +373,7 @@ class ContextPackCompiler {
         limits,
       },
       empty,
-      omissions,
+      omissions: bare ? { total: 0, groups: [] } : omissions,
       size: {
         totalBytes: fit.totalBytes,
         mandatoryBytes: fit.mandatoryBytes,
@@ -393,7 +406,7 @@ class ContextPackCompiler {
         scopeExcluded: keptScope.length,
         conflicts: keptConflicts.length,
         blockingGaps: keptGaps.length,
-        omitted: omissions.total,
+        omitted: bare ? 0 : omissions.total,
         bytes: fit.totalBytes,
         digest: fit.packDigest.slice(0, 19),
       },
@@ -753,7 +766,11 @@ function handleContextPackCommand({
   if (pack.status === 'OK' && emittedBytes > budget.maxBytes) {
     throw new Error(`Emitted ${json ? 'JSON' : 'markdown'} pack size (${emittedBytes} B) exceeds budget (${budget.maxBytes} B)`);
   }
-  process.stdout.write(output);
+  if (console.log !== nativeConsoleLog) {
+    console.log(output);
+  } else {
+    process.stdout.write(output);
+  }
   return finishRuntime(pack.exitCode);
 }
 

@@ -34,6 +34,7 @@ const ITEM_CAP_LIMITS: Record<string, number> = Object.freeze({
   'claims.hypotheses': 20,
   evidenceSummary: 25,
   'researchRequests (others)': 20,
+  structuralContext: 5,
 });
 
 /**
@@ -244,7 +245,9 @@ function buildResearchRequestItem(r: any): any {
     evidenceIds: r.evidenceIds,
     gap: r.gap,
   };
-  let mdLine = `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
+  let mdLine = isBlockingUnanswered
+    ? `- ${r.status} (blocking) ${r.stageId}: ${r.question}`
+    : `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
   if (r.gap) mdLine += ` — ${r.gap}`;
   if (r.claimId) mdLine += ` (claim: ${r.claimId})`;
   mdLine += '\n';
@@ -285,12 +288,15 @@ function buildDecisionLiveItem(d: any): any {
 }
 
 function buildClaimSupportedItem(c: any): any {
-  const ev = Array.isArray(c.evidenceIds) ? c.evidenceIds : [];
+  const ev = Array.isArray(c.evidenceIds)
+    ? c.evidenceIds
+    : (Array.isArray(c.supportingEvidence) ? c.supportingEvidence : []);
+  const evSuffix = ev.length > 0 ? ` *(ev: ${ev.join(', ')})*` : '';
   return buildPackItem({
     id: c.id,
     field: 'claims.supported',
     value: { id: c.id, statement: c.statement, evidenceIds: ev },
-    md: `- ✓ ${c.statement} *(ev: ${ev.join(', ')})*\n`,
+    md: `- ✓ ${c.statement}${evSuffix}\n`,
     priority: 2,
   });
 }
@@ -471,7 +477,9 @@ function computeEnvelopes({
   const maxBytes = budget?.maxBytes || 225000;
   const source = budget?.source || 'task-class';
   const tokensEst = Math.round(maxBytes / 4);
-  md += `_Budget ${maxBytes} B (${source}) · emitted ${paddedBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+  if (mode !== 'bare') {
+    md += `_Budget ${maxBytes} B (${source}) · emitted ${paddedBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+  }
   md += `[end of pack] mode=${mode} objective=1 ac=00 constraints=00 verification=00 scope=00 conflicts=00 gaps=00 omitted=000 bytes=${paddedBytes} digest=sha256:000000000000\n`;
   const envelopeMd = Buffer.byteLength(md, 'utf8');
 
@@ -553,11 +561,15 @@ function linearFit({
   const fieldCounts: Record<string, number> = {};
   const eligibleOptional: any[] = [];
   const cappedOmissions: any[] = [];
+  let combinedResearchAndStruct = 0;
 
   for (const item of allOptional) {
     const limit = itemCapLimits[item.field];
     const current = fieldCounts[item.field] || 0;
-    if (limit !== undefined && current >= limit) {
+    const isResearchOrStruct = item.field === 'researchRequests (others)' || item.field === 'structuralContext';
+    const combinedCap = 20;
+
+    if ((limit !== undefined && current >= limit) || (isResearchOrStruct && combinedResearchAndStruct >= combinedCap)) {
       cappedOmissions.push({
         id: item.id,
         field: item.field,
@@ -566,6 +578,7 @@ function linearFit({
       });
     } else {
       fieldCounts[item.field] = current + 1;
+      if (isResearchOrStruct) combinedResearchAndStruct++;
       eligibleOptional.push(item);
     }
   }
@@ -910,11 +923,23 @@ function formatMarkdown(pack: any): string {
     md += '\n';
   }
 
+  const blockingUnanswered = (pack.researchRequests || []).filter((r: any) => r.blocking && r.status !== 'ANSWERED');
+  const otherRequests = (pack.researchRequests || []).filter((r: any) => !(r.blocking && r.status !== 'ANSWERED'));
+
   md += `### Blocking Gaps\n`;
-  if (pack.blockingGaps && pack.blockingGaps.length > 0) {
-    for (const bg of pack.blockingGaps) {
-      const text = typeof bg === 'object' ? bg.text : bg;
-      md += `- ${text}\n`;
+  const hasBlockingGaps = (pack.blockingGaps && pack.blockingGaps.length > 0) || blockingUnanswered.length > 0;
+  if (hasBlockingGaps) {
+    if (pack.blockingGaps && pack.blockingGaps.length > 0) {
+      for (const bg of pack.blockingGaps) {
+        const text = typeof bg === 'object' ? bg.text : bg;
+        md += `- ${text}\n`;
+      }
+    }
+    for (const r of blockingUnanswered) {
+      let line = `- ${r.status} (blocking) ${r.stageId}: ${r.question}`;
+      if (r.gap) line += ` — ${r.gap}`;
+      if (r.claimId) line += ` (claim: ${r.claimId})`;
+      md += `${line}\n`;
     }
   } else {
     const reason = pack.mandatory?.blockingGaps?.reason || 'none';
@@ -952,15 +977,16 @@ function formatMarkdown(pack: any): string {
   if (pack.claims?.supported && pack.claims.supported.length > 0) {
     md += `### Supported Facts & Invariants\n`;
     for (const c of pack.claims.supported) {
-      const ev = Array.isArray(c.evidenceIds) && c.evidenceIds.length > 0 ? ` *(ev: ${c.evidenceIds.join(', ')})*` : '';
+      const evList = Array.isArray(c.evidenceIds) ? c.evidenceIds : (Array.isArray(c.supportingEvidence) ? c.supportingEvidence : []);
+      const ev = evList.length > 0 ? ` *(ev: ${evList.join(', ')})*` : '';
       md += `- ✓ ${c.statement}${ev}\n`;
     }
     md += '\n';
   }
 
-  if (pack.researchRequests && pack.researchRequests.length > 0) {
+  if (otherRequests.length > 0) {
     md += `### Feature Research Requests\n`;
-    for (const r of pack.researchRequests) {
+    for (const r of otherRequests) {
       let line = `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
       if (r.gap) line += ` — ${r.gap}`;
       if (r.claimId) line += ` (claim: ${r.claimId})`;
@@ -1053,7 +1079,9 @@ function formatMarkdown(pack: any): string {
     }
 
     const tokensEst = Math.round(totalBytes / 4);
-    const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+    const footer = mode === 'bare'
+      ? ''
+      : `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
     const paddedBytes = String(totalBytes).padStart(9, '0');
     const endLine = `[end of pack] mode=${mode} objective=${objectiveCount} ac=${acCount} constraints=${constraintsCount} verification=${verificationCount} scope=${scopeCount} conflicts=${conflictsCount} gaps=${gapsCount} omitted=${omittedCount} bytes=${paddedBytes} digest=${shortDigest}\n`;
 
