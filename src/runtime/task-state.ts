@@ -166,13 +166,17 @@ function readTaskState(fsImpl: any, file: string): any {
   try {
     data = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
   } catch (error: any) {
-    throw new Error(`Failed to load state file '${file}': ${error.message}. The write path is atomic `
+    const failure: any = new Error(`Failed to load state file '${file}': ${error.message}. The write path is atomic `
       + '(tmp + rename), so a torn file means outside interference; recover it from version control '
       + 'or move it aside and re-record the task\'s items.');
+    failure.code = 'store-unreadable';
+    throw failure;
   }
   if (data && typeof data === 'object' && data.version !== undefined && data.version !== SCHEMA_VERSION) {
-    throw new Error(`State file '${file}' has schema version ${data.version}; this runtime reads version ${SCHEMA_VERSION}. `
+    const failure: any = new Error(`State file '${file}' has schema version ${data.version}; this runtime reads version ${SCHEMA_VERSION}. `
       + 'Refusing to guess at its shape — upgrade the runtime or migrate the file.');
+    failure.code = 'store-unreadable';
+    throw failure;
   }
   return data;
 }
@@ -190,7 +194,7 @@ function readTaskState(fsImpl: any, file: string): any {
  *   that must inspect or set aside what is there under the same exclusion as the write
  * @param {(fsImpl: Object, file: string) => () => void} [options.acquire] optional lock acquirer
  *   defaulting to acquireLock
- * @returns {string} the file path written
+ * @returns {string|null} the file path written, or null when build declines a write
  */
 function updateTaskState({
   fsImpl,
@@ -204,14 +208,16 @@ function updateTaskState({
   build: (disk: any) => any;
   prepare?: () => void;
   acquire?: (fsImpl: any, file: string) => () => void;
-}): string {
+}): string | null {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const release = acquire(fsImpl, file);
   try {
     if (prepare) prepare();
     const disk = readTaskState(fsImpl, file);
+    const built = build(disk);
+    if (built === null) return null;
     const payload = {
-      ...build(disk),
+      ...built,
       version: SCHEMA_VERSION,
       revision: (disk && Number.isInteger(disk.revision) ? disk.revision : 0) + 1,
     };

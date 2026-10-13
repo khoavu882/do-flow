@@ -49,7 +49,7 @@ const {
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
 const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegisteredHarnesses } = require('./context/budget.ts');
-const { createDeliveryEntry, readDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
+const { createDeliveryEntry, readDeliveryEntry, recordDelivery, makeTokenRecord } = require('./context/delivery-store.ts');
 const { boundedAcquire } = require('./task-state.ts');
 const pointerTools = require('./context/pointer.ts');
 const { updateTaskState } = require('./task-state.ts');
@@ -109,13 +109,20 @@ function sourcesChanged(root: string, sources: Record<string, string>): boolean 
   return false;
 }
 
+function classifyStoreFailure(error: any): string {
+  if (error?.code === 'store-locked' || error?.message === 'store-locked') return 'store-locked';
+  if (error?.code === 'store-unreadable') return 'store-unreadable';
+  if (['EACCES', 'EROFS', 'EPERM', 'ENOSPC'].includes(error?.code)) return 'store-unwritable';
+  return 'store-unwritable';
+}
+
 function profileRetention(harnessId: string | null, profiles: any[] | null): any {
   if (!harnessId) return null;
   const harnesses = profiles || getRegisteredHarnesses();
   return harnesses.find((item: any) => item.id === harnessId)?.contextProfile?.retention || null;
 }
 
-function appendPointerExpansion({ projectRoot, taskId, slug, packDigest, expansion, fsImpl = fs }: any): void {
+function appendPointerExpansion({ projectRoot, taskId, slug, key, expansion, fsImpl = fs }: any): void {
   const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
   const file = path.join(dir, `${taskId}.json`);
   updateTaskState({
@@ -125,11 +132,15 @@ function appendPointerExpansion({ projectRoot, taskId, slug, packDigest, expansi
       const deliveries = Array.isArray(disk?.deliveries) ? disk.deliveries : [];
       let found = false;
       const updated = deliveries.map((entry: any) => {
-        if (entry.packDigest !== packDigest) return entry;
+        if (entry.key !== key) return entry;
         found = true;
         return { ...entry, expansions: [...(entry.expansions || []), expansion] };
       });
-      if (!found) throw new Error('delivery entry disappeared');
+      if (!found) {
+        const error: any = new Error('delivery entry disappeared');
+        error.code = 'entry-evicted';
+        throw error;
+      }
       return { taskId, deliveries: updated };
     },
   });
@@ -932,33 +943,53 @@ function handleContextPackCommand({
     if (!pointer) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
     const current = pointerTools.readPointerSlice({ projectRoot: root, pointer });
     if (!current) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
-    const expansionRecord = {
-      at: new Date().toISOString(), kind: 'pointer-followed', target: expand, reason,
-      bytesAdded: Buffer.byteLength(current.slice, 'utf8'), targetChanged: current.digest !== pointer.digest,
-    };
-    let recorded = false;
-    let recordReason: string | null = noRecord ? 'no-record' : null;
-    if (!noRecord) {
-      try {
-        appendPointerExpansion({ projectRoot: root, taskId, slug, packDigest: since, expansion: expansionRecord });
-        recorded = true;
-      } catch (error: any) {
-        if (error?.code !== 'store-locked' && error?.message !== 'store-locked') throw error;
-        recordReason = 'store-locked';
-      }
-    }
     const compiler = new ContextPackCompiler();
     const pack = compiler.compileContextPack({ taskId, taskClass: effectiveTaskClass, objective: '', mandatory: { fields: {}, provenance: {} }, budget,
       mode: 'expand', expansion: { id: expand, path: pointer.path, content: current.slice, targetChanged: current.digest !== pointer.digest } });
     pack.status = 'OK';
     pack.exitCode = EXIT.OK;
     pack.mode = 'expand';
-    pack.delivery = { key: prior.key, packDigest: since, recorded, reason: recordReason, since, deltaRefused: null, expansionRecorded: recorded };
+    pack.delivery = { key: prior.key, packDigest: since, recorded: false, reason: noRecord ? 'no-record' : null,
+      since, deltaRefused: null, expansionRecorded: false };
     pack.packEnd.mode = 'expand';
     pack.packEnd.digest = since.slice(7, 19);
-    pack.expansionRecorded = recorded;
-    pack.accounting.tokens = prior.tokens;
-    const output = json ? compiler.formatJson(pack) : compiler.formatMarkdown(pack);
+    const sliceBytes = Buffer.byteLength(current.slice, 'utf8');
+    let output = '';
+    let emitted = 0;
+    for (let render = 0; render < 3; render += 1) {
+      output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+      emitted = Buffer.byteLength(output, 'utf8');
+      const tokenValue = Math.ceil(emitted / 4);
+      if (pack.accounting.tokens?.estimated?.value === tokenValue) break;
+      pack.accounting.tokens = makeTokenRecord(emitted);
+    }
+    if (emitted > budget.maxBytes) {
+      return usageError('context-pack', `slice is ${emitted} B, over the ${budget.maxBytes} B cap (${budget.source}); re-run with --max-bytes ${emitted} --reason "${reason}"`, json);
+    }
+    let expansionRecorded = false;
+    let recordReason: string | null = noRecord ? 'no-record' : null;
+    if (!noRecord) {
+      const expansionRecord = { at: new Date().toISOString(), kind: 'pointer-followed', target: expand, reason,
+        bytesAdded: sliceBytes, targetChanged: current.digest !== pointer.digest };
+      try {
+        appendPointerExpansion({ projectRoot: root, taskId, slug, key: prior.key, expansion: expansionRecord });
+        expansionRecorded = true;
+        recordReason = null;
+      } catch (error: any) {
+        recordReason = error?.code === 'entry-evicted' ? 'entry-evicted' : classifyStoreFailure(error);
+      }
+    }
+    pack.delivery.recorded = expansionRecorded;
+    pack.delivery.reason = recordReason;
+    pack.delivery.expansionRecorded = expansionRecorded;
+    pack.expansionRecorded = expansionRecorded;
+    for (let render = 0; render < 3; render += 1) {
+      output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+      emitted = Buffer.byteLength(output, 'utf8');
+      const tokenValue = Math.ceil(emitted / 4);
+      if (pack.accounting.tokens?.estimated?.value === tokenValue) break;
+      pack.accounting.tokens = makeTokenRecord(emitted);
+    }
     if (console.log !== nativeConsoleLog) console.log(output);
     else process.stdout.write(output);
     return finishRuntime(EXIT.OK);
@@ -1070,83 +1101,117 @@ function handleContextPackCommand({
 
   let deliverySources: any = null;
   let deliveryRetention: any = null;
-  if (noRecord) {
-    pack.delivery.reason = 'no-record';
-  } else {
+  const form = json ? 'json' : 'markdown';
+  let deliveryRecorded = !noRecord;
+  let deliveryReason: string | null = noRecord ? 'no-record' : null;
+  pack.delivery.recorded = deliveryRecorded;
+  pack.delivery.reason = deliveryReason;
+  pack.delivery.key = noRecord ? null : `${pack.delivery.packDigest}.${form}.${budget.harness?.id || 'unstated'}`;
+  pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, !noRecord);
+  if (pack.status === 'OVERFLOW') {
+    pack = { ...pack, deliveryOmissions: pack.deliveryOmissions.map((item: any) => item.reason === 'budget' ? { ...item, reason: 'mandatory-overflow' } : item) };
+    pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, !noRecord);
+  }
+  if (!noRecord) {
     deliverySources = hashSourceFiles(root, pack.relevantFiles || []);
     deliveryRetention = retention?.value === 'supported' || retention?.value === 'unsupported'
       ? { status: retention.value, basis: `declared:${retention.source || 'profile'}` }
       : { status: 'unknown', basis: retention?.unverified || 'contextProfile.retention is unverified' };
-    const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
-      sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
-    try {
-      const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire });
-      pack.delivery.key = result.key;
-      pack.delivery.recorded = true;
-      pack.delivery.reason = null;
-      pack.accounting.tokens = entry.tokens;
-      pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, true);
-    } catch (error: any) {
-      if (error?.code !== 'store-locked' && error?.message !== 'store-locked') throw error;
-      pack.delivery.key = null;
-      pack.delivery.recorded = false;
-      pack.delivery.reason = 'store-locked';
-    }
   }
 
-  let output = '';
-  let emittedBytes = 0;
-  while (true) {
-    const mdOutput = compiler.formatMarkdown(pack, { throwOnOverBudget: false });
-    const jsonOutput = compiler.formatJson(pack, { throwOnOverBudget: false });
-    const mdBytes = Buffer.byteLength(mdOutput, 'utf8');
-    const jsonBytes = Buffer.byteLength(jsonOutput, 'utf8');
-    if (pack.status !== 'OK' || (mdBytes <= budget.maxBytes && jsonBytes <= budget.maxBytes)) {
-      output = json ? jsonOutput : mdOutput;
-      emittedBytes = json ? jsonBytes : mdBytes;
-      break;
-    }
-
-    const trimmed = (pack as any).trimOptional?.();
-    if (trimmed) {
-      const prior = pack;
-      pack = trimmed;
-      pack.delivery.recorded = prior.delivery.recorded;
-      pack.delivery.reason = prior.delivery.reason;
-      pack.delivery.key = prior.delivery.recorded
-        ? `${pack.delivery.packDigest}.${json ? 'json' : 'markdown'}.${budget.harness?.id || 'unstated'}`
-        : null;
-      pack.accounting.tokens = prior.accounting.tokens;
-      pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, pack.delivery.recorded);
-      if (pack.delivery.recorded) {
-        const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
-          sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
-        const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire,
-          supersedesKey: prior.delivery.key });
-        pack.delivery.key = result.key;
-        pack.accounting.tokens = entry.tokens;
+  const renderTrimmed = (): { output: string; bytes: number } => {
+    while (true) {
+      let mdOutput = '';
+      let jsonOutput = '';
+      let mdBytes = 0;
+      let jsonBytes = 0;
+      let stable = false;
+      for (let render = 0; render < 3; render += 1) {
+        mdOutput = compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+        jsonOutput = compiler.formatJson(pack, { throwOnOverBudget: false });
+        mdBytes = Buffer.byteLength(mdOutput, 'utf8');
+        jsonBytes = Buffer.byteLength(jsonOutput, 'utf8');
+        const emitted = json ? jsonBytes : mdBytes;
+        const tokens = makeTokenRecord(emitted);
+        const priorValue = pack.accounting.tokens?.estimated?.value;
+        pack.accounting.tokens = tokens;
+        if (priorValue === tokens.estimated.value) { stable = true; break; }
       }
-      continue;
+      if (!stable) {
+        mdOutput = compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+        jsonOutput = compiler.formatJson(pack, { throwOnOverBudget: false });
+        mdBytes = Buffer.byteLength(mdOutput, 'utf8');
+        jsonBytes = Buffer.byteLength(jsonOutput, 'utf8');
+      }
+      if (pack.status !== 'OK' || (mdBytes <= budget.maxBytes && jsonBytes <= budget.maxBytes)) {
+        const output = json ? jsonOutput : mdOutput;
+        const bytes = json ? jsonBytes : mdBytes;
+        pack.packEnd.bytes = bytes;
+        pack.size.totalBytes = bytes;
+        return { output, bytes };
+      }
+      const trimmed = (pack as any).trimOptional?.();
+      if (trimmed) {
+        pack = trimmed;
+        pack.delivery.recorded = deliveryRecorded;
+        pack.delivery.reason = deliveryReason;
+        pack.delivery.key = deliveryRecorded ? `${pack.delivery.packDigest}.${form}.${budget.harness?.id || 'unstated'}` : null;
+        pack.accounting.tokens = makeTokenRecord(json ? jsonBytes : mdBytes);
+        pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, !noRecord);
+        continue;
+      }
+      const cause = pack.size.mandatoryBytes > budget.maxBytes ? 'mandatory' : 'accounting';
+      pack.status = 'OVERFLOW';
+      pack.exitCode = EXIT.OVERFLOW;
+      if (cause === 'mandatory') {
+        pack = { ...pack, deliveryOmissions: pack.deliveryOmissions.map((item: any) => item.reason === 'budget' ? { ...item, reason: 'mandatory-overflow' } : item) };
+        pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, !noRecord);
+      }
+      pack.overflow = { cause, mandatoryBytes: pack.size.mandatoryBytes, budgetBytes: budget.maxBytes,
+        excessBytes: Math.max(0, Math.max(mdBytes, jsonBytes) - budget.maxBytes), action: 'split-or-new-session' };
+      pack.overflowAction = { message: cause === 'accounting'
+        ? `The omission record brings the pack to ${Math.max(mdBytes, jsonBytes)} B against a ${budget.maxBytes} B budget.`
+        : `It is ${pack.size.mandatoryBytes} B against a ${budget.maxBytes} B budget (${budget.source}).` };
+      let output = '';
+      let bytes = 0;
+      for (let render = 0; render < 3; render += 1) {
+        output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
+        bytes = Buffer.byteLength(output, 'utf8');
+        const tokenValue = Math.ceil(bytes / 4);
+        if (pack.accounting.tokens?.estimated?.value === tokenValue) break;
+        pack.accounting.tokens = makeTokenRecord(bytes);
+      }
+      pack.packEnd.bytes = bytes;
+      pack.size.totalBytes = bytes;
+      return { output, bytes };
     }
-
-    const cause = pack.size.mandatoryBytes > budget.maxBytes ? 'mandatory' : 'accounting';
-    pack.status = 'OVERFLOW';
-    pack.exitCode = EXIT.OVERFLOW;
-    pack.overflow = { cause, mandatoryBytes: pack.size.mandatoryBytes, budgetBytes: budget.maxBytes,
-      excessBytes: Math.max(0, Math.max(mdBytes, jsonBytes) - budget.maxBytes), action: 'split-or-new-session' };
-    pack.overflowAction = { message: cause === 'accounting'
-      ? `The omission record brings the pack to ${Math.max(mdBytes, jsonBytes)} B against a ${budget.maxBytes} B budget.`
-      : `It is ${pack.size.mandatoryBytes} B against a ${budget.maxBytes} B budget (${budget.source}).` };
-    output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
-    emittedBytes = Buffer.byteLength(output, 'utf8');
-    pack.overflowAction.message = cause === 'accounting'
-      ? `OVERFLOW (exit 3): mandatory content is complete and nothing in it was dropped. The omission record brings the pack to ${Math.max(mdBytes, jsonBytes)} B against a ${budget.maxBytes} B budget. Split the task or its context, or start a new session, then request the pack again.`
-      : `OVERFLOW (exit 3): mandatory content is complete and nothing in it was dropped. It is ${pack.size.mandatoryBytes} B against a ${budget.maxBytes} B budget (${budget.source}). Split the task or its context, or start a new session, then request the pack again.`;
-    output = json ? compiler.formatJson(pack, { throwOnOverBudget: false }) : compiler.formatMarkdown(pack, { throwOnOverBudget: false });
-    emittedBytes = Buffer.byteLength(output, 'utf8');
-    pack.packEnd.bytes = emittedBytes;
-    pack.size.totalBytes = emittedBytes;
-    break;
+  };
+  let rendered = renderTrimmed();
+  let output = rendered.output;
+  let emittedBytes = rendered.bytes;
+  if (!noRecord) {
+    const entry = createDeliveryEntry({ pack: { ...pack, deliveryOmissions: pack.deliveryOmissions }, form, harness: budget.harness?.id || null,
+      sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
+    entry.bytes = emittedBytes;
+    entry.tokens = makeTokenRecord(emittedBytes);
+    try {
+      const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire });
+      pack.delivery.key = result?.key || entry.key;
+      deliveryRecorded = true;
+      deliveryReason = null;
+      pack.delivery.recorded = deliveryRecorded;
+      pack.delivery.reason = deliveryReason;
+    } catch (error: any) {
+      deliveryRecorded = false;
+      deliveryReason = classifyStoreFailure(error);
+      pack.delivery.key = null;
+      pack.delivery.recorded = deliveryRecorded;
+      pack.delivery.reason = deliveryReason;
+    }
+    pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, pack.delivery.recorded);
+    rendered = renderTrimmed();
+    output = rendered.output;
+    emittedBytes = rendered.bytes;
   }
   if (pack.status === 'OVERFLOW') {
     pack.packEnd.bytes = emittedBytes;
