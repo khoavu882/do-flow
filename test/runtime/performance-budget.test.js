@@ -45,8 +45,14 @@ function runSurface(surface) {
 
 const budgets = JSON.parse(fs.readFileSync(BUDGETS_PATH, 'utf8'));
 const enforcedSurfaces = (budgets.surfaces || []).filter((surface) => surface.enforced);
+const additionalSurfaces = (budgets.surfaces || []).filter((surface) =>
+  ['cli.version', 'verb.capabilities'].includes(surface.id)
+);
 
-for (const surface of enforcedSurfaces) {
+// suite.guard-file and suite.guards recurse into the test runner; diag.doctor depends on installed tools; install.dry-run is covered by test/install/.
+const surfacesToRun = [...enforcedSurfaces, ...additionalSurfaces];
+
+for (const surface of surfacesToRun) {
   test(`performance-budget: surface ${surface.id} runs successfully and has a valid budget row`, () => {
     const row = findApprovedRow(budgets, surface.id);
     assert.ok(row, `approved budgets.json row must exist for surface ${surface.id}`);

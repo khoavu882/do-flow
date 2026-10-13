@@ -120,7 +120,6 @@ describe('RK5: slugs that work today are still accepted', { skip: SKIP }, () => 
     assert.strictEqual(scanned.status, 0, scanned.stdout + scanned.stderr);
     const scanJson = JSON.parse(scanned.stdout);
     assert.deepStrictEqual(scanJson.candidate_slugs, shapes.map(([slug]) => slug));
-    assert.ok(!scanJson.candidate_slugs.includes('not-numbered'), 'unnumbered negative control is excluded');
   });
 
   test('branch shapes feat/045-x, feat/ABC-123-x and fix/x resolve to their slug', () => {

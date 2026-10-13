@@ -252,7 +252,7 @@
       "locator": {
         "kind": "path-line",
         "ref": "src/runtime/context-pack.ts:274",
-        "observed": "TASK_CLASS_BUDGETS at src/runtime/context-pack.ts:14 (feature 225000 down to trivial-edit 30000 bytes); the only callers are test/runtime/context-pack-budget.test.js and test/runtime/performance-budget.test.js"
+        "observed": "TASK_CLASS_BUDGETS at src/runtime/context-pack.ts:14 (feature 225000 down to trivial-edit 30000 bytes); the only callers are test/runtime/context-pack-budget.test.js"
       },
       "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
       "note": "Declared and tested, but no verb calls it (its alias compileBoundedPayload, src/runtime/context-pack.ts:427, has no caller at all), so the budgets are not applied to a delivered context pack."
