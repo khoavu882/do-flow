@@ -5,9 +5,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { taskStoreDir } = require('./task-scope.ts');
+const { taskStoreDir, resolveTaskScope } = require('./task-scope.ts');
 const { assertSafeTaskId } = require('./evidence-ledger.ts');
 const { readTaskState, updateTaskState } = require('./task-state.ts');
+const { storeFile, activeAttempt } = require('./task-attempts.ts');
+const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 
 /**
  * Path of a task's retrieval-plan store.
@@ -60,9 +62,99 @@ function mintPlanId(): string {
   return `rp_${Date.now().toString(36)}_${crypto.randomBytes(2).toString('hex')}`;
 }
 
+/**
+ * Resolves a declared need from a plan for a given intent.
+ *
+ * @param {any} plan
+ * @param {string} intent
+ * @param {string} [taskId]
+ * @returns {{ queryRef: string, need: any } | { refusal: string, message: string, ok: false }}
+ */
+function resolveNeed(plan: any, intent: string, taskId?: string): any {
+  const id = (plan && plan.taskId) || taskId || '<id>';
+  if (!plan) {
+    const message = `no retrieval plan is declared for task '${id}', so --need '${intent}' names nothing. Declare one first: doflow retrieval-plan --task-id ${id} --action declare --need ${intent}, then re-run.`;
+    return { refusal: message, message, ok: false };
+  }
+  const declaredIntents = Array.isArray(plan.needs)
+    ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
+    : [];
+  const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
+
+  if (!plan.planId) {
+    const message = `the retrieval plan for task '${id}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${id} --action declare --need ${list}, then re-run.`;
+    return { refusal: message, message, ok: false };
+  }
+
+  const need = plan.needs.find((n: any) => n.intent === intent);
+  if (!need) {
+    const message = `'${intent}' is not a declared need of task '${id}' (plan ${plan.planId}). Declared: ${list}. Re-run with one of them, or re-declare the plan with this need.`;
+    return { refusal: message, message, ok: false };
+  }
+
+  return {
+    queryRef: need.queryRef || `${plan.planId}#${intent}`,
+    need,
+    ok: true,
+  };
+}
+
+/**
+ * Reads the 070 active attempt ref for a task, returning `${taskId}#${token}` or null.
+ *
+ * Resolves the feature slug via resolveTaskScope, reads storeFile(root, slug), and finds
+ * the active attempt for the task. If no slug, no store, no entry or no active attempt exists,
+ * or if the store cannot be read, returns null.
+ *
+ * @param {string|object} projectRoot
+ * @param {string} [taskId]
+ * @param {string|null} [slug]
+ * @param {any} [fsImpl]
+ * @returns {string|null}
+ */
+function activeAttemptRef(projectRoot: any, taskId?: any, slug: any = null, fsImpl: any = fs): string | null {
+  if (typeof projectRoot === 'object' && projectRoot !== null && !Array.isArray(projectRoot)) {
+    ({ projectRoot, taskId, slug = null, fsImpl = fs } = projectRoot);
+  }
+  try {
+    let featureSlug = slug;
+    try {
+      const scope = resolveTaskScope({ projectRoot, taskId, slug });
+      if (scope && scope.slug) featureSlug = scope.slug;
+    } catch { /* ignore resolver errors */ }
+
+    if (!featureSlug) return null;
+
+    let root = projectRoot;
+    try {
+      const lr = lifecycleProjectRoot(projectRoot);
+      if (lr) root = lr;
+    } catch { /* ignore */ }
+
+    let file = storeFile(root, featureSlug);
+    if (!fsImpl.existsSync(file) && root !== projectRoot) {
+      const alt = storeFile(projectRoot, featureSlug);
+      if (fsImpl.existsSync(alt)) file = alt;
+    }
+    if (!fsImpl.existsSync(file)) return null;
+
+    const data = readTaskState(fsImpl, file);
+    if (!data || !data.tasks || !data.tasks[taskId]) return null;
+
+    const active = activeAttempt(data.tasks[taskId]);
+    if (!active || active.token === undefined || active.token === null) return null;
+
+    return `${taskId}#${active.token}`;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   planPath,
   readPlan,
   updatePlan,
   mintPlanId,
+  resolveNeed,
+  activeAttemptRef,
 };

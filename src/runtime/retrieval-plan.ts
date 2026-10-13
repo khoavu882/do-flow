@@ -41,11 +41,11 @@
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { probeFreshness } = require('./health.ts');
-const { planPath, readPlan, updatePlan } = require('./retrieval-record.ts');
+const { planPath, readPlan, updatePlan, mintPlanId, activeAttemptRef } = require('./retrieval-record.ts');
 // One definition of the score refusal, applied at a second boundary. See the note on
-// EVIDENCE_SCORE_FIELDS in cli.js: relevance is a property of a search, not of a fact, and a plan
+// EVIDENCE_SCORE_FIELDS in src/runtime/evidence-fields.ts: relevance is a property of a search, not of a fact, and a plan
 // that recorded one would hand the next worker a confidence dressed as a measurement.
-const { assertNoScoreFields } = require('./cli.ts');
+const { assertNoScoreFields } = require('./evidence-fields.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
@@ -229,7 +229,7 @@ function evidenceIdsFor(need: any, items: any) {
  * @returns {number} exit code
  */
 function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }: any) {
-  const needs = [];
+  const needs: any[] = [];
   for (const intent of intents) {
     let resolution;
     try {
@@ -260,11 +260,20 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
     providers[need.provider] = freshnessEntry(need.provider, projectRoot, sourceModeOf);
   }
 
+  const planId = mintPlanId();
+  const attemptRef = activeAttemptRef(projectRoot, taskId, slug);
+  for (const need of needs) {
+    need.queryRef = `${planId}#${need.intent}`;
+  }
+
   const record: any = {
     version: 1,
+    planId,
+    binding: 'query',
     taskId,
     stage: stage || null,
     declaredAt: new Date().toISOString(),
+    attemptRef,
     providers,
     needs,
   };
@@ -285,12 +294,13 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
   console.log('═'.repeat(78));
   console.log(`Stage: ${record.stage || 'not stated'}`);
   console.log('─'.repeat(78));
-  console.log('Intent'.padEnd(26) + 'Provider'.padEnd(22) + 'Index');
+  console.log('Intent'.padEnd(26) + 'Provider'.padEnd(22) + 'Index'.padEnd(16) + 'QueryRef');
   for (const need of needs) {
     console.log(
       need.intent.padEnd(26)
       + (need.provider || 'none — unresolvable').padEnd(22)
-      + freshnessOf(record, need),
+      + freshnessOf(record, need).padEnd(16)
+      + (need.queryRef || ''),
     );
   }
   printProviderIndexes(record);

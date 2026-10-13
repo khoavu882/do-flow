@@ -53,6 +53,7 @@ const {
   freshnessEntry,
   sourceModeLookup,
 } = require('../../src/runtime/retrieval-plan.ts');
+const { resolveNeed } = require('../../src/runtime/retrieval-record.ts');
 
 /** A scratch project root. Nothing here needs git — the plan record stamps no commit. */
 function project(label) {
@@ -81,8 +82,8 @@ function callVerb(options) {
   return { code, out: lines.join('\n') };
 }
 
-function readRecord(root, taskId) {
-  return JSON.parse(fs.readFileSync(planPath(root, taskId), 'utf8'));
+function readRecord(root, taskId, slug = null) {
+  return JSON.parse(fs.readFileSync(planPath(root, taskId, slug), 'utf8'));
 }
 
 // ── R8: one probe per distinct provider, never one per need ──────────────────────────────────
@@ -138,7 +139,7 @@ test('a need stores a provider id and nothing about that provider index (plan D7
 
   const record = readRecord(root, 'norm');
   for (const need of record.needs) {
-    assert.deepEqual(Object.keys(need).sort(), ['capability', 'evidenceIds', 'intent', 'provider', 'result'],
+    assert.deepEqual(Object.keys(need).sort(), ['capability', 'evidenceIds', 'intent', 'provider', 'queryRef', 'result'],
       'a need carrying a freshness field of its own would let two needs resolving to the same '
       + 'provider disagree about that provider index — a contradiction the record must be unable to hold');
     if (need.provider) {
@@ -436,4 +437,126 @@ test('the dispatcher help lists the verb it now dispatches', () => {
   assert.equal(help.status, 0);
   assert.match(help.stdout, /^ {2}retrieval-plan {2,}\S/m,
     'G12 reads this list as the only verb inventory a user ever sees');
+});
+
+// ── 076 B.1: planId, queryRefs and active attemptRef at declare (IC-010, IC-011, IC-005) ────
+
+test('declare writes the fields, and version stays 1 (IC-010, B.1)', () => {
+  const root = project('declare-fields');
+  const { code } = callVerb({
+    taskId: 'b1-fields',
+    action: 'declare',
+    need: ['trace-dependency', 'estimate-blast-radius'],
+    stateRoot: root,
+    repoRoot: REPO,
+    json: true,
+  });
+  assert.equal(code, 0);
+
+  const record = readRecord(root, 'b1-fields');
+  assert.ok(record.planId, 'planId must be present');
+  assert.match(record.planId, /^rp_[0-9a-z]+_[0-9a-f]{4}$/, 'planId must match rp_<base36 ms>_<4 hex>');
+  assert.equal(record.binding, 'query', 'binding must be query');
+  assert.equal(record.version, 1, 'version must stay 1');
+  assert.equal(record.attemptRef, null, 'attemptRef is null when no attempt is active');
+
+  assert.equal(record.needs.length, 2);
+  for (const need of record.needs) {
+    assert.equal(need.queryRef, `${record.planId}#${need.intent}`, 'need.queryRef must be <planId>#<intent>');
+  }
+});
+
+test('re-declare mints a new planId (IC-011, B.1)', () => {
+  const root = project('re-declare');
+  callVerb({
+    taskId: 'redec',
+    action: 'declare',
+    need: ['trace-dependency'],
+    stateRoot: root,
+    repoRoot: REPO,
+    json: true,
+  });
+  const firstRecord = readRecord(root, 'redec');
+  assert.ok(firstRecord.planId);
+
+  callVerb({
+    taskId: 'redec',
+    action: 'declare',
+    need: ['trace-dependency'],
+    stateRoot: root,
+    repoRoot: REPO,
+    json: true,
+  });
+  const secondRecord = readRecord(root, 'redec');
+  assert.ok(secondRecord.planId);
+
+  assert.notEqual(secondRecord.planId, firstRecord.planId, 're-declaring must mint a new planId');
+});
+
+test("with a claimed 070 attempt the plan's attemptRef is A.1#1 (IC-005, B.1)", (t) => {
+  const scratch = createScratch('doflow-declare-attempt-');
+  t.after(() => scratch.remove());
+  const dir = path.join(scratch.dir, 'project');
+  const slug = 'feat-b1';
+  fs.mkdirSync(path.join(dir, 'agent-docs', 'doflow', slug), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'agent-docs', 'doflow', slug, 'plan.md'), [
+    '# Plan', '', '## Tasks', '',
+    '### Phase A', '',
+    '- [ ] A.1 test task; owner: core-implementer; files: a.js',
+  ].join('\n'));
+  spawnSync('git', ['init', '-q'], { cwd: dir, env: scratch.env() });
+
+  const claimRes = spawnSync(process.execPath, [
+    DOFLOW, 'task-attempt', '--action', 'claim', '--slug', slug, '--task', 'A.1',
+    '--owner', 'core-implementer', '--mode', 'subagent', '--json',
+  ], { cwd: dir, env: scratch.env(), encoding: 'utf8' });
+  assert.equal(claimRes.status, 0, claimRes.stderr);
+
+  const declareRes = json(dir, [
+    'retrieval-plan', '--task-id', 'A.1', '--action', 'declare',
+    '--need', 'locate-known-symbol', '--slug', slug,
+  ]);
+  assert.equal(declareRes.status, 0, declareRes.stderr);
+  assert.equal(declareRes.data.attemptRef, 'A.1#1');
+
+  const record = readRecord(dir, 'A.1', slug);
+  assert.equal(record.attemptRef, 'A.1#1', 'declared plan must stamp attemptRef A.1#1');
+});
+
+test('resolveNeed maps declared intents and yields IC-002 refusals (IC-020, IC-002)', () => {
+  // 1. Missing plan
+  const noPlan = resolveNeed(null, 'need-x', 'task-1');
+  assert.equal(noPlan.ok, false);
+  assert.equal(
+    noPlan.message,
+    "no retrieval plan is declared for task 'task-1', so --need 'need-x' names nothing. Declare one first: doflow retrieval-plan --task-id task-1 --action declare --need need-x, then re-run.",
+  );
+
+  // 2. Legacy plan without planId
+  const legacyPlan = { taskId: 'task-legacy', needs: [{ intent: 'intent-a' }, { intent: 'intent-b' }] };
+  const noPlanId = resolveNeed(legacyPlan, 'intent-a');
+  assert.equal(noPlanId.ok, false);
+  assert.equal(
+    noPlanId.message,
+    "the retrieval plan for task 'task-legacy' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-legacy --action declare --need intent-a, intent-b, then re-run.",
+  );
+
+  // 3. Plan with planId but undeclared intent
+  const plan = {
+    taskId: 'task-bound',
+    planId: 'rp_m1_ab12',
+    needs: [{ intent: 'intent-a', queryRef: 'rp_m1_ab12#intent-a' }, { intent: 'intent-b', queryRef: 'rp_m1_ab12#intent-b' }],
+  };
+  const undeclared = resolveNeed(plan, 'intent-c');
+  assert.equal(undeclared.ok, false);
+  assert.equal(
+    undeclared.message,
+    "'intent-c' is not a declared need of task 'task-bound' (plan rp_m1_ab12). Declared: intent-a, intent-b. Re-run with one of them, or re-declare the plan with this need.",
+  );
+
+  // 4. Declared need resolved
+  const resolved = resolveNeed(plan, 'intent-a');
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.queryRef, 'rp_m1_ab12#intent-a');
+  assert.equal(resolved.need.intent, 'intent-a');
 });
