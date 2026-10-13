@@ -4,7 +4,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { resolveActiveFeature } = require('./feature-resolve.ts');
+const featureResolve = require('./feature-resolve.ts');
 
 // Which feature a task record belongs to (feature 045, IC-001/IC-002).
 //
@@ -37,6 +37,9 @@ function invalidSlugRefusal(slug: any): { error: 'invalid-slug'; message: string
 /** (projectRoot, slug) -> { slug, hasRegister } | { reason }. One resolver spawn per key per process. */
 const featureCache = new Map<string, any>();
 
+/** The resolver's raw answer, including thrown failures, shared by every consumer in this process. */
+const resolvedFeatureCache = new Map<string, { value: any } | { error: unknown }>();
+
 /** A slug the CLI named explicitly (`--slug`), applied to every store call in this process that was
  * not given its own. The dispatcher sets it once so the verbs whose handlers build their ledger
  * internally (readiness, evidence) route the same way as the ones that take `slug` directly. */
@@ -48,6 +51,28 @@ function setDefaultSlug(slug: any): void {
 
 function clearTaskScopeCache(): void {
   featureCache.clear();
+  resolvedFeatureCache.clear();
+}
+
+/**
+ * Resolve once per process per (root, slug). The resolver spawns do-paths.sh, and every store and
+ * the decisions lookup must see the same answer.
+ */
+function resolveFeature({ projectRoot, slug = null }: { projectRoot: string; slug?: string | null }): any {
+  const key = `${path.resolve(projectRoot)}\0${slug || ''}`;
+  if (resolvedFeatureCache.has(key)) {
+    const cached = resolvedFeatureCache.get(key)!;
+    if ('error' in cached) throw cached.error;
+    return cached.value;
+  }
+  try {
+    const value = featureResolve.resolveActiveFeature({ projectRoot, slug: slug || null });
+    resolvedFeatureCache.set(key, { value });
+    return value;
+  } catch (error) {
+    resolvedFeatureCache.set(key, { error });
+    throw error;
+  }
 }
 
 /** The resolver reports the git top level, which is the project root or one of its ancestors, and
@@ -71,7 +96,7 @@ function featureFor(projectRoot: string, slug: string | null | undefined): any {
   let value: any = { reason: 'no-feature' };
   try {
     if (hasFeatureFolderAbove(projectRoot)) {
-      const found = resolveActiveFeature({ projectRoot, slug: slug || null });
+      const found = resolveFeature({ projectRoot, slug: slug || null });
       if (!found.error && found.paths && isSafeSlug(found.paths.feature_slug)) {
         value = { slug: found.paths.feature_slug, hasRegister: found.paths.has_decisions === true, exists: fs.existsSync(found.featureDir) };
       }
@@ -127,4 +152,4 @@ function taskStoreDir({ projectRoot, store, taskId, slug = null }: { projectRoot
   return namespace ? path.join(base, namespace) : base;
 }
 
-module.exports = { resolveTaskScope, taskStoreDir, setDefaultSlug, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal, slugNamesNoFeature };
+module.exports = { resolveFeature, resolveTaskScope, taskStoreDir, setDefaultSlug, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal, slugNamesNoFeature };

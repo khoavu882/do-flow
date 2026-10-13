@@ -24,6 +24,12 @@ test('computeStartupContext returns records for all 8 harnesses with IC-019 sche
       typeof row.sessionStartStdoutBytes === 'number' ||
         (typeof row.sessionStartStdoutBytes === 'object' && typeof row.sessionStartStdoutBytes.unmeasured === 'string')
     );
+    assert.ok(
+      typeof row.sessionStartStderrBytes === 'number' ||
+        (typeof row.sessionStartStderrBytes === 'object' && typeof row.sessionStartStderrBytes.unmeasured === 'string')
+    );
+    assert.equal(row.sessionStartBasis, 'measured:temp-home-install');
+    assert.deepEqual(row.perPromptStdoutBytes, { unmeasured: 'owner 077' });
     const hookBytes = typeof row.sessionStartStdoutBytes === 'number' ? row.sessionStartStdoutBytes : 0;
     assert.equal(row.tokensEst, Math.ceil((expectedProjectedBytes + hookBytes) / 4));
     assert.equal(row.tokensBasis, 'estimated:bytes/4');
@@ -31,26 +37,31 @@ test('computeStartupContext returns records for all 8 harnesses with IC-019 sche
   }
 });
 
-test('computeContextBudgets returns IC-019 budget rows with profile-required defaults', () => {
-  const budgets = context.computeContextBudgets();
+test('computeContextBudgets reports injected unverified IC-019 profile facts', () => {
+  const harnesses = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+  const contextProfiles = Object.fromEntries(harnesses.map((harness) => [harness, {
+    capacityTokens: { unverified: 'fixture capacity', verifiedOn: '2026-10-13' },
+    reserveTokens: { unverified: 'fixture reserve', verifiedOn: '2026-10-13' },
+  }]));
+  const budgets = context.computeContextBudgets({ contextProfiles });
   assert.equal(Array.isArray(budgets), true);
   assert.equal(budgets.length, 8);
 
   for (const b of budgets) {
     assert.equal(typeof b.harness, 'string');
     assert.equal(b.capacityTokens, null);
-    assert.equal(b.capacityBasis, 'profile-required');
+    assert.equal(b.capacityBasis, 'unverified:fixture capacity');
     assert.equal(typeof b.startupTokens, 'number');
     assert.ok(b.startupTokens > 0);
     assert.equal(b.startupBasis, 'estimated');
-    assert.equal(b.reserveTokens, 0);
-    assert.equal(b.reserveBasis, 'estimated');
+    assert.equal(b.reserveTokens, null);
+    assert.equal(b.reserveBasis, 'unverified:fixture reserve');
     assert.equal(b.availableTokens, null);
     assert.equal(b.availableBasis, 'profile-required');
   }
 });
 
-test('computeStartupContext handles uninstalled harness and custom version injection', () => {
+test('computeStartupContext handles uninstalled harness and custom version injection (dropping isToolInstalled gate)', () => {
   const stubHarnesses = ['custom-installed', 'custom-absent'];
   const isToolInstalledFn = (tool) => tool === 'custom-installed';
   const getToolVersionFn = (tool) => (tool === 'custom-installed' ? 'v9.8.7' : null);
@@ -73,26 +84,21 @@ test('computeStartupContext handles uninstalled harness and custom version injec
   const absent = startup.find((s) => s.harness === 'custom-absent');
   assert.equal(absent.installedVersion, null);
   assert.equal(absent.doflowProjectedBytes, 100);
-  assert.deepEqual(absent.sessionStartStdoutBytes, { unmeasured: 'harness not installed' });
+  assert.deepEqual(absent.sessionStartStdoutBytes, { unmeasured: 'no session-start hook' });
   assert.equal(absent.tokensEst, 25);
 });
 
 test('computeStartupContext executes session-start hook with fixture when present', (t) => {
   const dir = tempDir(t, 'doflow-test-session-start-');
-  const claudeHooksDir = path.join(dir, 'core', 'harnesses', 'claude', 'hooks');
+  const claudeHooksDir = path.join(dir, '.claude', 'hooks');
   fs.mkdirSync(claudeHooksDir, { recursive: true });
 
   // Hook writes 20 characters to stdout
   const hookScript = '#!/bin/bash\nprintf "01234567890123456789"\n';
-  fs.writeFileSync(path.join(claudeHooksDir, 'session-start.sh'), hookScript);
-
-  // Fixture
-  const fixturesDir = path.join(dir, 'bench', 'perf', 'fixtures', 'claude');
-  fs.mkdirSync(fixturesDir, { recursive: true });
-  fs.writeFileSync(path.join(fixturesDir, 'session-start.json'), '{"session_id":"test"}');
+  fs.writeFileSync(path.join(claudeHooksDir, 'session-start.sh'), hookScript, { mode: 0o755 });
 
   const startup = context.computeStartupContext({
-    repoRoot: dir,
+    homeDir: dir,
     harnesses: ['claude'],
     isToolInstalledFn: () => true,
     getToolVersionFn: () => '2.0.0',
@@ -103,11 +109,12 @@ test('computeStartupContext executes session-start hook with fixture when presen
   const row = startup[0];
   assert.equal(row.doflowProjectedBytes, 40);
   assert.equal(row.sessionStartStdoutBytes, 20);
+  assert.equal(row.sessionStartStderrBytes, 0);
   // Total bytes: 40 + 20 = 60 => tokens = ceil(60 / 4) = 15
   assert.equal(row.tokensEst, 15);
 });
 
-test('computeContextBudgets calculates availableTokens when capacity is declared', () => {
+test('computeContextBudgets calculates availableTokens from declared contextProfile facts', () => {
   const startup = [
     {
       harness: 'claude',
@@ -117,8 +124,11 @@ test('computeContextBudgets calculates availableTokens when capacity is declared
 
   const budgets = context.computeContextBudgets({
     startupContext: startup,
-    declaredCapacities: {
-      claude: 200000,
+    contextProfiles: {
+      claude: {
+        capacityTokens: { value: 200000, source: 'fixture', verifiedOn: '2026-10-13' },
+        reserveTokens: { value: 0, source: 'fixture', verifiedOn: '2026-10-13' },
+      },
     },
   });
 
@@ -126,10 +136,84 @@ test('computeContextBudgets calculates availableTokens when capacity is declared
   const b = budgets[0];
   assert.equal(b.harness, 'claude');
   assert.equal(b.capacityTokens, 200000);
-  assert.equal(b.capacityBasis, 'declared');
+  assert.equal(b.capacityBasis, 'fixture');
   assert.equal(b.startupTokens, 2500);
   assert.equal(b.reserveTokens, 0);
   // available = 200000 - 2500 - 0 = 197500
   assert.equal(b.availableTokens, 197500);
   assert.equal(b.availableBasis, 'estimated');
+});
+
+test('computeContextBudgets derives capacity and reserve from contextProfile with unverified reason', () => {
+  const startup = [
+    {
+      harness: 'claude',
+      tokensEst: 2500,
+    },
+  ];
+
+  const budgets = context.computeContextBudgets({
+    startupContext: startup,
+    contextProfiles: {
+      claude: {
+        capacityTokens: { unverified: 'values belong to 085 (A-19)' },
+        reserveTokens: { unverified: 'values belong to 085 (A-19)' },
+      },
+    },
+  });
+
+  assert.equal(budgets.length, 1);
+  const b = budgets[0];
+  assert.equal(b.harness, 'claude');
+  assert.equal(b.capacityTokens, null);
+  assert.equal(b.capacityBasis, 'unverified:values belong to 085 (A-19)');
+  assert.equal(b.reserveTokens, null);
+  assert.equal(b.reserveBasis, 'unverified:values belong to 085 (A-19)');
+  assert.equal(b.availableTokens, null);
+  assert.equal(b.availableBasis, 'profile-required');
+});
+
+test('computePointerCost reports whole-file and sliced read costs with unmeasured labels', (t) => {
+  const fixtureRows = context.computePointerCost();
+  assert.equal(Array.isArray(fixtureRows), true);
+  assert.ok(fixtureRows.length >= 1, 'committed perf fixture must produce pointer-cost rows');
+
+  const dir = tempDir(t, 'doflow-test-pointer-cost-');
+  const filePath = path.join(dir, 'agent-docs/doflow/perf-feature/design/design.md');
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, '# Design\nfirst line\nsecond line\n', 'utf8');
+
+  const rows = context.computePointerCost({
+    fixture: dir,
+    repoRoot: dir,
+    runPack: ({ formatRows }) => formatRows({ pointers: [{
+        id: 'ptr:agent-docs/doflow/perf-feature/design/design.md:2-3',
+        path: 'agent-docs/doflow/perf-feature/design/design.md',
+        range: { startLine: 2, endLine: 3 },
+        bytes: 23,
+        inlineBytes: 70,
+      }] }, dir),
+  });
+
+  assert.equal(rows.length, 4);
+  assert.deepEqual(rows.map((row) => row.target), ['whole-file', 'whole-file', 'slice', 'slice']);
+  assert.deepEqual(rows.map((row) => row.form), ['markdown', 'json', 'markdown', 'json']);
+  for (const row of rows) {
+    assert.equal(row.reads, 1);
+    assert.equal(row.path, 'agent-docs/doflow/perf-feature/design/design.md');
+    assert.deepEqual(row.range, { startLine: 2, endLine: 3 });
+    assert.equal(row.tokensEst.basis, 'estimated:bytes/4');
+    assert.deepEqual(row.readProbability, { unmeasured: 'needs a model call (paid)' });
+    assert.deepEqual(row.actual, { unmeasured: 'needs a model call (paid)' });
+    assert.equal(row.inlineBytes, Buffer.byteLength('first line\nsecond line\n', 'utf8'));
+    assert.equal(row.followedBytes, row.pointerBytes + row.targetBytes);
+    assert.equal(row.netBytes, row.followedBytes - row.inlineBytes);
+    assert.equal(row.tokensEst.inline, Math.ceil(row.inlineBytes / 4));
+    assert.equal(row.tokensEst.followed, Math.ceil(row.followedBytes / 4));
+  }
+  assert.equal(rows[0].targetBytes, Buffer.byteLength('# Design\nfirst line\nsecond line\n', 'utf8'));
+  assert.equal(rows[2].targetBytes, Buffer.byteLength('first line\nsecond line\n', 'utf8'));
+
+  const estimatedActual = { ...rows[0], actual: { value: 3, basis: 'estimated:bytes/4' } };
+  assert.throws(() => context.validatePointerCostRows([estimatedActual]), /actual measurement cannot use an estimated basis/);
 });

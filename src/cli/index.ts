@@ -70,6 +70,8 @@ function parseArgs(argv: string[]): any {
       case '--permissions': o.permissions = true; break;
       case '--statusline': o.statusline = true; break;
       case '--json': o.json = true; break;
+      case '--bare': o.bare = true; break;
+      case '--no-record': o.noRecord = true; break;
       case '--check': o.check = true; break;
       // decision --action list: every decision by id, not just the live ones.
       case '--all': o.all = true; break;
@@ -258,6 +260,9 @@ const RUNTIME_STRING_FLAGS = new Map([
                                        // change scope, <path>[,<path>...], unioned with the plan's bound
   ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack
+  ['--mandatory-file', 'mandatoryFile'], // context-pack: caller-supplied mandatory fields
+  ['--max-bytes', 'maxBytes'],         // context-pack: per-call cap in bytes
+  ['--expand', 'expand'],              // context-pack: pointer id to expand
   ['--stage-id', 'stageId'],           // research-request: active feature stage
   ['--question', 'question'],           // research-request: external question
   ['--blocking', 'blocking'],           // research-request: true | false
