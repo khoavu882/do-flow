@@ -51,6 +51,9 @@ const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 })
 const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegisteredHarnesses } = require('./context/budget.ts');
 const { createDeliveryEntry, readDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
 const { boundedAcquire } = require('./task-state.ts');
+const pointerTools = require('./context/pointer.ts');
+const { updateTaskState } = require('./task-state.ts');
+const { taskStoreDir } = require('./task-scope.ts');
 
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
@@ -112,6 +115,26 @@ function profileRetention(harnessId: string | null, profiles: any[] | null): any
   return harnesses.find((item: any) => item.id === harnessId)?.contextProfile?.retention || null;
 }
 
+function appendPointerExpansion({ projectRoot, taskId, slug, packDigest, expansion, fsImpl = fs }: any): void {
+  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
+  const file = path.join(dir, `${taskId}.json`);
+  updateTaskState({
+    fsImpl, file,
+    acquire: (impl: any, target: string) => boundedAcquire(impl, target, { retries: 3, waitMs: 5 }),
+    build(disk: any) {
+      const deliveries = Array.isArray(disk?.deliveries) ? disk.deliveries : [];
+      let found = false;
+      const updated = deliveries.map((entry: any) => {
+        if (entry.packDigest !== packDigest) return entry;
+        found = true;
+        return { ...entry, expansions: [...(entry.expansions || []), expansion] };
+      });
+      if (!found) throw new Error('delivery entry disappeared');
+      return { taskId, deliveries: updated };
+    },
+  });
+}
+
 class ContextPackCompiler {
   declare options: any;
   /**
@@ -162,6 +185,8 @@ class ContextPackCompiler {
       reason,
       since,
       expand,
+      pointers: suppliedPointers = [],
+      expansion = null,
     } = params;
 
     const limits = { ...this.options, ...budgetOverrides };
@@ -284,6 +309,7 @@ class ContextPackCompiler {
       supportedClaims.forEach((c: any) => items.push(buildClaimSupportedItem(c)));
       otherRequests.forEach((r: any) => items.push(buildResearchRequestItem(r)));
       activeHypotheses.forEach((h: any) => items.push(buildClaimHypothesisItem(h)));
+      suppliedPointers.forEach((p: any) => items.push(buildPointerItem(p)));
       relevantFiles.forEach((f: any) => items.push(buildRelevantFileItem(f)));
       freshEvidenceItems.forEach((ev: any) => items.push(buildEvidenceSummaryItem(ev)));
       structuralNodes.forEach((sn: any, i: number) => items.push(buildStructuralContextItem(sn, i)));
@@ -452,6 +478,7 @@ class ContextPackCompiler {
           ...(decisions?.reason ? { reason: decisions.reason } : {}),
         },
         pointers: keptPointers,
+        ...(expansion ? { expansion } : {}),
         relevantFiles: keptFiles,
         evidenceCount: keptEvidence.length,
         evidenceSummary: keptEvidence,
@@ -849,6 +876,12 @@ function handleContextPackCommand({
   let sinceEntry: any = null;
   let deltaRefused: string | null = null;
   let deltaExpansions: any[] = [];
+  if (parsedMaxBytes !== undefined) {
+    const baseBudget = resolveBudget({ taskClass: effectiveTaskClass, harnessFlag: harness, profiles });
+    if (parsedMaxBytes > baseBudget.maxBytes) {
+      deltaExpansions.push({ at: new Date().toISOString(), kind: 'cap-raised', target: null, reason, bytesAdded: null });
+    }
+  }
   let retention = profileRetention(budget.harness?.id || null, profiles);
   if (since && !expand) {
     sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
@@ -862,6 +895,45 @@ function handleContextPackCommand({
   }
 
   const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
+
+  if (expand) {
+    const prior = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
+    if (!prior) return usageError('context-pack', `Unknown digest '${since}'`, json);
+    const pointer = (prior.pointers || []).find((candidate: any) => candidate.id === expand);
+    if (!pointer) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
+    const current = pointerTools.readPointerSlice({ projectRoot: root, pointer });
+    if (!current) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
+    const expansionRecord = {
+      at: new Date().toISOString(), kind: 'pointer-followed', target: expand, reason,
+      bytesAdded: Buffer.byteLength(current.slice, 'utf8'), targetChanged: current.digest !== pointer.digest,
+    };
+    let recorded = false;
+    let recordReason: string | null = noRecord ? 'no-record' : null;
+    if (!noRecord) {
+      try {
+        appendPointerExpansion({ projectRoot: root, taskId, slug, packDigest: since, expansion: expansionRecord });
+        recorded = true;
+      } catch (error: any) {
+        if (error?.code !== 'store-locked' && error?.message !== 'store-locked') throw error;
+        recordReason = 'store-locked';
+      }
+    }
+    const compiler = new ContextPackCompiler();
+    const pack = compiler.compileContextPack({ taskId, taskClass: effectiveTaskClass, objective: '', mandatory: { fields: {}, provenance: {} }, budget,
+      mode: 'expand', expansion: { id: expand, path: pointer.path, content: current.slice, targetChanged: current.digest !== pointer.digest } });
+    pack.status = 'OK';
+    pack.exitCode = EXIT.OK;
+    pack.mode = 'expand';
+    pack.delivery = { key: prior.key, packDigest: since, recorded, reason: recordReason, since, deltaRefused: null, expansionRecorded: recorded };
+    pack.packEnd.mode = 'expand';
+    pack.packEnd.digest = since.slice(7, 19);
+    pack.expansionRecorded = recorded;
+    pack.accounting.tokens = prior.tokens;
+    const output = json ? compiler.formatJson(pack) : compiler.formatMarkdown(pack);
+    if (console.log !== nativeConsoleLog) console.log(output);
+    else process.stdout.write(output);
+    return finishRuntime(EXIT.OK);
+  }
 
   let reqText: string | null = null;
   let reqPath = 'requirement.md';
@@ -957,6 +1029,7 @@ function handleContextPackCommand({
     deltaSinceEntry: since && !deltaRefused && !expand ? sinceEntry : null,
     deltaRefused,
     expand,
+    pointers: pointerTools.collectPointers({ projectRoot: root, feature }),
     evidenceLedger: ledger,
     claimsManager: claims,
     researchRequests,

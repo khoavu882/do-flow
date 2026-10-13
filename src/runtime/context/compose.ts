@@ -883,6 +883,25 @@ function formatMarkdown(pack: any, options: any = {}): string {
   };
 
   const mode = pack.mode || 'full';
+  if (pack.expansion) {
+    const body = `### Expanded: ${pack.expansion.path}\n${pack.expansion.content}${pack.expansion.targetChanged ? '\n> Target changed since this pointer was recorded.\n' : ''}${pack.delivery?.recorded === false ? `\n> Expansion not recorded: ${pack.delivery.reason || 'unknown'}\n` : ''}\n`;
+    const digest = pack.packEnd?.digest || formatShortDigest(pack.delivery?.packDigest);
+    let total = pack.size?.totalBytes || 0;
+    for (let i = 0; i < 6; i++) {
+      const header = `## ContextPack: [${pack.taskClass.toUpperCase()}] ${pack.taskId}\n`;
+      const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${total} B · tokens ~${Math.round(total / 4)} (estimated:bytes/4) · actual unmeasured_\n`;
+      const end = `[end of pack] mode=expand objective=0 ac=0 constraints=0 verification=0 scope=0 conflicts=0 gaps=0 omitted=0 bytes=${String(total).padStart(9, '0')} digest=${digest}\n`;
+      const output = header + body + footer + end;
+      const actual = Buffer.byteLength(output, 'utf8');
+      if (actual === total) {
+        pack.size.totalBytes = actual;
+        pack.packEnd.bytes = actual;
+        if (throwOnOverBudget && actual > pack.budget.maxBytes) throw new Error(`Emitted markdown pack size (${actual} B) exceeds budget (${pack.budget.maxBytes} B)`);
+        return output;
+      }
+      total = actual;
+    }
+  }
   let md = '';
   if (pack.objective) {
     md += `**Objective:** ${pack.objective}\n\n`;
@@ -1197,7 +1216,7 @@ function formatJson(pack: any, options: any = {}): string {
     'blockingGaps', 'claims', 'researchRequests', 'mandatory', 'decisions',
     'pointers', 'relevantFiles', 'evidenceCount', 'evidenceSummary', 'structuralContext',
     'budgetEnforcement', 'empty', 'omissions', 'size', 'accounting', 'delivery',
-    'delta', 'packEnd',
+    'delta', 'expansion', 'expansionRecorded', 'packEnd',
   ];
 
   for (const k of keys) {
