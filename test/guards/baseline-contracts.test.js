@@ -15,13 +15,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, execFileSync } = require('node:child_process');
 
 const snapshotLib = require('../../bench/retrieval/lib/snapshot.js');
 const { validateTaskFile } = require('../../bench/retrieval/lib/tasks.js');
 const sealLib = require('../../bench/retrieval/lib/seal.js');
 const { sha256Hex } = sealLib;
 const { classesFor } = require('../../bench/retrieval/lib/metrics.js');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
@@ -611,5 +612,323 @@ test('G33.14 control: approved proposal missing approvedOn, missing approvedBy o
   assert.match(pGot, /S8-01\.approvedOn: required valid date when approved/);
   assert.match(pGot, /S8-01\.approvedBy: must be "user"/);
   assert.match(pGot, /S8-02\.approvedBy: must be "user"/);
+});
+
+// ---- O.2: Fifth step (G33.7, G33.8, G33.11) ----
+const FORBIDDEN_RESULT_KEYS = new Set(['perTask', 'query', 'qrels', 'tasks']);
+
+function getFirstAddCommit(repoRoot, relPath) {
+  const run = spawnSync('git', ['-C', repoRoot, 'log', '--diff-filter=A', '--format=%H', '--', relPath], {
+    encoding: 'utf8',
+  });
+  if (run.status !== 0) {
+    throw new Error(`git log failed for ${relPath}: ${run.stderr}`);
+  }
+  const lines = run.stdout.trim().split('\n').filter(Boolean);
+  if (lines.length === 0) return null;
+  return lines[lines.length - 1];
+}
+
+function isAncestor(repoRoot, ancestorCommit, descendantCommit) {
+  const run = spawnSync('git', ['-C', repoRoot, 'merge-base', '--is-ancestor', ancestorCommit, descendantCommit]);
+  return run.status === 0;
+}
+
+function o2OrderProblems({ repoRoot }) {
+  const p = [];
+  const thresholdsRel = 'bench/retrieval/thresholds.json';
+  const thresholdsCommit = getFirstAddCommit(repoRoot, thresholdsRel);
+  if (!thresholdsCommit) {
+    p.push(`${thresholdsRel}: no first-add commit found in git log`);
+    return p;
+  }
+
+  const resultsDir = path.join(repoRoot, 'bench/retrieval/results');
+  if (!fs.existsSync(resultsDir)) {
+    p.push('bench/retrieval/results: directory does not exist');
+    return p;
+  }
+  const files = fs.readdirSync(resultsDir)
+    .filter((f) => /^holdout-.*\.json$/.test(f))
+    .sort();
+  if (files.length === 0) {
+    p.push('bench/retrieval/results: no holdout-*.json files found');
+    return p;
+  }
+
+  for (const f of files) {
+    const relFile = path.join('bench/retrieval/results', f);
+    const holdoutCommit = getFirstAddCommit(repoRoot, relFile);
+    if (!holdoutCommit) {
+      p.push(`${relFile}: no first-add commit found in git log`);
+      continue;
+    }
+    if (!isAncestor(repoRoot, thresholdsCommit, holdoutCommit)) {
+      p.push(`${relFile}: first-add commit ${holdoutCommit} is not descended from thresholds.json first-add commit ${thresholdsCommit}`);
+    }
+  }
+  return p;
+}
+
+function o2ForbiddenKeysInObject(obj, prefix = '') {
+  const found = [];
+  if (!obj || typeof obj !== 'object') return found;
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      found.push(...o2ForbiddenKeysInObject(obj[i], `${prefix}[${i}]`));
+    }
+  } else {
+    for (const [key, val] of Object.entries(obj)) {
+      const loc = prefix ? `${prefix}.${key}` : key;
+      if (FORBIDDEN_RESULT_KEYS.has(key)) {
+        found.push(loc);
+      }
+      found.push(...o2ForbiddenKeysInObject(val, loc));
+    }
+  }
+  return found;
+}
+
+function o2ResultsShapeProblems({ repoRoot }) {
+  const p = [];
+  const resultsDir = path.join(repoRoot, 'bench/retrieval/results');
+  if (!fs.existsSync(resultsDir)) {
+    p.push('bench/retrieval/results: directory does not exist');
+    return p;
+  }
+  const files = fs.readdirSync(resultsDir)
+    .filter((f) => /^holdout-.*\.json$/.test(f))
+    .sort();
+  if (files.length === 0) {
+    p.push('bench/retrieval/results: no holdout-*.json files found');
+    return p;
+  }
+  for (const f of files) {
+    const relFile = path.join('bench/retrieval/results', f);
+    const fullPath = path.join(resultsDir, f);
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+    } catch (e) {
+      p.push(`${relFile}: invalid JSON: ${e.message}`);
+      continue;
+    }
+    const forbidden = o2ForbiddenKeysInObject(parsed);
+    for (const keyPath of forbidden) {
+      p.push(`${relFile}: carries forbidden key '${keyPath}'`);
+    }
+  }
+  return p;
+}
+
+function o2PerfTestProblems(content) {
+  const p = [];
+  if (!content.includes('bench/perf/budgets.json')) {
+    p.push('performance-budget.test.js: does not name bench/perf/budgets.json');
+  }
+  if (/ms\s*<=\s*\d{3}/.test(content)) {
+    p.push('performance-budget.test.js: matches forbidden literal pattern /ms\\s*<=\\s*\\d{3}/');
+  }
+  return p;
+}
+
+test('G33.7: the first-add commit of thresholds.json is an ancestor of the first-add commit of every holdout-*.json', () => {
+  assert.deepEqual(o2OrderProblems({ repoRoot: REPO }), []);
+});
+
+test('G33.7 control: non-ancestor thresholds first-add commit is reported', (t) => {
+  const dir = tempDir(t, 'doflow-g33-order-');
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+
+  // Commit 1: add holdout result first
+  const resultsDir = path.join(dir, 'bench/retrieval/results');
+  fs.mkdirSync(resultsDir, { recursive: true });
+  fs.writeFileSync(path.join(resultsDir, 'holdout-1-g1-code-A.json'), JSON.stringify({ schemaVersion: 1 }));
+  git('add', '-A');
+  git('commit', '-q', '-m', 'add holdout results');
+
+  // Commit 2: add thresholds.json after holdout results
+  const retDir = path.join(dir, 'bench/retrieval');
+  fs.mkdirSync(retDir, { recursive: true });
+  fs.writeFileSync(path.join(retDir, 'thresholds.json'), JSON.stringify({ schemaVersion: 1 }));
+  git('add', '-A');
+  git('commit', '-q', '-m', 'add thresholds');
+
+  const problems = o2OrderProblems({ repoRoot: dir });
+  assert.ok(problems.length > 0, 'must report order problem when thresholds is committed after holdout');
+  assert.match(problems.join('\n'), /thresholds\.json first-add commit/);
+});
+
+test('G33.8: no holdout results file carries perTask, query, qrels or tasks', () => {
+  assert.deepEqual(o2ResultsShapeProblems({ repoRoot: REPO }), []);
+});
+
+test('G33.8 control: holdout results file carrying forbidden keys is reported', (t) => {
+  const dir = tempDir(t, 'doflow-g33-shape-');
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+
+  const resultsDir = path.join(dir, 'bench/retrieval/results');
+  fs.mkdirSync(resultsDir, { recursive: true });
+  fs.writeFileSync(path.join(resultsDir, 'holdout-1-g1-code-A.json'), JSON.stringify({
+    schemaVersion: 1,
+    perTask: [{ id: 't1' }],
+    nested: { query: 'test', qrels: [], tasks: [] },
+  }));
+  const problems = o2ResultsShapeProblems({ repoRoot: dir });
+  const joined = problems.join('\n');
+  assert.match(joined, /forbidden key 'perTask'/);
+  assert.match(joined, /forbidden key 'nested\.query'/);
+  assert.match(joined, /forbidden key 'nested\.qrels'/);
+  assert.match(joined, /forbidden key 'nested\.tasks'/);
+});
+
+test('G33.11: performance-budget.test.js names bench/perf/budgets.json and matches no /ms\\s*<=\\s*\\d{3}/', () => {
+  const content = fs.readFileSync(path.join(REPO, 'test/runtime/performance-budget.test.js'), 'utf8');
+  assert.deepEqual(o2PerfTestProblems(content), []);
+});
+
+test('G33.11 control: missing budgets path and matching forbidden literal pattern are reported', () => {
+  const badContent1 = 'const x = 1;';
+  const p1 = o2PerfTestProblems(badContent1);
+  assert.match(p1.join('\n'), /does not name bench\/perf\/budgets\.json/);
+
+  const badContent2 = "require('bench/perf/budgets.json'); assert.ok(ms <= 100);";
+  const p2 = o2PerfTestProblems(badContent2);
+  assert.match(p2.join('\n'), /matches forbidden literal pattern/);
+});
+
+// ---- Q.1: Final step (G33.17, G33.18) ----
+const GATE_SENTENCES = [
+  'Benchmarks rerun against the same snapshot.',
+  'Registry slots alone do not establish operational hybrid support.',
+  'Tool replacement requires comparative evidence.',
+];
+
+const REFRESH_DELIVERABLES = [
+  'bench/retrieval/snapshot.json',
+  'bench/retrieval/thresholds.json',
+  'bench/perf/budgets.json',
+  'bench/inventory/capabilities.json',
+  'bench/inventory/tools.json',
+  'bench/inventory/coverage.json',
+  'bench/inventory/proposals.json',
+];
+
+const DELIVERABLES_IN_IC030 = [
+  'bench/retrieval/snapshot.json',
+  'bench/retrieval/manifest.json',
+  'bench/retrieval/tasks/dev.json',
+  'bench/retrieval/thresholds.json',
+  'bench/retrieval/baseline.json',
+  'bench/retrieval/README.md',
+  'bench/perf/budgets.json',
+  'bench/inventory/capabilities.json',
+  'bench/inventory/tools.json',
+  'bench/inventory/coverage.json',
+  'bench/inventory/proposals.json',
+  'docs/specs/operating-modes.md',
+  'docs/specs/candidate-evidence-boundary.md',
+  'test/runtime/performance-budget.test.js',
+];
+
+function q1GateRecordProblems(readmeContent, thresholdsDoc) {
+  const p = [];
+  for (const sentence of GATE_SENTENCES) {
+    if (!readmeContent.includes(sentence)) {
+      p.push(`bench/retrieval/README.md: missing gate sentence verbatim: "${sentence}"`);
+    }
+  }
+  const roadmapSentence = thresholdsDoc?.roadmapSentence || 'Fix tolerances/cost caps in P0 benchmark configuration before viewing holdout results.';
+  if (!readmeContent.includes(roadmapSentence)) {
+    p.push(`bench/retrieval/README.md: missing roadmap sentence verbatim: "${roadmapSentence}"`);
+  }
+  return p;
+}
+
+function q1RefreshProblems({ repoRoot = REPO, refreshDocs = null, deliverablePaths = DELIVERABLES_IN_IC030 }) {
+  const p = [];
+
+  for (const relPath of deliverablePaths) {
+    if (relPath.startsWith('agent-docs/doflow/') || relPath.includes('/agent-docs/doflow/')) {
+      p.push(`${relPath}: deliverable path must not lie under agent-docs/doflow/`);
+    }
+  }
+
+  if (refreshDocs) {
+    for (const [name, doc] of Object.entries(refreshDocs)) {
+      if (!doc || !doc.refresh || typeof doc.refresh.trigger !== 'string' || !doc.refresh.trigger) {
+        p.push(`${name}.refresh: trigger is required`);
+      }
+      if (!doc || !doc.refresh || typeof doc.refresh.owner !== 'string' || !doc.refresh.owner) {
+        p.push(`${name}.refresh: owner is required`);
+      }
+    }
+  } else {
+    for (const relPath of REFRESH_DELIVERABLES) {
+      const fullPath = path.join(repoRoot, relPath);
+      if (!fs.existsSync(fullPath)) {
+        p.push(`${relPath}: deliverable does not exist`);
+        continue;
+      }
+      try {
+        const doc = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+        if (!doc.refresh || typeof doc.refresh.trigger !== 'string' || !doc.refresh.trigger) {
+          p.push(`${relPath}.refresh: trigger is required`);
+        }
+        if (!doc.refresh || typeof doc.refresh.owner !== 'string' || !doc.refresh.owner) {
+          p.push(`${relPath}.refresh: owner is required`);
+        }
+      } catch (e) {
+        p.push(`${relPath}: invalid JSON: ${e.message}`);
+      }
+    }
+  }
+
+  return p;
+}
+
+test('G33.17: the three gate sentences and the roadmap sentence appear verbatim in bench/retrieval/README.md', () => {
+  const readmeContent = fs.readFileSync(path.join(REPO, 'bench/retrieval/README.md'), 'utf8');
+  const thresholdsDoc = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/retrieval/thresholds.json'), 'utf8'));
+  assert.deepEqual(q1GateRecordProblems(readmeContent, thresholdsDoc), []);
+});
+
+test('G33.17 control: missing gate sentence and missing roadmap sentence are reported', () => {
+  const thresholdsDoc = { roadmapSentence: 'Roadmap sentence must appear.' };
+  const incompleteReadme = '# Benchmark\n\nSome text without the required sentences.';
+  const problems = q1GateRecordProblems(incompleteReadme, thresholdsDoc);
+  const joined = problems.join('\n');
+  assert.match(joined, /missing gate sentence verbatim: "Benchmarks rerun against the same snapshot\."/);
+  assert.match(joined, /missing gate sentence verbatim: "Registry slots alone do not establish operational hybrid support\."/);
+  assert.match(joined, /missing gate sentence verbatim: "Tool replacement requires comparative evidence\."/);
+  assert.match(joined, /missing roadmap sentence verbatim: "Roadmap sentence must appear\."/);
+});
+
+test('G33.18: every deliverable listed in IC-030 carries top-level refresh.trigger and refresh.owner, and no deliverable path lies under agent-docs/doflow/', () => {
+  assert.deepEqual(q1RefreshProblems({ repoRoot: REPO }), []);
+});
+
+test('G33.18 control: missing refresh trigger, missing refresh owner, and deliverable under agent-docs/doflow/ are reported', () => {
+  const c1 = q1RefreshProblems({
+    refreshDocs: {
+      'snapshot.json': { refresh: { owner: 'maintainer' } },
+      'thresholds.json': { refresh: { trigger: 'trigger text' } },
+    },
+  });
+  const joined1 = c1.join('\n');
+  assert.match(joined1, /snapshot\.json\.refresh: trigger is required/);
+  assert.match(joined1, /thresholds\.json\.refresh: owner is required/);
+
+  const c2 = q1RefreshProblems({
+    deliverablePaths: [
+      'bench/retrieval/snapshot.json',
+      'agent-docs/doflow/074-p0-baseline-contracts/baseline.json',
+    ],
+    refreshDocs: {},
+  });
+  const joined2 = c2.join('\n');
+  assert.match(joined2, /agent-docs\/doflow\/074-p0-baseline-contracts\/baseline\.json: deliverable path must not lie under agent-docs\/doflow\//);
 });
 
