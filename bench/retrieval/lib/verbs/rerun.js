@@ -64,6 +64,7 @@ function compareLatency({ baseline, current, tolerances, machine }) {
     return { compared: false, reason: `machineId differs: baseline ${baseline.capture.machineId}, this machine ${machine}` };
   }
   const diffs = [];
+  let anyTolerance = false;
   for (const corpus of Object.keys(baseline.corpora)) {
     for (const config of Object.keys(baseline.corpora[corpus].configs)) {
       const a = baseline.corpora[corpus].configs[config].classes;
@@ -74,12 +75,17 @@ function compareLatency({ baseline, current, tolerances, machine }) {
           const tol = toleranceOf(tolerances, config, metric);
           const was = a[cls].latency[metric];
           const now = b[cls].latency[metric];
-          diffs.push({ corpus, config, class: cls, metric, baseline: was, current: now, tolerance: tol, ok: tol === null ? true : withinTolerance(was, now, tol) });
+          if (tol !== null) anyTolerance = true;
+          diffs.push({
+            corpus, config, class: cls, metric, baseline: was, current: now, tolerance: tol,
+            ok: tol === null ? true : withinTolerance(was, now, tol),
+            note: tol === null ? 'not gated (no tolerance)' : undefined,
+          });
         }
       }
     }
   }
-  return { compared: true, diffs };
+  return { compared: true, diffs, anyTolerance };
 }
 
 function rerun({ snapshotPath, repoRoot, tmp, keepTmp, env, home, deps, machine = report.machineId() }) {
@@ -124,13 +130,16 @@ function rerun({ snapshotPath, repoRoot, tmp, keepTmp, env, home, deps, machine 
 }
 
 function run(ctx) {
-  const out = rerun({ snapshotPath: ctx.snapshotPath, repoRoot: ctx.repoRoot, tmp: ctx.tmp, keepTmp: ctx.keepTmp });
+  const out = rerun({ snapshotPath: ctx.snapshotPath, repoRoot: ctx.repoRoot, tmp: ctx.tmp, keepTmp: ctx.keepTmp, env: ctx.env, home: ctx.home, deps: ctx.deps });
   const bad = out.diffs.filter((d) => !d.ok);
   const lines = [];
   if (out.message) lines.push(`rerun: ${out.message}`);
   for (const d of bad) lines.push(`DIFF ${d.corpus} ${d.config} ${d.class} ${d.metric}: baseline ${d.baseline}, current ${d.current}, tolerance ${d.tolerance}${d.note ? ` (${d.note})` : ''}`);
-  lines.push(`${out.diffs.length - bad.length} of ${out.diffs.length} aggregates within tolerance`);
-  lines.push(out.latency.compared ? 'latency compared (same machine)' : `latency not compared: ${out.latency.reason}`);
+  if (out.latency.compared) {
+    lines.push(out.latency.anyTolerance ? 'latency compared (same machine)' : 'latency not gated: thresholds.json has no latency tolerances');
+  } else {
+    lines.push(`latency not compared: ${out.latency.reason}`);
+  }
   return { exitCode: out.exitCode, codes: out.codes || [], lines, verify: out.verify, diffs: out.diffs, latency: out.latency, ...(out.message && out.exitCode ? { error: out.message } : {}) };
 }
 

@@ -140,27 +140,53 @@ function formatIsolationGateDiagnostic(count) {
   return `other test files running concurrently (${count}); latency judged only in isolation — run node --test test/runtime/performance-budget.test.js alone or npm run bench -- perf measure`;
 }
 
+function formatIsolationUnknownDiagnostic(reason) {
+  return `isolation unknown (${reason}); latency judged only in isolation — run npm run bench -- perf measure`;
+}
+
 /**
- * Small wrapper that runs ps via spawnSync.
- * On win32 or ps failure, returns 0 so the gate is not applied.
- * @param {number|string} [ownPid=process.pid]
- * @returns {number}
+ * Checks test isolation using `ps -A -o pid=,command=`.
+ * On win32 or ps failure, skips with the isolation unknown diagnostic (AM11).
+ * When another test file is running concurrently, skips with the isolation gate diagnostic (AM10).
+ * Otherwise returns { isolated: true, skip: false, count: 0 }.
  */
-function getConcurrentTestFiles(ownPid = process.pid) {
-  if (process.platform === 'win32') {
-    return 0;
+function checkIsolation(ownPid = process.pid, { platform = process.platform, runPs } = {}) {
+  if (platform === 'win32') {
+    return { isolated: false, skip: true, skipMessage: formatIsolationUnknownDiagnostic('win32') };
   }
-  try {
-    const res = spawnSync('ps', ['-A', '-o', 'pid=,command='], {
-      encoding: 'utf8',
-    });
-    if (res.error || res.status !== 0 || !res.stdout) {
-      return 0;
+  const psRunner = runPs || (() => {
+    try {
+      return spawnSync('ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' });
+    } catch (err) {
+      return { error: err };
     }
-    return countConcurrentTestFiles(res.stdout, ownPid);
-  } catch {
-    return 0;
+  });
+  let res;
+  try {
+    res = psRunner();
+  } catch (err) {
+    return { isolated: false, skip: true, skipMessage: formatIsolationUnknownDiagnostic(err.message || 'ps failed') };
   }
+  if (!res || res.error) {
+    const reason = res && res.error ? (res.error.message || res.error.code || 'ps failed') : 'ps failed';
+    return { isolated: false, skip: true, skipMessage: formatIsolationUnknownDiagnostic(reason) };
+  }
+  if (res.status !== 0) {
+    return { isolated: false, skip: true, skipMessage: formatIsolationUnknownDiagnostic(`ps exit ${res.status}`) };
+  }
+  if (!res.stdout) {
+    return { isolated: false, skip: true, skipMessage: formatIsolationUnknownDiagnostic('no ps output') };
+  }
+  const count = countConcurrentTestFiles(res.stdout, ownPid);
+  if (count > 0) {
+    return { isolated: false, skip: true, count, skipMessage: formatIsolationGateDiagnostic(count) };
+  }
+  return { isolated: true, skip: false, count: 0 };
+}
+
+function getConcurrentTestFiles(ownPid = process.pid) {
+  const iso = checkIsolation(ownPid);
+  return iso.count || 0;
 }
 
 /**
@@ -492,15 +518,45 @@ test('performance-budget AM10 unit (xiv): the skip message carries the count', (
   );
 });
 
+// Unit tests for AM11 unknown isolation gate (no timing)
+test('performance-budget AM11 unit (xv): win32 skips with isolation unknown', () => {
+  const iso = checkIsolation(100, { platform: 'win32' });
+  assert.equal(iso.skip, true);
+  assert.equal(iso.isolated, false);
+  assert.equal(
+    iso.skipMessage,
+    'isolation unknown (win32); latency judged only in isolation — run npm run bench -- perf measure'
+  );
+});
+
+test('performance-budget AM11 unit (xvi): ps failure skips with isolation unknown carrying reason', () => {
+  const errRes = { error: { message: 'spawn ENOENT' } };
+  const isoErr = checkIsolation(100, { platform: 'darwin', runPs: () => errRes });
+  assert.equal(isoErr.skip, true);
+  assert.equal(isoErr.isolated, false);
+  assert.equal(
+    isoErr.skipMessage,
+    'isolation unknown (spawn ENOENT); latency judged only in isolation — run npm run bench -- perf measure'
+  );
+
+  const statusRes = { status: 127, stdout: '', stderr: 'command not found' };
+  const isoStatus = checkIsolation(100, { platform: 'linux', runPs: () => statusRes });
+  assert.equal(isoStatus.skip, true);
+  assert.equal(
+    isoStatus.skipMessage,
+    'isolation unknown (ps exit 127); latency judged only in isolation — run npm run bench -- perf measure'
+  );
+});
+
 const budgets = JSON.parse(fs.readFileSync(BUDGETS_PATH, 'utf8'));
 const enforcedSurfaces = (budgets.surfaces || []).filter((s) => s.enforced);
 
 for (const surface of enforcedSurfaces) {
   test(`performance-budget: surface ${surface.id} executes within latency ceiling`, (t) => {
-    const concurrentCount = getConcurrentTestFiles();
-    if (concurrentCount > 0) {
+    const isolation = checkIsolation();
+    if (isolation.skip) {
       if (t && typeof t.skip === 'function') {
-        t.skip(formatIsolationGateDiagnostic(concurrentCount));
+        t.skip(isolation.skipMessage);
         return;
       }
     }
@@ -657,4 +713,6 @@ module.exports = {
   countConcurrentTestFiles,
   getConcurrentTestFiles,
   formatIsolationGateDiagnostic,
+  checkIsolation,
+  formatIsolationUnknownDiagnostic,
 };

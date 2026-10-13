@@ -273,13 +273,23 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
     const fixturePath = path.isAbsolute(surface.stdinFixture)
       ? surface.stdinFixture
       : path.join(repoRoot, surface.stdinFixture);
-    if (fs.existsSync(fixturePath)) {
-      spawnOpts.input = fs.readFileSync(fixturePath, 'utf8');
+    if (!fs.existsSync(fixturePath)) {
+      throw new Error(`missing stdin fixture: ${surface.stdinFixture}`);
     }
+    spawnOpts.input = fs.readFileSync(fixturePath, 'utf8');
   }
   const start = process.hrtime.bigint();
-  spawnSync(cmd, args, spawnOpts);
+  const res = spawnSync(cmd, args, spawnOpts);
   const end = process.hrtime.bigint();
+  if (res.error) {
+    if (res.error.code === 'ETIMEDOUT') {
+      throw new Error(`timed out after ${spawnOpts.timeout / 1000}s`);
+    }
+    throw new Error(`process error: ${res.error.message}`);
+  }
+  if (res.status !== 0) {
+    throw new Error(`process exited with status ${res.status}`);
+  }
   return Number(end - start) / 1_000_000;
 }
 
@@ -377,16 +387,35 @@ function cmdMeasure(flags, options = {}) {
   }
 
   try {
+    const failedSurfaces = new Map();
+    const tryRunSurface = (surface) => {
+      try {
+        const res = runSurfaceFn(surface, repoRoot, tempHomeDir);
+        if (typeof res === 'object' && res !== null && res.error) {
+          throw new Error(res.error);
+        }
+        return { ok: true, durMs: Number(res) };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    };
+
     for (const surface of measurableSurfaces) {
       for (let w = 0; w < warmups; w++) {
-        runSurfaceFn(surface, repoRoot, tempHomeDir);
+        const outcome = tryRunSurface(surface);
+        if (!outcome.ok) {
+          failedSurfaces.set(surface.id, outcome.error);
+          break;
+        }
       }
     }
 
     // Initialize round measurements
     const surfaceSamples = new Map();
     for (const s of measurableSurfaces) {
-      surfaceSamples.set(s.id, []);
+      if (!failedSurfaces.has(s.id)) {
+        surfaceSamples.set(s.id, []);
+      }
     }
 
     let redos = 0;
@@ -413,27 +442,39 @@ function cmdMeasure(flags, options = {}) {
 
         const shuffled = stats.shuffle(measurableSurfaces, rng);
         for (const surface of shuffled) {
-          const durMs = runSurfaceFn(surface, repoRoot, tempHomeDir);
-          surfaceSamples.get(surface.id).push(durMs);
+          if (failedSurfaces.has(surface.id)) continue;
+          const outcome = tryRunSurface(surface);
+          if (!outcome.ok) {
+            failedSurfaces.set(surface.id, outcome.error);
+            surfaceSamples.delete(surface.id);
+          } else {
+            surfaceSamples.get(surface.id).push(outcome.durMs);
+          }
         }
       }
     }
 
+    for (const [id, reason] of failedSurfaces.entries()) {
+      err(`perf measure: surface ${id} failed: ${reason}`);
+    }
+
+    const successfullyMeasuredSurfaces = measurableSurfaces.filter((s) => !failedSurfaces.has(s.id));
     const machine = getMachineId();
     const measuredOn = new Date().toISOString().slice(0, 10);
     const controlP50Ms = controlSamples.length > 0 ? stats.median(controlSamples) : 0;
 
-    const measuredRows = measurableSurfaces.map((surface) => {
+    const measuredRows = successfullyMeasuredSurfaces.map((surface) => {
       const samples = surfaceSamples.get(surface.id);
       const p50Ms = stats.median(samples);
       const p95Ms = stats.percentile(samples, 0.95);
       const maxMs = Math.max(...samples);
       const madMs = stats.mad(samples);
+      const roundedP95Ms = Math.round(p95Ms * 100) / 100;
       const intent = surface.intentClass && surface.intentClass !== 'none' ? intentBudgetsMs[surface.intentClass] : null;
       const minMs = headroom.minMs ?? DEFAULT_HEADROOM.minMs;
       const pct = headroom.pct ?? DEFAULT_HEADROOM.pct;
-      const headroomMs = Math.max(minMs, (p95Ms * pct) / 100);
-      const ceilingMs = computeCeilingMs(p95Ms, headroom, intent);
+      const headroomMs = Math.max(minMs, (roundedP95Ms * pct) / 100);
+      const ceilingMs = computeCeilingMs(roundedP95Ms, headroom, intent);
 
       return {
         surfaceId: surface.id,
@@ -446,7 +487,7 @@ function cmdMeasure(flags, options = {}) {
         interleave: 'seeded-shuffle-per-round',
         seed,
         p50Ms: Math.round(p50Ms * 100) / 100,
-        p95Ms: Math.round(p95Ms * 100) / 100,
+        p95Ms: roundedP95Ms,
         maxMs: Math.round(maxMs * 100) / 100,
         madMs: Math.round(madMs * 100) / 100,
         controlP50Ms: Math.round(controlP50Ms * 100) / 100,
@@ -525,33 +566,39 @@ function cmdMeasure(flags, options = {}) {
       fs.writeFileSync(budgetsPath, `${JSON.stringify(budgets, null, 2)}\n`, 'utf8');
     }
 
+    const exitCode = failedSurfaces.size > 0 ? 1 : 0;
+
     if (flags.json) {
       log(
         JSON.stringify(
           {
             verb: 'measure',
-            ok: true,
-            exitCode: 0,
+            ok: exitCode === 0,
+            exitCode,
             runs,
             warmups,
             seed,
             rows: allOutputRows,
+            ...(failedSurfaces.size > 0 ? { failed: [...failedSurfaces.entries()].map(([id, reason]) => ({ surfaceId: id, reason })) } : {}),
           },
           null,
           2
         )
       );
     } else {
-      log(`perf measure: ${measuredRows.length} measured, ${unmeasuredRows.length} unmeasured (redos=${redos})`);
+      log(`perf measure: ${measuredRows.length} measured, ${unmeasuredRows.length} unmeasured${failedSurfaces.size > 0 ? `, ${failedSurfaces.size} failed` : ''} (redos=${redos})`);
       for (const r of measuredRows) {
         log(`  ${r.surfaceId.padEnd(30)} p50=${r.p50Ms}ms p95=${r.p95Ms}ms ceiling=${r.ceilingMs}ms`);
       }
       for (const u of unmeasuredRows) {
         log(`  ${u.surfaceId.padEnd(30)} unmeasured: ${u.unmeasured}`);
       }
+      for (const [id, reason] of failedSurfaces.entries()) {
+        log(`  ${id.padEnd(30)} failed: ${reason}`);
+      }
     }
 
-    return { exitCode: 0, rows: allOutputRows };
+    return { exitCode, rows: allOutputRows };
   } finally {
     if (tempHomeDir) {
       try {
