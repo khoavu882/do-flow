@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createKiroAdapter } = require('../../../src/adapters/kiro');
+const { createKiroAdapter } = require('../../../src/adapters/kiro/index.ts');
 const { IS_WIN } = require('../../helper-platform');
 
 function scratch() { return suiteTempDir('doflow-kiro-hooks-'); }
@@ -16,7 +16,7 @@ function hooksAsset() {
   return { id: 'kiro.hooks-scripts', source: 'core/harnesses/kiro/hooks', renderer: 'copy-tree', capability: 'hooks', nativeDir: 'hooks' };
 }
 
-const EXPECTED_TRIGGERS = ['SessionStart', 'PreToolUse', 'PreToolUse', 'Stop'];
+const EXPECTED_TRIGGERS = ['SessionStart', 'PreToolUse', 'PreToolUse', 'PreToolUse', 'Stop'];
 
 test('kiro.hooks-scripts materialises into .kiro/hooks/ for project scope', () => {
   const root = scratch(); const adapter = createKiroAdapter();
@@ -104,7 +104,7 @@ test('verify reports the hooks tree as managed once installed', () => {
   assert.equal(hooksStatus.target, path.join(root, '.kiro', 'hooks'));
 });
 
-test('installed doflow.json is well-formed with the four expected DoFlow-authored triggers', () => {
+test('installed doflow.json is well-formed with the five expected DoFlow-authored hooks', () => {
   const root = scratch(); const adapter = createKiroAdapter();
   const asset = hooksAsset();
   const context = { repoRoot: REPO_ROOT };
@@ -115,7 +115,9 @@ test('installed doflow.json is well-formed with the four expected DoFlow-authore
   const parsed = JSON.parse(raw);
   assert.equal(parsed.version, 'v1');
   assert.ok(Array.isArray(parsed.hooks));
-  assert.equal(parsed.hooks.length, 4);
+  assert.equal(parsed.hooks.length, 5);
+  // CLI V3 reads this file for every agent: the bash guard must be here, not only on agent profiles.
+  assert.ok(parsed.hooks.some((hook) => hook.trigger === 'PreToolUse' && hook.matcher === 'shell' && hook.action.command.includes('pre-bash-guard.sh')));
   const triggers = parsed.hooks.map((hook) => hook.trigger).sort();
   assert.deepEqual(triggers, [...EXPECTED_TRIGGERS].sort());
   for (const hook of parsed.hooks) {
@@ -144,7 +146,7 @@ test('installed hook scripts are executable', () => {
 });
 
 test('confirms the real registry routes kiro.hooks-scripts to kiro only', () => {
-  const { loadRegistry, selectAssets } = require('../../../src/registry');
+  const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const hooksAssets = selectAssets(registry, { harness: 'kiro', capability: 'hooks' });
   // Two hooks-capability assets apply to kiro since 022-hooks-shared-install-gap: kiro's own

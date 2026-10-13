@@ -9,9 +9,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createScratch } = require('../helper/scratch-env');
-const { loadRegistry } = require('../../src/registry');
-const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
-const { applyLifecycle } = require('../../src/lifecycle');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
+const { applyLifecycle } = require('../../src/lifecycle/index.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const EDIT = '\nA line the user added.\n';

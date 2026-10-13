@@ -1,0 +1,1032 @@
+{
+  "schemaVersion": 1,
+  "refresh": {
+    "trigger": "A hook event is added to or removed from core/registry/contracts.json, a harness CLI changes version, or the hook wiring in a harness settings template changes",
+    "owner": "maintainer"
+  },
+  "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+  "note": "observedSemantics values are read from the harness documentation named in source. None was exercised in a live session, because that needs a model call; a row is therefore documented, not observed, until a later feature records an invocation. wired is read from the settings template DoFlow projects (wiredSource), not from a user installation.",
+  "rows": [
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:36",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: Runs when Claude Code starts a new session or resumes an existing session",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "headless",
+      "event": "Setup",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"Setup\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When you start Claude Code with --init-only, or with --init or --maintenance in -p mode. For one-time preparation in CI or scripts",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionEnd",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:168",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a session terminates",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "UserPromptSubmit",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:46",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a prompt is submitted, before Claude processes it. Also fires on turns Claude Code starts on its own",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "UserPromptExpansion",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"UserPromptExpansion\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a user-typed command expands into a prompt, before it reaches Claude. Can block the expansion",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Stop",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:138",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When Claude finishes responding",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "StopFailure",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"StopFailure\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When the turn ends due to an API error",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:89",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: Before a tool call executes. Can block it",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PermissionRequest",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"PermissionRequest\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a tool call needs a permission decision",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PermissionDenied",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:189",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When auto mode denies a tool call, including denials without a classifier verdict",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PostToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:118",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: After a tool call succeeds",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PostToolUseFailure",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:178",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: After a tool call fails",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PostToolBatch",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"PostToolBatch\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: After a full batch of parallel tool calls resolves, before the next model call",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SubagentStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:56",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a subagent is spawned",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SubagentStop",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:67",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a subagent finishes",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "TeammateIdle",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"TeammateIdle\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When an agent team teammate is about to go idle",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "TaskCreated",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"TaskCreated\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a task is being created via TaskCreate",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "TaskCompleted",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"TaskCompleted\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a task is being marked as completed",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "InstructionsLoaded",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"InstructionsLoaded\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a CLAUDE.md or .claude/rules/*.md file is loaded into context. Fires at session start and when files are lazily loaded during a session",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "ConfigChange",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:78",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a configuration file changes during a session",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "CwdChanged",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"CwdChanged\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When the working directory changes, for example when Claude executes a cd command",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "FileChanged",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"FileChanged\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a watched file changes on disk. The matcher field specifies which filenames to watch",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "DirectoryAdded",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"DirectoryAdded\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a working directory is added mid-session via /add-dir or the SDK register_repo_root control request",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreCompact",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:148",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: Before context compaction",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PostCompact",
+      "wired": true,
+      "wiredSource": "core/harnesses/claude/settings/settings.json:158",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: After context compaction completes",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "WorktreeCreate",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"WorktreeCreate\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a worktree is being created via --worktree, isolation: \"worktree\", or for a background session. Replaces default git behavior",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "WorktreeRemove",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"WorktreeRemove\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a worktree that a WorktreeCreate hook created is being removed",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Notification",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"Notification\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When Claude Code sends a notification",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "MessageDisplay",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"MessageDisplay\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: While assistant message text is displayed",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Elicitation",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"Elicitation\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When an MCP server requests user input during a tool call",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "claude",
+      "installedVersion": {
+        "value": "2.1.287 (Claude Code)",
+        "source": "claude --version → 2.1.287 (Claude Code)",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "ElicitationResult",
+      "wired": false,
+      "wiredSource": "core/harnesses/claude/settings/settings.json: no \"ElicitationResult\" key under hooks",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: After a user responds to an MCP elicitation, before the response is sent back to the server",
+        "source": "https://code.claude.com/docs/en/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:4",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"Session or subagent starts\"; the matcher filters source (startup, resume, clear, compact)",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionEnd",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:110",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: fires \"When the main thread ends\"; the matcher filters reason (currently only other)",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "UserPromptSubmit",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:15",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; \"matcher isn't currently used for this event\"",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Stop",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:99",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; \"matcher isn't currently used for this event\"",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:45",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; the matcher filters tool_name; can deny or rewrite calls",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PostToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:77",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; the matcher filters tool_name; can block with feedback",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SubagentStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:25",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"When session or subagent starts\"; the matcher filters agent_type",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SubagentStop",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:35",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; the matcher filters agent_type; can continue the subagent",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "codex",
+      "installedVersion": {
+        "value": "codex-cli 0.162.1",
+        "source": "codex --version → codex-cli 0.162.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreCompact",
+      "wired": true,
+      "wiredSource": "core/harnesses/codex/hooks/hooks.json:88",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: scope \"During a turn\"; the matcher filters trigger (manual, auto)",
+        "source": "https://learn.chatgpt.com/docs/hooks",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "the shipped hooks.json states \"Review and trust these hooks in Codex before use\", so wired is not the same as running"
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:4",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a session begins (startup, resume, clear)",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionEnd",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:14",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: When a session ends (exit, clear)",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "BeforeTool",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:25",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: Before a tool executes",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "AfterTool",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:54",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: After a tool executes",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "gemini",
+      "installedVersion": {
+        "value": "0.55.1",
+        "source": "gemini --version → 0.55.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreCompress",
+      "wired": true,
+      "wiredSource": "core/harnesses/gemini/hooks/hooks.json:65",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: Before context compression",
+        "source": "https://geminicli.com/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "kiro",
+      "installedVersion": {
+        "value": "kiro-cli 2.29.1",
+        "source": "kiro-cli --version → kiro-cli 2.29.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "SessionStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/kiro/hooks/doflow.json:6",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: \"Triggers when a new chat session starts in the IDE or CLI V3\"; availability on the page: IDE, CLI V3",
+        "source": "https://kiro.dev/docs/hooks/types/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "doflow.json is read by the Kiro IDE and CLI V3; CLI 2.x reads hooks from the agent config JSON instead (core/registry/harnesses.json:1699), and the installed kiro-cli is 2.29.1"
+    },
+    {
+      "harness": "kiro",
+      "installedVersion": {
+        "value": "kiro-cli 2.29.1",
+        "source": "kiro-cli --version → kiro-cli 2.29.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/kiro/hooks/doflow.json:15",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: \"Triggers when the agent is about to invoke a tool. Can validate and block tool usage\"; availability on the page: IDE, CLI",
+        "source": "https://kiro.dev/docs/hooks/types/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "doflow.json is read by the Kiro IDE and CLI V3; CLI 2.x reads hooks from the agent config JSON instead (core/registry/harnesses.json:1699), and the installed kiro-cli is 2.29.1"
+    },
+    {
+      "harness": "kiro",
+      "installedVersion": {
+        "value": "kiro-cli 2.29.1",
+        "source": "kiro-cli --version → kiro-cli 2.29.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Stop",
+      "wired": true,
+      "wiredSource": "core/harnesses/kiro/hooks/doflow.json:44",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: the page names this trigger AgentStop: \"Triggers when the agent has completed its turn and finished responding to the user\"; it lists no trigger named Stop, so the DoFlow name and the documented name are not assumed to be the same; availability on the page: IDE, CLI",
+        "source": "https://kiro.dev/docs/hooks/types/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "doflow.json is read by the Kiro IDE and CLI V3; CLI 2.x reads hooks from the agent config JSON instead (core/registry/harnesses.json:1699), and the installed kiro-cli is 2.29.1"
+    },
+    {
+      "harness": "antigravity",
+      "installedVersion": {
+        "value": "1.3.3",
+        "source": "agy --version → 1.3.3",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "PreToolUse",
+      "wired": true,
+      "wiredSource": "src/adapters/antigravity/index.ts:59",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: \"Fires before a tool is executed.\"; the matcher is honoured",
+        "source": "https://antigravity.google/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "DoFlow writes the group to a project-scope hooks.json only; a user-scope install wires nothing (src/adapters/antigravity/index.ts:68-75)"
+    },
+    {
+      "harness": "antigravity",
+      "installedVersion": {
+        "value": "1.3.3",
+        "source": "agy --version → 1.3.3",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "Stop",
+      "wired": true,
+      "wiredSource": "src/adapters/antigravity/index.ts:60",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: \"Fires when the execution loop terminates.\"; the page says the matcher is ignored for this event",
+        "source": "https://antigravity.google/docs/hooks/",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "DoFlow writes the group to a project-scope hooks.json only; a user-scope install wires nothing (src/adapters/antigravity/index.ts:68-75)"
+    },
+    {
+      "harness": "opencode",
+      "installedVersion": {
+        "value": "1.18.30",
+        "source": "opencode --version → 1.18.30",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "*",
+      "wired": false,
+      "wiredSource": "core/registry/harnesses.json:902: DoFlow installs no OpenCode plugin and wires no hook",
+      "registryClaim": "different",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: a plugin is a JavaScript/TypeScript module that exports plugin functions returning a hooks object, placed in .opencode/plugins/ or ~/.config/opencode/plugins/; hooks include tool.execute.before, tool.execute.after, session.created, session.idle and others. These are not the shell hooks DoFlow ships",
+        "source": "https://opencode.ai/docs/plugins",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "pi",
+      "installedVersion": {
+        "value": "1.1.0",
+        "source": "pi --version → 1.1.0",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "*",
+      "wired": false,
+      "wiredSource": "core/registry/harnesses.json:1169: DoFlow installs no Pi extension and wires no hook",
+      "registryClaim": "different",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: extensions subscribe with pi.on(); event names include session_start, before_agent_start, tool_call, tool_result, agent_end and turn_end; extensions are TypeScript or JavaScript files loaded from user or project extension directories. These are not the shell hooks DoFlow ships",
+        "source": "https://pi.dev/docs/latest/extensions",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    },
+    {
+      "harness": "copilot",
+      "installedVersion": {
+        "value": "GitHub Copilot CLI 1.0.78.",
+        "source": "copilot --version → GitHub Copilot CLI 1.0.78.",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "*",
+      "wired": false,
+      "wiredSource": "core/registry/harnesses.json:1455: the registry records that DoFlow wires none of the documented Copilot hooks",
+      "registryClaim": "different",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: hooks load from .github/hooks/*.json and user, policy and plugin sources; event names are camelCase (sessionStart, sessionEnd, userPromptSubmitted, preToolUse, postToolUse, agentStop, subagentStart, subagentStop, preCompact and others); \"Prompt hooks fire only for new interactive sessions\" and not in non-interactive prompt mode (-p)",
+        "source": "https://docs.github.com/en/copilot/reference/hooks-reference",
+        "verifiedOn": "2026-10-12"
+      },
+      "sameNameNotAssumed": true
+    }
+  ]
+}

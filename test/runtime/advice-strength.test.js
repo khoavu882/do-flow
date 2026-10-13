@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { strengthOf, strengthWords } = require('../../src/runtime/advice/strength');
+const { strengthOf, strengthWords } = require('../../src/runtime/advice/strength.ts');
 
 const bands = {
   choice: { clearAt: 0.8, splitWithin: 0.2 },

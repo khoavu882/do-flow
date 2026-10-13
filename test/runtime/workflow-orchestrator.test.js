@@ -4,8 +4,8 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
-const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 function scratch(t) { return t ? tempDir(t, 'doflow-workflow-orchestrator-') : suiteTempDir('doflow-workflow-orchestrator-'); }
@@ -445,7 +445,7 @@ test('blocking research request refuses handoff and direct completion without cu
   const root = scratch(t);
   const orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root,
     stateDir: path.join(root, '.doflow/state/orchestration'), readinessEvaluate: READY });
-  const { ResearchRequestStore } = require('../../src/runtime/research-request');
+  const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
   const store = new ResearchRequestStore({ projectRoot: root });
   orch.start({ taskId: 'feature-gap', taskClass: 'feature' });
   const request = store.open({ taskId: 'feature-gap', stageId: 'discovery',

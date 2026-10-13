@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": 1,
+  "generation": 1,
+  "corpus": "code",
+  "comparisons": [
+    {
+      "metric": "recallAt1",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "B",
+      "n": 8,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt5",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "B",
+      "n": 8,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt10",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "B",
+      "n": 8,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "mrrAt10",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "B",
+      "n": 8,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "successAt1",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "B",
+      "n": 8,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt1",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "B",
+      "n": 10,
+      "diff": 0.1,
+      "ci95": [
+        0,
+        0.3
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt5",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "B",
+      "n": 10,
+      "diff": 0.1,
+      "ci95": [
+        0,
+        0.3
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt10",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "B",
+      "n": 10,
+      "diff": 0.2,
+      "ci95": [
+        0,
+        0.5
+      ],
+      "pRandomization": 0.5035496450354965
+    },
+    {
+      "metric": "mrrAt10",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "B",
+      "n": 10,
+      "diff": 0.11000000000000001,
+      "ci95": [
+        0,
+        0.31
+      ],
+      "pRandomization": 0.49165083491650835
+    },
+    {
+      "metric": "recallAt1",
+      "class": "impact-refactor",
+      "a": "A",
+      "b": "B",
+      "n": 10,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt5",
+      "class": "impact-refactor",
+      "a": "A",
+      "b": "B",
+      "n": 10,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt10",
+      "class": "impact-refactor",
+      "a": "A",
+      "b": "B",
+      "n": 10,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "mrrAt10",
+      "class": "impact-refactor",
+      "a": "A",
+      "b": "B",
+      "n": 10,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "statusMatch",
+      "class": "stale-index",
+      "a": "A",
+      "b": "B",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "statusMatch",
+      "class": "dirty-tree",
+      "a": "A",
+      "b": "B",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "statusMatch",
+      "class": "unavailable-provider",
+      "a": "A",
+      "b": "B",
+      "n": 3,
+      "diff": 0.3333333333333333,
+      "ci95": [
+        0,
+        1
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "statusMatch",
+      "class": "oversized-context",
+      "a": "A",
+      "b": "B",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "mustIncludeMet",
+      "class": "oversized-context",
+      "a": "A",
+      "b": "B",
+      "n": 3,
+      "diff": 0.3333333333333333,
+      "ci95": [
+        0,
+        1
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "statusMatch",
+      "class": "verification-failure",
+      "a": "A",
+      "b": "B",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "mustSurviveMet",
+      "class": "verification-failure",
+      "a": "A",
+      "b": "B",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    }
+  ]
+}

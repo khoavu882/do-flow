@@ -180,6 +180,71 @@
           "verification": "Install or inspect the plugin manifest."
         }
       },
+      "orchestration": {
+        "spawn": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/tools-reference → Agent: \"Spawns a subagent with its own context window to handle a task.\""
+          ],
+          "verification": "Ask Claude Code to delegate a task to an installed subagent and confirm a subagent runs.",
+          "verifiedOn": "2026-10-12"
+        },
+        "wait": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/sub-agents → \"Foreground subagents block the main conversation until complete.\"",
+            "https://code.claude.com/docs/en/sub-agents → \"A background subagent's results reach Claude as a completion notification in a later turn.\""
+          ],
+          "verification": "Run a foreground subagent and confirm the main conversation resumes with its result.",
+          "verifiedOn": "2026-10-12"
+        },
+        "status": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/sub-agents → \"To check which model a subagent is running on, run /tasks.\""
+          ],
+          "verification": "Run /tasks while a background subagent is active.",
+          "verifiedOn": "2026-10-12"
+        },
+        "cancel": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/tools-reference → TaskStop: \"Stops a running background task by ID. It also accepts an agent-team teammate or a named background agent by agent ID or name.\""
+          ],
+          "verification": "Start a background subagent and stop it with TaskStop.",
+          "verifiedOn": "2026-10-12"
+        },
+        "resume": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/sub-agents → \"Claude uses the SendMessage tool with the agent's ID or name as the to field to resume it.\""
+          ],
+          "verification": "Complete a subagent, then send it a follow-up through SendMessage and confirm it keeps its history.",
+          "verifiedOn": "2026-10-12"
+        }
+      },
+      "contextProfile": {
+        "capacityTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "reserveTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "tokenTelemetry": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "toolResultLimitBytes": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "retention": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        }
+      },
       "scopePrecedence": {
         "status": "established",
         "order": [
@@ -417,6 +482,70 @@
           "verification": "Confirm the plugin is enabled by the host."
         }
       },
+      "orchestration": {
+        "spawn": {
+          "status": "supported",
+          "evidence": [
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Ask for subagents or parallel agent work directly.\""
+          ],
+          "verification": "Ask Codex to spawn two agents and confirm both appear under Subagents.",
+          "verifiedOn": "2026-10-12"
+        },
+        "wait": {
+          "status": "supported",
+          "evidence": [
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"When many agents are running, Codex waits until all requested results are available, then returns a consolidated response.\""
+          ],
+          "verification": "Spawn two agents and confirm one consolidated response arrives after both finish.",
+          "verifiedOn": "2026-10-12"
+        },
+        "status": {
+          "status": "supported",
+          "evidence": [
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Open Subagents to see read-only Active and Done lists.\" and \"Use /agent in the CLI to switch between active agent threads and inspect the ongoing thread.\""
+          ],
+          "verification": "Open Subagents or run /agent while a subagent is active.",
+          "verifiedOn": "2026-10-12"
+        },
+        "cancel": {
+          "status": "supported",
+          "evidence": [
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Ask Codex directly to steer a running subagent, stop it, or close completed agent threads.\""
+          ],
+          "verification": "Ask Codex to stop a running subagent and confirm the thread ends.",
+          "verifiedOn": "2026-10-12"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://learn.chatgpt.com/docs/agent-configuration/subagents; `codex resume` resumes a session (observed in `codex --help`, codex-cli 0.162.1) and is not recorded as a subagent resume.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "manual",
+          "reason": "https://learn.chatgpt.com/docs/agent-configuration/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+        }
+      },
+      "contextProfile": {
+        "capacityTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "reserveTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "tokenTelemetry": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "toolResultLimitBytes": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "retention": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        }
+      },
       "scopePrecedence": {
         "status": "established",
         "order": [
@@ -605,6 +734,71 @@
           ],
           "note": "Extensions (gemini-extension.json) now package skills, hooks, sub-agents, and MCP; security.blockGitExtensions/allowedExtensions can gate Git-sourced installs. Context: Google sunset Gemini CLI for consumer tiers on 2026-06-18 — enterprise/paid-API use only; Antigravity CLI (GA 2026-05-19, antigravity.google/docs/gcli-migration) is the successor surface carrying skills/hooks/subagents/plugins.",
           "verification": "Verify extensions through the native host workflow."
+        }
+      },
+      "orchestration": {
+        "spawn": {
+          "status": "supported",
+          "evidence": [
+            "https://geminicli.com/docs/core/subagents → \"When the main agent calls the tool, it delegates the task to the subagent.\"",
+            "https://geminicli.com/docs/core/subagents → \"You can explicitly direct a task to a specific subagent by using the @ symbol followed by the subagent's name at the beginning of your prompt.\""
+          ],
+          "verification": "Prompt with @<subagent> and confirm the subagent runs.",
+          "verifiedOn": "2026-10-12"
+        },
+        "wait": {
+          "status": "supported",
+          "evidence": [
+            "https://geminicli.com/docs/core/subagents → \"Once the subagent completes its task, it reports back to the main agent with its findings.\""
+          ],
+          "verification": "Delegate a task and confirm the main agent continues from the subagent report.",
+          "verifiedOn": "2026-10-12"
+        },
+        "status": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://geminicli.com/docs/core/subagents and the Gemini CLI changelog for a status operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a status operation; nothing is inferred from another harness or a model name."
+        },
+        "cancel": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://geminicli.com/docs/core/subagents for a stop operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a cancel operation; nothing is inferred from another harness or a model name."
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://geminicli.com/docs/core/subagents for a resume operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "manual",
+          "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+        }
+      },
+      "contextProfile": {
+        "capacityTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "reserveTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "tokenTelemetry": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "toolResultLimitBytes": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "retention": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
         }
       },
       "scopePrecedence": {
@@ -844,6 +1038,71 @@
           "verification": "Report that no plugin package is installed for OpenCode."
         }
       },
+      "orchestration": {
+        "spawn": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/agents → \"Control which subagents an agent can invoke via the Task tool with permission.task.\"",
+            "https://opencode.ai/docs/agents → \"Subagents can be invoked: Automatically by primary agents for specialized tasks based on their descriptions. Manually by @ mentioning a subagent in your message.\""
+          ],
+          "verification": "Mention a subagent with @ or let a primary agent call the Task tool and confirm a child session starts.",
+          "verifiedOn": "2026-10-12"
+        },
+        "wait": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://opencode.ai/docs/agents and https://opencode.ai/docs/tools for a wait operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://opencode.ai/docs/agents was read on 2026-10-12 and does not state a wait operation; nothing is inferred from another harness or a model name."
+        },
+        "status": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://opencode.ai/docs/agents for a status operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://opencode.ai/docs/agents describes keybinds to enter and leave child sessions but states no status operation; nothing is inferred."
+        },
+        "cancel": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://opencode.ai/docs/agents for a stop operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://opencode.ai/docs/agents was read on 2026-10-12 and does not state a cancel operation; nothing is inferred from another harness or a model name."
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://opencode.ai/docs/agents for a resume operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "manual",
+          "reason": "https://opencode.ai/docs/agents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+        }
+      },
+      "contextProfile": {
+        "capacityTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "reserveTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "tokenTelemetry": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "toolResultLimitBytes": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "retention": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        }
+      },
       "scopePrecedence": {
         "status": "established",
         "order": [
@@ -1069,6 +1328,71 @@
           ],
           "note": "DoFlow publishes no Pi extension package; its content reaches Pi by registration rather than extension distribution.",
           "verification": "Report that no extension package is installed for Pi."
+        }
+      },
+      "orchestration": {
+        "spawn": {
+          "status": "unsupported",
+          "evidence": [
+            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md → \"Pi ships with powerful defaults but skips features like sub-agents and plan mode.\""
+          ],
+          "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md and https://pi.dev/docs/latest/extensions; an extension may add subagents, which is not recorded as a Pi capability.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential"
+        },
+        "wait": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a wait operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no wait operation; https://pi.dev/docs/latest/extensions was read on 2026-10-12 and states no subagent operation. Nothing is inferred."
+        },
+        "status": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a status operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no status operation; https://pi.dev/docs/latest/extensions states no subagent operation. Nothing is inferred."
+        },
+        "cancel": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a cancel operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no cancel operation; https://pi.dev/docs/latest/extensions states no subagent operation. Nothing is inferred."
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a resume operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "manual",
+          "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no resume operation; https://pi.dev/docs/latest/extensions states no subagent operation. Nothing is inferred."
+        }
+      },
+      "contextProfile": {
+        "capacityTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "reserveTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "tokenTelemetry": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "toolResultLimitBytes": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "retention": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
         }
       },
       "scopePrecedence": {
@@ -1304,6 +1628,70 @@
           "verification": "Report that no Copilot plugin package is installed."
         }
       },
+      "orchestration": {
+        "spawn": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli → \"Work performed by a custom agent is carried out using a subagent, which is a temporary agent spun up to complete the task.\""
+          ],
+          "verification": "Run a custom agent task and confirm a subagent appears in /tasks.",
+          "verifiedOn": "2026-10-12"
+        },
+        "wait": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference for a wait operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli and https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference was read on 2026-10-12 and does not state a wait operation; nothing is inferred from another harness or a model name."
+        },
+        "status": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference → tasks dialog (/tasks): \"Enter - View task details, or teleport into the selected subagent's own session view\"; subagents that spawn nested subagents \"appear as an indented tree\"."
+          ],
+          "verification": "Open /tasks while a subagent is active.",
+          "verifiedOn": "2026-10-12"
+        },
+        "cancel": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference → tasks dialog (/tasks): \"X - Kill the selected active task\"; the dialog lists subagents and shells (\"Toggle showing finished subagents and shells\")."
+          ],
+          "verification": "Open /tasks, select an active subagent and press X.",
+          "verifiedOn": "2026-10-12"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference for a resume operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "manual",
+          "reason": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference offers steering of a running subagent from its session view but states no resume of a finished subagent; nothing is inferred."
+        }
+      },
+      "contextProfile": {
+        "capacityTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "reserveTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "tokenTelemetry": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "toolResultLimitBytes": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "retention": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        }
+      },
       "scopePrecedence": {
         "status": "established",
         "order": [
@@ -1398,7 +1786,7 @@
           "evidence": [
             "https://kiro.dev/docs/custom-agents/configuration-reference/"
           ],
-          "note": "Confirmed: Kiro supports both .kiro/agents/<name>.json and .kiro/agents/<name>.md (Markdown, backward-compatible), with fields including name, description, tools, allowedTools/excludedTools, resources, prompt, model, permissions. DoFlow's shared agent-specs are already plain Markdown with name/description frontmatter, which Kiro's .md agent format accepts natively.",
+          "note": "kiro-cli discovers custom agents as .kiro/agents/<name>.json; kiro-cli 2.27.1 `kiro-cli agent list` did not list .md agents. DoFlow renders each shared agent spec to JSON (name, description, prompt, tools, hooks) through the kiro-agents transform and installs a static doflow agent beside them. A pre-existing DoFlow-owned <name>.md is removed on update. DoFlow never changes the user's default agent; run `kiro-cli chat --agent doflow` or opt in with `kiro-cli agent set-default doflow`.",
           "verification": "Confirm an installed custom agent under .kiro/agents is discoverable by Kiro."
         },
         "scripts": {
@@ -1440,8 +1828,8 @@
             "https://kiro.dev/docs/hooks/actions/",
             "https://kiro.dev/docs/permissions/"
           ],
-          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that is not in Kiro v3's untrusted-workspace exclusion list (custom agents, steering, MCP configuration, skills, workflows); an untrusted workspace asks before every shell command, and whether that covers hook commands is undocumented. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro — exit 0 stdout is injected as context rather than enforced.",
-          "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI.",
+          "note": "kiro-cli reads hooks from an agent config's `hooks` array (agentSpawn, userPromptSubmit, preToolUse, postToolUse, stop). A preToolUse hook that exits 2 blocks the tool call; any other non-zero exit warns and allows; stop is not blockable on 2.x. DoFlow writes three preToolUse hooks (pre-implementation-gate on `write`, pre-bash-guard on `shell`, mcp-tool-guard on `*`) into every rendered agent, plus agentSpawn (session context) and stop (stop-check) on the doflow agent only. The Kiro front doors translate Kiro tool names, KIRO_SESSION_ID and assistant_response to the canonical payload before running the shared policies. `.kiro/hooks/doflow.json` (flat `{version, hooks: [...]}`, PascalCase triggers) is read by the Kiro IDE and by CLI V3 (for every agent); CLI 2.x does not read it. Kiro CLI V3 also loads standalone `.kiro/hooks/*.json` (workspace) and `~/.kiro/hooks/*.json` (global) for every agent, alongside agent-profile hooks, so doflow.json runs for all agents there, and with `--agent doflow` on V3 the preToolUse checks run twice (accepted, idempotent). V3 payloads carry `session_id`, and V3 built-in tool IDs include `read_file`, `execute_bash`, `execute_pwsh`, `fs_write`, `fs_append`, `str_replace` and `delete_file`; the front doors map the write family to Write and `execute_pwsh` to Bash, and V3 MCP IDs (`mcp_<server>_<tool>`) reach mcp-tool-guard unchanged. doflow.json scopes the MCP guard with the V3 `@mcp` selector. V3 Stop: exit 0 finishes, exit 0 with stdout JSON `{\"decision\":\"block\",\"reason\":\"...\"}` starts another turn, exit 1 also starts another turn, and exit 2 does not block; the stop front door therefore turns the policy's deny into that JSON block when the payload has a session_id and keeps exit 2 with stderr for 2.x, where any non-zero exit only warns. It is not in Kiro v3's untrusted-workspace exclusion list; an untrusted workspace asks before every shell command, and whether that covers hook commands is undocumented. Observed on CLI V3 (kiro-cli 2.27.1 --v3, 2026-10-11): PreToolUse payloads carry session_id, tool_name execute_bash with tool_input.command, fs_write and str_replace with tool_input.path; the Stop payload carries only session_id, hook_event_name and cwd, with no response text or transcript path, so stop-check's unfinished-work scan has nothing to read on V3 and allows the stop.",
+          "verification": "Confirm kiro-cli reads hooks from the agent config JSON `hooks` (installed .kiro/agents/doflow.json and the specialist agents) with the expected trigger names, and that a preToolUse hook blocks only on exit 2 (any other non-zero exit warns and allows). .kiro/hooks/doflow.json is the Kiro IDE surface.",
           "events": {
             "UserPromptSubmit": {
               "status": "different",
@@ -1463,6 +1851,70 @@
           ],
           "note": "No plugin or extension marketplace mechanism is documented in the steering, hooks, or MCP sources cited for this feature.",
           "verification": "Report the capability gap; do not attempt to install a plugin."
+        }
+      },
+      "orchestration": {
+        "spawn": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/custom-agents/subagents/ → \"Use the code-reviewer agent to analyze src/auth/ for security issues\" (invocation example for a sub-agent)."
+          ],
+          "verification": "Prompt the main agent to use a custom agent and confirm a sub-agent runs.",
+          "verifiedOn": "2026-10-12"
+        },
+        "wait": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/custom-agents/subagents/ → \"When finished, the sub-agent returns findings to the main agent\"."
+          ],
+          "verification": "Delegate a task and confirm the main agent continues from the returned findings.",
+          "verifiedOn": "2026-10-12"
+        },
+        "status": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/custom-agents/subagents/ → \"In CLI, use Ctrl+G to check on long-running sub-agents\"."
+          ],
+          "verification": "Press Ctrl+G in the Kiro CLI while a sub-agent is running.",
+          "verifiedOn": "2026-10-12"
+        },
+        "cancel": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://kiro.dev/docs/custom-agents/subagents/ for a stop operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://kiro.dev/docs/custom-agents/subagents/ was read on 2026-10-12 and does not state a cancel operation; nothing is inferred from another harness or a model name."
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://kiro.dev/docs/custom-agents/subagents/ for a resume operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "manual",
+          "reason": "https://kiro.dev/docs/custom-agents/subagents/ was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+        }
+      },
+      "contextProfile": {
+        "capacityTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "reserveTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "tokenTelemetry": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "toolResultLimitBytes": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "retention": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
         }
       },
       "scopePrecedence": {
@@ -1704,6 +2156,70 @@
           ],
           "note": "Local-path plugin installs only; DoFlow publishes none.",
           "verification": "Report that no plugin is installed."
+        }
+      },
+      "orchestration": {
+        "spawn": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/subagents?tab=cli → \"The parent agent calls the invoke_subagent tool to spawn a new concurrent session with a dedicated role and initial prompt\"."
+          ],
+          "verification": "Ask the agent to delegate and confirm a subagent appears in the subagent panel.",
+          "verifiedOn": "2026-10-12"
+        },
+        "wait": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://antigravity.google/docs/subagents?tab=cli for a wait operation.",
+          "verifiedOn": "2026-10-12",
+          "fallback": "sequential",
+          "reason": "https://antigravity.google/docs/subagents?tab=cli describes asynchronous execution (\"the primary agent delegates these operations to parallel subagents or background tasks\") but states no wait operation; nothing is inferred."
+        },
+        "status": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/subagents?tab=cli → \"You can directly monitor the progress of any subagent by clicking into its conversation in the subagent panel or pressing Alt+J\"."
+          ],
+          "verification": "Open the subagent panel while a subagent is running.",
+          "verifiedOn": "2026-10-12"
+        },
+        "cancel": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/subagents?tab=cli → \"You can cancel a running subagent by clicking Stop Subagent in the subagent panel (or pressing k in the CLI).\""
+          ],
+          "verification": "Press k on a running subagent in the CLI and confirm it is Killed.",
+          "verifiedOn": "2026-10-12"
+        },
+        "resume": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/subagents?tab=cli → \"An idle agent automatically re-awakens to the Running state upon receiving a message from another agent.\""
+          ],
+          "verification": "Message an Idle subagent and confirm it returns to Running.",
+          "verifiedOn": "2026-10-12"
+        }
+      },
+      "contextProfile": {
+        "capacityTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "reserveTokens": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "tokenTelemetry": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "toolResultLimitBytes": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
+        },
+        "retention": {
+          "unverified": "values belong to 085 (A-19)",
+          "verifiedOn": "2026-10-13"
         }
       },
       "scopePrecedence": {

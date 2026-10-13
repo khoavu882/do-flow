@@ -4,8 +4,8 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { updateLedger } = require('../../src/lifecycle');
-const { defaultLedger, LEDGER_VERSION } = require('../../src/state');
+const { updateLedger } = require('../../src/lifecycle/index.ts');
+const { defaultLedger, LEDGER_VERSION } = require('../../src/state/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 function scratch(t) { return tempDir(t, 'doflow-tombstone-'); }

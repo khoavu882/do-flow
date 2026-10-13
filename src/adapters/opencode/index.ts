@@ -1,0 +1,466 @@
+'use strict';
+
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
+// OpenCode adapter.
+//
+// OpenCode gets its own copy of DoFlow's skills tree, the same as Claude, Codex, and Gemini: it
+// natively discovers skills under `.opencode/skills/` (project) and `~/.config/opencode/skills/`
+// (global) without any settings entry, so the shared copy-tree engine in ../copy-tree.ts
+// materialises `skills.doflow` there directly. What remains registration, rather than
+// materialisation, is `opencode.json`'s `instructions[]` array (OpenCode needs `AGENTS.md` named
+// explicitly to read it) and its `mcp` object — neither has a native discovery path the way skills
+// now do. DoFlow's servers in `mcp` are owned one entry at a time through ../mcp-entries.ts.
+//
+// Evidence: https://opencode.ai/docs/skills, https://opencode.ai/docs/config,
+// https://opencode.ai/docs/rules
+const fs = require('node:fs');
+const path = require('node:path');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
+const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
+
+// Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
+// from plan(), whose contract is to compute changes without touching disk. The gemini adapter
+// solves this the same way, with a pure managedInstruction() over strings.
+const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
+const { destructiveCommandGlobs } = require('../../helper/guardrails.ts');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
+
+const HARNESS = 'opencode';
+/**
+ * Payload literal written INTO opencode.json's instructions[] — it names the instruction file the
+ * declared `instruction` path installs (harnesses.json "paths".instruction's basename). It is a
+ * content string inside a foreign config file, not an install destination, so it stays here;
+ * test/guards/harness-paths.test.js cross-checks it against the declaration via a probe install.
+ */
+const INSTRUCTION_FILE = 'AGENTS.md';
+const PERMISSIONS_OWNER = 'doflow:guardrails';
+const MCP_CONTAINER = 'mcp';
+const MCP_RENDERER = 'opencode-mcp';
+
+/**
+ * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
+ * resolve through the shared harness-paths resolver. Global config lives under `~/.config/opencode/`,
+ * NOT `~/.opencode/` — the latter is a plausible guess that OpenCode does not use, and DoFlow's own
+ * docs asserted it for several releases.
+ * createOpenCodeAdapter({ declaredPaths }) is the injection point buildAdapterRegistry() uses;
+ * module-level exports delegate to a default-configured instance so direct callers keep their
+ * historical shape.
+ */
+function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
+  function nativePaths({ scope, scopeRoot, homeDir }: any) {
+    return resolveHarnessPaths(declaredPaths, { scope, scopeRoot, homeDir });
+  }
+
+  /** The directory a copy-tree asset (skills) materialises under. Distinct from `configDir` at
+   * project scope: `configDir` there is the project root itself, because `AGENTS.md` and
+   * `opencode.json` are read from the repo root, but the skills tree is namespaced under
+   * `.opencode/` per design.md's native-surfaces table. Global scope has no such split —
+   * `~/.config/opencode` already IS the skills root. Declared as `treeRoot` in harnesses.json. */
+  function copyTreeConfigDir(paths: any) {
+    return paths.treeRoot;
+  }
+
+  /** Agents live under `.opencode/agents/` at project scope and `~/.config/opencode/agents/`
+   * globally — a different root from the skills tree in both scopes, so they get their own
+   * destination resolution rather than reusing copyTreeConfigDir. Declared as `agentsDirectory`. */
+  function agentsDestDir(paths: any) {
+    return paths.agentsDirectory;
+  }
+
+  /** Discovery keeps opencode.json as plan read it (`mcpSnapshot`), which verify compares against,
+   * and reports the servers DoFlow owns in its `mcp` object now (`mcpOwned`). */
+  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, context = {}, fsImpl = fs }: any) {
+    const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
+    const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
+    const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
+    const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
+    const read = mcpSnapshot[entries.file];
+    // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
+    const mcpConfigured = read?.ok && read.servers ? Object.keys(read.servers).sort() : null;
+    return { paths, instruction, config: readJson(paths.config, { fsImpl }), mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured };
+  }
+
+  function render({ content = '' }: any = {}) {
+    return `${MARKER_START}\n${String(content).trimEnd()}\n${MARKER_END}\n`;
+  }
+
+  /** Register DoFlow's instructions in opencode.json without disturbing anything else in it.
+   * `instructions` is unioned rather than replaced because OpenCode treats it as additive across
+   * every config it discovers — replacing would silently drop a user's own entries. Skills are
+   * deliberately absent here: they are a materialised directory now, discovered natively, not a
+   * registered path. The `mcp` object is left to the entry changes. */
+  function mergeConfig(existing: any) {
+    const next = { ...(existing || {}) };
+    const union = (current: any, add: any) => [...new Set([...(Array.isArray(current) ? current : []), ...add])];
+    next.instructions = union(next.instructions, [INSTRUCTION_FILE]);
+    return next;
+  }
+
+  /** Remove only what mergeConfig added, leaving every user key and every unrelated array entry. */
+  function unmergeConfig(existing: any) {
+    const next = { ...(existing || {}) };
+    const without = (current: any, drop: any) => (Array.isArray(current) ? current.filter((v) => !drop.includes(v)) : []);
+    next.instructions = without(next.instructions, [INSTRUCTION_FILE]);
+    if (!next.instructions.length) delete next.instructions;
+    return next;
+  }
+
+  /** Replace only the span between DoFlow's markers, leaving everything else byte-identical.
+   * An AGENTS.md that exists without a DoFlow section is refused rather than appended to — the same
+   * policy the gemini adapter applies to GEMINI.md, and for the same reason: AGENTS.md is a shared,
+   * cross-tool file, so where DoFlow's content belongs inside it is a decision for its owner, not a
+   * guess for the installer. Add an empty marker pair to opt in. */
+  /** Opt-in (--permissions) guardrail projection: DoFlow's destructive-command blocklist lands as
+   * deny rules under permission.bash. Only keys this feature owns (each carries a matching
+   * comment-free glob we can re-derive) are touched; a user's own bash rules survive untouched.
+   * Entries are namespaced by value, not by key, so ownership is decided by re-deriving the list
+   * from the single authored source rather than by trusting whatever happens to be present. */
+  function guardrailBashRules(context: any) {
+    const globs = destructiveCommandGlobs({ repoRoot: context.repoRoot });
+    return Object.fromEntries(globs.map((glob: any) => [glob, 'deny']));
+  }
+
+  function mergeGuardrails(existing: any, context: any) {
+    const next = { ...(existing || {}) };
+    const bash = { ...guardrailBashRules(context), ...((next.permission?.bash ?? {})) };
+    // Keep user rules, but make sure ours win for identical globs (they are the stricter value).
+    next.permission = { ...(next.permission ?? {}), bash };
+    return next;
+  }
+
+  function stripGuardrails(existing: any, context: any) {
+    if (!existing?.permission?.bash) return existing;
+    const ours = new Set(Object.keys(guardrailBashRules(context)));
+    const bash = Object.fromEntries(Object.entries(existing.permission.bash).filter(([glob]) => !ours.has(glob)));
+    const permission = { ...existing.permission };
+    if (Object.keys(bash).length) permission.bash = bash; else delete permission.bash;
+    if (Object.keys(permission).length) return { ...existing, permission };
+    const { permission: _dropped, ...rest } = existing;
+    void _dropped;
+    return rest;
+  }
+
+  function managedInstruction(existing: any, rendered: any) {
+    if (existing === null) return { ok: true, operation: 'create', content: rendered };
+    const start = existing.indexOf(MARKER_START);
+    const end = existing.indexOf(MARKER_END);
+    if (start === -1 && end === -1) return { ok: false, conflict: `${INSTRUCTION_FILE} exists without a DoFlow managed section` };
+    if (start === -1 || end === -1 || end < start) return { ok: false, conflict: `${INSTRUCTION_FILE} has malformed DoFlow managed-section markers` };
+    const content = `${existing.slice(0, start)}${rendered}${existing.slice(end + MARKER_END.length).replace(/^\n?/, '')}`;
+    return { ok: true, operation: content === existing ? 'none' : 'merge', content };
+  }
+
+  /** Strip DoFlow's span, leaving the rest of a shared AGENTS.md intact. Returns null when there is
+   * nothing to do, so remove() can skip the write entirely. */
+  function strippedInstruction(existing: any) {
+    if (typeof existing !== 'string') return null;
+    const start = existing.indexOf(MARKER_START);
+    const end = existing.indexOf(MARKER_END);
+    if (start === -1 || end === -1 || end < start) return null;
+    let after = end + MARKER_END.length;
+    if (existing[after] === '\n') after += 1;
+    return `${existing.slice(0, start)}${existing.slice(after)}`;
+  }
+
+  // ---- copy-tree assets (skills) ----
+
+  /** `agents.shared` projects onto OpenCode through its own renderer name (its frontmatter is
+   * transformed into OpenCode's markdown-agent vocabulary) but materialises with exactly the same
+   * engine and change records as every other copy-tree asset. */
+  function opencodeTreeAssets(assets: any) {
+    return [...copyTreeAssets(assets), ...(assets || []).filter((asset: any) => asset.renderer === 'opencode-agents')];
+  }
+
+  function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }: any) {
+    const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
+    const treeConfigDir = copyTreeConfigDir(paths);
+    const changes = [];
+    const conflicts = [];
+    const treeResults = [];
+    const notices = [];
+    for (const asset of opencodeTreeAssets(assets)) {
+      const destDir = asset.renderer === 'opencode-agents' ? agentsDestDir(paths) : sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(treeConfigDir, asset);
+      const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
+      const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform, keepModified: !removing,
+        // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
+        // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
+        // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
+        // is never deleted on removal, forced or not.
+        force: !removing && context?.force === true, });
+      treeResults.push(result);
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
+      // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
+      // ownership row is released.
+      notices.push(...result.kept.map((item: any) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
+      for (const change of result.changes) {
+        changes.push({
+          assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
+          ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
+          kind: 'copy-tree-file', identity: change.relPath,
+          afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+          transformName: asset.transform || null,
+          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
+          projection: { renderer: asset.renderer },
+        });
+      }
+    }
+    return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
+  }
+
+  function applyCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
+    let applied = 0;
+    const grouped = new Map();
+    for (const change of changes) {
+      if (change.kind !== 'copy-tree-file' || change.operation === 'remove') continue;
+      const key = change.transformName || null;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint });
+    }
+    for (const [transformName, treeChanges] of grouped) {
+      applied += applyTree({ changes: treeChanges, fsImpl, transform: resolveTransform(transformName) }).applied;
+    }
+    return applied;
+  }
+
+  function removeCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
+    const treeChanges = changes.filter((change: any) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
+      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint, pruneGuard: change.pruneGuard }));
+    return removeTree({ changes: treeChanges, fsImpl }).removed;
+  }
+
+  function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }: any) {
+    const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
+    const treeConfigDir = copyTreeConfigDir(paths);
+    const statuses = [];
+    const resources = [];
+    const conflicts = [];
+    for (const asset of opencodeTreeAssets(assets)) {
+      const destDir = asset.renderer === 'opencode-agents' ? agentsDestDir(paths) : sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(treeConfigDir, asset);
+      const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
+      for (const resource of result.resources) {
+        resources.push({
+          assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${resource.relPath}`,
+          kind: 'copy-tree-file', identity: resource.relPath,
+          fingerprint: resource.fingerprint, sourceVersion: 'registry-v1',
+          projection: { renderer: asset.renderer },
+        });
+      }
+      statuses.push({ harness: HARNESS, assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
+    }
+    return { statuses, resources, conflicts };
+  }
+
+  // ---- shared adapter contract ----
+
+  /** OpenCode's settings-merge change has no asset of its own in core/registry/assets.json (it's a
+   * registration side-effect of the instructions/mcp assets, not a projected asset), so it piggybacks
+   * on a real asset id already routed to this harness — the same "pseudo-component" technique
+   * src/adapters/gemini/index.ts#hooksAssetId and src/adapters/kiro/index.ts#pseudoAssetId use. The
+   * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
+   * invented id like the literal string 'opencode.config' is rejected as unknown. */
+  function pseudoAssetId(assets: any) {
+    return assets.find((asset: any) => asset.capability === 'instructions')?.id ?? assets[0]?.id;
+  }
+
+  // ---- MCP entries (opencode.json `mcp`) ----
+
+  /** OpenCode's own server shape: a local server whose command and arguments form one array. */
+  function buildServerEntry(server: any) {
+    return { type: 'local', command: [server.command, ...(server.args || [])], enabled: true };
+  }
+
+  function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}`; }
+
+  /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
+  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }: any) {
+    const rendered = (servers: any) => servers.map((server: any) => ({ id: server.id, entry: buildServerEntry(server) }));
+    const rows = (ledger?.resources || []).filter((row: any) => row.kind === 'mcp-server');
+    return {
+      file: paths.config, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
+      ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
+        identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
+      })),
+      foreignRows: rows.filter((row: any) => row.harness !== HARNESS).map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
+      identityFor: ownershipIdentity, assetId: pseudoAssetId(assets), renderer: MCP_RENDERER, label: 'OpenCode MCP',
+    };
+  }
+
+  /** opencode.json cannot be edited safely while removing: its registration row is released with
+   * the entry rows, so the removal completes and leaves the file as it is. */
+  function releasedConfigRow({ assets, paths, ledger }: any) {
+    const owned = (ledger?.resources || []).some((row: any) => row.harness === HARNESS && row.ownershipIdentity === `${HARNESS}:config:registration` && row.target === paths.config);
+    return owned ? [{ assetId: pseudoAssetId(assets), target: paths.config, operation: 'remove', release: true,
+      ownershipIdentity: `${HARNESS}:config:registration`, harness: HARNESS, projection: { renderer: 'opencode-config' } }] : [];
+  }
+
+  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
+    const found = discovery || discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, context, fsImpl });
+    const changes = [];
+    const conflicts = [];
+    const removing = context.operation === 'remove';
+    // One read decides whether opencode.json can be edited: its refusal comes from the entry plan
+    // below, under a fixed reason that never quotes the file.
+    const configReadable = found.mcpSnapshot[found.paths.config].ok;
+
+    const guidance = assets.find((asset: any) => asset.capability === 'instructions');
+    if (guidance) {
+      const rendered = render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') });
+      const outcome = removing
+        ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
+        : managedInstruction(found.instruction, rendered);
+      if (!outcome.ok) conflicts.push(outcome.conflict);
+      else if (outcome.operation !== 'none' && outcome.content !== null) {
+        changes.push({ assetId: guidance.id, target: found.paths.instruction, operation: outcome.operation,
+          content: outcome.content, ownershipIdentity: `${HARNESS}:instructions:managed-section`,
+          fingerprint: fingerprint(outcome.content), harness: HARNESS, projection: { renderer: 'opencode-instructions' } });
+      }
+    }
+
+    if (configReadable) {
+      const current = found.config.value || {};
+      let next = removing ? unmergeConfig(current) : mergeConfig(current);
+      // Opt-in (--permissions): fold the destructive-command deny list into the same single write
+      // so a run never produces two competing rewrites of one JSON file.
+      if (context.permissions) {
+        next = removing ? stripGuardrails(next, context) : mergeGuardrails(next, context);
+      }
+      if (JSON.stringify(next) !== JSON.stringify(current)) {
+        changes.push({ assetId: pseudoAssetId(assets), target: found.paths.config,
+          // Tagged 'remove' during a remove operation (rather than always 'update'/'create') so this
+          // adapter's own apply()/remove() dispatch — which routes strictly on `operation` — writes
+          // the unmerged file during removal instead of silently skipping it (the same fix
+          // src/adapters/copilot/index.ts's analogous mcp-merge change already carries).
+          operation: removing ? 'remove' : (found.config.exists ? 'update' : 'create'), content: `${JSON.stringify(next, null, 2)}\n`,
+          ownershipIdentity: `${HARNESS}:config:registration`, fingerprint: fingerprint(next),
+          harness: HARNESS, projection: { renderer: 'opencode-config' } });
+      }
+    } else if (removing) {
+      changes.push(...releasedConfigRow({ assets, paths: found.paths, ledger }));
+    }
+
+    const mcpPlan = planMcpEntries({
+      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot, removing,
+    });
+    changes.push(...mcpPlan.changes);
+    conflicts.push(...mcpPlan.conflicts);
+
+    const copyTree = planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl });
+    changes.push(...copyTree.changes);
+    conflicts.push(...copyTree.conflicts);
+
+    return { changes, conflicts, notices: [...copyTree.notices, ...mcpPlan.notices], paths: found.paths };
+  }
+
+  function writeChange(change: any, fsImpl: any) {
+    fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
+    fsImpl.writeFileSync(change.target, change.content, 'utf8');
+  }
+
+  // The config change is written first; the entry changes then go to a fresh read of the same file,
+  // so they apply on top of it.
+  function apply({ changes = [], fsImpl = fs }: any) {
+    let applied = 0;
+    for (const change of changes) {
+      if (change.operation === 'remove') continue;
+      if (change.kind === 'copy-tree-file' || change.kind === 'mcp-server') continue; // routed below
+      writeChange(change, fsImpl);
+      applied += 1;
+    }
+    applied += writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
+    applied += applyCopyTreeAssets(changes, { fsImpl });
+    // An update that no longer ships a copy-tree file carries its rows as removals inside the
+    // apply batch; the lifecycle calls remove() only for `doflow remove`.
+    removeCopyTreeAssets(changes, { fsImpl });
+    return { applied };
+  }
+
+  function remove({ changes = [], fsImpl = fs }: any) {
+    let removed = 0;
+    for (const change of changes) {
+      if (change.operation !== 'remove') continue;
+      if (change.kind === 'copy-tree-file' || change.kind === 'mcp-server') continue; // routed below
+      if (typeof change.content !== 'string') continue;
+      writeChange(change, fsImpl);
+      removed += 1;
+    }
+    removed += writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
+    removed += removeCopyTreeAssets(changes, { fsImpl });
+    return { removed };
+  }
+
+  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
+    const found = discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, context, fsImpl });
+    const removing = (operation ?? context.operation) === 'remove';
+    const statuses = [];
+    const resources = [];
+    const conflicts = [];
+    const instructionsAssetId = assets.find((asset: any) => asset.capability === 'instructions')?.id ?? pseudoAssetId(assets);
+
+    const hasSection = typeof found.instruction === 'string'
+      && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
+    statuses.push({ harness: HARNESS, assetId: instructionsAssetId, capability: 'instructions',
+      status: hasSection ? 'managed' : 'absent', target: found.paths.instruction,
+      ownershipIdentity: `${HARNESS}:instructions:managed-section` });
+    if (hasSection) {
+      resources.push({ assetId: instructionsAssetId, target: found.paths.instruction,
+        ownershipIdentity: `${HARNESS}:instructions:managed-section`, fingerprint: fingerprint(found.instruction),
+        sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'opencode-instructions' } });
+    }
+
+    if (!found.mcpSnapshot[found.paths.config].ok) {
+      // The refusal itself comes from the entry verify below; a removal released the row instead.
+      statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'settings', status: removing ? 'not-managed' : 'invalid',
+        target: found.paths.config, ownershipIdentity: `${HARNESS}:config:registration` });
+    } else {
+      const value = found.config.value || {};
+      const registered = Array.isArray(value.instructions) && value.instructions.includes(INSTRUCTION_FILE);
+      statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'settings',
+        status: registered ? 'managed' : 'absent', target: found.paths.config,
+        ownershipIdentity: `${HARNESS}:config:registration` });
+      if (registered) {
+        resources.push({ assetId: pseudoAssetId(assets), target: found.paths.config,
+          ownershipIdentity: `${HARNESS}:config:registration`, fingerprint: fingerprint(value),
+          sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'opencode-config' } });
+      }
+      if (context.permissions) {
+        const ours = guardrailBashRules(context);
+        const projected = Object.entries(ours).every(([glob, effect]) => value.permission?.bash?.[glob] === effect);
+        statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'settings',
+          status: context.operation === 'remove' ? (projected ? 'retained' : 'absent') : (projected ? 'managed' : 'missing'),
+          ownershipIdentity: `${HARNESS}:guardrails:permissions`, target: found.paths.config });
+      }
+    }
+
+    const mcpResult = verifyMcpEntries({
+      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot,
+      snapshot: discovery?.mcpSnapshot ?? found.mcpSnapshot, removing, harness: HARNESS, sourceVersion: context.sourceVersion ?? 'unknown',
+    });
+    resources.push(...mcpResult.resources);
+    statuses.push(...mcpResult.statuses);
+    conflicts.push(...mcpResult.conflicts);
+
+    const copyTree = verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl });
+    resources.push(...copyTree.resources);
+    statuses.push(...copyTree.statuses.map((status: any) => ({ harness: HARNESS, ...status })));
+    conflicts.push(...copyTree.conflicts);
+
+    return { ok: conflicts.length === 0 && !statuses.some((s) => s.status === 'invalid' || s.status === 'conflict'), resources, statuses, conflicts };
+  }
+
+  return { nativePaths, discover, render, plan, apply, remove, verify, managedInstruction, strippedInstruction, mergeConfig, unmergeConfig };
+}
+
+const singleton = createOpenCodeAdapter();
+
+module.exports = {
+  HARNESS, MARKER_START, MARKER_END,
+  nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
+  plan: singleton.plan, apply: singleton.apply, remove: singleton.remove, verify: singleton.verify,
+  managedInstruction: singleton.managedInstruction, strippedInstruction: singleton.strippedInstruction,
+  mergeConfig: singleton.mergeConfig, unmergeConfig: singleton.unmergeConfig,
+  createOpenCodeAdapter,
+};

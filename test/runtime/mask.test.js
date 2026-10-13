@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mask, maskLine, maskBody, normalise, normaliseMessage, printSafe } = require('../../src/runtime/mask');
+const { mask, maskLine, maskBody, normalise, normaliseMessage, printSafe } = require('../../src/runtime/mask.ts');
 
 const HOME = '/home/user';
 const opts = { home: HOME };

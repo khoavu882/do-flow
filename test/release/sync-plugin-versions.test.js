@@ -1,14 +1,14 @@
 'use strict';
 // sync-plugin-versions.test.js — review R8: v1.2.1 shipped with all three plugin manifests still
 // reading 1.2.0; the equality guards caught it after the fact. Distribution versions are now
-// PROJECTED from package.json by src/release/sync-plugin-versions.js, wired into the npm `version`
+// PROJECTED from package.json by src/release/sync-plugin-versions.ts, wired into the npm `version`
 // lifecycle so a release bump rewrites and stages the manifests in the same commit. The equality
 // guards in test/install/doflow.test.js remain the independent check.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { syncPluginVersions, PLUGIN_MANIFESTS } = require('../../src/release/sync-plugin-versions');
+const { syncPluginVersions, PLUGIN_MANIFESTS } = require('../../src/release/sync-plugin-versions.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -48,7 +48,7 @@ test('R8: already-synced manifests are reported unchanged, not rewritten', (t) =
 
 test('R8: the npm version lifecycle hook invokes the sync so a release cannot ship drifted manifests', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  assert.match(pkg.scripts.version, /sync-plugin-versions\.js/,
+  assert.match(pkg.scripts.version, /sync-plugin-versions\.ts/,
     'the version lifecycle script must run the projection');
   for (const rel of PLUGIN_MANIFESTS) {
     assert.ok(pkg.scripts.version.includes(rel), `the hook must stage ${rel} into the release commit`);

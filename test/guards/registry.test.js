@@ -8,13 +8,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { REGISTRY_FILES, loadRegistry, selectAssets } = require('../../src/registry');
+const { REGISTRY_FILES, loadRegistry, selectAssets } = require('../../src/registry/index.ts');
 const { REPO } = require('./_shared');
 
 const registry = loadRegistry({ repoRoot: REPO });
 
 // The registry family is plain JSON (core/registry/*.json, loaded only through
-// src/registry/index.js). This pins both directions: the loader names .json files that all exist
+// src/registry/index.ts). This pins both directions: the loader names .json files that all exist
 // and parse, and no stray non-JSON leftover lives in the directory.
 test('G5: every core/registry entry is a parseable .json file and the loader names exactly those', () => {
   const onDisk = fs.readdirSync(path.join(REPO, 'core', 'registry')).sort();
@@ -118,10 +118,10 @@ test('G5: every core-tier lifecycle policy is supported or different on every cu
 // declared in the registry for a time with no adapter module wired to dispatch, no contract entry,
 // and no --target id, i.e. present on paper but unreachable by any real command.
 test('G5: every declared harness has an adapter module, exactly one contract, and a valid --target id', () => {
-  const { VALID } = require('../../src/install/targets');
+  const { VALID } = require('../../src/install/targets.ts');
   const offenders = [];
   for (const harness of registry.harnesses) {
-    const dirAdapter = path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');
+    const dirAdapter = ['index.ts', 'index.js'].map((n) => path.join(REPO, 'src', 'adapters', harness.adapter, n)).find((p) => fs.existsSync(p)) ?? path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');
     const fileAdapter = path.join(REPO, 'src', 'adapters', `${harness.adapter}.js`);
     if (!fs.existsSync(dirAdapter) && !fs.existsSync(fileAdapter)) {
       offenders.push(`${harness.id}: no adapter module at src/adapters/${harness.adapter}/index.js or src/adapters/${harness.adapter}.js`);
@@ -137,11 +137,11 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
   assert.deepEqual(offenders, [], `harness declared without a full extension contract:\n  ${offenders.join('\n  ')}`);
 });
 
-// A module existing on disk is not the same as it being reachable: src/lifecycle/view.js once kept
+// A module existing on disk is not the same as it being reachable: src/lifecycle/view.ts once kept
 // its own, separate adapter registry that silently fell behind the one in src/cli/shared.js
 // (fixed in 96006da). Grep every createAdapterRegistry({...}) call site — the one shared factory
 // in src/cli/shared.js (used by install, update, remove and reconcile since Stage 2 collapsed the
-// three inline copies) plus the one shared by src/lifecycle/view.js — and confirm each declared
+// three inline copies) plus the one shared by src/lifecycle/view.ts — and confirm each declared
 // harness's id is actually passed in as a key, not just that its file exists somewhere under
 // src/adapters/. Since Stage 3 the values are factory calls with their own braces
 // (`x: createXAdapter({ ... })`), so the block extractor balances braces instead of stopping at
@@ -167,8 +167,8 @@ function extractRegistryBlocks(text) {
 
 test('G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site', () => {
   const files = [
-    path.join(REPO, 'src', 'cli', 'shared.js'),
-    path.join(REPO, 'src', 'lifecycle', 'view.js'),
+    path.join(REPO, 'src', 'cli', 'shared.ts'),
+    path.join(REPO, 'src', 'lifecycle', 'view.ts'),
   ];
   const offenders = [];
   for (const file of files) {

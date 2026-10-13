@@ -68,6 +68,9 @@ function ownedFiles(scratch, prefix, count) {
 }
 
 const rel = (scratch, file) => path.relative(scratch.home, file).split(path.sep).join('/');
+/** The ownership ledger a backup holds beside the files it changes (073 T5), so a rollback restores
+ * the rows those files belong to. */
+const LEDGER = '.doflow/state/ledger.json';
 
 function overwrite(files, label) {
   files.forEach((file, i) => fs.writeFileSync(file, `${label}-${i}\n`));
@@ -146,7 +149,7 @@ test('foreign data is not archived: an update backs up its changed files and non
   const update = run(scratch, [...UPDATE, '-t', 'claude,codex']);
   assert.strictEqual(update.status, 0, update.stderr);
   const manifest = readManifest(scratch, createdId(update));
-  assert.deepStrictEqual(manifest.files.map((f) => f.path).sort(), files.map((f) => rel(scratch, f)).sort());
+  assert.deepStrictEqual(manifest.files.map((f) => f.path).sort(), [...files.map((f) => rel(scratch, f)), LEDGER].sort());
 
   const names = [];
   const walk = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { names.push(e.name); if (e.isDirectory()) walk(path.join(dir, e.name)); } };
@@ -167,7 +170,7 @@ test('update backs up its own files: the edited ones, as they were', () => {
   assert.strictEqual(update.status, 0, update.stderr);
   const id = createdId(update);
   const manifest = readManifest(scratch, id);
-  assert.deepStrictEqual(manifest.files.map((f) => f.path).sort(), files.map((f) => rel(scratch, f)).sort());
+  assert.deepStrictEqual(manifest.files.map((f) => f.path).sort(), [...files.map((f) => rel(scratch, f)), LEDGER].sort());
   for (const [i, file] of files.entries()) {
     const entry = manifest.files.find((f) => f.path === rel(scratch, file));
     assert.strictEqual(entry.existed, true);
@@ -185,24 +188,70 @@ test('rollback restores exactly the backup and snapshots only those files', () =
 
   const dry = run(scratch, ['rollback', id, '-g', '--dry-run']);
   assert.strictEqual(dry.status, 0, dry.stderr);
-  assert.match(dry.stdout, /\[DRY\] {2}Would snapshot 5 file\(s\) before restoring/);
-  assert.match(dry.stdout, /\[DRY\] {2}Would restore 5 file\(s\), leave 0 in place, could not restore 0\n\[DRY\] Dry run complete/);
+  // The five files and the ledger they belong to.
+  assert.match(dry.stdout, /\[DRY\] {2}Would snapshot 6 file\(s\) before restoring/);
+  assert.match(dry.stdout, /\[DRY\] {2}Would restore 6 file\(s\), leave 0 in place, could not restore 0\n\[DRY\] Dry run complete/);
   files.forEach((file, i) => assert.strictEqual(fs.readFileSync(file, 'utf8'), `later-${i}\n`));
   assert.ok(!backupIds(scratch).some((n) => n.startsWith('pre-rollback_')), 'a dry run takes no snapshot');
 
   const r = run(scratch, ['rollback', id, '-g', '--force']);
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.match(r.stdout, /Rollback to '.+' complete: restored 5 file\(s\)/);
-  assert.match(r.stderr, /Pre-rollback snapshot: pre-rollback_\S+ \(5 file\(s\), [\d.]+ (B|KiB)\)/);
+  assert.match(r.stdout, /Rollback to '.+' complete: restored 6 file\(s\)/);
+  assert.match(r.stderr, /Pre-rollback snapshot: pre-rollback_\S+ \(6 file\(s\), [\d.]+ (B|KiB)\)/);
   files.forEach((file, i) => assert.strictEqual(fs.readFileSync(file, 'utf8'), `edited-${i}\n`));
   assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'user data, edited later\n');
 
   const snapshotId = backupIds(scratch).find((n) => n.startsWith('pre-rollback_'));
   const snapshot = readManifest(scratch, snapshotId);
   assert.strictEqual(snapshot.restores, id);
-  assert.deepStrictEqual(snapshot.files.map((f) => f.path).sort(), files.map((f) => rel(scratch, f)).sort());
+  assert.deepStrictEqual(snapshot.files.map((f) => f.path).sort(), [...files.map((f) => rel(scratch, f)), LEDGER].sort());
   const stored = snapshot.files.find((f) => f.path === rel(scratch, files[0]));
   assert.strictEqual(fs.readFileSync(path.join(backupRoot(scratch), snapshotId, ...stored.stored.split('/')), 'utf8'), 'later-0\n');
+});
+
+const readLedger = (scratch) => JSON.parse(fs.readFileSync(path.join(scratch.home, '.doflow', 'state', 'ledger.json'), 'utf8'));
+const rowsAt = (ledger, file) => ledger.resources.filter((r) => r.target === file);
+
+test('rollback to an older backup keeps the ledger rows of a later install: remove then clears that harness (073 B1)', () => {
+  const scratch = newScratch();
+  install(scratch, 'claude');
+  const before = readLedger(scratch);
+  const { files, id } = updatedScenario(scratch, 1);
+  install(scratch, 'codex');
+  const codexRows = readLedger(scratch).resources.filter((r) => r.harness === 'codex');
+  assert.ok(codexRows.length > 0, 'the codex install records rows');
+
+  const r = run(scratch, ['rollback', id, '-g', '--force']);
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  const after = readLedger(scratch);
+  assert.deepStrictEqual(after.resources.filter((x) => x.harness === 'codex'), codexRows, 'the rows of the later codex install survive the rollback');
+  assert.deepStrictEqual(rowsAt(after, files[0]), rowsAt(before, files[0]), 'the restored file gets back the rows it had when the backup was taken');
+
+  const removed = run(scratch, ['remove', '-g', '--force', '-t', 'codex']);
+  assert.strictEqual(removed.status, 0, removed.stderr + removed.stdout);
+  const left = Object.keys(hashTree(path.join(scratch.home, '.codex')));
+  assert.deepStrictEqual(left, [], 'remove -t codex leaves no codex file behind');
+});
+
+test('rollback keeps the ledger row of an MCP entry the rolled-back update added: remove then deletes the entry (073 B2)', () => {
+  const scratch = newScratch();
+  install(scratch, 'claude');
+  // A file the update recreates, so it takes a backup (an MCP-only change backs up nothing).
+  fs.rmSync(ownedFiles(scratch, '.claude', 1)[0]);
+  const update = run(scratch, ['update', '-g', '--force', '--mcp', 'context7', '-t', 'claude']);
+  assert.strictEqual(update.status, 0, update.stderr);
+  const claudeJson = path.join(scratch.home, '.claude.json');
+  const mcpNames = () => Object.keys(JSON.parse(fs.readFileSync(claudeJson, 'utf8')).mcpServers ?? {});
+  assert.deepStrictEqual(mcpNames(), ['context7'], 'the update adds the context7 entry');
+
+  const r = run(scratch, ['rollback', createdId(update), '-g', '--force']);
+  assert.strictEqual(r.status, 0, r.stderr + r.stdout);
+  assert.deepStrictEqual(mcpNames(), ['context7'], 'a file holding only MCP entries is not in a backup, so the entry stays');
+  assert.ok(readLedger(scratch).resources.some((x) => x.kind === 'mcp-server' && x.harness === 'claude'), 'the entry the rollback leaves keeps its ledger row');
+
+  const removed = run(scratch, ['remove', '-g', '--force', '-t', 'claude']);
+  assert.strictEqual(removed.status, 0, removed.stderr + removed.stdout);
+  assert.ok(!fs.existsSync(claudeJson) || !mcpNames().includes('context7'), 'remove deletes the entry DoFlow wrote');
 });
 
 test('rollback names what it leaves in place and exits 0', () => {
@@ -214,12 +263,12 @@ test('rollback names what it leaves in place and exits 0', () => {
   const update = run(scratch, [...UPDATE, '-t', 'claude']);
   assert.strictEqual(update.status, 0, update.stderr);
   const id = createdId(update);
-  assert.ok(readManifest(scratch, id).files.every((f) => f.existed === false));
+  assert.ok(readManifest(scratch, id).files.every((f) => f.existed === false || f.path === LEDGER));
 
   const r = run(scratch, ['rollback', id, '-g', '--force']);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stderr, /Left in place 2 file\(s\)/);
-  assert.match(r.stderr, /Pre-rollback snapshot: nothing to snapshot \(the restore overwrites no file\)/);
+  assert.match(r.stderr, /Pre-rollback snapshot: pre-rollback_\S+ \(1 file\(s\)/, 'the only file the restore overwrites is the ledger');
   assert.ok(r.stderr.includes(gone1) && r.stderr.includes(gone2), r.stderr);
   assert.ok(fs.existsSync(gone1) && fs.existsSync(gone2));
 });
@@ -250,7 +299,7 @@ test('rollback that cannot write one file restores the others and exits 1', { sk
   const r = run(scratch, ['rollback', id, '-g', '--force']);
   assert.strictEqual(r.status, 1, r.stderr);
   assert.ok(r.stderr.includes(`Could not restore ${files[0]}`), r.stderr);
-  assert.match(r.stderr, /restored 2, could not restore 1/);
+  assert.match(r.stderr, /restored 3, could not restore 1/);   // two files and the ledger
   assert.strictEqual(fs.readFileSync(files[0], 'utf8'), 'later-0\n');
   assert.strictEqual(fs.readFileSync(files[1], 'utf8'), 'edited-1\n');
   assert.strictEqual(fs.readFileSync(files[2], 'utf8'), 'edited-2\n');

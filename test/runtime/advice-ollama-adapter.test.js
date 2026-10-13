@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const adapter = require('../../src/runtime/advice/providers/ollama-systemone');
+const adapter = require('../../src/runtime/advice/providers/ollama-systemone.ts');
 
 const choiceSet = {
   state: 'A short task state.',
@@ -135,7 +135,7 @@ test('IC-006: an untagged configured model matches its listed :latest tag only',
 });
 
 test('IC-018 rule 4: the provider declares no write or server-start route', () => {
-  const source = fs.readFileSync(path.join(__dirname, '../../src/runtime/advice/providers/ollama-systemone.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '../../src/runtime/advice/providers/ollama-systemone.ts'), 'utf8');
   for (const forbidden of ['/api/pull', '/api/push', '/api/create', '/api/copy', '/api/delete', 'ollama serve']) {
     assert.equal(source.includes(forbidden), false, `provider source contains ${forbidden}`);
   }

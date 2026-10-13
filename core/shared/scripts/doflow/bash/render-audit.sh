@@ -80,7 +80,7 @@ feature_slug=$(printf '%s' "$resolved_json" | jq -r '.feature_slug // empty')
 audit_rel=$(printf '%s' "$resolved_json" | jq -r '.audit // empty')
 [ -n "$feature_slug" ] || note "no-active-feature"
 
-# WorkflowOrchestrator's own stateDir/runFile convention (workflow-orchestrator.js):
+# WorkflowOrchestrator's own stateDir/runFile convention (workflow-orchestrator.ts):
 #   stateDir = <root>/.doflow/state/orchestration ; runFile = <stateDir>/<taskId>.json
 journal_file="$repo_root/.doflow/state/orchestration/$feature_slug.json"
 [ -f "$journal_file" ] || note "no orchestration run recorded yet"

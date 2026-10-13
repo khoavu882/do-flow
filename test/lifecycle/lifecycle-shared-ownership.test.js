@@ -20,10 +20,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createAdapterRegistry } = require('../../src/adapters');
-const { defaultLedger } = require('../../src/state');
-const { planLifecycle, applyLifecycle, removeLifecycle, markRetainedRemovals, retentionSummary } = require('../../src/lifecycle');
-const { planTree, applyTree, removeTree, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../../src/adapters/copy-tree');
+const { createAdapterRegistry } = require('../../src/adapters/index.ts');
+const { defaultLedger } = require('../../src/state/index.ts');
+const { planLifecycle, applyLifecycle, removeLifecycle, markRetainedRemovals, retentionSummary } = require('../../src/lifecycle/index.ts');
+const { planTree, applyTree, removeTree, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../../src/adapters/copy-tree.ts');
 const { interpreterSpawn, withinPath, msysArgConvGuards } = require('../helper-platform');
 const { tempDir } = require('../helper/tmp');
 

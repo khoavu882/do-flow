@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('../../../src/adapters/gemini/hooks');
+const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('../../../src/adapters/gemini/hooks.ts');
 const { IS_WIN, expectExecutable } = require('../../helper-platform');
 
 function scratch() { return suiteTempDir('doflow-gemini-hooks-'); }
@@ -37,7 +37,7 @@ test('fails closed for missing or non-executable command wrappers', () => {
   const hooks = wrapper(root, 'session-start.sh', 0o644);
   result = verifyHookCommands(hookConfig(), { scriptsDir: hooks });
   // Windows has no exec bits, so a 0644 wrapper is indistinguishable from 0755 there and the
-  // not-executable refusal is POSIX-only (see src/adapters/hook-commands.js).
+  // not-executable refusal is POSIX-only (see src/adapters/hook-commands.ts).
   if (!IS_WIN) {
     assert.equal(result.ok, false); assert.equal(result.checks[0].reason, 'Hook script is not executable');
   } else {

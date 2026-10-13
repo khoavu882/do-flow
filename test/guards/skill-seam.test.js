@@ -27,7 +27,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, SKILLS } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
+const { loadRegistry } = require('../../src/registry/index.ts');
 
 const registry = loadRegistry({ repoRoot: REPO });
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');

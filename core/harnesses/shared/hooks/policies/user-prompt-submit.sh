@@ -57,6 +57,7 @@ INJECTED_FLAG="$SESSION_PATH/injected"
 nudge_message() {
   local root policy_dir here registry decision message
   [[ "${DOFLOW_AGENT:-}" == "claude" || "${DOFLOW_AGENT:-}" == "codex" ]] || return 0   # N1
+  [[ "$(doflow_session_role 2>/dev/null || echo main)" != "worker" ]] || return 0      # a worker is never nudged
   nudge_safe_id "$SESSION_ID" || return 0                                               # N2
   root=$(nudge_repo_root "$CWD") || return 0
   [[ "$(nudge_setting "$root")" == "on" ]] || return 0                                  # N3
@@ -109,6 +110,17 @@ if [[ -f "$INJECTED_FLAG" ]]; then
   exit 0
 fi
 
+# ── Worker session: no bootstrap, nothing claimed ─────────────────────────────
+# A worker never receives the git context, the prior compact summary or the prior warning, and
+# leaves both files for the main session. It is marked injected so later prompts stay silent.
+
+if [[ "$(doflow_session_role || echo main)" == "worker" ]]; then
+  ensure_session_dir "$SESSION_ID" >/dev/null || true
+  touch "$INJECTED_FLAG" 2>/dev/null || true
+  echo "{}"
+  exit 0
+fi
+
 # ── First prompt: build context ───────────────────────────────────────────────
 
 GIT_CONTEXT_FILE="$SESSION_PATH/git-context.json"
@@ -158,7 +170,8 @@ else
   compact_field() {
     printf '%s\n' "$COMPACT_HEAD" | awk -v k="$1:" '/^---$/{n++; if (n == 2) exit; next} n == 1 && index($0, k) == 1 {sub(/^[^:]*:[ ]*/, ""); print; exit}' || true
   }
-  if [[ -f "$COMPACT_FILE" && ! -L "$COMPACT_FILE" ]]; then
+  # A native subagent payload (agent_id or agent_type) never claims the summary or the warning.
+  if [[ -z "$SUBAGENT" && -f "$COMPACT_FILE" && ! -L "$COMPACT_FILE" ]]; then
     COMPACT_HEAD=$(head -c "$COMPACT_READ" "$COMPACT_FILE" 2>/dev/null | tr -d '\r') || COMPACT_HEAD=''
     if [[ "$(compact_field session_id)" != "$SESSION_ID" ]] && mv "$COMPACT_FILE" "$COMPACT_CLAIM" 2>/dev/null; then
       COMPACT_SIZE=$(wc -c < "$COMPACT_CLAIM" 2>/dev/null) || COMPACT_SIZE=0
@@ -192,7 +205,7 @@ else
 
   # Check for uncommitted warning from prior session (one-time: delete after read —
   # nothing else in the framework reassigns this cleanup, so it happens here)
-  if [[ -f "$PROJECT_DIR/uncommitted-warning.txt" ]]; then
+  if [[ -z "$SUBAGENT" && -f "$PROJECT_DIR/uncommitted-warning.txt" ]]; then
     WARNING=$(cat "$PROJECT_DIR/uncommitted-warning.txt")
     CONTEXT+=$'\n'"[Prior session warning: ${WARNING}]"
     rm -f "$PROJECT_DIR/uncommitted-warning.txt"

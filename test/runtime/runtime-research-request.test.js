@@ -6,7 +6,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { createScratch } = require('../helper/scratch-env');
 const { spawnSync } = require('node:child_process');
-const { updateTaskState } = require('../../src/runtime/task-state');
+const { updateTaskState } = require('../../src/runtime/task-state.ts');
 const cli = path.resolve(__dirname, '../../bin/doflow.js');
 
 const scratch = createScratch('doflow-runtime-research-request-home-');

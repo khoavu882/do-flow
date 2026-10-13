@@ -280,3 +280,23 @@ require_jq() {
     exit 0
   fi
 }
+
+# ── Session role ──────────────────────────────────────────────────────────────
+
+# Print `main` or `worker` for this session, read from DOFLOW_SESSION_ROLE (matched
+# case-insensitively). Unset or empty is `main`; a value that is neither `main` nor
+# `worker` is `worker` and writes one line to stderr. A worker never writes or claims the
+# project's compact summary or warning. Always returns 0. bash 3.2 safe (no ${var,,}).
+doflow_session_role() {
+  local role
+  role=$(printf '%s' "${DOFLOW_SESSION_ROLE:-}" | tr '[:upper:]' '[:lower:]') || role=""
+  case "$role" in
+    ""|main) printf 'main\n' ;;
+    worker) printf 'worker\n' ;;
+    *)
+      echo "[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker" >&2
+      printf 'worker\n'
+      ;;
+  esac
+  return 0
+}

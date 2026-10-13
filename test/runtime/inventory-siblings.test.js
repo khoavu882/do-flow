@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { inspectSiblings, WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings');
+const { inspectSiblings, WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 /** A fresh, real temp directory per test — never the real `~/.claude`, `~/.kiro` or `~/.doflow`.
  * Removed by the shared temp helper when the suite or process ends, whether the test passes or fails. */

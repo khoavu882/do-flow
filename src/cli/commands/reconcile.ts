@@ -1,0 +1,120 @@
+'use strict';
+// `doflow reconcile` — converge observed state onto the doflow.lock pin: report drift, then heal
+// it on confirmation. Never re-prompts for MCP; selections ride exactly as pinned.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+const { toolDirs } = require('../../install/targets.ts');
+const { resolveContext, printContext } = require('../../install/context.ts');
+const { writeManifest } = require('../../install/manifest.ts');
+const { confirm } = require('../../helper/prompt.ts');
+const { sourceCommit } = require('../../helper/git.ts');
+const { loadRegistry } = require('../../registry/index.ts');
+const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle/index.ts');
+const {
+  registryLifecycleView, assertSafeRegistryPlan,
+} = require('../../lifecycle/view.ts');
+const { recordedMcpSelections } = require('../../install/mcp.ts');
+const {
+  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, printRecordedMcpOwnership, buildAdapterRegistry,
+  refuseHomeRootedProject, holdRunLock, checkpointRunLock,
+} = require('../shared.ts');
+
+/** Classify desired-vs-observed drift for one lifecycle view. The plan IS the diff: its changes
+ * are the operations needed to converge, its conflicts and prerequisites are the drift that must
+ * not be silently healed. */
+function reconcileReport(view: any): any {
+  const drifts = [];
+  const perHarness = new Map();
+  for (const target of view.plan.targets) {
+    if (target.skipped) continue;
+    const entry: any = { create: 0, update: 0, remove: 0 };
+    for (const change of target.changes) {
+      if (entry[change.operation] !== undefined) entry[change.operation] += 1;
+      drifts.push({ harness: target.harness, operation: change.operation, assetId: change.assetId, target: change.target });
+    }
+    perHarness.set(target.harness, entry);
+  }
+  return {
+    drifts,
+    conflicts: view.plan.conflicts,
+    prerequisites: view.plan.prerequisites,
+    perHarness: Object.fromEntries(perHarness),
+    clean: drifts.length === 0 && view.plan.conflicts.length === 0,
+  };
+}
+
+function printReconcileReport(report: any, lock: any): void {
+  console.log(`[INFO] Reconciling against doflow.lock (sourceVersion ${lock.sourceVersion ?? 'unknown'})`);
+  for (const [harness, counts] of Object.entries<any>(report.perHarness)) {
+    const total = counts.create + counts.update + counts.remove;
+    console.log(`[INFO] ${harness}: ${total === 0 ? 'clean' : `${total} drift(s) (${counts.create} create, ${counts.update} update, ${counts.remove} remove)`}`);
+  }
+  for (const conflict of report.conflicts) console.log(`[CONFLICT] ${conflict.harness}: ${conflict.reason}`);
+  for (const prerequisite of report.prerequisites) console.log(`[PENDING-TRUST] ${prerequisite.harness}: ${prerequisite.prerequisite}`);
+  if (report.clean) console.log('[OK] Observed state matches doflow.lock.');
+}
+
+function cmdReconcile(o: any): void {
+  refuseHomeRootedProject(o, 'reconcile');
+  const scope = scopeOf(o);
+  const hold = holdRunLock(o, scope, 'reconcile');
+  try {
+    const dirs = toolDirs(scope);
+    const lifecyclePaths = installPaths(scope);
+    const { lock, ledger, manifestServers } = scopeSelectionState(scope);
+    // A harness the ledger holds but the lock does not pin is installed and outside reconcile's reach.
+    // Said, not converged: the lock records choices, and reconcile has no choice to record for it.
+    const pinned = new Set((lock?.targets ?? []).map((entry: any) => entry.harness));
+    const unpinned = [...new Set((ledger?.resources ?? []).map((resource: any) => resource.harness))].filter((harness) => !pinned.has(harness)).sort();
+    for (const harness of unpinned) {
+      const count = ledger.resources.filter((resource: any) => resource.harness === harness).length;
+      console.log(`[WARN] ${harness}: installed (ledger holds ${count} resource(s)) but absent from doflow.lock; reconcile does not converge it.`);
+    }
+    if (!lock || !lock.targets.length) {
+      // Reconcile converges onto what install pinned; with no pin there is no desired state to
+      // converge to, and guessing one from the registry would silently adopt targets the user
+      // never chose.
+      console.log('[INFO] No doflow.lock in this scope — nothing pinned to reconcile against. Run `doflow install` first.');
+      return;
+    }
+    const targets = lock.targets.map((entry: any) => entry.harness);
+    const registry = loadRegistry({ repoRoot: REPO_ROOT });
+    printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope }));
+    // Each harness converges onto its own pinned selection — reconcile never re-prompts and never
+    // lends one harness's servers to another.
+    const recorded = recordedMcpSelections({ registry, lock, ledger, targets, manifestServers });
+    const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
+      mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable, retainedMcpIds: [], force: true });
+    if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
+
+    const report = reconcileReport(lifecycleView);
+    printReconcileReport(report, lock);
+    if (o.json) console.log(JSON.stringify({ scope: lock.scope, sourceVersion: lock.sourceVersion, targets, unpinned, ...report }, null, 2));
+    if (o.dryRun) {
+      console.log('[DRY] Reconcile plan complete — no changes written');
+      if (!report.clean) process.exitCode = 1; // CI-friendly: drifted check must fail loudly.
+      return;
+    }
+    if (report.clean) {
+      // Converged already; an entry the plan finds DoFlow's without writing it still needs its row.
+      const owned = recordMcpOwnership({ plan: lifecycleView.plan, registry: lifecycleView.registry, adapters: lifecycleView.adapters,
+        stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
+      printRecordedMcpOwnership(owned.recorded);
+      return;
+    }
+
+    if (!confirm(`Reconcile ${targets.join(', ')} by applying ${report.drifts.length} change(s)?`, o.force)) {
+      console.error('[INFO]  Aborted.');
+      process.exit(1);
+    }
+    checkpointRunLock(hold);
+    applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
+      adapters: buildAdapterRegistry(),
+      stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
+    writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: sourceCommit(SCRIPT_DIR), backupId: '', tools: targets, date: new Date() });
+    console.log('[OK] Reconciliation complete — state converged onto doflow.lock.');
+  } finally {
+    hold?.release();
+  }
+}
+
+module.exports = cmdReconcile;

@@ -11,11 +11,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { REPO_ROOT } = require('../../src/helper/repo-root');
-const { loadRegistry } = require('../../src/registry');
-const { CapabilityRouter } = require('../../src/runtime/capability-router');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
-const { renderBriefTools, currentStageOf } = require('../../src/runtime/brief-tools');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
+const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+const { renderBriefTools, currentStageOf } = require('../../src/runtime/brief-tools.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');

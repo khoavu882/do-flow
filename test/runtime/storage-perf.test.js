@@ -5,7 +5,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {tempDir}=require('../helper/tmp');
 const registry=require('../../core/registry/storage.json');
-const {runPass}=require('../../src/runtime/storage/engine');
+const {runPass}=require('../../src/runtime/storage/engine.ts');
 const NOW=Date.parse('2026-10-10T12:00:00Z');
 function backlog(t,count){
   const root=tempDir(t,'doflow-storage-perf-'), dir=path.join(root,'.doflow/state/verification/logs');fs.mkdirSync(dir,{recursive:true});

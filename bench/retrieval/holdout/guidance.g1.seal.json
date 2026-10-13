@@ -1,0 +1,61 @@
+{
+  "format": "doflow-holdout-seal-v1",
+  "corpus": "guidance",
+  "snapshotId": 1,
+  "generation": 1,
+  "plaintextSha256": "0c5b4e5f720576c8f5bd3d234908ca608148b20e9d46bdf032cabd81007a546e",
+  "ciphertextSha256": "6cd0c3142807ede2e25bb0093208cf1bc0c5ab4eb368c58c025badd00e207b5d",
+  "taskCount": 29,
+  "ids": [
+    "HG-001",
+    "HG-002",
+    "HG-003",
+    "HG-004",
+    "HG-005",
+    "HG-006",
+    "HG-007",
+    "HG-008",
+    "HG-009",
+    "HG-010",
+    "HG-011",
+    "HG-012",
+    "HG-013",
+    "HG-014",
+    "HG-015",
+    "HG-016",
+    "HG-017",
+    "HG-018",
+    "HG-019",
+    "HG-020",
+    "HG-021",
+    "HG-022",
+    "HG-023",
+    "HG-024",
+    "HG-025",
+    "HG-026",
+    "HG-027",
+    "HG-028",
+    "HG-029"
+  ],
+  "classCounts": {
+    "exact-lookup": 10,
+    "conceptual-discovery": 10,
+    "impact-refactor": 0,
+    "stale-index": 3,
+    "dirty-tree": 3,
+    "unavailable-provider": 0,
+    "oversized-context": 3,
+    "verification-failure": 0
+  },
+  "canary": "ef8a5fa0-e2a9-4129-81da-e267866fe7e4",
+  "sealedAt": "2026-10-13T02:19:56.827Z",
+  "sealedBy": "worker:agy-holdout",
+  "reuse": {
+    "maxRuns": 6,
+    "freshWhen": [
+      "tuned-on-holdout",
+      "runs-exceeded",
+      "plaintext-leaked"
+    ]
+  }
+}

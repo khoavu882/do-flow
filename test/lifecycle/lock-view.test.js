@@ -3,9 +3,9 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadRegistry } = require('../../src/registry');
-const { lockDocument, lockDelta, recordLock } = require('../../src/lifecycle/view');
-const { readLock, lockPath, defaultLock } = require('../../src/state/lockfile');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { lockDocument, lockDelta, recordLock } = require('../../src/lifecycle/view.ts');
+const { readLock, lockPath, defaultLock } = require('../../src/state/lockfile.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -107,7 +107,7 @@ test('recordLock reports created -> unchanged -> changed, and removeLock clears'
   assert.equal(shrunk.changed, true);
   assert.ok(readLock(args).targets.length === 1);
 
-  const { removeLock } = require('../../src/state/lockfile');
+  const { removeLock } = require('../../src/state/lockfile.ts');
   assert.equal(removeLock(args), true);
   assert.equal(removeLock(args), false, 'clearing twice is a no-op');
   assert.equal(fs.existsSync(lockPath(args)), false);

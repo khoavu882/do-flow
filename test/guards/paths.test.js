@@ -8,9 +8,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
-const { loadRegistry, selectMcpServers } = require('../../src/registry');
-const { renderMcpIndex } = require('../../src/lifecycle/mcp-index');
-const { mcpIndexPath } = require('../../src/lifecycle');
+const { loadRegistry, selectMcpServers } = require('../../src/registry/index.ts');
+const { renderMcpIndex } = require('../../src/lifecycle/mcp-index.ts');
+const { mcpIndexPath } = require('../../src/lifecycle/index.ts');
 const { REPO, GUIDANCE } = require('./_shared');
 
 const DOFLOW_CORE = path.join(GUIDANCE, 'DOFLOW_CORE.md');

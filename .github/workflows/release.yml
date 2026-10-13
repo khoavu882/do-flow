@@ -48,9 +48,12 @@ jobs:
 
       # test/guards/package.test.js asserts the source tree is clean; this asserts the artifact npm
       # would actually upload is too, which is the thing users install.
+      - name: Build staged JavaScript package
+        run: npm run build:package
+
       - name: Fail if the tarball carries backup or editor artifacts
         run: |
-          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          npm pack --dry-run .pack 2>&1 | tee /tmp/pack.txt
           if grep -Eq '\.(bak|orig|rej|swp|tmp)$|\.DS_Store|__pycache__' /tmp/pack.txt; then
             echo "::error::npm tarball contains artifacts that must not ship"
             exit 1
@@ -64,7 +67,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
       # --provenance needs id-token: write above; publishConfig.access in package.json makes the
@@ -75,9 +78,10 @@ jobs:
       # versions are exactly those containing a hyphen, so the tag name decides the dist-tag.
       - name: Publish
         run: |
+          npm run build:package
           case "$GITHUB_REF_NAME" in
-            *-*) echo "prerelease → dist-tag beta"; npm publish --provenance --tag beta ;;
-            *)   echo "stable → dist-tag latest";   npm publish --provenance ;;
+            *-*) echo "prerelease → dist-tag beta"; npm publish .pack --provenance --tag beta ;;
+            *)   echo "stable → dist-tag latest";   npm publish .pack --provenance ;;
           esac
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -90,6 +94,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # `--generate-notes` lists merged pull requests; this repo merges locally, so it produced a
+      # bare compare link. The body is the tagged version's CHANGELOG.md section instead, and a
+      # tag with no (or an empty) section fails the job here rather than publishing a blank Release.
+      - name: Extract release notes from CHANGELOG.md
+        run: npm run release-notes --silent -- "$GITHUB_REF_NAME" > notes.md
 
       - name: Create release
         env:
@@ -99,5 +112,5 @@ jobs:
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --notes-file notes.md \
             $prerelease

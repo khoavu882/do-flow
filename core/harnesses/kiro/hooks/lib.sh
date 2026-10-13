@@ -281,3 +281,44 @@ require_jq() {
     exit 0
   fi
 }
+
+# ── kiro_bridge_payload ───────────────────────────────────────────────────────
+
+# Read a Kiro hook payload on stdin and print the canonical payload the shared policies read.
+# The shared policies understand Claude-style names; Kiro differs in four places, mapped here so
+# the policies stay untouched:
+#   - session_id: absent from some Kiro events; taken from $KIRO_SESSION_ID when empty
+#   - tool_name:  write|fs_write|fs_append|str_replace|delete_file|write_file -> Write
+#                 (tool_input.path also copied to tool_input.file_path),
+#                 shell|execute_bash|execute_cmd|execute_pwsh -> Bash,
+#                 @server/tool -> mcp__server__tool. Kiro CLI V3 already sanitizes MCP tool IDs to
+#                 mcp_<server>_<tool>; those pass through unchanged, because the shared
+#                 mcp-tool-guard matches the single-underscore mcp_ prefix case-insensitively.
+#   - assistant_response -> last_assistant_message (stop event)
+# Any other name passes through unchanged, so an unmapped tool fails open as it does without the
+# bridge. When jq is missing or rejects the payload, the original payload is printed unchanged.
+kiro_bridge_payload() {
+  local payload rewritten
+  payload=$(cat)
+  if command -v jq &>/dev/null \
+    && rewritten=$(printf '%s' "$payload" | jq -c --arg sid "${KIRO_SESSION_ID:-}" '
+      (if ((.session_id // "") == "") and ($sid != "") then .session_id = $sid else . end)
+      | (.tool_name // "") as $t
+      | (if ($t == "write" or $t == "fs_write" or $t == "fs_append" or $t == "str_replace" or $t == "delete_file" or $t == "write_file") then
+           .tool_name = "Write"
+           | (if ((.tool_input | type) == "object") and (.tool_input.path != null) and (.tool_input.file_path == null)
+              then .tool_input.file_path = .tool_input.path else . end)
+         elif ($t == "shell" or $t == "execute_bash" or $t == "execute_cmd" or $t == "execute_pwsh") then
+           .tool_name = "Bash"
+         elif ($t | startswith("@")) then
+           .tool_name = ("mcp__" + ($t[1:] | gsub("/"; "__")))
+         else . end)
+      | (if (.assistant_response != null) and (.last_assistant_message == null)
+         then .last_assistant_message = .assistant_response else . end)
+    ' 2>/dev/null) \
+    && [ -n "$rewritten" ]; then
+    printf '%s\n' "$rewritten"
+  else
+    printf '%s\n' "$payload"
+  fi
+}

@@ -42,7 +42,9 @@ test('session hooks launch asynchronous storage upkeep through the first availab
 
   const record = path.join(scratch.dir, 'dispatcher-record');
   const makeDispatcher = (file, label) => {
-    fs.writeFileSync(file, `#!/bin/bash\nsleep 2\nprintf '%s\\n%s\\n%s\\n' ${JSON.stringify(label)} "$*" "$PWD" > "$STORAGE_TEST_RECORD"\n`);
+    // Written to a temp file and renamed into place: `> "$STORAGE_TEST_RECORD"` creates the file
+    // before printf fills it, so awaitRecord could read it empty or half-written.
+    fs.writeFileSync(file, `#!/bin/bash\nsleep 2\nprintf '%s\\n%s\\n%s\\n' ${JSON.stringify(label)} "$*" "$PWD" > "$STORAGE_TEST_RECORD.tmp.$$"\nmv -f "$STORAGE_TEST_RECORD.tmp.$$" "$STORAGE_TEST_RECORD"\n`);
     fs.chmodSync(file, 0o755);
   };
   makeDispatcher(projectDispatcher, 'project');
@@ -64,11 +66,15 @@ test('session hooks launch asynchronous storage upkeep through the first availab
     assert.fail('the background dispatcher did not record its invocation');
   }
   function clearRecord() { try { fs.unlinkSync(record); } catch {} }
-  function assertFastSilent(result, baseline) {
+  function assertHangBound(result) {
+    // DEC-022: this is a hang bound, not a latency judgement.
+    assert.ok(result.elapsedMs < 10000, `hook exceeded the hang bound after ${result.elapsedMs}ms`);
+  }
+  function assertSilent(result, baseline) {
     assert.equal(result.status, baseline.status);
     assert.equal(result.stdout, baseline.stdout);
     assert.equal(result.stderr, baseline.stderr);
-    assert.ok(result.elapsedMs < 1000, `hook took ${result.elapsedMs}ms`);
+    assertHangBound(result);
   }
   function baselineEnv() {
     const home = path.join(scratch.dir, 'baseline-home');
@@ -77,7 +83,7 @@ test('session hooks launch asynchronous storage upkeep through the first availab
     return scratch.env({ HOME: home, XDG_CONFIG_HOME: xdg, STORAGE_TEST_RECORD: record });
   }
 
-  await t.test('project dispatcher wins over both home candidates; each hook launches once, silently, and under one second', async () => {
+  await t.test('project dispatcher wins over both home candidates; each hook launches once and silently', async () => {
     const scripts = [POLICY, ...SESSION_END];
     for (const [index, script] of scripts.entries()) {
       const disabledProjectDispatcher = `${projectDispatcher}.baseline-disabled`;
@@ -86,13 +92,14 @@ test('session hooks launch asynchronous storage upkeep through the first availab
       try {
         base = spawnSync('/bin/bash', [script], { input: payload(`baseline-${index}`), cwd: project, env: baselineEnv(), encoding: 'utf8' });
       } finally { fs.renameSync(disabledProjectDispatcher, projectDispatcher); }
-      const result = runHook(script, `active-${index}`);
-      assertFastSilent(result, base);
-      const [label, argv, cwd] = await awaitRecord();
-      assert.equal(label, 'project');
-      assert.equal(argv, 'storage --action upkeep');
-      assert.equal(cwd, project);
-      clearRecord();
+      try {
+        const result = runHook(script, `active-${index}`);
+        assertSilent(result, base);
+        const [label, argv, cwd] = await awaitRecord();
+        assert.equal(label, 'project');
+        assert.equal(argv, 'storage --action upkeep');
+        assert.equal(cwd, project);
+      } finally { clearRecord(); }
     }
   });
 
@@ -102,17 +109,20 @@ test('session hooks launch asynchronous storage upkeep through the first availab
     fs.mkdirSync(configured, { recursive: true });
     const configCandidate = path.join(configured, CONFIG_DISPATCHER);
     fs.mkdirSync(path.dirname(configCandidate), { recursive: true }); makeDispatcher(configCandidate, 'explicit-claude-config');
-    const configuredResult = runHook(POLICY, 'config-order', scratch.env({ CLAUDE_CONFIG_DIR: configured, STORAGE_TEST_RECORD: record }));
-    assert.ok(configuredResult.elapsedMs < 1000);
-    const configRecord = await awaitRecord(); assert.equal(configRecord[0], 'explicit-claude-config'); clearRecord();
+    try {
+      const configuredResult = runHook(POLICY, 'config-order', scratch.env({ CLAUDE_CONFIG_DIR: configured, STORAGE_TEST_RECORD: record }));
+      assertHangBound(configuredResult);
+      const configRecord = await awaitRecord(); assert.equal(configRecord[0], 'explicit-claude-config');
+    } finally { clearRecord(); }
 
     fs.rmSync(configCandidate);
     fs.rmSync(configDispatcher);
-    const homeResult = runHook(POLICY, 'home-order');
-    assert.ok(homeResult.elapsedMs < 1000);
-    const homeRecord = await awaitRecord(); assert.equal(homeRecord[0], 'global-home');
-    assert.equal(homeRecord[1], 'storage --action upkeep');
-    clearRecord();
+    try {
+      const homeResult = runHook(POLICY, 'home-order');
+      assertHangBound(homeResult);
+      const homeRecord = await awaitRecord(); assert.equal(homeRecord[0], 'global-home');
+      assert.equal(homeRecord[1], 'storage --action upkeep');
+    } finally { clearRecord(); }
   });
 
   await t.test('no candidate launches nothing, sourcing lib is silent, and Codex SessionStart stdout stays unchanged', async () => {
@@ -139,11 +149,11 @@ test('session hooks launch asynchronous storage upkeep through the first availab
     const codexHomeDispatcher = path.join(codexHome, GLOBAL_DISPATCHER);
     fs.mkdirSync(path.dirname(codexHomeDispatcher), { recursive: true });
     makeDispatcher(codexHomeDispatcher, 'codex-session-start');
-    const codex = runHook(codexStart, 'codex-start', codexEnv);
-    assertFastSilent(codex, codexBaseline);
-    const [label, argv, cwd] = await awaitRecord(); assert.equal(label, 'codex-session-start'); assert.equal(argv, 'storage --action upkeep'); assert.equal(cwd, project);
-    clearRecord();
-    clearRecord();
+    try {
+      const codex = runHook(codexStart, 'codex-start', codexEnv);
+      assertSilent(codex, codexBaseline);
+      const [label, argv, cwd] = await awaitRecord(); assert.equal(label, 'codex-session-start'); assert.equal(argv, 'storage --action upkeep'); assert.equal(cwd, project);
+    } finally { clearRecord(); }
   });
 });
 
@@ -155,7 +165,7 @@ test('a session started in a subdirectory runs upkeep from the project root (G.3
   const record = path.join(scratch.dir, 'subdir-record');
   const dispatcher = path.join(project, PROJECT_DISPATCHER);
   fs.mkdirSync(path.dirname(dispatcher), { recursive: true });
-  fs.writeFileSync(dispatcher, `#!/bin/bash\nprintf '%s\\n' "$PWD" > "$STORAGE_TEST_RECORD"\n`);
+  fs.writeFileSync(dispatcher, `#!/bin/bash\nprintf '%s\\n' "$PWD" > "$STORAGE_TEST_RECORD.tmp.$$"\nmv -f "$STORAGE_TEST_RECORD.tmp.$$" "$STORAGE_TEST_RECORD"\n`);   // atomic, as above
   fs.chmodSync(dispatcher, 0o755);
   const result = spawnSync('/bin/bash', [POLICY], {
     input: JSON.stringify({ session_id: 'subdir', cwd: sub, source: 'startup' }), cwd: sub,

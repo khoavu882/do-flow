@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const registry = require('../../core/registry/storage.json');
-const { runPass } = require('../../src/runtime/storage/engine');
+const { runPass } = require('../../src/runtime/storage/engine.ts');
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-10T12:00:00Z');
 function fixture(t) {
@@ -89,7 +89,7 @@ test('age uses newest direct child and work removes stale temp plus empty namesp
 });
 test('registry order, result shape, and existing/control stores are not selected', t => {
   const f=fixture(t); const result=f.pass();
-  assert.deepEqual(result.stores.map(s=>s.id), ['verification-logs','task-evidence','task-readiness','task-research','task-outcome','task-retrieval','task-orchestration','runs-project','runs-user','advice-picks-project','advice-picks-user','lifecycle-events','report-bodies','session-dirs','project-dirs','recovery-user','recovery-project']);
+  assert.deepEqual(result.stores.map(s=>s.id), ['task-delivery','verification-logs','task-evidence','task-readiness','task-research','task-outcome','task-retrieval','task-attempts','task-orchestration','runs-project','runs-user','advice-picks-project','advice-picks-user','lifecycle-events','report-bodies','session-dirs','project-dirs','recovery-user','recovery-project']);
   assert.equal(result.mode,'prune'); assert.equal(result.partial,false);
 });
 

@@ -9,10 +9,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createAdapterRegistry } = require('../../src/adapters');
-const { defaultLedger } = require('../../src/state');
-const { hasBashCapableShell } = require('../../src/lifecycle/bash-availability');
-const { planLifecycle, applyLifecycle, targetNeedsHooks, assertBashAvailableForHooks } = require('../../src/lifecycle');
+const { createAdapterRegistry } = require('../../src/adapters/index.ts');
+const { defaultLedger } = require('../../src/state/index.ts');
+const { hasBashCapableShell } = require('../../src/lifecycle/bash-availability.ts');
+const { planLifecycle, applyLifecycle, targetNeedsHooks, assertBashAvailableForHooks } = require('../../src/lifecycle/index.ts');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
 
 const root = suiteTempDir('doflow-bash-availability-');

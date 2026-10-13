@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
-const { loadRegistry, capabilityMapData } = require('../../src/registry');
+const { loadRegistry, capabilityMapData } = require('../../src/registry/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
@@ -159,7 +159,7 @@ test('G8: every runtime CLI command is named by a skill or doc', () => {
   // Parsed from the dispatch switch rather than hardcoded, so a new command is covered the moment
   // it is wired up — the guard should not need editing to start guarding. Since Stage 2 the
   // switch lives in src/cli/runtime-commands.js (bin/doflow.js only forwards into src/cli).
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
   assert.ok(commands.length > 0, 'expected to find runtime command handlers in src/cli/runtime-commands.js');
 

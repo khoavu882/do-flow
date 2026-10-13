@@ -24,7 +24,7 @@ const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 
-const { OUTCOME_STATES, NOT_RECORDED, outcomePath } = require('../../src/runtime/outcome');
+const { OUTCOME_STATES, NOT_RECORDED, outcomePath } = require('../../src/runtime/outcome.ts');
 
 /** A scratch project root. Nothing here needs git — the outcome record stamps no commit. */
 function project(label) {

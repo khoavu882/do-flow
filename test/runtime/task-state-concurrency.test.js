@@ -10,9 +10,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
-const { ClaimsManager } = require('../../src/runtime/claims');
-const { acquireLock, tryAcquireLock, readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
+const { acquireLock, tryAcquireLock, readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state.ts');
 
 function stateRoot(t) {
   const dir = tempDir(t, 'doflow-task-state-concurrency-');

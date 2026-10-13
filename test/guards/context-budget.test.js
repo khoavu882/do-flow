@@ -13,10 +13,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared');
-const { resolveTransform } = require('../../src/adapters/copy-tree');
-const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings');
-
-const ROOT_FILE = path.join(GUIDANCE, 'DOFLOW_CORE.md');
+const { GENERATED_EXCLUSIONS, alwaysLoaded, measureSource } = require('../helper/always-loaded');
+const { resolveTransform } = require('../../src/adapters/copy-tree.ts');
+const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 // The ceiling, in bytes, over the DoFlow-authored always-loaded set.
 //
@@ -29,57 +28,6 @@ const ROOT_FILE = path.join(GUIDANCE, 'DOFLOW_CORE.md');
 // agreed response (RK4) is one explicit, reviewed commit that raises this constant and states the
 // new number and its cost — not a suppression, and not a quiet edit bundled into a prose diff.
 const CEILING_BYTES = 10245;
-
-// Generated per install, excluded by name rather than forgotten.
-//
-// MCP_INDEX.md and everything it imports under guidance/mcp/ are written at install time from the
-// MCP servers the user actually selected. Their size is a property of the machine, not of
-// DoFlow-authored content, and it differs between two correct installs — so measuring them would
-// make this guard's result depend on who ran it. The import walk stops at MCP_INDEX.md and does
-// not descend into its @mcp/* imports.
-const GENERATED_EXCLUSIONS = new Map([
-  ['MCP_INDEX.md', 'generated per install from the servers actually selected; size varies per machine'],
-]);
-
-/** Newline-separated lines, without the empty line a trailing newline would add. */
-function lineCount(text) {
-  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
-}
-
-/** `@relative/path.md` at the start of a line — the import syntax DOFLOW_CORE.md actually uses. */
-function importsIn(text) {
-  return [...text.matchAll(/^@(\S+)$/gm)].map(([, target]) => target);
-}
-
-/**
- * The always-loaded set, walked transitively from DOFLOW_CORE.md rather than hardcoded.
- *
- * A hardcoded file list is the failure mode this ceiling exists to prevent: it silently stops
- * covering a file the moment someone adds one to the set, which is exactly when the budget most
- * needs to bind. Returns { files, dangling, excluded } — relative to the guidance root.
- */
-function alwaysLoaded() {
-  const files = [];
-  const dangling = [];
-  const excluded = [];
-  const seen = new Set();
-  const queue = [path.relative(GUIDANCE, ROOT_FILE)];
-
-  while (queue.length) {
-    const rel = queue.shift();
-    if (seen.has(rel)) continue;                              // an import cycle must not hang the guard
-    seen.add(rel);
-    if (GENERATED_EXCLUSIONS.has(rel)) { excluded.push(rel); continue; }
-    const full = path.join(GUIDANCE, rel);
-    if (!fs.existsSync(full)) { dangling.push(rel); continue; }
-    const text = fs.readFileSync(full, 'utf8');
-    files.push({ rel, lines: lineCount(text), bytes: Buffer.byteLength(text, 'utf8') });
-    for (const target of importsIn(text)) {
-      queue.push(path.normalize(path.join(path.dirname(rel), target)));
-    }
-  }
-  return { files, dangling, excluded };
-}
 
 function breakdown(files, total) {
   const width = Math.max(...files.map(({ rel }) => rel.length));
@@ -122,26 +70,6 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
     + '  in this file in its own reviewed commit stating the new number and its cost (RK4).\n'
     + `  Excluded by design: ${[...GENERATED_EXCLUSIONS.keys()].join(', ')} (generated per install).`);
 });
-
-/** Every `*.md` under `dir` (repo-relative), depth first. */
-function markdownUnder(dir) {
-  return fs.readdirSync(path.join(REPO, dir), { withFileTypes: true }).flatMap((entry) => {
-    const rel = path.join(dir, entry.name);
-    if (entry.isDirectory()) return markdownUnder(rel);
-    return entry.name.endsWith('.md') ? [rel] : [];
-  });
-}
-
-/** Lines and bytes of every `*.md` under a directory, or of one file, after an optional transform. */
-function measureSource(sourceRel, transform) {
-  const full = path.join(REPO, sourceRel);
-  const names = fs.statSync(full).isDirectory() ? markdownUnder(sourceRel) : [sourceRel];
-  return names.reduce((total, rel) => {
-    let bytes = fs.readFileSync(path.join(REPO, rel));
-    if (transform) bytes = transform(rel, bytes);
-    return { lines: total.lines + lineCount(bytes.toString('utf8')), bytes: total.bytes + bytes.length };
-  }, { lines: 0, bytes: 0 });
-}
 
 /**
  * What each harness loads before the user types, classified from the registry rather than named per
@@ -243,8 +171,15 @@ test('G13: controls — a harness no condition matches is refused', () => {
 // do-brainstorm's overview and init lines, 448, plus the follow-up line in WORKFLOW_HANDOFF.md, 210).
 // Measured 2026-10-03: documentation 56,210 after the follow-up line in WORKFLOW_HANDOFF.md (+210 over 56,000;
 // do-test and do-code-review load it).
+// Measured 2026-10-12: feature 225,568 after MODEL_SELECTION.md gained its authoritative
+// "## Archetype dispatch tiers" prescription table (G29 now pins models.json byOwner to it); the
+// Claude model-name column was dropped from the capability-tiers table in the same change, so the
+// net guidance growth is the table minus that column. Raised again 2026-10-12 for MODEL_SELECTION.md's
+// "## Enforceability" note: the dispatch tier is a rendered request applied only where the host
+// supports per-call model selection — stated so a tier is never claimed applied that the host could
+// not set, and kept in the reference (not the capped skill) so it costs the skill window nothing.
 const TASK_CONTEXT_RAILS = new Map([
-  ['feature', 225000], // 046 raise is new prose (lifecycle overview and init lines, follow-up line in the handoff step)
+  ['feature', 226300], // 046 raise is new prose; 2026-10-12 raises are the archetype dispatch-tier table and the model-tier enforceability note
   ['dependency-change', 85000],
   ['bug', 71000],
   ['refactor', 71000],
@@ -275,7 +210,7 @@ function skillLoadedBytes(skillName, loadedReferences = new Set()) {
 }
 
 test('G13: every task class stays within its loaded-context rail', () => {
-  const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+  const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
   const REPO = path.resolve(__dirname, '..', '..');
   const workflows = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'workflows.json'), 'utf8'));
   const engine = new WorkflowEngine({ workflows, readinessTemplates: false });

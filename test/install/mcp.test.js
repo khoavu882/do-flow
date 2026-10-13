@@ -4,8 +4,8 @@ const assert = require('node:assert');
 const path = require('node:path');
 const {
   readAllServers, promptMcpCheckbox, parseMcpFlag, resolveMcpSelections, recordedMcpSelections, adoptableMcpIds,
-} = require('../../src/install/mcp');
-const { loadRegistry } = require('../../src/registry');
+} = require('../../src/install/mcp.ts');
+const { loadRegistry } = require('../../src/registry/index.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 const registry = loadRegistry({ repoRoot: REPO });

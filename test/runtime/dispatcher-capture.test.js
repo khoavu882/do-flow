@@ -14,7 +14,7 @@ const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { suiteTempDir } = require('../helper/tmp');
-const { captureIsOff } = require('../../src/runtime/failure/home');
+const { captureIsOff } = require('../../src/runtime/failure/home.ts');
 
 const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
@@ -103,6 +103,12 @@ describe('exit-status point', () => {
     const loud = onOff('brief-9', ['task-brief'], { env: { FAKE_EXIT: '9' } });
     assert.equal(lines(loud.on)[0].kind, 'exit-9');
     assert.equal(lines(loud.on)[0].command, 'task-brief');
+  });
+  test('context-pack status 3 (overflow) is not recorded', () => {
+    const { on, a } = onOff('context-pack-overflow', ['context-pack', '--json'], { env: { FAKE_EXIT: '3' } });
+    assert.equal(a.status, 3);
+    assert.equal(lines(on).length, 0);
+    assert.equal(fs.existsSync(on.failures), false);
   });
   test('stdout, stderr and status of the verb pass through untouched', () => {
     const t = tree('passthrough');

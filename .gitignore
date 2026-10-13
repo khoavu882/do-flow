@@ -1,5 +1,6 @@
 .idea/
 tmp/
+.pack/
 
 # Machine-specific local settings (contain absolute paths, never share)
 .claude/settings.local.json
@@ -22,6 +23,8 @@ sessions/
 shell-snapshots/
 statsig/
 tasks/
+# Benchmark ground-truth task definitions under bench/retrieval/tasks/ are tracked
+!bench/retrieval/tasks/
 telemetry/
 todos/
 
@@ -44,11 +47,12 @@ backups/
 downloads/
 
 # Local memories
+.agents
 .codex
 .claude
-.gemini
-.agents
 .doflow
+.gemini
+.kiro
 .opencode
 .pi
 GEMINI.md

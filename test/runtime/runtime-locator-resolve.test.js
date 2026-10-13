@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { resolveLocator, describeResolution } = require('../../src/runtime/locator-resolve');
+const { resolveLocator, describeResolution } = require('../../src/runtime/locator-resolve.ts');
 
 /** A throwaway repo root, so every case reads real files rather than a mocked shape. */
 function tmpRepo(files) {

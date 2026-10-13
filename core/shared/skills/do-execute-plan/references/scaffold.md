@@ -56,7 +56,7 @@ Two rules deserve their reasoning, because both are easy to "improve" into a def
 | | Part 1 — in-scope | Part 2 — external dependency |
 |---|---|---|
 | Input | `requirement.md`, `design.md`, `plan.md` | a `depends-on:` value with no owning task |
-| Produced by | `src/runtime/scaffold/generate.js`, deterministically | this file's algorithm, executed by you |
+| Produced by | `src/runtime/scaffold/generate.ts`, deterministically | this file's algorithm, executed by you |
 | Lands in | `scaffold/src/`, `scaffold/test/`, `scaffold/MANIFEST.md` | `scaffold/contracts/<service>/` |
 | Answers | what shape does my own plan imply | what shape must I code against at the boundary |
 
@@ -107,7 +107,7 @@ What the generator does, so you can read its output rather than guess at it:
 5. **Emits test stubs** from `requirement.md`'s acceptance criteria, one file per requirement. Each
    stub fails until implemented, deliberately: a stub that passes asserts nothing and reads as
    coverage. The stub language comes from the repository's own manifest, detected by
-   `command-detect.js` — the same detector the verification engine uses, not a second one.
+   `command-detect.ts` — the same detector the verification engine uses, not a second one.
 6. **Protects hand edits.** Every generated file carries a fingerprint of its own body. A body that
    no longer matches, or a file with no fingerprint at all, is treated as hand-authored: reported
    under **Preserved**, never rewritten. This includes `MANIFEST.md` — delete it to refresh it.
@@ -391,7 +391,7 @@ this Part; `scaffold/contracts/<service>/` is the only place any of it may write
 ## Constraints (carried from the design — do not relax these)
 
 The first applies to both Parts. Every other constraint here is Part 2's, and its bare step numbers
-are Part 2's steps — Part 1's equivalents are enforced by `src/runtime/scaffold/generate.js` and its guard
+are Part 2's steps — Part 1's equivalents are enforced by `src/runtime/scaffold/generate.ts` and its guard
 rather than restated as prose.
 
 - Never write outside `agent-docs/doflow/<slug>/scaffold/` — not into the source tree, and not

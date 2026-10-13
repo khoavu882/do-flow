@@ -10,13 +10,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { mcpIndexPath } = require('../../src/lifecycle');
+const { mcpIndexPath } = require('../../src/lifecycle/index.ts');
 
 const SKILLS_PREFIX = 'core/shared/skills/';
 const CODE_FILES = [
-  'src/runtime/mcp-consultations.js',
-  'src/runtime/mcp-reach.js',
-  'src/runtime/brief-tools.js',
+  'src/runtime/mcp-consultations.ts',
+  'src/runtime/mcp-reach.ts',
+  'src/runtime/brief-tools.ts',
   'core/shared/scripts/doflow/bash/do-task-brief.sh',
 ];
 const OFFLINE_FILES = CODE_FILES.slice(0, 3);

@@ -9,7 +9,7 @@ contains only the shortest path to a working installation.
 
 | Requirement | Needed for | Notes |
 |---|---|---|
-| Node.js 18+ | The `doflow` installer, and `npx` for the bundled MCP servers | `package.json` declares `engines.node >= 18`; CI exercises 18 and 20 |
+| Node.js 22.18+ / 24.3+ | The `doflow` installer and runtime, and `npx` for the bundled MCP servers | `package.json` declares `engines.node` as `^22.18.0 \|\| >=24.3.0`. The runtime ships TypeScript (`src/**/*.ts`) run directly through Node's native type-stripping (`process.features.typescript`), which has no build step. Type-stripping is on by default only from Node 22.18.0 and 23.6.0, but Node 23.6 to 24.2 print an `ExperimentalWarning: Type Stripping is an experimental feature` to stderr on every `.ts` load, so the floor skips them (Node 23 is end-of-life); Node 22.6 to 22.17 and 23.0 to 23.5 need `--experimental-strip-types`, which DoFlow does not pass, and `require('./x.ts')` there fails with a SyntaxError. Stripping disabled with `--no-experimental-strip-types` (for example through `NODE_OPTIONS`) is refused the same way. Node 18/20 are no longer supported as of the TypeScript migration (semver-major). |
 | Git | Cloning, `self-update`, and the git context hooks | |
 | `bash` | Hook scripts, on any harness that supports hooks | POSIX bash, Git Bash/MSYS2, and WSL bash all qualify. DoFlow runs `bash --version` rather than a PATH check, so a same-named unrelated binary will not satisfy it. Installs that carry no hooks do not need it. |
 | `jq` | The DoFlow shell scripts and hook payload parsing | Preinstalled on GitHub-hosted runners. The prompt nudge also needs a `jq` built with regex support (Oniguruma) and stays silent without it |
@@ -28,8 +28,16 @@ one. All eight are fully declared, adapted, and installable via `--target <id>`.
 | [OpenCode](https://opencode.ai/) | `opencode` | Managed `AGENTS.md` section (registered via `opencode.json`'s `instructions[]`), skills discovered natively at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `opencode.json`'s `mcp` key |
 | [Pi](https://pi.dev/) | `pi` | Managed `AGENTS.md` section, skills copied into `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), with `settings.json` left untouched, the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `.pi/mcp.json` (project; Pi reads it only after you trust the project) or `~/.pi/agent/mcp.json` (global, or `$PI_CODING_AGENT_DIR/mcp.json`; Pi moves its whole agent dir with that variable, but DoFlow moves only `mcp.json`, so skills and `AGENTS.md` stay in `~/.pi/agent/`); the [capability map](capability-map.md) states the Pi version floor and the `pi-mcp-adapter` case |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli) | `copilot` | `.github/copilot-instructions.md` (DoFlow writes project scope only; a personal `~/.copilot/copilot-instructions.md` also exists upstream but receives nothing), skills at `.agents/skills/` (project) or `~/.agents/skills/` (global), agents at `.github/agents/` (project) or `~/.copilot/agents/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP merged into `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global) |
-| [Kiro](https://kiro.dev/) | `kiro` | Guidance projected as steering files under `.kiro/steering/` (project) or `~/.kiro/steering/` (global), skills at `.kiro/skills/`, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree, agents at `.kiro/agents/`, hooks at `.kiro/hooks/` (not in Kiro's untrusted-workspace exclusion list; whether its shell-command prompt covers hooks is undocumented), and MCP via `.kiro/settings/mcp.json` |
+| [Kiro](https://kiro.dev/) | `kiro` | Guidance projected as steering files under `.kiro/steering/` (project) or `~/.kiro/steering/` (global), skills at `.kiro/skills/`, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree, agents rendered as `.kiro/agents/<name>.json` (the five specialists plus a `doflow` main agent, each carrying DoFlow's guard hooks), hooks at `.kiro/hooks/` (not in Kiro's untrusted-workspace exclusion list; whether its shell-command prompt covers hooks is undocumented), and MCP via `.kiro/settings/mcp.json` |
 | [Antigravity CLI](https://antigravity.google/) (`agy`) | `antigravity` | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents at `.agents/agents/` (project) or `~/.gemini/config/agents/` (global), the runtime locator, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree (project scope only), and MCP merged into `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` (remote servers project to `serverUrl`). Global instructions and user-scope skills are intentionally untouched — see the registry notes for why |
+
+Kiro CLI reads hooks from an agent's own configuration, so DoFlow's guards run only for the DoFlow
+agents. Start the main session with `kiro-cli chat --agent doflow`, or opt in permanently with
+`kiro-cli agent set-default doflow`; DoFlow never changes your default agent. The specialists
+(`core-implementer`, `quality-guardian`, `spec-analyst`, `system-architect`, `research-writer`) can be
+dispatched by role and carry the same pre-tool-use guards. The `doflow` agent adds the session-context
+(`agentSpawn`) and stop-check (`stop`) hooks. `.kiro/hooks/doflow.json` stays for the Kiro IDE;
+kiro-cli does not read it.
 
 Codex and Gemini both gate hook execution behind their own trust/review step — DoFlow writes the
 configuration, but neither runs a hook until you approve it in that tool. Kiro's hooks are
@@ -154,7 +162,7 @@ given invocation, so treat it as the source of truth over this table for a speci
 
 OpenCode's global config lives at `~/.config/opencode/`, **not** `~/.opencode/` — a path DoFlow's
 own docs asserted incorrectly for several releases. `~/.opencode/` is a plausible guess that
-OpenCode does not read; `src/adapters/opencode/index.js`'s `nativePaths()` is the authoritative
+OpenCode does not read; `src/adapters/opencode/index.ts`'s `nativePaths()` is the authoritative
 implementation, confirmed against <https://opencode.ai/docs>.
 
 The runtime is shared by every harness in a project. A project install of any one harness writes the
@@ -248,7 +256,13 @@ the global install's files and records, and its `remove` could delete them. Use 
 
 An install or update that changes files first copies only those files into
 `.doflow/backups/<id>/`, and records the files it is about to create so a rollback can tell them
-apart. A file that holds only MCP entries is never copied. After each install or update the newest 3
+apart. A file that holds only MCP entries is never copied. The ownership ledger
+(`.doflow/state/ledger.json`) is copied with those files, so a rollback restores the records that
+describe what it restores and a later `update` or `remove` accepts them. It restores only the records
+of the files it writes back (narrowed by `--target` with them): records of later runs, of other
+harnesses and of MCP entries stay as they are, so a later `remove` still finds everything DoFlow has
+on disk. Nothing else under `.doflow/state` (runs, evidence, recovery records), `doflow.lock` or the
+install manifest is copied. After each install or update the newest 3
 backups of that scope are kept: `--prune N` keeps N, and `--prune 0` keeps all. An update with
 nothing to change prunes nothing, so the first run after upgrading from 1.19 that prunes is an
 install, or an update that changes files; it removes the older DoFlow-written backups beyond the
@@ -464,7 +478,7 @@ OpenCode, verify `AGENTS.md` loads and that `opencode.json`'s `instructions[]` a
 populated. In Pi, verify `AGENTS.md`, skill discovery under `.pi/skills/` (or `~/.pi/agent/skills/` globally), and any registered MCP servers in `.pi/mcp.json` (or `~/.pi/agent/mcp.json` globally). In Copilot CLI,
 verify the managed section in `.github/copilot-instructions.md`, skill discovery under
 `.agents/skills/`, and any registered MCP servers. In Kiro, verify the projected steering files
-under `.kiro/steering/`, skill discovery under `.kiro/skills/`, and hook files under `.kiro/hooks/`.
+under `.kiro/steering/`, skill discovery under `.kiro/skills/`, agents listed by `kiro-cli agent list` (run it in the project), and hook files under `.kiro/hooks/`.
 In Antigravity, additionally verify `.agents/hooks/pre-implementation-gate.sh` and `.agents/hooks/stop-check.sh` are executable and `.agents/hooks.json` registers them. In Antigravity, verify the managed section in `AGENTS.md`, skill discovery under `.agents/skills/`,
 and any registered MCP servers in `.agents/mcp_config.json` (project) or
 `~/.gemini/config/mcp_config.json` (global).

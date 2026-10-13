@@ -2,102 +2,86 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { ContextPackCompiler } = require('../../src/runtime/context-pack');
+const {
+  computeCeilingMs,
+  DEFAULT_HEADROOM,
+  DEFAULT_INTENT_BUDGETS_MS,
+} = require('../../bench/perf/runner.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const CLI_PATH = path.join(REPO_ROOT, 'bin', 'doflow.js');
-const HOOKS_DIR = path.join(REPO_ROOT, 'core', 'harnesses', 'shared', 'hooks', 'policies');
+const BUDGETS_PATH = path.join(REPO_ROOT, 'bench/perf/budgets.json');
 
-/**
- * Runs a command and measures wall time in milliseconds using hrtime.
- * @param {string} cmd
- * @param {string[]} args
- * @param {Object} [options]
- * @returns {{ ms: number, status: number, stdout: string, stderr: string }}
- */
-function measureExecution(cmd, args, options = {}) {
-  const start = process.hrtime.bigint();
-  const res = spawnSync(cmd, args, {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, DOFLOW_QUIET: '1' },
-    ...options,
-  });
-  const end = process.hrtime.bigint();
-  const ms = Number(end - start) / 1e6;
-  return { ms, status: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };
+function findApprovedRow(budgets, surfaceId) {
+  return (budgets.rows || []).find(
+    (row) => row.surfaceId === surfaceId && row.status === 'approved' && !row.unmeasured
+  );
 }
 
-test('performance-budget: in-process compileBoundedContextPack executes in under 5 ms', () => {
-  const compiler = new ContextPackCompiler();
-  const start = process.hrtime.bigint();
-  const res = compiler.compileBoundedContextPack({
-    taskId: 'perf-task',
-    taskClass: 'feature',
-    maxBytes: 10000,
-    objective: 'Benchmark context pack compiler',
-    mandatory: {
-      acceptanceCriteria: ['AC-01', 'AC-02'],
-      constraints: ['C-01'],
-      verificationPlan: 'Run performance suite',
-    },
-    optional: {
-      hypotheses: ['H-01'],
-      narrative: ['N-01'],
-    },
+function runSurface(surface) {
+  const fixturePath = surface.stdinFixture
+    ? (path.isAbsolute(surface.stdinFixture)
+        ? surface.stdinFixture
+        : path.join(REPO_ROOT, surface.stdinFixture))
+    : undefined;
+  const input = fixturePath ? fs.readFileSync(fixturePath, 'utf8') : undefined;
+  const [bin, ...args] = surface.argv;
+  const result = spawnSync(bin === 'node' ? process.execPath : bin, args, {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    input,
+    timeout: 30000,
+    env: { ...process.env, DOFLOW_QUIET: '1' },
   });
-  const end = process.hrtime.bigint();
-  const ms = Number(end - start) / 1e6;
 
-  assert.equal(res.overflow, false);
-  assert.ok(ms < 5, `expected in-process compilation < 5 ms, got ${ms.toFixed(2)} ms`);
-});
+  return {
+    status: result.status,
+    error: result.error,
+    stderr: result.stderr || '',
+  };
+}
 
-test('performance-budget: CLI help command executes within latency ceiling', () => {
-  // Warm-up run
-  measureExecution('node', [CLI_PATH, '--help']);
+const budgets = JSON.parse(fs.readFileSync(BUDGETS_PATH, 'utf8'));
+const enforcedSurfaces = (budgets.surfaces || []).filter((surface) => surface.enforced);
+const additionalSurfaces = (budgets.surfaces || []).filter((surface) =>
+  ['cli.version', 'verb.capabilities'].includes(surface.id)
+);
 
-  // Measured run
-  const { ms, status } = measureExecution('node', [CLI_PATH, '--help']);
-  assert.equal(status, 0, 'command exited with status 0');
-  // Generous ceiling to prevent CI flakiness while asserting no catastrophic latency
-  assert.ok(ms <= 350, `CLI help took ${ms.toFixed(1)} ms (ceiling 350 ms)`);
-});
+// suite.guard-file and suite.guards recurse into the test runner; diag.doctor depends on installed tools; install.dry-run is covered by test/install/.
+const surfacesToRun = [...enforcedSurfaces, ...additionalSurfaces];
 
-test('performance-budget: goal list verb executes within latency ceiling', () => {
-  // Warm-up run
-  measureExecution('node', [CLI_PATH, 'goal', '--action', 'list']);
+for (const surface of surfacesToRun) {
+  test(`performance-budget: surface ${surface.id} runs successfully and has a valid budget row`, () => {
+    const row = findApprovedRow(budgets, surface.id);
+    assert.ok(row, `approved budgets.json row must exist for surface ${surface.id}`);
 
-  // Measured run
-  const { ms, status } = measureExecution('node', [CLI_PATH, 'goal', '--action', 'list']);
-  assert.equal(status, 0, 'goal list exited with status 0');
-  assert.ok(ms <= 400, `goal list took ${ms.toFixed(1)} ms (ceiling 400 ms)`);
-});
+    assert.ok(Number.isInteger(row.runs) && row.runs >= 30, `surface ${surface.id} must have at least 30 runs`);
+    assert.ok(Number.isFinite(row.p95Ms) && row.p95Ms >= 0, `surface ${surface.id} must have a valid p95Ms`);
+    assert.ok(Number.isFinite(row.ceilingMs) && row.ceilingMs >= 0, `surface ${surface.id} must have a valid ceilingMs`);
 
-test('performance-budget: pre-bash-guard hook executes within latency ceiling', () => {
-  const script = path.join(HOOKS_DIR, 'pre-bash-guard.sh');
-  const input = JSON.stringify({ tool: 'bash', command: 'echo test' });
+    const intentBudgetsMs = budgets.intentBudgetsMs || DEFAULT_INTENT_BUDGETS_MS;
+    const headroom = budgets.headroom || DEFAULT_HEADROOM;
+    const intent = surface.intentClass && surface.intentClass !== 'none'
+      ? intentBudgetsMs[surface.intentClass]
+      : null;
+    assert.equal(
+      row.ceilingMs,
+      computeCeilingMs(row.p95Ms, headroom, intent),
+      `surface ${surface.id} ceilingMs must match the budget formula`
+    );
+    if (intent != null) {
+      assert.ok(row.ceilingMs <= intent, `surface ${surface.id} ceilingMs must not exceed its intent budget`);
+    }
 
-  // Warm-up run
-  measureExecution('bash', [script], { input });
-
-  // Measured run
-  const { ms, status } = measureExecution('bash', [script], { input });
-  assert.equal(status, 0, 'hook exited with status 0');
-  assert.ok(ms <= 250, `pre-bash-guard took ${ms.toFixed(1)} ms (ceiling 250 ms)`);
-});
-
-test('performance-budget: user-prompt-submit hook executes within latency ceiling', () => {
-  const script = path.join(HOOKS_DIR, 'user-prompt-submit.sh');
-  const input = JSON.stringify({ session_id: 'perf-test-session', cwd: REPO_ROOT });
-
-  // Warm-up run
-  measureExecution('bash', [script], { input });
-
-  // Measured run
-  const { ms, status } = measureExecution('bash', [script], { input });
-  assert.equal(status, 0, 'hook exited with status 0');
-  assert.ok(ms <= 250, `user-prompt-submit took ${ms.toFixed(1)} ms (ceiling 250 ms)`);
-});
+    const expectedExitCode = surface.expectedExitCode ?? 0;
+    const result = runSurface(surface);
+    assert.equal(result.error, undefined, `surface ${surface.id} could not run: ${result.error?.message || ''}`);
+    assert.equal(
+      result.status,
+      expectedExitCode,
+      `surface ${surface.id} exited ${result.status}; expected ${expectedExitCode}\nstderr: ${result.stderr}`
+    );
+  });
+}

@@ -34,12 +34,12 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { suiteTempDir } = require('../helper/tmp');
-const { stateRoot, defaultLedger, writeLedger } = require('../../src/state');
-const { defaultLock } = require('../../src/state/lockfile');
-const { loadRegistry } = require('../../src/registry');
-const { readScopes } = require('../../src/runtime/inventory/read-scopes');
-const { buildInventoryReport, printReport, FINDING_KINDS, RECONCILE, MANUAL } = require('../../src/runtime/inventory');
-const { REPAIR_REASONS } = require('../../src/runtime/inventory/coverage');
+const { stateRoot, defaultLedger, writeLedger } = require('../../src/state/index.ts');
+const { defaultLock } = require('../../src/state/lockfile.ts');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { readScopes } = require('../../src/runtime/inventory/read-scopes.ts');
+const { buildInventoryReport, printReport, FINDING_KINDS, RECONCILE, MANUAL } = require('../../src/runtime/inventory/index.ts');
+const { REPAIR_REASONS } = require('../../src/runtime/inventory/coverage.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -60,7 +60,7 @@ test('IC-001: the inventory verb is present in all four places the seam requires
   assert.match(usage[1], /^ {2}inventory\s{2,}\S/m,
     'usage() is the only verb list a user ever sees; an undocumented verb is an unreachable one');
 
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   assert.match(cli, /case 'inventory': return handleInventoryCommand/,
     "the command must stay in the single-expression case form: written as a block it becomes "
     + 'invisible to G8 and G12, which then go quiet rather than red');
@@ -496,7 +496,7 @@ function mcpReport({ mcpSelections }) {
   ledger.resources.push({
     harness: 'codex', scope: 'global', assetId: 'guidance.codex-pointer', kind: 'mcp-server',
     identity: 'context7', target: configFile, ownershipIdentity: 'doflow:codex:mcp-server:context7',
-    // The form src/adapters/codex/config.js records: sha256 of the block's JSON encoding.
+    // The form src/adapters/codex/config.ts records: sha256 of the block's JSON encoding.
     fingerprint: `sha256:${crypto.createHash('sha256').update(JSON.stringify(block)).digest('hex')}`,
     sourceVersion: 'test', selection: true, recoveryRef: null, projection: { renderer: 'codex-mcp' },
   });
@@ -846,7 +846,7 @@ test('IC-002: the report carries no inspected-but-not-reported count, in either 
  * fingerprint. Every existing divergence fixture reaches `diverged` through a destination that does
  * not exist at all, where the two cases are indistinguishable.
  *
- * `src/adapters/copy-tree.js` treats a destination as a no-op only when the location, the disk bytes
+ * `src/adapters/copy-tree.ts` treats a destination as a no-op only when the location, the disk bytes
  * and the recorded row all agree with the source, which is correct for planning a write that also
  * refreshes the row — so it emits `update` when only the row is stale. That is routine rather than
  * exotic: the shared hooks asset projects one destination for claude, codex, gemini, kiro and

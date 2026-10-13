@@ -7,8 +7,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { defaultLock, writeLock } = require('../../src/state/lockfile');
-const { repairCoverage, readScopeLocks, REPAIR_REASONS } = require('../../src/runtime/inventory/coverage');
+const { defaultLock, writeLock } = require('../../src/state/lockfile.ts');
+const { repairCoverage, readScopeLocks, REPAIR_REASONS } = require('../../src/runtime/inventory/coverage.ts');
 
 /** A lock document pinning the named harnesses, shaped as `lockDocument` builds it. */
 function lockPinning(scope, harnesses, scopeRoot = '/scope') {

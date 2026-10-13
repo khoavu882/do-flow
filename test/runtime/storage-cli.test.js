@@ -7,8 +7,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { REPO_ROOT } = require('../../src/helper/repo-root');
-const { handleStorageCommand } = require('../../src/runtime/storage/cli');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { handleStorageCommand } = require('../../src/runtime/storage/cli.ts');
 const DAY = 86400000;
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
@@ -134,7 +134,7 @@ test('storage reports registry failures as usage errors', () => {
     const code = `
       const fs = require('node:fs');
       const path = require('node:path');
-      const { handleStorageCommand } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/storage/cli.js'))});
+      const { handleStorageCommand } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/storage/cli.ts'))});
       const registry = ${JSON.stringify(target)};
       const fsImpl = new Proxy(fs, { get(target, key) {
         if (key === 'readFileSync') return (file, ...args) => {
@@ -165,7 +165,7 @@ test('storage upkeep stays silent and exits 0 when the registry is unavailable (
         if (path.resolve(String(file)) === registry) { const error = new Error('missing'); error.code = 'ENOENT'; throw error; }
         return readFileSync(file, ...args);
       };
-      const { handleStorageCommand } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/storage/cli.js'))});
+      const { handleStorageCommand } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/storage/cli.ts'))});
       handleStorageCommand({ action: 'upkeep', json: true, projectRoot: process.cwd(), env: process.env });
     `;
     const result = spawnSync(process.execPath, ['-e', code], { cwd: project, env: scratch.env(), encoding: 'utf8' });

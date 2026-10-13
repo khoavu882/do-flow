@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { ContextPackCompiler, TASK_CLASS_BUDGETS } = require('../../src/runtime/context-pack');
+const { ContextPackCompiler, TASK_CLASS_BUDGETS } = require('../../src/runtime/context-pack.ts');
 
 test('context-pack-budget: task class budgets map all 9 task classes to positive rails', () => {
   const expectedClasses = [

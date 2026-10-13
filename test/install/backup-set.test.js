@@ -6,10 +6,10 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { backupSetFromPlan, backupSetFromPaths } = require('../../src/install/backup-set');
-const { BackupError } = require('../../src/install/backup');
-const { loadRegistry } = require('../../src/registry');
-const { registryLifecycleView } = require('../../src/lifecycle/view');
+const { backupSetFromPlan, backupSetFromPaths } = require('../../src/install/backup-set.ts');
+const { BackupError } = require('../../src/install/backup.ts');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { registryLifecycleView } = require('../../src/lifecycle/view.ts');
 const { IS_WIN } = require('../helper-platform');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -147,6 +147,23 @@ test('DoFlow state at or under an excluded path is reported, never backed up', (
     { path: lock, reason: 'doflow-state' },
     { path: ledgerFile, reason: 'doflow-state' },
   ]);
+});
+
+test('the ownership ledger named in records is backed up beside the files, under the excluded state root, with no harness', () => {
+  const root = scratchDir();
+  const stateDir = path.join(root, '.doflow', 'state');
+  const ledgerFile = write(path.join(stateDir, 'ledger.json'), '{}');
+  const run = write(path.join(stateDir, 'runs', 'r1.json'));
+  const kept = write(path.join(root, '.claude', 'CLAUDE.md'));
+  const set = build(root, plan([change(kept), change(run)]), { exclude: [stateDir], records: [ledgerFile] });
+  assert.deepStrictEqual(set.entries.map((e) => [e.path, e.harnesses, e.reasons]), [[kept, ['claude'], ['change']], [ledgerFile, [], ['record']]]);
+  assert.deepStrictEqual(set.excluded, [{ path: run, reason: 'doflow-state' }], 'only the named record leaves the state root; runs stay out');
+
+  const empty = build(root, plan([]), { exclude: [stateDir], records: [ledgerFile] });
+  assert.deepStrictEqual(empty.entries, [], 'a run that backs up no file backs up no record either');
+  const snapshot = backupSetFromPaths({ items: [{ path: kept, harnesses: ['claude'] }, { path: ledgerFile, harnesses: [] }],
+    scope: 'project', scopeRoot: root, exclude: [stateDir], records: [ledgerFile] });
+  assert.deepStrictEqual(snapshot.entries.map((e) => e.path), [kept, ledgerFile], 'the pre-rollback snapshot keeps the ledger the restore overwrites');
 });
 
 test('stat kinds: a directory is other, a dangling link is absent, an unreadable path throws BackupError', { skip: IS_WIN && 'symlinks need privileges on Windows' }, () => {

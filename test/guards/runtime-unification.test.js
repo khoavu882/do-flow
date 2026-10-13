@@ -24,8 +24,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
-const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
 const { tempDir } = require('../helper/tmp');
 
 const SCRIPTS = path.join(REPO, 'core', 'shared', 'scripts');
@@ -190,15 +190,15 @@ test('G12: the path the locator searches for is where the registry projects the 
 // The doctor's reach check stats the same path the locator and the skill resolver look for. A
 // fourth spelling that drifts would make doctor report REACHED for a tree no skill can find.
 test('G12: the reach evaluator, the locator and the skill resolver search for the same dispatcher path (IC-011 4b)', () => {
-  const { REACH_DISPATCHER_REL } = require('../../src/runtime/reach');
+  const { REACH_DISPATCHER_REL } = require('../../src/runtime/reach.ts');
   const [, locatorRel] = locatorText.match(/^REL='([^']+)'$/m) || [];
-  assert.equal(REACH_DISPATCHER_REL, locatorRel, 'src/runtime/reach.js and the locator shim name different dispatcher paths');
+  assert.equal(REACH_DISPATCHER_REL, locatorRel, 'src/runtime/reach.ts and the locator shim name different dispatcher paths');
 
   const skill = fs.readFileSync(path.join(REPO, 'core', 'shared', 'skills', 'do-git', 'SKILL.md'), 'utf8');
   const spelled = [...skill.matchAll(/\.doflow\/(scripts\/[^"\s]+)/g)].map((match) => match[1]);
   assert.ok(spelled.length >= 3, `the resolver block spells the dispatcher path ${spelled.length} time(s); expected the walk, the DOFLOW assignment and the home fallback`);
   assert.deepEqual([...new Set(spelled)], [REACH_DISPATCHER_REL],
-    'the skill resolver block searches a different dispatcher path than src/runtime/reach.js');
+    'the skill resolver block searches a different dispatcher path than src/runtime/reach.ts');
 });
 
 // ------------------------------------------------------------------- 4. verb-table integrity
@@ -290,7 +290,7 @@ test('G12: the dispatcher documents exactly the verbs it dispatches', () => {
 // Both sides are parsed. The command list comes from the dispatch switch, so a command wired
 // tomorrow is guarded the moment it is wired rather than when someone remembers this file.
 test('G12: every runtime command the CLI implements is dispatched by a verb (FR-003)', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
   assert.ok(commands.length > 0,
     "expected to parse runtime commands from src/cli/runtime-commands.js's dispatch switch. A command written as a "
@@ -316,7 +316,7 @@ test('G12: every runtime command the CLI implements is dispatched by a verb (FR-
 // This test asks only that a verb which *is* wired is wired visibly. Whether every advertised verb
 // is wired at all is section 5c's question.
 test('G12: a wired runtime verb uses the case form the guards can parse', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   const nodeArm = new Set(nodeVerbs());
   const invisible = [];
   for (const [, verb, tail] of cli.matchAll(/case '([a-z-]+)':(.{0,60})/g)) {
@@ -343,7 +343,7 @@ test('G12: a wired runtime verb uses the case form the guards can parse', () => 
 // Both arms are now checked in both directions. An advertised verb is a promise to every skill that
 // reads the verb table, and this is the guard that makes the promise mean something.
 test('G12: every verb the dispatcher advertises on the Node arm has a CLI command (FR-003)', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   const commands = new Set([...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]));
   const unimplemented = nodeVerbs().filter((verb) => !commands.has(verb)).sort();
   assert.deepEqual(unimplemented, [],
@@ -364,7 +364,7 @@ test('G12: every verb the dispatcher advertises on the Node arm has a CLI comman
 // Both sides are derived, because a hardcoded list here would be the same drift one level up. The
 // accepted set is the installer table the CLI itself exports plus the dispatcher's Node arm; the
 // documented set is parsed out of the HELP template that `--help` prints.
-const CLI_INDEX = path.join(REPO, 'src', 'cli', 'index.js');
+const CLI_INDEX = path.join(REPO, 'src', 'cli', 'index.ts');
 
 /** The command names the `Commands:` block of `doflow --help` advertises. A positional placeholder
  * (`install [path]`) is part of the entry, not part of the name. */
@@ -388,7 +388,7 @@ const HIDDEN_FROM_CLI_HELP = new Map([]);
 
 test('G12: doflow --help documents every command the CLI accepts, and nothing it does not', () => {
   const documented = documentedCliCommands();
-  const accepted = new Set([...Object.keys(require('../../src/cli').COMMANDS), ...nodeVerbs()]);
+  const accepted = new Set([...Object.keys(require('../../src/cli/index.ts').COMMANDS), ...nodeVerbs()]);
 
   const undocumented = [...accepted]
     .filter((name) => !documented.has(name) && !HIDDEN_FROM_CLI_HELP.has(name)).sort();
@@ -422,7 +422,7 @@ test('G12: doflow --help documents every command the CLI accepts, and nothing it
 const SEAM_BYPASSES = [
   [/node\s+(?:--input-type=\S+\s+)?--?e(?:val)?\b/, 'inline `node -e`: evaluates DoFlow code outside the verb table'],
   [/require\([^)]*src[\\/]runtime/, 'direct `require()` of a runtime module: the seam decides which implementation serves a verb'],
-  [/node\s+\S*src[\\/]runtime[\\/]\S+\.js/, 'running a runtime module as a script: skips dispatch, tracing and the uniform exit contract'],
+  [/node\s+\S*src[\\/]runtime[\\/]\S+\.(?:js|ts)\b/, 'running a runtime module as a script: skips dispatch, tracing and the uniform exit contract'],
 ];
 
 test('G12: no skill reaches the JavaScript runtime except through the dispatcher (FR-004)', () => {
@@ -451,15 +451,17 @@ test('G12: no skill reaches the JavaScript runtime except through the dispatcher
 // `state/runs/2026-08-18.jsonl` until something else goes wrong. `sanitizeRunEvent` is the whole
 // defence — a closed field list plus a token pattern that cannot express a path, a URL, a quote or
 // a space. A writer that goes around it does not fail; it just writes.
-const TRACE_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'ledger.js');
+const TRACE_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'ledger.ts');
 const traceText = fs.readFileSync(TRACE_FILE, 'utf8');
-const trace = require('../../src/runtime/trace/ledger');
+const trace = require('../../src/runtime/trace/ledger.ts');
 
-/** Every .js under src/ and bin/, the two trees that could plausibly hold a second writer. */
+/** Every runtime module (`.js` or `.ts`, excluding `.d.ts`) under src/ and bin/, the two trees
+ * that could plausibly hold a second writer. `.ts` is included since the TypeScript migration, so a
+ * converted module that writes the ledger raw is still caught. */
 function runtimeJsFiles() {
   return [path.join(REPO, 'src'), path.join(REPO, 'bin')]
     .flatMap((root) => walk(root))
-    .filter((file) => file.endsWith('.js'))
+    .filter((file) => (file.endsWith('.js') || file.endsWith('.ts')) && !file.endsWith('.d.ts'))
     .map((file) => ({ rel: path.relative(REPO, file), text: fs.readFileSync(file, 'utf8') }));
 }
 
@@ -494,7 +496,9 @@ test('G12: the ledger write in trace.js is the one guarded by sanitizeRunEvent (
     `trace.js should perform exactly one filesystem write. Found: ${writes.join(', ') || '(none)'}. `
     + 'More than one means a path into the ledger that this guard has not read.');
 
-  const method = traceText.match(/\n {2}append\(event\) \{([\s\S]*?)\n {2}\}/);
+  // `append(event)` gained a TypeScript annotation in the migration (`append(event: any): any`),
+  // so the signature match allows an optional parameter type and return type.
+  const method = traceText.match(/\n {2}append\(event(?:\s*:[^)]*)?\)(?:\s*:[^{]*)? \{([\s\S]*?)\n {2}\}/);
   assert.ok(method, 'RunLedger#append must be parseable — it is the ledger write path');
   const body = method[1];
   assert.ok(body.includes('appendFileSync'),
@@ -681,8 +685,8 @@ test('G12: every discover analysis declares which ledger fields its verdict rest
 // class that does not exist. It surfaces later, in the recovery path, as an unrouted failure —
 // which is the moment the system is least able to absorb a second problem.
 test('G12: every failureClass in verification.json is a declared recovery class (FR-010)', () => {
-  const { parseYamlFile } = require('../../src/runtime/capability-router');
-  const { FAILURE_CLASSES } = require('../../src/runtime/recovery');
+  const { parseYamlFile } = require('../../src/runtime/capability-router.ts');
+  const { FAILURE_CLASSES } = require('../../src/runtime/recovery.ts');
   const doc = parseYamlFile(path.join(REPO, 'core', 'registry', 'verification.json'), fs);
 
   assert.ok(Array.isArray(doc.tiers) && doc.tiers.length > 0, 'verification.json must declare tiers');

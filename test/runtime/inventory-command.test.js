@@ -39,8 +39,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { suiteTempDir } = require('../helper/tmp');
-const { stateRoot, defaultLedger, writeLedger } = require('../../src/state');
-const { handleInventoryCommand } = require('../../src/runtime/inventory');
+const { stateRoot, defaultLedger, writeLedger } = require('../../src/state/index.ts');
+const { handleInventoryCommand } = require('../../src/runtime/inventory/index.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');

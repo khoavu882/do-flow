@@ -4,7 +4,7 @@
 // targets alone. The interactive prompt cannot be driven from a spawned CLI, so its word is pinned here.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { printMcpSelection } = require('../../src/cli/shared');
+const { printMcpSelection } = require('../../src/cli/shared.ts');
 
 function linesOf(fn) {
   const lines = [];

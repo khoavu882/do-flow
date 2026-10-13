@@ -14,13 +14,13 @@ const path = require('node:path');
 
 const { suiteTempDir } = require('../helper/tmp');
 
-const PROJECTOR = path.join(__dirname, '..', '..', 'src', 'runtime', 'c4-project.js');
+const PROJECTOR = path.join(__dirname, '..', '..', 'src', 'runtime', 'c4-project.ts');
 
 // Required directly as well as executed: the CLI tests above pin the process contract, these pin
 // the module's own surface. Both matter -- render-puml.sh shells out, but the recognized sets are
 // the contract IC-002 states, and asserting them through a subprocess would be asserting a shape
 // through a keyhole.
-const { project: projectInProcess, parse, ELEMENTS, BOUNDARIES, RELATIONS, Refused } = require('../../src/runtime/c4-project');
+const { project: projectInProcess, parse, ELEMENTS, BOUNDARIES, RELATIONS, Refused } = require('../../src/runtime/c4-project.ts');
 
 const WORK_DIR = suiteTempDir('doflow-c4-project-');
 let projectCalls = 0;

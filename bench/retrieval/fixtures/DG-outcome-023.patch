@@ -1,0 +1,11 @@
+--- a/core/shared/guidance/rules/RULE_01_SAFETY.md
++++ b/core/shared/guidance/rules/RULE_01_SAFETY.md
+@@ -5,7 +5,7 @@
+ **IMPORTANT** — Quality, maintainability, professionalism — strong preference
+ **RECOMMENDED** — Optimization, style, best practices — apply when practical
+ 
+-Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requirements.
++Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requirements. <!-- stale 023 -->
+ 
+ <important if="debugging, fixing a bug, or investigating a failure">
+ ## Failure Investigation

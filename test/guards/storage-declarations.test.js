@@ -15,8 +15,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 const { createScratch } = require('../helper/scratch-env');
-const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry');
-const { resolveRoots } = require('../../src/runtime/storage/roots');
+const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry.ts');
+const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 
 const REGISTRY_FILE = 'core/registry/storage.json';
 const DOCS_FILE = 'docs/reference.md';
@@ -39,9 +39,13 @@ function walkFiles(relativeDir) {
   return found;
 }
 
-/** The language of a shipped source file, by extension or shebang; null for data and prose files. */
+/** The language of a shipped source file, by extension or shebang; null for data and prose files.
+ * `.ts` is a JS-family source: DoFlow runs it directly through Node native type-stripping
+ * (agent-docs/BRIEF_GOAL_DOFLOW.md), so a converted writer still makes the same fs write calls and
+ * must still be scanned and declared. `.d.ts` is a declaration file, not a module, and is excluded. */
 function sourceKind(file, text) {
-  if (/\.(?:js|cjs|mjs)$/.test(file)) return 'js';
+  if (/\.d\.ts$/.test(file)) return null;
+  if (/\.(?:js|cjs|mjs|ts)$/.test(file)) return 'js';
   if (/\.sh$/.test(file)) return 'bash';
   const shebang = text.startsWith('#!') ? text.split('\n', 1)[0] : '';
   if (/\bnode\b/.test(shebang)) return 'js';
@@ -270,6 +274,9 @@ function runScenario() {
       '```',
       '',
     ].join('\n'));
+    // A feature folder with one plan task, so `task-attempt claim` has a ledger to write (feature 070).
+    fs.mkdirSync(path.join(project, 'agent-docs', 'doflow', 'g26-task'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'agent-docs', 'doflow', 'g26-task', 'plan.md'), '# Plan\n\n## Tasks\n\n- [ ] A.1 one task; owner: core-implementer; files: f.js\n');
     const registry = loadStorageRegistry({ repoRoot: REPO });
     const roots = resolveRoots({ registry, projectRoot: project, env });
     const sessionPayload = { session_id: 'g26-session', cwd: project, source: 'startup' };
@@ -291,10 +298,14 @@ function runScenario() {
       ['orchestrate start', verb('orchestrate', '--action', 'start', '--task-id', 'g26-task', '--task-class', 'feature'), 0],
       ['evidence add', verb('evidence', '--task-id', 'g26-task', '--action', 'add', '--kind', 'documentation', '--provenance', 'asserted', '--provider', 'test', '--capability', 'scenario', '--content', 'a note'), 0],
       ['claim add', verb('claim', '--task-id', 'g26-task', '--action', 'add', '--statement', 'a claim'), 0],
+      ['context-pack', verb('context-pack', '--task-id', 'g26-task', '--task-class', 'feature'), 0],
       ['readiness', verb('readiness', '--task-class', 'bug', '--task-id', 'g26-task'), 0],
       ['research-request', verb('research-request', '--task-id', 'g26-task', '--action', 'open', '--stage-id', 'discovery', '--question', 'a question', '--reason', 'user-request'), 0],
       ['outcome', verb('outcome', '--task-id', 'g26-task', '--action', 'record', '--state', 'BLOCKED', '--task-class', 'bug'), 0],
       ['retrieval-plan', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'declare', '--need', 'locate-concept'), 0],
+      ['retrieval-plan attempt', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'attempt', '--need', 'locate-concept', '--provider', 'semble.search', '--status', 'UNREACHED', '--reason', 'provider-unavailable'), 0],
+      ['evidence add absence', verb('evidence', '--task-id', 'g26-task', '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'native.rg', '--capability', 'code.exact-search', '--absence', '--need', 'locate-concept'), 0],
+      ['task-attempt claim', verb('task-attempt', '--action', 'claim', '--slug', 'g26-task', '--task', 'A.1', '--owner', 'core-implementer', '--mode', 'manual'), 0],
       ['verify', verb('verify', '--task-id', 'g26-task', '--plan-path', 'plan.md'), 1],
       ['followup report', verb('followup', '--action', 'report', '--statement', 'a problem', '--text', 'its body'), 0],
       ['lifecycle', verb('lifecycle'), 0],

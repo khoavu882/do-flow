@@ -7,9 +7,9 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
-const store = require('../../src/runtime/lifecycle/event-store');
-const { buildOverview, initFeature, featureStatus } = require('../../src/runtime/lifecycle/overview');
-const { FollowupUsageError } = require('../../src/runtime/lifecycle/followup');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
+const { buildOverview, initFeature, featureStatus } = require('../../src/runtime/lifecycle/overview.ts');
+const { FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -61,7 +61,7 @@ test('the dispatcher routes both verbs to the Node CLI', () => {
 
 test('--help lists every action and the flags the parser takes, for followup, lifecycle and goal', () => {
   const { repo } = newRepo();
-  const { FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS } = require('../../src/runtime/lifecycle/cli');
+  const { FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS } = require('../../src/runtime/lifecycle/cli.ts');
   const help = run(repo.dir, ['--help']).stdout;
   assert.ok(help.includes(`(--action ${FOLLOWUP_ACTIONS.join('|')})`), 'followup verb line');
   assert.ok(help.includes(`(--action ${LIFECYCLE_ACTIONS.join('|')})`), 'lifecycle verb line');

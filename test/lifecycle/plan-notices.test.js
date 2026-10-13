@@ -8,9 +8,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createAdapterRegistry } = require('../../src/adapters');
-const { planLifecycle } = require('../../src/lifecycle');
-const { printRegistryLifecycle } = require('../../src/lifecycle/view');
+const { createAdapterRegistry } = require('../../src/adapters/index.ts');
+const { planLifecycle } = require('../../src/lifecycle/index.ts');
+const { printRegistryLifecycle } = require('../../src/lifecycle/view.ts');
 const { createScratch } = require('../helper/scratch-env');
 
 const REPO = path.resolve(__dirname, '..', '..');

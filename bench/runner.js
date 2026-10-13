@@ -29,7 +29,7 @@ const {
   SKILL_SOURCE_FILE,
   SANDBOX_SKILLS_DIR,
   sha256File,
-} = require('../src/runtime/worktree.js');
+} = require('../src/runtime/worktree.ts');
 const { cmdAdviceCoverage, cmdAdvice } = require('./advice.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -598,7 +598,7 @@ function cmdList(cfg, opts) {
   return 0;
 }
 
-const WT_REQUIRE = "const{WorktreeManager}=require('./src/runtime/worktree.js');const m=new WorktreeManager(process.cwd());";
+const WT_REQUIRE = "const{WorktreeManager}=require('./src/runtime/worktree.ts');const m=new WorktreeManager(process.cwd());";
 
 /**
  * The rule every dispatched run has to follow, stated once at the top of the plan rather than
@@ -1239,6 +1239,8 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run
   node bench/runner.js baseline [--from N]            freeze an iteration as the committed baseline
   node bench/runner.js report --iteration N           per-case delta of a run against the baseline
+  node bench/runner.js retrieval <verb> [flags]       retrieval benchmark: verify|run|rerun|capture|seal|migrate
+  node bench/runner.js perf <verb> [flags]            latency and context budgets: measure|check
 
 Model is pinned in bench/config.json so runs stay comparable. This command is deliberately not
 part of \`npm test\`: the dispatch step makes paid model calls.`;
@@ -1290,7 +1292,10 @@ function parseArgs(argv) {
 }
 
 function main() {
-  const { cmd, opts } = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv[0] === 'retrieval') return require('./retrieval/runner.js').main(argv.slice(1));
+  if (argv[0] === 'perf') return require('./perf/runner.js').main(argv.slice(1));
+  const { cmd, opts } = parseArgs(argv);
   if (opts.help || !cmd) {
     console.log(USAGE);
     return cmd ? 0 : 2;

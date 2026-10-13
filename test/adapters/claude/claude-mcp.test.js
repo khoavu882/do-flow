@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const test = require('node:test');
-const { createClaudeAdapter } = require('../../../src/adapters/claude');
+const { createClaudeAdapter } = require('../../../src/adapters/claude/index.ts');
 
 const CONTEXT7 = { id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] };
 const SEQUENTIAL = { id: 'sequential-thinking', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] };

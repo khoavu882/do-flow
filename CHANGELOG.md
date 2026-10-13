@@ -15,6 +15,134 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-14
+
+First stable 2.x release. It consolidates 2.0.0-beta.1 to 2.0.0-beta.4 (the TypeScript runtime, the perf budgets and retrieval benchmark, and the packed JavaScript npm package) with context delivery (075) and evidence attempts (076). Upgrading from 1.24.1 needs Node `^22.18.0 || >=24.3.0`; see the 2.0.0-beta.3 entry for the Node floor and the `.js` to `.ts` runtime rename.
+
+### Added
+- `doflow context-pack` caps the whole payload it emits, in both the markdown and the JSON form, in UTF-8 bytes. The cap is the task class's default, or `--max-bytes <n>`, or the budget of `--harness <id>`; when a harness declares no capacity the pack says so and uses the default. Defaults are 225000 (`feature`), 85000 (`dependency-change`), 71000 (`bug`, `refactor`), 57000 (`documentation`), 45000 (`operations`), 42000 (`review`), 35302 (`research`) and 30000 (`trivial-edit`).
+- Context packs separate mandatory content (objective, acceptance criteria, constraints, verification requirements, blocking gaps) from optional content. The verb now reads the mandatory content from the task's recorded requirement; `--mandatory-file <path|->` supplies it from a file or stdin. Mandatory content is always emitted whole, in both forms.
+- Optional content that does not fit is trimmed in a fixed order and every omission is listed with an id and a reason. Evidence left out because it is not `FRESH` is listed with its freshness state instead of being dropped without a record.
+- A delivery record per pack: the pack digest, an estimated token count labelled `estimated:bytes/4` (the actual count is reported as unmeasured), and the reason for any later expansion. Records are kept under `.doflow/state/delivery/`, at most 5 per task. `--no-record` skips the write.
+- Pointer delivery for material the receiver can load itself, with `--expand <pointerId> --reason <text>` to ask for the inline content, `--since <digest>` to request a delta, and `--bare` for a header, objective and end line only.
+- `doflow evidence --action add --need <intent>` binds an item to one declared retrieval need and stamps `source.queryRef`; `source.attemptRef` is read from the active task attempt. `--absence` records an empty answer for a need (`result: EMPTY`) and measures the provider index's freshness at write time.
+- `doflow retrieval-plan --action attempt --need <intent> --provider <id> --status EMPTY|UNREACHED|UNVERIFIED --reason <code> [--note <text>]` records a fallback or failed lookup as its own attempt. `declare` mints a `planId` and a `queryRef` (`<planId>#<intent>`) per need, and reports list `attempts[]` and an `unbound` count for evidence not linked to a current need.
+- Evidence file items record the source version inside `freshness`: `gitCommit`, `fileHash` (file locators only) and `isDirty`.
+- Readiness reason codes `stale-absence-unverified` and `unbound-retrieval-evidence`.
+
+### Changed
+- **`doflow context-pack` exits 3 (`OVERFLOW`) when mandatory content plus omission records exceed the cap.** The whole pack is still emitted and `overflowAction.message` says to split the task or its context, or start a new session. Exit precedence is 2, then 3, then 1 (empty pack), then 0.
+- The markdown form of the context pack now carries constraints, verification requirements and conflicts, which it left out before.
+- `retrieval-plan` matches evidence to a need by `queryRef` and `attemptRef` instead of by provider or capability, so two needs that share a provider no longer share evidence. A plan declared before this release has no `planId` and keeps provider matching.
+- A claim backed only by evidence of `UNKNOWN` freshness stays a hypothesis; only `FRESH` evidence supports it, and `STALE` evidence invalidates it. Before, any evidence that was not `STALE` counted as support.
+- Score-shaped fields (`score`, `confidence`, `relevance`, `rank` and the rest of the existing list) are refused on the programmatic and candidate-bridge write paths, as they already were on the CLI. Candidates are not persisted; rank and score are dropped before an item reaches the ledger.
+- The context-mode spec (`docs/specs/orchestrator-context-modes.md`) is rewritten: no downgrade away from mandatory content on overflow, and each stage states its real status.
+
+### Upgrade notes
+- A script that runs `doflow context-pack` and treats any non-zero exit as "no context" must now tell exit 3 (mandatory content over the cap; the pack is complete) from exit 1 (nothing recorded). The four skills that call `context-pack` (`do-design`, `do-plan`, `do-execute-plan`, `do-implement`) already handle exit 3.
+- `recorded: false` with `reason: "store-locked"`, `"store-unwritable"` or `"store-unreadable"` in the pack means the delivery record was not written (the lock was held, the store is read-only, or an existing record file is torn or from a newer version); the pack itself is unaffected and the exit code does not change.
+- Delta delivery is present but inactive: harness retention of earlier context is unproven for all eight harnesses, so `--since` is answered with a full pack and `deltaRefused: "retention-unproven"` or `"harness-unstated"`.
+- Retrieval evidence for a plan that has a `planId` must be recorded with `--need <intent>`. An item recorded without it stays readable but is unbound: it is not linked to any need, and a readiness requirement that only unbound `FRESH` evidence could satisfy returns `NEEDS_EVIDENCE` with `unbound-retrieval-evidence`. Re-record it with `--need <intent>`.
+- A caller-supplied `queryRef`, `attemptRef` or `result` on `evidence --action add` is refused with the command that fixes it (`--need`, a claimed task attempt, or `--absence --need`).
+- A requirement that rests only on an empty answer from a `STALE` or `UNKNOWN` index returns `NEEDS_EVIDENCE` with `stale-absence-unverified`. Refresh the index and record the absence again, run the lookup with a live provider such as `native.rg`, or record a positive item. `retrieval-plan` does not run refresh commands.
+- Outcome precedence for a need with several attempts is `RETRIEVED`, then fresh `EMPTY`, then stale `EMPTY`, then `UNVERIFIED`, then `UNREACHED`; ties go to the lowest attempt number. `RETRIEVED` is derived from bound evidence and cannot be entered with `--action attempt`.
+- Existing evidence ledgers, retrieval plans and claim stores load unchanged.
+
+## [2.0.0-beta.4] - 2026-10-13
+
+Prerelease of 2.0.0 on the npm `beta` dist-tag (`npx @khoavu882/doflow@beta`). It replaces 2.0.0-beta.3, which is deprecated because it could not run when installed from npm.
+
+### Fixed
+- The npm package now runs when installed from npm. It ships JavaScript built at pack time from the TypeScript sources with Node's built-in type stripper and adds no dependency. Version 2.0.0-beta.3 is deprecated because it shipped `.ts` files under `node_modules`, which Node refuses to run.
+
+### Changed
+- The published package's runtime files are `.js` again; source checkouts keep `.ts`.
+
+## [2.0.0-beta.3] - 2026-10-13
+
+Prerelease of 2.0.0 on the npm `beta` dist-tag (`npx @khoavu882/doflow@beta`); `latest` stays 1.24.1. 2.0.0 stable follows once the
+context-budget and evidence-attempt work (P1) lands.
+
+### Added
+- Benchmark baseline and contracts for the retrieval roadmap (P0): a retrieval benchmark under
+  `bench/retrieval`, latency budgets under `bench/perf`, a tool inventory under `bench/inventory`,
+  and a guard (G33) that keeps them consistent. `bench/` is not part of the npm package, so
+  installs are unchanged.
+
+### Changed
+- **Breaking: the Node.js floor is raised from `>=18` to `^22.18.0 || >=24.3.0`** (`engines.node`). DoFlow's own
+  runtime (`src/`) is now TypeScript, run directly by Node's native type-stripping, with no build
+  step and still no runtime dependencies. Every module under `src/` is reachable from
+  `bin/doflow.js` (156 of 156), so no part of the CLI can run on an older Node. Node 18 and 20 are
+  no longer supported. The floor is where type-stripping is on by default and silent: Node 22.18.0 and
+  24.3.0. Node 22.6 to 22.17 and 23.0 to 23.5 only strip types behind `--experimental-strip-types`,
+  which DoFlow does not pass, so they are below the floor. Node 23.6 to 24.2 strip types by default
+  but print `ExperimentalWarning: Type Stripping is an experimental feature` to stderr on every `.ts`
+  load, so the floor skips them (Node 23 is end-of-life).
+  - On a Node that cannot strip types (below the floor, or stripping turned off with
+    `--no-experimental-strip-types`, for example through `NODE_OPTIONS`), `doflow` now exits 2 with
+    one line naming the running Node, the required range and that flag, instead of a SyntaxError.
+  - Check with `node -v`. On Node 18, 20 or an older 22.x/23.x, install Node 22.18 or later (or
+    24.3 or later) before running `npx @khoavu882/doflow` or `doflow update`.
+  - To stay on the last release for Node 18/20, pin `@khoavu882/doflow@1.24.1`.
+  - `docs/setup.md` states the floor and the reason.
+- **Breaking (installed output shape): runtime files under `.doflow/runtime` that were `.js` are
+  now `.ts`** (for example `git.js` -> `git.ts`). `bin/doflow.js` stays `.js` and the `doflow` and
+  `doflow-run` entry points do not move. A script of your own that requires an installed runtime
+  file by its old `.js` path breaks; `doflow update` removes the old file (see Fixed).
+- All of `src/` is TypeScript: 156 `.ts` modules, 0 `.js` under `src/`. CLI behaviour is unchanged.
+  A guard (G30) fails if a plain `.js` is added under `src/`.
+- Node's module compile cache is enabled at the CLI entry (`bin/doflow.js`), so the cost of
+  transforming each `.ts` module is paid once per Node version and file content. It honours
+  `NODE_COMPILE_CACHE` (cache directory) and `NODE_DISABLE_COMPILE_CACHE` (turns it off), and with
+  neither set lives in Node's default location. If the API is missing or throws, the CLI still runs,
+  without the cache.
+  - Measured at 073's tip (452e881) on the development machine, interleaved runs under the same load, `--version` / `--help`:
+    1.24.x source (837f8bf) 64 ms / 66 ms; this release with the cache 57 ms / 61 ms (25-30 runs);
+    this release with the cache off 109 ms / 112 ms. The cache is what keeps the CLI at or below
+    1.24.x; without it start-up is slower.
+
+### Fixed
+- `npm test` runs on the supported Node versions: the script discovers `test/**/*.test.js` with Node's own glob, because Node 22.18 and 24 do not recurse a directory argument. 2.0.0-beta.1 and 2.0.0-beta.2 were tagged but never published (their release gates failed: test discovery on the Node floor, and a test that needed PlantUML on the runner).
+- Failures you settled on 1.24.x reappear once after upgrading. A failure's fingerprint includes the
+  module path of its frame, which now ends `.ts` instead of `.js`, so each distinct failure shows up
+  as a new, unsettled entry. List them with `doflow-run failure --action list` and settle each again
+  with `doflow-run failure --action settle --fp <fp> --as noise|fixed|imported --reason "<why>"`.
+- `doflow update` prunes runtime files a newer version no longer ships. A file under the shared
+  runtime trees (`runtime.cli`, `runtime.lib`, `runtime.registry`) that the new version no longer
+  produces is removed when its bytes still match what DoFlow recorded, including after a partial
+  update that left out a harness still holding a record on it (a bare `update` targets Claude only).
+  Previously such files, for example the `.js` copies left by the `.js` -> `.ts` renames, stayed.
+  Verified on a scratch v1.24.1 Claude install updated through each of the 8 harnesses: 89 orphans,
+  0 afterwards.
+  - A file you edited, a file DoFlow has no record of, and a file whose real path leaves the
+    tree (a symlink) are kept, and `update` names each one.
+  - `doflow update --dry-run` lists every file it would prune or keep and deletes nothing.
+- `doflow update` reports what it retained, after the run and under `--dry-run`, as `doflow remove`
+  already did: files left in place because a harness outside the run still claims them.
+- On a case-insensitive filesystem (macOS default), a rename that changes only letter case no
+  longer deletes the file the same run just wrote, and `verify` now reports a file the run wrote
+  that is missing. Reproduced three times on APFS before the fix.
+- `doflow rollback` restores the ownership ledger (`.doflow/state/ledger.json`) together with the
+  files, so `update` and `remove` work after a rollback. Before, they refused the restored files as
+  "modified outside DoFlow" (reproduced: update, rollback, update exited 1 with 48 refusals; remove
+  exited 1). Backups taken by `install` and `update`, and the snapshot taken before a rollback,
+  now include the ledger.
+  - Restored: the ledger only. Not restored: runs, evidence, recovery records, the lock and the
+    install manifest.
+  - A rollback narrowed with `--target` leaves the ledger as it is, because restoring it would
+    rewind the other harnesses' records.
+- `doflow update -t codex` no longer refuses an update whose only work is a runtime prune or the
+  release of a stale ledger row.
+
+### Known limitations
+- After a rollback, files the rolled-back update created stay unowned until the next `update`
+  adopts them.
+- On a v1.24.1 Claude install, `install -t codex|gemini|kiro|antigravity` can refuse because
+  `hooks.shared: policies/lib.sh` is reported modified. Seen at HEAD and at 8bf9644; not fixed here.
+- A bare `doflow update` still targets Claude only; pruning follows the runtime files DoFlow
+  recorded for every harness, but the update itself does not.
+
 ## [1.24.1] - 2026-10-11
 
 ### Fixed

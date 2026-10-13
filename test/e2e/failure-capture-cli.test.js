@@ -110,17 +110,17 @@ function assertIdentical({ on, off }) {
 describe('error-to-usage catch sites record a programming error and keep the usage result', () => {
   const T = 'TypeError';
   const sites = [
-    ['readiness', ['readiness', '--task-class', 'feature', '--task-id', 't1', '--json'], { kind: 'export', module: 'src/runtime/readiness.js', method: 'evaluateTaskReadiness' }],
-    ['evidence list (ledger load)', ['evidence', '--task-id', 't1', '--action', 'list', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.js', cls: 'EvidenceLedger', method: 'load' }],
-    ['evidence supersede', ['evidence', '--task-id', 't1', '--action', 'supersede', '--evidence-id', 'E1', '--replaced-by', 'E2', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.js', cls: 'EvidenceLedger', method: 'supersedeEvidence' }],
-    ['route', ['route', '--intent', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.js', cls: 'CapabilityRouter', method: 'resolveIntent' }],
-    ['claim', ['claim', '--task-id', 't1', '--action', 'add', '--statement', 'x', '--json'], { kind: 'proto', module: 'src/runtime/claims.js', cls: 'ClaimsManager', method: 'addClaim' }],
-    ['inventory', ['inventory', '--json'], { kind: 'export', module: 'src/registry/index.js', method: 'loadRegistry' }],
-    ['outcome record', ['outcome', '--action', 'record', '--task-id', 't1', '--task-class', 'feature', '--state', 'INCONCLUSIVE', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
-    ['research-request', ['research-request', '--action', 'list', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/research-request.js', cls: 'ResearchRequestStore', method: 'list' }],
-    ['retrieval-plan declare', ['retrieval-plan', '--action', 'declare', '--task-id', 't1', '--stage', 'design', '--need', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.js', cls: 'CapabilityRouter', method: 'resolveIntent' }],
-    ['verify', ['verify', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/verification/engine.js', cls: 'VerificationEngine', method: 'compileContract' }],
-    ['workflow', ['workflow', '--task-class', 'feature', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
+    ['readiness', ['readiness', '--task-class', 'feature', '--task-id', 't1', '--json'], { kind: 'export', module: 'src/runtime/readiness.ts', method: 'evaluateTaskReadiness' }],
+    ['evidence list (ledger load)', ['evidence', '--task-id', 't1', '--action', 'list', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.ts', cls: 'EvidenceLedger', method: 'load' }],
+    ['evidence supersede', ['evidence', '--task-id', 't1', '--action', 'supersede', '--evidence-id', 'E1', '--replaced-by', 'E2', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.ts', cls: 'EvidenceLedger', method: 'supersedeEvidence' }],
+    ['route', ['route', '--intent', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.ts', cls: 'CapabilityRouter', method: 'resolveIntent' }],
+    ['claim', ['claim', '--task-id', 't1', '--action', 'add', '--statement', 'x', '--json'], { kind: 'proto', module: 'src/runtime/claims.ts', cls: 'ClaimsManager', method: 'addClaim' }],
+    ['inventory', ['inventory', '--json'], { kind: 'export', module: 'src/registry/index.ts', method: 'loadRegistry' }],
+    ['outcome record', ['outcome', '--action', 'record', '--task-id', 't1', '--task-class', 'feature', '--state', 'INCONCLUSIVE', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.ts', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
+    ['research-request', ['research-request', '--action', 'list', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/research-request.ts', cls: 'ResearchRequestStore', method: 'list' }],
+    ['retrieval-plan declare', ['retrieval-plan', '--action', 'declare', '--task-id', 't1', '--stage', 'design', '--need', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.ts', cls: 'CapabilityRouter', method: 'resolveIntent' }],
+    ['verify', ['verify', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/verification/engine.ts', cls: 'VerificationEngine', method: 'compileContract' }],
+    ['workflow', ['workflow', '--task-class', 'feature', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.ts', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
   ];
   for (const [name, args, spec] of sites) {
     test(`${name}: exit 2, one line recorded, output identical with capture off`, () => {
@@ -141,7 +141,7 @@ describe('error-to-usage catch sites record a programming error and keep the usa
 
   test('a refusal-shaped plain Error at a usage site is not recorded', () => {
     const pair = onOff(['workflow', '--task-class', 'feature', '--json'],
-      { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow', error: 'plain' });
+      { kind: 'proto', module: 'src/runtime/workflow-engine.ts', cls: 'WorkflowEngine', method: 'resolveWorkflow', error: 'plain' });
     assert.equal(pair.on.status, 2);
     assertIdentical(pair);
     assert.equal(pair.on.lines.length, 0);
@@ -162,7 +162,7 @@ describe('a FIFO at the failure file never blocks the command', { skip: process.
     execFileSync('mkfifo', [path.join(dir, 'events.jsonl')]);
   };
   test('a crashing verb returns promptly with the same stdout, stderr and exit status as capture off, and records nothing', () => {
-    const fault = { kind: 'stub', module: 'src/cli/commands/status.js', error: 'type' };
+    const fault = { kind: 'stub', module: 'src/cli/commands/status.ts', error: 'type' };
     const started = Date.now();
     const on = run(['status', '--json'], { fault, setup: fifo });
     assert.ok(Date.now() - started < 10000, 'the verb did not hang');
@@ -174,7 +174,7 @@ describe('a FIFO at the failure file never blocks the command', { skip: process.
 });
 
 describe('main() catch', () => {
-  const stub = (error) => ({ kind: 'stub', module: 'src/cli/commands/status.js', error });
+  const stub = (error) => ({ kind: 'stub', module: 'src/cli/commands/status.ts', error });
 
   test('a programming error: recorded with exit 1, output and exit status identical with capture off', () => {
     const pair = onOff(['status', '--json'], stub('type'));
@@ -220,7 +220,7 @@ describe('main() catch', () => {
 });
 
 describe('uncaughtExceptionMonitor in bin/doflow.js', () => {
-  const load = (error) => ({ kind: 'load', module: 'src/cli/commands/status.js', error });
+  const load = (error) => ({ kind: 'load', module: 'src/cli/commands/status.ts', error });
 
   test('an error that escapes is recorded as uncaught:<kind>; the crash output and exit status are unchanged', () => {
     const pair = onOff(['status'], load('type'));
@@ -262,7 +262,7 @@ describe('uncaughtExceptionMonitor in bin/doflow.js', () => {
 });
 
 describe('what capture must never change', () => {
-  const type = { kind: 'stub', module: 'src/cli/commands/status.js', error: 'type' };
+  const type = { kind: 'stub', module: 'src/cli/commands/status.ts', error: 'type' };
 
   test('an unwritable store: silent, same output and exit status as capture off', (t) => {
     const dir = tempDir(t, 'doflow-failure-capture-cli-blocked-');
@@ -325,7 +325,7 @@ describe('a CLI whose failure modules cannot be loaded runs as today (IC-016)', 
     });
   }
   test('an internal error with the modules unloadable still prints [ERROR] and exits 1', () => {
-    const r = run(['status', '--json'], { fault: { kind: 'stub', module: 'src/cli/commands/status.js', error: 'type' } });
+    const r = run(['status', '--json'], { fault: { kind: 'stub', module: 'src/cli/commands/status.ts', error: 'type' } });
     assert.equal(r.status, 1);
   });
   test('the failure verb itself reports the load fault only when asked for', () => {
@@ -336,10 +336,10 @@ describe('a CLI whose failure modules cannot be loaded runs as today (IC-016)', 
 
 describe('handlers that print their own [ERROR] and exit 1 still record a programming error (IC-016)', () => {
   const sites = [
-    ['retrieve', ['retrieve', '--query', 'x'], { kind: 'export', module: 'src/runtime/knowledge/index-store.js', method: 'isFresh' },
+    ['retrieve', ['retrieve', '--query', 'x'], { kind: 'export', module: 'src/runtime/knowledge/index-store.ts', method: 'isFresh' },
       (cwd) => { fs.mkdirSync(path.join(cwd, '.doflow', 'guidance'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.doflow', 'guidance', 'a.md'), '# A\n\nhello\n'); }],
-    ['model-role', ['model-role', '--role', 'reasoning'], { kind: 'export', module: 'src/registry/index.js', method: 'loadRegistry' }, undefined],
-    ['rollback', ['rollback', 'no-such-backup', '-t', 'claude', '--force'], { kind: 'export', module: 'src/install/backup.js', method: 'planRestore' }, undefined],
+    ['model-role', ['model-role', '--role', 'reasoning'], { kind: 'export', module: 'src/registry/index.ts', method: 'loadRegistry' }, undefined],
+    ['rollback', ['rollback', 'no-such-backup', '-t', 'claude', '--force'], { kind: 'export', module: 'src/install/backup.ts', method: 'planRestore' }, undefined],
   ];
   for (const [name, args, spec, setup] of sites) {
     test(`${name}: one line recorded, output and exit status identical with capture off`, () => {

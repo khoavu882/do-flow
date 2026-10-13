@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { tableViolations } = require('../../src/helper/toml');
+const { tableViolations } = require('../../src/helper/toml.ts');
 
 test('a table opened twice is a duplicate-table, whether the first opening was a header or dotted keys', () => {
   assert.deepEqual(tableViolations('[features]\na = 1\n[features]\nb = 2\n'), [{ kind: 'duplicate-table', table: 'features', line: 3 }]);

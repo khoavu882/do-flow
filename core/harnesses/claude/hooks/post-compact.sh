@@ -15,6 +15,12 @@ source "$(dirname "$0")/lib.sh"
 require_jq
 
 INPUT=$(cat)
+
+# A worker session never writes the project's summary or metadata: they belong to the main session.
+if [[ "$(doflow_session_role || echo main)" == "worker" ]]; then
+  exit 0
+fi
+
 SESSION_ID=$(json_field "$INPUT" ".session_id")
 CWD=$(json_field "$INPUT" ".cwd")
 TRIGGER=$(json_field "$INPUT" ".trigger")
@@ -48,6 +54,7 @@ compacted_at: ${TIMESTAMP}
 session_id: ${SESSION_ID:-unknown}
 trigger: ${TRIGGER:-unknown}
 branch: ${BRANCH:-unknown}
+role: main
 ---
 
 ${COMPACT_SUMMARY}

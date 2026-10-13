@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+  "refresh": {
+    "trigger": "A runtime module named in a locator changes, a provider is added to core/registry/capabilities.json, or a models.json retrieval slot is declared",
+    "owner": "feature author at gate"
+  },
+  "rows": [
+    {
+      "id": "INV-001",
+      "hop": "intent",
+      "subject": "Task class proposed by the model and validated against the workflow registry",
+      "adapter": "classify",
+      "state": "partial",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js classify --task-class feature --rationale \"inventory probe\" --json",
+        "observed": "proposedClass \"feature\"; validClasses lists the nine registry classes"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Validation of a proposed class is code (src/runtime/task-classifier.ts:441). The proposal itself is made by the model; no code derives a task class or an information need from the request text."
+    },
+    {
+      "id": "INV-002",
+      "hop": "intent",
+      "subject": "Information-need intents the router accepts",
+      "adapter": "route",
+      "state": "verified",
+      "locator": {
+        "kind": "path-line",
+        "ref": "core/registry/routes.json:3",
+        "observed": "node bin/doflow.js route --intent find-symbol --check --json → exit 2, \"Declared intents: locate-known-symbol, locate-concept, trace-dependency, estimate-blast-radius, inspect-history, verify-runtime-behavior, compress-command\""
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Seven declared intents. A caller names the intent; the router does not classify free text."
+    },
+    {
+      "id": "INV-003",
+      "hop": "provider",
+      "subject": "Intent locate-known-symbol resolves through code.exact-search",
+      "adapter": "native.rg",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js route --intent locate-known-symbol --check --json (run in an empty git repository)",
+        "observed": "capability code.exact-search; selectedProvider native.rg; status HEALTHY"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Resolution and health were observed with --check, which probes the provider and runs no search. Search quality is not measured."
+    },
+    {
+      "id": "INV-004",
+      "hop": "provider",
+      "subject": "Intent locate-concept resolves through code.semantic-search",
+      "adapter": "semble.search",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js route --intent locate-concept --check --json (run in an empty git repository)",
+        "observed": "capability code.semantic-search; selectedProvider semble.search; status HEALTHY"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Resolution and health were observed with --check, which probes the provider and runs no search. Search quality is not measured."
+    },
+    {
+      "id": "INV-005",
+      "hop": "provider",
+      "subject": "Intent trace-dependency resolves through code.relationships",
+      "adapter": "graphify.query",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js route --intent trace-dependency --check --json (run in an empty git repository)",
+        "observed": "capability code.relationships; selectedProvider graphify.query; status HEALTHY"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Resolution and health were observed with --check, which probes the provider and runs no search. Search quality is not measured."
+    },
+    {
+      "id": "INV-006",
+      "hop": "provider",
+      "subject": "Intent estimate-blast-radius resolves through code.impact-analysis",
+      "adapter": "graphify.query",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js route --intent estimate-blast-radius --check --json (run in an empty git repository)",
+        "observed": "capability code.impact-analysis; selectedProvider graphify.query; status HEALTHY"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Resolution and health were observed with --check, which probes the provider and runs no search. Search quality is not measured."
+    },
+    {
+      "id": "INV-007",
+      "hop": "provider",
+      "subject": "Intent inspect-history resolves through history.search",
+      "adapter": "git.native",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js route --intent inspect-history --check --json (run in an empty git repository)",
+        "observed": "capability history.search; selectedProvider git.native; status HEALTHY"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Resolution and health were observed with --check, which probes the provider and runs no search. Search quality is not measured."
+    },
+    {
+      "id": "INV-008",
+      "hop": "provider",
+      "subject": "Intent verify-runtime-behavior resolves through behavior.verify",
+      "adapter": null,
+      "state": "partial",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js route --intent verify-runtime-behavior --check --json (run in an empty git repository)",
+        "observed": "capability behavior.verify; selectedProvider null; status UNAVAILABLE"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Resolution depends on a project manifest; in a repository with none the router reports UNAVAILABLE. --check probes the provider and runs no search."
+    },
+    {
+      "id": "INV-009",
+      "hop": "provider",
+      "subject": "Intent compress-command resolves through command.compress",
+      "adapter": "rtk",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js route --intent compress-command --check --json (run in an empty git repository)",
+        "observed": "capability command.compress; selectedProvider rtk; status HEALTHY"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Resolution and health were observed with --check, which probes the provider and runs no search. Search quality is not measured."
+    },
+    {
+      "id": "INV-010",
+      "hop": "provider",
+      "subject": "BM25 search over the installed guidance tree",
+      "adapter": "retrieve",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js retrieve --query \"evidence ledger\" --json",
+        "observed": "ranked results with path, score and snippet, for example references/EVIDENCE_LEDGER.md"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "A standalone verb (src/runtime/knowledge/retrieval.ts:122 searchGuidance, bm25Rank :34). It is not a provider in core/registry/capabilities.json, so route cannot reach it, and it searches guidance only."
+    },
+    {
+      "id": "INV-011",
+      "hop": "provider",
+      "subject": "Semantic index ownership for semble.search",
+      "adapter": "semble.search",
+      "state": "partial",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js retrieval-plan --action declare --task-id inv-probe --stage inventory --need locate-known-symbol,locate-concept --json",
+        "observed": "providers[\"semble.search\"].state UNKNOWN: \"no semantic index found at any location DoFlow knows to check; the provider owns its own layout\""
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "DoFlow routes to semble and graphify but does not build, locate or refresh their indexes; their freshness reads UNKNOWN (src/runtime/retrieval-plan.ts:189)."
+    },
+    {
+      "id": "INV-012",
+      "hop": "provider",
+      "subject": "models.json retrieval slots (dense, rerank)",
+      "adapter": null,
+      "state": "declared",
+      "locator": {
+        "kind": "path-line",
+        "ref": "src/runtime/model-router.ts:101",
+        "observed": "test/registry/models.test.js:31 asserts registry.retrievalSlots deepEqual []; git grep resolveRetrievalSlot finds its definition in src/runtime/model-router.ts, a comment at src/runtime/knowledge/retrieval.ts:8 and tests"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "The slot mechanism is declared: src/registry/index.ts:85 reads models.slots and resolveRetrievalSlot returns {active:false} unless a slot is declared and enabled. The shipped core/registry/models.json has no slots key and no production caller of resolveRetrievalSlot exists, so no slot is bound to a provider and none has been invoked."
+    },
+    {
+      "id": "INV-013",
+      "hop": "retrieval-plan",
+      "subject": "Declare the needs of a stage, then report each one",
+      "adapter": "retrieval-plan",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js retrieval-plan --action declare --task-id inv-probe --stage inventory --need locate-known-symbol,locate-concept --json, then --action report",
+        "observed": "needs[].result UNREACHED for both intents; providers native.rg NOT_APPLICABLE, semble.search UNKNOWN"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Declare and report work (src/runtime/retrieval-plan.ts:277 declarePlan, :370 reportPlan). The plan records what was declared and what was reached; it does not run retrieval."
+    },
+    {
+      "id": "INV-014",
+      "hop": "retrieval-plan",
+      "subject": "fuseHybridResults: reciprocal-rank fusion of lexical and semantic results",
+      "adapter": null,
+      "state": "declared",
+      "locator": {
+        "kind": "path-line",
+        "ref": "src/runtime/knowledge/hybrid.ts:92",
+        "observed": "git grep -n fuseHybridResults -- src test bench finds hybrid.ts:92,148, retrieval.ts:180,193 (a re-export) and two test files; no call from a verb or runtime path"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "The function exists and is unit-tested. Nothing in src/ calls it outside the re-export, and handleRetrieveCommand ranks with bm25Rank only, so hybrid retrieval is not operational."
+    },
+    {
+      "id": "INV-015",
+      "hop": "evidence",
+      "subject": "Evidence ledger records items and refuses retrieval scores",
+      "adapter": "evidence",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js evidence --task-id inv-probe --relevance-score 0.9",
+        "observed": "\"'--relevance-score' is a retrieval score and this boundary records none (FR-007)\"; the process exits 2"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Refusal on argv at src/cli/index.ts:335, on the option object at src/runtime/cli.ts:244 (assertNoScoreFields). Items are added at src/runtime/evidence-ledger.ts:128."
+    },
+    {
+      "id": "INV-016",
+      "hop": "evidence",
+      "subject": "Evidence is linked to a declared need by provider or capability, not by the query",
+      "adapter": "retrieval-plan",
+      "state": "partial",
+      "locator": {
+        "kind": "path-line",
+        "ref": "src/runtime/retrieval-plan.ts:251"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "evidenceIdsFor matches an item to a need when source.provider or source.capability equals the need's. Two queries to one provider are indistinguishable, so evidence is bound by provider, not to the query or attempt that produced it."
+    },
+    {
+      "id": "INV-017",
+      "hop": "context",
+      "subject": "context-pack verb compiles evidence and claims with item-count caps only",
+      "adapter": "context-pack",
+      "state": "partial",
+      "locator": {
+        "kind": "path-line",
+        "ref": "src/runtime/context-pack.ts:459",
+        "observed": "node bin/doflow.js context-pack --task-id inv-probe --json → budgetEnforcement.limits {maxFiles 15, maxClaims 20, maxEvidenceItems 25, maxResearchRequests 20}; \"empty\": true; exit 1"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "The verb calls compileContextPack with no byte or token budget. It takes no capacity input and does not read the harness context window."
+    },
+    {
+      "id": "INV-018",
+      "hop": "context",
+      "subject": "compileBoundedContextPack: byte budget per task class",
+      "adapter": null,
+      "state": "declared",
+      "locator": {
+        "kind": "path-line",
+        "ref": "src/runtime/context-pack.ts:274",
+        "observed": "TASK_CLASS_BUDGETS at src/runtime/context-pack.ts:14 (feature 225000 down to trivial-edit 30000 bytes); the only callers are test/runtime/context-pack-budget.test.js"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "Declared and tested, but no verb calls it (its alias compileBoundedPayload, src/runtime/context-pack.ts:427, has no caller at all), so the budgets are not applied to a delivered context pack."
+    },
+    {
+      "id": "INV-019",
+      "hop": "verification",
+      "subject": "verify compiles a verification contract and reports against it",
+      "adapter": "verify",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js verify --task-id inv-probe --json (run in an empty git repository)",
+        "observed": "status INCONCLUSIVE, reason \"No tier produced a result; nothing was verified\"; tier parse UNRESOLVED, no project manifest found"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "The engine runs (src/runtime/verification/engine.ts:1263 handleVerifyCommand). In a project with no manifest it reports INCONCLUSIVE rather than passing."
+    },
+    {
+      "id": "INV-020",
+      "hop": "verification",
+      "subject": "readiness evaluates the task-class contract against recorded evidence",
+      "adapter": "readiness",
+      "state": "verified",
+      "locator": {
+        "kind": "command",
+        "ref": "node bin/doflow.js readiness --task-class feature --task-id inv-probe --json",
+        "observed": "state NEEDS_EVIDENCE; \"Task requires 3 additional evidence item(s) before implementation.\""
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "src/runtime/cli.ts:92 handleReadinessCommand. It counts evidence kinds named in the template; it does not measure retrieval quality."
+    },
+    {
+      "id": "INV-021",
+      "hop": "verification",
+      "subject": "Retrieval quality measurement (recall, MRR) over any provider",
+      "adapter": null,
+      "state": "missing",
+      "locator": {
+        "kind": "command",
+        "ref": "git ls-tree -d --name-only 3fc988bc519cd7ac289f6db64dfa15b78457cf1b bench/",
+        "observed": "bench/advice bench/baseline bench/do-brainstorm … bench/do bench/native; there is no bench/retrieval"
+      },
+      "inspectedAt": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+      "note": "No benchmark at this commit measures what a retrieval provider returns against a labelled answer. Feature 074 adds it."
+    }
+  ],
+  "gateSentence": "Registry slots alone do not establish operational hybrid support.",
+  "gateEvidence": [
+    "INV-012",
+    "INV-014"
+  ]
+}

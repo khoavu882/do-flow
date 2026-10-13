@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "refresh": {
+    "trigger": "ADR section 8 review or tool evaluation update",
+    "owner": "maintainer"
+  },
+  "proposals": [
+    {
+      "id": "S8-01",
+      "topic": "tool-versions",
+      "proposal": "Pin Semble 0.6.1, Graphify 0.9.71, RTK 0.50.0, and clef-flash as measured in P0 baseline.",
+      "evidence": [
+        "bench/retrieval/snapshot.json",
+        "bench/retrieval/baseline.json",
+        "bench/inventory/tools.json"
+      ],
+      "rejectedAlternative": "Unpinned floating latest releases or dynamic plugin discovery.",
+      "status": "proposed"
+    },
+    {
+      "id": "S8-02",
+      "topic": "licence-star-shortlist",
+      "proposal": "Maintain the vetted alternative tools shortlist (>20k stars for main, <=20k for small) under permissive licenses (MIT, Apache-2.0, BSD), with Serena excluded per ADR section 1.",
+      "evidence": [
+        "bench/inventory/tools.json",
+        "https://api.github.com/repos/BurntSushi/ripgrep",
+        "https://api.github.com/repos/sharkdp/fd"
+      ],
+      "rejectedAlternative": "Reopening Serena exclusion or admitting AGPL/proprietary tools to the active stack.",
+      "status": "proposed"
+    },
+    {
+      "id": "S8-03",
+      "topic": "semantic-index-ownership",
+      "proposal": "Semantic indexes are project-scoped, built on demand by dedicated adapters, cached locally under project state, and purged on clean; the runtime does not own long-running indexing daemons.",
+      "evidence": [
+        "src/runtime/knowledge/retrieval.ts",
+        "bench/retrieval/lib/adapters-a.js",
+        "bench/retrieval/baseline.json"
+      ],
+      "rejectedAlternative": "Global background indexer daemon with automatic file system watchers.",
+      "status": "proposed"
+    },
+    {
+      "id": "S8-04",
+      "topic": "tokenisation",
+      "proposal": "Keep lexical tokenisation (tokenize word splitting, length >= 2) aligned between retrieval and benchmark until multilingual/code-specific tokeniser evaluation in feature 079.",
+      "evidence": [
+        "src/runtime/knowledge/retrieval.ts:25",
+        "bench/retrieval/lib/tasks.js:20",
+        "bench/retrieval/baseline.json"
+      ],
+      "rejectedAlternative": "Introducing heavy BPE/WordPiece tokenisation dependency prior to measured comparative evaluation.",
+      "status": "proposed"
+    },
+    {
+      "id": "S8-05",
+      "topic": "promotion-thresholds",
+      "proposal": "Gate hybrid activation on task success non-regression (>= -0.05 points) and code conceptual-discovery recall@10 improvement (>= +0.10, CI lower > 0), requiring user approval before promotion.",
+      "evidence": [
+        "bench/retrieval/thresholds.json",
+        "bench/retrieval/baseline.json",
+        "RULE-001",
+        "RULE-002"
+      ],
+      "rejectedAlternative": "Promoting semantic retrieval based solely on ranking metrics without end-to-end task success evidence.",
+      "status": "proposed"
+    },
+    {
+      "id": "S8-06",
+      "topic": "retrieval-profiles",
+      "proposal": "Define tiered retrieval profiles (e.g. lexical-only fallback vs semantic-augmented) governed by capability declarations and latency budgets.",
+      "evidence": [
+        "bench/perf/budgets.json",
+        "core/registry/capabilities.json",
+        "docs/specs/operating-modes.md"
+      ],
+      "rejectedAlternative": "Single unconfigurable retrieval pipeline for all harnesses and execution modes.",
+      "status": "proposed"
+    }
+  ]
+}

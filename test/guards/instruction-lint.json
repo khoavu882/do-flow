@@ -9,7 +9,7 @@
       "kind": "path",
       "target": "^\\.doflow/state/",
       "match": "regex",
-      "reason": "runtime state the installed runtime creates in a project (src/state/index.js, src/runtime/evidence-ledger.js)"
+      "reason": "runtime state the installed runtime creates in a project (src/state/index.ts, src/runtime/evidence-ledger.ts)"
     },
     {
       "kind": "path",

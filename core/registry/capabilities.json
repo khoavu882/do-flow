@@ -10,7 +10,8 @@
           "kind": "native",
           "binary": "rg",
           "checkCommand": ["rg", "--version"],
-          "costTier": "free"
+          "costTier": "free",
+          "sourceMode": "live"
         }
       ]
     },
@@ -24,6 +25,7 @@
           "binary": "semble",
           "checkCommand": ["semble", "--version"],
           "costTier": "local-index",
+          "sourceMode": "index",
           "mcp": { "server": "semble", "tool": "search" }
         },
         {
@@ -31,7 +33,8 @@
           "name": "Ripgrep Regex Fallback",
           "kind": "native",
           "binary": "rg",
-          "costTier": "free"
+          "costTier": "free",
+          "sourceMode": "live"
         }
       ]
     },
@@ -45,6 +48,7 @@
           "binary": "graphify",
           "checkCommand": ["graphify", "--version"],
           "costTier": "local-graph",
+          "sourceMode": "index",
           "mcp": { "server": "graphify", "tool": "query_graph" }
         },
         {
@@ -52,7 +56,8 @@
           "name": "Ripgrep Reference Fallback",
           "kind": "native",
           "binary": "rg",
-          "costTier": "free"
+          "costTier": "free",
+          "sourceMode": "live"
         }
       ]
     },
@@ -66,6 +71,7 @@
           "binary": "graphify",
           "checkCommand": ["graphify", "--version"],
           "costTier": "local-graph",
+          "sourceMode": "index",
           "mcp": { "server": "graphify", "tool": "query_graph" }
         }
       ]
@@ -79,7 +85,8 @@
           "kind": "native",
           "binary": "git",
           "checkCommand": ["git", "--version"],
-          "costTier": "free"
+          "costTier": "free",
+          "sourceMode": "live"
         }
       ]
     },
@@ -90,7 +97,8 @@
           "id": "native.test",
           "name": "Project Test Runner",
           "kind": "native",
-          "costTier": "compute"
+          "costTier": "compute",
+          "sourceMode": "live"
         }
       ]
     },
@@ -103,7 +111,8 @@
           "kind": "cli",
           "binary": "rtk",
           "checkCommand": ["rtk", "--version"],
-          "costTier": "free"
+          "costTier": "free",
+          "sourceMode": "live"
         }
       ]
     }

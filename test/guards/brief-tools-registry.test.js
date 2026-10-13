@@ -16,11 +16,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { REPO, AGENT_SPECS } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
-const { CapabilityRouter } = require('../../src/runtime/capability-router');
-const { renderBriefTools } = require('../../src/runtime/brief-tools');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
+const { renderBriefTools } = require('../../src/runtime/brief-tools.ts');
 
-const GENERATOR = 'src/runtime/brief-tools.js';
+const GENERATOR = 'src/runtime/brief-tools.ts';
 const BRIEF_SCRIPT = 'core/shared/scripts/doflow/bash/do-task-brief.sh';
 const MODEL_SELECTION = path.join(REPO, 'core', 'shared', 'guidance', 'references', 'MODEL_SELECTION.md');
 
@@ -58,8 +58,11 @@ function literalHits(text, names) {
 const names = registryNames({ capabilities: router.capabilities, routes: router.routes, mcp: registry.mcp });
 const where = (file, hits) => hits.map((hit) => `${file}:${hit.line} names '${hit.name}'`);
 
-/** Problems with the tier vocabulary; empty when it is consistent. */
-function tierProblems({ dispatchTiers, tableTiers, specNames }) {
+/** Problems with the tier vocabulary and the per-archetype prescription; empty when consistent.
+ * `prescribedTiers` is optional: when given (the {archetype: tier} map parsed from
+ * MODEL_SELECTION.md's "## Archetype dispatch tiers" table), byOwner must deep-equal it, so an
+ * off-policy edit to models.json — e.g. system-architect dropped to standard — is caught. */
+function tierProblems({ dispatchTiers, tableTiers, specNames, prescribedTiers }) {
   const problems = [];
   const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
   if (!same(dispatchTiers.tiers, tableTiers)) problems.push(`tiers [${dispatchTiers.tiers}] differ from MODEL_SELECTION.md [${tableTiers}]`);
@@ -68,7 +71,23 @@ function tierProblems({ dispatchTiers, tableTiers, specNames }) {
     if (!dispatchTiers.tiers.includes(tier)) problems.push(`byOwner '${owner}' has tier '${tier}' not in tiers`);
   }
   if (!same(Object.keys(dispatchTiers.byOwner), specNames)) problems.push(`byOwner keys [${Object.keys(dispatchTiers.byOwner)}] differ from agent specs [${specNames}]`);
+  if (prescribedTiers) {
+    const sameMap = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
+    if (!sameMap(dispatchTiers.byOwner, prescribedTiers)) {
+      problems.push(`byOwner ${JSON.stringify(dispatchTiers.byOwner)} differs from MODEL_SELECTION.md "## Archetype dispatch tiers" ${JSON.stringify(prescribedTiers)}; change the table and byOwner together`);
+    }
+  }
   return problems;
+}
+
+/** The {archetype: tier} map from the first two backticked columns under
+ * `## Archetype dispatch tiers`. A trailing Why column and arbitrary prose in it are ignored. */
+function prescribedTiersOf(markdown) {
+  const section = markdown.split(/^## /m).find((part) => part.startsWith('Archetype dispatch tiers'));
+  assert.ok(section, 'MODEL_SELECTION.md has an "## Archetype dispatch tiers" section');
+  const map = {};
+  for (const [, owner, tier] of section.matchAll(/^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|/gm)) map[owner] = tier;
+  return map;
 }
 
 /** The backticked names in the first column of the table under `## Capability tiers`. */
@@ -192,10 +211,12 @@ test('G29: with reach and a stage set the block names the harness tool form and 
 });
 
 test('G29: dispatchTiers matches MODEL_SELECTION.md and the agent specs', () => {
+  const markdown = fs.readFileSync(MODEL_SELECTION, 'utf8');
   const problems = tierProblems({
     dispatchTiers: registry.dispatchTiers,
-    tableTiers: tableTiersOf(fs.readFileSync(MODEL_SELECTION, 'utf8')),
+    tableTiers: tableTiersOf(markdown),
     specNames: agentSpecNames(),
+    prescribedTiers: prescribedTiersOf(markdown),
   });
   assert.deepEqual(problems, []);
 });
@@ -264,6 +285,25 @@ test('G29 control: each tier-vocabulary violation fails', () => {
 test('G29 control: the tier table parser reads backticked first-column names only', () => {
   const md = '## Other\n\n| `no` | x |\n\n## Capability tiers\n\n| Tier | Claude |\n|---|---|\n| `one` | A |\n| `two` | B |\n\n## After\n\n| `three` | C |\n';
   assert.deepEqual(tableTiersOf(md), ['one', 'two']);
+});
+
+test('G29 control: an off-policy byOwner value is caught against the prescription', () => {
+  const base = { tiers: ['light', 'standard', 'frontier'], default: 'standard' };
+  assert.deepEqual(tierProblems({
+    dispatchTiers: { ...base, byOwner: { 'system-architect': 'frontier' } },
+    tableTiers: base.tiers, specNames: ['system-architect'],
+    prescribedTiers: { 'system-architect': 'frontier' },
+  }), []);
+  assert.match(tierProblems({
+    dispatchTiers: { ...base, byOwner: { 'system-architect': 'standard' } },
+    tableTiers: base.tiers, specNames: ['system-architect'],
+    prescribedTiers: { 'system-architect': 'frontier' },
+  })[0], /differs from MODEL_SELECTION\.md "## Archetype dispatch tiers"/);
+});
+
+test('G29 control: the prescription parser reads archetype and single-backticked tier from the first two columns', () => {
+  const md = '## Reviews\n\nprose\n\n## Archetype dispatch tiers\n\n| Archetype | Tier | Why |\n|---|---|---|\n| `system-architect` | `frontier` | sets `standard` shape in prose, ignored |\n| `core-implementer` | `standard` | routine |\n\n## Briefs\n\n| `later` | `x` |\n';
+  assert.deepEqual(prescribedTiersOf(md), { 'system-architect': 'frontier', 'core-implementer': 'standard' });
 });
 
 test('G29 control: a toolName template missing a placeholder or holding other braces fails', () => {

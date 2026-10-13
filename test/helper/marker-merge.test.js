@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../src/helper/marker-merge');
+const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../src/helper/marker-merge.ts');
 const { tempDir } = require('./tmp');
 
 function scratchDir(t) {

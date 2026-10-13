@@ -11,11 +11,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { REPO_ROOT } = require('../../src/helper/repo-root');
-const { REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach');
-const { buildHealthReport } = require('../../src/runtime/health');
-const { OUTCOME_LABELS } = require('../../src/runtime/mcp-consultations');
-const { buildAdapterRegistry } = require('../../src/cli/shared');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach.ts');
+const { buildHealthReport } = require('../../src/runtime/health.ts');
+const { OUTCOME_LABELS } = require('../../src/runtime/mcp-consultations.ts');
+const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP reads outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;
@@ -161,7 +161,7 @@ test('X7: the servers view degrades to a one-line note when it cannot be built; 
   const full = withHome(f.home, () => buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: f.proj, execFileImpl: stub, adapters: buildAdapterRegistry() }));
   assert.equal(full.mcp.serversNote, undefined);
   assert.deepEqual(degraded.findings, full.findings);
-  const source = fs.readFileSync(path.join(REPO_ROOT, 'src', 'runtime', 'health.js'), 'utf8');
+  const source = fs.readFileSync(path.join(REPO_ROOT, 'src', 'runtime', 'health.ts'), 'utf8');
   assert.doesNotMatch(source, /require\(['"]\.\.\/cli\//, 'the runtime takes the adapter registry injected, never from the CLI layer');
 });
 

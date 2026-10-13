@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   REGISTRY_FILES, loadRegistry, validateRegistry, selectAssets, selectMcpServers, mcpCapable, capabilityMapData,
-} = require('../../src/registry');
+} = require('../../src/registry/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -205,6 +205,16 @@ test('capability providers: the two MCP-backed providers carry an mcp descriptor
   assert.match(errorsOf((r) => { first(r).mcp.tool = 'bad tool!'; }), /provider 'semble.search'.*mcp\.tool/);
   assert.match(errorsOf((r) => { delete first(r).mcp.tool; }), /provider 'semble.search'.*mcp\.tool/);
   assert.match(errorsOf((r) => { first(r).mcp = 'semble'; }), /provider 'semble.search'.*mcp must be an object/);
+});
+
+test('capability providers: every provider declares sourceMode live|index; a missing or bad one fails (068)', () => {
+  const { capabilities } = loadRegistry({ repoRoot: REPO });
+  const providers = Object.values(capabilities).flatMap((c) => c.providers);
+  for (const provider of providers) assert.ok(['live', 'index'].includes(provider.sourceMode), `${provider.id} sourceMode`);
+  assert.deepEqual([...new Set(providers.filter((p) => p.sourceMode === 'index').map((p) => p.id))].sort(), ['graphify.query', 'semble.search']);
+  const first = (r) => Object.values(r.capabilities)[0].providers[0];
+  assert.match(errorsOf((r) => { delete first(r).sourceMode; }), /provider 'native.rg'.*sourceMode is required.*live, index.*got nothing/);
+  assert.match(errorsOf((r) => { first(r).sourceMode = 'cached'; }), /provider 'native.rg'.*sourceMode.*got "cached"/);
 });
 
 test('harness capabilities.mcp.toolName: claude declares a template; one lacking a placeholder fails', () => {

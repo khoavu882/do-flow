@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { applyRetention, backupSize } = require('../../src/install/backup');
+const { applyRetention, backupSize } = require('../../src/install/backup.ts');
 const { plantFullBackup } = require('../helper/backup-v1-fixture');
 const { IS_WIN } = require('../helper-platform');
 

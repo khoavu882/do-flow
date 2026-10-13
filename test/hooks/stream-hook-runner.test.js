@@ -233,8 +233,8 @@ const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const runnerModule = require('../../core/harnesses/shared/hooks/stream-hook-runner');
-const nodeClassifier = require('../../src/runtime/failure/classifier');
-const { fingerprint } = require('../../src/runtime/failure/store');
+const nodeClassifier = require('../../src/runtime/failure/classifier.ts');
+const { fingerprint } = require('../../src/runtime/failure/store.ts');
 
 const HOOKS_DIR = path.resolve(__dirname, '..', '..', 'core', 'harnesses', 'shared', 'hooks');
 const RUNNER = path.join(HOOKS_DIR, 'stream-hook-runner.js');

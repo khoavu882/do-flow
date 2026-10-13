@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { checkEndpoint } = require('../../src/runtime/advice/endpoint-guard');
+const { checkEndpoint } = require('../../src/runtime/advice/endpoint-guard.ts');
 
 test('DNS validation abandons a lookup that never calls back', { timeout: 1000 }, async () => {
   const result = await checkEndpoint('http://localhost:11434', { lookup: () => {}, timeoutMs: 30 });

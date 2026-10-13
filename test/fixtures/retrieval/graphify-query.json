@@ -1,0 +1,49 @@
+Graph: /private/var/folders/68/rrk98q_s3tzdxsh6l38l1pz40000gr/T/test-export-074/tree/graphify-out/graph.json (7950 nodes) | Traversal: BFS depth=2 | Start: ['{ capabilities }'] | 20 nodes found
+
+NODE { capabilities } [src=test/guards/provider-source-mode.test.js loc=L21 community=]
+NODE provider-source-mode.test.js [src=test/guards/provider-source-mode.test.js loc=L1 community=]
+NODE ref_node_path [src= loc= community=]
+NODE ref_node_assert [src= loc= community=]
+NODE ref_node_test [src= loc= community=]
+NODE registry/index.ts [src=src/registry/index.ts loc=L1 community=]
+NODE loadRegistry() [src=src/registry/index.ts loc=L63 community=]
+NODE health.ts [src=src/runtime/health.ts loc=L1 community=]
+NODE _shared.js [src=test/guards/_shared.js loc=L1 community=]
+NODE REPO [src=test/guards/_shared.js loc=L9 community=]
+NODE PROVIDER_ARTIFACTS [src=src/runtime/health.ts loc=L52 community=]
+NODE assert [src=test/guards/provider-source-mode.test.js loc=L11 community=]
+NODE declarations [src=test/guards/provider-source-mode.test.js loc=L22 community=]
+NODE EXPLAINED_UNMEASURED [src=test/guards/provider-source-mode.test.js loc=L19 community=]
+NODE { loadRegistry } [src=test/guards/provider-source-mode.test.js loc=L14 community=]
+NODE path [src=test/guards/provider-source-mode.test.js loc=L12 community=]
+NODE { PROVIDER_ARTIFACTS } [src=test/guards/provider-source-mode.test.js loc=L15 community=]
+NODE { REPO } [src=test/guards/provider-source-mode.test.js loc=L13 community=]
+NODE SOURCE_MODES [src=test/guards/provider-source-mode.test.js loc=L17 community=]
+NODE { test } [src=test/guards/provider-source-mode.test.js loc=L10 community=]
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> { capabilities } at=test/guards/provider-source-mode.test.js:L21
+EDGE provider-source-mode.test.js --imports_from [EXTRACTED context=import]--> ref_node_test at=test/guards/provider-source-mode.test.js:L10
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> { test } at=test/guards/provider-source-mode.test.js:L10
+EDGE provider-source-mode.test.js --imports_from [EXTRACTED context=import]--> ref_node_assert at=test/guards/provider-source-mode.test.js:L11
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> assert at=test/guards/provider-source-mode.test.js:L11
+EDGE provider-source-mode.test.js --imports_from [EXTRACTED context=import]--> ref_node_path at=test/guards/provider-source-mode.test.js:L12
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> path at=test/guards/provider-source-mode.test.js:L12
+EDGE provider-source-mode.test.js --imports_from [EXTRACTED context=import]--> _shared.js at=test/guards/provider-source-mode.test.js:L13
+EDGE provider-source-mode.test.js --imports [EXTRACTED context=import]--> REPO at=test/guards/provider-source-mode.test.js:L13
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> { REPO } at=test/guards/provider-source-mode.test.js:L13
+EDGE provider-source-mode.test.js --imports_from [EXTRACTED context=import]--> registry/index.ts at=test/guards/provider-source-mode.test.js:L14
+EDGE provider-source-mode.test.js --imports [EXTRACTED context=import]--> loadRegistry() at=test/guards/provider-source-mode.test.js:L14
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> { loadRegistry } at=test/guards/provider-source-mode.test.js:L14
+EDGE provider-source-mode.test.js --imports_from [EXTRACTED context=import]--> health.ts at=test/guards/provider-source-mode.test.js:L15
+EDGE provider-source-mode.test.js --imports [EXTRACTED context=import]--> PROVIDER_ARTIFACTS at=test/guards/provider-source-mode.test.js:L15
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> { PROVIDER_ARTIFACTS } at=test/guards/provider-source-mode.test.js:L15
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> SOURCE_MODES at=test/guards/provider-source-mode.test.js:L17
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> EXPLAINED_UNMEASURED at=test/guards/provider-source-mode.test.js:L19
+EDGE provider-source-mode.test.js --contains [EXTRACTED]--> declarations at=test/guards/provider-source-mode.test.js:L22
+EDGE registry/index.ts --imports_from [EXTRACTED context=import]--> ref_node_path at=src/registry/index.ts:L7
+EDGE health.ts --imports_from [EXTRACTED context=import]--> ref_node_path at=src/runtime/health.ts:L22
+EDGE _shared.js --imports_from [EXTRACTED context=import]--> ref_node_path at=test/guards/_shared.js:L7
+EDGE registry/index.ts --contains [EXTRACTED]--> loadRegistry() at=src/registry/index.ts:L63
+EDGE health.ts --imports_from [EXTRACTED context=import]--> registry/index.ts at=src/runtime/health.ts:L25
+EDGE health.ts --imports [EXTRACTED context=import]--> loadRegistry() at=src/runtime/health.ts:L25
+EDGE health.ts --contains [EXTRACTED]--> PROVIDER_ARTIFACTS at=src/runtime/health.ts:L52
+EDGE _shared.js --contains [EXTRACTED]--> REPO at=test/guards/_shared.js:L9
