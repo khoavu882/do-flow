@@ -149,7 +149,7 @@ test('frozen legacy plan reports with unchanged exit behavior', (t) => {
   fs.copyFileSync(path.join(LEGACY, 'ledger.json'), path.join(evidenceDir, `${id}.json`));
   const report = json(root, ['retrieval-plan', '--task-id', id, '--action', 'report']);
   assert.equal(report.status, 0, report.stderr);
-  const { stateFile: _stateFile, reportedAt: _reportedAt, revision: _revision, ...stable } = report.data;
+  const { stateFile: _stateFile, reportedAt: _reportedAt, ...stable } = report.data;
   assert.deepEqual(stable, JSON.parse(fs.readFileSync(path.join(LEGACY, 'report.json'), 'utf8')));
 });
 

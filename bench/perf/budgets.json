@@ -295,6 +295,50 @@
       ]
     },
     {
+      "id": "verb.evidence-add-untracked",
+      "kind": "cli",
+      "intentClass": "verb",
+      "enforced": false,
+      "status": "proposed",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/evidence-attempts-project",
+        "git": true,
+        "generate": {
+          "dir": "src/gen",
+          "count": 4000,
+          "untracked": true
+        }
+      },
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "evidence",
+        "{project}",
+        "--task-id",
+        "perf-evidence",
+        "--slug",
+        "076-evidence-attempts",
+        "--action",
+        "add",
+        "--need",
+        "inspect-history",
+        "--kind",
+        "exact-search",
+        "--provenance",
+        "extracted",
+        "--provider",
+        "native.rg",
+        "--capability",
+        "code.exact-search",
+        "--locator",
+        "src/gen/f0.js:1",
+        "--content",
+        "Located evidence in the generated source tree.",
+        "--json"
+      ]
+    },
+    {
       "id": "verb.retrieval-plan-attempt",
       "kind": "cli",
       "intentClass": "verb",
