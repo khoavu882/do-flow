@@ -41,7 +41,7 @@
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { probeFreshness } = require('./health.ts');
-const { planPath, readPlan, updatePlan, mintPlanId, activeAttemptRef } = require('./retrieval-record.ts');
+const { planPath, readPlan, updatePlan, mintPlanId, activeAttemptRef, resolveNeed } = require('./retrieval-record.ts');
 // One definition of the score refusal, applied at a second boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in src/runtime/evidence-fields.ts: relevance is a property of a search, not of a fact, and a plan
 // that recorded one would hand the next worker a confidence dressed as a measurement.
@@ -70,6 +70,18 @@ const RESULTS = Object.freeze([RETRIEVED, EMPTY, UNREACHED, UNVERIFIED]);
 // working tree and history directly, so their answers are current by construction.
 const NOT_APPLICABLE = 'NOT_APPLICABLE';
 const FRESHNESS_STATES = Object.freeze(['FRESH', 'STALE', 'UNKNOWN', NOT_APPLICABLE]);
+
+// ── attempt reason codes (IC-013) ─────────────────────────────────────────────────────────────
+
+const ATTEMPT_REASON_CODES = Object.freeze([
+  'provider-unavailable',
+  'policy-bypass',
+  'provider-error',
+  'timeout',
+  'empty-answer',
+  'index-stale',
+  'index-unverifiable',
+]);
 
 /**
  * Design §4's mapping table, as data. It maps only the *empty* answer: a provider that returned
@@ -441,6 +453,190 @@ function reportPlan({ projectRoot, taskId, reached, json, slug }: any) {
   return finishRuntime(incomplete ? 1 : 0);
 }
 
+/**
+ * `--action attempt` — record an attempt against a declared need (IC-012, IC-013).
+ *
+ * Rules:
+ *   - The action appends one attempt to the need, under the plan lock (IC-020).
+ *   - `indexState` is re-probed for `--provider` with `freshnessEntry` at record time.
+ *   - `--status EMPTY` is mapped through `resultForEmptyAnswer(indexState)`, so an EMPTY
+ *     from an UNKNOWN index is stored as UNVERIFIED with reason `index-unverifiable`.
+ *   - The action writes no evidence and never changes declared fields.
+ *   - Exits 0 when written, 2 on any refusal.
+ *
+ * @returns {number} exit code
+ */
+function attemptPlan({
+  router,
+  projectRoot,
+  taskId,
+  intents,
+  provider,
+  attemptStatus,
+  reason,
+  note,
+  json,
+  slug,
+}: any) {
+  if (intents.length !== 1) {
+    return usageError(
+      'retrieval-plan',
+      `--need takes one intent on retrieval-plan --action attempt, got ${intents.length}. Record one write per need.`,
+      json,
+    );
+  }
+  const intent = intents[0];
+
+  let record: any;
+  try {
+    record = readPlan(projectRoot, taskId, slug);
+  } catch (error: any) {
+    return usageError('retrieval-plan', error.message, json, error);
+  }
+
+  const resolved = resolveNeed(record, intent, taskId);
+  if (!resolved.ok) {
+    return usageError('retrieval-plan', resolved.message, json);
+  }
+  const declaredNeed = resolved.need;
+
+  if (attemptStatus === 'RETRIEVED') {
+    return usageError(
+      'retrieval-plan',
+      `RETRIEVED is never recorded by hand: it is derived from evidence bound to the need. Record what was found with: doflow evidence --task-id ${taskId} --action add --need ${intent} ...`,
+      json,
+    );
+  }
+
+  if (attemptStatus !== 'EMPTY' && attemptStatus !== 'UNREACHED' && attemptStatus !== 'UNVERIFIED') {
+    return usageError(
+      'retrieval-plan',
+      `unknown --status '${attemptStatus}'. Valid here: EMPTY, UNREACHED, UNVERIFIED. A provider that could not be asked is UNREACHED with --reason provider-unavailable or policy-bypass.`,
+      json,
+    );
+  }
+
+  const REASON_CODES_LIST = ATTEMPT_REASON_CODES.join(', ');
+
+  if (reason === undefined || reason === null || reason === '') {
+    return usageError(
+      'retrieval-plan',
+      `--status ${attemptStatus} needs --reason <code>: a lookup that returned no locator must say why. Codes: ${REASON_CODES_LIST}.`,
+      json,
+    );
+  }
+
+  if (!ATTEMPT_REASON_CODES.includes(reason)) {
+    return usageError(
+      'retrieval-plan',
+      `unknown --reason '${reason}'. Codes: ${REASON_CODES_LIST}.`,
+      json,
+    );
+  }
+
+  const capEntry = router.capabilities ? router.capabilities[declaredNeed.capability] : null;
+  const registeredProviders = capEntry && Array.isArray(capEntry.providers)
+    ? capEntry.providers.map((p: any) => p.id).filter(Boolean)
+    : [];
+  const regList = registeredProviders.join(', ');
+
+  if (provider === undefined || provider === null || String(provider).trim() === '') {
+    return usageError(
+      'retrieval-plan',
+      `--provider is required: an attempt is one provider's try at one need. Providers registered under ${declaredNeed.capability}: ${regList}.`,
+      json,
+    );
+  }
+
+  if (!registeredProviders.includes(provider)) {
+    return usageError(
+      'retrieval-plan',
+      `provider '${provider}' is not registered under capability '${declaredNeed.capability}' (need '${intent}'). Registered: ${regList}. A fallback is another provider of the same capability, for example native.rg.`,
+      json,
+    );
+  }
+
+  if (note !== undefined && note !== null && String(note).length > 160) {
+    return usageError(
+      'retrieval-plan',
+      `--note is at most 160 characters (got ${String(note).length}): it is a hint for a reader, and the runtime never reads it.`,
+      json,
+    );
+  }
+
+  const sourceModeOf = sourceModeLookup(router.capabilities);
+  const probe = freshnessEntry(provider, projectRoot, sourceModeOf);
+  const indexState = probe.state;
+
+  let finalStatus = attemptStatus;
+  let finalReason = reason;
+
+  if (attemptStatus === 'EMPTY') {
+    finalStatus = resultForEmptyAnswer(indexState);
+    if (finalStatus === 'UNVERIFIED') {
+      finalReason = 'index-unverifiable';
+    }
+  }
+
+  let savedAttempt: any = null;
+  let file: string;
+  try {
+    file = updatePlan(projectRoot, taskId, slug, (disk: any) => {
+      const current = disk || record;
+      const targetNeed = current.needs ? current.needs.find((n: any) => n.intent === intent) : null;
+      if (!targetNeed) {
+        throw new Error(`need '${intent}' missing from disk plan during update`);
+      }
+      if (!Array.isArray(targetNeed.attempts)) {
+        targetNeed.attempts = [];
+      }
+      const n = targetNeed.attempts.length + 1;
+      const role = provider === targetNeed.provider ? 'primary' : 'fallback';
+      const activeRef = activeAttemptRef(projectRoot, taskId, slug);
+      const attempt = {
+        n,
+        provider,
+        capability: targetNeed.capability,
+        role,
+        status: finalStatus,
+        reason: finalReason,
+        note: note !== undefined && note !== null ? String(note) : null,
+        indexState,
+        attemptRef: activeRef,
+        evidenceIds: [],
+        recordedAt: new Date().toISOString(),
+        recordedBy: 'caller',
+      };
+      targetNeed.attempts.push(attempt);
+      savedAttempt = attempt;
+      return current;
+    });
+  } catch (error: any) {
+    return usageError('retrieval-plan', error.message, json, error);
+  }
+
+  if (json) {
+    console.log(JSON.stringify({
+      action: 'attempt',
+      taskId,
+      intent,
+      stateFile: file,
+      attempt: savedAttempt,
+    }, null, 2));
+    return finishRuntime(0);
+  }
+
+  console.log(`\nDoFlow Retrieval Attempt recorded [Task: ${taskId}]:`);
+  console.log('═'.repeat(78));
+  console.log(`Need: ${intent}   Attempt: #${savedAttempt.n}   Role: ${savedAttempt.role}`);
+  console.log(`Provider: ${savedAttempt.provider}   Status: ${savedAttempt.status}   Reason: ${savedAttempt.reason}`);
+  if (savedAttempt.note) console.log(`Note: ${savedAttempt.note}`);
+  console.log('─'.repeat(78));
+  console.log(`Recorded attempt #${savedAttempt.n} to ${file}`);
+  console.log('═'.repeat(78) + '\n');
+  return finishRuntime(0);
+}
+
 /** The provider index block both actions print: state, what was located, and the remedy. */
 function printProviderIndexes(record: any) {
   const entries = Object.entries<any>(record.providers || {});
@@ -485,7 +681,7 @@ function parseIntents(raw: any) {
  * @returns {number} exit code
  */
 function handleRetrievalPlanCommand(options: any = {}) {
-  const { taskId, action = 'report', need, stage, json = false, repoRoot, stateRoot, slug } = options;
+  const { taskId, action = 'report', need, stage, provider, attemptStatus, reason, note, json = false, repoRoot, stateRoot, slug } = options;
 
   // NFR-001, at the boundary where a caller's input first becomes a record. `bin/doflow.js` already
   // refuses every score-shaped flag name on the command line; this is the same rule applied to the
@@ -500,8 +696,8 @@ function handleRetrievalPlanCommand(options: any = {}) {
   // accepts it as an alias for its own default rather than reporting a usage error on an argument
   // the caller never typed — `verify` and `claim` already do exactly this.
   const resolvedAction = action === 'status' ? 'report' : action;
-  if (resolvedAction !== 'declare' && resolvedAction !== 'report') {
-    return usageError('retrieval-plan', `unknown --action '${action}'. Valid: declare, report (default)`, json);
+  if (resolvedAction !== 'declare' && resolvedAction !== 'report' && resolvedAction !== 'attempt') {
+    return usageError('retrieval-plan', `unknown --action '${action}'. Valid: declare, report (default), attempt`, json);
   }
 
   // The project the task belongs to owns both the state and the index whose age is being measured.
@@ -535,6 +731,27 @@ function handleRetrievalPlanCommand(options: any = {}) {
     return declarePlan({ router, projectRoot, taskId, stage, intents, json, slug });
   }
 
+  if (resolvedAction === 'attempt') {
+    let router;
+    try {
+      router = new CapabilityRouter({ repoRoot: packageRoot });
+    } catch (error: any) {
+      return usageError('retrieval-plan', error.message, json, error);
+    }
+    return attemptPlan({
+      router,
+      projectRoot,
+      taskId,
+      intents,
+      provider,
+      attemptStatus: attemptStatus !== undefined ? attemptStatus : options.status,
+      reason,
+      note,
+      json,
+      slug,
+    });
+  }
+
   return reportPlan({ projectRoot, taskId, reached: new Set(intents), json, slug });
 }
 
@@ -552,4 +769,5 @@ module.exports = {
   NOT_APPLICABLE,
   FRESHNESS_STATES,
   EMPTY_ANSWER_BY_FRESHNESS,
+  ATTEMPT_REASON_CODES,
 };
