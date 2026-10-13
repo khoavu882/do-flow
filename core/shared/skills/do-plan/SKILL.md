@@ -67,7 +67,13 @@ not have.
    ```bash
    "$DOFLOW" context-pack --task-id "<task id>" --json
    ```
-   **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on `overflowAction.message` and report the gap.** By this point `do-design` should have batched evidence and claims (step 8), so an empty pack carries weight: either the batch never ran or the task id mismatched. Treat it as advisory rather than blocking — plan's hard gate is artifact existence only — but note it in this stage's report and `plan.md` §3 "Research & Decisions": a decision written straight from prose without a compiled pack must not claim prior evidence. When non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.
+   **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on
+   `overflowAction.message` and report the gap.** By this point `do-design` should have batched
+   evidence and claims (step 8), so an empty pack carries weight: either the batch never ran or the
+   task id mismatched. Treat it as advisory rather than blocking — plan's hard gate is artifact
+   existence only — but note it in this stage's report and `plan.md` §3 "Research & Decisions": a
+   decision written straight from prose without a compiled pack must not claim prior evidence. When
+   non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.
    **Also read `specs.md` when step 1's `has_specs` is true** — use that flag, never a filesystem
    check of your own, and read the `specs` path the resolver returned. `/do-design` moves the
    interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`

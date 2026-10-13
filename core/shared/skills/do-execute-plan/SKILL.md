@@ -163,7 +163,8 @@ Branch on the returned `outcome` field, not the exit code.
      ```bash
      "$DOFLOW" context-pack --task-id "<task id>" --json
      ```
-     **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on `overflowAction.message` and report the gap.**
+     **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on
+   `overflowAction.message` and report the gap.**
      This call sits right at subagent dispatch — proceeding as though nothing happened is the defect this feature removes. An empty pack here can
      still be legitimate: step 4 lets a task reach `READY` on `callerAsserted` inputs alone, which
      link no evidence. Do not withhold dispatch on this alone — readiness already governs whether the

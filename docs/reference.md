@@ -93,36 +93,6 @@ context pack all belong to one named task under one named contract; substituting
 contract nobody asked about, which is exactly the failure mode the runtime is being corrected for.
 Every refusal names the valid set.
 
-`context-pack` delivers deterministic, budget-enforced context with complete mandatory content:
-- `--max-bytes <n>`: Caps the pack size in UTF-8 bytes; exceeding the resolved cap requires `--reason`.
-- `--mandatory-file <path|->`: Supplies caller-provided mandatory fields replacing derived fields whole (`-` reads stdin).
-- `--no-record`: Compiles and prints the pack without persisting a delivery record to `.doflow/state/delivery/`.
-- Precedence: 2 (`USAGE`), 3 (`OVERFLOW`), 1 (`EMPTY`), 0 (`OK`). An overflowing pack exits with `exit 3` and emits complete mandatory content.
-
-### Context pack classification
-
-The `context-pack` compiler partitions items into mandatory and optional classes according to this table (`src/runtime/context/compose.ts:11-29`, `FIELD_CLASSES`):
-
-| Field | Class | Optional priority | Item id |
-|---|---|---|---|
-| objective | mandatory | n/a | objective |
-| acceptanceCriteria | mandatory | n/a | ac:<n> |
-| constraints | mandatory | n/a | nfr:<NFR-id> |
-| verificationRequirements | mandatory | n/a | vr:<n> |
-| scopeExcluded | mandatory | n/a | scope:<n> |
-| claims.conflicts | mandatory | n/a | claim id |
-| blockingGaps | mandatory | n/a | gap:<n> |
-| researchRequests (blocking, not ANSWERED) | mandatory | n/a | request id |
-| decisions.reason (register unreadable) | mandatory | n/a | decisions:reason |
-| decisions.live | optional | 1 | decision id |
-| claims.supported | optional | 2 | claim id |
-| researchRequests (others) | optional | 3 | request id |
-| claims.hypotheses | optional | 4 | claim id |
-| pointers | optional | 5 | pointer id (IC-016) |
-| relevantFiles | optional | 6 | file:<path> |
-| evidenceSummary | optional | 7 | evidence id |
-| structuralContext | optional | 8 | struct:<n> |
-
 An evidence `--kind` is one of ten: `exact-search`, `semantic-retrieval`, `structural`,
 `historical`, `documentation`, `test-result`, `runtime-observation`, `user-statement`, `diff`,
 `generated-analysis`. An unknown one is refused with all ten named. The ledger mints the record's
