@@ -250,7 +250,14 @@ test('C.1: a candidate freshness equals what a raw item with the same locator ge
   const candidateResult = toEvidence({ candidate }, ctx);
   const rawItemResult = toEvidence({ item: rawItem }, ctx);
 
-  assert.deepEqual(candidateResult.freshness, rawItemResult.freshness);
+  const { observedAt: candidateObservedAt, ...candidateFreshnessRest } = candidateResult.freshness;
+  const { observedAt: rawObservedAt, ...rawFreshnessRest } = rawItemResult.freshness;
+
+  assert.deepEqual(candidateFreshnessRest, rawFreshnessRest);
+  assert.ok(!Number.isNaN(Date.parse(candidateObservedAt)), 'candidate freshness observedAt must be a valid timestamp');
+  assert.equal(new Date(candidateObservedAt).toISOString(), candidateObservedAt, 'candidate freshness observedAt must be valid ISO timestamp');
+  assert.ok(!Number.isNaN(Date.parse(rawObservedAt)), 'raw item freshness observedAt must be a valid timestamp');
+  assert.equal(new Date(rawObservedAt).toISOString(), rawObservedAt, 'raw item freshness observedAt must be valid ISO timestamp');
   assert.equal(candidateResult.freshness.status, 'FRESH');
   assert.equal(candidateResult.freshness.fileHash, sv.fileHash);
   assert.equal(candidateResult.freshness.isDirty, false);

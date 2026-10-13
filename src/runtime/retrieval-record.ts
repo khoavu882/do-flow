@@ -63,6 +63,19 @@ function mintPlanId(): string {
 }
 
 /**
+ * Formats declared intents from a plan: sorted, comma-joined, or 'none declared'.
+ *
+ * @param {any} plan
+ * @returns {string}
+ */
+function declaredIntentList(plan: any): string {
+  const declaredIntents = Array.isArray(plan?.needs)
+    ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
+    : [];
+  return declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
+}
+
+/**
  * Resolves a declared need from a plan for a given intent.
  *
  * @param {any} plan
@@ -75,10 +88,7 @@ function resolveNeed(plan: any, intent: string, taskId: string): any {
     const message = `no retrieval plan is declared for task '${taskId}', so --need '${intent}' names nothing. Declare one first: doflow retrieval-plan --task-id ${taskId} --action declare --need ${intent}, then re-run.`;
     return { ok: false, message };
   }
-  const declaredIntents = Array.isArray(plan.needs)
-    ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
-    : [];
-  const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
+  const list = declaredIntentList(plan);
 
   if (!plan.planId) {
     const message = `the retrieval plan for task '${taskId}' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id ${taskId} --action declare --need ${list}, then re-run.`;
@@ -143,4 +153,5 @@ module.exports = {
   mintPlanId,
   resolveNeed,
   activeAttemptRef,
+  declaredIntentList,
 };

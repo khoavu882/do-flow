@@ -10,6 +10,7 @@ const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { measureTreeState } = require('./source-version.ts');
 const { toEvidence, validateEvidenceItem, EVIDENCE_REFUSED_FIELDS } = require('./candidate.ts');
+const { sourceModeLookup } = require('./retrieval-plan.ts');
 const { evaluateTaskReadiness } = require('./readiness.ts');
 const { writeReadinessRecord } = require('./readiness-record.ts');
 const { parseDeclaredScope } = require('./verification/scope-bound.ts');
@@ -206,9 +207,12 @@ const {
 /**
  * Reads a stage's evidence batch: a JSON array, or `{ "evidence": [...] }`.
  * @param {string} batchPath a file path, or `-` for stdin
+ * @param {string} taskId
+ * @param {string} root
+ * @param {string|null} [slug]
  * @returns {Array<Object>}
  */
-function readEvidenceBatch(batchPath: any) {
+function readEvidenceBatch(batchPath: any, taskId: any, root: any, slug: any = null) {
   let text;
   try {
     text = batchPath === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(path.resolve(batchPath), 'utf8');
@@ -226,7 +230,8 @@ function readEvidenceBatch(batchPath: any) {
     for (const key of Object.keys(data)) {
       if (key === 'evidence') continue;
       const refusedVal = EVIDENCE_REFUSED_FIELDS.get(key);
-      const named = refusedVal ? ` — ${typeof refusedVal === 'function' ? refusedVal('', '') : refusedVal}` : '';
+      const reason = typeof refusedVal === 'function' ? refusedVal(taskId, root, slug) : refusedVal;
+      const named = reason ? ` — ${reason.endsWith('.') ? reason.slice(0, -1) : reason}` : '';
       throw new Error(`unknown batch field '${key}'${named}. A batch is a JSON array of items, `
         + "or an object whose only key is 'evidence'");
     }
@@ -252,7 +257,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json, slug = null 
 
   let raws;
   try {
-    raws = batchPath ? readEvidenceBatch(batchPath) : [item];
+    raws = batchPath ? readEvidenceBatch(batchPath, taskId, root, slug) : [item];
   } catch (error: any) {
     return usageError('evidence', error.message, json, error);
   }
@@ -265,10 +270,14 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json, slug = null 
   // than a rejected one: the half that landed looks complete to every later reader.
   const treeState = measureTreeState(root);
   const providerFreshness = new Map();
+  let sourceModeOf: any = null;
   const validated = [];
   for (const [index, raw] of raws.entries()) {
     try {
-      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, slug, providerFreshness }));
+      if (raw && raw.absence && !sourceModeOf) {
+        sourceModeOf = sourceModeLookup(new CapabilityRouter({ repoRoot: REPO_ROOT }).capabilities);
+      }
+      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, slug, providerFreshness, sourceModeOf }));
     } catch (error: any) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json, error);

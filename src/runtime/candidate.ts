@@ -7,22 +7,15 @@ const { measureTreeState, sourceVersionFor } = require('./source-version.ts');
 const { VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger.ts');
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { assertNoScoreFields } = require('./evidence-fields.ts');
-const { readPlan, resolveNeed, activeAttemptRef } = require('./retrieval-record.ts');
+const { readPlan, resolveNeed, activeAttemptRef, declaredIntentList } = require('./retrieval-record.ts');
 const { freshnessEntry, sourceModeLookup } = require('./retrieval-plan.ts');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
-let _sourceModeOf: ((providerId: string) => string | null) | null = null;
-function getSourceModeOf(): (providerId: string) => string | null {
-  if (!_sourceModeOf) {
-    try {
-      const router = new CapabilityRouter({ repoRoot: REPO_ROOT });
-      _sourceModeOf = sourceModeLookup(router.capabilities);
-    } catch {
-      _sourceModeOf = () => null;
-    }
-  }
-  return _sourceModeOf || (() => null);
+function getSourceModeOf(ctx?: any): (providerId: string) => string | null {
+  if (ctx?.sourceModeOf) return ctx.sourceModeOf;
+  const router = new CapabilityRouter({ repoRoot: REPO_ROOT });
+  return sourceModeLookup(router.capabilities);
 }
 
 function getProviderFreshness(provider: string, root: string, ctx?: any): any {
@@ -30,7 +23,7 @@ function getProviderFreshness(provider: string, root: string, ctx?: any): any {
   if (cache && cache.has(provider)) {
     return cache.get(provider);
   }
-  const sourceModeOf = getSourceModeOf();
+  const sourceModeOf = getSourceModeOf(ctx);
   const entry = freshnessEntry(provider, root, sourceModeOf);
   if (cache) {
     cache.set(provider, entry);
@@ -66,6 +59,7 @@ interface BuildContext {
   attemptRef?: string;
   slug?: string | null;
   providerFreshness?: Map<string, any>;
+  sourceModeOf?: (providerId: string) => string | null;
 }
 
 const CANDIDATE_FIELDS: readonly string[] = [
@@ -90,37 +84,29 @@ const OBSERVATION_KINDS = new Set(['test-result', 'runtime-observation']);
 /** Kinds that are by definition not a direct read of the repository. FR-007's second sentence. */
 const NON_REPOSITORY_KINDS = new Set(['generated-analysis', 'user-statement']);
 
+function queryRefRefusal(taskId: string, repoRoot: string, slug: string | null = null): string {
+  const plan = readPlan(repoRoot, taskId, slug);
+  const list = declaredIntentList(plan);
+  return `the runtime stamps it from the need. Re-run with --need <intent> (in a batch, "need": "<intent>"). Declared intents for task '${taskId}': ${list}.`;
+}
+
 /** Fields a caller might plausibly send that this boundary refuses by name, with the reason.
  *  A named refusal beats the generic unknown-field error: each of these would otherwise be
  *  silently discarded by `addEvidence`, and a silent discard reads as a successful write. */
-const EVIDENCE_REFUSED_FIELDS = new Map<string, string | ((taskId: string, repoRoot?: string) => string)>([
+const EVIDENCE_REFUSED_FIELDS = new Map<string, string | ((taskId: string, repoRoot: string, slug?: string | null) => string)>([
   ['id', 'evidence ids are minted by the ledger — a caller-chosen id can overwrite an unrelated record'],
   ['freshness', 'freshness is measured here from the working tree at write time, never asserted by the writer'],
   ['supports', 'link evidence to a claim with `claim --action link`, which updates both sides; a list written here would leave the claim unaware of it'],
   ['contradicts', 'link evidence to a claim with `claim --action link`, which updates both sides; a list written here would leave the claim unaware of it'],
   ['stage', 'the evidence record has no stage field — the batch *is* the stage boundary, so a stage name recorded here would be dropped'],
   ['status', "lifecycle status starts 'active' and changes only through `evidence --action supersede` — asserting it here would let a caller declare an item superseded without naming what replaces it"],
-  ['queryRef', (taskId: string, repoRoot?: string) => {
-    const plan = readPlan(repoRoot || process.cwd(), taskId);
-    const declaredIntents = Array.isArray(plan?.needs)
-      ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
-      : [];
-    const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
-    return `the runtime stamps it from the need. Re-run with --need <intent> (in a batch, "need": "<intent>"). Declared intents for task '${taskId}': ${list}.`;
-  }],
+  ['queryRef', queryRefRefusal],
   ['attemptRef', (taskId: string) => `it is read from the active task attempt. Claim the task with doflow task-attempt --action claim --task ${taskId}, then re-run without attemptRef.`],
   ['result', 'an empty answer is recorded with --absence --need <intent> (in a batch, "absence": true), which also measures the index freshness.'],
 ]);
 
-const EVIDENCE_REFUSED_SOURCE_FIELDS = new Map<string, string | ((taskId: string, repoRoot?: string) => string)>([
-  ['queryRef', (taskId: string, repoRoot?: string) => {
-    const plan = readPlan(repoRoot || process.cwd(), taskId);
-    const declaredIntents = Array.isArray(plan?.needs)
-      ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
-      : [];
-    const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
-    return `the runtime stamps it from the need. Re-run with --need <intent> (in a batch, "need": "<intent>"). Declared intents for task '${taskId}': ${list}.`;
-  }],
+const EVIDENCE_REFUSED_SOURCE_FIELDS = new Map<string, string | ((taskId: string, repoRoot: string, slug?: string | null) => string)>([
+  ['queryRef', queryRefRefusal],
   ['attemptRef', (taskId: string) => `it is read from the active task attempt. Claim the task with doflow task-attempt --action claim --task ${taskId}, then re-run without attemptRef.`],
 ]);
 
@@ -169,17 +155,19 @@ function parseLocator(raw: any) {
  *
  * @param {Object} raw
  * @param {string} taskId the task the batch is being written to
- * @param {string} [repoRoot] root a relative locator resolves against; defaults to cwd
+ * @param {string} taskId the task the batch is being written to
+ * @param {string} repoRoot root a relative locator resolves against
+ * @param {string|null} [slug] feature slug
  * @returns {{kind:string, provenance:string, source:Object, locator:Object, content:(string|null)}}
  */
-function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
+function validateEvidenceItem(raw: any, taskId: any, repoRoot: any, slug: any = null) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('an evidence item must be a JSON object');
   assertNoScoreFields(raw, '');
 
   for (const key of Object.keys(raw)) {
     if (EVIDENCE_REFUSED_FIELDS.has(key)) {
       const val = EVIDENCE_REFUSED_FIELDS.get(key);
-      const reason = typeof val === 'function' ? val(taskId, repoRoot) : val;
+      const reason = typeof val === 'function' ? val(taskId, repoRoot, slug) : val;
       throw new Error(`'${key}' is not accepted here: ${reason}`);
     }
     if (!EVIDENCE_ITEM_FIELDS.includes(key)) {
@@ -194,11 +182,8 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
   const isAbsence = Boolean(raw.absence);
   if (isAbsence) {
     if (raw.need === undefined || raw.need === null || raw.need === '') {
-      const plan = readPlan(repoRoot || process.cwd(), taskId);
-      const declaredIntents = Array.isArray(plan?.needs)
-        ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
-        : [];
-      const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
+      const plan = readPlan(repoRoot, taskId, slug);
+      const list = declaredIntentList(plan);
       throw new Error(`--absence needs --need <intent>: an empty answer means nothing without the query it answered. Declared intents for task '${taskId}': ${list}.`);
     }
     if (raw.locator !== undefined && raw.locator !== null) {
@@ -239,7 +224,7 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
   for (const key of Object.keys(raw.source)) {
     if (EVIDENCE_REFUSED_SOURCE_FIELDS.has(key)) {
       const val = EVIDENCE_REFUSED_SOURCE_FIELDS.get(key);
-      const reason = typeof val === 'function' ? val(taskId, repoRoot) : val;
+      const reason = typeof val === 'function' ? val(taskId, repoRoot, slug) : val;
       throw new Error(`'${key}' is not accepted here: ${reason}`);
     }
     if (!EVIDENCE_SOURCE_FIELDS.includes(key)) {
@@ -334,13 +319,12 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
     const list = Array.isArray(raw.need) ? raw.need : [raw.need];
     const intents: string[] = [];
     for (const entry of list) {
-      if (typeof entry === 'string') {
-        for (const token of entry.split(',')) {
-          const trimmed = token.trim();
-          if (trimmed !== '') intents.push(trimmed);
-        }
-      } else if (entry !== undefined && entry !== null) {
-        intents.push(String(entry).trim());
+      if (typeof entry !== 'string') {
+        throw new Error('need must be an intent string');
+      }
+      for (const token of entry.split(',')) {
+        const trimmed = token.trim();
+        if (trimmed !== '') intents.push(trimmed);
       }
     }
     if (intents.length !== 1) {
@@ -443,7 +427,7 @@ function toEvidence(
     throw new Error("toEvidence requires either 'candidate' or 'item'");
   }
 
-  const validated = validateEvidenceItem(rawItem, taskId, root);
+  const validated = validateEvidenceItem(rawItem, taskId, root, ctx.slug);
   const sv = sourceVersionFor(root, validated.locator, treeState);
 
   const source: Record<string, any> = { ...validated.source };
@@ -470,12 +454,10 @@ function toEvidence(
     delete validated.absence;
     const probe = getProviderFreshness(source.provider, root, ctx);
     let status = 'UNKNOWN';
-    if (probe && (probe.state === 'FRESH' || probe.state === 'NOT_APPLICABLE')) {
+    if (probe?.state === 'FRESH' || probe?.state === 'NOT_APPLICABLE') {
       status = 'FRESH';
-    } else if (probe && probe.state === 'STALE') {
+    } else if (probe?.state === 'STALE') {
       status = 'STALE';
-    } else if (probe && probe.state === 'UNKNOWN') {
-      status = 'UNKNOWN';
     }
 
     if (!treeState || treeState.gitCommit === null) {

@@ -578,6 +578,7 @@ function attemptPlan({
     }
   }
 
+  const activeRef = activeAttemptRef(projectRoot, taskId, slug);
   let savedAttempt: any = null;
   let file: string;
   try {
@@ -592,7 +593,6 @@ function attemptPlan({
       }
       const n = targetNeed.attempts.length + 1;
       const role = provider === targetNeed.provider ? 'primary' : 'fallback';
-      const activeRef = activeAttemptRef(projectRoot, taskId, slug);
       const attempt = {
         n,
         provider,
@@ -744,7 +744,7 @@ function handleRetrievalPlanCommand(options: any = {}) {
       taskId,
       intents,
       provider,
-      attemptStatus: attemptStatus !== undefined ? attemptStatus : options.status,
+      attemptStatus,
       reason,
       note,
       json,
