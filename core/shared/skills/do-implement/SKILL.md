@@ -111,7 +111,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      "$DOFLOW" context-pack --task-id "<task id>" --json
      ```
      This verb exits 1 on an empty pack by design — nothing recorded is not the same as nothing
-     needed — and that non-zero exit is never read as success. Because this call only runs after the
+     needed — and that non-zero exit is never read as success; exit 3 means overflow: the pack is complete, act on `overflowAction.message` and report the gap. Because this call only runs after the
      evidence check above already found something recorded for this task id, an exit 1 here means
      the compiled pack still held nothing usable (evidence with no linked claims, most likely):
      treat that as a mismatch worth naming in step 6's report, not as license to proceed as though
