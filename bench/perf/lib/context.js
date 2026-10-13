@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Context library for latency and performance benchmarks (074 FR-013, FR-014, IC-019).
+ * Context library for latency and performance benchmarks (074 FR-013, FR-014; 075 IC-019, IC-020).
  * Computes startupContext and contextBudgets per harness.
  */
 
@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { alwaysLoaded } = require('../../../test/helper/always-loaded.js');
+const { measureSessionStart } = require('./session-start.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
@@ -68,6 +69,8 @@ function computeStartupContext(options = {}) {
     isToolInstalledFn = isToolInstalled,
     getToolVersionFn = getToolVersion,
     alwaysLoadedFn = alwaysLoaded,
+    measureSessionStartFn = measureSessionStart,
+    homeDir = options.homeDir,
   } = options;
 
   const always = alwaysLoadedFn();
@@ -82,45 +85,17 @@ function computeStartupContext(options = {}) {
     const installed = isToolInstalledFn(cli);
     const installedVersion = installed ? getToolVersionFn(cli) : null;
 
-    let sessionStartStdoutBytes;
-    if (!installed) {
-      sessionStartStdoutBytes = { unmeasured: 'harness not installed' };
-    } else {
-      const hookPath = path.join(repoRoot, 'core', 'harnesses', harness, 'hooks', 'session-start.sh');
-      if (!fs.existsSync(hookPath)) {
-        sessionStartStdoutBytes = { unmeasured: 'no session-start hook' };
-      } else {
-        const harnessFixture = path.join(repoRoot, 'bench', 'perf', 'fixtures', harness, 'session-start.json');
-        const sharedFixture = path.join(repoRoot, 'bench', 'perf', 'fixtures', 'shared', 'session-start.json');
-        let fixturePath = null;
-        if (fs.existsSync(harnessFixture)) {
-          fixturePath = harnessFixture;
-        } else if (fs.existsSync(sharedFixture)) {
-          fixturePath = sharedFixture;
-        }
+    const sessionRes = measureSessionStartFn(harness, {
+      repoRoot,
+      homeDir,
+      isToolInstalledFn,
+      ...options,
+    });
 
-        if (!fixturePath) {
-          sessionStartStdoutBytes = { unmeasured: 'no fixture' };
-        } else {
-          try {
-            const input = fs.readFileSync(fixturePath, 'utf8');
-            const res = spawnSync('bash', [hookPath], {
-              cwd: repoRoot,
-              input,
-              encoding: 'utf8',
-              timeout: 10000,
-            });
-            if (res.status === 0) {
-              sessionStartStdoutBytes = Buffer.byteLength(res.stdout || '', 'utf8');
-            } else {
-              sessionStartStdoutBytes = { unmeasured: `hook failed with exit code ${res.status}` };
-            }
-          } catch (e) {
-            sessionStartStdoutBytes = { unmeasured: `hook execution error: ${e.message}` };
-          }
-        }
-      }
-    }
+    const sessionStartStdoutBytes = sessionRes.stdoutBytes;
+    const sessionStartStderrBytes = sessionRes.stderrBytes;
+    const sessionStartBasis = 'measured:temp-home-install';
+    const perPromptStdoutBytes = { unmeasured: 'owner 077' };
 
     const hookBytes = typeof sessionStartStdoutBytes === 'number' ? sessionStartStdoutBytes : 0;
     const totalBytes = doflowProjectedBytes + hookBytes;
@@ -131,6 +106,9 @@ function computeStartupContext(options = {}) {
       installedVersion,
       doflowProjectedBytes,
       sessionStartStdoutBytes,
+      sessionStartStderrBytes,
+      sessionStartBasis,
+      perPromptStdoutBytes,
       tokensEst,
       tokensBasis: 'estimated:bytes/4',
       harnessNative: { unmeasured: 'needs a model call (paid)' },
@@ -145,21 +123,72 @@ function computeContextBudgets(options = {}) {
     repoRoot = REPO_ROOT,
     startupContext,
     declaredCapacities = {},
+    contextProfiles,
     ...rest
   } = options;
 
   const startup = startupContext || computeStartupContext({ repoRoot, ...rest });
 
+  let profiles = contextProfiles || null;
+  if (!profiles) {
+    const harnessesRegistryPath = path.join(repoRoot, 'core', 'registry', 'harnesses.json');
+    if (fs.existsSync(harnessesRegistryPath)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(harnessesRegistryPath, 'utf8'));
+        if (Array.isArray(data.harnesses)) {
+          profiles = {};
+          for (const h of data.harnesses) {
+            if (h.id && h.contextProfile) {
+              profiles[h.id] = h.contextProfile;
+            }
+          }
+        }
+      } catch {
+        // ignored
+      }
+    }
+  }
+
   return startup.map((item) => {
     const harness = item.harness;
-    const capacityTokens = declaredCapacities[harness] ?? null;
-    const capacityBasis = capacityTokens != null ? 'declared' : 'profile-required';
+    const profile = profiles && profiles[harness] ? profiles[harness] : null;
+
+    let capacityTokens = null;
+    let capacityBasis = 'profile-required';
+    if (declaredCapacities[harness] !== undefined) {
+      capacityTokens = declaredCapacities[harness];
+      capacityBasis = 'declared';
+    } else if (profile && profile.capacityTokens) {
+      if (profile.capacityTokens.unverified) {
+        capacityTokens = null;
+        capacityBasis = `unverified:${profile.capacityTokens.unverified}`;
+      } else if (profile.capacityTokens.value !== undefined) {
+        capacityTokens = profile.capacityTokens.value;
+        capacityBasis = profile.capacityTokens.source || 'profile';
+      }
+    }
+
+    let reserveTokens = 0;
+    let reserveBasis = 'estimated';
+    if (profile && profile.reserveTokens) {
+      if (profile.reserveTokens.unverified) {
+        reserveTokens = null;
+        reserveBasis = `unverified:${profile.reserveTokens.unverified}`;
+      } else if (profile.reserveTokens.value !== undefined) {
+        reserveTokens = profile.reserveTokens.value;
+        reserveBasis = profile.reserveTokens.source || 'profile';
+      }
+    }
+
     const startupTokens = item.tokensEst;
     const startupBasis = 'estimated';
-    const reserveTokens = 0;
-    const reserveBasis = 'estimated';
-    const availableTokens = capacityTokens != null ? capacityTokens - startupTokens - reserveTokens : null;
-    const availableBasis = capacityTokens != null ? 'estimated' : 'profile-required';
+
+    let availableTokens = null;
+    let availableBasis = 'profile-required';
+    if (capacityTokens != null && reserveTokens != null) {
+      availableTokens = capacityTokens - startupTokens - reserveTokens;
+      availableBasis = 'estimated';
+    }
 
     return {
       harness,
