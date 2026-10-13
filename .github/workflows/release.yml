@@ -48,9 +48,12 @@ jobs:
 
       # test/guards/package.test.js asserts the source tree is clean; this asserts the artifact npm
       # would actually upload is too, which is the thing users install.
+      - name: Build staged JavaScript package
+        run: npm run build:package
+
       - name: Fail if the tarball carries backup or editor artifacts
         run: |
-          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          npm pack --dry-run .pack 2>&1 | tee /tmp/pack.txt
           if grep -Eq '\.(bak|orig|rej|swp|tmp)$|\.DS_Store|__pycache__' /tmp/pack.txt; then
             echo "::error::npm tarball contains artifacts that must not ship"
             exit 1
@@ -75,9 +78,10 @@ jobs:
       # versions are exactly those containing a hyphen, so the tag name decides the dist-tag.
       - name: Publish
         run: |
+          npm run build:package
           case "$GITHUB_REF_NAME" in
-            *-*) echo "prerelease → dist-tag beta"; npm publish --provenance --tag beta ;;
-            *)   echo "stable → dist-tag latest";   npm publish --provenance ;;
+            *-*) echo "prerelease → dist-tag beta"; npm publish .pack --provenance --tag beta ;;
+            *)   echo "stable → dist-tag latest";   npm publish .pack --provenance ;;
           esac
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
