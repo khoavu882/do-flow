@@ -9,6 +9,7 @@
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { childEnv } = require('../runner.js');
 
 const K_MAX = { code: 10, guidance: 5 };
 const GUIDANCE_PREFIX = 'core/shared/guidance/';
@@ -20,7 +21,7 @@ const MAX_BUFFER = 256 * 1024 * 1024;
  * a missing binary or a 30 s timeout, and `cause` says why. A nonzero exit is the caller's to judge.
  */
 function runTool(bin, args, { cwd, input, env, timeoutMs = TOOL_TIMEOUT_MS } = {}) {
-  const run = spawnSync(bin, args, { cwd, input, env, encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER });
+  const run = spawnSync(bin, args, { cwd, input, env: childEnv(env), encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER });
   if (run.error) {
     const cause = run.error.code === 'ENOENT' ? 'binary absent'
       : run.error.code === 'ETIMEDOUT' ? `timed out after ${timeoutMs / 1000}s` : run.error.message;

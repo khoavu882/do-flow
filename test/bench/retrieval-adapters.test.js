@@ -99,3 +99,28 @@ test('B treats a disabled provider as unreached; verification-failure goes to th
     impl: { runA: () => ({ result: 'RETRIEVED', candidates: [], payloadBytes: 321, output: 'o', exitCode: 1 }) } });
   assert.equal(a.payloadBytes, 321, 'a command answer keeps its output size');
 });
+
+test('applyPatch: child env lacks DOFLOW_HOLDOUT_KEY and *_API_KEY', { skip: process.platform === 'win32' ? 'POSIX shebang' : false }, (t) => {
+  const root = exportTree(t);
+  const bin = tempDir(t, 'doflow-dispatch-envbin-');
+  const envFile = path.join(tempDir(t, 'doflow-dispatch-envout-'), 'env.json');
+  const stubGit = path.join(bin, 'git');
+  fs.writeFileSync(stubGit, `#!/usr/bin/env node\nconst fs = require('fs');\nfs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify(process.env));\nprocess.exit(0);\n`);
+  fs.chmodSync(stubGit, 0o755);
+  const prevPath = process.env.PATH;
+  const prevHoldout = process.env.DOFLOW_HOLDOUT_KEY;
+  const prevApiKey = process.env.TEST_API_KEY;
+  process.env.PATH = `${bin}:${prevPath}`;
+  process.env.DOFLOW_HOLDOUT_KEY = 'secret-holdout-12345';
+  process.env.TEST_API_KEY = 'secret-api-key';
+  try {
+    dispatcher.applyPatch({ id: 'DC-007', setup: { patchText: PATCH } }, root, root);
+    const captured = JSON.parse(fs.readFileSync(envFile, 'utf8'));
+    assert.equal('DOFLOW_HOLDOUT_KEY' in captured, false);
+    assert.equal('TEST_API_KEY' in captured, false);
+  } finally {
+    process.env.PATH = prevPath;
+    if (prevHoldout !== undefined) process.env.DOFLOW_HOLDOUT_KEY = prevHoldout; else delete process.env.DOFLOW_HOLDOUT_KEY;
+    if (prevApiKey !== undefined) process.env.TEST_API_KEY = prevApiKey; else delete process.env.TEST_API_KEY;
+  }
+});
