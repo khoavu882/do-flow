@@ -362,7 +362,7 @@ test('a stale absence blocks its requirement with the specific reason and stays 
   const ledger = new EvidenceLedger({ repoRoot: root });
   const claims = new ClaimsManager({ evidenceLedger: ledger });
   const id = ledger.addEvidence({ taskId, kind: 'structural', result: 'EMPTY', establishes: ['architecture_mapped'],
-    source: { provider: 'graphify.query', capability: 'code.impact-analysis' }, freshness: { status: 'STALE' } });
+    source: { provider: 'graphify.query', capability: 'code.impact-analysis' }, freshness: { status: 'STALE', gitCommit: 'commit_test' } });
 
   const report = engine.evaluateReadiness({ taskId, taskClass: 'refactor' }, ledger, claims);
   const requirement = report.requirements.find((item) => item.id === 'architecture_mapped');
@@ -657,4 +657,76 @@ test('readiness replaces an unreadable record and says so; a record from a newer
   assert.match(newer.stderr, /\[ERROR\] readiness: the evaluation was not recorded: /);
   assert.ok(newer.stderr.includes(`${file} was written by a newer DoFlow (record version 2; this runtime reads 1)`), newer.stderr);
   assert.equal(fs.readFileSync(file, 'utf8'), '{"version":2}');
+});
+
+test('an unreadable retrieval plan is warned about and treated as absent by readiness', (t) => {
+  const { cwd, run } = readinessCli(t, []);
+  const planFile = require('../../src/runtime/retrieval-record.ts').planPath(cwd, 'T-1');
+  fs.mkdirSync(path.dirname(planFile), { recursive: true });
+
+  for (const contents of ['{bad', '{"version":2}']) {
+    fs.writeFileSync(planFile, contents);
+    const res = run(['--json']);
+    assert.equal(res.status, 0, res.stderr);
+    const report = JSON.parse(res.stdout);
+    assert.equal(report.state, 'NEEDS_EVIDENCE');
+    assert.equal(report.retrievalPlan.unreadable, true);
+    assert.match(report.retrievalPlan.reason, /Failed to load state file|schema version 2/);
+    assert.match(report.summary, /Warning: retrieval plan is unreadable and was treated as absent/);
+  }
+});
+
+test('stale absences from a replaced retrieval plan are not reported as current', (t) => {
+  const root = tempDir(t, 'doflow-readiness-replaced-plan-');
+  const taskId = 't-replaced-plan';
+  updatePlan(root, taskId, null, () => ({ taskId, planId: 'rp_current', needs: [
+    { intent: 'estimate-blast-radius', queryRef: 'rp_current#estimate-blast-radius', capability: 'code.impact-analysis' },
+  ] }));
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  ledger.addEvidence({ taskId, kind: 'structural', result: 'EMPTY', establishes: ['architecture_mapped'],
+    source: { provider: 'native.rg', capability: 'code.impact-analysis', queryRef: 'rp_replaced#estimate-blast-radius' },
+    freshness: { status: 'STALE' } });
+
+  const report = engine.evaluateReadiness({ taskId, taskClass: 'refactor' }, ledger, claims);
+  assert.deepEqual(report.staleAbsence, []);
+});
+
+test('stale absence guidance distinguishes tree changes, unverifiable trees, and non-git records', (t) => {
+  const root = tempDir(t, 'doflow-readiness-absence-guidance-');
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root });
+  for (const [index, [freshness, expected]] of [
+    [{ status: 'STALE', staleReason: 'tree-changed-since-recorded', gitCommit: 'commit_test' }, 'the working tree changed since it was recorded; re-run the lookup and record the absence again'],
+    [{ status: 'UNKNOWN', staleReason: 'tree-unverifiable', gitCommit: 'commit_test' }, 'the working tree changed since it was recorded; re-run the lookup and record the absence again'],
+    [{ status: 'UNKNOWN', gitCommit: null }, 'absence cannot be established outside a git work tree; record a positive item'],
+  ].entries()) {
+    const ledger = new EvidenceLedger({ repoRoot: root });
+    const claims = new ClaimsManager({ evidenceLedger: ledger });
+    const taskId = `t-guidance-${index}`;
+    const id = ledger.addEvidence({ taskId, kind: 'structural', result: 'EMPTY', establishes: ['architecture_mapped'],
+      source: { provider: 'native.rg', capability: 'code.impact-analysis' }, freshness });
+    if (freshness.staleReason) ledger.getEvidence(id).freshness.staleReason = freshness.staleReason;
+    const report = engine.evaluateReadiness({ taskId, taskClass: 'refactor' }, ledger, claims);
+    assert.match(report.requirements.find((item) => item.id === 'architecture_mapped').reason, new RegExp(expected));
+  }
+});
+
+test('unbound evidence guidance counts only qualifying items', (t) => {
+  const root = tempDir(t, 'doflow-readiness-unbound-count-');
+  const taskId = 't-unbound-count';
+  updatePlan(root, taskId, null, () => ({ taskId, planId: 'rp_count', needs: [
+    { intent: 'estimate-blast-radius', queryRef: 'rp_count#estimate-blast-radius', capability: 'code.impact-analysis' },
+  ] }));
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  const qualifyingId = ledger.addEvidence({ taskId, kind: 'structural', provenance: 'extracted', establishes: ['architecture_mapped'],
+    source: { provider: 'native.rg', capability: 'code.impact-analysis' }, freshness: { status: 'FRESH' } });
+  ledger.addEvidence({ taskId, kind: 'exact-search', provenance: 'extracted', establishes: ['target_identified'],
+    source: { provider: 'native.rg', capability: 'code.impact-analysis' }, freshness: { status: 'FRESH' } });
+
+  const report = engine.evaluateReadiness({ taskId, taskClass: 'refactor' }, ledger, claims);
+  const reason = report.requirements.find((item) => item.id === 'architecture_mapped').reason;
+  assert.match(reason, new RegExp(`^1 item\\(s\\).*\\(${qualifyingId}\\)`));
 });
