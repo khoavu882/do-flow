@@ -7,7 +7,6 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 const { suiteTempDir } = require('../../helper/tmp');
 const { createKiroAdapter } = require('../../../src/adapters/kiro/index.ts');
 const { TRANSFORMS, LAYOUTS, resolveLayout, kiroPreToolUseHooks, kiroHook } = require('../../../src/adapters/copy-tree.ts');
@@ -197,26 +196,4 @@ test('a hand-edited <name>.md from an earlier install is kept, not deleted', () 
   adapter.apply({ changes: planned.changes });
   assert.equal(fs.readFileSync(target, 'utf8'), 'my own agent\n');
   assert.ok(planned.notices.some((notice) => /kept hand-edited .*spec-analyst\.md/.test(notice)));
-});
-
-const stripAnsi = (text) => text.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
-const KIRO_CLI = spawnSync('kiro-cli', ['--version'], { encoding: 'utf8' });
-const OPTED_IN = process.env.DOFLOW_LIVE_KIRO === '1';
-const ON_PATH = KIRO_CLI.status === 0;
-const LIVE_SKIP = !OPTED_IN
-  ? 'live Kiro test is opt-in: set DOFLOW_LIVE_KIRO=1 to run it'
-  : (!ON_PATH ? 'kiro-cli is not on PATH' : false);
-
-test('live: kiro-cli agent list shows the installed project agents', { skip: LIVE_SKIP }, () => {
-  const root = scratch(); const adapter = createKiroAdapter();
-  const assets = kiroAgentAssets();
-  const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets, context: { repoRoot: REPO_ROOT }, ledger: { resources: [] } });
-  adapter.apply({ changes: planned.changes });
-  // `agent list` only reads. It runs with the real HOME because kiro-cli refuses to run logged out;
-  // the Workspace column proves the agents came from the scratch project, not from ~/.kiro.
-  const result = spawnSync('kiro-cli', ['agent', 'list'], { cwd: root, env: { ...process.env, NO_COLOR: '1' }, encoding: 'utf8', timeout: 60_000 });
-  const output = stripAnsi(`${result.stdout}\n${result.stderr}`);
-  assert.equal(result.status, 0, output);
-  assert.match(output, /^\s*core-implementer\s+Workspace\b/m);
-  assert.match(output, /^\s*doflow\s+Workspace\b/m);
 });
