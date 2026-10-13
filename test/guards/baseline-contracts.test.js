@@ -799,3 +799,136 @@ test('G33.11 control: missing budgets path and matching forbidden literal patter
   assert.match(p2.join('\n'), /matches forbidden literal pattern/);
 });
 
+// ---- Q.1: Final step (G33.17, G33.18) ----
+const GATE_SENTENCES = [
+  'Benchmarks rerun against the same snapshot.',
+  'Registry slots alone do not establish operational hybrid support.',
+  'Tool replacement requires comparative evidence.',
+];
+
+const REFRESH_DELIVERABLES = [
+  'bench/retrieval/snapshot.json',
+  'bench/retrieval/thresholds.json',
+  'bench/perf/budgets.json',
+  'bench/inventory/capabilities.json',
+  'bench/inventory/tools.json',
+  'bench/inventory/coverage.json',
+  'bench/inventory/proposals.json',
+];
+
+const DELIVERABLES_IN_IC030 = [
+  'bench/retrieval/snapshot.json',
+  'bench/retrieval/manifest.json',
+  'bench/retrieval/tasks/dev.json',
+  'bench/retrieval/thresholds.json',
+  'bench/retrieval/baseline.json',
+  'bench/retrieval/README.md',
+  'bench/perf/budgets.json',
+  'bench/inventory/capabilities.json',
+  'bench/inventory/tools.json',
+  'bench/inventory/coverage.json',
+  'bench/inventory/proposals.json',
+  'docs/specs/operating-modes.md',
+  'docs/specs/candidate-evidence-boundary.md',
+  'test/runtime/performance-budget.test.js',
+];
+
+function q1GateRecordProblems(readmeContent, thresholdsDoc) {
+  const p = [];
+  for (const sentence of GATE_SENTENCES) {
+    if (!readmeContent.includes(sentence)) {
+      p.push(`bench/retrieval/README.md: missing gate sentence verbatim: "${sentence}"`);
+    }
+  }
+  const roadmapSentence = thresholdsDoc?.roadmapSentence || 'Fix tolerances/cost caps in P0 benchmark configuration before viewing holdout results.';
+  if (!readmeContent.includes(roadmapSentence)) {
+    p.push(`bench/retrieval/README.md: missing roadmap sentence verbatim: "${roadmapSentence}"`);
+  }
+  return p;
+}
+
+function q1RefreshProblems({ repoRoot = REPO, refreshDocs = null, deliverablePaths = DELIVERABLES_IN_IC030 }) {
+  const p = [];
+
+  for (const relPath of deliverablePaths) {
+    if (relPath.startsWith('agent-docs/doflow/') || relPath.includes('/agent-docs/doflow/')) {
+      p.push(`${relPath}: deliverable path must not lie under agent-docs/doflow/`);
+    }
+  }
+
+  if (refreshDocs) {
+    for (const [name, doc] of Object.entries(refreshDocs)) {
+      if (!doc || !doc.refresh || typeof doc.refresh.trigger !== 'string' || !doc.refresh.trigger) {
+        p.push(`${name}.refresh: trigger is required`);
+      }
+      if (!doc || !doc.refresh || typeof doc.refresh.owner !== 'string' || !doc.refresh.owner) {
+        p.push(`${name}.refresh: owner is required`);
+      }
+    }
+  } else {
+    for (const relPath of REFRESH_DELIVERABLES) {
+      const fullPath = path.join(repoRoot, relPath);
+      if (!fs.existsSync(fullPath)) {
+        p.push(`${relPath}: deliverable does not exist`);
+        continue;
+      }
+      try {
+        const doc = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+        if (!doc.refresh || typeof doc.refresh.trigger !== 'string' || !doc.refresh.trigger) {
+          p.push(`${relPath}.refresh: trigger is required`);
+        }
+        if (!doc.refresh || typeof doc.refresh.owner !== 'string' || !doc.refresh.owner) {
+          p.push(`${relPath}.refresh: owner is required`);
+        }
+      } catch (e) {
+        p.push(`${relPath}: invalid JSON: ${e.message}`);
+      }
+    }
+  }
+
+  return p;
+}
+
+test('G33.17: the three gate sentences and the roadmap sentence appear verbatim in bench/retrieval/README.md', () => {
+  const readmeContent = fs.readFileSync(path.join(REPO, 'bench/retrieval/README.md'), 'utf8');
+  const thresholdsDoc = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/retrieval/thresholds.json'), 'utf8'));
+  assert.deepEqual(q1GateRecordProblems(readmeContent, thresholdsDoc), []);
+});
+
+test('G33.17 control: missing gate sentence and missing roadmap sentence are reported', () => {
+  const thresholdsDoc = { roadmapSentence: 'Roadmap sentence must appear.' };
+  const incompleteReadme = '# Benchmark\n\nSome text without the required sentences.';
+  const problems = q1GateRecordProblems(incompleteReadme, thresholdsDoc);
+  const joined = problems.join('\n');
+  assert.match(joined, /missing gate sentence verbatim: "Benchmarks rerun against the same snapshot\."/);
+  assert.match(joined, /missing gate sentence verbatim: "Registry slots alone do not establish operational hybrid support\."/);
+  assert.match(joined, /missing gate sentence verbatim: "Tool replacement requires comparative evidence\."/);
+  assert.match(joined, /missing roadmap sentence verbatim: "Roadmap sentence must appear\."/);
+});
+
+test('G33.18: every deliverable listed in IC-030 carries top-level refresh.trigger and refresh.owner, and no deliverable path lies under agent-docs/doflow/', () => {
+  assert.deepEqual(q1RefreshProblems({ repoRoot: REPO }), []);
+});
+
+test('G33.18 control: missing refresh trigger, missing refresh owner, and deliverable under agent-docs/doflow/ are reported', () => {
+  const c1 = q1RefreshProblems({
+    refreshDocs: {
+      'snapshot.json': { refresh: { owner: 'maintainer' } },
+      'thresholds.json': { refresh: { trigger: 'trigger text' } },
+    },
+  });
+  const joined1 = c1.join('\n');
+  assert.match(joined1, /snapshot\.json\.refresh: trigger is required/);
+  assert.match(joined1, /thresholds\.json\.refresh: owner is required/);
+
+  const c2 = q1RefreshProblems({
+    deliverablePaths: [
+      'bench/retrieval/snapshot.json',
+      'agent-docs/doflow/074-p0-baseline-contracts/baseline.json',
+    ],
+    refreshDocs: {},
+  });
+  const joined2 = c2.join('\n');
+  assert.match(joined2, /agent-docs\/doflow\/074-p0-baseline-contracts\/baseline\.json: deliverable path must not lie under agent-docs\/doflow\//);
+});
+
