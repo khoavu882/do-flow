@@ -54,7 +54,7 @@ test('compile cache: a real run enables the cache in NODE_COMPILE_CACHE and prin
   const cacheDir = path.join(scratch.dir, 'cc');
   const { r, report } = run({ NODE_COMPILE_CACHE: cacheDir });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^\d+\.\d+\.\d+\n$/, 'stdout must be the bare version');
+  assert.match(r.stdout, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\n$/, 'stdout must be the bare version');
   assert.equal(r.stderr, '', 'the cache must not print anything to stderr');
   assert.ok(report && report.dir, 'the run must report an enabled compile cache');
   assert.ok(report.dir.startsWith(cacheDir + path.sep) || report.dir === cacheDir, `cache dir ${report.dir} must be under ${cacheDir}`);

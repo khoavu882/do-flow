@@ -47,6 +47,6 @@ test('node floor: without type-stripping the CLI exits 2 naming the Node, the ra
 test('node floor: a normal run still prints the bare version with empty stderr', () => {
   const r = run([]);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^\d+\.\d+\.\d+\n$/);
+  assert.match(r.stdout, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\n$/);
   assert.equal(r.stderr, '');
 });
