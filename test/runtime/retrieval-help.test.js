@@ -15,6 +15,8 @@ test('evidence-add help documents --need and doflow-run usage documents attempt'
   assert.equal(help.status, 0, help.stderr);
   const evidenceNeedLine = help.stdout.split(/\r?\n/).find((line) => line.includes('--need') && line.includes('evidence --action add'));
   assert.ok(evidenceNeedLine, 'help must list --need on the evidence-add help line');
+  assert.match(evidenceNeedLine, /--need <intent>\s+evidence --action add/, 'evidence add must show one intent');
+  assert.doesNotMatch(evidenceNeedLine, /intent,/, 'evidence add must not show a list of intents');
 
   const usage = fs.readFileSync(RUN, 'utf8');
   const retrievalUsageLine = usage.split(/\r?\n/).find((line) => line.includes('retrieval-plan'));
