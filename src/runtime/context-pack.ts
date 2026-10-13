@@ -698,7 +698,9 @@ function handleContextPackCommand({
   let reqText: string | null = null;
   let reqPath = 'requirement.md';
   if (!feature.error && feature.featureDir) {
-    reqPath = path.join(feature.featureDir, 'intention', 'requirement.md');
+    reqPath = feature.paths?.requirement
+      ? path.resolve(feature.repoRoot || root, feature.paths.requirement)
+      : path.join(feature.featureDir, 'intention', 'requirement.md');
     try {
       if (fs.existsSync(reqPath)) {
         reqText = fs.readFileSync(reqPath, 'utf8');
@@ -708,10 +710,39 @@ function handleContextPackCommand({
     }
   }
 
+  let taskStories: string[] = [];
+  if (!feature.error && feature.featureDir && taskId) {
+    let planPath: string | null = null;
+    if (feature.paths?.plan) {
+      planPath = path.resolve(feature.repoRoot || root, feature.paths.plan);
+    } else {
+      const nestedPlan = path.join(feature.featureDir, 'plan', 'plan.md');
+      const flatPlan = path.join(feature.featureDir, 'plan.md');
+      if (fs.existsSync(nestedPlan)) planPath = nestedPlan;
+      else if (fs.existsSync(flatPlan)) planPath = flatPlan;
+    }
+    if (planPath && fs.existsSync(planPath)) {
+      try {
+        const planText = fs.readFileSync(planPath, 'utf8');
+        const { parsePlan } = require('./scaffold/artifacts.ts');
+        const parsedPlan = parsePlan(planText);
+        const matchedTask = (parsedPlan.tasks || []).find(
+          (t: any) => t.id === taskId || t.id.toLowerCase() === taskId.toLowerCase()
+        );
+        if (matchedTask && Array.isArray(matchedTask.stories)) {
+          taskStories = matchedTask.stories;
+        }
+      } catch {
+        taskStories = [];
+      }
+    }
+  }
+
   let mandatory = extractMandatory({
     text: reqText,
     path: reqPath,
-    featureError: feature.error || null,
+    featureError: feature.error ? (feature.message || feature.error) : null,
+    taskStories,
   });
 
   if (mandatoryFile) {
@@ -745,7 +776,7 @@ function handleContextPackCommand({
   const pack = compiler.compileContextPack({
     taskId,
     taskClass: effectiveTaskClass,
-    objective: objective || mandatory.fields.objective || '',
+    objective: objective !== undefined && objective !== null ? objective : undefined,
     mandatory,
     budget,
     harness,

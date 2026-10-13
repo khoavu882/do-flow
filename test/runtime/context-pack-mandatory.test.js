@@ -4,6 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const {
   extractMandatory,
   parseMandatoryFile,
@@ -176,4 +177,194 @@ test('mandatory: resolver spawns once during handleContextPackCommand (negative 
     () => assertSingleSpawn(2),
     (err) => err.message.includes('resolver spawned 2 times instead of 1')
   );
+});
+
+test('mandatory: reads requirement from resolver paths.requirement supporting legacy flat-layout (CX.5)', (t) => {
+  const origResolve = featureResolve.resolveActiveFeature;
+  const temp = tempDir(t);
+  const legacyDir = path.join(temp, 'agent-docs', 'doflow', 'legacy-001');
+  fs.mkdirSync(legacyDir, { recursive: true });
+  const flatReqPath = path.join(legacyDir, 'requirement.md');
+  fs.writeFileSync(
+    flatReqPath,
+    '# Requirement: Legacy\n\n**Feature:** legacy-001 · **Maturity:** Draft\n\n## 1. Summary\n\nLegacy flat layout summary.\n\n## 6. Acceptance Criteria\n\n- [ ] **Scenario: S1** (FR-001)\n'
+  );
+
+  featureResolve.resolveActiveFeature = () => ({
+    repoRoot: temp,
+    featureDir: legacyDir,
+    paths: {
+      requirement: 'agent-docs/doflow/legacy-001/requirement.md',
+    },
+  });
+
+  t.after(() => {
+    featureResolve.resolveActiveFeature = origResolve;
+  });
+
+  let output = '';
+  const origLog = console.log;
+  const priorExitCode = process.exitCode;
+  console.log = (msg) => { output = msg; };
+  try {
+    handleContextPackCommand({ taskId: 't-legacy', json: true });
+  } finally {
+    console.log = origLog;
+    process.exitCode = priorExitCode;
+  }
+
+  const pack = JSON.parse(output);
+  assert.equal(pack.objective, 'Legacy flat layout summary.');
+  assert.equal(pack.mandatory.objective.supplied, true);
+
+  // Negative control: resolving with hardcoded nested path 'intention/requirement.md' fails on flat layout
+  function resolveWithHardcodedNested(featureDir) {
+    const nested = path.join(featureDir, 'intention', 'requirement.md');
+    if (!fs.existsSync(nested)) {
+      throw new Error(`Flat layout failed: '${nested}' does not exist`);
+    }
+  }
+  assert.throws(
+    () => resolveWithHardcodedNested(legacyDir),
+    (err) => err.message.includes('Flat layout failed')
+  );
+});
+
+test('mandatory: absent-artifact reason carries resolver message, not error code (CX.5)', (t) => {
+  const origResolve = featureResolve.resolveActiveFeature;
+  const resolverMessage = 'no-active-feature — checkout a feat/<NNN-slug> branch or run /do-brainstorm to start one';
+
+  featureResolve.resolveActiveFeature = () => ({
+    error: 'no-active-feature',
+    message: resolverMessage,
+  });
+
+  t.after(() => {
+    featureResolve.resolveActiveFeature = origResolve;
+  });
+
+  let output = '';
+  const origLog = console.log;
+  const priorExitCode = process.exitCode;
+  console.log = (msg) => { output = msg; };
+  try {
+    handleContextPackCommand({ taskId: 't-no-feat', json: true });
+  } finally {
+    console.log = origLog;
+    process.exitCode = priorExitCode;
+  }
+
+  const pack = JSON.parse(output);
+  const reason = pack.mandatory.objective.reason;
+  assert.equal(reason, `no-active-feature: ${resolverMessage}`);
+  assert.equal(reason.includes(resolverMessage), true);
+
+  // Negative control: using feature.error ('no-active-feature') gives 'no-active-feature: no-active-feature',
+  // which does not carry the resolver message
+  const buggyErrorCodeReason = `no-active-feature: no-active-feature`;
+  assert.notEqual(buggyErrorCodeReason, `no-active-feature: ${resolverMessage}`);
+});
+
+test('mandatory: maturity captures up to dot or end of line ("In review"), and is null when no header (CX.5)', () => {
+  // 1. With dot separator: "**Maturity:** In review · **Created:** 2026-10-13"
+  const textWithDot = '# Req\n\n**Feature:** f1 · **Maturity:** In review · **Created:** 2026-10-13\n\n## 1. Summary\n\nSummary text.\n';
+  const resDot = extractMandatory({ text: textWithDot });
+  assert.equal(resDot.provenance.objective.maturity, 'In review');
+
+  // 2. At end of line: "**Maturity:** In review\n"
+  const textAtEol = '# Req\n\n**Feature:** f1 · **Maturity:** In review\n\n## 1. Summary\n\nSummary text.\n';
+  const resEol = extractMandatory({ text: textAtEol });
+  assert.equal(resEol.provenance.objective.maturity, 'In review');
+
+  // 3. No header at all: maturity is null
+  const textNoHeader = '# Req\n\n## 1. Summary\n\nSummary text without header.\n';
+  const resNoHeader = extractMandatory({ text: textNoHeader });
+  assert.equal(resNoHeader.provenance.objective.maturity, null);
+
+  // Negative control: old regex [^\\s·\\n]+ would capture 'In' instead of 'In review'
+  const oldRegexMatch = textWithDot.match(/\*\*Maturity:\*\*\s*([^\s·\n]+)/i)?.[1];
+  assert.equal(oldRegexMatch, 'In');
+  assert.notEqual(oldRegexMatch, 'In review');
+
+  // Negative control: fallback to 'Draft' would make no-header return 'Draft' instead of null
+  const oldFallback = (textNoHeader.match(/\*\*Maturity:\*\*\s*([^\s·\n]+)/i)?.[1] ?? 'Draft');
+  assert.equal(oldFallback, 'Draft');
+  assert.notEqual(oldFallback, null);
+});
+
+test('mandatory: gaps come from parseRequirement result and plan task stories order AC items (CX.5)', (t) => {
+  // Part A: Gaps come from parseRequirement's own result
+  const textNoAc = fs.readFileSync(path.join(FIXTURES_DIR, 'no-ac.md'), 'utf8');
+  const parsed = require('../../src/runtime/scaffold/artifacts.ts').parseRequirement(textNoAc);
+  const resNoAc = extractMandatory({ text: textNoAc });
+  const expectedGaps = parsed.gaps.filter((g) => g.what === 'acceptance criteria');
+  assert.deepEqual(resNoAc.provenance.acceptanceCriteria.gaps, expectedGaps);
+  assert.deepEqual(resNoAc.provenance.verificationRequirements.gaps, expectedGaps);
+
+  // Part B: Handler resolves plan task's stories and orders AC items
+  const origResolve = featureResolve.resolveActiveFeature;
+  const temp = tempDir(t);
+  const featDir = path.join(temp, 'agent-docs', 'doflow', 'feat-stories');
+  fs.mkdirSync(featDir, { recursive: true });
+
+  const reqContent = [
+    '# Requirement',
+    '',
+    '**Feature:** feat-stories · **Maturity:** Draft',
+    '',
+    '## 1. Summary',
+    'Summary text',
+    '',
+    '## 6. Acceptance Criteria',
+    '- [ ] **Scenario: US1 flow** (FR-001, US1)',
+    '- [ ] **Scenario: US2 flow** (FR-002, US2)',
+    '',
+  ].join('\n');
+
+  const planContent = [
+    '# Plan',
+    '',
+    '## Tasks',
+    '- [ ] T.1 [US2] Second story task — files: src/foo.ts',
+    '- [ ] T.2 [US1] First story task — files: src/bar.ts',
+    '',
+  ].join('\n');
+
+  fs.writeFileSync(path.join(featDir, 'requirement.md'), reqContent);
+  fs.writeFileSync(path.join(featDir, 'plan.md'), planContent);
+
+  featureResolve.resolveActiveFeature = () => ({
+    repoRoot: temp,
+    featureDir: featDir,
+    paths: {
+      requirement: 'agent-docs/doflow/feat-stories/requirement.md',
+      plan: 'agent-docs/doflow/feat-stories/plan.md',
+    },
+  });
+
+  t.after(() => {
+    featureResolve.resolveActiveFeature = origResolve;
+  });
+
+  let output = '';
+  const origLog = console.log;
+  const priorExitCode = process.exitCode;
+  console.log = (msg) => { output = msg; };
+  try {
+    handleContextPackCommand({ taskId: 'T.1', json: true });
+  } finally {
+    console.log = origLog;
+    process.exitCode = priorExitCode;
+  }
+
+  const pack = JSON.parse(output);
+  // Task T.1 declares [US2], so the US2 scenario must be ordered first
+  assert.equal(pack.acceptanceCriteria.length, 2);
+  assert.ok(pack.acceptanceCriteria[0].text.includes('US2'));
+  assert.ok(pack.acceptanceCriteria[1].text.includes('US1'));
+
+  // Negative control: without taskStories, AC items remain in original document order (US1 first)
+  const unOrdered = extractMandatory({ text: reqContent, taskStories: [] });
+  assert.ok(unOrdered.fields.acceptanceCriteria[0].text.includes('US1'));
+  assert.ok(unOrdered.fields.acceptanceCriteria[1].text.includes('US2'));
 });
