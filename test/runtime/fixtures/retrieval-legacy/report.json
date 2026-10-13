@@ -1,0 +1,29 @@
+{
+  "action": "report",
+  "version": 1,
+  "taskId": "legacy-1",
+  "stage": "legacy-stage",
+  "declaredAt": "2026-10-13T00:00:00.000Z",
+  "providers": {
+    "native.rg": {
+      "state": "FRESH",
+      "artifact": null,
+      "refresh": null,
+      "label": null,
+      "reason": null
+    }
+  },
+  "needs": [
+    {
+      "intent": "legacy-search",
+      "capability": "code.exact-search",
+      "provider": "native.rg",
+      "result": "RETRIEVED",
+      "evidenceIds": ["ev_legacy_1"]
+    }
+  ],
+  "summary": { "declared": 1, "retrieved": 1, "empty": 0, "unreached": 0, "unverified": 0 },
+  "unreached": [],
+  "unverified": [],
+  "stale": []
+}

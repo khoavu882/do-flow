@@ -146,6 +146,54 @@ function activeAttemptRef(projectRoot: any, taskId: any, slug: any = null, fsImp
   }
 }
 
+/** Binds active evidence to declared query refs and explains evidence that could have matched. */
+function bindEvidence(plan: any, items: any[]) {
+  const byNeed = new Map<string, any[]>();
+  const unbound: any[] = [];
+  const needs = Array.isArray(plan?.needs) ? plan.needs : [];
+  for (const need of needs) byNeed.set(need.intent, []);
+  for (const item of items) {
+    if (item.status !== 'active') continue;
+    const source = item.source || {};
+    const exact = needs.find((need: any) => need.queryRef && need.queryRef === source.queryRef);
+    if (exact) {
+      if (plan.attemptRef && source.attemptRef && plan.attemptRef !== source.attemptRef) {
+        unbound.push({ id: item.id, cause: 'other-attempt' });
+      } else {
+        const matches = byNeed.get(exact.intent);
+        if (matches) matches.push(item);
+      }
+      continue;
+    }
+    if (source.queryRef) {
+      unbound.push({ id: item.id, cause: 'replaced-plan' });
+    } else if (needs.some((need: any) => need.capability && need.capability === source.capability)) {
+      unbound.push({ id: item.id, cause: 'no-query-ref' });
+    }
+  }
+  return { byNeed, unbound };
+}
+
+/** Selects the highest-precedence recorded attempt, with the earliest attempt winning ties. */
+function deriveOutcome(need: any) {
+  const precedence: Record<string, number> = { RETRIEVED: 0, EMPTY: 1, UNVERIFIED: 3, UNREACHED: 4 };
+  const attempts = (Array.isArray(need?.attempts) ? need.attempts : []).filter((attempt: any) =>
+    !(attempt.recordedBy === 'derived' && attempt.status === 'RETRIEVED'
+      && (!Array.isArray(attempt.evidenceIds) || attempt.evidenceIds.length === 0)));
+  const ranked = [...attempts].sort((a, b) => {
+    const rank = (attempt: any) => attempt.status === 'EMPTY' && ['STALE', 'UNKNOWN'].includes(attempt.indexState)
+      ? (attempt.indexState === 'STALE' ? 2 : 3)
+      : (precedence[attempt.status] ?? 4);
+    return rank(a) - rank(b) || a.n - b.n;
+  });
+  const winner = ranked[0];
+  return {
+    result: winner ? winner.status : 'UNREACHED',
+    resolvedBy: winner ? winner.n : null,
+    viaFallback: Boolean(winner && winner.role === 'fallback'),
+  };
+}
+
 module.exports = {
   planPath,
   readPlan,
@@ -154,4 +202,6 @@ module.exports = {
   resolveNeed,
   activeAttemptRef,
   declaredIntentList,
+  bindEvidence,
+  deriveOutcome,
 };
