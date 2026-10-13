@@ -169,7 +169,7 @@ test('compose: fitting on markdown only fails on a fixture where JSON is the lar
   });
 
   // Set budget such that mandatory + md fits, but mandatory + JSON > budget.
-  const budget = Math.max(mandatory.mdBytes, mandatory.jsonBytes) + 100;
+  const budget = Math.max(mandatory.mdBytes, mandatory.jsonBytes) + 300;
 
   // The true linearFit uses max(md, json) and MUST omit largeJsonItem because JSON exceeds budget
   const correctResult = linearFit({
@@ -177,9 +177,14 @@ test('compose: fitting on markdown only fails on a fixture where JSON is the lar
     budget,
   });
 
+  assert.equal(correctResult.overflow, false, 'linearFit must not overflow when omitting optional item fits within budget');
   assert.ok(
-    correctResult.omissions.some((o) => o.id === 'large-json-item'),
-    'correct fit must omit item because JSON exceeded budget'
+    correctResult.omissions.some((o) => o.id === 'large-json-item' && o.reason === 'budget'),
+    'correct fit must omit item with reason budget because JSON exceeded budget'
+  );
+  assert.ok(
+    !correctResult.kept.some((i) => i.id === 'large-json-item'),
+    'correct fit must not keep item that exceeds JSON budget'
   );
 
   // Negative control: a buggy fit checking ONLY markdown keeps the item and exceeds JSON budget
