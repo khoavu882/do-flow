@@ -1,0 +1,468 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": 1,
+  "split": "dev",
+  "tasks": [
+    {
+      "id": "DC-021",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what are the dependents of validateCapabilityProviders",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/registry/index.ts",
+          "startLine": 343,
+          "endLine": 345,
+          "rel": 2,
+          "anchorSha": "4bc84444489956035541b9fb115b39fa901ab4dfc0df0850eebc140ed1d527c0"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/registry/index.ts",
+          "startLine": 466,
+          "endLine": 466,
+          "rel": 2,
+          "anchorSha": "004e642f88a08cc95272f61ed6866ca8d991180b4c48ae6f323b53e1910086a3"
+        },
+        {
+          "id": "q3",
+          "path": "src/runtime/capability-router.ts",
+          "startLine": 82,
+          "endLine": 82,
+          "rel": 2,
+          "anchorSha": "5a68e448ed5324fa845086f929033ad7b2192524ab5350f798fe0cf39f68ef56"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.5,
+      "truthSource": [
+        "src/registry/index.ts:343",
+        "src/registry/index.ts:466",
+        "src/runtime/capability-router.ts:82"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-022",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what call sites depend on sanitizeRunEvent",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/trace/ledger.ts",
+          "startLine": 277,
+          "endLine": 280,
+          "rel": 2,
+          "anchorSha": "03014c307c7fc472a6775c5d6c8b9e55a4763840d849d080b30e6547b071a594"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/runtime/trace/ledger.ts",
+          "startLine": 366,
+          "endLine": 366,
+          "rel": 2,
+          "anchorSha": "2d34b3f01580a859864a020ac2f5ad0144c903c1ba241d81d07c4113d6dde460"
+        },
+        {
+          "id": "q3",
+          "path": "test/guards/runtime-unification.test.js",
+          "startLine": 556,
+          "endLine": 556,
+          "rel": 2,
+          "anchorSha": "d950889a322942be2972e530e25c4e7d53baadfdea59158ce37250a06f3c86fa"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.25,
+      "truthSource": [
+        "src/runtime/trace/ledger.ts:277",
+        "src/runtime/trace/ledger.ts:366",
+        "test/guards/runtime-unification.test.js:556"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-023",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "which modules call scoreFieldRefusal",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/cli.ts",
+          "startLine": 235,
+          "endLine": 237,
+          "rel": 2,
+          "anchorSha": "8c08a55bf52b765ae5f5e8e28167d12f69afbd7cb0959dee8673d52d3f6c5902"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/cli/index.ts",
+          "startLine": 335,
+          "endLine": 335,
+          "rel": 2,
+          "anchorSha": "bab2332169a3d75a1eacc7b1a315c0f9891209b199a2a9e049014dedf555a706"
+        },
+        {
+          "id": "q3",
+          "path": "src/runtime/cli.ts",
+          "startLine": 248,
+          "endLine": 248,
+          "rel": 2,
+          "anchorSha": "3c4be08291700fef02f4f7f22e6a21cadd5855893c5ed94a47b6aaeb1788bacb"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "src/runtime/cli.ts:235",
+        "src/cli/index.ts:335",
+        "src/runtime/cli.ts:248"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-024",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "where is nativeProjectionFor used across adapters",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/adapters/index.ts",
+          "startLine": 20,
+          "endLine": 22,
+          "rel": 2,
+          "anchorSha": "1b4e470a97bde524a332052d1307ce242af857f77029343e6fb51cd618815bac"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/adapters/index.ts",
+          "startLine": 61,
+          "endLine": 61,
+          "rel": 2,
+          "anchorSha": "39f666241ba0739b949985fb4ce1a89f05849fd822dd4cba6b8d25437016dc87"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.2,
+      "truthSource": [
+        "src/adapters/index.ts:20",
+        "src/adapters/index.ts:61"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-025",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what functions call makeTempDir",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "test/helper/tmp.js",
+          "startLine": 14,
+          "endLine": 19,
+          "rel": 2,
+          "anchorSha": "c4add5bc8766f7fe83b72e8c18dd4f44dbf977a6c57bcbcc59ae23c7d3efb140"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "test/helper/tmp.js",
+          "startLine": 60,
+          "endLine": 60,
+          "rel": 2,
+          "anchorSha": "1062b39b0850d794eb3f9f1c2e8fac60eadec96443476a85d4b50743577d0c6c"
+        },
+        {
+          "id": "q3",
+          "path": "test/helper/tmp.js",
+          "startLine": 67,
+          "endLine": 67,
+          "rel": 2,
+          "anchorSha": "f8d75326a86f42dbed3f1327807acd107f8fb741b963c5dfcb9a1847cfefe6e5"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "test/helper/tmp.js:14",
+        "test/helper/tmp.js:60",
+        "test/helper/tmp.js:67"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-026",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what guards invoke loadRegistry directly",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/registry/index.ts",
+          "startLine": 63,
+          "endLine": 65,
+          "rel": 2,
+          "anchorSha": "71fdf0d4c3dfcd8137e28926b579f2b7fe728e2f54941922d2a4354ac85e65e0"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "test/guards/registry.test.js",
+          "startLine": 14,
+          "endLine": 14,
+          "rel": 2,
+          "anchorSha": "bf006a471cddc945b897f5c3c7dfa2729d5d9238e6a1971451fa0f3ada4d8d17"
+        },
+        {
+          "id": "q3",
+          "path": "test/guards/ownership-identity.test.js",
+          "startLine": 48,
+          "endLine": 48,
+          "rel": 2,
+          "anchorSha": "bf006a471cddc945b897f5c3c7dfa2729d5d9238e6a1971451fa0f3ada4d8d17"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.25,
+      "truthSource": [
+        "src/registry/index.ts:63",
+        "test/guards/registry.test.js:14",
+        "test/guards/ownership-identity.test.js:48"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-027",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what functions invoke bm25Rank",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/knowledge/retrieval.ts",
+          "startLine": 34,
+          "endLine": 36,
+          "rel": 2,
+          "anchorSha": "bb8833c597d138b26eb2f2f6f58e5b7300cd87f81e94dbba6aa7f24fb0bd28fd"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/runtime/knowledge/retrieval.ts",
+          "startLine": 133,
+          "endLine": 133,
+          "rel": 2,
+          "anchorSha": "6f380a449e5c4a20494bf6e437f71a3ff2861b3df2a95183c22e04bbf69362f0"
+        },
+        {
+          "id": "q3",
+          "path": "test/runtime/knowledge.test.js",
+          "startLine": 100,
+          "endLine": 100,
+          "rel": 2,
+          "anchorSha": "1637b4f77547258ba5690cb4c8ea661db47f64bfa371098f387b8e6531c772d1"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "src/runtime/knowledge/retrieval.ts:34",
+        "src/runtime/knowledge/retrieval.ts:133",
+        "test/runtime/knowledge.test.js:100"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-028",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what callers depend on searchGuidance",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/knowledge/retrieval.ts",
+          "startLine": 122,
+          "endLine": 124,
+          "rel": 2,
+          "anchorSha": "1d0f71f3d9944bf1a821e4b3b04f9256c6f0dc216149c1aa69db315bc65df9bc"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/runtime/knowledge/retrieval.ts",
+          "startLine": 157,
+          "endLine": 157,
+          "rel": 2,
+          "anchorSha": "4e804e39a11c662fd421ebc1aaf993932a83edcc292e056fb134c74c532f5aac"
+        },
+        {
+          "id": "q3",
+          "path": "test/runtime/knowledge-eval.test.js",
+          "startLine": 80,
+          "endLine": 80,
+          "rel": 2,
+          "anchorSha": "a1c4c51d0ae01ea2c76ed110fb946413cec56876a116a4491ce4334765a6990a"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "src/runtime/knowledge/retrieval.ts:122",
+        "src/runtime/knowledge/retrieval.ts:157",
+        "test/runtime/knowledge-eval.test.js:80"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-029",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what components call parsePlan",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/scaffold/artifacts.ts",
+          "startLine": 158,
+          "endLine": 160,
+          "rel": 2,
+          "anchorSha": "f37c83b683933732960c3f34bc04d4e587222ed5a572a5706e03fe3596344b3e"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/runtime/scaffold/generate.ts",
+          "startLine": 205,
+          "endLine": 205,
+          "rel": 2,
+          "anchorSha": "7207df7acdf3706443126b9c439535948a1453adbfd775a7999ceb781c4b6c77"
+        },
+        {
+          "id": "q3",
+          "path": "src/runtime/task-attempts.ts",
+          "startLine": 85,
+          "endLine": 85,
+          "rel": 2,
+          "anchorSha": "b1756699859c0c86bb4219082b103fff6a5d57ed9fc1f14bb97416af50c593ed"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "src/runtime/scaffold/artifacts.ts:158",
+        "src/runtime/scaffold/generate.ts:205",
+        "src/runtime/task-attempts.ts:85"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DC-030",
+      "split": "dev",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "where is isSafeSlug invoked across the runtime",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/task-scope.ts",
+          "startLine": 22,
+          "endLine": 24,
+          "rel": 2,
+          "anchorSha": "f782f191c4ec12ca72fe98f8bdf98d1ab450ea1f0aaf718393c14a164ce61a3a"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/runtime/task-attempts.ts",
+          "startLine": 58,
+          "endLine": 58,
+          "rel": 2,
+          "anchorSha": "81aa307dd828fe8ca942aa4cd6459b5436022383903a59768ec4c3b16b63ca29"
+        },
+        {
+          "id": "q3",
+          "path": "src/runtime/implementation-gate.ts",
+          "startLine": 146,
+          "endLine": 146,
+          "rel": 2,
+          "anchorSha": "1d12128052cbe2611bd97c8d2ba8d13cd33afa82937452ff22fe80f00123fbc7"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.2,
+      "truthSource": [
+        "src/runtime/task-scope.ts:22",
+        "src/runtime/task-attempts.ts:58",
+        "src/runtime/implementation-gate.ts:146"
+      ],
+      "author": "worker:agy"
+    }
+  ]
+}
