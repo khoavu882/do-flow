@@ -135,6 +135,7 @@ function run(ctx) {
   const lines = [];
   if (out.message) lines.push(`rerun: ${out.message}`);
   for (const d of bad) lines.push(`DIFF ${d.corpus} ${d.config} ${d.class} ${d.metric}: baseline ${d.baseline}, current ${d.current}, tolerance ${d.tolerance}${d.note ? ` (${d.note})` : ''}`);
+  lines.push(`${out.diffs.length - bad.length} of ${out.diffs.length} aggregates within tolerance`);
   if (out.latency.compared) {
     lines.push(out.latency.anyTolerance ? 'latency compared (same machine)' : 'latency not gated: thresholds.json has no latency tolerances');
   } else {

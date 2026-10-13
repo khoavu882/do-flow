@@ -73,7 +73,7 @@ Generation 1 was run once for configurations A and B (commit 8e7a0e5); its six p
 ## P0 gate
 
 Benchmarks rerun against the same snapshot.
-Evidence: `npm run bench -- retrieval rerun --json` reproduced the committed baseline (`baseline.json`) on snapshot 1 (`3fc988bc519cd7ac289f6db64dfa15b78457cf1b`) with exit code 0. All metric diffs across code and guidance corpora matched within tolerance (summary line: `latency not gated: thresholds.json has no latency tolerances`). Latency is not gated by rerun because `thresholds.json` has no latency tolerances.
+Evidence: On 2026-10-13, `npm run bench -- retrieval rerun` reproduced the committed baseline (`baseline.json`) on snapshot 1 (`3fc988bc519cd7ac289f6db64dfa15b78457cf1b`) with exit code 0. All metric diffs across code and guidance corpora matched within tolerance (summary lines: `290 of 290 aggregates within tolerance` and `latency not gated: thresholds.json has no latency tolerances`). Latency is not gated by rerun because `thresholds.json` has no latency tolerances.
 
 Registry slots alone do not establish operational hybrid support.
 Evidence: `bench/inventory/capabilities.json` gate evidence records confirm that registry declarations lack operational execution:

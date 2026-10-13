@@ -165,3 +165,11 @@ test('through the runner the verb is discovered and a missing baseline exits 2 w
   assert.match(err.join('\n'), /run capture first/);
   assert.deepEqual(Object.keys(JSON.parse(lines[0])).slice(0, 4), ['verb', 'ok', 'exitCode', 'snapshotId']);
 });
+
+test('human-readable rerun output reports aggregates within tolerance summary', (t) => {
+  const w = captured(t);
+  const runRes = rerun.run({ snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, deps: deps() });
+  assert.equal(runRes.exitCode, 0);
+  assert.ok(runRes.lines.some((l) => /^\d+ of \d+ aggregates within tolerance$/.test(l)));
+});
+
