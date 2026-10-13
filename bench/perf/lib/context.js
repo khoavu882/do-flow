@@ -24,6 +24,78 @@ const HARNESS_CLI_MAP = Object.freeze({
   antigravity: 'agy',
 });
 
+function validatePointerCostRows(rows) {
+  for (const row of rows) {
+    if (row.actual && typeof row.actual.basis === 'string' && row.actual.basis.startsWith('estimated:')) {
+      throw new Error(`pointer ${row.pointerId} actual measurement cannot use an estimated basis`);
+    }
+  }
+  return rows;
+}
+
+function pointerCostRows(pack, projectRoot) {
+  const rows = [];
+  for (const pointer of pack.pointers || []) {
+    const targetPath = path.resolve(projectRoot, pointer.path);
+    const relative = path.relative(projectRoot, targetPath);
+    if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(targetPath)) continue;
+    const file = fs.readFileSync(targetPath, 'utf8');
+    const lines = file.split(/\r?\n/);
+    const slice = `${lines.slice(pointer.range.startLine - 1, pointer.range.endLine).join('\n')}\n`;
+    const pointerBytes = pointer.bytes;
+    const inlineBytes = pointer.inlineBytes;
+    for (const target of [
+      { kind: 'whole-file', bytes: Buffer.byteLength(file, 'utf8') },
+      { kind: 'slice', bytes: Buffer.byteLength(slice, 'utf8') },
+    ]) {
+      rows.push({
+        pointerId: pointer.id,
+        path: pointer.path,
+        range: pointer.range,
+        target: target.kind,
+        inlineBytes,
+        pointerBytes,
+        targetBytes: target.bytes,
+        reads: 1,
+        tokensEst: {
+          inline: Math.ceil(inlineBytes / 4),
+          followed: Math.ceil((pointerBytes + target.bytes) / 4),
+          basis: 'estimated:bytes/4',
+        },
+        net: pointerBytes + target.bytes - inlineBytes,
+        readProbability: { unmeasured: 'needs a model call (paid)' },
+        actual: { unmeasured: 'needs a model call (paid)' },
+      });
+    }
+  }
+  return validatePointerCostRows(rows);
+}
+
+function runPointerCostPack({ fixture, repoRoot = REPO_ROOT, formatRows = pointerCostRows }) {
+  const tempProjectDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'doflow-pointer-cost-'));
+  try {
+    const fixturePath = path.isAbsolute(fixture) ? fixture : path.join(repoRoot, fixture);
+    if (!fs.existsSync(fixturePath)) throw new Error(`missing context-pack fixture: ${fixture}`);
+    fs.cpSync(fixturePath, tempProjectDir, { recursive: true });
+    const result = spawnSync(process.execPath, [
+      path.join(repoRoot, 'bin', 'doflow.js'), 'context-pack', tempProjectDir,
+      '--task-id', 'perf-cp', '--slug', 'perf-feature', '--json', '--no-record',
+    ], { cwd: repoRoot, encoding: 'utf8', timeout: 30000, env: { ...process.env, DOFLOW_QUIET: '1' } });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`context-pack exited with status ${result.status}: ${result.stderr}`);
+    const jsonStart = result.stdout.indexOf('{');
+    if (jsonStart < 0) throw new Error('context-pack did not emit JSON');
+    const pack = JSON.parse(result.stdout.slice(jsonStart));
+    return formatRows(pack, tempProjectDir);
+  } finally {
+    fs.rmSync(tempProjectDir, { recursive: true, force: true });
+  }
+}
+
+function computePointerCost({ fixture = 'bench/perf/fixtures/context-pack-project', repoRoot = REPO_ROOT, runPack = runPointerCostPack } = {}) {
+  return runPack({ fixture, repoRoot, formatRows: pointerCostRows });
+}
+
 function isToolInstalled(bin) {
   try {
     const cmd = process.platform === 'win32' ? 'where' : 'which';
@@ -207,6 +279,9 @@ function computeContextBudgets(options = {}) {
 module.exports = {
   computeStartupContext,
   computeContextBudgets,
+  computePointerCost,
+  pointerCostRows,
+  validatePointerCostRows,
   HARNESS_CLI_MAP,
   isToolInstalled,
   getToolVersion,
