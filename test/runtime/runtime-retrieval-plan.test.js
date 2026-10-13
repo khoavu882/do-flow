@@ -334,6 +334,7 @@ test('recorded evidence lifts a declared need to RETRIEVED and links what it yie
   const cwd = project('retrieved');
   json(cwd, ['retrieval-plan', '--task-id', 'g1', '--action', 'declare', '--need', 'inspect-history']);
   const written = json(cwd, ['evidence', '--task-id', 'g1', '--action', 'add',
+    '--need', 'inspect-history',
     '--kind', 'historical', '--provenance', 'extracted',
     '--provider', 'git.native', '--capability', 'history.search', '--locator', 'a.js:1']);
   assert.equal(written.status, 0, written.stderr);
