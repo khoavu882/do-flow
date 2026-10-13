@@ -11,6 +11,7 @@ doflow_decision_init() {
 }
 
 doflow_decide() {
+  local LC_ALL=C
   local outcome="${1:-allow}" code="${2:-invalid-code}" fd="${DOFLOW_DECISION_FD:-}"
   case "$code" in
     [a-z]*)
@@ -24,18 +25,34 @@ doflow_decide() {
   case "$fd" in
     3|4|5|6|7|8|9)
       printf '\036{"v":1,"policy":"%s","policyVersion":%s,"outcome":"%s","code":"%s"}\n' \
-        "$DF_POLICY" "$DF_POLICY_VERSION" "$outcome" "$code" >&"$fd"
+        "${DF_POLICY:-}" "${DF_POLICY_VERSION:-0}" "$outcome" "$code" >&"$fd"
       ;;
   esac
 }
 
 doflow_read_envelope() {
   local assignments
-  assignments=$(printf '%s' "$INPUT" | jq -r '
-    def field($key): (.doflow_event[$key] // "") | if type == "string" then . else "" end;
+  if [ -z "${INPUT:-}" ]; then
+    DF_ENV_CLASS=invalid
+    DF_ENV_HARNESS=
+    DF_ENV_EVENT=
+    DF_ENV_OP=
+    DF_ENV_TOOL=
+    DF_ENV_PATHS=
+    DF_ENV_COMMAND=
+    DF_ENV_PATCH=
+    DF_ENV_ROOT=
+    DF_ENV_TASK=
+    return 0
+  fi
+  assignments=$(printf '%s' "${INPUT:-}" | jq -sr '
+    (.[0]) as $root |
+    ($root | if type == "object" then . else {} end) as $object |
+    ($object.doflow_event // {}) as $event |
+    def field($key): ($event[$key] // "") | if type == "string" then . else "" end;
     def shellvar($name; $value): ($name + "=" + ($value | @sh));
-    (.doflow_event // {}) as $event |
-    (if ($event | type) != "object" or ($event | has("version") | not) then "v0"
+    (if ($root | type) != "object" or (($event | type) != "object") then "invalid"
+     elif ($event | has("version") | not) then "v0"
      elif ($event.version | type) == "number" and $event.version == 1 then "v1"
      else "unsupported" end) as $class |
     [shellvar("DF_ENV_CLASS"; $class),
@@ -43,7 +60,7 @@ doflow_read_envelope() {
      shellvar("DF_ENV_EVENT"; field("event")),
      shellvar("DF_ENV_OP"; field("operation")),
      shellvar("DF_ENV_TOOL"; field("tool")),
-     shellvar("DF_ENV_PATHS"; ([.doflow_event.paths[]? | select(type == "string")] | join("\n"))),
+     shellvar("DF_ENV_PATHS"; ([$event.paths[]? | select(type == "string")] | join("\n"))),
      shellvar("DF_ENV_COMMAND"; field("command")),
      shellvar("DF_ENV_PATCH"; field("patch")),
      shellvar("DF_ENV_ROOT"; field("projectRoot")),
