@@ -99,3 +99,30 @@ test('through the runner: --json carries the header first and the IC-002 fields 
   assert.equal(runner.main(['verify', '--json', '--snapshot', p.snapshotPath], { repoRoot: p.repo, out: (m) => lines2.push(m), err: (m) => err.push(m) }), 3);
   assert.match(JSON.parse(lines2[0]).error, /is absent/);
 });
+
+test('verifySnapshot: tool probe child env lacks DOFLOW_HOLDOUT_KEY and *_API_KEY', (t) => {
+  const prevHoldout = process.env.DOFLOW_HOLDOUT_KEY;
+  const prevApiKey = process.env.TEST_API_KEY;
+  process.env.DOFLOW_HOLDOUT_KEY = 'secret-holdout-12345';
+  process.env.TEST_API_KEY = 'secret-api-key';
+  try {
+    const probeTool = {
+      id: 'git',
+      versionCommand: [
+        process.execPath,
+        '-e',
+        'if (process.env.DOFLOW_HOLDOUT_KEY || process.env.TEST_API_KEY) { console.log("leaked"); } else { console.log("clean"); }',
+      ],
+      versionLine: 'clean',
+      state: 'present',
+    };
+    const p = pinned(t, { tools: [probeTool] });
+    const out = verify.verifySnapshot({ snapshotPath: p.snapshotPath, repoRoot: p.repo });
+    assert.equal(out.exitCode, 0);
+    assert.equal(out.result.tools[0].ok, true);
+    assert.equal(out.result.tools[0].actual, 'clean');
+  } finally {
+    if (prevHoldout !== undefined) process.env.DOFLOW_HOLDOUT_KEY = prevHoldout; else delete process.env.DOFLOW_HOLDOUT_KEY;
+    if (prevApiKey !== undefined) process.env.TEST_API_KEY = prevApiKey; else delete process.env.TEST_API_KEY;
+  }
+});

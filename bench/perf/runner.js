@@ -263,11 +263,14 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
   if (surface.kind === 'install' || surface.intentClass === 'install' || surface.id === 'install.dry-run') {
     if (tempHome) env.HOME = tempHome;
   }
+  const timeoutMs = surface.timeoutMs != null
+    ? surface.timeoutMs
+    : (surface.timeout != null ? surface.timeout : 30000);
   const spawnOpts = {
     cwd: repoRoot,
     env,
     encoding: 'utf8',
-    timeout: 30000,
+    timeout: timeoutMs,
   };
   if (surface.stdinFixture) {
     const fixturePath = path.isAbsolute(surface.stdinFixture)
@@ -500,7 +503,7 @@ function cmdMeasure(flags, options = {}) {
 
     const allOutputRows = [...measuredRows, ...unmeasuredRows];
 
-    if (flags.write) {
+    if (flags.write && failedSurfaces.size === 0) {
       if (!budgets) {
         budgets = {
           schemaVersion: 1,
@@ -761,6 +764,7 @@ module.exports = {
   getMachineId,
   computeCeilingMs,
   enumerateHookSurfaces,
+  runSurfaceProcess,
   HARNESS_CLI_MAP,
   DEFAULT_INTENT_BUDGETS_MS,
   DEFAULT_HEADROOM,

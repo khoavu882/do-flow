@@ -103,16 +103,20 @@ function toPosixPath(p) {
   return p.split(path.sep).join('/').replace(/\\/g, '/');
 }
 
-function h3LoadSeals() {
+function h3LoadSeals(targetDir = holdoutDir) {
   const seals = [];
-  assert.ok(fs.existsSync(holdoutDir), `holdout directory must exist at ${holdoutDir}`);
-  const files = fs.readdirSync(holdoutDir).filter((f) => f.endsWith('.seal.json')).sort();
+  assert.ok(fs.existsSync(targetDir), `holdout directory must exist at ${targetDir}`);
+  const files = fs.readdirSync(targetDir).filter((f) => f.endsWith('.seal.json')).sort();
   assert.ok(files.length > 0, 'holdout directory must contain at least one *.seal.json');
   for (const f of files) {
-    const fullPath = path.join(holdoutDir, f);
+    const fullPath = path.join(targetDir, f);
     const seal = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
     const relSealPath = toPosixPath(path.relative(REPO, fullPath));
     seals.push({ corpus: seal.corpus, generation: seal.generation, seal, relSealPath });
+  }
+  for (const corpus of ['code', 'guidance']) {
+    const corpusSeals = seals.filter((s) => s.corpus === corpus);
+    assert.ok(corpusSeals.length > 0, `holdout directory must contain at least one generation for corpus ${corpus}`);
   }
   return seals;
 }
@@ -147,7 +151,7 @@ function h3SplitProblems({ devTaskFile, seals }) {
     for (const cls of applicable) {
       const holdoutCount = (seal.classCounts && seal.classCounts[cls]) || 0;
       if (holdoutCount === 0) {
-        p.push(`${corpus}: applicable class '${cls}' has 0 holdout tasks in latest generation classCounts`);
+        p.push(`${corpus}: applicable class '${cls}' has 0 holdout tasks in classCounts`);
       }
     }
   }
@@ -211,17 +215,44 @@ test('G33.4 control: duplicate id, missing dev class and missing holdout class a
   assert.match(p3, /code: applicable class 'exact-lookup' has 0 holdout tasks/);
 });
 
-test('G33.4 control: multiple generations of seals are all checked', () => {
+test('G33.4 control: seal loading requires each corpus to have at least one generation seal', (t) => {
+  const dir = tempDir(t, 'doflow-g33-missing-corpus-');
+  const codeSeal = path.join(holdoutDir, 'code.g1.seal.json');
+  fs.copyFileSync(codeSeal, path.join(dir, 'code.g1.seal.json'));
+  assert.throws(
+    () => h3LoadSeals(dir),
+    /holdout directory must contain at least one generation for corpus guidance/
+  );
+});
+
+test('G33.4 control: multiple generations of seals are all checked', (t) => {
   const snapshot = snapshotLib.loadSnapshot();
   const devFile = path.join(REPO, snapshot.taskFiles.dev.path);
   const devTaskFile = JSON.parse(fs.readFileSync(devFile, 'utf8'));
-  const seals = h3LoadSeals();
-  const olderSeal = structuredClone(seals[0]);
-  olderSeal.generation = 0;
-  olderSeal.relSealPath = 'bench/retrieval/holdout/code.g0.seal.json';
-  olderSeal.seal.ids = [devTaskFile.tasks[0].id];
-  const p = h3SplitProblems({ devTaskFile, seals: [olderSeal, ...seals] });
-  assert.ok(p.some((msg) => msg.includes('code.g0.seal.json: holdout task id') && msg.includes('appears in tasks/dev.json')));
+
+  const dir = tempDir(t, 'doflow-g33-multigen-');
+  const origGuidance = JSON.parse(fs.readFileSync(path.join(holdoutDir, 'guidance.g1.seal.json'), 'utf8'));
+  fs.writeFileSync(path.join(dir, 'guidance.g1.seal.json'), JSON.stringify(origGuidance));
+
+  const origCode = JSON.parse(fs.readFileSync(path.join(holdoutDir, 'code.g1.seal.json'), 'utf8'));
+  const g1 = structuredClone(origCode);
+  g1.generation = 1;
+  g1.ids = [devTaskFile.tasks[0].id];
+  fs.writeFileSync(path.join(dir, 'code.g1.seal.json'), JSON.stringify(g1));
+
+  const g2 = structuredClone(origCode);
+  g2.generation = 2;
+  g2.ids = ['HC-999'];
+  g2.classCounts['impact-refactor'] = 0;
+  fs.writeFileSync(path.join(dir, 'code.g2.seal.json'), JSON.stringify(g2));
+
+  const seals = h3LoadSeals(dir);
+  assert.equal(seals.length, 3, 'loader must load all generations for every corpus');
+  assert.equal(seals.filter((s) => s.corpus === 'code').length, 2, 'loader must load both g1 and g2 for code');
+
+  const p = h3SplitProblems({ devTaskFile, seals });
+  assert.ok(p.some((msg) => msg.includes('code.g1.seal.json: holdout task id') && msg.includes('appears in tasks/dev.json')));
+  assert.ok(p.some((msg) => msg.includes("applicable class 'impact-refactor' has 0 holdout tasks in classCounts")));
 });
 
 test('G33.5: each seal canary appears in no tracked file other than its seal file', () => {
@@ -635,18 +666,22 @@ test('G33.9: baseline snapshotId and tasksSha256 match, every configuration has 
   assert.deepEqual(m5BaselineProblems(baseline, { snapshot, devBytes }), []);
 });
 
+function g33EnumerateHookSurfaces(opts = {}) {
+  return enumerateHookSurfaces({ repoRoot: REPO, isToolInstalledFn: () => true, ...opts });
+}
+
 test('G33.10: budget rows carry required fields, at least 30 runs, ceilingMs matches formula, does not exceed intent, and all hook surfaces covered', () => {
   const budgets = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/perf/budgets.json'), 'utf8'));
-  const { surfaces: hookSurfaces } = enumerateHookSurfaces({ repoRoot: REPO, isToolInstalledFn: () => true });
+  const { surfaces: hookSurfaces } = g33EnumerateHookSurfaces();
   assert.deepEqual(m5BudgetProblems(budgets, { hookSurfaces }), []);
 });
 
 test('G33.10 control: hook surface enumeration does not depend on PATH and is identical with empty PATH', () => {
-  const normal = enumerateHookSurfaces({ repoRoot: REPO, isToolInstalledFn: () => true });
+  const normal = g33EnumerateHookSurfaces();
   const origPath = process.env.PATH;
   process.env.PATH = '';
   try {
-    const withEmptyPath = enumerateHookSurfaces({ repoRoot: REPO, isToolInstalledFn: () => true });
+    const withEmptyPath = g33EnumerateHookSurfaces();
     assert.deepEqual(withEmptyPath, normal, 'enumeration with empty PATH must be identical');
   } finally {
     process.env.PATH = origPath;

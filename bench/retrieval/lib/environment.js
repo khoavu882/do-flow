@@ -27,10 +27,25 @@ function firstLine(text) {
   return line === undefined ? null : line.trim();
 }
 
+function getChildEnv(extra) {
+  try {
+    const { childEnv } = require('../runner.js');
+    if (typeof childEnv === 'function') return childEnv(extra);
+  } catch {}
+  const CREDENTIAL_RE = /(API_?KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|DOFLOW_HOLDOUT_KEY)/i;
+  const env = {};
+  for (const name of Object.keys(process.env)) if (!CREDENTIAL_RE.test(name)) env[name] = process.env[name];
+  if (extra) {
+    for (const [name, val] of Object.entries(extra)) if (!CREDENTIAL_RE.test(name)) env[name] = val;
+  }
+  return env;
+}
+
 /** `{id, versionCommand, versionLine, state}` for one tool; a binary that cannot start is absent. */
-function captureTool(spec, { cwd } = {}) {
+function captureTool(spec, { cwd, env } = {}) {
   const [bin, ...args] = spec.versionCommand;
-  const run = spawnSync(bin, args, { encoding: 'utf8', timeout: 15000, cwd });
+  const childEnvironment = getChildEnv(env);
+  const run = spawnSync(bin, args, { encoding: 'utf8', timeout: 15000, cwd, env: childEnvironment });
   if (run.error || run.status === null) {
     return { id: spec.id, versionCommand: spec.versionCommand, versionLine: null, state: 'absent' };
   }
@@ -89,11 +104,11 @@ function pruneTree(root, snapshot) {
 function materialiseExport(commit, tmpDir, snapshot, { repoRoot, keep = false } = {}) {
   const treeRoot = path.join(tmpDir, 'tree');
   fs.mkdirSync(treeRoot, { recursive: true });
-  const archive = spawnSync('git', ['-C', repoRoot, 'archive', commit], { maxBuffer: 1024 * 1024 * 1024 });
+  const archive = spawnSync('git', ['-C', repoRoot, 'archive', commit], { env: getChildEnv(), maxBuffer: 1024 * 1024 * 1024 });
   if (archive.status !== 0) {
     throw new Error(`git archive ${commit} failed: ${String(archive.stderr).trim() || archive.error}`);
   }
-  const extract = spawnSync('tar', ['-x', '-C', treeRoot], { input: archive.stdout, maxBuffer: 1024 * 1024 });
+  const extract = spawnSync('tar', ['-x', '-C', treeRoot], { input: archive.stdout, env: getChildEnv(), maxBuffer: 1024 * 1024 });
   if (extract.status !== 0) throw new Error(`tar extract failed: ${String(extract.stderr).trim() || extract.error}`);
   pruneTree(treeRoot, snapshot);
   return {
