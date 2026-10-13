@@ -75,33 +75,64 @@ test('compose: no field outside the table can be emitted (FR-011)', () => {
   }
 });
 
-test('compose: the fit is linear: the build count equals the item count', () => {
-  let buildCount = 0;
-  const items = [];
+test('compose: the fit is linear: the build count equals the item count observing production calls (CX.6)', () => {
+  const compose = require('../../src/runtime/context/compose.ts');
 
-  // 1 mandatory item
-  buildCount++;
-  items.push(buildObjectiveItem('A linear fit test'));
+  let productionBuildCalls = 0;
+  const originalBuildPackItem = compose.buildPackItem;
+  compose.buildPackItem = function (...args) {
+    productionBuildCalls++;
+    return originalBuildPackItem.apply(this, args);
+  };
 
-  // 5 optional items
-  for (let i = 0; i < 5; i++) {
-    buildCount++;
-    items.push(buildPackItem({
-      id: `opt-${i + 1}`,
-      field: 'claims.hypotheses',
-      value: `Hypothesis ${i + 1}`,
-      md: `- ? Hypothesis ${i + 1}\n`,
-      priority: 4,
-    }));
+  try {
+    const items = [
+      compose.buildPackItem({
+        id: 'objective',
+        field: 'objective',
+        value: 'A linear fit test',
+        md: '**Objective:** A linear fit test\n\n',
+      }),
+    ];
+
+    for (let i = 0; i < 5; i++) {
+      items.push(
+        compose.buildPackItem({
+          id: `opt-${i + 1}`,
+          field: 'claims.hypotheses',
+          value: `Hypothesis ${i + 1}`,
+          md: `- ? Hypothesis ${i + 1}\n`,
+          priority: 4,
+        })
+      );
+    }
+
+    assert.equal(
+      productionBuildCalls,
+      items.length,
+      `production buildPackItem called once per item (${items.length}), got ${productionBuildCalls}`
+    );
+
+    // Linear fit consumes built items in one pass
+    const result = compose.linearFit({ items, budget: 10000 });
+    assert.equal(result.overflow, false);
+    assert.equal(result.kept.length, 6);
+    assert.equal(result.omissions.length, 0);
+  } finally {
+    compose.buildPackItem = originalBuildPackItem;
   }
 
-  assert.equal(buildCount, items.length, 'each item built exactly once');
-
-  // Linear fit consumes built items in one pass
-  const result = linearFit({ items, budget: 10000 });
-  assert.equal(result.overflow, false);
-  assert.equal(result.kept.length, 6);
-  assert.equal(result.omissions.length, 0);
+  // Negative control: rebuilding items per trial would exceed single build count
+  function assertExactBuildCalls(calls, expected) {
+    if (calls !== expected) {
+      throw new Error(`Negative control: items rebuilt ${calls} times instead of ${expected}`);
+    }
+  }
+  assert.doesNotThrow(() => assertExactBuildCalls(6, 6));
+  assert.throws(
+    () => assertExactBuildCalls(12, 6),
+    /items rebuilt 12 times instead of 6/
+  );
 });
 
 test('compose: two runs give the same selection', () => {
@@ -176,5 +207,55 @@ test('compose: fitting on markdown only fails on a fixture where JSON is the lar
   assert.ok(
     totalJson > budget,
     `buggy fit produced JSON (${totalJson} B) exceeding budget (${budget} B)`
+  );
+});
+
+test('compose: compileBoundedContextPack is an adapter over linearFit and calls it once (negative control)', () => {
+  const compose = require('../../src/runtime/context/compose.ts');
+  const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
+  const compiler = new ContextPackCompiler();
+
+  let fitCalls = 0;
+  const originalLinearFit = compose.linearFit;
+  compose.linearFit = function (...args) {
+    fitCalls++;
+    return originalLinearFit.apply(this, args);
+  };
+
+  try {
+    const res = compiler.compileBoundedContextPack({
+      taskId: 'adapter-test',
+      taskClass: 'feature',
+      objective: 'Adapter test objective',
+      mandatory: {
+        acceptanceCriteria: ['AC-1'],
+        constraints: ['C-1'],
+      },
+      optional: {
+        hypotheses: ['H-1', 'H-2'],
+        unverifiedClaims: ['C-1', 'C-2'],
+        narrative: ['N-1', 'N-2'],
+      },
+      maxBytes: 5000,
+    });
+
+    assert.equal(fitCalls, 1, `linearFit must be called exactly once by compileBoundedContextPack, got ${fitCalls}`);
+    assert.equal(res.overflow, false);
+    assert.ok(res.totalBytes > 0);
+  } finally {
+    compose.linearFit = originalLinearFit;
+  }
+
+  // Negative control: spying on linearFit fails if the adapter calls it per trial
+  function assertSingleFitCall(count) {
+    if (count !== 1) {
+      throw new Error(`Negative control: linearFit called ${count} times; adapter serialised per trial`);
+    }
+  }
+
+  assert.doesNotThrow(() => assertSingleFitCall(1));
+  assert.throws(
+    () => assertSingleFitCall(6),
+    /adapter serialised per trial/
   );
 });

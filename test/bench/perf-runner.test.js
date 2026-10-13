@@ -7,6 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const runner = require('../../bench/perf/runner.js');
 const { tempDir } = require('../helper/tmp.js');
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 function capture() {
   const lines = { out: [], err: [] };
@@ -417,3 +418,129 @@ test('perf measure: ceilingMs is computed from the stored (rounded) p95Ms', (t) 
   assert.equal(row.p95Ms, 10);
   assert.equal(row.ceilingMs, 20);
 });
+
+test('perf runner: copy-fixture-project setup creates git repo, substitutes {project}, leaves no directory behind and writes nothing under repoRoot', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-copy-setup-');
+  const fixtureDir = path.join(dir, 'fixture');
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  fs.writeFileSync(path.join(fixtureDir, 'sample.txt'), 'sample content\n', 'utf8');
+
+  const markerFile = path.join(dir, 'observed-project.txt');
+
+  const stubSurface = {
+    id: 'stub.copy-fixture',
+    kind: 'cli',
+    setup: {
+      kind: 'copy-fixture-project',
+      fixture: fixtureDir,
+      git: true,
+    },
+    argv: [
+      'node',
+      '-e',
+      `
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const { execFileSync } = require("node:child_process");
+      const p = process.argv[1];
+      const marker = process.argv[2];
+      if (!fs.existsSync(p)) process.exit(1);
+      if (!fs.existsSync(path.join(p, "sample.txt"))) process.exit(1);
+      const log = execFileSync("git", ["log", "-1", "--format=%an %ad"], { cwd: p, encoding: "utf8" }).trim();
+      if (!log.includes("DoFlow Perf")) process.exit(2);
+      fs.writeFileSync(marker, p, "utf8");
+      fs.writeFileSync(path.join(p, "created-in-temp.txt"), "temp data", "utf8");
+      `,
+      '{project}',
+      markerFile,
+    ],
+    intentClass: 'verb',
+    enforced: false,
+  };
+
+  const dur = runner.runSurfaceProcess(stubSurface, REPO_ROOT);
+  assert.equal(typeof dur, 'number');
+  assert.ok(dur >= 0);
+
+  assert.ok(fs.existsSync(markerFile), 'marker file should be written by child');
+  const recordedTempDir = fs.readFileSync(markerFile, 'utf8').trim();
+  assert.ok(recordedTempDir.length > 0);
+  assert.notEqual(recordedTempDir, REPO_ROOT);
+  assert.equal(fs.existsSync(recordedTempDir), false, 'the setup leaves no directory behind');
+  assert.equal(fs.existsSync(path.join(REPO_ROOT, 'created-in-temp.txt')), false, 'never writes under repoRoot');
+});
+
+test('perf measure: copy-fixture-project fixture that exits 3 fails with no row (negative control)', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-copy-fail-');
+  const budgetsPath = path.join(dir, 'budgets.json');
+  const fixtureDir = path.join(dir, 'fixture');
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  fs.writeFileSync(path.join(fixtureDir, 'exit3.js'), 'process.exit(3);\n', 'utf8');
+
+  const stubSurface = {
+    id: 'stub.fixture-exit3',
+    kind: 'cli',
+    setup: {
+      kind: 'copy-fixture-project',
+      fixture: fixtureDir,
+      git: true,
+    },
+    argv: ['node', '{project}/exit3.js'],
+    intentClass: 'verb',
+    enforced: false,
+  };
+
+  assert.throws(
+    () => runner.runSurfaceProcess(stubSurface, dir),
+    /process exited with status 3/
+  );
+
+  const { lines, io } = capture();
+  const exitCode = runner.main(
+    ['measure', '--runs', '5', '--warmups', '1', '--budgets', budgetsPath],
+    {
+      ...io,
+      surfaces: [stubSurface],
+      isAnotherNodeTestRunningFn: () => false,
+    }
+  );
+
+  assert.equal(exitCode, 1);
+  assert.match(
+    lines.err.join('\n'),
+    /perf measure: surface stub\.fixture-exit3 failed: process exited with status 3/
+  );
+  const outLines = lines.out.join('\n');
+  assert.ok(!outLines.includes('stub.fixture-exit3 p50='));
+});
+
+test('perf runner: verb.context-pack surface runs against context-pack-project fixture and exits 0', () => {
+  const contextPackSurface = {
+    id: 'verb.context-pack',
+    kind: 'cli',
+    intentClass: 'verb',
+    enforced: false,
+    status: 'proposed',
+    setup: {
+      kind: 'copy-fixture-project',
+      fixture: 'bench/perf/fixtures/context-pack-project',
+      git: true,
+    },
+    argv: [
+      'node',
+      'bin/doflow.js',
+      'context-pack',
+      '{project}',
+      '--task-id',
+      'perf-cp',
+      '--slug',
+      'perf-feature',
+      '--json',
+    ],
+  };
+
+  const dur = runner.runSurfaceProcess(contextPackSurface, REPO_ROOT);
+  assert.equal(typeof dur, 'number');
+  assert.ok(dur > 0);
+});
+

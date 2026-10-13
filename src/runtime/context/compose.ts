@@ -34,6 +34,7 @@ const ITEM_CAP_LIMITS: Record<string, number> = Object.freeze({
   'claims.hypotheses': 20,
   evidenceSummary: 25,
   'researchRequests (others)': 20,
+  structuralContext: 5,
 });
 
 /**
@@ -69,6 +70,29 @@ function computePackDigest(items: any[]): string {
   return `sha256:${hash.digest('hex')}`;
 }
 
+function computeItemJsonBytes(field: string, value: any): number {
+  if (value === undefined || value === null) return 0;
+  if (field === 'objective') {
+    return Buffer.byteLength(`  "objective": ${JSON.stringify(value)},\n`, 'utf8');
+  }
+  if (field === 'decisions.reason (register unreadable)') {
+    const r = typeof value === 'object' && value.reason ? value.reason : value;
+    return Buffer.byteLength(`    "reason": ${JSON.stringify(r)},\n`, 'utf8');
+  }
+  let indent = '    '; // 4 spaces
+  if (field.startsWith('claims.') || field === 'decisions.live') {
+    indent = '      '; // 6 spaces
+  }
+  const raw = JSON.stringify(value, null, 2);
+  const lines = raw.split('\n');
+  let bytes = 0;
+  for (const line of lines) {
+    bytes += Buffer.byteLength(indent + line + '\n', 'utf8');
+  }
+  bytes += 1; // comma ','
+  return bytes;
+}
+
 /**
  * Constructs a PackItem, enforcing that `field` exists in FIELD_CLASSES (FR-011).
  */
@@ -92,7 +116,7 @@ function buildPackItem({
   const computedMdBytes = mdBytes !== undefined ? mdBytes : Buffer.byteLength(md, 'utf8');
   const computedJsonBytes = jsonBytes !== undefined
     ? jsonBytes
-    : (Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8') + 6);
+    : computeItemJsonBytes(field, value);
   const computedDigest = digest !== undefined ? digest : itemDigest(value);
 
   return {
@@ -221,7 +245,9 @@ function buildResearchRequestItem(r: any): any {
     evidenceIds: r.evidenceIds,
     gap: r.gap,
   };
-  let mdLine = `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
+  let mdLine = isBlockingUnanswered
+    ? `- ${r.status} (blocking) ${r.stageId}: ${r.question}`
+    : `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
   if (r.gap) mdLine += ` — ${r.gap}`;
   if (r.claimId) mdLine += ` (claim: ${r.claimId})`;
   mdLine += '\n';
@@ -262,12 +288,15 @@ function buildDecisionLiveItem(d: any): any {
 }
 
 function buildClaimSupportedItem(c: any): any {
-  const ev = Array.isArray(c.evidenceIds) ? c.evidenceIds : [];
+  const ev = Array.isArray(c.evidenceIds)
+    ? c.evidenceIds
+    : (Array.isArray(c.supportingEvidence) ? c.supportingEvidence : []);
+  const evSuffix = ev.length > 0 ? ` *(ev: ${ev.join(', ')})*` : '';
   return buildPackItem({
     id: c.id,
     field: 'claims.supported',
     value: { id: c.id, statement: c.statement, evidenceIds: ev },
-    md: `- ✓ ${c.statement} *(ev: ${ev.join(', ')})*\n`,
+    md: `- ✓ ${c.statement}${evSuffix}\n`,
     priority: 2,
   });
 }
@@ -327,6 +356,193 @@ function buildStructuralContextItem(struct: any, index: number = 0): any {
   });
 }
 
+const OPTIONAL_HEADING_BYTES_MD: Record<string, number> = Object.freeze({
+  'decisions.live': Buffer.byteLength('### Live decisions\n\n', 'utf8'),
+  'claims.supported': Buffer.byteLength('### Supported Facts & Invariants\n\n', 'utf8'),
+  'researchRequests (others)': Buffer.byteLength('### Feature Research Requests\n\n', 'utf8'),
+  'claims.hypotheses': Buffer.byteLength('### Active Hypotheses (Unverified)\n\n', 'utf8'),
+  pointers: Buffer.byteLength('### Pointers\n\n', 'utf8'),
+  relevantFiles: Buffer.byteLength('### Relevant File Locators\n\n', 'utf8'),
+  evidenceSummary: Buffer.byteLength('### Evidence\n\n', 'utf8'),
+  structuralContext: Buffer.byteLength('### Structural Context\n\n', 'utf8'),
+});
+
+const OPTIONAL_HEADING_BYTES_JSON: Record<string, number> = Object.freeze({
+  'decisions.live': 5,
+  'claims.supported': 5,
+  'researchRequests (others)': 3,
+  'claims.hypotheses': 4,
+  pointers: 3,
+  relevantFiles: 3,
+  evidenceSummary: 3,
+  structuralContext: 3,
+});
+
+function computeOmissionBytes(omissionsList: any[] = []): { md: number; json: number } {
+  if (!omissionsList || omissionsList.length === 0) {
+    return { md: 0, json: 0 };
+  }
+  const grouped = groupOmissions(omissionsList);
+  let mdStr = '### Omitted\n';
+  for (const g of grouped.groups) {
+    const fresh = g.freshness ? ` ${g.freshness}` : '';
+    mdStr += `- ${g.reason}${fresh} (${g.count}): ${g.ids.join(', ')}\n`;
+  }
+  mdStr += '\n';
+  const mdBytes = Buffer.byteLength(mdStr, 'utf8');
+
+  const fullBlock = JSON.stringify(grouped, null, 2);
+  const emptyBlock = JSON.stringify({ total: 0, groups: [] }, null, 2);
+  const fullLines = fullBlock.split('\n');
+  const emptyLines = emptyBlock.split('\n');
+
+  const fullBytes = Buffer.byteLength(fullBlock, 'utf8') + fullLines.length * 2;
+  const emptyBytes = Buffer.byteLength(emptyBlock, 'utf8') + emptyLines.length * 2;
+  const diffJson = Math.max(0, fullBytes - emptyBytes);
+  return { md: mdBytes, json: diffJson };
+}
+
+/**
+ * Computes both envelopes per IC-007 step 2.
+ */
+function computeEnvelopes({
+  taskId = 'default',
+  taskClass = 'feature',
+  budget,
+  mandatory,
+  empty = false,
+  mode = 'full',
+  hasMandatoryItems = {},
+  overflow = false,
+  overflowAction = null,
+  toolLimitNotice = null,
+  limits = null,
+  selfRefWidth = null,
+}: any): { envelopeMd: number; envelopeJson: number } {
+  // --- Markdown envelope ---
+  let md = `## ContextPack: [${taskClass.toUpperCase()}] ${taskId}\n`;
+  if (overflowAction?.message) {
+    md += `> ${overflowAction.message}\n`;
+  }
+  if (toolLimitNotice?.message) {
+    md += `> ${toolLimitNotice.message}\n`;
+  }
+  if (mode !== 'bare') {
+    const mandSections = [
+      { key: 'acceptanceCriteria', heading: '### Acceptance Criteria\n' },
+      { key: 'constraints', heading: '### Constraints\n' },
+      { key: 'verificationRequirements', heading: '### Verification Requirements\n' },
+      { key: 'scopeExcluded', heading: '### Out of Scope\n' },
+      { key: 'blockingGaps', heading: '### Blocking Gaps\n' },
+    ];
+    for (const sec of mandSections) {
+      if (hasMandatoryItems[sec.key]) {
+        md += sec.heading + '\n';
+      } else {
+        const prov = mandatory?.provenance?.[sec.key] || mandatory?.fields?.[sec.key] || mandatory?.[sec.key];
+        const reason = prov?.reason || 'none';
+        md += `${sec.heading}- not supplied: ${reason}\n\n`;
+      }
+    }
+    if (hasMandatoryItems['claims.conflicts']) {
+      md += `### Blocking Conflicts\n\n`;
+    }
+    if (mandatory) {
+      md += `### Mandatory Sources\n`;
+      const mandKeys = ['objective', 'acceptanceCriteria', 'constraints', 'verificationRequirements', 'scopeExcluded', 'blockingGaps'];
+      const provMap = mandatory.provenance || mandatory;
+      for (const k of mandKeys) {
+        const prov = provMap[k];
+        if (prov) {
+          if (prov.supplied) {
+            const digest12 = prov.digest ? prov.digest.slice(7, 19) : '000000000000';
+            const loc = prov.locator ? `${prov.locator}@${digest12}` : `@${digest12}`;
+            md += `- ${k}: ${prov.source} ${loc}\n`;
+          } else {
+            md += `- ${k}: not supplied: ${prov.reason || 'unknown'}\n`;
+          }
+        }
+      }
+      md += '\n';
+    }
+    if (empty) {
+      md += `_No evidence or claims are recorded for task '${taskId}'; this pack states nothing._\n\n`;
+    }
+  }
+
+  const paddedBytes = '000000000';
+  const maxBytes = budget?.maxBytes || 225000;
+  const source = budget?.source || 'task-class';
+  const tokensEst = Math.round(maxBytes / 4);
+  if (mode !== 'bare') {
+    md += `_Budget ${maxBytes} B (${source}) · emitted ${paddedBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+  }
+  md += `[end of pack] mode=${mode} objective=1 ac=00 constraints=00 verification=00 scope=00 conflicts=00 gaps=00 omitted=000 bytes=${paddedBytes} digest=sha256:000000000000\n`;
+  const envelopeMd = Buffer.byteLength(md, 'utf8');
+
+  // --- JSON envelope ---
+  const capDigits = String(maxBytes).length;
+  const renderedWidth = selfRefWidth !== null && selfRefWidth !== undefined ? selfRefWidth : capDigits;
+  const selfRefBytes = Number('9'.repeat(Math.max(1, renderedWidth)));
+  const selfRefTokens = Math.round(selfRefBytes / 4);
+
+  const provMap = mandatory?.provenance || mandatory || {};
+  const skeletonOrdered: any = {
+    version: 1,
+    status: overflow ? 'OVERFLOW' : (empty ? 'EMPTY' : 'OK'),
+    exitCode: overflow ? 3 : (empty ? 1 : 0),
+    taskId,
+    taskClass,
+    compiledAt: '2026-10-13T00:00:00.000Z',
+    mode,
+    budget: budget || { maxBytes, source, harness: { id: null, source: 'unstated' }, capacity: { value: null, basis: 'unknown:unstated' }, toolResultLimitBytes: null },
+    overflow: overflow ? { cause: 'mandatory', mandatoryBytes: selfRefBytes, budgetBytes: maxBytes, excessBytes: 0, action: 'split-or-new-session' } : null,
+    overflowAction: overflowAction ? { message: overflowAction.message } : null,
+    toolLimitNotice: toolLimitNotice ? { message: toolLimitNotice.message } : null,
+    ...(hasMandatoryItems.objective ? {} : { objective: '' }),
+    acceptanceCriteria: [],
+    constraints: [],
+    verificationRequirements: [],
+    scopeExcluded: [],
+    blockingGaps: [],
+    claims: { conflicts: [], supported: [], hypotheses: [] },
+    researchRequests: [],
+    mandatory: provMap,
+    decisions: { available: true, live: [], liveCount: 0 },
+    pointers: [],
+    relevantFiles: [],
+    evidenceCount: 0,
+    evidenceSummary: [],
+    structuralContext: [],
+    budgetEnforcement: { totalFiles: 0, totalSupportedClaims: 0, totalActiveHypotheses: 0, limits: limits || {} },
+    empty,
+    omissions: { total: 0, groups: [] },
+    size: { totalBytes: selfRefBytes, mandatoryBytes: selfRefBytes, optionalBytes: selfRefBytes, fittedOn: 'json' },
+    accounting: { tokens: { inlineTokensEst: selfRefTokens, netTokensEst: selfRefTokens, basis: 'estimated:bytes/4', actual: { unmeasured: 'needs a model call (paid)' } } },
+    delivery: { key: null, packDigest: 'sha256:' + '0'.repeat(64), recorded: false, reason: null, since: null, deltaRefused: null },
+    delta: null,
+    packEnd: { mode, objective: hasMandatoryItems.objective ? 1 : 0, acceptanceCriteria: 0, constraints: 0, verificationRequirements: 0, scopeExcluded: 0, conflicts: 0, blockingGaps: 0, omitted: 0, bytes: selfRefBytes, digest: 'sha256:000000000000' },
+  };
+
+  const jsonStr = JSON.stringify(skeletonOrdered, null, 2) + '\n';
+  let envelopeJson = Buffer.byteLength(jsonStr, 'utf8');
+
+  const mandKeysWithItems = ['acceptanceCriteria', 'constraints', 'verificationRequirements', 'scopeExcluded', 'blockingGaps'];
+  for (const k of mandKeysWithItems) {
+    if (hasMandatoryItems[k]) {
+      envelopeJson += 3;
+    }
+  }
+  if (hasMandatoryItems['claims.conflicts']) {
+    envelopeJson += 5;
+  }
+  if (hasMandatoryItems['researchRequests']) {
+    envelopeJson += 3;
+  }
+
+  return { envelopeMd, envelopeJson };
+}
+
 /**
  * Linear fit on max(md, json) per IC-007.
  */
@@ -337,21 +553,28 @@ function linearFit({
   taskClass = 'feature',
   envelopeMd = 0,
   envelopeJson = 0,
+  includeOmissionCosts = true,
   itemCapLimits = ITEM_CAP_LIMITS,
   initialOmissions = [],
+  sectionHeadingsMd = OPTIONAL_HEADING_BYTES_MD,
+  sectionHeadingsJson = OPTIONAL_HEADING_BYTES_JSON,
 }: any): any {
-  const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory');
-  const allOptional = items.filter((i: any) => i.cls === 'optional');
+  const mandatoryItems = items.filter((i: any) => i.cls === 'mandatory' || i.class === 'mandatory');
+  const allOptional = items.filter((i: any) => i.cls === 'optional' || i.class === 'optional');
 
   // Enforce item limits on optional items (reason: 'item-cap')
   const fieldCounts: Record<string, number> = {};
   const eligibleOptional: any[] = [];
   const cappedOmissions: any[] = [];
+  let combinedResearchAndStruct = 0;
 
   for (const item of allOptional) {
     const limit = itemCapLimits[item.field];
     const current = fieldCounts[item.field] || 0;
-    if (limit !== undefined && current >= limit) {
+    const isResearchOrStruct = item.field === 'researchRequests (others)' || item.field === 'structuralContext';
+    const combinedCap = 20;
+
+    if ((limit !== undefined && current >= limit) || (isResearchOrStruct && combinedResearchAndStruct >= combinedCap)) {
       cappedOmissions.push({
         id: item.id,
         field: item.field,
@@ -360,38 +583,34 @@ function linearFit({
       });
     } else {
       fieldCounts[item.field] = current + 1;
+      if (isResearchOrStruct) combinedResearchAndStruct++;
       eligibleOptional.push(item);
     }
   }
-
-  // Cost functions for omissions
-  const omissionBytesMd = (item: any) => (item.id.length + 4);
-  const omissionBytesJson = (item: any) => (item.id.length + 8);
 
   // Mandatory costs
   const mandatoryMdBytes = mandatoryItems.reduce((acc: number, i: any) => acc + i.mdBytes, 0) + envelopeMd;
   const mandatoryJsonBytes = mandatoryItems.reduce((acc: number, i: any) => acc + i.jsonBytes, 0) + envelopeJson;
 
   // Uncompressed omissions cost when all optional items are omitted
-  const allOmittedMd = [...eligibleOptional, ...cappedOmissions, ...initialOmissions].reduce((acc: number, i: any) => acc + omissionBytesMd(i), 0);
-  const allOmittedJson = [...eligibleOptional, ...cappedOmissions, ...initialOmissions].reduce((acc: number, i: any) => acc + omissionBytesJson(i), 0);
+  const allOmitted = [
+    ...initialOmissions,
+    ...eligibleOptional.map((i: any) => ({
+      id: i.id,
+      field: i.field,
+      reason: 'mandatory-overflow',
+      ...(i.freshness ? { freshness: i.freshness } : {}),
+    })),
+    ...cappedOmissions,
+  ];
+  const allOmittedBytes = includeOmissionCosts ? computeOmissionBytes(allOmitted) : { md: 0, json: 0 };
 
-  const initialCostMd = mandatoryMdBytes + allOmittedMd;
-  const initialCostJson = mandatoryJsonBytes + allOmittedJson;
+  const initialCostMd = mandatoryMdBytes + allOmittedBytes.md;
+  const initialCostJson = mandatoryJsonBytes + allOmittedBytes.json;
 
   // Check overflow
   if (Math.max(initialCostMd, initialCostJson) > budget) {
     const cause = Math.max(mandatoryMdBytes, mandatoryJsonBytes) > budget ? 'mandatory' : 'accounting';
-    const allOmissions = [
-      ...initialOmissions,
-      ...eligibleOptional.map((i: any) => ({
-        id: i.id,
-        field: i.field,
-        reason: 'mandatory-overflow',
-        ...(i.freshness ? { freshness: i.freshness } : {}),
-      })),
-      ...cappedOmissions,
-    ];
     const fittedOn = initialCostJson > initialCostMd ? 'json' : 'markdown';
     return {
       taskId,
@@ -404,7 +623,7 @@ function linearFit({
       cause,
       fittedOn,
       kept: mandatoryItems,
-      omissions: allOmissions,
+      omissions: allOmitted,
       packDigest: computePackDigest(mandatoryItems),
     };
   }
@@ -415,32 +634,72 @@ function linearFit({
     return 0; // keeps source order
   });
 
-  let currentCostMd = initialCostMd;
-  let currentCostJson = initialCostJson;
   const keptOptional: any[] = [];
-  const omissions: any[] = [...initialOmissions, ...cappedOmissions];
+  const rejectedOptional: any[] = [];
+  const activeSections = new Set<string>();
 
   // One linear pass
   for (const opt of sortedOptional) {
-    const nextCostMd = currentCostMd + opt.mdBytes - omissionBytesMd(opt);
-    const nextCostJson = currentCostJson + opt.jsonBytes - omissionBytesJson(opt);
+    const trialKept = [...keptOptional, opt];
+    const trialSections = new Set(activeSections);
+    trialSections.add(opt.field);
 
-    if (Math.max(nextCostMd, nextCostJson) <= budget) {
-      keptOptional.push(opt);
-      currentCostMd = nextCostMd;
-      currentCostJson = nextCostJson;
-    } else {
-      omissions.push({
-        id: opt.id,
-        field: opt.field,
+    const trialHeadingsMd = Array.from(trialSections).reduce((sum: number, f: string) => sum + (sectionHeadingsMd[f] || 0), 0);
+    const trialHeadingsJson = Array.from(trialSections).reduce((sum: number, f: string) => sum + (sectionHeadingsJson[f] || 0), 0);
+
+    const trialKeptMd = trialKept.reduce((acc: number, i: any) => acc + i.mdBytes, 0);
+    const trialKeptJson = trialKept.reduce((acc: number, i: any) => acc + i.jsonBytes, 0);
+
+    const trialOmitted = [
+      ...initialOmissions,
+      ...rejectedOptional.map((i: any) => ({
+        id: i.id,
+        field: i.field,
         reason: 'budget',
-        ...(opt.freshness ? { freshness: opt.freshness } : {}),
-      });
+        ...(i.freshness ? { freshness: i.freshness } : {}),
+      })),
+      ...sortedOptional.slice(sortedOptional.indexOf(opt) + 1).map((i: any) => ({
+        id: i.id,
+        field: i.field,
+        reason: 'budget',
+        ...(i.freshness ? { freshness: i.freshness } : {}),
+      })),
+      ...cappedOmissions,
+    ];
+    const trialOmissionsBytes = includeOmissionCosts ? computeOmissionBytes(trialOmitted) : { md: 0, json: 0 };
+
+    const trialCostMd = mandatoryMdBytes + trialKeptMd + trialHeadingsMd + trialOmissionsBytes.md;
+    const trialCostJson = mandatoryJsonBytes + trialKeptJson + trialHeadingsJson + trialOmissionsBytes.json;
+
+    if (Math.max(trialCostMd, trialCostJson) <= budget) {
+      keptOptional.push(opt);
+      activeSections.add(opt.field);
+    } else {
+      rejectedOptional.push(opt);
     }
   }
 
-  const fittedOn = currentCostJson > currentCostMd ? 'json' : 'markdown';
-  const totalBytes = Math.max(currentCostMd, currentCostJson);
+  const finalOmissions = [
+    ...initialOmissions,
+    ...rejectedOptional.map((i: any) => ({
+      id: i.id,
+      field: i.field,
+      reason: 'budget',
+      ...(i.freshness ? { freshness: i.freshness } : {}),
+    })),
+    ...cappedOmissions,
+  ];
+  const finalOmissionsBytes = includeOmissionCosts ? computeOmissionBytes(finalOmissions) : { md: 0, json: 0 };
+  const finalHeadingsMd = Array.from(activeSections).reduce((sum: number, f: string) => sum + (sectionHeadingsMd[f] || 0), 0);
+  const finalHeadingsJson = Array.from(activeSections).reduce((sum: number, f: string) => sum + (sectionHeadingsJson[f] || 0), 0);
+  const finalKeptMd = keptOptional.reduce((acc: number, i: any) => acc + i.mdBytes, 0);
+  const finalKeptJson = keptOptional.reduce((acc: number, i: any) => acc + i.jsonBytes, 0);
+
+  const finalCostMd = mandatoryMdBytes + finalKeptMd + finalHeadingsMd + finalOmissionsBytes.md;
+  const finalCostJson = mandatoryJsonBytes + finalKeptJson + finalHeadingsJson + finalOmissionsBytes.json;
+
+  const fittedOn = finalCostJson > finalCostMd ? 'json' : 'markdown';
+  const totalBytes = Math.max(finalCostMd, finalCostJson);
   const mandatoryBytes = Math.max(mandatoryMdBytes, mandatoryJsonBytes);
   const optionalBytes = totalBytes - mandatoryBytes;
   const kept = [...mandatoryItems, ...keptOptional];
@@ -456,7 +715,7 @@ function linearFit({
     cause: null,
     fittedOn,
     kept,
-    omissions,
+    omissions: finalOmissions,
     packDigest: computePackDigest(kept),
   };
 }
@@ -589,7 +848,8 @@ function verifyPackEndLine(md: string): { ok: boolean; reason?: string; parsed?:
 /**
  * Formats a ContextPack into markdown per IC-005.
  */
-function formatMarkdown(pack: any): string {
+function formatMarkdown(pack: any, options: any = {}): string {
+  const throwOnOverBudget = options.throwOnOverBudget !== false;
   const toolLimitBytes = pack.budget?.toolResultLimitBytes;
   const isToolLimitDeclared = typeof toolLimitBytes === 'number' && toolLimitBytes > 0;
   const harnessName = pack.budget?.harness?.id || 'harness';
@@ -669,11 +929,23 @@ function formatMarkdown(pack: any): string {
     md += '\n';
   }
 
+  const blockingUnanswered = (pack.researchRequests || []).filter((r: any) => r.blocking && r.status !== 'ANSWERED');
+  const otherRequests = (pack.researchRequests || []).filter((r: any) => !(r.blocking && r.status !== 'ANSWERED'));
+
   md += `### Blocking Gaps\n`;
-  if (pack.blockingGaps && pack.blockingGaps.length > 0) {
-    for (const bg of pack.blockingGaps) {
-      const text = typeof bg === 'object' ? bg.text : bg;
-      md += `- ${text}\n`;
+  const hasBlockingGaps = (pack.blockingGaps && pack.blockingGaps.length > 0) || blockingUnanswered.length > 0;
+  if (hasBlockingGaps) {
+    if (pack.blockingGaps && pack.blockingGaps.length > 0) {
+      for (const bg of pack.blockingGaps) {
+        const text = typeof bg === 'object' ? bg.text : bg;
+        md += `- ${text}\n`;
+      }
+    }
+    for (const r of blockingUnanswered) {
+      let line = `- ${r.status} (blocking) ${r.stageId}: ${r.question}`;
+      if (r.gap) line += ` — ${r.gap}`;
+      if (r.claimId) line += ` (claim: ${r.claimId})`;
+      md += `${line}\n`;
     }
   } else {
     const reason = pack.mandatory?.blockingGaps?.reason || 'none';
@@ -711,15 +983,16 @@ function formatMarkdown(pack: any): string {
   if (pack.claims?.supported && pack.claims.supported.length > 0) {
     md += `### Supported Facts & Invariants\n`;
     for (const c of pack.claims.supported) {
-      const ev = Array.isArray(c.evidenceIds) && c.evidenceIds.length > 0 ? ` *(ev: ${c.evidenceIds.join(', ')})*` : '';
+      const evList = Array.isArray(c.evidenceIds) ? c.evidenceIds : (Array.isArray(c.supportingEvidence) ? c.supportingEvidence : []);
+      const ev = evList.length > 0 ? ` *(ev: ${evList.join(', ')})*` : '';
       md += `- ✓ ${c.statement}${ev}\n`;
     }
     md += '\n';
   }
 
-  if (pack.researchRequests && pack.researchRequests.length > 0) {
+  if (otherRequests.length > 0) {
     md += `### Feature Research Requests\n`;
-    for (const r of pack.researchRequests) {
+    for (const r of otherRequests) {
       let line = `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
       if (r.gap) line += ` — ${r.gap}`;
       if (r.claimId) line += ` (claim: ${r.claimId})`;
@@ -812,15 +1085,29 @@ function formatMarkdown(pack: any): string {
     }
 
     const tokensEst = Math.round(totalBytes / 4);
-    const footer = `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
+    const footer = mode === 'bare'
+      ? ''
+      : `_Budget ${pack.budget.maxBytes} B (${pack.budget.source}) · emitted ${totalBytes} B · tokens ~${tokensEst} (estimated:bytes/4) · actual unmeasured_\n`;
     const paddedBytes = String(totalBytes).padStart(9, '0');
     const endLine = `[end of pack] mode=${mode} objective=${objectiveCount} ac=${acCount} constraints=${constraintsCount} verification=${verificationCount} scope=${scopeCount} conflicts=${conflictsCount} gaps=${gapsCount} omitted=${omittedCount} bytes=${paddedBytes} digest=${shortDigest}\n`;
 
     const full = header + body + footer + endLine;
     const actualLen = Buffer.byteLength(full, 'utf8');
     if (actualLen === totalBytes) {
-      if (pack.size) pack.size.totalBytes = actualLen;
+      if (pack.size) {
+        pack.size.totalBytes = actualLen;
+        if (pack.overflow) {
+          pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
+          pack.size.optionalBytes = 0;
+        } else {
+          pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
+          pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
+        }
+      }
       if (pack.packEnd) pack.packEnd.bytes = actualLen;
+      if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+        throw new Error(`Emitted markdown pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
+      }
       return full;
     }
     totalBytes = actualLen;
@@ -842,15 +1129,28 @@ function formatMarkdown(pack: any): string {
   const endLine = `[end of pack] mode=${mode} objective=${objectiveCount} ac=${acCount} constraints=${constraintsCount} verification=${verificationCount} scope=${scopeCount} conflicts=${conflictsCount} gaps=${gapsCount} omitted=${omittedCount} bytes=${paddedBytes} digest=${shortDigest}\n`;
   const full = header + body + footer + endLine;
   const actualLen = Buffer.byteLength(full, 'utf8');
-  if (pack.size) pack.size.totalBytes = actualLen;
+  if (pack.size) {
+    pack.size.totalBytes = actualLen;
+    if (pack.overflow) {
+      pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
+      pack.size.optionalBytes = 0;
+    } else {
+      pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
+      pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
+    }
+  }
   if (pack.packEnd) pack.packEnd.bytes = actualLen;
+  if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+    throw new Error(`Emitted markdown pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
+  }
   return full;
 }
 
 /**
  * Formats a ContextPack into JSON per IC-004.
  */
-function formatJson(pack: any): string {
+function formatJson(pack: any, options: any = {}): string {
+  const throwOnOverBudget = options.throwOnOverBudget !== false;
   const toolLimitBytes = pack.budget?.toolResultLimitBytes;
   const isToolLimitDeclared = typeof toolLimitBytes === 'number' && toolLimitBytes > 0;
   const harnessName = pack.budget?.harness?.id || 'harness';
@@ -922,8 +1222,24 @@ function formatJson(pack: any): string {
     const jsonStr = JSON.stringify(ordered, null, 2) + '\n';
     const actualLen = Buffer.byteLength(jsonStr, 'utf8');
     if (actualLen === totalBytes) {
-      if (pack.size) pack.size.totalBytes = actualLen;
+      if (pack.size) {
+        pack.size.totalBytes = actualLen;
+        if (pack.overflow) {
+          pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
+          pack.size.optionalBytes = 0;
+        } else {
+          pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
+          pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
+        }
+        ordered.size.totalBytes = pack.size.totalBytes;
+        ordered.size.mandatoryBytes = pack.size.mandatoryBytes;
+        ordered.size.optionalBytes = pack.size.optionalBytes;
+      }
       if (pack.packEnd) pack.packEnd.bytes = actualLen;
+      ordered.packEnd.bytes = actualLen;
+      if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+        throw new Error(`Emitted JSON pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
+      }
       return jsonStr;
     }
     totalBytes = actualLen;
@@ -933,8 +1249,24 @@ function formatJson(pack: any): string {
   ordered.packEnd.bytes = totalBytes;
   const jsonStr = JSON.stringify(ordered, null, 2) + '\n';
   const actualLen = Buffer.byteLength(jsonStr, 'utf8');
-  if (pack.size) pack.size.totalBytes = actualLen;
+  if (pack.size) {
+    pack.size.totalBytes = actualLen;
+    if (pack.overflow) {
+      pack.size.mandatoryBytes = Math.min(actualLen, pack.size.mandatoryBytes || actualLen);
+      pack.size.optionalBytes = 0;
+    } else {
+      pack.size.optionalBytes = Math.min(pack.size.optionalBytes || 0, actualLen);
+      pack.size.mandatoryBytes = actualLen - pack.size.optionalBytes;
+    }
+    ordered.size.totalBytes = pack.size.totalBytes;
+    ordered.size.mandatoryBytes = pack.size.mandatoryBytes;
+    ordered.size.optionalBytes = pack.size.optionalBytes;
+  }
   if (pack.packEnd) pack.packEnd.bytes = actualLen;
+  ordered.packEnd.bytes = actualLen;
+  if (throwOnOverBudget && pack.status === 'OK' && pack.budget?.maxBytes && actualLen > pack.budget.maxBytes) {
+    throw new Error(`Emitted JSON pack size (${actualLen} B) exceeds budget (${pack.budget.maxBytes} B)`);
+  }
   return jsonStr;
 }
 
@@ -964,6 +1296,11 @@ module.exports = {
   buildRelevantFileItem,
   buildEvidenceSummaryItem,
   buildStructuralContextItem,
+  computeItemJsonBytes,
+  computeOmissionBytes,
+  computeEnvelopes,
+  OPTIONAL_HEADING_BYTES_MD,
+  OPTIONAL_HEADING_BYTES_JSON,
   linearFit,
   groupOmissions,
   formatOverflowMessage,

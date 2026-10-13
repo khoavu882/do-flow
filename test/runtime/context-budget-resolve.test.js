@@ -29,14 +29,45 @@ test('budget-resolve: cap precedence: override > profile > task-class', () => {
   assert.equal(bOverride.maxBytes, 50000);
 
   // 2. Profile takes precedence over taskClass when capacity & reserve are declared
+  // Profile step reads bench/perf/budgets.json itself when none is injected (IC-012 step 2, CX.6)
   const bProfile = resolveBudget({
     taskClass: 'feature',
     harnessFlag: 'claude',
     profiles: mockProfiles,
   });
   assert.equal(bProfile.source, 'profile');
+  // (100000 - 2498 - 10000) * 4 = 350008 (claude has tokensEst=2498 in bench/perf/budgets.json)
+  assert.equal(bProfile.maxBytes, 350008);
+  assert.deepEqual(bProfile.startupTokens, { value: 2498, basis: 'estimated:bytes/4' });
+
+  // 2b. When harness is not in budgets.json, 0 fallback carries its basis
+  const mockUnlistedProfiles = [
+    {
+      id: 'unlisted-bot',
+      contextProfile: {
+        capacityTokens: { value: 100000, source: 'spec', verifiedOn: '2026-10-13' },
+        reserveTokens: { value: 10000, source: 'spec', verifiedOn: '2026-10-13' },
+      },
+    },
+  ];
+  const bUnlisted = resolveBudget({
+    taskClass: 'feature',
+    harnessFlag: 'unlisted-bot',
+    profiles: mockUnlistedProfiles,
+  });
+  assert.equal(bUnlisted.source, 'profile');
   // (100000 - 0 - 10000) * 4 = 360000
-  assert.equal(bProfile.maxBytes, 360000);
+  assert.equal(bUnlisted.maxBytes, 360000);
+  assert.deepEqual(bUnlisted.startupTokens, { value: 0, basis: 'unmeasured:no-entry' });
+
+  // Negative control: ignoring bench/perf/budgets.json produces 360000 instead of 350008 for claude
+  function assertBudgetsJsonRead(maxBytes) {
+    if (maxBytes !== 350008) {
+      throw new Error(`Negative control: budgets.json not read, got ${maxBytes} instead of 350008`);
+    }
+  }
+  assert.doesNotThrow(() => assertBudgetsJsonRead(bProfile.maxBytes));
+  assert.throws(() => assertBudgetsJsonRead(360000), /budgets\.json not read/);
 
   // 3. Fallback to task-class when profile not declared or unverified
   const bTaskClass = resolveBudget({

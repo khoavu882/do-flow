@@ -45,6 +45,9 @@ function extractMandatory({
 
   // Failure cases: feature error or artifact absent
   if (featureError) {
+    const errorMsg = typeof featureError === 'object' && featureError !== null
+      ? (featureError.message || featureError.error)
+      : String(featureError);
     for (const k of fieldKeys) {
       provenance[k] = {
         supplied: false,
@@ -52,7 +55,7 @@ function extractMandatory({
         locator: null,
         digest: null,
         maturity: null,
-        reason: `no-active-feature: ${featureError}`,
+        reason: `no-active-feature: ${errorMsg}`,
         gaps: [],
       };
     }
@@ -77,7 +80,13 @@ function extractMandatory({
   const rawDigest = crypto.createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex');
   const digest = `sha256:${rawDigest}`;
 
-  const resolvedMaturity = maturity || (text.match(/\*\*Maturity:\*\*\s*([^\s·\n]+)/i)?.[1] ?? 'Draft');
+  const parsedReq = parseRequirement(text);
+
+  let resolvedMaturity = maturity ?? null;
+  if (resolvedMaturity === null) {
+    const maturityMatch = text.match(/\*\*Maturity:\*\*\s*([^·\r\n]+)/i);
+    resolvedMaturity = maturityMatch ? maturityMatch[1].trim() : null;
+  }
 
   // 1. Objective: ## 1. Summary
   const summaryBody = section(text, /Summary/i);
@@ -133,7 +142,7 @@ function extractMandatory({
   // 2. Acceptance Criteria & Verification Requirements: ## 6. Acceptance Criteria
   const acceptanceBody = section(text, /Acceptance Criteria/i);
   if (acceptanceBody === null) {
-    const gap = { artifact: 'requirement.md', what: 'acceptance criteria', why: 'no "Acceptance Criteria" section — no test stubs can be derived' };
+    const acGaps = (parsedReq?.gaps || []).filter((g: any) => g.what === 'acceptance criteria');
     provenance.acceptanceCriteria = {
       supplied: false,
       source: 'none',
@@ -141,7 +150,7 @@ function extractMandatory({
       digest,
       maturity: resolvedMaturity,
       reason: 'artifact-malformed: Acceptance Criteria missing',
-      gaps: [gap],
+      gaps: acGaps,
     };
     provenance.verificationRequirements = {
       supplied: false,
@@ -150,7 +159,7 @@ function extractMandatory({
       digest,
       maturity: resolvedMaturity,
       reason: 'artifact-malformed: Acceptance Criteria missing',
-      gaps: [gap],
+      gaps: acGaps,
     };
   } else {
     const lines = joinWrapped(acceptanceBody);
@@ -161,7 +170,7 @@ function extractMandatory({
     }
 
     if (allCriteriaLines.length === 0) {
-      const gap = { artifact: 'requirement.md', what: 'acceptance criteria', why: 'the Acceptance Criteria section holds no `- [ ]` items — no test stubs can be derived' };
+      const acGaps = (parsedReq?.gaps || []).filter((g: any) => g.what === 'acceptance criteria');
       provenance.acceptanceCriteria = {
         supplied: false,
         source: 'none',
@@ -169,7 +178,7 @@ function extractMandatory({
         digest,
         maturity: resolvedMaturity,
         reason: 'artifact-malformed: Acceptance Criteria holds no items',
-        gaps: [gap],
+        gaps: acGaps,
       };
       provenance.verificationRequirements = {
         supplied: false,
@@ -178,7 +187,7 @@ function extractMandatory({
         digest,
         maturity: resolvedMaturity,
         reason: 'artifact-malformed: Acceptance Criteria holds no items',
-        gaps: [gap],
+        gaps: acGaps,
       };
     } else {
       const scenarioLines = allCriteriaLines.filter((l) => /^\*\*Scenario:/i.test(l));

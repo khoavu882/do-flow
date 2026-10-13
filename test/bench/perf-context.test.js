@@ -24,6 +24,12 @@ test('computeStartupContext returns records for all 8 harnesses with IC-019 sche
       typeof row.sessionStartStdoutBytes === 'number' ||
         (typeof row.sessionStartStdoutBytes === 'object' && typeof row.sessionStartStdoutBytes.unmeasured === 'string')
     );
+    assert.ok(
+      typeof row.sessionStartStderrBytes === 'number' ||
+        (typeof row.sessionStartStderrBytes === 'object' && typeof row.sessionStartStderrBytes.unmeasured === 'string')
+    );
+    assert.equal(row.sessionStartBasis, 'measured:temp-home-install');
+    assert.deepEqual(row.perPromptStdoutBytes, { unmeasured: 'owner 077' });
     const hookBytes = typeof row.sessionStartStdoutBytes === 'number' ? row.sessionStartStdoutBytes : 0;
     assert.equal(row.tokensEst, Math.ceil((expectedProjectedBytes + hookBytes) / 4));
     assert.equal(row.tokensBasis, 'estimated:bytes/4');
@@ -50,7 +56,7 @@ test('computeContextBudgets returns IC-019 budget rows with profile-required def
   }
 });
 
-test('computeStartupContext handles uninstalled harness and custom version injection', () => {
+test('computeStartupContext handles uninstalled harness and custom version injection (dropping isToolInstalled gate)', () => {
   const stubHarnesses = ['custom-installed', 'custom-absent'];
   const isToolInstalledFn = (tool) => tool === 'custom-installed';
   const getToolVersionFn = (tool) => (tool === 'custom-installed' ? 'v9.8.7' : null);
@@ -73,26 +79,21 @@ test('computeStartupContext handles uninstalled harness and custom version injec
   const absent = startup.find((s) => s.harness === 'custom-absent');
   assert.equal(absent.installedVersion, null);
   assert.equal(absent.doflowProjectedBytes, 100);
-  assert.deepEqual(absent.sessionStartStdoutBytes, { unmeasured: 'harness not installed' });
+  assert.deepEqual(absent.sessionStartStdoutBytes, { unmeasured: 'no session-start hook' });
   assert.equal(absent.tokensEst, 25);
 });
 
 test('computeStartupContext executes session-start hook with fixture when present', (t) => {
   const dir = tempDir(t, 'doflow-test-session-start-');
-  const claudeHooksDir = path.join(dir, 'core', 'harnesses', 'claude', 'hooks');
+  const claudeHooksDir = path.join(dir, '.claude', 'hooks');
   fs.mkdirSync(claudeHooksDir, { recursive: true });
 
   // Hook writes 20 characters to stdout
   const hookScript = '#!/bin/bash\nprintf "01234567890123456789"\n';
-  fs.writeFileSync(path.join(claudeHooksDir, 'session-start.sh'), hookScript);
-
-  // Fixture
-  const fixturesDir = path.join(dir, 'bench', 'perf', 'fixtures', 'claude');
-  fs.mkdirSync(fixturesDir, { recursive: true });
-  fs.writeFileSync(path.join(fixturesDir, 'session-start.json'), '{"session_id":"test"}');
+  fs.writeFileSync(path.join(claudeHooksDir, 'session-start.sh'), hookScript, { mode: 0o755 });
 
   const startup = context.computeStartupContext({
-    repoRoot: dir,
+    homeDir: dir,
     harnesses: ['claude'],
     isToolInstalledFn: () => true,
     getToolVersionFn: () => '2.0.0',
@@ -103,6 +104,7 @@ test('computeStartupContext executes session-start hook with fixture when presen
   const row = startup[0];
   assert.equal(row.doflowProjectedBytes, 40);
   assert.equal(row.sessionStartStdoutBytes, 20);
+  assert.equal(row.sessionStartStderrBytes, 0);
   // Total bytes: 40 + 20 = 60 => tokens = ceil(60 / 4) = 15
   assert.equal(row.tokensEst, 15);
 });
@@ -132,4 +134,33 @@ test('computeContextBudgets calculates availableTokens when capacity is declared
   // available = 200000 - 2500 - 0 = 197500
   assert.equal(b.availableTokens, 197500);
   assert.equal(b.availableBasis, 'estimated');
+});
+
+test('computeContextBudgets derives capacity and reserve from contextProfile with unverified reason', () => {
+  const startup = [
+    {
+      harness: 'claude',
+      tokensEst: 2500,
+    },
+  ];
+
+  const budgets = context.computeContextBudgets({
+    startupContext: startup,
+    contextProfiles: {
+      claude: {
+        capacityTokens: { unverified: 'values belong to 085 (A-19)' },
+        reserveTokens: { unverified: 'values belong to 085 (A-19)' },
+      },
+    },
+  });
+
+  assert.equal(budgets.length, 1);
+  const b = budgets[0];
+  assert.equal(b.harness, 'claude');
+  assert.equal(b.capacityTokens, null);
+  assert.equal(b.capacityBasis, 'unverified:values belong to 085 (A-19)');
+  assert.equal(b.reserveTokens, null);
+  assert.equal(b.reserveBasis, 'unverified:values belong to 085 (A-19)');
+  assert.equal(b.availableTokens, null);
+  assert.equal(b.availableBasis, 'profile-required');
 });
