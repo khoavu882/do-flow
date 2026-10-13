@@ -401,3 +401,215 @@ test('G33.16 control: a dropped heading, a dropped state row, a dropped example 
   assert.match(got, /example invalid-stale-absence is missing/);
   assert.match(got, /assertNoScoreFields did not throw on invalid-score-evidence/);
 });
+
+// ---- M.5: Fourth step (G33.6, G33.9, G33.10, G33.14) ----
+const { enumerateHookSurfaces, computeCeilingMs } = require('../../bench/perf/runner.js');
+
+function m5ThresholdProblems(t) {
+  const p = [];
+  const wantSentence = 'Fix tolerances/cost caps in P0 benchmark configuration before viewing holdout results.';
+  if (t.roadmapSentence !== wantSentence) {
+    p.push('thresholds.json.roadmapSentence: differs from IC-017 verbatim sentence');
+  }
+  const checkStatus = (item, where) => {
+    if (!item || !['proposed', 'approved'].includes(item.status)) {
+      p.push(`${where}.status: required field missing or invalid`);
+    } else if (item.status === 'approved' && !K2_ISO_OK(item.approvedOn)) {
+      p.push(`${where}.approvedOn: required when approved`);
+    }
+  };
+  checkStatus(t.minN, 'thresholds.json.minN');
+  checkStatus(t.costCaps, 'thresholds.json.costCaps');
+  checkStatus(t.rerun, 'thresholds.json.rerun');
+  for (const th of t.thresholds || []) checkStatus(th, `thresholds.json ${th.id}`);
+  for (const r of t.rules || []) checkStatus(r, `thresholds.json ${r.id}`);
+  return p;
+}
+
+function m5BaselineProblems(b, { snapshot, devBytes }) {
+  const p = [];
+  if (b.snapshotId !== snapshot.snapshotId) {
+    p.push('baseline.json.snapshotId: differs from snapshot.json');
+  }
+  const devSha = sha256Hex(devBytes);
+  if (b.tasksSha256 !== devSha) {
+    p.push('baseline.json.tasksSha256: differs from tasks/dev.json sha256');
+  }
+  const QUERY_CLASSES = [
+    'exact-lookup',
+    'conceptual-discovery',
+    'impact-refactor',
+    'stale-index',
+    'dirty-tree',
+    'unavailable-provider',
+    'oversized-context',
+    'verification-failure',
+  ];
+  for (const corpus of ['code', 'guidance']) {
+    const cdata = b.corpora && b.corpora[corpus];
+    if (!cdata) {
+      p.push(`baseline.json: missing corpus ${corpus}`);
+      continue;
+    }
+    for (const cfg of ['A', 'B']) {
+      const ccfg = cdata.configs && cdata.configs[cfg];
+      if (!ccfg) {
+        p.push(`baseline.json: missing config ${cfg} in ${corpus}`);
+        continue;
+      }
+      for (const cls of QUERY_CLASSES) {
+        const row = ccfg.classes && ccfg.classes[cls];
+        if (!row) {
+          p.push(`baseline.json ${corpus} ${cfg}: missing class row for ${cls}`);
+          continue;
+        }
+        if (row.applicable === false) {
+          if (typeof row.reason !== 'string' || !row.reason) {
+            p.push(`baseline.json ${corpus} ${cfg} ${cls}: missing reason`);
+          }
+        } else if (row.applicable === true) {
+          for (const f of ['n', 'underpowered', 'state', 'metrics', 'latency', 'context']) {
+            if (row[f] === undefined) {
+              p.push(`baseline.json ${corpus} ${cfg} ${cls}: missing ${f}`);
+            }
+          }
+          if (row.latency) {
+            for (const f of ['runs', 'p50Ms', 'p95Ms', 'maxMs']) {
+              if (row.latency[f] === undefined) {
+                p.push(`baseline.json ${corpus} ${cfg} ${cls}.latency: missing ${f}`);
+              }
+            }
+          }
+          if (row.context) {
+            for (const f of ['payloadBytesP50', 'payloadBytesP95', 'tokensEstP50', 'tokensBasis']) {
+              if (row.context[f] === undefined) {
+                p.push(`baseline.json ${corpus} ${cfg} ${cls}.context: missing ${f}`);
+              }
+            }
+          }
+        } else {
+          p.push(`baseline.json ${corpus} ${cfg} ${cls}: applicable must be boolean`);
+        }
+      }
+    }
+  }
+  return p;
+}
+
+function m5BudgetProblems(budgets, { hookSurfaces }) {
+  const p = [];
+  const surfaces = budgets.surfaces || [];
+  const intentBudgetsMs = budgets.intentBudgetsMs || {};
+  const headroom = budgets.headroom || {};
+  const rowFields = [
+    'surfaceId', 'platform', 'arch', 'machineId', 'measuredOn',
+    'runs', 'warmups', 'interleave', 'seed', 'p50Ms', 'p95Ms',
+    'maxMs', 'madMs', 'controlP50Ms', 'redos', 'headroomMs', 'ceilingMs', 'status',
+  ];
+
+  for (const r of budgets.rows || []) {
+    const w = `budgets.json row ${r.surfaceId}`;
+    if (r.unmeasured) {
+      if (typeof r.unmeasured !== 'string' || !r.unmeasured) {
+        p.push(`${w}: unmeasured must be non-empty string`);
+      }
+      continue;
+    }
+    for (const f of rowFields) {
+      if (r[f] === undefined) p.push(`${w}.${f}: required field missing`);
+    }
+    if (typeof r.runs !== 'number' || r.runs < 30) {
+      p.push(`${w}: fewer than 30 runs (${r.runs})`);
+    }
+    const surface = surfaces.find((s) => s.id === r.surfaceId);
+    const intent = surface && surface.intentClass && surface.intentClass !== 'none'
+      ? intentBudgetsMs[surface.intentClass]
+      : null;
+    const expectedCeiling = computeCeilingMs(r.p95Ms, headroom, intent);
+    if (r.ceilingMs !== expectedCeiling) {
+      p.push(`${w}: stored ceiling ${r.ceilingMs} differs from expected ${expectedCeiling}`);
+    }
+    if (intent != null && r.ceilingMs > intent) {
+      p.push(`${w}: ceiling ${r.ceilingMs} exceeds intent budget ${intent}`);
+    }
+  }
+
+  const rowIds = new Set((budgets.rows || []).map((r) => r.surfaceId));
+  for (const h of hookSurfaces) {
+    if (!rowIds.has(h.id)) {
+      p.push(`budgets.json: hook surface ${h.id} has neither a row nor an unmeasured row`);
+    }
+  }
+  return p;
+}
+
+function m5ProposalProblems(proposals) {
+  const p = [];
+  for (const pr of proposals.proposals || []) {
+    const w = `proposals.json ${pr.id}`;
+    if (pr.status === 'approved') {
+      if (!pr.approvedOn || !K2_ISO_OK(pr.approvedOn)) {
+        p.push(`${w}.approvedOn: required valid date when approved`);
+      }
+      if (pr.approvedBy !== 'user') {
+        p.push(`${w}.approvedBy: must be "user" when approved, got ${JSON.stringify(pr.approvedBy)}`);
+      }
+    } else if (pr.status !== 'proposed') {
+      p.push(`${w}.status: must be proposed or approved`);
+    }
+  }
+  return p;
+}
+
+test('G33.6: every threshold has status, approved has approvedOn, and roadmapSentence matches verbatim', () => {
+  const thresholds = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/retrieval/thresholds.json'), 'utf8'));
+  assert.deepEqual(m5ThresholdProblems(thresholds), []);
+});
+
+test('G33.6 control: a missing status, an approved threshold missing approvedOn, and a mutated roadmapSentence are reported', () => {
+  const thresholds = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/retrieval/thresholds.json'), 'utf8'));
+  const tMut = structuredClone(thresholds);
+  delete tMut.thresholds[0].status;
+  tMut.thresholds[1].status = 'approved';
+  delete tMut.thresholds[1].approvedOn;
+  tMut.roadmapSentence = 'Different sentence.';
+  const tGot = m5ThresholdProblems(tMut).join('\n');
+  assert.match(tGot, /T-001\.status: required field missing/);
+  assert.match(tGot, /T-002\.approvedOn: required when approved/);
+  assert.match(tGot, /roadmapSentence: differs from IC-017/);
+});
+
+test('G33.9: baseline snapshotId and tasksSha256 match, every configuration has a row per class, and IC-015 fields are present', () => {
+  const baseline = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/retrieval/baseline.json'), 'utf8'));
+  const snapshot = snapshotLib.loadSnapshot();
+  const devFile = path.join(REPO, snapshot.taskFiles.dev.path);
+  const devBytes = fs.readFileSync(devFile);
+  assert.deepEqual(m5BaselineProblems(baseline, { snapshot, devBytes }), []);
+});
+
+test('G33.10: budget rows carry required fields, at least 30 runs, ceilingMs matches formula, does not exceed intent, and all hook surfaces covered', () => {
+  const budgets = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/perf/budgets.json'), 'utf8'));
+  const { surfaces: hookSurfaces } = enumerateHookSurfaces({ repoRoot: REPO });
+  assert.deepEqual(m5BudgetProblems(budgets, { hookSurfaces }), []);
+});
+
+test('G33.14: no proposal is approved without approvedOn and approvedBy: "user"', () => {
+  const proposals = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/inventory/proposals.json'), 'utf8'));
+  assert.deepEqual(m5ProposalProblems(proposals), []);
+});
+
+test('G33.14 control: approved proposal missing approvedOn, missing approvedBy or with approvedBy !== "user" is reported', () => {
+  const proposals = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/inventory/proposals.json'), 'utf8'));
+  const pMut = structuredClone(proposals);
+  pMut.proposals[0].status = 'approved';
+  delete pMut.proposals[0].approvedOn;
+  delete pMut.proposals[0].approvedBy;
+  pMut.proposals[1].status = 'approved';
+  pMut.proposals[1].approvedOn = '2026-10-13';
+  pMut.proposals[1].approvedBy = 'worker';
+  const pGot = m5ProposalProblems(pMut).join('\n');
+  assert.match(pGot, /S8-01\.approvedOn: required valid date when approved/);
+  assert.match(pGot, /S8-01\.approvedBy: must be "user"/);
+  assert.match(pGot, /S8-02\.approvedBy: must be "user"/);
+});
+
