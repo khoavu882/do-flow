@@ -204,21 +204,25 @@ function extractMandatory({
         vrSourceLines = allCriteriaLines;
       }
 
-      // Order ac items: items matching plan task's stories first, none removed
-      let sortedAcLines = [...acSourceLines];
+      // Assign ids in document order, then order items for the task's stories.
+      const identifiedAcLines = acSourceLines.map((stmt, idx) => ({
+        stmt,
+        id: `ac:${idx + 1}`,
+      }));
+      let sortedAcLines = [...identifiedAcLines];
       if (Array.isArray(taskStories) && taskStories.length > 0) {
         sortedAcLines.sort((a, b) => {
-          const aMatch = taskStories.some((s) => a.includes(s));
-          const bMatch = taskStories.some((s) => b.includes(s));
+          const aMatch = taskStories.some((s) => a.stmt.includes(s));
+          const bMatch = taskStories.some((s) => b.stmt.includes(s));
           return Number(bMatch) - Number(aMatch);
         });
       }
 
-      fields.acceptanceCriteria = sortedAcLines.map((stmt, idx) => {
+      fields.acceptanceCriteria = sortedAcLines.map(({ stmt, id }) => {
         const ids = [...new Set(stmt.match(/N?FR-\d+/g) || [])].sort();
         const stories = stmt.match(/US\d+/g) || [];
         return {
-          id: `ac:${idx + 1}`,
+          id,
           text: stmt,
           requirements: ids,
           stories,
@@ -367,9 +371,9 @@ function extractMandatory({
         fields.scopeExcluded = bullets.map((b: any, idx: number) => {
           // The bold lead of each bullet, plus its owner clause when present
           const leadMatch = b.match(/\*\*(.+?)\*\*/);
-          const ownerMatch = b.match(/\(owner:\s*([^)]+)\)/i);
+          const ownerMatch = b.match(/\(owner:\s*([^)]+)\)|—\s*owner\s+([^\s(;]+)(?:\s*\([^)]*\))?/i);
           let lead = leadMatch ? leadMatch[1] : b;
-          if (ownerMatch) lead += ` (${ownerMatch[0].replace(/^\(|\)$/g, '')})`;
+          if (ownerMatch) lead += ` (owner: ${(ownerMatch[1] || ownerMatch[2]).trim()})`;
           return {
             id: `scope:${idx + 1}`,
             text: lead,
