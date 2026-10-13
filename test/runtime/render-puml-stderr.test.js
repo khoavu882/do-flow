@@ -29,7 +29,23 @@ function fixture(projector) {
   return { root, design: path.join(designDir, 'design.md') };
 }
 
-const run = (root) => spawnSync('bash', [SCRIPT], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: process.env.PATH } });
+// render-puml.sh stops before the splice when no `plantuml` is on PATH (it notes the missing renderer
+// and exits 0), so a machine without PlantUML, a GitHub runner for one, never reaches the subject of
+// these tests. A stub that exits 0 and writes nothing makes the run the same everywhere; it is put
+// ahead of the real PATH, so an installed PlantUML is shadowed rather than invoked.
+function stubPlantumlDir() {
+  const dir = suiteTempDir('doflow-render-puml-stub-');
+  const stub = path.join(dir, 'plantuml');
+  fs.writeFileSync(stub, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(stub, 0o755);
+  return dir;
+}
+
+const run = (root) => spawnSync('bash', [SCRIPT], {
+  cwd: root,
+  encoding: 'utf8',
+  env: { ...process.env, PATH: `${stubPlantumlDir()}${path.delimiter}${process.env.PATH}` },
+});
 
 test('a projector that writes to stderr does not pollute the generated block', () => {
   const { root, design } = fixture(
