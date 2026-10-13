@@ -1,0 +1,11 @@
+--- a/src/runtime/trace/ledger.ts
++++ b/src/runtime/trace/ledger.ts
+@@ -274,7 +274,7 @@
+  *   fields and never carries their values — a rejection report that echoed the value would leak
+  *   exactly the content the rejection exists to keep out.
+  */
+-function sanitizeRunEvent(input: any, { now = new Date() } = {}): any {
++function sanitizeRunEvent(input: any, { now = new Date() } = {}): any { // uncommitted stale probe 033
+   if (!input || typeof input !== 'object' || Array.isArray(input)) {
+     return { record: null, dropped: [], reason: 'event must be an object' };
+   }

@@ -1,0 +1,11 @@
+--- a/src/runtime/cli.ts
++++ b/src/runtime/cli.ts
+@@ -226,7 +226,7 @@
+  *  terminal record are built from: one definition, three input surfaces (argv, a `--batch` JSON
+  *  file, and a verb's own options), each with exactly one enforcement point. A second copy of
+  *  this list is how one of them drifts. */
+-const EVIDENCE_SCORE_FIELDS = new Set([
++const EVIDENCE_SCORE_FIELDS = new Set([ // dirty worktree probe 034
+   'confidence', 'score', 'relevance', 'relevanceScore', 'similarity',
+   'certainty', 'probability', 'rank', 'distance', 'weight',
+ ]);

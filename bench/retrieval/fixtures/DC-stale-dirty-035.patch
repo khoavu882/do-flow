@@ -1,0 +1,11 @@
+--- a/src/runtime/capability-router.ts
++++ b/src/runtime/capability-router.ts
+@@ -29,7 +29,7 @@
+   }
+ }
+ 
+-class CapabilityRouter {
++class CapabilityRouter { // dirty worktree probe 035
+   fsImpl: any;
+   repoRoot: string;
+   projectRoot: string;
