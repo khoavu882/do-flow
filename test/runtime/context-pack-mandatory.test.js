@@ -149,9 +149,11 @@ test('mandatory: resolver spawns once during handleContextPackCommand (negative 
     spawnCount++;
     return origResolve(opts);
   };
+  require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
 
   t.after(() => {
     featureResolve.resolveActiveFeature = origResolve;
+    require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
   });
 
   const origLog = console.log;
@@ -197,9 +199,11 @@ test('mandatory: reads requirement from resolver paths.requirement supporting le
       requirement: 'agent-docs/doflow/legacy-001/requirement.md',
     },
   });
+  require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
 
   t.after(() => {
     featureResolve.resolveActiveFeature = origResolve;
+    require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
   });
 
   let output = '';
@@ -238,9 +242,11 @@ test('mandatory: absent-artifact reason carries resolver message, not error code
     error: 'no-active-feature',
     message: resolverMessage,
   });
+  require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
 
   t.after(() => {
     featureResolve.resolveActiveFeature = origResolve;
+    require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
   });
 
   let output = '';
@@ -341,9 +347,11 @@ test('mandatory: gaps come from parseRequirement result and plan task stories or
       plan: 'agent-docs/doflow/feat-stories/plan.md',
     },
   });
+  require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
 
   t.after(() => {
     featureResolve.resolveActiveFeature = origResolve;
+    require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
   });
 
   let output = '';

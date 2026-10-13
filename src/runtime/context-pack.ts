@@ -10,7 +10,7 @@ const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
 const nativeConsoleLog = console.log;
-const featureResolve = require('./feature-resolve.ts');
+const { resolveFeature } = require('./task-scope.ts');
 const { readRegister } = require('./decision-register.ts');
 const compose = require('./context/compose.ts');
 const {
@@ -49,11 +49,11 @@ const {
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
 const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegisteredHarnesses } = require('./context/budget.ts');
-const { createDeliveryEntry, deliveryStoreDir, readDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
+const { createDeliveryEntry, readDeliveryEntry, recordDelivery } = require('./context/delivery-store.ts');
 const { boundedAcquire } = require('./task-state.ts');
 const pointerTools = require('./context/pointer.ts');
 const { updateTaskState } = require('./task-state.ts');
-const { taskStoreDir, isSafeSlug } = require('./task-scope.ts');
+const { taskStoreDir } = require('./task-scope.ts');
 
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
@@ -64,9 +64,9 @@ const { taskStoreDir, isSafeSlug } = require('./task-scope.ts');
  * @param {{projectRoot:string, slug?:string|null}} options
  * @returns {{available:boolean, live:Array<Object>, liveCount:number, reason?:string}}
  */
-function loadLiveDecisions({ projectRoot, slug = null, feature: preloadedFeature = null }: any) {
+function loadLiveDecisions({ projectRoot, slug = null }: any) {
   try {
-    const feature = preloadedFeature || featureResolve.resolveActiveFeature({ projectRoot, slug });
+    const feature = resolveFeature({ projectRoot, slug });
     if (feature.error) return { ...NO_DECISIONS };
     let register;
     try {
@@ -115,8 +115,8 @@ function profileRetention(harnessId: string | null, profiles: any[] | null): any
   return harnesses.find((item: any) => item.id === harnessId)?.contextProfile?.retention || null;
 }
 
-function appendPointerExpansion({ projectRoot, taskId, slug, packDigest, expansion, fsImpl = fs, feature = null }: any): void {
-  const dir = deliveryStoreDir({ projectRoot, store: 'delivery', taskId, slug, feature });
+function appendPointerExpansion({ projectRoot, taskId, slug, packDigest, expansion, fsImpl = fs }: any): void {
+  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
   const file = path.join(dir, `${taskId}.json`);
   updateTaskState({
     fsImpl, file,
@@ -900,7 +900,7 @@ function handleContextPackCommand({
 
   const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness, profiles });
 
-  const feature = featureResolve.resolveActiveFeature({ projectRoot: root, slug: slug || null });
+  const feature = resolveFeature({ projectRoot: root, slug: slug || null });
 
   let sinceEntry: any = null;
   let deltaRefused: string | null = null;
@@ -915,7 +915,7 @@ function handleContextPackCommand({
   }
   let retention = profileRetention(budget.harness?.id || null, profiles);
   if (since && !expand) {
-    sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since, feature });
+    sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
     if (!sinceEntry) deltaRefused = 'since-unknown';
     else if (sourcesChanged(root, sinceEntry.sources || {})) deltaRefused = 'sources-changed';
     else if (!budget.harness?.id) deltaRefused = 'harness-unstated';
@@ -926,7 +926,7 @@ function handleContextPackCommand({
   }
 
   if (expand) {
-    const prior = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since, feature });
+    const prior = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
     if (!prior) return usageError('context-pack', `Unknown digest '${since}'`, json);
     const pointer = (prior.pointers || []).find((candidate: any) => candidate.id === expand);
     if (!pointer) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
@@ -940,7 +940,7 @@ function handleContextPackCommand({
     let recordReason: string | null = noRecord ? 'no-record' : null;
     if (!noRecord) {
       try {
-        appendPointerExpansion({ projectRoot: root, taskId, slug, packDigest: since, expansion: expansionRecord, feature });
+        appendPointerExpansion({ projectRoot: root, taskId, slug, packDigest: since, expansion: expansionRecord });
         recorded = true;
       } catch (error: any) {
         if (error?.code !== 'store-locked' && error?.message !== 'store-locked') throw error;
@@ -1034,23 +1034,13 @@ function handleContextPackCommand({
     }
   }
 
-  const featureSlug = (!feature.error && feature.paths && isSafeSlug(feature.paths.feature_slug)) ? feature.paths.feature_slug : null;
-  const hasRegister = feature.paths?.has_decisions === true;
-  const namespace = (featureSlug && hasRegister && taskId !== featureSlug && (!feature.featureDir || fs.existsSync(feature.featureDir))) ? featureSlug : null;
-  const evidenceDir = namespace ? path.join(root, '.doflow', 'state', 'evidence', namespace) : path.join(root, '.doflow', 'state', 'evidence');
-
-  const ledger = new EvidenceLedger({ repoRoot: root, slug, stateDir: evidenceDir });
+  const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);
-  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug, stateDir: evidenceDir });
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug });
   claims.load(taskId);
   claims.evaluateAll();
 
-  const researchStore = new ResearchRequestStore({ projectRoot: root, slug });
-  researchStore.file = (tId: any) => {
-    const dir = namespace ? path.join(root, '.doflow', 'state', 'research', namespace) : path.join(root, '.doflow', 'state', 'research');
-    return path.join(dir, `${tId}.json`);
-  };
-  const researchRequests = researchStore.list(taskId);
+  const researchRequests = new ResearchRequestStore({ projectRoot: root, slug }).list(taskId);
 
   const compiler = new ContextPackCompiler();
   let pack = compiler.compileContextPack({
@@ -1075,7 +1065,7 @@ function handleContextPackCommand({
     evidenceLedger: ledger,
     claimsManager: claims,
     researchRequests,
-    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null, feature }),
+    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null }),
   });
 
   let deliverySources: any = null;
@@ -1090,7 +1080,7 @@ function handleContextPackCommand({
     const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
       sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
     try {
-      const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire, feature });
+      const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire });
       pack.delivery.key = result.key;
       pack.delivery.recorded = true;
       pack.delivery.reason = null;
@@ -1132,7 +1122,7 @@ function handleContextPackCommand({
         const entry = createDeliveryEntry({ pack, form: json ? 'json' : 'markdown', harness: budget.harness?.id || null,
           sources: deliverySources, expansions: deltaExpansions, retention: deliveryRetention });
         const result = recordDelivery({ projectRoot: root, taskId, slug, entry, acquire: boundedAcquire,
-          supersedesKey: prior.delivery.key, feature });
+          supersedesKey: prior.delivery.key });
         pack.delivery.key = result.key;
         pack.accounting.tokens = entry.tokens;
       }

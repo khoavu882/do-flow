@@ -348,16 +348,9 @@ cp.spawnSync = function(file, args, opts) {
   return origSpawnSync.apply(this, arguments);
 };
 const origExecFileSync = cp.execFileSync;
-let injected = false;
 cp.execFileSync = function(file, args, opts) {
   logCall(file, args);
-  const result = origExecFileSync.apply(this, arguments);
-  if (process.env.DOFLOW_TEST_INJECT_EXTRA_RESOLVE === '1' && !injected && String(args).includes('do-paths.sh')) {
-    injected = true;
-    logCall(file, args);
-    origExecFileSync.apply(this, arguments);
-  }
-  return result;
+  return origExecFileSync.apply(this, arguments);
 };
 `;
   fs.writeFileSync(preloadFile, code, 'utf8');
@@ -381,7 +374,7 @@ function runCliWithPreload(cwd, args, preloadFile, spawnLog, extraEnv = {}) {
   };
 }
 
-test('context-pack-cli: child-process spawns at most reached count on git repo with feature', (t) => {
+test('context-pack-cli: each run resolves the feature with one do-paths.sh spawn and no other child process', (t) => {
   const root = setupGitTestProject(t, 'doflow-cli-spawns-');
   const { preloadFile, spawnLog } = createSpawnTracerPreload(root);
 
@@ -389,52 +382,13 @@ test('context-pack-cli: child-process spawns at most reached count on git repo w
   const res = runCliWithPreload(root, ['context-pack', '--task-id', 'task-cli', '--json'], preloadFile, spawnLog);
   assert.ok(res.code === 0 || res.code === 1, `exit code must be 0 or 1, got ${res.code}`);
 
-  // Reached count: 1 spawn for branch-coupled (do-paths.sh feature resolution)
-  const REACHED_SPAWN_COUNT = 1;
-  assert.ok(
-    res.spawns.length <= REACHED_SPAWN_COUNT,
-    `child-process spawns (${res.spawns.length}) must be at most ${REACHED_SPAWN_COUNT}: ${res.spawns.join('; ')}`
-  );
-  assert.equal(res.spawns.length, 1, 'must have exactly 1 spawn for feature resolution');
-  assert.ok(res.spawns[0].includes('do-paths.sh'), 'the single spawn must be do-paths.sh');
+  assert.equal(res.spawns.length, 1, `branch-coupled spawns: ${res.spawns.join('; ')}`);
+  assert.ok(res.spawns[0].includes('do-paths.sh'), `branch-coupled spawn must be do-paths.sh: ${res.spawns[0]}`);
 
-  // With explicit slug, validation in CLI + resolution in handler: at most 2 spawns
+  // With explicit slug, the same single resolution serves the handler and every store.
   const resSlug = runCliWithPreload(root, ['context-pack', '--task-id', 'task-cli', '--slug', 'feat-cli', '--json'], preloadFile, spawnLog);
   assert.ok(resSlug.code === 0 || resSlug.code === 1);
-  assert.ok(
-    resSlug.spawns.length <= 2,
-    `with --slug, spawns (${resSlug.spawns.length}) must be at most 2: ${resSlug.spawns.join('; ')}`
-  );
-});
-
-test('context-pack-cli: negative control — resolving feature twice makes spawn count assertion fail', (t) => {
-  const root = setupGitTestProject(t, 'doflow-cli-spawns-neg-');
-  const { preloadFile, spawnLog } = createSpawnTracerPreload(root);
-
-  const REACHED_SPAWN_COUNT = 1;
-  function assertSpawnsWithinLimit(spawns, maxAllowed) {
-    assert.ok(
-      spawns.length <= maxAllowed,
-      `child-process spawns (${spawns.length}) must be at most ${maxAllowed}`
-    );
-  }
-
-  // Normal run passes the limit
-  const normalRes = runCliWithPreload(root, ['context-pack', '--task-id', 'task-cli', '--json'], preloadFile, spawnLog);
-  assert.doesNotThrow(() => assertSpawnsWithinLimit(normalRes.spawns, REACHED_SPAWN_COUNT));
-
-  // Injected second resolution (simulating resolving feature twice) causes assertion to fail
-  const doubleRes = runCliWithPreload(
-    root,
-    ['context-pack', '--task-id', 'task-cli', '--json'],
-    preloadFile,
-    spawnLog,
-    { DOFLOW_TEST_INJECT_EXTRA_RESOLVE: '1' }
-  );
-  assert.equal(doubleRes.spawns.length, 2, 'injected double resolve must produce 2 spawns');
-  assert.throws(
-    () => assertSpawnsWithinLimit(doubleRes.spawns, REACHED_SPAWN_COUNT),
-    (err) => err.message.includes(`child-process spawns (2) must be at most ${REACHED_SPAWN_COUNT}`)
-  );
+  assert.equal(resSlug.spawns.length, 1, `--slug spawns: ${resSlug.spawns.join('; ')}`);
+  assert.ok(resSlug.spawns[0].includes('do-paths.sh'), `--slug spawn must be do-paths.sh: ${resSlug.spawns[0]}`);
 });
 
