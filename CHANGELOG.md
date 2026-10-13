@@ -15,6 +15,91 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.0-beta.3] - 2026-10-13
+
+Prerelease of 2.0.0 on the npm `beta` dist-tag (`npx @khoavu882/doflow@beta`); `latest` stays 1.24.1. 2.0.0 stable follows once the
+context-budget and evidence-attempt work (P1) lands.
+
+### Added
+- Benchmark baseline and contracts for the retrieval roadmap (P0): a retrieval benchmark under
+  `bench/retrieval`, latency budgets under `bench/perf`, a tool inventory under `bench/inventory`,
+  and a guard (G33) that keeps them consistent. `bench/` is not part of the npm package, so
+  installs are unchanged.
+
+### Changed
+- **Breaking: the Node.js floor is raised from `>=18` to `^22.18.0 || >=24.3.0`** (`engines.node`). DoFlow's own
+  runtime (`src/`) is now TypeScript, run directly by Node's native type-stripping, with no build
+  step and still no runtime dependencies. Every module under `src/` is reachable from
+  `bin/doflow.js` (156 of 156), so no part of the CLI can run on an older Node. Node 18 and 20 are
+  no longer supported. The floor is where type-stripping is on by default and silent: Node 22.18.0 and
+  24.3.0. Node 22.6 to 22.17 and 23.0 to 23.5 only strip types behind `--experimental-strip-types`,
+  which DoFlow does not pass, so they are below the floor. Node 23.6 to 24.2 strip types by default
+  but print `ExperimentalWarning: Type Stripping is an experimental feature` to stderr on every `.ts`
+  load, so the floor skips them (Node 23 is end-of-life).
+  - On a Node that cannot strip types (below the floor, or stripping turned off with
+    `--no-experimental-strip-types`, for example through `NODE_OPTIONS`), `doflow` now exits 2 with
+    one line naming the running Node, the required range and that flag, instead of a SyntaxError.
+  - Check with `node -v`. On Node 18, 20 or an older 22.x/23.x, install Node 22.18 or later (or
+    24.3 or later) before running `npx @khoavu882/doflow` or `doflow update`.
+  - To stay on the last release for Node 18/20, pin `@khoavu882/doflow@1.24.1`.
+  - `docs/setup.md` states the floor and the reason.
+- **Breaking (installed output shape): runtime files under `.doflow/runtime` that were `.js` are
+  now `.ts`** (for example `git.js` -> `git.ts`). `bin/doflow.js` stays `.js` and the `doflow` and
+  `doflow-run` entry points do not move. A script of your own that requires an installed runtime
+  file by its old `.js` path breaks; `doflow update` removes the old file (see Fixed).
+- All of `src/` is TypeScript: 156 `.ts` modules, 0 `.js` under `src/`. CLI behaviour is unchanged.
+  A guard (G30) fails if a plain `.js` is added under `src/`.
+- Node's module compile cache is enabled at the CLI entry (`bin/doflow.js`), so the cost of
+  transforming each `.ts` module is paid once per Node version and file content. It honours
+  `NODE_COMPILE_CACHE` (cache directory) and `NODE_DISABLE_COMPILE_CACHE` (turns it off), and with
+  neither set lives in Node's default location. If the API is missing or throws, the CLI still runs,
+  without the cache.
+  - Measured at 073's tip (452e881) on the development machine, interleaved runs under the same load, `--version` / `--help`:
+    1.24.x source (837f8bf) 64 ms / 66 ms; this release with the cache 57 ms / 61 ms (25-30 runs);
+    this release with the cache off 109 ms / 112 ms. The cache is what keeps the CLI at or below
+    1.24.x; without it start-up is slower.
+
+### Fixed
+- `npm test` runs on the supported Node versions: the script discovers `test/**/*.test.js` with Node's own glob, because Node 22.18 and 24 do not recurse a directory argument. 2.0.0-beta.1 and 2.0.0-beta.2 were tagged but never published (their release gates failed: test discovery on the Node floor, and a test that needed PlantUML on the runner).
+- Failures you settled on 1.24.x reappear once after upgrading. A failure's fingerprint includes the
+  module path of its frame, which now ends `.ts` instead of `.js`, so each distinct failure shows up
+  as a new, unsettled entry. List them with `doflow-run failure --action list` and settle each again
+  with `doflow-run failure --action settle --fp <fp> --as noise|fixed|imported --reason "<why>"`.
+- `doflow update` prunes runtime files a newer version no longer ships. A file under the shared
+  runtime trees (`runtime.cli`, `runtime.lib`, `runtime.registry`) that the new version no longer
+  produces is removed when its bytes still match what DoFlow recorded, including after a partial
+  update that left out a harness still holding a record on it (a bare `update` targets Claude only).
+  Previously such files, for example the `.js` copies left by the `.js` -> `.ts` renames, stayed.
+  Verified on a scratch v1.24.1 Claude install updated through each of the 8 harnesses: 89 orphans,
+  0 afterwards.
+  - A file you edited, a file DoFlow has no record of, and a file whose real path leaves the
+    tree (a symlink) are kept, and `update` names each one.
+  - `doflow update --dry-run` lists every file it would prune or keep and deletes nothing.
+- `doflow update` reports what it retained, after the run and under `--dry-run`, as `doflow remove`
+  already did: files left in place because a harness outside the run still claims them.
+- On a case-insensitive filesystem (macOS default), a rename that changes only letter case no
+  longer deletes the file the same run just wrote, and `verify` now reports a file the run wrote
+  that is missing. Reproduced three times on APFS before the fix.
+- `doflow rollback` restores the ownership ledger (`.doflow/state/ledger.json`) together with the
+  files, so `update` and `remove` work after a rollback. Before, they refused the restored files as
+  "modified outside DoFlow" (reproduced: update, rollback, update exited 1 with 48 refusals; remove
+  exited 1). Backups taken by `install` and `update`, and the snapshot taken before a rollback,
+  now include the ledger.
+  - Restored: the ledger only. Not restored: runs, evidence, recovery records, the lock and the
+    install manifest.
+  - A rollback narrowed with `--target` leaves the ledger as it is, because restoring it would
+    rewind the other harnesses' records.
+- `doflow update -t codex` no longer refuses an update whose only work is a runtime prune or the
+  release of a stale ledger row.
+
+### Known limitations
+- After a rollback, files the rolled-back update created stay unowned until the next `update`
+  adopts them.
+- On a v1.24.1 Claude install, `install -t codex|gemini|kiro|antigravity` can refuse because
+  `hooks.shared: policies/lib.sh` is reported modified. Seen at HEAD and at 8bf9644; not fixed here.
+- A bare `doflow update` still targets Claude only; pruning follows the runtime files DoFlow
+  recorded for every harness, but the update itself does not.
+
 ## [1.24.1] - 2026-10-11
 
 ### Fixed

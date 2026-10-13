@@ -1,6 +1,6 @@
 {
   "name": "@khoavu882/doflow",
-  "version": "1.24.1",
+  "version": "2.0.0-beta.3",
   "description": "DoFlow config installer — npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
   "keywords": [
     "claude-code",
@@ -29,7 +29,7 @@
     "node": "^22.18.0 || >=24.3.0"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test \"test/**/*.test.js\"",
     "typecheck": "npx -y -p typescript@5.7.2 tsc -p tsconfig.json",
     "bench": "node bench/runner.js",
     "drift": "node scripts/check-format-drift.js",

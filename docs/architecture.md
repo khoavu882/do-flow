@@ -497,7 +497,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   baseline entry recorded twice, and so does a case moved to the other side when its baseline result recorded `split` (the committed baseline
   records none, so that comparison starts applying per case once a re-captured baseline does);
   `coverage` alone cannot see any of these. It also holds the boundary that keeps the corpus
-  cheap: `npm test` scopes discovery to `test/` via the directory argument, so an unscoped
+  cheap: `npm test` scopes discovery to `test/` with a quoted `test/**/*.test.js` glob that Node itself
+  expands (Node 22.18 and 24 do not recurse a directory argument), so an unscoped
   `node --test` cannot execute captured artifacts under `bench/runs/`; the harness keeps its own
   `bench` script; and `npm test` never invokes the harness, whose dispatch step makes paid model
   calls. Only `bench/runs/` and `bench/reports/` stay ignored. G11b, in the same file, holds skill

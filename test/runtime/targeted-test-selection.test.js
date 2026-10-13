@@ -74,6 +74,35 @@ test('FR-002: a `node --test <dirs>` script yields `node --test {pattern}` as a 
   }
 });
 
+test('FR-002: a quoted or glob test script reduces to its directory roots', () => {
+  const cases = [
+    ['node --test "test/**/*.test.js"', ['test']],
+    ["node --test 'test/**/*.test.js' 'e2e/**/*.test.js'", ['test', 'e2e']],
+    ['node --test "**/*.test.js"', ['.']],
+    ['node --test src/a/*.spec.js', ['src/a']],
+    ['node --test "test/**/*.test.js" test', ['test']],
+    ['node --test "test/" tests/unit', ['test/', 'tests/unit']],
+  ];
+  for (const [script, dirs] of cases) {
+    const found = detectCommands({ projectRoot: project({ script }) }).commands.testTargeted;
+    assert.equal(found.derivation, 'declared', script);
+    assert.deepEqual(found.testDirs, dirs, script);
+  }
+});
+
+test('FR-003: with a glob test script a changed test file is selected from the glob root', () => {
+  // No test/guards/ here: the guard directory is always added to a selection (see the case above).
+  const root = project({
+    script: 'node --test "test/**/*.test.js"',
+    files: { 'test/a.test.js': '', 'test/b.test.js': '', 'src/lib.js': '' },
+  });
+  const found = detectCommands({ projectRoot: root }).commands.testTargeted;
+  const selected = selectChangedTests({ found, observation: { files: ['test/a.test.js'] }, root });
+  assert.equal(selected.selection.selectedCount, 1);
+  assert.ok(selected.selection.totalCount > 0);
+  assert.equal(selected.pattern, 'test/a.test.js');
+});
+
 test('FR-002: any other test script keeps the inferred `npm test -- {pattern}` command', () => {
   for (const script of ['node --test', 'jest', 'node --test test/ && node other.js', 'mocha test/']) {
     const root = project({ script });
