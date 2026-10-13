@@ -519,3 +519,197 @@ test('C.12: an unsafe task id is a usage error, not an arbitrary file write', ()
   assert.equal(res.status, 2);
   assert.match(res.stderr, /Invalid task id/);
 });
+
+// ── 076 C.2: --need binding, refusals, attemptRef and ledger filters ────────
+
+test('076 C.2: --need locate-known-symbol stamps source.queryRef, active attemptRef stamps source.attemptRef, item without --need exits 0', () => {
+  const cwd = project();
+  const slug = 'feat-bind';
+  fs.mkdirSync(path.join(cwd, 'agent-docs', 'doflow', slug), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'agent-docs', 'doflow', slug, 'plan.md'), [
+    '# Plan', '', '## Tasks', '', '### Phase A', '',
+    '- [ ] A.1 test task; owner: core-implementer; files: a.js',
+  ].join('\n'));
+  execFileSync('git', ['-C', cwd, 'checkout', '-qb', `feat/${slug}`]);
+
+  // Declare retrieval plan for task A.1 with need locate-known-symbol
+  const decRes = run(cwd, ['retrieval-plan', '--task-id', 'A.1', '--action', 'declare', '--need', 'locate-known-symbol', '--json']);
+  assert.equal(decRes.status, 0);
+  const planData = JSON.parse(decRes.stdout);
+  assert.ok(planData.planId);
+  const expectedQueryRef = `${planData.planId}#locate-known-symbol`;
+
+  // Item without --need exits 0 and records unbound (no queryRef, no attemptRef before claim)
+  const unboundRes = addExtracted(cwd, 'A.1', 'a.js:1', ['--content', 'unbound line']);
+  assert.equal(unboundRes.status, 0);
+  assert.equal(unboundRes.data.written, 1);
+  const unboundItem = unboundRes.data.evidence[0];
+  assert.equal(unboundItem.source.queryRef, undefined);
+  assert.equal(unboundItem.source.attemptRef, undefined);
+
+  // Claim 070 attempt for task A.1
+  const claimRes = run(cwd, ['task-attempt', '--action', 'claim', '--slug', slug, '--task', 'A.1', '--owner', 'core-implementer', '--mode', 'subagent', '--json']);
+  assert.equal(claimRes.status, 0);
+
+  // Add evidence with --need locate-known-symbol
+  const boundRes = addExtracted(cwd, 'A.1', 'a.js:1', ['--content', 'bound line', '--need', 'locate-known-symbol']);
+  assert.equal(boundRes.status, 0);
+  assert.equal(boundRes.data.written, 1);
+  const boundItem = boundRes.data.evidence[0];
+  assert.equal(boundItem.source.queryRef, expectedQueryRef, 'source.queryRef must be <planId>#locate-known-symbol');
+  assert.equal(boundItem.source.attemptRef, 'A.1#1', 'source.attemptRef must be A.1#1 from active 070 attempt');
+});
+
+test('076 C.2: queryEvidence queryRef and attemptRef filters match exactly', () => {
+  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+  const ledger = new EvidenceLedger();
+  ledger.addEvidence({ taskId: 't1', kind: 'exact-search', locator: { file: 'a.js' }, source: { provider: 'grep', capability: 'code.exact-search', queryRef: 'plan_1#intent-a', attemptRef: 't1#1' } });
+  ledger.addEvidence({ taskId: 't1', kind: 'exact-search', locator: { file: 'b.js' }, source: { provider: 'grep', capability: 'code.exact-search', queryRef: 'plan_1#intent-b', attemptRef: 't1#2' } });
+  ledger.addEvidence({ taskId: 't1', kind: 'exact-search', locator: { file: 'c.js' }, source: { provider: 'grep', capability: 'code.exact-search' } });
+
+  const qMatch = ledger.queryEvidence({ queryRef: 'plan_1#intent-a' });
+  assert.equal(qMatch.length, 1);
+  assert.equal(qMatch[0].locator.file, 'a.js');
+
+  const qNone = ledger.queryEvidence({ queryRef: 'plan_1#intent-missing' });
+  assert.equal(qNone.length, 0);
+
+  const aMatch = ledger.queryEvidence({ attemptRef: 't1#2' });
+  assert.equal(aMatch.length, 1);
+  assert.equal(aMatch[0].locator.file, 'b.js');
+
+  const aNone = ledger.queryEvidence({ attemptRef: 't1#99' });
+  assert.equal(aNone.length, 0);
+});
+
+test('076 C.2: IC-002 refusals exit 2 with exact messages and refused batch writes nothing', () => {
+  const cwd = project();
+  const base = {
+    kind: 'exact-search', provenance: 'extracted',
+    source: { provider: 'grep', capability: 'code.exact-search' }, locator: 'a.js:1',
+  };
+
+  // Declare a plan for task-plan with needs inspect-history, locate-known-symbol
+  const decRes = run(cwd, ['retrieval-plan', '--task-id', 'task-plan', '--action', 'declare', '--need', 'inspect-history', '--need', 'locate-known-symbol', '--json']);
+  assert.equal(decRes.status, 0);
+  const planId = JSON.parse(decRes.stdout).planId;
+
+  // 1. Caller-typed queryRef (top-level)
+  const batchQueryTop = path.join(cwd, 'refuse-query-top.json');
+  fs.writeFileSync(batchQueryTop, JSON.stringify([{ ...base, queryRef: 'foo#bar' }]));
+  const resQueryTop = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add', '--batch', batchQueryTop]);
+  assert.equal(resQueryTop.status, 2);
+  assert.equal(
+    resQueryTop.stderr.trim(),
+    "doflow evidence: 'queryRef' is not accepted here: the runtime stamps it from the need. Re-run with --need <intent> (in a batch, \"need\": \"<intent>\"). Declared intents for task 'task-plan': inspect-history, locate-known-symbol."
+  );
+  assert.equal(json(cwd, ['evidence', '--task-id', 'task-plan']).data.evidenceCount, 0);
+
+  // 2. Caller-typed queryRef (under source)
+  const batchQuerySource = path.join(cwd, 'refuse-query-source.json');
+  fs.writeFileSync(batchQuerySource, JSON.stringify([{ ...base, source: { ...base.source, queryRef: 'foo#bar' } }]));
+  const resQuerySource = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add', '--batch', batchQuerySource]);
+  assert.equal(resQuerySource.status, 2);
+  assert.equal(
+    resQuerySource.stderr.trim(),
+    "doflow evidence: 'queryRef' is not accepted here: the runtime stamps it from the need. Re-run with --need <intent> (in a batch, \"need\": \"<intent>\"). Declared intents for task 'task-plan': inspect-history, locate-known-symbol."
+  );
+
+  // 3. Caller-typed queryRef with no plan declared
+  const batchQueryNoPlan = path.join(cwd, 'refuse-query-noplan.json');
+  fs.writeFileSync(batchQueryNoPlan, JSON.stringify([{ ...base, queryRef: 'foo#bar' }]));
+  const resQueryNoPlan = run(cwd, ['evidence', '--task-id', 'task-no-plan', '--action', 'add', '--batch', batchQueryNoPlan]);
+  assert.equal(resQueryNoPlan.status, 2);
+  assert.equal(
+    resQueryNoPlan.stderr.trim(),
+    "doflow evidence: 'queryRef' is not accepted here: the runtime stamps it from the need. Re-run with --need <intent> (in a batch, \"need\": \"<intent>\"). Declared intents for task 'task-no-plan': none declared."
+  );
+
+  // 4. Caller-typed attemptRef (top-level)
+  const batchAttemptTop = path.join(cwd, 'refuse-attempt-top.json');
+  fs.writeFileSync(batchAttemptTop, JSON.stringify([{ ...base, attemptRef: 'task-plan#1' }]));
+  const resAttemptTop = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add', '--batch', batchAttemptTop]);
+  assert.equal(resAttemptTop.status, 2);
+  assert.equal(
+    resAttemptTop.stderr.trim(),
+    "doflow evidence: 'attemptRef' is not accepted here: it is read from the active task attempt. Claim the task with doflow task-attempt --action claim --task task-plan, then re-run without attemptRef."
+  );
+
+  // 5. Caller-typed attemptRef (under source)
+  const batchAttemptSource = path.join(cwd, 'refuse-attempt-source.json');
+  fs.writeFileSync(batchAttemptSource, JSON.stringify([{ ...base, source: { ...base.source, attemptRef: 'task-plan#1' } }]));
+  const resAttemptSource = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add', '--batch', batchAttemptSource]);
+  assert.equal(resAttemptSource.status, 2);
+  assert.equal(
+    resAttemptSource.stderr.trim(),
+    "doflow evidence: 'attemptRef' is not accepted here: it is read from the active task attempt. Claim the task with doflow task-attempt --action claim --task task-plan, then re-run without attemptRef."
+  );
+
+  // 6. Caller-typed result
+  const batchResult = path.join(cwd, 'refuse-result.json');
+  fs.writeFileSync(batchResult, JSON.stringify([{ ...base, result: 'EMPTY' }]));
+  const resResult = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add', '--batch', batchResult]);
+  assert.equal(resResult.status, 2);
+  assert.equal(
+    resResult.stderr.trim(),
+    "doflow evidence: 'result' is not accepted here: an empty answer is recorded with --absence --need <intent> (in a batch, \"absence\": true), which also measures the index freshness."
+  );
+
+  // 7. --need with no plan for the task
+  const resNoPlan = run(cwd, ['evidence', '--task-id', 'task-no-plan', '--action', 'add',
+    '--kind', 'exact-search', '--provenance', 'extracted', ...SOURCE, '--locator', 'a.js:1', '--need', 'inspect-history']);
+  assert.equal(resNoPlan.status, 2);
+  assert.equal(
+    resNoPlan.stderr.trim(),
+    "doflow evidence: no retrieval plan is declared for task 'task-no-plan', so --need 'inspect-history' names nothing. Declare one first: doflow retrieval-plan --task-id task-no-plan --action declare --need inspect-history, then re-run."
+  );
+
+  // 8. --need names an undeclared intent
+  const resUndeclared = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add',
+    '--kind', 'exact-search', '--provenance', 'extracted', ...SOURCE, '--locator', 'a.js:1', '--need', 'locate-concept']);
+  assert.equal(resUndeclared.status, 2);
+  assert.equal(
+    resUndeclared.stderr.trim(),
+    `doflow evidence: 'locate-concept' is not a declared need of task 'task-plan' (plan ${planId}). Declared: inspect-history, locate-known-symbol. Re-run with one of them, or re-declare the plan with this need.`
+  );
+
+  // 9. --need against a plan with no planId
+  const planDir = path.join(cwd, '.doflow', 'state', 'retrieval');
+  fs.mkdirSync(planDir, { recursive: true });
+  fs.writeFileSync(path.join(planDir, 'task-legacy.json'), JSON.stringify({
+    version: 1,
+    taskId: 'task-legacy',
+    needs: [
+      { intent: 'inspect-history', provider: 'git', capability: 'history.search' },
+      { intent: 'locate-known-symbol', provider: 'grep', capability: 'code.exact-search' },
+    ],
+  }));
+  const resLegacy = run(cwd, ['evidence', '--task-id', 'task-legacy', '--action', 'add',
+    '--kind', 'exact-search', '--provenance', 'extracted', ...SOURCE, '--locator', 'a.js:1', '--need', 'inspect-history']);
+  assert.equal(resLegacy.status, 2);
+  assert.equal(
+    resLegacy.stderr.trim(),
+    "doflow evidence: the retrieval plan for task 'task-legacy' was declared before query binding and has no plan id. Re-declare it: doflow retrieval-plan --task-id task-legacy --action declare --need inspect-history, locate-known-symbol, then re-run."
+  );
+
+  // 10. --need with more than one intent
+  const resMultiFlags = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add',
+    '--kind', 'exact-search', '--provenance', 'extracted', ...SOURCE, '--locator', 'a.js:1', '--need', 'inspect-history', '--need', 'locate-known-symbol']);
+  assert.equal(resMultiFlags.status, 2);
+  assert.equal(
+    resMultiFlags.stderr.trim(),
+    "doflow evidence: --need takes one intent on evidence --action add, got 2. Record one write per need."
+  );
+
+  const batchMulti = path.join(cwd, 'refuse-multi.json');
+  fs.writeFileSync(batchMulti, JSON.stringify([base, { ...base, need: ['inspect-history', 'locate-known-symbol'] }]));
+  const resMultiBatch = run(cwd, ['evidence', '--task-id', 'task-plan', '--action', 'add', '--batch', batchMulti]);
+  assert.equal(resMultiBatch.status, 2);
+  assert.equal(
+    resMultiBatch.stderr.trim(),
+    "doflow evidence: batch item 2 of 2: --need takes one intent on evidence --action add, got 2. Record one write per need."
+  );
+
+  // Refused batch writes nothing
+  assert.equal(json(cwd, ['evidence', '--task-id', 'task-plan']).data.evidenceCount, 0);
+});

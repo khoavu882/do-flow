@@ -7,6 +7,7 @@ const { measureTreeState, sourceVersionFor } = require('./source-version.ts');
 const { VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger.ts');
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { assertNoScoreFields } = require('./evidence-fields.ts');
+const { readPlan, resolveNeed, activeAttemptRef } = require('./retrieval-record.ts');
 
 interface Candidate {
   locator?: any;
@@ -33,6 +34,7 @@ interface BuildContext {
   plan?: any;
   treeState?: any;
   attemptRef?: string;
+  slug?: string | null;
 }
 
 const CANDIDATE_FIELDS: readonly string[] = [
@@ -60,13 +62,35 @@ const NON_REPOSITORY_KINDS = new Set(['generated-analysis', 'user-statement']);
 /** Fields a caller might plausibly send that this boundary refuses by name, with the reason.
  *  A named refusal beats the generic unknown-field error: each of these would otherwise be
  *  silently discarded by `addEvidence`, and a silent discard reads as a successful write. */
-const EVIDENCE_REFUSED_FIELDS = new Map([
+const EVIDENCE_REFUSED_FIELDS = new Map<string, string | ((taskId: string, repoRoot?: string) => string)>([
   ['id', 'evidence ids are minted by the ledger — a caller-chosen id can overwrite an unrelated record'],
   ['freshness', 'freshness is measured here from the working tree at write time, never asserted by the writer'],
   ['supports', 'link evidence to a claim with `claim --action link`, which updates both sides; a list written here would leave the claim unaware of it'],
   ['contradicts', 'link evidence to a claim with `claim --action link`, which updates both sides; a list written here would leave the claim unaware of it'],
   ['stage', 'the evidence record has no stage field — the batch *is* the stage boundary, so a stage name recorded here would be dropped'],
   ['status', "lifecycle status starts 'active' and changes only through `evidence --action supersede` — asserting it here would let a caller declare an item superseded without naming what replaces it"],
+  ['queryRef', (taskId: string, repoRoot?: string) => {
+    const plan = readPlan(repoRoot || process.cwd(), taskId);
+    const declaredIntents = Array.isArray(plan?.needs)
+      ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
+      : [];
+    const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
+    return `the runtime stamps it from the need. Re-run with --need <intent> (in a batch, "need": "<intent>"). Declared intents for task '${taskId}': ${list}.`;
+  }],
+  ['attemptRef', (taskId: string) => `it is read from the active task attempt. Claim the task with doflow task-attempt --action claim --task ${taskId}, then re-run without attemptRef.`],
+  ['result', 'an empty answer is recorded with --absence --need <intent> (in a batch, "absence": true), which also measures the index freshness.'],
+]);
+
+const EVIDENCE_REFUSED_SOURCE_FIELDS = new Map<string, string | ((taskId: string, repoRoot?: string) => string)>([
+  ['queryRef', (taskId: string, repoRoot?: string) => {
+    const plan = readPlan(repoRoot || process.cwd(), taskId);
+    const declaredIntents = Array.isArray(plan?.needs)
+      ? plan.needs.map((n: any) => n.intent).filter(Boolean).sort()
+      : [];
+    const list = declaredIntents.length > 0 ? declaredIntents.join(', ') : 'none declared';
+    return `the runtime stamps it from the need. Re-run with --need <intent> (in a batch, "need": "<intent>"). Declared intents for task '${taskId}': ${list}.`;
+  }],
+  ['attemptRef', (taskId: string) => `it is read from the active task attempt. Claim the task with doflow task-attempt --action claim --task ${taskId}, then re-run without attemptRef.`],
 ]);
 
 /**
@@ -122,7 +146,11 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
   assertNoScoreFields(raw, '');
 
   for (const key of Object.keys(raw)) {
-    if (EVIDENCE_REFUSED_FIELDS.has(key)) throw new Error(`'${key}' is not accepted here: ${EVIDENCE_REFUSED_FIELDS.get(key)}`);
+    if (EVIDENCE_REFUSED_FIELDS.has(key)) {
+      const val = EVIDENCE_REFUSED_FIELDS.get(key);
+      const reason = typeof val === 'function' ? val(taskId, repoRoot) : val;
+      throw new Error(`'${key}' is not accepted here: ${reason}`);
+    }
     if (!EVIDENCE_ITEM_FIELDS.includes(key)) {
       throw new Error(`unknown evidence field '${key}'. Accepted: ${EVIDENCE_ITEM_FIELDS.join(', ')}`);
     }
@@ -155,7 +183,13 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
   if (!raw.source || typeof raw.source !== 'object' || Array.isArray(raw.source)) {
     throw new Error('source must be an object with provider and capability');
   }
+  assertNoScoreFields(raw.source, 'source');
   for (const key of Object.keys(raw.source)) {
+    if (EVIDENCE_REFUSED_SOURCE_FIELDS.has(key)) {
+      const val = EVIDENCE_REFUSED_SOURCE_FIELDS.get(key);
+      const reason = typeof val === 'function' ? val(taskId, repoRoot) : val;
+      throw new Error(`'${key}' is not accepted here: ${reason}`);
+    }
     if (!EVIDENCE_SOURCE_FIELDS.includes(key)) {
       throw new Error(`unknown source field '${key}'. Accepted: ${EVIDENCE_SOURCE_FIELDS.join(', ')}`);
     }
@@ -243,6 +277,26 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
       + 'and it is exactly how a failed baseline was once accepted as a passing one');
   }
 
+  let needIntent: string | null = null;
+  if (raw.need !== undefined) {
+    const list = Array.isArray(raw.need) ? raw.need : [raw.need];
+    const intents: string[] = [];
+    for (const entry of list) {
+      if (typeof entry === 'string') {
+        for (const token of entry.split(',')) {
+          const trimmed = token.trim();
+          if (trimmed !== '') intents.push(trimmed);
+        }
+      } else if (entry !== undefined && entry !== null) {
+        intents.push(String(entry).trim());
+      }
+    }
+    if (intents.length !== 1) {
+      throw new Error(`--need takes one intent on evidence --action add, got ${intents.length}. Record one write per need.`);
+    }
+    needIntent = intents[0];
+  }
+
   return {
     kind: raw.kind,
     provenance: raw.provenance,
@@ -251,7 +305,7 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any) {
     content,
     establishes,
     observation,
-    ...(raw.need !== undefined ? { need: raw.need } : {}),
+    ...(needIntent !== null ? { need: needIntent } : {}),
   };
 }
 
@@ -340,8 +394,22 @@ function toEvidence(
   const sv = sourceVersionFor(root, validated.locator, treeState);
 
   const source: Record<string, any> = { ...validated.source };
-  if (ctx.attemptRef) {
-    source.attemptRef = ctx.attemptRef;
+
+  if (validated.need) {
+    const plan = ctx.plan !== undefined ? ctx.plan : readPlan(root, taskId, ctx.slug);
+    const resolved = resolveNeed(plan, validated.need, taskId);
+    if (!resolved.ok) {
+      throw new Error(resolved.message);
+    }
+    source.queryRef = resolved.queryRef;
+    delete validated.need;
+  }
+
+  const attemptRef = ctx.attemptRef !== undefined
+    ? ctx.attemptRef
+    : activeAttemptRef(root, taskId, ctx.slug);
+  if (attemptRef) {
+    source.attemptRef = attemptRef;
   }
 
   return {
@@ -361,4 +429,5 @@ module.exports = {
   parseLocator,
   validateEvidenceItem,
   EVIDENCE_REFUSED_FIELDS,
+  EVIDENCE_REFUSED_SOURCE_FIELDS,
 };
