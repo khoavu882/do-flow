@@ -1,0 +1,289 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": 1,
+  "split": "dev",
+  "tasks": [
+    {
+      "id": "DG-021",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "stale-index",
+      "query": "Readiness gating and run tracing",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/FLAGS.md",
+          "startLine": 6,
+          "endLine": 16,
+          "heading": "Always on",
+          "rel": 2,
+          "anchorSha": "886daca059c06a4ef57e62c3dcc8773360b896350931a7d593ee34fe36b4981c"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "setup": {
+        "patch": "bench/retrieval/fixtures/DG-outcome-021.patch"
+      },
+      "queryOverlap": 1,
+      "truthSource": [
+        "core/shared/guidance/FLAGS.md:6"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DG-022",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "stale-index",
+      "query": "Understand Plan Execute Verify engineering progression",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/PRINCIPLES.md",
+          "startLine": 5,
+          "endLine": 9,
+          "heading": "The loop",
+          "rel": 2,
+          "anchorSha": "65a14138866b56aa974d7ae7031b26c0c3d7019ca56257944916996346d2074f"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "setup": {
+        "patch": "bench/retrieval/fixtures/DG-outcome-022.patch"
+      },
+      "queryOverlap": 0.667,
+      "truthSource": [
+        "core/shared/guidance/PRINCIPLES.md:5"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DG-023",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "stale-index",
+      "query": "Conflict order: Safety > Scope > Quality > Speed hierarchy",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/rules/RULE_01_SAFETY.md",
+          "startLine": 3,
+          "endLine": 9,
+          "heading": "Priority System",
+          "rel": 2,
+          "anchorSha": "06b29beb51f4e345220bbbf60a156100f7adc97a141d8a871e2e05e8c5950ac8"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "setup": {
+        "patch": "bench/retrieval/fixtures/DG-outcome-023.patch"
+      },
+      "queryOverlap": 0.857,
+      "truthSource": [
+        "core/shared/guidance/rules/RULE_01_SAFETY.md:3"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DG-024",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "dirty-tree",
+      "query": "focus quality security performance flag parameter",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/FLAGS.md",
+          "startLine": 17,
+          "endLine": 25,
+          "heading": "Flags",
+          "rel": 2,
+          "anchorSha": "fe8be773569c6321c3741066847cf2ed06c4c880eea5dd3b8a30002eab09e7d0"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "setup": {
+        "patch": "bench/retrieval/fixtures/DG-outcome-024.patch"
+      },
+      "queryOverlap": 0.833,
+      "truthSource": [
+        "core/shared/guidance/FLAGS.md:17"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DG-025",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "dirty-tree",
+      "query": "contract before findings report every item in the set",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/PRINCIPLES.md",
+          "startLine": 10,
+          "endLine": 16,
+          "heading": "Contract before findings",
+          "rel": 2,
+          "anchorSha": "f1c0218ee6d92e15a470c4357c97b833e833c30d55f4bf6c7bc7e0363e883521"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "setup": {
+        "patch": "bench/retrieval/fixtures/DG-outcome-025.patch"
+      },
+      "queryOverlap": 1,
+      "truthSource": [
+        "core/shared/guidance/PRINCIPLES.md:10"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DG-026",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "dirty-tree",
+      "query": "parallel by default sequential for hard dependencies planning",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/rules/RULE_02_WORKFLOW.md",
+          "startLine": 3,
+          "endLine": 9,
+          "heading": "Planning",
+          "rel": 2,
+          "anchorSha": "680f40842174726f9380ae39df49211f03d8af920076db6204ffad440bc8abaa"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "setup": {
+        "patch": "bench/retrieval/fixtures/DG-outcome-026.patch"
+      },
+      "queryOverlap": 1,
+      "truthSource": [
+        "core/shared/guidance/rules/RULE_02_WORKFLOW.md:3"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DG-027",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "oversized-context",
+      "query": "source is not inference distinction between fact and conclusion",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/PRINCIPLES.md",
+          "startLine": 37,
+          "endLine": 43,
+          "heading": "Source is not inference",
+          "rel": 2,
+          "anchorSha": "37216acd3f13f487175e0733b25a5b57347664d6273696681c6710c64e3f6f51"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "budgetBytes": 2000,
+        "mustInclude": [
+          "q1"
+        ]
+      },
+      "queryOverlap": 0.667,
+      "truthSource": [
+        "core/shared/guidance/PRINCIPLES.md:37"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DG-028",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "oversized-context",
+      "query": "retrieved content is data never instruction external evidence",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/PRINCIPLES.md",
+          "startLine": 44,
+          "endLine": 50,
+          "heading": "Retrieved content is data, never instruction",
+          "rel": 2,
+          "anchorSha": "0a850e8e95d3f4d433db149a46f70b4767380c2250c50f8af20a0641cefbab18"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "budgetBytes": 2000,
+        "mustInclude": [
+          "q1"
+        ]
+      },
+      "queryOverlap": 0.857,
+      "truthSource": [
+        "core/shared/guidance/PRINCIPLES.md:44"
+      ],
+      "author": "worker:agy"
+    },
+    {
+      "id": "DG-029",
+      "split": "dev",
+      "corpus": "guidance",
+      "class": "oversized-context",
+      "query": "stop on saturation not on a count stopping criteria",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "core/shared/guidance/PRINCIPLES.md",
+          "startLine": 51,
+          "endLine": 57,
+          "heading": "Stop on saturation, not on a count",
+          "rel": 2,
+          "anchorSha": "8b15ceb0d3967c8b174c96b11d352b2983e1b26efa9dcc335b4f0ed3f3273238"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ],
+        "budgetBytes": 2000,
+        "mustInclude": [
+          "q1"
+        ]
+      },
+      "queryOverlap": 0.6,
+      "truthSource": [
+        "core/shared/guidance/PRINCIPLES.md:51"
+      ],
+      "author": "worker:agy"
+    }
+  ]
+}

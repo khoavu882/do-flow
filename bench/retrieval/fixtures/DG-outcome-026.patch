@@ -1,0 +1,11 @@
+--- a/core/shared/guidance/rules/RULE_02_WORKFLOW.md
++++ b/core/shared/guidance/rules/RULE_02_WORKFLOW.md
+@@ -3,7 +3,7 @@
+ ## Planning
+ - **Parallel by default** — sequential only for hard dependencies; a task list once past 3 tasks, when the session offers one
+ - Validate before execution, verify after; run lint/typecheck before marking complete
+-- Check deps (package.json) and existing patterns before any changes
++- Check deps (package.json) and existing patterns <!-- dirty 026 --> before any changes
+ - Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` for the phase-gated
+   flow, artifact contracts, and the enforced gate
+ 
