@@ -190,6 +190,13 @@ class ContextPackCompiler {
     } = params;
 
     const limits = { ...this.options, ...budgetOverrides };
+    const contentLimits = {
+      maxFiles: limits.maxFiles,
+      maxClaims: limits.maxClaims,
+      maxEvidenceItems: limits.maxEvidenceItems,
+      maxResearchRequests: limits.maxResearchRequests,
+      maxStructuralItems: limits.maxStructuralItems,
+    };
 
     const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
     const resolvedBudget = paramBudget || resolveBudget({ taskClass: effectiveTaskClass, maxBytes, harnessFlag: harness });
@@ -490,7 +497,7 @@ class ContextPackCompiler {
           totalFiles: relevantFiles.length,
           totalSupportedClaims: supportedClaims.length,
           totalActiveHypotheses: activeHypotheses.length,
-          limits,
+          limits: contentLimits,
         },
         empty,
         omissions: bare ? { total: 0, groups: [] } : omissions,

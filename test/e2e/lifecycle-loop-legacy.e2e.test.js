@@ -183,7 +183,6 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
         '$.budgetEnforcement.totalActiveHypotheses', '$.budgetEnforcement.limits.maxFiles',
         '$.budgetEnforcement.limits.maxClaims', '$.budgetEnforcement.limits.maxEvidenceItems',
         '$.budgetEnforcement.limits.maxResearchRequests', '$.budgetEnforcement.limits.maxStructuralItems',
-        '$.budgetEnforcement.limits.enableCorrective', '$.budgetEnforcement.limits.selfRefWidth',
       ]);
       const contextPack = args[0] === 'context-pack';
       const expansionPaths = contextPack

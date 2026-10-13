@@ -92,6 +92,10 @@ Form parity verification summary.
     json: true,
   });
   const jsonPack = JSON.parse(jsonRes.out);
+  assert.deepEqual(Object.keys(jsonPack.budgetEnforcement.limits), [
+    'maxFiles', 'maxClaims', 'maxEvidenceItems', 'maxResearchRequests', 'maxStructuralItems',
+  ]);
+  assert.doesNotMatch(jsonRes.out, /enableCorrective|selfRefWidth/);
 
   // Run Markdown form
   const mdRes = runPack({
@@ -101,6 +105,7 @@ Form parity verification summary.
     slug: 'feat-forms',
     json: false,
   });
+  assert.doesNotMatch(mdRes.out, /enableCorrective|selfRefWidth/);
   const mdText = mdRes.out;
 
   // 1. Check all mandatory fields in JSON
