@@ -601,6 +601,9 @@ function cmdMeasure(flags, options = {}) {
           if (typeof contextLib.computeContextBudgets === 'function') {
             budgets.contextBudgets = contextLib.computeContextBudgets({ repoRoot });
           }
+          if (typeof contextLib.computePointerCost === 'function') {
+            budgets.pointerCost = contextLib.computePointerCost({ repoRoot });
+          }
         }
       } catch {
         // ignored
