@@ -119,17 +119,26 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
   }
 
   /** Every leaf of `old` is present, unchanged, in `neu`; returns the paths only `neu` has. */
-  function additions(old, neu, at = '$') {
+  function additions(old, neu, at = '$', expandNewPaths = []) {
     if (Array.isArray(old) || old === null || typeof old !== 'object') {
       assert.deepEqual(neu, old, `${at} changed`);
       return [];
     }
     assert.ok(neu && typeof neu === 'object' && !Array.isArray(neu), `${at} is no longer an object`);
     const added = [];
-    for (const key of Object.keys(neu)) if (!(key in old)) added.push(`${at}.${key}`);
+    for (const key of Object.keys(neu)) {
+      if (key in old) continue;
+      const childPath = `${at}.${key}`;
+      // Expand only the documented limits object so its individual keys remain pinned.
+      if (expandNewPaths.includes(childPath) && neu[key] && typeof neu[key] === 'object' && !Array.isArray(neu[key])) {
+        added.push(...additions({}, neu[key], childPath, expandNewPaths));
+      } else {
+        added.push(childPath);
+      }
+    }
     for (const key of Object.keys(old)) {
       assert.ok(key in neu, `${at}.${key} was removed`);
-      added.push(...additions(old[key], neu[key], `${at}.${key}`));
+      added.push(...additions(old[key], neu[key], `${at}.${key}`, expandNewPaths));
     }
     return added;
   }
@@ -148,6 +157,7 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
     const norm = normaliser([legacy, REPO], oldDir, newDir);
 
     const added = new Set();
+    const contextPackAdditions = new Set();
     for (const args of sequence) {
       const label = args.slice(0, 3).join(' ');
       const was = rtWith(legacy, oldDir, args);
@@ -161,7 +171,36 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       let oldJson;
       let newJson;
       try { oldJson = JSON.parse(norm(was.stdout)); newJson = JSON.parse(norm(now.stdout)); } catch { assert.fail(`${label}: stdout differs and is not JSON\n--- v1.13.0\n${norm(was.stdout)}\n--- now\n${norm(now.stdout)}`); }
-      for (const field of additions(oldJson, newJson)) added.add(`${label}: ${field}`);
+      // IC-004 adds the context-pack envelope; IC-003 adds the expansion result fields. The
+      // explicit allowlist keeps every other verb and every undocumented pack field pinned.
+      const packAdditions = new Set([
+        '$.status', '$.exitCode', '$.mode', '$.budget', '$.overflow', '$.overflowAction',
+        '$.toolLimitNotice', '$.verificationRequirements', '$.scopeExcluded', '$.blockingGaps',
+        '$.mandatory', '$.pointers', '$.structuralContext', '$.budgetEnforcement', '$.expansion',
+        '$.expansionRecorded', '$.acceptanceCriteria', '$.omissions', '$.size', '$.accounting',
+        '$.delivery', '$.delta', '$.packEnd',
+        '$.budgetEnforcement.totalFiles', '$.budgetEnforcement.totalSupportedClaims',
+        '$.budgetEnforcement.totalActiveHypotheses', '$.budgetEnforcement.limits.maxFiles',
+        '$.budgetEnforcement.limits.maxClaims', '$.budgetEnforcement.limits.maxEvidenceItems',
+        '$.budgetEnforcement.limits.maxResearchRequests', '$.budgetEnforcement.limits.maxStructuralItems',
+        '$.budgetEnforcement.limits.enableCorrective', '$.budgetEnforcement.limits.selfRefWidth',
+      ]);
+      const contextPack = args[0] === 'context-pack';
+      const expansionPaths = contextPack
+        ? ['$.budgetEnforcement', '$.budgetEnforcement.limits']
+        : [];
+      for (const field of additions(oldJson, newJson, '$', expansionPaths)) {
+        const entry = `${label}: ${field}`;
+        added.add(entry);
+        if (contextPack) contextPackAdditions.add(entry);
+      }
+      if (contextPack) {
+        const unexpectedPackFields = [...added]
+          .filter((entry) => entry.startsWith(`${label}: `))
+          .map((entry) => entry.slice(label.length + 2))
+          .filter((field) => !packAdditions.has(field));
+        assert.deepEqual(unexpectedPackFields, [], 'context-pack adds only fields documented by IC-003 and IC-004');
+      }
     }
     // Feature 058 records every readiness evaluation: the verb's JSON names the record and the
     // declared scope, and the record is one new file. Nothing else may be added.
@@ -172,12 +211,12 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       'readiness --task-class feature: $.record', 'readiness --task-class feature: $.declaredScope',
       'orchestrate --action handoff: $.consultations', 'orchestrate --action handoff: $.mcpWarnings',
     ];
-    assert.deepEqual([...added].filter((a) => !recordAdditions.includes(a)), [], 'the new runtime adds nothing to a chain verb\'s output');
+    assert.deepEqual([...added].filter((a) => !recordAdditions.includes(a) && !contextPackAdditions.has(a)), [], 'the new runtime adds nothing to a chain verb\'s output');
 
-    // The state the two runtimes left behind is the same set of files, apart from that record.
+    // The state matches, with the readiness record and the delivery record written by their verbs.
     const filesOf = (dir) => fs.readdirSync(dir, { recursive: true }).filter((f) => !f.startsWith('.git') && fs.statSync(path.join(dir, f)).isFile()).sort();
     const readinessStore = path.join('.doflow', 'state', 'readiness') + path.sep;
-    assert.deepEqual(filesOf(newDir).filter((f) => !f.startsWith(readinessStore)), [...filesOf(oldDir), path.join('.doflow', 'state', '.gitignore')].sort(), 'the same files exist after the same verbs, plus the state ignore file');
+    assert.deepEqual(filesOf(newDir).filter((f) => !f.startsWith(readinessStore)), [...filesOf(oldDir), path.join('.doflow', 'state', '.gitignore'), path.join('.doflow', 'state', 'delivery', `${slug}.json`)].sort(), 'the same files exist after the same verbs, plus the state ignore and delivery files');
     assert.deepEqual(filesOf(newDir).filter((f) => f.startsWith(readinessStore)), [path.join(readinessStore, `${slug}.json`)], 'one readiness record');
   });
 });
