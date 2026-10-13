@@ -80,3 +80,27 @@ test('materialiseExport fails clearly on an absent commit', (t) => {
 test('defaultTmpDir is the system temp dir plus doflow-retrieval-<pid>', () => {
   assert.equal(path.basename(env.defaultTmpDir()), `doflow-retrieval-${process.pid}`);
 });
+
+test('captureTool: child env lacks DOFLOW_HOLDOUT_KEY and *_API_KEY', () => {
+  const prevHoldout = process.env.DOFLOW_HOLDOUT_KEY;
+  const prevApiKey = process.env.TEST_API_KEY;
+  process.env.DOFLOW_HOLDOUT_KEY = 'secret-holdout-12345';
+  process.env.TEST_API_KEY = 'secret-api-key';
+  try {
+    const probe = env.captureTool({
+      id: 'probe',
+      versionCommand: [
+        process.execPath,
+        '-e',
+        'console.log(JSON.stringify({ holdout: process.env.DOFLOW_HOLDOUT_KEY, apiKey: process.env.TEST_API_KEY }))',
+      ],
+    });
+    assert.equal(probe.state, 'present');
+    const captured = JSON.parse(probe.versionLine);
+    assert.equal(captured.holdout, undefined, 'child env must not contain DOFLOW_HOLDOUT_KEY');
+    assert.equal(captured.apiKey, undefined, 'child env must not contain TEST_API_KEY');
+  } finally {
+    if (prevHoldout !== undefined) process.env.DOFLOW_HOLDOUT_KEY = prevHoldout; else delete process.env.DOFLOW_HOLDOUT_KEY;
+    if (prevApiKey !== undefined) process.env.TEST_API_KEY = prevApiKey; else delete process.env.TEST_API_KEY;
+  }
+});

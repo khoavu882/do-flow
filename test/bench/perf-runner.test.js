@@ -278,10 +278,16 @@ test('bench runner forwards perf command to bench/perf/runner.js', () => {
 test('perf measure: a surface with non-zero exit fails (no row, reported, exit 1)', (t) => {
   const dir = tempDir(t, 'doflow-test-perf-fail-nonzero-');
   const budgetsPath = path.join(dir, 'budgets.json');
+  const failScript = path.join(dir, 'fail.js');
+  fs.writeFileSync(failScript, 'process.exit(3);\n', 'utf8');
   const stubSurfaces = [
-    { id: 'stub.ok', kind: 'cli', argv: ['echo', 'ok'], intentClass: 'help', enforced: false },
-    { id: 'stub.failing', kind: 'cli', argv: ['exit1'], intentClass: 'help', enforced: false },
+    { id: 'stub.ok', kind: 'cli', argv: ['node', '-e', 'process.exit(0)'], intentClass: 'help', enforced: false },
+    { id: 'stub.failing', kind: 'cli', argv: ['node', failScript], intentClass: 'help', enforced: false },
   ];
+  assert.throws(
+    () => runner.runSurfaceProcess(stubSurfaces[1], dir),
+    /process exited with status 3/
+  );
   const { lines, io } = capture();
   const exitCode = runner.main(
     ['measure', '--runs', '5', '--warmups', '1', '--budgets', budgetsPath],
@@ -289,14 +295,10 @@ test('perf measure: a surface with non-zero exit fails (no row, reported, exit 1
       ...io,
       surfaces: stubSurfaces,
       isAnotherNodeTestRunningFn: () => false,
-      runSurfaceFn: (surface) => {
-        if (surface.id === 'stub.failing') throw new Error('process exited with status 1');
-        return 10;
-      },
     }
   );
   assert.equal(exitCode, 1);
-  assert.match(lines.err.join('\n'), /perf measure: surface stub\.failing failed: process exited with status 1/);
+  assert.match(lines.err.join('\n'), /perf measure: surface stub\.failing failed: process exited with status 3/);
   const outLines = lines.out.join('\n');
   assert.ok(!outLines.includes('stub.failing p50='));
 });
@@ -304,9 +306,15 @@ test('perf measure: a surface with non-zero exit fails (no row, reported, exit 1
 test('perf measure: a surface with timeout fails (no row, reported, exit 1)', (t) => {
   const dir = tempDir(t, 'doflow-test-perf-fail-timeout-');
   const budgetsPath = path.join(dir, 'budgets.json');
+  const sleepScript = path.join(dir, 'sleep.js');
+  fs.writeFileSync(sleepScript, 'setTimeout(() => {}, 5000);\n', 'utf8');
   const stubSurfaces = [
-    { id: 'stub.timeout', kind: 'cli', argv: ['sleep', '100'], intentClass: 'help', enforced: false },
+    { id: 'stub.timeout', kind: 'cli', argv: ['node', sleepScript], timeoutMs: 100, intentClass: 'help', enforced: false },
   ];
+  assert.throws(
+    () => runner.runSurfaceProcess(stubSurfaces[0], dir),
+    /timed out after 0\.1s/
+  );
   const { lines, io } = capture();
   const exitCode = runner.main(
     ['measure', '--runs', '5', '--warmups', '1', '--budgets', budgetsPath],
@@ -314,13 +322,57 @@ test('perf measure: a surface with timeout fails (no row, reported, exit 1)', (t
       ...io,
       surfaces: stubSurfaces,
       isAnotherNodeTestRunningFn: () => false,
-      runSurfaceFn: () => {
-        throw new Error('timed out after 30s');
-      },
     }
   );
   assert.equal(exitCode, 1);
-  assert.match(lines.err.join('\n'), /perf measure: surface stub\.timeout failed: timed out after 30s/);
+  assert.match(lines.err.join('\n'), /perf measure: surface stub\.timeout failed: timed out after 0\.1s/);
+});
+
+test('perf measure --write: when any surface fails, write nothing and exit 1', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-write-fail-');
+  const budgetsPath = path.join(dir, 'budgets.json');
+  const failScript = path.join(dir, 'fail.js');
+  fs.writeFileSync(failScript, 'process.exit(3);\n', 'utf8');
+
+  // Case 1: budgets.json does not exist initially; must NOT be created on failure
+  const stubSurfaces = [
+    { id: 'stub.ok', kind: 'cli', argv: ['node', '-e', 'process.exit(0)'], intentClass: 'help', enforced: false },
+    { id: 'stub.failing', kind: 'cli', argv: ['node', failScript], intentClass: 'help', enforced: false },
+  ];
+  const { lines: lines1, io: io1 } = capture();
+  const exitCode1 = runner.main(
+    ['measure', '--runs', '5', '--warmups', '1', '--write', '--budgets', budgetsPath],
+    {
+      ...io1,
+      surfaces: stubSurfaces,
+      isAnotherNodeTestRunningFn: () => false,
+    }
+  );
+  assert.equal(exitCode1, 1);
+  assert.equal(fs.existsSync(budgetsPath), false, 'budgets.json must not be created when a surface fails');
+
+  // Case 2: budgets.json exists with prior content; must NOT be modified (no partial rewrite, no stale rows updated)
+  const initialContent = JSON.stringify({
+    schemaVersion: 1,
+    intentBudgetsMs: {},
+    headroom: {},
+    machines: [],
+    surfaces: stubSurfaces,
+    rows: [{ surfaceId: 'stub.ok', p50Ms: 999, status: 'proposed' }],
+  }, null, 2) + '\n';
+  fs.writeFileSync(budgetsPath, initialContent, 'utf8');
+
+  const { lines: lines2, io: io2 } = capture();
+  const exitCode2 = runner.main(
+    ['measure', '--runs', '5', '--warmups', '1', '--write', '--budgets', budgetsPath],
+    {
+      ...io2,
+      surfaces: stubSurfaces,
+      isAnotherNodeTestRunningFn: () => false,
+    }
+  );
+  assert.equal(exitCode2, 1);
+  assert.equal(fs.readFileSync(budgetsPath, 'utf8'), initialContent, 'budgets.json must not be modified when a surface fails');
 });
 
 test('perf measure: a surface with missing stdin fixture fails (no row, reported, exit 1)', (t) => {
