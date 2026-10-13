@@ -38,6 +38,22 @@ function getRegisteredHarnessIds(): string[] {
   return getRegisteredHarnesses().map((h: any) => h.id);
 }
 
+let cachedBudgetsJson: any = null;
+
+function getBudgetsJson(): any {
+  if (cachedBudgetsJson) return cachedBudgetsJson;
+  try {
+    const budgetsPath = path.resolve(__dirname, '../../../bench/perf/budgets.json');
+    if (fs.existsSync(budgetsPath)) {
+      cachedBudgetsJson = JSON.parse(fs.readFileSync(budgetsPath, 'utf8'));
+      return cachedBudgetsJson;
+    }
+  } catch {
+    // fallback if unreadable
+  }
+  return null;
+}
+
 /**
  * Resolves budget and harness identity per IC-012.
  * Precedence:
@@ -113,6 +129,7 @@ function resolveBudget({
   // 2. Cap resolution
   let resolvedMaxBytes: number;
   let source: 'override' | 'profile' | 'task-class';
+  let startupTokens: { value: number; basis: string } | null = null;
 
   if (Number.isInteger(maxBytes) && maxBytes > 0) {
     resolvedMaxBytes = maxBytes;
@@ -124,13 +141,22 @@ function resolveBudget({
     typeof contextProfile.reserveTokens.value === 'number'
   ) {
     // Profile available calculation: (capacity - startup - reserve) * 4
+    const effectiveBudgets = budgetsJson !== null && budgetsJson !== undefined ? budgetsJson : getBudgetsJson();
     let startupTokensEstimate = 0;
-    if (budgetsJson?.startupContext && Array.isArray(budgetsJson.startupContext)) {
-      const entry = budgetsJson.startupContext.find((s: any) => s.harness === harness.id);
+    let startupTokensBasis = 'unmeasured:no-entry';
+    if (effectiveBudgets?.startupContext && Array.isArray(effectiveBudgets.startupContext)) {
+      const entry = effectiveBudgets.startupContext.find((s: any) => s.harness === harness.id);
       if (typeof entry?.tokensEst === 'number') {
         startupTokensEstimate = entry.tokensEst;
+        startupTokensBasis = entry.tokensBasis || 'estimated:bytes/4';
+      } else if (entry?.sessionStartStdoutBytes?.unmeasured) {
+        startupTokensBasis = `unmeasured:${entry.sessionStartStdoutBytes.unmeasured}`;
       }
     }
+    startupTokens = {
+      value: startupTokensEstimate,
+      basis: startupTokensBasis,
+    };
     const available = (contextProfile.capacityTokens.value - startupTokensEstimate - contextProfile.reserveTokens.value) * 4;
     resolvedMaxBytes = Math.max(0, available);
     source = 'profile';
@@ -145,6 +171,7 @@ function resolveBudget({
     harness,
     capacity,
     toolResultLimitBytes,
+    ...(startupTokens ? { startupTokens } : {}),
   };
 }
 

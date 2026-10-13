@@ -215,7 +215,7 @@ test('context-pack-end-line: negative control — omitting end-of-pack line fail
   }, /missing-end-of-pack-line/);
 });
 
-test('context-pack-end-line: negative control — unpadded bytes field fails self-count check', () => {
+test('context-pack-end-line: negative control — unpadded bytes field fails verification on reverted code (CX.6)', () => {
   const compiler = new ContextPackCompiler();
   const pack = compiler.compileContextPack({
     taskId: 't-ctrl-pad',
@@ -225,9 +225,16 @@ test('context-pack-end-line: negative control — unpadded bytes field fails sel
 
   const md = formatMarkdown(pack);
 
-  // Replace padded bytes (e.g. bytes=000001234) with unpadded (bytes=1234)
-  const unpaddedMd = md.replace(/bytes=(\d{9})/, (match, num) => `bytes=${parseInt(num, 10)}`);
+  // Directly check production output: must have 9-digit padded bytes and pass verifyPackEndLine
+  const parsed = parsePackEndLine(md);
+  assert.ok(parsed, 'must parse end line');
+  assert.equal(parsed.rawBytes.length, 9, 'production formatMarkdown must emit 9-digit zero-padded bytes');
+  assert.equal(parsed.isPadded, true);
+  assert.equal(verifyPackEndLine(md).ok, true);
 
+  // Negative control: unpadded bytes field fails verifyPackEndLine with unpadded-bytes-field.
+  // Using regex /bytes=\d+/ ensures matching even if md itself had unpadded bytes on reverted code.
+  const unpaddedMd = md.replace(/bytes=\d+/, 'bytes=1234');
   const res = verifyPackEndLine(unpaddedMd);
   assert.equal(res.ok, false);
   assert.equal(res.reason, 'unpadded-bytes-field');
