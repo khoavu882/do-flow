@@ -33,15 +33,19 @@ function percentileOrNull(values, q) {
  * One ClassResult. `tasks` is `[{scored, result, cause?}]` where `scored` is `metrics.scoreTask()`
  * output and `result` the adapter's result; `latencyMs` are the measured invocations.
  */
-function classResult({ corpus, config, cls, seed, tasks, latencyMs = [], minN }) {
+function classResult({ corpus, config, cls, seed, tasks, latencyMs = [], minN, unreachedCount }) {
   const n = tasks.length;
   const unreached = n > 0 && tasks.every((t) => t.result === 'UNREACHED');
+  const count = unreachedCount !== undefined
+    ? unreachedCount
+    : (tasks.some((t) => t.result === 'UNREACHED') ? tasks.filter((t) => t.result === 'UNREACHED').length : undefined);
   const out = {
     applicable: true,
     n,
     underpowered: stats.underpowered(n, metricsLib.kindOf(cls), minN),
     state: unreached ? 'unreached' : 'measured',
   };
+  if (count !== undefined) out.unreachedCount = count;
   if (unreached) out.cause = tasks.map((t) => t.cause).find(Boolean) || 'every provider was unreached';
 
   const table = (records) => {

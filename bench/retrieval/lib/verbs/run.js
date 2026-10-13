@@ -240,10 +240,12 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
         for (const c of metricsLib.classesFor(corpus)) {
           const idx = tasks.map((t, i) => (t.class === c ? i : -1)).filter((i) => i >= 0);
           const samples = latency[c] ? (latency[c][config] || latency[c].B || []) : [];
+          const classTasks = idx.map((i) => ({ scored: scored[i], result: answers[i].result, cause: firstCause(answers[i]) }));
           classResults[c] = report.classResult({
             corpus, config, cls: c, seed: snapshot.seed,
-            tasks: idx.map((i) => ({ scored: scored[i], result: answers[i].result, cause: firstCause(answers[i]) })),
+            tasks: classTasks,
             latencyMs: samples,
+            unreachedCount: classTasks.filter((t) => t.result === 'UNREACHED').length,
           });
         }
         configResults[config] = report.configResult({
@@ -265,7 +267,13 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
         for (const c of metricsLib.classesFor(corpus)) {
           const idx = tasks.map((t, i) => (t.class === c ? i : -1)).filter((i) => i >= 0);
           if (idx.length === 0) continue;
-          const names = [...(metricsLib.kindOf(c) === 'ranking' ? PRIMARY[corpus] : []), ...(c === 'exact-lookup' ? ['successAt1'] : []), ...(metricsLib.kindOf(c) === 'outcome' ? OUTCOME_PRIMARY : [])];
+          const names = [
+            ...(metricsLib.kindOf(c) === 'ranking' ? PRIMARY[corpus] : []),
+            ...(c === 'exact-lookup' ? ['successAt1'] : []),
+            ...(c === 'conceptual-discovery' ? [corpus === 'code' ? 'fileRecallAt10' : 'fileRecallAt5'] : []),
+            ...(c === 'impact-refactor' ? ['missedDependencies'] : []),
+            ...(metricsLib.kindOf(c) === 'outcome' ? OUTCOME_PRIMARY : []),
+          ];
           for (const metric of names) {
             const a = idx.map((i) => scoredByConfig.A[i].metrics[metric]);
             const b = idx.map((i) => scoredByConfig.B[i].metrics[metric]);
