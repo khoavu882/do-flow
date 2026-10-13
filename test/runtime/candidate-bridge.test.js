@@ -51,7 +51,10 @@ test('C.1: a candidate with rank: 1, score: 0.85 persists without either', (t) =
     },
   };
 
-  const evidenceInput = toEvidence({ candidate }, { taskId: 'task-a', root: dir, treeState });
+  const evidenceInput = toEvidence(
+    { candidate },
+    { taskId: 'task-a', root: dir, treeState, kind: 'exact-search', provenance: 'extracted' }
+  );
 
   // In memory check: rank and score stripped
   assert.equal('rank' in evidenceInput, false);
@@ -161,7 +164,7 @@ test('C.1: a changed file refuses', (t) => {
   fs.writeFileSync(filePath, 'version 2 modified text\n');
 
   assert.throws(
-    () => toEvidence({ candidate }, { taskId: 'task-a', root: dir }),
+    () => toEvidence({ candidate }, { taskId: 'task-a', root: dir, kind: 'exact-search', provenance: 'extracted' }),
     (err) => {
       assert.match(err.message, /^the file changed between the search and this record/);
       assert.match(err.message, /target\.txt: searched [0-9a-f]{7}, now [0-9a-f]{7}/);
@@ -183,13 +186,31 @@ test('C.1: an unknown candidate field refuses', (t) => {
   };
 
   assert.throws(
-    () => toEvidence({ candidate }, { taskId: 'task-a', root: dir }),
+    () => toEvidence({ candidate }, { taskId: 'task-a', root: dir, kind: 'exact-search', provenance: 'extracted' }),
     /unknown candidate field 'unknownField'\. Accepted: locator, provider, capability, need, sourceVersion, rank, score/
   );
 });
 
-test('C.1: a candidate with clean sourceVersion succeeds and records FRESH freshness', (t) => {
-  const dir = tempDir(t, 'doflow-cb-clean-');
+test('C.1: a candidate whose locator file is missing is refused by the item validator', (t) => {
+  const dir = tempDir(t, 'doflow-cb-missing-');
+  const candidate = {
+    locator: { file: 'does-not-exist.js' },
+    provider: 'ripgrep',
+    capability: 'code.exact-search',
+  };
+
+  assert.throws(
+    () =>
+      toEvidence(
+        { candidate },
+        { taskId: 'task-a', root: dir, kind: 'exact-search', provenance: 'extracted' }
+      ),
+    /the locator does not resolve/
+  );
+});
+
+test('C.1: a candidate freshness equals what a raw item with the same locator gets', (t) => {
+  const dir = tempDir(t, 'doflow-cb-fresh-path-');
   fs.writeFileSync(path.join(dir, 'file.txt'), 'hello world\n');
   const git = (...args) => execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
   git('init', '-q');
@@ -211,34 +232,55 @@ test('C.1: a candidate with clean sourceVersion succeeds and records FRESH fresh
     },
   };
 
-  const record = toEvidence({ candidate }, { taskId: 'task-a', root: dir });
-  assert.equal(record.freshness.status, 'FRESH');
-  assert.equal(record.freshness.fileHash, sv.fileHash);
-  assert.equal(record.freshness.isDirty, false);
-});
-
-test('C.1: a score surviving inside locator is refused by ledger IC-008', (t) => {
-  const dir = tempDir(t, 'doflow-cb-loc-score-');
-  fs.writeFileSync(path.join(dir, 'a.js'), 'module.exports = {};\n');
-
-  const candidate = {
-    locator: { file: 'a.js', score: 0.95 },
-    provider: 'ripgrep',
-    capability: 'code.exact-search',
-    rank: 1,
-    score: 0.85,
+  const rawItem = {
+    kind: 'exact-search',
+    provenance: 'extracted',
+    source: { provider: 'ripgrep', capability: 'code.exact-search' },
+    locator: { file: 'file.txt' },
   };
 
-  const evidenceInput = toEvidence({ candidate }, { taskId: 'task-a', root: dir });
-  // rank and score on candidate stripped, but locator.score survived strip
-  assert.equal('score' in evidenceInput, false);
-  assert.equal('rank' in evidenceInput, false);
-  assert.equal(evidenceInput.locator.score, 0.95);
+  const ctx = {
+    taskId: 'task-a',
+    root: dir,
+    treeState: state,
+    kind: 'exact-search',
+    provenance: 'extracted',
+  };
 
-  // IC-008: ledger refuses score key inside locator
-  const ledger = new EvidenceLedger({ repoRoot: dir });
+  const candidateResult = toEvidence({ candidate }, ctx);
+  const rawItemResult = toEvidence({ item: rawItem }, ctx);
+
+  assert.deepEqual(candidateResult.freshness, rawItemResult.freshness);
+  assert.equal(candidateResult.freshness.status, 'FRESH');
+  assert.equal(candidateResult.freshness.fileHash, sv.fileHash);
+  assert.equal(candidateResult.freshness.isDirty, false);
+});
+
+test('C.1: candidate path validates kind, provenance and taskId without defaults', (t) => {
+  const dir = tempDir(t, 'doflow-cb-nodefaults-');
+  fs.writeFileSync(path.join(dir, 'a.js'), 'const x = 1;\n');
+
+  const candidate = {
+    locator: { file: 'a.js' },
+    provider: 'ripgrep',
+    capability: 'code.exact-search',
+  };
+
+  // taskId missing
   assert.throws(
-    () => ledger.addEvidence(evidenceInput),
-    /'locator\.score' is a retrieval score and this boundary records none/
+    () => toEvidence({ candidate }, { root: dir, kind: 'exact-search', provenance: 'extracted' }),
+    /taskId is required/
+  );
+
+  // kind missing
+  assert.throws(
+    () => toEvidence({ candidate }, { taskId: 'task-a', root: dir, provenance: 'extracted' }),
+    /kind is required/
+  );
+
+  // provenance missing
+  assert.throws(
+    () => toEvidence({ candidate }, { taskId: 'task-a', root: dir, kind: 'exact-search' }),
+    /provenance is required/
   );
 });
