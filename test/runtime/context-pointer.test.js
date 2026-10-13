@@ -27,8 +27,8 @@ test('D.4 only points to allowed project-local detail and document ranges', (t) 
   fs.mkdirSync(path.join(root, '.doflow', 'state'), { recursive: true });
   fs.writeFileSync(path.join(featureDir, 'intention', 'requirement.md'), [
     '## 3. User Stories', '**Detail:** story detail text', 'continues here', '**Priority:** P1',
-    '## 6. Acceptance Criteria', '**Detail:** AC-1: this mandatory criterion must stay inline',
-    '## 4. Requirements', '**Detail:** requirement detail text',
+    '## 6. Acceptance Criteria', '**Detail**', '- AC-1: this mandatory criterion must stay inline',
+    '## 4. Requirements', '**Detail**', 'requirement detail text',
   ].join('\n'));
   fs.writeFileSync(path.join(featureDir, 'design', 'specs.md'), '## IC-016: Pointers\nPointer contract.\n## IC-017: Telemetry\nTelemetry contract.\n');
   fs.writeFileSync(path.join(root, '.doflow', 'guidance', 'usage.md'), '## Loading\nRead this section.\n');
@@ -40,13 +40,40 @@ test('D.4 only points to allowed project-local detail and document ranges', (t) 
   const pointers = collectPointers({ projectRoot: root, feature });
   const requirementPointers = pointers.filter((pointer) => pointer.path.endsWith('requirement.md'));
   assert.ok(requirementPointers.every((pointer) => pointer.range.endLine < 5 || pointer.range.startLine > 6), 'mandatory acceptanceCriteria ac:1 must not become a pointer');
-  assert.equal(pointers.length, 5);
+  assert.equal(pointers.length, 4);
   assert.ok(pointers.every((pointer) => pointer.id.startsWith(`ptr:`) && pointer.digest.startsWith('sha256:')));
   assert.ok(pointers.some((pointer) => pointer.heading === 'IC-016: Pointers'));
   assert.ok(pointers.every((pointer) => !pointer.path.includes('.doflow/state')));
+  assert.ok(pointers.every((pointer) => !pointer.path.startsWith('.doflow/guidance/')));
   assert.ok(pointers.every((pointer) => !pointer.id.includes('AC-1')));
   assert.ok(pointers.every((pointer) => !pointer.path.endsWith('external.md')));
   assert.ok(pointers.every((pointer) => pointer.bytes > 0 && pointer.inlineBytes > 0 && pointer.tokensEst.value > 0));
+});
+
+test('template-shaped Detail blocks without colons produce requirement pointers', (t) => {
+  const root = tempDir(t, 'doflow-pointer-template-detail-');
+  const featureDir = path.join(root, 'agent-docs', 'doflow', 'fixture-feature');
+  const requirement = path.join(featureDir, 'intention', 'requirement.md');
+  fs.mkdirSync(path.dirname(requirement), { recursive: true });
+  fs.writeFileSync(requirement, [
+    '## 3. Functional Requirements', '| ID | Requirement |', '|---|---|', '| FR-001 | Example |',
+    '**Detail**', '- **FR-001:** Required behavior.',
+    '## 4. Non-Functional Requirements', '| ID | Constraint |', '|---|---|', '| NFR-001 | Example |',
+    '**Detail**', '- **NFR-001:** Required quality.',
+  ].join('\n'));
+  const pointers = collectPointers({ projectRoot: root, feature: { featureDir, repoRoot: root } });
+  assert.equal(pointers.length, 2);
+  assert.ok(pointers.every((pointer) => pointer.path.endsWith('requirement.md')));
+});
+
+test('real-feature requirement produces at least one requirement pointer', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const requirement = path.join(repoRoot, 'test/fixtures/context-pack/real-feature-requirement.md');
+  const pointers = collectPointers({
+    projectRoot: repoRoot,
+    feature: { featureDir: path.dirname(path.dirname(requirement)), repoRoot, paths: { requirement } },
+  });
+  assert.ok(pointers.some((pointer) => pointer.path.endsWith('real-feature-requirement.md')));
 });
 
 test('D.4 expands a stored pointer, reports target changes, and appends pointer-followed telemetry', (t) => {

@@ -40,9 +40,9 @@ function rangesFor(file: string, text: string, requirement: boolean): Array<{ st
       let end = i + 1;
       while (end < lines.length && !/^##\s+/.test(lines[end])) end++;
       for (let j = i + 1; j < end; j++) {
-        if (!/^\s*\*\*Detail:\*\*/i.test(lines[j])) continue;
+        if (!/^\s*\*\*Detail:?\*\*/i.test(lines[j])) continue;
         let blockEnd = j + 1;
-        while (blockEnd < end && !/^\s*\*\*[A-Za-z][^*]*:\*\*/.test(lines[blockEnd])) blockEnd++;
+        while (blockEnd < end && !/^\s*\*\*[A-Za-z][^*]*:?\*\*/.test(lines[blockEnd])) blockEnd++;
         result.push({ startLine: j + 1, endLine: blockEnd, heading: section || null });
         j = blockEnd - 1;
       }
@@ -107,17 +107,6 @@ function sourceFiles({ projectRoot, feature, fsImpl = fs }: any): Array<{ absolu
       path.join(featureDir, 'plan.md'),
     ]) add(file);
   }
-  const guidance = path.join(root, '.doflow', 'guidance');
-  const walk = (dir: string) => {
-    let entries: any[];
-    try { entries = fsImpl.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && /\.(md|txt)$/i.test(entry.name)) add(full);
-    }
-  };
-  walk(guidance);
   return candidates;
 }
 

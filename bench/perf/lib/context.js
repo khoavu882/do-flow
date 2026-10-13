@@ -42,30 +42,42 @@ function pointerCostRows(pack, projectRoot) {
     const file = fs.readFileSync(targetPath, 'utf8');
     const lines = file.split(/\r?\n/);
     const slice = `${lines.slice(pointer.range.startLine - 1, pointer.range.endLine).join('\n')}\n`;
-    const pointerBytes = pointer.bytes;
-    const inlineBytes = pointer.inlineBytes;
+    const inlineBytes = Buffer.byteLength(slice, 'utf8');
+    const range = `${pointer.range.startLine}-${pointer.range.endLine}`;
+    const pointerForms = [
+      {
+        form: 'markdown',
+        pointerBytes: Buffer.byteLength(`- ${pointer.id} ${pointer.path}:${range} ${inlineBytes} B\n`, 'utf8'),
+      },
+      { form: 'json', pointerBytes: Buffer.byteLength(JSON.stringify(pointer), 'utf8') },
+    ];
     for (const target of [
       { kind: 'whole-file', bytes: Buffer.byteLength(file, 'utf8') },
       { kind: 'slice', bytes: Buffer.byteLength(slice, 'utf8') },
     ]) {
-      rows.push({
-        pointerId: pointer.id,
-        path: pointer.path,
-        range: pointer.range,
-        target: target.kind,
-        inlineBytes,
-        pointerBytes,
-        targetBytes: target.bytes,
-        reads: 1,
-        tokensEst: {
-          inline: Math.ceil(inlineBytes / 4),
-          followed: Math.ceil((pointerBytes + target.bytes) / 4),
-          basis: 'estimated:bytes/4',
-        },
-        net: pointerBytes + target.bytes - inlineBytes,
-        readProbability: { unmeasured: 'needs a model call (paid)' },
-        actual: { unmeasured: 'needs a model call (paid)' },
-      });
+      for (const pointerForm of pointerForms) {
+        const followedBytes = pointerForm.pointerBytes + target.bytes;
+        rows.push({
+          pointerId: pointer.id,
+          path: pointer.path,
+          range: pointer.range,
+          target: target.kind,
+          form: pointerForm.form,
+          inlineBytes,
+          pointerBytes: pointerForm.pointerBytes,
+          targetBytes: target.bytes,
+          followedBytes,
+          reads: 1,
+          tokensEst: {
+            inline: Math.ceil(inlineBytes / 4),
+            followed: Math.ceil(followedBytes / 4),
+            basis: 'estimated:bytes/4',
+          },
+          netBytes: followedBytes - inlineBytes,
+          readProbability: { unmeasured: 'needs a model call (paid)' },
+          actual: { unmeasured: 'needs a model call (paid)' },
+        });
+      }
     }
   }
   return validatePointerCostRows(rows);

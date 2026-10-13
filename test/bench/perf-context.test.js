@@ -176,6 +176,7 @@ test('computeContextBudgets derives capacity and reserve from contextProfile wit
 test('computePointerCost reports whole-file and sliced read costs with unmeasured labels', (t) => {
   const fixtureRows = context.computePointerCost();
   assert.equal(Array.isArray(fixtureRows), true);
+  assert.ok(fixtureRows.length >= 1, 'committed perf fixture must produce pointer-cost rows');
 
   const dir = tempDir(t, 'doflow-test-pointer-cost-');
   const filePath = path.join(dir, 'agent-docs/doflow/perf-feature/design/design.md');
@@ -194,8 +195,9 @@ test('computePointerCost reports whole-file and sliced read costs with unmeasure
       }] }, dir),
   });
 
-  assert.equal(rows.length, 2);
-  assert.deepEqual(rows.map((row) => row.target), ['whole-file', 'slice']);
+  assert.equal(rows.length, 4);
+  assert.deepEqual(rows.map((row) => row.target), ['whole-file', 'whole-file', 'slice', 'slice']);
+  assert.deepEqual(rows.map((row) => row.form), ['markdown', 'json', 'markdown', 'json']);
   for (const row of rows) {
     assert.equal(row.reads, 1);
     assert.equal(row.path, 'agent-docs/doflow/perf-feature/design/design.md');
@@ -203,10 +205,14 @@ test('computePointerCost reports whole-file and sliced read costs with unmeasure
     assert.equal(row.tokensEst.basis, 'estimated:bytes/4');
     assert.deepEqual(row.readProbability, { unmeasured: 'needs a model call (paid)' });
     assert.deepEqual(row.actual, { unmeasured: 'needs a model call (paid)' });
-    assert.equal(row.net, row.pointerBytes + row.targetBytes - row.inlineBytes);
+    assert.equal(row.inlineBytes, Buffer.byteLength('first line\nsecond line\n', 'utf8'));
+    assert.equal(row.followedBytes, row.pointerBytes + row.targetBytes);
+    assert.equal(row.netBytes, row.followedBytes - row.inlineBytes);
+    assert.equal(row.tokensEst.inline, Math.ceil(row.inlineBytes / 4));
+    assert.equal(row.tokensEst.followed, Math.ceil(row.followedBytes / 4));
   }
   assert.equal(rows[0].targetBytes, Buffer.byteLength('# Design\nfirst line\nsecond line\n', 'utf8'));
-  assert.equal(rows[1].targetBytes, Buffer.byteLength('first line\nsecond line\n', 'utf8'));
+  assert.equal(rows[2].targetBytes, Buffer.byteLength('first line\nsecond line\n', 'utf8'));
 
   const estimatedActual = { ...rows[0], actual: { value: 3, basis: 'estimated:bytes/4' } };
   assert.throws(() => context.validatePointerCostRows([estimatedActual]), /actual measurement cannot use an estimated basis/);

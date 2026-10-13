@@ -6,12 +6,27 @@
 
 Benchmark context pack compiler and delivery pipeline on a representative project.
 
+## 3. Functional Requirements
+
+| ID | Requirement | Status |
+|---|---|---|
+| FR-001 | Deliver bounded context | Live |
+
+**Detail**
+
+- **FR-001:** The context pack delivers all required material within its declared byte budget.
+
 ## 4. Non-Functional Requirements
 
 | ID | Constraint | Kind | Status |
 |---|---|---|---|
 | NFR-001 | CLI verb latency stays within 150ms intent budget | performance | Live |
 | NFR-002 | Output stays strictly within task-class byte cap | reliability | Live |
+
+**Detail**
+
+- **NFR-001:** The CLI remains responsive for ordinary context packs.
+- **NFR-002:** The serialized output stays within the task-class byte cap.
 
 ## 5. Out of Scope
 
