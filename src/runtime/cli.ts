@@ -11,6 +11,7 @@ const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { ClaimsManager } = require('./claims.ts');
 const { measureFreshness } = require('./freshness.ts');
 const { measureTreeState, sourceVersionFor } = require('./source-version.ts');
+const { toEvidence } = require('./candidate.ts');
 const { evaluateTaskReadiness } = require('./readiness.ts');
 const { writeReadinessRecord } = require('./readiness-record.ts');
 const { parseDeclaredScope } = require('./verification/scope-bound.ts');
@@ -472,30 +473,22 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }: any) {
 
   // The whole batch is validated before any of it is written. A half-written stage batch is worse
   // than a rejected one: the half that landed looks complete to every later reader.
+  const treeState = measureTreeState(root);
   const validated = [];
   for (const [index, raw] of raws.entries()) {
     try {
-      validated.push(validateEvidenceItem(raw, taskId, root));
+      validated.push(toEvidence({ item: raw }, { taskId, root, treeState }));
     } catch (error: any) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json, error);
     }
   }
 
-  const treeState = measureTreeState(root);
   const written = [];
   let stateFile;
   try {
     for (const record of validated) {
-      const sv = sourceVersionFor(root, record.locator, treeState);
-      const id = ledger.addEvidence({
-        ...record,
-        taskId,
-        freshness: {
-          ...measureFreshness(root, record.locator, sv.gitCommit),
-          isDirty: sv.isDirty,
-        },
-      });
+      const id = ledger.addEvidence(record);
       written.push(ledger.getEvidence(id));
     }
     stateFile = ledger.save(taskId);
@@ -645,4 +638,6 @@ module.exports = {
   // today.
   assertNoScoreFields,
   validateEvidenceItem,
+  parseLocator,
+  toEvidence,
 };
