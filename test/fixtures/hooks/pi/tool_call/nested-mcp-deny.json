@@ -2,5 +2,7 @@
   "native": { "type": "tool_call", "toolName": "mcp__github__delete_issue", "toolCallId": "outer/1", "parentToolCallId": "outer", "input": { "issue": 1 } },
   "policy": "mcp-tool-guard",
   "state": "none",
-  "expect": { "result": { "block": true }, "modelVisibleBytesMax": 120 }
+  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "fault": "none",
+  "expect": { "result": { "block": true, "reason": "[mcp-tool-guard] Pi fixture MCP deny (tool: mcp__github__delete_issue)" }, "decision": { "outcome": "deny", "code": "blocked-pattern", "effect": "block" }, "modelVisibleBytesMax": 120 }
 }

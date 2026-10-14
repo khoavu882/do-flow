@@ -2,5 +2,7 @@
   "native": { "type": "tool_call", "toolName": "bash", "toolCallId": "perf-bash", "input": { "command": "printf ok" } },
   "policy": "pre-bash-guard",
   "state": "none",
-  "expect": { "result": null, "modelVisibleBytesMax": 0 }
+  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "fault": "none",
+  "expect": { "result": null, "decision": { "outcome": "allow", "code": "allow", "effect": "proceed" }, "modelVisibleBytesMax": 0 }
 }

@@ -15,7 +15,7 @@ function route(toolName) {
   for (const row of ROUTES) {
     if (row.tools.includes(toolName)) return row.policy;
   }
-  return toolName.startsWith('mcp__') ? 'mcp-tool-guard' : undefined;
+  return typeof toolName === 'string' && toolName.startsWith('mcp__') ? 'mcp-tool-guard' : undefined;
 }
 
 function captureFailure(policy, point) {
@@ -54,6 +54,7 @@ function bridgeCall(policy, payload, ctx) {
     let settled = false;
     let timedOut = false;
     let overflow = false;
+    let aborted = false;
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
@@ -76,7 +77,9 @@ function bridgeCall(policy, payload, ctx) {
       finish(Object.assign(new Error(point), { failurePoint: point }));
     };
     const onAbort = () => {
+      aborted = true;
       kill();
+      finish(null, undefined);
     };
     const timer = setTimeout(() => {
       timedOut = true;
@@ -97,6 +100,7 @@ function bridgeCall(policy, payload, ctx) {
     });
     child.on('close', (code) => {
       if (settled) return;
+      if (aborted) return finish(null, undefined);
       if (timedOut) return finish(Object.assign(new Error('bridge timed out'), { failurePoint: 'bridge-timeout' }));
       if (overflow) return finish(Object.assign(new Error('bridge output exceeded limit'), { failurePoint: 'bridge-output-limit' }));
       if (code !== 0) return finish(Object.assign(new Error(`bridge exited ${code}`), { failurePoint: 'bridge-spawn' }));
