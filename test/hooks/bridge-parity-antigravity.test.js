@@ -36,7 +36,9 @@ function readFixtures() {
     if (!fs.statSync(dir).isDirectory()) continue;
     for (const name of fs.readdirSync(dir).filter((entry) => entry.endsWith('.json'))) {
       const fixturePath = path.join(dir, name);
-      rows.push({ stem, fixturePath, fixture: JSON.parse(fs.readFileSync(fixturePath, 'utf8')) });
+      const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+      if (!Object.hasOwn(fixture, 'native')) continue;
+      rows.push({ stem, fixturePath, fixture });
     }
   }
   return rows.sort((a, b) => a.fixturePath.localeCompare(b.fixturePath));
@@ -53,6 +55,15 @@ function run(row, index) {
   fs.mkdirSync(xdg, { recursive: true });
   const native = row.fixture.native === null ? null : JSON.parse(JSON.stringify(row.fixture.native));
   if (native && Array.isArray(native.workspacePaths)) native.workspacePaths = [project];
+  if (native?.transcriptPath === '<transcript>') {
+    const transcript = path.join(scratch.dir, `transcript-${index}.jsonl`);
+    fs.writeFileSync(transcript, `${JSON.stringify({ role: 'assistant', content: '// TODO: finish this work' })}\n`);
+    native.transcriptPath = transcript;
+  }
+  if (row.fixture.fault === 'policy-exit-9') {
+    const policy = path.join(mirror, '.doflow/shared/hooks/policies/pre-implementation-gate.sh');
+    fs.writeFileSync(policy, "#!/usr/bin/env bash\nprintf '%200s\\n' '' | tr ' ' x >&2\nexit 9\n", { mode: 0o755 });
+  }
   const event = row.stem === 'stop-check' ? 'Stop' : 'PreToolUse';
   const runner = path.join(mirror, '.doflow/shared/hooks/stream-hook-runner.js');
   const result = spawnSync(process.execPath, [runner, event], {
@@ -77,6 +88,14 @@ function run(row, index) {
     const body = JSON.parse(result.stdout);
     assert.equal(body.decision, 'deny', `${label}: native deny`);
     assert.match(body.reason, /^\[pre-implementation-gate\] doflow gate: feature .* is missing/);
+  } else if (row.fixture.expect.stdout === '<error-json>') {
+    const body = JSON.parse(result.stdout);
+    assert.deepEqual(body, { decision: 'deny', reason: '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list' }, `${label}: fixed error render`);
+    assert.equal(result.stdout.includes('x'.repeat(200)), false, `${label}: raw policy stderr is hidden`);
+  } else if (row.fixture.expect.stdout === '<continue-json>') {
+    const body = JSON.parse(result.stdout);
+    assert.equal(body.decision, 'continue', `${label}: Stop block`);
+    assert.match(body.reason, /^\[stop-check\]/, `${label}: Stop reason`);
   } else if (row.fixture.expect.stdout !== undefined) {
     assert.equal(result.stdout, row.fixture.expect.stdout, `${label}: stdout`);
   }
@@ -92,6 +111,10 @@ function run(row, index) {
     const decision = JSON.parse(fs.readFileSync(trace, 'utf8').trim());
     for (const [key, value] of Object.entries(row.fixture.expect.decision)) {
       assert.equal(decision[key], value, `${label}: decision.${key}`);
+    }
+    if (!row.fixture.expect.envelope) {
+      if (row.fixture.expect.taskStateUnchanged) assert.equal(fs.existsSync(path.join(project, '.doflow/state')), false, `${label}: task state unchanged`);
+      return;
     }
     const encoder = path.join(mirror, '.doflow/shared/hooks/bridge/envelope.jq');
     const encoded = spawnSync('jq', ['-c', '--arg', 'harness', 'antigravity', '--arg', 'event', event,

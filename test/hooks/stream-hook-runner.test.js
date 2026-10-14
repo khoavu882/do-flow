@@ -39,13 +39,15 @@ test('stream-hook-runner: evaluateToolCall allows benign tool calls', () => {
   assert.equal(result.decision, 'allow');
 });
 
-test('stream-hook-runner: evaluateToolCall leaves Antigravity-only unsupported command shapes on proceed', () => {
+test('stream-hook-runner: evaluateToolCall blocks destructive Antigravity command shapes', () => {
   const result = evaluateToolCall({
     name: 'run_command',
     args: { CommandLine: 'rm -rf /' },
   }, process.cwd());
 
-  assert.equal(result.effect, 'proceed');
+  assert.equal(result.outcome, 'deny');
+  assert.equal(result.effect, 'block');
+  assert.match(result.reason, /pre-bash-guard.*blocked/i);
 });
 
 test('stream-hook-runner: evaluateToolCall leaves unregistered MCP tools alone', () => {
@@ -402,7 +404,7 @@ test('stream-hook-runner capture: policy exit stubs become bridge decisions with
   const runner = runnerWithPolicy('exit 0');
   const { on, a } = capPair(runner, ['PreToolUse'], PRE_BASH, { env: { PATH: path.join(capScratch.dir, 'no-such-bin') } });
   assert.equal(a.status, 0);
-  assert.match(a.stdout, /"decision":"allow"|"decision":"deny"/);
+  assert.equal(JSON.parse(a.stdout).decision, 'allow');
 });
 
 test('stream-hook-runner capture: legacy-shaped command input remains on the proceed path', () => {
@@ -412,15 +414,18 @@ test('stream-hook-runner capture: legacy-shaped command input remains on the pro
 
 test('stream-hook-runner: a bridge timeout is a compat proceed and a strict blocking decision', () => {
   const runner = runnerWithBridge('exec sleep 20');
-  const m = capMachine('timeout');
-  const result = runRunner(m, runner, ['PreToolUse'], JSON.stringify({ toolCall: { name: 'write_to_file', args: { AbsolutePath: 'src/a.js' } } }), {
-    env: { DOFLOW_FAULT_PROFILE: 'strict-1' },
-  });
-  assert.equal(result.status, 0);
-  const body = JSON.parse(result.stdout);
-  assert.equal(body.decision, 'deny');
-  assert.equal(body.reason, '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list');
-  assert.deepEqual(capLines(m).map((line) => line.kind), ['bridge-timeout']);
+  const native = JSON.stringify({ toolCall: { name: 'write_to_file', args: { AbsolutePath: 'src/a.js' } } });
+  const compat = capMachine('timeout-compat');
+  const proceeded = runRunner(compat, runner, ['PreToolUse'], native);
+  assert.equal(proceeded.status, 0);
+  assert.deepEqual(JSON.parse(proceeded.stdout), { decision: 'allow' });
+  assert.deepEqual(capLines(compat).map((line) => line.kind), ['bridge-timeout']);
+
+  const strict = capMachine('timeout-strict');
+  const blocked = runRunner(strict, runner, ['PreToolUse'], native, { env: { DOFLOW_FAULT_PROFILE: 'strict-1' } });
+  assert.equal(blocked.status, 0);
+  assert.deepEqual(JSON.parse(blocked.stdout), { decision: 'deny', reason: '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list' });
+  assert.deepEqual(capLines(strict).map((line) => line.kind), ['bridge-timeout']);
 });
 
 test('stream-hook-runner capture: captureHookFailure writes the IC-011 line, caps it at 2048 bytes, rotates at 1 MiB and keeps four', () => {

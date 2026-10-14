@@ -79,7 +79,7 @@ doflow_bridge() {
     doflow_bridge_failure "$policy" dependency-missing:jq
   fi
   policy_path="$DOFLOW_BRIDGE_DIR/../policies/$policy.sh"
-  if [ ! -f "$policy_path" ] || [ ! -x "$policy_path" ]; then
+  if [ ! -f "$policy_path" ]; then
     code=127; err=""; spawn_failed=1
   else
     stderr_file="$(mktemp "${TMPDIR:-/tmp}/doflow-bridge-stderr.XXXXXX" 2>/dev/null)" || stderr_file=""

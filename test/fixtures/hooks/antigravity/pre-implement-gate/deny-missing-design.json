@@ -10,7 +10,7 @@
     "exit": 0,
     "stdout": "<deny-json>",
     "stderrIncludes": null,
-    "modelVisibleBytesMax": 512,
+    "modelVisibleBytesMax": 323,
     "decision": { "harness": "antigravity", "event": "PreToolUse", "policy": "pre-implementation-gate", "outcome": "deny", "effect": "block" },
     "envelope": { "version": 1, "harness": "antigravity", "event": "PreToolUse", "operation": "edit", "tool": "write_to_file", "paths": ["src/a.js"] },
     "failurePoint": null,
