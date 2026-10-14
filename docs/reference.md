@@ -205,9 +205,9 @@ Envelope v1 is the object under `doflow_event` in the native payload. It carries
 
 When `DOFLOW_DECISION_FD` names an open single-digit descriptor from 3 through 9, each policy writes a compact version-1 record on that descriptor: `v`, `policy`, `policyVersion`, `outcome` and `code`. The provisional allow record comes first; the last record determines the policy outcome. With the variable unset or an unusable descriptor, no record is written. Records contain no free text.
 
-`DOFLOW_FAULT_PROFILE` selects `compat-1` (default) or `strict-1`; an unknown value uses `compat-1` and records `fault-profile-unknown`. Compat preserves each front door's current effect. Strict blocks faults for blocking policies. `DOFLOW_BRIDGE_TRACE`, when set to a file path, appends the bridge's decision object there; it is not model-visible. `DOFLOW_RUN_ID`, `DOFLOW_ATTEMPT` and `DOFLOW_TASK_ID` are reserved inputs for a launcher: in 077 they populate envelope identity or task fields when supplied and are otherwise absent. `DOFLOW_SESSION_ROLE` is accepted only as `main` or `worker`.
+`DOFLOW_FAULT_PROFILE` selects `compat-1` (default) or `strict-1`; an unknown value uses `compat-1` and records `fault-profile-unknown`. Compat preserves each front door's current effect. Strict blocks faults for blocking policies, except Stop faults, which remain non-blocking under both profiles; a real Stop deny still blocks (DEC-039). `DOFLOW_BRIDGE_TRACE`, when set to a file path, appends the bridge's decision object there; it is not model-visible. `DOFLOW_RUN_ID`, `DOFLOW_ATTEMPT` and `DOFLOW_TASK_ID` are reserved inputs for a launcher: in 077 they populate envelope identity or task fields when supplied and are otherwise absent. `DOFLOW_SESSION_ROLE` is normalized case-insensitively: unset or empty means `main`, `worker` means `worker`, and any other value emits a warning and is treated as `worker` by session policies; the envelope includes the role only when the supplied value is exactly `main` or `worker`.
 
-Bridge diagnostics use the existing failure store and leave its storage declaration unchanged. Bridge failure-store points include `eval-error:exit-2-unmarked`, `eval-error:exit-<n>`, `eval-error:signal-<NAME>` (not SIGTERM, SIGINT or SIGPIPE), `bridge-spawn`, `bridge-timeout`, `envelope-encode` and `fault-profile-unknown`. The Antigravity runner records `runner-event-missing` when its event argument is missing or unknown. A `decision-mismatch` appears in the decision object and bridge trace only; it is a policy contract bug, not a failure-store point (DEC-028). Policies may record `unsupported:envelope-version`, `edit-without-target`, `dependency-missing:jq` and their existing policy-specific points. Diagnostic messages remain empty.
+Bridge diagnostics use the existing failure store and leave its storage declaration unchanged. Bridge failure-store points include `eval-error:exit-2-unmarked`, `eval-error:exit-<n>`, `eval-error:signal-<NAME>` (not SIGTERM, SIGINT or SIGPIPE), `bridge-spawn`, `bridge-timeout`, `bridge-missing`, `envelope-missing`, `contract-missing`, `envelope-encode` and `fault-profile-unknown`. The Antigravity runner records `runner-event-missing` when its event argument is missing or unknown. A `decision-mismatch` appears in the decision object and bridge trace only; it is a policy contract bug, not a failure-store point (DEC-028). Policies may record `unsupported:envelope-version`, `edit-without-target`, `dependency-missing:jq` and their existing policy-specific points. Diagnostic messages remain empty.
 
 ### Migration notes
 
@@ -218,9 +218,9 @@ with `[<policy>] DoFlow hooks out of step; run: doflow update -t <harness>`; Sto
 policies exit silently, with the prompt hook's `{}` no-op. If a door cannot load the bridge, it
 uses a fixed native out-of-step response.
 
-When a lifecycle update changes shared hooks, it also refreshes outdated hook front doors for
-other installed harnesses at that scope. `install`, `update`, `status` and `reconcile` report
-companion refreshes, including harnesses the command did not name; dry-run lists them too. Edited
+When an install or update changes shared hooks, it also refreshes outdated hook front doors for
+other installed harnesses at that scope. Install/update plans report companion refreshes,
+including harnesses the command did not name; dry-run lists them too. Edited
 companion doors refuse the plan unless `-f` is supplied. The single backup includes companions,
 and `doflow rollback <id>` restores them with the shared tree. On installs made before 077, Codex
 and Gemini hook scripts have no ledger rows, so an edited script is replaced on the first update,
@@ -235,7 +235,9 @@ remain available. The runner's unused Gemini-specific agent branch has also been
 Compared with the 0fcd973 front doors, the shared bridge intentionally changes these cases:
 
 - A missing policy file is an evaluation error: `compat-1` proceeds and records a diagnostic; `strict-1` denies (DEC-025). Previously the shell's missing-file exit 127 could accidentally deny.
-- A blocking evaluation error renders `[<policy-id>] DoFlow policy error; details: doflow-run failure list` on stdout (IC-013/DEC-019), rather than exposing raw policy or runtime stderr as the reason. On pass-through doors that historically forward policy stderr, the fixed reason is also written to stderr; Claude Stop and Kiro PreToolUse retain the original exit code.
+- The bridge captures policy output without a temporary file; an unwritable `TMPDIR` does not turn a gate deny into an allow. Background jobs close inherited bridge descriptors, so they do not hold Stop or SessionStart open. In `strict-1`, missing `jq` still produces the native deny; `compat-1` keeps its allow behavior (FX.1–FX.3).
+- Codex `update -t codex -f` re-merges edited `hooks.json`, preserving user entries. Without `-f`, the conflict remains and the message gives a working remedy (DEC-040).
+- A blocking evaluation error renders `[<policy-id>] DoFlow policy error; details: doflow-run failure list` on stdout (IC-013/DEC-019), rather than exposing raw policy or runtime stderr as the reason. Kiro PreToolUse and Stop doors use stderr for the fixed reason where their native contract requires it; Claude Stop retains its original exit code. Codex Stop crash stderr is suppressed (DEC-037).
 - Context and advisory policy faults render nothing to the model and record a diagnostic (DEC-022).
 - Codex `subagent-audit` now prints nothing for an error outcome; previously it printed `{}` when the policy failed.
 - Kiro's agent-config event names (`agentSpawn`, `preToolUse`, `stop`) resolve to the same effects and native responses as their hook-config aliases (`SessionStart`, `PreToolUse`, `Stop`); the envelope retains the native event name.
@@ -244,7 +246,10 @@ Compared with the 0fcd973 front doors, the shared bridge intentionally changes t
 - A missing v1 envelope or contract is an out-of-step state: gate, bash and MCP policies deny
   with the update command; Stop and context policies exit silently (DEC-032, DEC-033).
 - A missing bridge file makes a shell door render its fixed native out-of-step response. The Pi
-  extension blocks with the same reason. The Antigravity runner applies this rule for a missing
+  extension blocks with the fixed native out-of-step reason; its coverage is blocking only for the
+  live-observed `cli-extension` pre-implementation gate row. Project-interactive and
+  user-interactive rows remain unknown; the live record does not establish interactive loading or
+  project-trust behavior (DEC-036). The Antigravity runner applies this rule for a missing
   bridge under every fault profile: its gate denies and Stop stays silent (DEC-035).
 - The bridge preserves a caller-set, non-empty `DOFLOW_AGENT`; otherwise it sets the harness id.
 
@@ -301,8 +306,9 @@ budget on an idle machine; it is not free, so a slow machine can feel it.
 - **Where.** Claude Code and Codex only, through the existing per-prompt hook
   (`core/harnesses/shared/hooks/policies/user-prompt-submit.sh`). The other six harnesses
   (Gemini CLI, Antigravity, OpenCode, Pi, Copilot CLI, Kiro) get no hook for this; Pi separately has
-  a `tool_call` guard extension (coverage remains unknown pending the live probe; project scope
-  requires project trust). These harnesses get only the
+  a `tool_call` guard extension. Only the live-observed `cli-extension` pre-implementation gate row
+  blocks; project-interactive and user-interactive coverage remains unknown, including interactive
+  loading and project-trust behavior. These harnesses get only the
   rewritten `description` of `do`, `do-implement` and `do-flow`, which steer a plain change request
   to `/do` first.
 - **When.** The first prompt of a session that reads as a code-change request: it starts with a

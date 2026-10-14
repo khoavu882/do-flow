@@ -106,8 +106,7 @@ Policy rules—checks of artifacts, branch, run or readiness state, pattern file
 When an install or update changes shared hook files at a scope, lifecycle planning also refreshes
 outdated hook front doors for other installed harnesses at that scope. The companion changes share
 the backup, ledger write and rollback with the requested targets; edited companion doors make the
-plan unsafe unless forced. `status` and `reconcile` report companion refreshes even when those
-harnesses were not named. Antigravity shims are overwritten without an edited-door check.
+plan unsafe unless forced. Antigravity shims are overwritten without an edited-door check.
 
 ## The runtime seam
 
