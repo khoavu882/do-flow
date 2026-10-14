@@ -324,6 +324,16 @@ function resolveProjectRoot(workspacePaths) {
  */
 function delegateToPolicy(projectRoot, agent, event, policyId, nativeRaw) {
   const bridgeSh = path.join(__dirname, 'bridge', 'bridge.sh');
+  if (!fs.existsSync(bridgeSh)) {
+    captureHookFailure({ command: policyId, kind: 'bridge-missing' });
+    if (policyId === 'stop-check') {
+      return { v: 1, harness: agent, event, policy: policyId, policyVersion: 0, outcome: 'unsupported', code: 'bridge-missing', effect: 'proceed' };
+    }
+    return {
+      v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
+      outcome: 'deny', code: 'bridge-missing', reason: '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity', effect: 'block',
+    };
+  }
   const profile = process.env.DOFLOW_FAULT_PROFILE || 'compat-1';
   const effectiveProfile = profile === 'compat-1' || profile === 'strict-1' ? profile : 'compat-1';
   if (profile !== effectiveProfile) captureHookFailure({ command: policyId, kind: 'fault-profile-unknown' });
