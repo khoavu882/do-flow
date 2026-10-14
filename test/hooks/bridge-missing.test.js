@@ -9,6 +9,8 @@ const { tempDir } = require('../helper/tmp');
 
 const ROOT = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(ROOT, 'test/fixtures/hooks');
+const HOOKS = path.join(ROOT, 'core/harnesses/shared/hooks');
+const RUNNER = path.join(HOOKS, 'stream-hook-runner.js');
 const REASON = (harness) => `[doflow] shared hooks lack the bridge; run: doflow update -t ${harness}`;
 
 function nativeFixture(relativePath) {
@@ -92,5 +94,29 @@ test('every current front door renders its IC-036 fallback with the bridge remov
       assert.equal(result.stdout, row.render === 'codex-empty' ? '{}\n' : '', `${row.harness}/${row.door} stdout`);
       assert.equal(result.stderr, '', `${row.harness}/${row.door} stderr`);
     }
+  }
+});
+
+test('Antigravity runner treats a missing bridge as out of step under both fault profiles', (t) => {
+  const copy = tempDir(t, 'doflow-antigravity-bridge-missing-');
+  fs.cpSync(HOOKS, copy, { recursive: true });
+  fs.rmSync(path.join(copy, 'bridge', 'bridge.sh'));
+  const runner = path.join(copy, 'stream-hook-runner.js');
+  const reason = '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity';
+
+  for (const profile of ['compat-1', 'strict-1']) {
+    const env = { ...process.env, DOFLOW_FAULT_PROFILE: profile };
+    const gate = spawnSync(process.execPath, [runner, 'PreToolUse'], {
+      input: JSON.stringify({ toolCall: { name: 'write_to_file', args: { AbsolutePath: 'src/a.js' } } }),
+      encoding: 'utf8', env,
+    });
+    assert.equal(gate.status, 0, `${profile} gate exit`);
+    assert.deepEqual(JSON.parse(gate.stdout), { decision: 'deny', reason }, `${profile} native gate deny`);
+
+    const stop = spawnSync(process.execPath, [runner, 'Stop'], {
+      input: JSON.stringify({ terminationReason: 'finished' }), encoding: 'utf8', env,
+    });
+    assert.equal(stop.status, 0, `${profile} Stop exit`);
+    assert.equal(stop.stdout, '', `${profile} Stop is silent`);
   }
 });

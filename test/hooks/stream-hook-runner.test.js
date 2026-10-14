@@ -116,6 +116,13 @@ function runnerWithBridge(body) {
   return path.join(dir, 'stream-hook-runner.js');
 }
 
+function runnerWithoutBridge() {
+  const dir = suiteTempDir('doflow-runner-missing-bridge-');
+  fs.cpSync(HOOKS_DIR, dir, { recursive: true });
+  fs.rmSync(path.join(dir, 'bridge', 'bridge.sh'));
+  return path.join(dir, 'stream-hook-runner.js');
+}
+
 test('stream-hook-runner capture: the runner\'s classifier copy answers like src/runtime/failure/classifier.js on every fixture', () => {
   const fixtures = [
     new TypeError('x'), new RangeError('x'), new ReferenceError('x'), new SyntaxError('x'), new Error('x'),
@@ -265,6 +272,44 @@ test('stream-hook-runner: a bridge timeout is a compat proceed and a strict bloc
   assert.equal(blocked.status, 0);
   assert.deepEqual(JSON.parse(blocked.stdout), { decision: 'deny', reason: '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list' });
   assert.deepEqual(capLines(strict).map((line) => line.kind), ['bridge-timeout']);
+});
+
+test('stream-hook-runner: missing bridge is out of step while a failing bridge follows the fault profile', () => {
+  const missingRunner = runnerWithoutBridge();
+  const failingRunner = runnerWithBridge('exit 1');
+  const gateInput = JSON.stringify({ toolCall: { name: 'write_to_file', args: { AbsolutePath: 'src/a.js' } } });
+  const stopInput = JSON.stringify({ terminationReason: 'finished' });
+  const reason = '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity';
+
+  for (const profile of ['compat-1', 'strict-1']) {
+    const env = { DOFLOW_FAULT_PROFILE: profile };
+    const gateMissing = capMachine(`missing-gate-${profile}`);
+    const gate = runRunner(gateMissing, missingRunner, ['PreToolUse'], gateInput, { env });
+    assert.equal(gate.status, 0);
+    assert.deepEqual(JSON.parse(gate.stdout), { decision: 'deny', reason });
+    assert.deepEqual(capLines(gateMissing).map((line) => line.kind), ['bridge-missing']);
+
+    const stopMissing = capMachine(`missing-stop-${profile}`);
+    const stop = runRunner(stopMissing, missingRunner, ['Stop'], stopInput, { env });
+    assert.equal(stop.status, 0);
+    assert.equal(stop.stdout, '');
+    assert.deepEqual(capLines(stopMissing).map((line) => line.kind), ['bridge-missing']);
+  }
+
+  const gateCompat = capMachine('failing-gate-compat');
+  const allow = runRunner(gateCompat, failingRunner, ['PreToolUse'], gateInput, { env: { DOFLOW_FAULT_PROFILE: 'compat-1' } });
+  assert.deepEqual(JSON.parse(allow.stdout), { decision: 'allow' });
+  assert.deepEqual(capLines(gateCompat).map((line) => line.kind), ['bridge-answer-invalid']);
+
+  const gateStrict = capMachine('failing-gate-strict');
+  const deny = runRunner(gateStrict, failingRunner, ['PreToolUse'], gateInput, { env: { DOFLOW_FAULT_PROFILE: 'strict-1' } });
+  assert.deepEqual(JSON.parse(deny.stdout), { decision: 'deny', reason: '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list' });
+  assert.deepEqual(capLines(gateStrict).map((line) => line.kind), ['bridge-answer-invalid']);
+
+  const stopCompat = runRunner(capMachine('failing-stop-compat'), failingRunner, ['Stop'], stopInput, { env: { DOFLOW_FAULT_PROFILE: 'compat-1' } });
+  assert.equal(stopCompat.stdout, '');
+  const stopStrict = runRunner(capMachine('failing-stop-strict'), failingRunner, ['Stop'], stopInput, { env: { DOFLOW_FAULT_PROFILE: 'strict-1' } });
+  assert.deepEqual(JSON.parse(stopStrict.stdout), { decision: 'continue', reason: '[stop-check] DoFlow policy error; details: doflow-run failure list' });
 });
 
 test('stream-hook-runner capture: captureHookFailure writes the IC-011 line, caps it at 2048 bytes, rotates at 1 MiB and keeps four', () => {
