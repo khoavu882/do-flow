@@ -1,0 +1,1082 @@
+{
+  "version": 1,
+  "contract": "IC-002 templates, join order and budget fill (078). Every renderer of the prompt segments (renderEmission() in src/runtime/context/arbitrate.ts, policies/emission.jq) must produce expected.text byte for byte from actions, maxBytes and inputs. Inputs are the raw file texts (null: the file is absent); summaryBytes is the claimed summary file's full size. expected.text is the additionalContext string, null when nothing renders; bytes is its UTF-8 length.",
+  "cases": [
+    {
+      "name": "git-repository",
+      "covers": [
+        "git"
+      ],
+      "actions": {
+        "git": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n"
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2",
+        "bytes": 123,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "git-stash-and-first-five-commits",
+      "covers": [
+        "git",
+        "DEC-022"
+      ],
+      "actions": {
+        "git": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"main\",\n  \"sha\": \"9f9f9f9\",\n  \"commits\": [\n    \"c1\",\n    \"c2\",\n    \"c3\",\n    \"c4\",\n    \"c5\",\n    \"c6\",\n    \"c7\"\n  ],\n  \"uncommitted_count\": 0,\n  \"stash_count\": 3,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true\n}\n"
+      },
+      "expected": {
+        "text": "Git context — branch: main | 9f9f9f9\nLast commits: c1 · c2 · c3 · c4 · c5\nUncommitted files: 0 | Stashed: 3",
+        "bytes": 113,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "git-empty-fields-default",
+      "covers": [
+        "git"
+      ],
+      "actions": {
+        "git": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"\",\n  \"sha\": null,\n  \"commits\": [],\n  \"is_git_repo\": true\n}\n"
+      },
+      "expected": {
+        "text": "Git context — branch: unknown | unknown\nLast commits: none\nUncommitted files: 0",
+        "bytes": 81,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "git-multibyte",
+      "covers": [
+        "git",
+        "multibyte"
+      ],
+      "actions": {
+        "git": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"fonctionnalité/日本\",\n  \"sha\": \"e1e1e1e\",\n  \"commits\": [\n    \"résumé 😀 done\",\n    \"second\"\n  ],\n  \"uncommitted_count\": 1,\n  \"stash_count\": 1,\n  \"is_git_repo\": true\n}\n"
+      },
+      "expected": {
+        "text": "Git context — branch: fonctionnalité/日本 | e1e1e1e\nLast commits: résumé 😀 done · second\nUncommitted files: 1 | Stashed: 1",
+        "bytes": 133,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "git-not-a-repository",
+      "covers": [
+        "git"
+      ],
+      "actions": {
+        "git": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"\",\n  \"sha\": \"\",\n  \"commits\": [],\n  \"uncommitted_count\": 0,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": false,\n  \"cwd\": \"/w\"\n}\n"
+      },
+      "expected": {
+        "text": "Not a git repository.",
+        "bytes": 21,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "git-capture-missing",
+      "covers": [
+        "git"
+      ],
+      "actions": {
+        "git": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": null
+      },
+      "expected": {
+        "text": "Git context unavailable for this session.",
+        "bytes": 41,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "git-capture-unparseable",
+      "covers": [
+        "git"
+      ],
+      "actions": {
+        "git": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{not json"
+      },
+      "expected": {
+        "text": "Not a git repository.",
+        "bytes": 21,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-after-git",
+      "covers": [
+        "summary",
+        "join"
+      ],
+      "actions": {
+        "slot": "claim",
+        "git": "include",
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nDid the thing.\nNext: test it.\n",
+        "summaryBytes": 227
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n\n[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\nDid the thing.\nNext: test it.",
+        "bytes": 226,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-alone-drops-leading-blank-line",
+      "covers": [
+        "summary",
+        "join"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nDid the thing.\nNext: test it.\n",
+        "summaryBytes": 227
+      },
+      "expected": {
+        "text": "[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\nDid the thing.\nNext: test it.",
+        "bytes": 101,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-header-unknown-and-absent",
+      "covers": [
+        "summary"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\nsession_id: s-old\nbranch: unknown\n---\n\nBody.\n",
+        "summaryBytes": 49
+      },
+      "expected": {
+        "text": "[Prior session summary]\nBody.",
+        "bytes": 29,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-header-brackets-removed",
+      "covers": [
+        "summary"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z]\nbranch: ]unknown\n---\n\nBody.\n",
+        "summaryBytes": 68
+      },
+      "expected": {
+        "text": "[Prior session summary, compacted 2026-10-14T10:00:00Z]\nBody.",
+        "bytes": 61,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-crlf",
+      "covers": [
+        "summary",
+        "crlf"
+      ],
+      "actions": {
+        "git": "include",
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\r\ncompacted_at: 2026-10-14T10:00:00Z\r\nsession_id: s-old\r\ntrigger: auto\r\nbranch: topic\r\nrole: main\r\nsummary_id: s-20261014T100000Z-Ab12Cd\r\nrun: local\r\nlineage: main\r\nattempt:\r\nworktree: /abs/worktree\r\n---\r\n\r\nLine one\r\nLine two\r\n",
+        "summaryBytes": 230
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n\n[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\nLine one\nLine two",
+        "bytes": 214,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-ascii-exactly-at-cap",
+      "covers": [
+        "summary",
+        "cap"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "summaryBytes": 4198
+      },
+      "expected": {
+        "text": "[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bytes": 4072,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-ascii-one-over-cap",
+      "covers": [
+        "summary",
+        "cap",
+        "oversized"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "summaryBytes": 4199
+      },
+      "expected": {
+        "text": "[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n[summary truncated: first 4000 of 4001 characters]",
+        "bytes": 4123,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-astral-exactly-at-cap",
+      "covers": [
+        "summary",
+        "cap",
+        "multibyte"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀😀😀😀😀😀😀\n",
+        "summaryBytes": 4228
+      },
+      "expected": {
+        "text": "[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀😀😀😀😀😀😀",
+        "bytes": 4102,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-multibyte-over-cap",
+      "covers": [
+        "summary",
+        "cap",
+        "multibyte",
+        "oversized"
+      ],
+      "actions": {
+        "git": "include",
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\né日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀\n",
+        "summaryBytes": 12501
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n\n[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\né日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é日😀é\n[summary truncated: first 4000 of 4101 characters]",
+        "bytes": 12247,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-oversized-bounded-read",
+      "covers": [
+        "summary",
+        "cap",
+        "oversized"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n",
+        "summaryBytes": 70000
+      },
+      "expected": {
+        "text": "[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n[summary truncated: first 4000 of at least 5000 characters]",
+        "bytes": 4132,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-empty-body",
+      "covers": [
+        "summary",
+        "empty"
+      ],
+      "actions": {
+        "git": "include",
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\n",
+        "summaryBytes": 197
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2",
+        "bytes": 123,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-without-frontmatter",
+      "covers": [
+        "summary",
+        "empty"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "just text\n",
+        "summaryBytes": 10
+      },
+      "expected": {
+        "text": null,
+        "bytes": 0,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-blank-lines-trimmed",
+      "covers": [
+        "summary"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\n\n\nfirst\n\nsecond\n\n\n",
+        "summaryBytes": 215
+      },
+      "expected": {
+        "text": "[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\nfirst\n\nsecond",
+        "bytes": 85,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "summary-action-skip",
+      "covers": [
+        "summary"
+      ],
+      "actions": {
+        "git": "include",
+        "summary": "skip"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nDid the thing.\nNext: test it.\n",
+        "summaryBytes": 227
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2",
+        "bytes": 123,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "warning-after-git",
+      "covers": [
+        "warning",
+        "join"
+      ],
+      "actions": {
+        "git": "include",
+        "warning": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "warning": "Uncommitted changes in 3 files\n"
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n[Prior session warning: Uncommitted changes in 3 files]",
+        "bytes": 179,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "warning-after-summary",
+      "covers": [
+        "warning",
+        "join"
+      ],
+      "actions": {
+        "git": "include",
+        "summary": "truncate",
+        "warning": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nDid the thing.\nNext: test it.\n",
+        "summaryBytes": 227,
+        "warning": "Uncommitted changes in 3 files\n"
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n\n[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\nDid the thing.\nNext: test it.\n[Prior session warning: Uncommitted changes in 3 files]",
+        "bytes": 282,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "warning-alone-keeps-leading-newline",
+      "covers": [
+        "warning",
+        "join"
+      ],
+      "actions": {
+        "warning": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "warning": "w\n\n"
+      },
+      "expected": {
+        "text": "\n[Prior session warning: w]",
+        "bytes": 27,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "warning-empty-text",
+      "covers": [
+        "warning",
+        "empty"
+      ],
+      "actions": {
+        "git": "include",
+        "warning": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "warning": ""
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n[Prior session warning: ]",
+        "bytes": 149,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "warning-file-missing",
+      "covers": [
+        "warning"
+      ],
+      "actions": {
+        "git": "include",
+        "warning": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "warning": null
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2",
+        "bytes": 123,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "grant-alone",
+      "covers": [
+        "grant",
+        "join"
+      ],
+      "actions": {
+        "grant": "whole"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 13\n---\n\nGranted body.\n"
+      },
+      "expected": {
+        "text": "[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nGranted body.",
+        "bytes": 97,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "every-segment-joined",
+      "covers": [
+        "git",
+        "summary",
+        "warning",
+        "grant",
+        "nudge",
+        "join"
+      ],
+      "actions": {
+        "slot": "claim",
+        "git": "include",
+        "summary": "truncate",
+        "warning": "include",
+        "grant": "whole",
+        "nudge": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nDid the thing.\nNext: test it.\n",
+        "summaryBytes": 227,
+        "warning": "Uncommitted changes in 3 files\n",
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 13\n---\n\nGranted body.\n",
+        "nudge": "Consider running /do-plan before editing source."
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n\n[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\nDid the thing.\nNext: test it.\n[Prior session warning: Uncommitted changes in 3 files]\n\n[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nGranted body.\n\nConsider running /do-plan before editing source.",
+        "bytes": 431,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "grant-after-summary-without-git",
+      "covers": [
+        "grant",
+        "summary",
+        "join"
+      ],
+      "actions": {
+        "summary": "truncate",
+        "grant": "whole"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nDid the thing.\nNext: test it.\n",
+        "summaryBytes": 227,
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 13\n---\n\nGranted body.\n"
+      },
+      "expected": {
+        "text": "[Prior session summary, compacted 2026-10-14T10:00:00Z on branch topic]\nDid the thing.\nNext: test it.\n\n[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nGranted body.",
+        "bytes": 200,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "grant-header-unknown-and-absent",
+      "covers": [
+        "grant"
+      ],
+      "actions": {
+        "grant": "whole"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "grant": "---\nsummary_id: s-20261014T100000Z-Zz99Yy\nfrom_lineage: w-1\nbranch: unknown\n---\n\nChild body.\n"
+      },
+      "expected": {
+        "text": "[Granted summary from lineage w-1]\nChild body.",
+        "bytes": 46,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "grant-crlf",
+      "covers": [
+        "grant",
+        "crlf"
+      ],
+      "actions": {
+        "grant": "whole"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "grant": "---\r\nsummary_id: s-20261014T100000Z-Ab12Cd\r\ngranted_at: 2026-10-14T10:05:00Z\r\nfrom_worktree: /abs/worktree\r\nfrom_run: local\r\nfrom_lineage: main\r\nto_run: r-7\r\nto_lineage: w-3\r\ncompacted_at: 2026-10-14T10:00:00Z\r\nbranch: topic\r\nbytes: 17\r\n---\r\n\r\nLine one\r\nLine two\r\n"
+      },
+      "expected": {
+        "text": "[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nLine one\nLine two",
+        "bytes": 101,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "grant-empty-body",
+      "covers": [
+        "grant",
+        "empty"
+      ],
+      "actions": {
+        "grant": "whole"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 0\n---\n\n"
+      },
+      "expected": {
+        "text": "[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\n",
+        "bytes": 84,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "grant-pointer-decided-after-git",
+      "covers": [
+        "pointer",
+        "join",
+        "oversized",
+        "refusal"
+      ],
+      "actions": {
+        "git": "include",
+        "grant": "pointer"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 20000\n---\n\ngggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\n"
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n\n[Granted summary s-20261014T100000Z-Ab12Cd withheld: 20000 bytes exceed the 16384-byte context budget]",
+        "bytes": 227,
+        "refused": true,
+        "dropped": []
+      }
+    },
+    {
+      "name": "grant-pointer-multibyte-bytes",
+      "covers": [
+        "pointer",
+        "multibyte",
+        "oversized",
+        "refusal"
+      ],
+      "actions": {
+        "grant": "pointer"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 18000\n---\n\n日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日\n"
+      },
+      "expected": {
+        "text": "[Granted summary s-20261014T100000Z-Ab12Cd withheld: 18000 bytes exceed the 16384-byte context budget]",
+        "bytes": 102,
+        "refused": true,
+        "dropped": []
+      }
+    },
+    {
+      "name": "grant-mandatory-over-budget-refused",
+      "covers": [
+        "grant",
+        "pointer",
+        "budget",
+        "refusal"
+      ],
+      "actions": {
+        "git": "include",
+        "grant": "whole"
+      },
+      "maxBytes": 100,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 90\n---\n\nhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\n"
+      },
+      "expected": {
+        "text": "[Granted summary s-20261014T100000Z-Ab12Cd withheld: 90 bytes exceed the 100-byte context budget]",
+        "bytes": 97,
+        "refused": true,
+        "dropped": [
+          "git"
+        ]
+      }
+    },
+    {
+      "name": "grant-pointer-exceeds-tiny-budget",
+      "covers": [
+        "pointer",
+        "budget",
+        "refusal"
+      ],
+      "actions": {
+        "git": "include",
+        "grant": "pointer"
+      },
+      "maxBytes": 10,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 40\n---\n\nkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\n"
+      },
+      "expected": {
+        "text": "[Granted summary s-20261014T100000Z-Ab12Cd withheld: 40 bytes exceed the 10-byte context budget]",
+        "bytes": 96,
+        "refused": true,
+        "dropped": [
+          "git"
+        ]
+      }
+    },
+    {
+      "name": "pointer-then-nudge",
+      "covers": [
+        "pointer",
+        "nudge",
+        "join",
+        "refusal"
+      ],
+      "actions": {
+        "grant": "pointer",
+        "nudge": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 20000\n---\n\nzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\n",
+        "nudge": "Consider running /do-plan before editing source."
+      },
+      "expected": {
+        "text": "[Granted summary s-20261014T100000Z-Ab12Cd withheld: 20000 bytes exceed the 16384-byte context budget]\n\nConsider running /do-plan before editing source.",
+        "bytes": 152,
+        "refused": true,
+        "dropped": []
+      }
+    },
+    {
+      "name": "nudge-alone",
+      "covers": [
+        "nudge",
+        "join"
+      ],
+      "actions": {
+        "nudge": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "nudge": "Consider running /do-plan before editing source."
+      },
+      "expected": {
+        "text": "Consider running /do-plan before editing source.",
+        "bytes": 48,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "nudge-after-git",
+      "covers": [
+        "nudge",
+        "join"
+      ],
+      "actions": {
+        "git": "include",
+        "nudge": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "nudge": "Consider running /do-plan before editing source."
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n\nConsider running /do-plan before editing source.",
+        "bytes": 173,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "nudge-empty",
+      "covers": [
+        "nudge",
+        "empty"
+      ],
+      "actions": {
+        "nudge": "include"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "nudge": ""
+      },
+      "expected": {
+        "text": null,
+        "bytes": 0,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "nothing-renders",
+      "covers": [
+        "empty"
+      ],
+      "actions": {
+        "slot": "skip",
+        "git": "skip",
+        "summary": "skip",
+        "warning": "skip",
+        "grant": "skip",
+        "nudge": "skip"
+      },
+      "maxBytes": 16384,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nDid the thing.\nNext: test it.\n",
+        "warning": "Uncommitted changes in 3 files\n",
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 13\n---\n\nGranted body.\n",
+        "nudge": "Consider running /do-plan before editing source."
+      },
+      "expected": {
+        "text": null,
+        "bytes": 0,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "budget-exactly-at-max",
+      "covers": [
+        "budget",
+        "cap"
+      ],
+      "actions": {
+        "git": "include",
+        "summary": "truncate",
+        "warning": "include",
+        "nudge": "include"
+      },
+      "maxBytes": 179,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\n",
+        "summaryBytes": 498,
+        "warning": "Uncommitted changes in 3 files\n",
+        "nudge": "Consider running /do-plan before editing source."
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n[Prior session warning: Uncommitted changes in 3 files]",
+        "bytes": 179,
+        "refused": false,
+        "dropped": [
+          "summary",
+          "nudge"
+        ]
+      }
+    },
+    {
+      "name": "budget-one-byte-short-later-segment-fits",
+      "covers": [
+        "budget",
+        "nudge"
+      ],
+      "actions": {
+        "git": "include",
+        "summary": "truncate",
+        "warning": "include",
+        "nudge": "include"
+      },
+      "maxBytes": 178,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: s-old\ntrigger: auto\nbranch: topic\nrole: main\nsummary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: /abs/worktree\n---\n\nSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\n",
+        "summaryBytes": 498,
+        "warning": "Uncommitted changes in 3 files\n",
+        "nudge": "Consider running /do-plan before editing source."
+      },
+      "expected": {
+        "text": "Git context — branch: topic | abc1234\nLast commits: abc1234 first · def5678 second · 0123abc third\nUncommitted files: 2\n\nConsider running /do-plan before editing source.",
+        "bytes": 173,
+        "refused": false,
+        "dropped": [
+          "summary",
+          "warning"
+        ]
+      }
+    },
+    {
+      "name": "budget-git-dropped-summary-leads",
+      "covers": [
+        "budget",
+        "join"
+      ],
+      "actions": {
+        "git": "include",
+        "summary": "truncate"
+      },
+      "maxBytes": 26,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "summary": "---\nsession_id: s-old\n---\n\nok\n",
+        "summaryBytes": 30
+      },
+      "expected": {
+        "text": "[Prior session summary]\nok",
+        "bytes": 26,
+        "refused": false,
+        "dropped": [
+          "git"
+        ]
+      }
+    },
+    {
+      "name": "budget-git-dropped-warning-leads",
+      "covers": [
+        "budget",
+        "join"
+      ],
+      "actions": {
+        "git": "include",
+        "warning": "include"
+      },
+      "maxBytes": 40,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "warning": "low"
+      },
+      "expected": {
+        "text": "\n[Prior session warning: low]",
+        "bytes": 29,
+        "refused": false,
+        "dropped": [
+          "git"
+        ]
+      }
+    },
+    {
+      "name": "budget-mandatory-first",
+      "covers": [
+        "budget",
+        "grant"
+      ],
+      "actions": {
+        "git": "include",
+        "grant": "whole"
+      },
+      "maxBytes": 97,
+      "inputs": {
+        "git": "{\n  \"branch\": \"topic\",\n  \"sha\": \"abc1234\",\n  \"commits\": [\n    \"abc1234 first\",\n    \"def5678 second\",\n    \"0123abc third\"\n  ],\n  \"uncommitted_count\": 2,\n  \"stash_count\": 0,\n  \"upstream_behind\": 0,\n  \"is_git_repo\": true,\n  \"cwd\": \"/w\",\n  \"captured_at\": \"2026-10-14T10:00:00Z\"\n}\n",
+        "grant": "---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/worktree\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 13\n---\n\nGranted body.\n"
+      },
+      "expected": {
+        "text": "[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nGranted body.",
+        "bytes": 97,
+        "refused": false,
+        "dropped": [
+          "git"
+        ]
+      }
+    },
+    {
+      "name": "budget-multibyte-fits-at-bytes",
+      "covers": [
+        "budget",
+        "multibyte"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 54,
+      "inputs": {
+        "summary": "---\nsession_id: s-old\n---\n\n日日日日日日日日日日\n",
+        "summaryBytes": 58
+      },
+      "expected": {
+        "text": "[Prior session summary]\n日日日日日日日日日日",
+        "bytes": 54,
+        "refused": false,
+        "dropped": []
+      }
+    },
+    {
+      "name": "budget-multibyte-one-byte-short",
+      "covers": [
+        "budget",
+        "multibyte"
+      ],
+      "actions": {
+        "summary": "truncate"
+      },
+      "maxBytes": 53,
+      "inputs": {
+        "summary": "---\nsession_id: s-old\n---\n\n日日日日日日日日日日\n",
+        "summaryBytes": 58
+      },
+      "expected": {
+        "text": null,
+        "bytes": 0,
+        "refused": false,
+        "dropped": [
+          "summary"
+        ]
+      }
+    }
+  ]
+}

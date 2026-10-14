@@ -52,6 +52,7 @@ const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegistere
 const { createDeliveryEntry, readDeliveryEntry, recordDelivery, makeTokenRecord } = require('./context/delivery-store.ts');
 const { boundedAcquire } = require('./task-state.ts');
 const pointerTools = require('./context/pointer.ts');
+const { arbitrate } = require('./context/arbitrate.ts');
 const { updateTaskState } = require('./task-state.ts');
 const { taskStoreDir } = require('./task-scope.ts');
 
@@ -1270,6 +1271,7 @@ function handleContextPackCommand({
 
 module.exports = {
   ContextPackCompiler,
+  arbitrate,
   TASK_CLASS_BUDGETS,
   handleContextPackCommand,
   loadLiveDecisions,
