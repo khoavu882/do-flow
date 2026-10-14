@@ -1,7 +1,8 @@
 {
-  "toolName": "edit",
-  "input": { "path": "/repo/a" },
-  "sessionId": "pi-session",
-  "toolCallId": "call-1",
-  "parentToolCallId": "call-0"
+  "native": { "type": "tool_call", "toolName": "edit", "input": { "path": "src/a.js" }, "sessionId": "pi-session", "toolCallId": "call-1", "parentToolCallId": "call-0" },
+  "policy": "pre-implementation-gate",
+  "state": "no-design",
+  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "fault": "none",
+  "expect": { "result": { "block": true, "reason": "[pre-implementation-gate] doflow gate: feature agent-docs/doflow/pi-gate is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)" }, "decision": { "outcome": "deny", "code": "missing-artifacts", "effect": "block" }, "modelVisibleBytesMax": 120 }
 }

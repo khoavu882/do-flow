@@ -1,0 +1,8 @@
+{
+  "native": { "type": "tool_call", "toolName": "read", "toolCallId": "read-1", "input": { "path": "README.md" } },
+  "policy": null,
+  "state": "none",
+  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "fault": "none",
+  "expect": { "result": null, "decision": null, "spawn": false, "modelVisibleBytesMax": 0 }
+}
