@@ -216,3 +216,74 @@ for (const c of CORPUS.cases) {
 test('IC-001: context-pack.ts re-exports arbitrate', () => {
   assert.equal(contextPack.arbitrate, arbitrate);
 });
+
+// ── B.3: policies/emission.jq, the jq half of renderer parity (IC-002 templates, IC-004 step 7) ──
+//
+// Absent-file convention (IC-004 step 7): every --rawfile name is always passed, because jq refuses
+// an undefined $name; a file that does not exist is bound to /dev/null and named in plan.absent.
+// The render result is read through the plan's second filter mode, plan.mode "render", which
+// prints {text, bytes, refused, dropped, segments} in place of the hook response.
+
+const { execFileSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp.js');
+
+const EMISSION_JQ = path.join(REPO, 'core/harnesses/shared/hooks/policies/emission.jq');
+const RAWFILES = ['git', 'summary', 'grant', 'warning'];
+
+function runEmissionJq(t, { actions, maxBytes, inputs }, extra = {}) {
+  const dir = tempDir(t, 'doflow-emission-jq-');
+  const args = ['-n', '-f', EMISSION_JQ];
+  const absent = [];
+  for (const name of RAWFILES) {
+    const raw = inputs[name];
+    if (typeof raw === 'string') {
+      const file = path.join(dir, `${name}.txt`);
+      fs.writeFileSync(file, raw, 'utf8');
+      args.push('--rawfile', name, file);
+    } else {
+      absent.push(name);
+      args.push('--rawfile', name, '/dev/null');
+    }
+  }
+  args.push('--arg', 'nudge', typeof inputs.nudge === 'string' ? inputs.nudge : '');
+  const plan = { actions, maxBytes, harness: 'claude', title: false, absent, ...extra };
+  if (typeof inputs.summaryBytes === 'number') plan.summaryBytes = inputs.summaryBytes;
+  args.push('--argjson', 'plan', JSON.stringify(plan));
+  return execFileSync('jq', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+for (const c of CORPUS.cases) {
+  test(`IC-022 parity: emission.jq render of ${c.name} equals the expected bytes`, (t) => {
+    const rendered = JSON.parse(runEmissionJq(t, c, { mode: 'render' }));
+    assert.equal(rendered.text, c.expected.text);
+    assert.equal(rendered.bytes, c.expected.bytes);
+    assert.equal(rendered.refused, c.expected.refused);
+    assert.deepEqual(rendered.dropped, c.expected.dropped);
+    assert.deepEqual(rendered, renderEmission(c), 'jq and TypeScript give the same render result');
+  });
+}
+
+test('IC-004: emission.jq response bytes for Claude, Codex and silence', (t) => {
+  const c = CORPUS.cases.find((x) => x.name === 'git-repository');
+  const ctx = JSON.stringify(c.expected.text);
+  const claude = runEmissionJq(t, c, { harness: 'claude', title: true });
+  assert.equal(claude, `{\n  "hookSpecificOutput": {\n    "hookEventName": "UserPromptSubmit",\n    "additionalContext": ${ctx},\n    "sessionTitle": "topic — abc1234"\n  }\n}\n`);
+  const untitled = runEmissionJq(t, c, { harness: 'claude', title: false });
+  const bare = `{\n  "hookSpecificOutput": {\n    "hookEventName": "UserPromptSubmit",\n    "additionalContext": ${ctx}\n  }\n}\n`;
+  assert.equal(untitled, bare, 'a payload session_title suppresses sessionTitle');
+  assert.equal(runEmissionJq(t, c, { harness: 'codex', title: true }), bare, 'Codex never carries sessionTitle');
+
+  const notRepo = CORPUS.cases.find((x) => x.name === 'git-not-a-repository');
+  assert.match(runEmissionJq(t, notRepo, { harness: 'claude', title: true }), /"sessionTitle": "no-git"\n/);
+  const missing = CORPUS.cases.find((x) => x.name === 'git-capture-missing');
+  assert.doesNotMatch(runEmissionJq(t, missing, { harness: 'claude', title: true }), /sessionTitle/, 'no capture builds no title');
+
+  const silent = CORPUS.cases.find((x) => x.name === 'nothing-renders');
+  assert.equal(runEmissionJq(t, silent, { harness: 'claude', title: true }), '{}\n');
+  assert.equal(runEmissionJq(t, silent, { harness: 'codex' }), '{}\n');
+});
+
+test('IC-004: emission.jq faults instead of rendering on an invalid budget', (t) => {
+  const c = CORPUS.cases.find((x) => x.name === 'nudge-alone');
+  assert.throws(() => runEmissionJq(t, { ...c, maxBytes: 0 }, { mode: 'render' }), /maxBytes/);
+});
