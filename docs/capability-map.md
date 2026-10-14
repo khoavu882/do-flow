@@ -147,7 +147,7 @@ the other four documented events as the Different statuses recorded in the regis
 <!-- END GENERATED:hook-event-matrix -->
 
 <!-- BEGIN GENERATED:enforcement-matrix -->
-Schema 1; revision 1; sha256:29430a75aabcbb1f222d46135ef2772347eb7ea4fa21598694cbb86e4d695517
+Schema 1; revision 2; sha256:d50513987af03fd5a44ca679b5414603f2f4b7d64c14ad33203d87ee915c33b1
 | Policy | Harness | Native event | Profile | Class | Verification | Prerequisites | Does not cover |
 |---|---|---|---|---|---|---|---|
 | pre-implementation-gate | claude | PreToolUse | any | blocking | verified |  | writes via shell commands |
@@ -183,9 +183,9 @@ Schema 1; revision 1; sha256:29430a75aabcbb1f222d46135ef2772347eb7ea4fa21598694c
 | pre-bash-guard | kiro | PreToolUse | cli-v3-agent | blocking | verified |  |  |
 | pre-bash-guard | kiro | PreToolUse | ide | blocking | verified |  |  |
 | pre-bash-guard | antigravity | * | any | unsupported | unverified |  |  |
-| session-context | claude | SessionStart | any | advisory | unverified |  |  |
-| session-context | codex | SessionStart | any | advisory | unverified | hook-review |  |
-| session-context | gemini | SessionStart | any | advisory | unverified |  |  |
+| session-context | claude | SessionStart | any | unknown | unverified |  |  |
+| session-context | codex | SessionStart | any | unknown | unverified | hook-review |  |
+| session-context | gemini | SessionStart | any | unknown | unverified |  |  |
 | session-context | opencode | * | any | unsupported | unverified |  |  |
 | session-context | pi | * | any | unsupported | unverified |  |  |
 | session-context | copilot | * | any | unsupported | unverified |  |  |

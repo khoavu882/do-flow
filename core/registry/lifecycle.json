@@ -230,7 +230,7 @@
   ],
   "coverage": {
     "schemaVersion": 1,
-    "revision": 1,
+    "revision": 2,
     "refresh": {
       "trigger": "a harness bridge, template or installed harness version changes",
       "owner": "the feature that changes it"
@@ -437,8 +437,8 @@
         "event": "tool_execution_start",
         "timing": "pre-tool",
         "profile": "cli-extension",
-        "wired": true,
-        "configSource": "Pi JSON event stream",
+        "wired": false,
+        "configSource": null,
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -627,8 +627,8 @@
         "event": "tool_execution_start",
         "timing": "pre-tool",
         "profile": "cli-extension",
-        "wired": true,
-        "configSource": "Pi JSON event stream",
+        "wired": false,
+        "configSource": null,
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -837,8 +837,8 @@
         "event": "tool_execution_start",
         "timing": "pre-tool",
         "profile": "cli-extension",
-        "wired": true,
-        "configSource": "Pi JSON event stream",
+        "wired": false,
+        "configSource": null,
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -1524,7 +1524,7 @@
         "harnessVersion": {
           "tested": "2.1.287 (Claude Code)"
         },
-        "class": "advisory",
+        "class": "unknown",
         "verification": "unverified",
         "prerequisites": [],
         "covers": [],
@@ -1551,7 +1551,7 @@
         "harnessVersion": {
           "tested": "codex-cli 0.162.1"
         },
-        "class": "advisory",
+        "class": "unknown",
         "verification": "unverified",
         "prerequisites": [
           "hook-review"
@@ -1580,7 +1580,7 @@
         "harnessVersion": {
           "tested": "0.55.1"
         },
-        "class": "advisory",
+        "class": "unknown",
         "verification": "unverified",
         "prerequisites": [],
         "covers": [],
@@ -2698,6 +2698,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:29430a75aabcbb1f222d46135ef2772347eb7ea4fa21598694cbb86e4d695517"
+    "rowsDigest": "sha256:d50513987af03fd5a44ca679b5414603f2f4b7d64c14ad33203d87ee915c33b1"
   }
 }
