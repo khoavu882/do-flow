@@ -356,7 +356,10 @@ function delegateToPolicy(projectRoot, agent, event, policyId, nativeRaw) {
     captureHookFailure({ command: policyId, kind: 'bridge-timeout' });
     return faultDecision('bridge-timeout');
   }
-  if (result.error || result.status === null) {
+  // A bridge that exits before spawnSync finishes writing its stdin reports EPIPE although it ran to
+  // completion; its exit status and answer are judged below, like any other run.
+  const completed = result.error && result.error.code === 'EPIPE' && result.status !== null;
+  if ((result.error && !completed) || result.status === null) {
     if (result.signal && !['SIGTERM', 'SIGINT', 'SIGPIPE'].includes(result.signal)) {
       captureHookFailure({ command: policyId, kind: `bridge-exec-fault:${result.signal}` });
     }

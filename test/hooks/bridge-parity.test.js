@@ -174,7 +174,16 @@ function runFixture({ harness, stem, fixturePath, fixture }, index) {
   // Run the bridge-produced v1 payload through the canonical policy in the same project.
   const nativePolicy = path.join(mirror, '.doflow/shared/hooks/policies', `${policyId}.sh`);
   if (fixture.fault === 'none') {
-    const policyResult = call(['bash', nativePolicy], { cwd: project, input: encoded.stdout, env: { ...env, DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' } });
+    // A deny is recorded once per message in the config home the door run just used; the direct run
+    // gets its own fresh home so it judges the same message again instead of seeing that record.
+    const directHome = path.join(scratch.dir, `direct-home-${index}`);
+    const directXdg = path.join(scratch.dir, `direct-xdg-${index}`);
+    fs.mkdirSync(directHome, { recursive: true });
+    fs.mkdirSync(directXdg, { recursive: true });
+    const policyResult = call(['bash', nativePolicy], {
+      cwd: project, input: encoded.stdout,
+      env: { ...env, HOME: directHome, XDG_CONFIG_HOME: directXdg, DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' },
+    });
     assert.equal(policyResult.status, decision.outcome === 'deny' ? 2 : 0, `${label}: bridge and direct v1 policy verdict parity`);
   }
   assert.equal(jqSorted(envelope), jqSorted(fixture.expect.envelope), `${label}: envelope fields match fixture`);

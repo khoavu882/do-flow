@@ -112,6 +112,16 @@ function bridgeShim(t, { stdout = '', status = 0, stderr = '', delay = 0, record
   return filename;
 }
 
+// A killed process is dead even while it waits for its parent to reap it. A container whose PID 1 is a
+// plain shell never reaps orphans, so the killed child stays a zombie that still answers kill(pid, 0).
+function processIsAlive(pid) {
+  try { process.kill(pid, 0); } catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3) !== 'Z';
+  } catch { return true; }
+}
+
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   Object.freeze(value);
@@ -351,11 +361,11 @@ test('an abort signal kills the active child process', async (t) => {
   assert.equal(await running, undefined);
   let reaped = false;
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    try { process.kill(childPid, 0); } catch (error) { if (error.code === 'ESRCH') reaped = true; else throw error; }
+    reaped = !processIsAlive(childPid);
     if (reaped) break;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.equal(reaped, true, 'aborted bridge process was killed and reaped');
+  assert.equal(reaped, true, 'aborted bridge process was killed');
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(fs.existsSync(captureLog), false, 'abort is not recorded as a bridge fault');
 });
