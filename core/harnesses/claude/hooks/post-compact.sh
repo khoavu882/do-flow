@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# post-compact.sh — PostCompact hook
+# post-compact.sh — PostCompact hook (IC-011)
 #
-# Saves the AI-generated compact_summary (from stdin JSON) to a project-scoped
-# file. user-prompt-submit.sh reads and injects it directly on the next session's
-# first prompt — no manual restore command required.
+# Records the AI-generated compact_summary (from stdin JSON) in the summary scope of the session
+# that produced it: summaries/<worktreeKey>/<run>/<lineage>/summary.md, through
+# doflow_summary_write. Rule compact-store.summary decides whether this session records at all (a
+# `solo` lineage records nothing, DEC-013); rule compact-meta.meta decides whether meta.json's
+# compacted_at is updated (the default main lineage only). The retired project-level
+# last-compact-summary.md is never written.
 #
-# Atomic write: mktemp → populate → mv ensures readers never see partial content.
-# Multi-session safe: project directory is keyed by cwd hash, not session_id.
+# Atomic write: the store writes a .summary.XXXXXX temp file in the scope, then renames it.
 # Must complete in <200ms. Must never exit non-zero or block.
 
 set -euo pipefail
@@ -15,11 +17,6 @@ source "$(dirname "$0")/lib.sh"
 require_jq
 
 INPUT=$(cat)
-
-# A worker session never writes the project's summary or metadata: they belong to the main session.
-if [[ "$(doflow_session_role || echo main)" == "worker" ]]; then
-  exit 0
-fi
 
 SESSION_ID=$(json_field "$INPUT" ".session_id")
 CWD=$(json_field "$INPUT" ".cwd")
@@ -33,34 +30,37 @@ COMPACT_SUMMARY=$(json_field "$INPUT" ".compact_summary")
 # injected as empty context on the next session's first prompt — useless noise, skip it.
 [[ -z "$COMPACT_SUMMARY" ]] && exit 0
 
-PROJECT_DIR=$(ensure_project_dir "$CWD")
+# The identity, the rule table and the store come from the Canonical Policy Library. An install
+# missing any of them records nothing: a broken install cannot write a summary to the wrong scope.
+POLICIES="$(dirname "$0")/../../.doflow/shared/hooks/policies"
+declare -F doflow_identity >/dev/null 2>&1 || exit 0
+[[ -f "$POLICIES/emission-rules.sh" && -f "$POLICIES/summary-store.sh" ]] || exit 0
+# shellcheck source=/dev/null
+. "$POLICIES/emission-rules.sh"
+# shellcheck source=/dev/null
+. "$POLICIES/summary-store.sh"
+
+doflow_identity "$SESSION_ID" "$CWD"
+
+DF_ACTION=skip
+doflow_emission_rule compact-store.summary "$DF_ID_ROLE:$DF_ID_KIND"
+[[ "$DF_ACTION" == write ]] || exit 0
 
 # Read current branch for frontmatter metadata (best-effort, empty is fine)
 BRANCH=$(run_with_timeout 5 -- git -C "$CWD" branch --show-current 2>/dev/null || echo "")
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Single cleanup function covers both temp files — a second trap() call would
-# silently replace the first, leaving the earlier temp file unguarded on failure.
-TMP=""
+doflow_summary_write "$DF_ID_WORKTREE" "$DF_ID_RUN" "$DF_ID_LINEAGE" "${DF_ID_ATTEMPT:-}" \
+  "$TIMESTAMP" "$SESSION_ID" "$TRIGGER" "$BRANCH" "$DF_ID_ROLE" "$COMPACT_SUMMARY" || exit 0
+
+DF_ACTION=skip
+doflow_emission_rule compact-meta.meta "$DF_ID_ROLE:$DF_ID_KIND"
+[[ "$DF_ACTION" == write ]] || exit 0
+
+PROJECT_DIR=$(ensure_project_dir "$CWD")
 META_TMP=""
-_cleanup() { rm -f "$TMP" "$META_TMP" 2>/dev/null || true; }
+_cleanup() { rm -f "$META_TMP" 2>/dev/null || true; }
 trap _cleanup EXIT
-
-# Atomic write: write to a temp file then rename.
-TMP=$(mktemp "$PROJECT_DIR/.last-compact-summary.XXXXXX")
-cat > "$TMP" <<EOF
----
-compacted_at: ${TIMESTAMP}
-session_id: ${SESSION_ID:-unknown}
-trigger: ${TRIGGER:-unknown}
-branch: ${BRANCH:-unknown}
-role: main
----
-
-${COMPACT_SUMMARY}
-EOF
-mv "$TMP" "$PROJECT_DIR/last-compact-summary.md"
-TMP=""  # already moved; _cleanup should not attempt to rm it
 
 # Update meta.json compacted_at (field-merge — do not overwrite other fields)
 if [[ -f "$PROJECT_DIR/meta.json" ]]; then

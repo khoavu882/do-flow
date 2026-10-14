@@ -652,11 +652,11 @@ section "8. post-compact.sh"
 INPUT_POSTCOMPACT="{\"session_id\":\"$SESS\",\"cwd\":\"$CWD\",\"trigger\":\"manual\",\"compact_summary\":\"Verification session: implemented hooks system.\"}"
 "${SANDBOXED[@]}" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT" > /dev/null 2>&1
 
-SUMMARY_FILE="$SESS_ENV/projects/$CWD_HASH/last-compact-summary.md"
+SUMMARY_FILE="$SESS_ENV/summaries/$CWD_HASH/local/main/summary.md"
 if [[ -f "$SUMMARY_FILE" ]]; then
-  pass "last-compact-summary.md created"
+  pass "summaries/<hash>/local/main/summary.md created"
 else
-  fail "last-compact-summary.md NOT created at $SUMMARY_FILE"
+  fail "summary.md NOT created at $SUMMARY_FILE"
 fi
 
 if grep -q "compacted_at:" "$SUMMARY_FILE" 2>/dev/null; then
@@ -672,7 +672,7 @@ else
 fi
 
 # Atomic write: verify no .tmp files left behind
-TMP_REMNANTS=$(find "$TEST_HOME" -name ".last-compact-summary.*" 2>/dev/null | wc -l)
+TMP_REMNANTS=$(find "$TEST_HOME" -name ".summary.*" 2>/dev/null | wc -l)
 if [[ "$TMP_REMNANTS" -eq 0 ]]; then
   pass "no tmp remnants from atomic write"
 else
