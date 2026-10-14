@@ -56,9 +56,18 @@ function corpusFiles() {
   });
 }
 
-function encodeFixture(harness, event, policy, native) {
-  const result = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy, '-f', path.join(BRIDGE_DIR, 'envelope.jq')], {
-    input: JSON.stringify(native), encoding: 'utf8',
+function bridgeInput(harness, native, fixtureEnv = {}) {
+  if (harness !== 'kiro') return JSON.stringify(native);
+  const translated = spawnSync('/bin/bash', ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
+    input: JSON.stringify(native), encoding: 'utf8', env: { ...process.env, ...fixtureEnv },
+  });
+  assert.equal(translated.status, 0, translated.stderr);
+  return translated.stdout;
+}
+
+function encodeFixture(harness, event, policy, native, envelopePath = path.join(BRIDGE_DIR, 'envelope.jq'), fixtureEnv = {}) {
+  const result = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy, '-f', envelopePath], {
+    input: bridgeInput(harness, native, fixtureEnv), encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout).doflow_event;
@@ -133,18 +142,23 @@ test('G35.1: envelope.jq reproduces every corpus case expected envelope', () => 
     const harness = expected.harness;
     const event = expected.event;
     const policy = fixture.policy || fixture.expect?.decision?.policy || 'session-context';
-    const actual = encodeFixture(harness, event, policy, fixture.native);
+    const actual = encodeFixture(harness, event, policy, fixture.native, path.join(BRIDGE_DIR, 'envelope.jq'), fixture.env);
     assert.deepEqual(actual, expected, path.relative(REPO, file));
     checked += 1;
   }
   assert.ok(checked >= 20, `expected corpus envelope cases, found ${checked}`);
 });
 
-test('G35.1 control: removing the version field from the in-memory envelope result fails', () => {
+test('G35.1 control: reverting the production version encoder line fails against the corpus', (t) => {
   const fixture = JSON.parse(fs.readFileSync(path.join(REPO, 'test/fixtures/hooks/claude/mcp-tool-guard/deny.json'), 'utf8'));
   const expected = fixture.expect.envelope;
-  const actual = encodeFixture(expected.harness, expected.event, fixture.policy || 'mcp-tool-guard', fixture.native);
-  delete actual.version;
+  const source = fs.readFileSync(path.join(BRIDGE_DIR, 'envelope.jq'), 'utf8');
+  const reverted = source.replace('{version:1,harness:$harness', '{harness:$harness');
+  assert.notEqual(reverted, source, 'the production version field line exists');
+  const root = tempDir(t, 'doflow-g35-version-revert-');
+  const candidate = path.join(root, 'envelope.jq');
+  fs.writeFileSync(candidate, reverted);
+  const actual = encodeFixture(expected.harness, expected.event, fixture.policy || 'mcp-tool-guard', fixture.native, candidate);
   assert.throws(() => assert.deepEqual(actual, expected));
 });
 

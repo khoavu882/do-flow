@@ -1,5 +1,5 @@
 {
   "native":{"hook_event_name":"PreToolUse","session_id":"kiro-bash-error","tool_name":"shell","tool_input":{"command":"ls"}},
   "state":"none","fault":"crash-exit-1",
-  "expect":{"exit":1,"stdout":"","stderrIncludes":"[pre-bash-guard] DoFlow policy error; details: doflow-run failure list","decision":{"outcome":"error","code":"exit-1","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"PreToolUse","operation":"tool","tool":"shell","identity":{"session":"kiro-bash-error"}},"failurePoint":"eval-error:exit-1","taskStateUnchanged":true,"modelVisibleBytesMax":80}
+  "expect":{"exit":1,"stdout":"","stderrIncludes":"[pre-bash-guard] DoFlow policy error; details: doflow-run failure list","decision":{"outcome":"error","code":"exit-1","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"PreToolUse","operation":"command","tool":"Bash","command":"ls","identity":{"session":"kiro-bash-error"}},"failurePoint":"eval-error:exit-1","taskStateUnchanged":true,"modelVisibleBytesMax":80}
 }

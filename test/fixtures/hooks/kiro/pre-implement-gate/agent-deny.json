@@ -1,5 +1,5 @@
 {
   "native": {"hook_event_name":"preToolUse","session_id":"kiro-agent-gate-deny","tool_name":"write","tool_input":{"path":"src/a.js"}},
   "state":"no-design","fault":"none",
-  "expect":{"exit":2,"stdout":"","stderrIncludes":"missing requirement.md, design.md, or plan.md","decision":{"outcome":"deny","code":"missing-artifacts","effect":"block"},"envelope":{"version":1,"harness":"kiro","event":"preToolUse","operation":"tool","tool":"write","identity":{"session":"kiro-agent-gate-deny"}},"failurePoint":null,"taskStateUnchanged":true,"modelVisibleBytesMax":292}
+  "expect":{"exit":2,"stdout":"","stderrIncludes":"missing requirement.md, design.md, or plan.md","decision":{"outcome":"deny","code":"missing-artifacts","effect":"block"},"envelope":{"version":1,"harness":"kiro","event":"preToolUse","operation":"edit","tool":"Write","paths":["src/a.js"],"identity":{"session":"kiro-agent-gate-deny"}},"failurePoint":null,"taskStateUnchanged":true,"modelVisibleBytesMax":292}
 }
