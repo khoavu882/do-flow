@@ -56,6 +56,11 @@ function runPolicy(policy, input, { decisionFd = false, cwd = REPO, env = {}, po
   };
 }
 
+function runPolicyV1(policy, native, { harness, event, ...options } = {}) {
+  const input = encodeEnvelope(harness, event, policy, typeof native === 'string' ? native : JSON.stringify(native));
+  return runPolicy(policy, input, options);
+}
+
 function buildInstallMirror(target) {
   const result = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), target], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || 'install mirror build failed');
@@ -110,13 +115,13 @@ function jqSorted(value) {
   return result.stdout;
 }
 
-function encodeEnvelope(harness, event, policy, nativeInput) {
+function encodeEnvelope(harness, event, policy, nativeInput, env = {}) {
   const result = spawnSync('jq', [
     '-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy,
     '-f', path.join(REPO, 'core/harnesses/shared/hooks/bridge/envelope.jq'),
-  ], { input: nativeInput, encoding: 'utf8' });
+  ], { input: nativeInput, env: { ...process.env, ...env }, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || `envelope encoding failed for ${harness}/${event}/${policy}`);
   return result.stdout.trimEnd();
 }
 
-module.exports = { FIXTURE_ROOT, REPO, buildInstallMirror, createScratch, createScratchGitRepo, encodeEnvelope, jqSorted, loadCorpus, parseRecords, runPolicy };
+module.exports = { FIXTURE_ROOT, REPO, buildInstallMirror, createScratch, createScratchGitRepo, encodeEnvelope, jqSorted, loadCorpus, parseRecords, runPolicy, runPolicyV1 };

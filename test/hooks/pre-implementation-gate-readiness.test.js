@@ -21,6 +21,7 @@ const REGISTRY = path.join(REPO, 'core', 'registry', 'workflows.json');
 const RESOLVER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
 const { refusalText } = require('../../src/runtime/implementation-gate.ts');
 const { createScratch } = require('../helper/scratch-env');
+const { encodeEnvelope } = require('../helper/hook-fixtures');
 
 const HOOK_TEST = process.platform !== 'win32' ? test : test.skip; // GUARD: needs bash + jq
 const GIT_IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
@@ -101,17 +102,21 @@ function snapshot(root) {
 }
 
 const editEvent = (file) => ({ tool_name: 'Edit', tool_input: { file_path: file } });
-const envelopeEvent = (root, file, taskId) => ({ doflow_event: { operation: 'edit', paths: [file], projectRoot: root, taskId } });
+const envelopeEvent = (root, file, taskId) => JSON.parse(encodeEnvelope(
+  'claude', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(editEvent(file)),
+  { DOFLOW_PROJECT_DIR: root, DOFLOW_TASK_ID: taskId },
+));
 
 /**
  * Runs the policy on `event` from `cwd`, once without a resolver and once with one, and asserts
  * both give `code` and, when given, exactly `stderr`. Nothing under `caseRoot` may change.
  */
 function expectHook({ cwd, caseRoot, event, code, stderr, policy = LAYOUT_POLICY, resolver = true }) {
+  const input = event.doflow_event?.version === 1 ? JSON.stringify(event) : encodeEnvelope('claude', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(event), { DOFLOW_PROJECT_DIR: cwd });
   const homes = resolver ? [scratch.home, RESOLVER_HOME] : [scratch.home];
   for (const home of homes) {
     const before = snapshot(caseRoot);
-    const result = spawnSync('bash', [policy], { cwd, input: JSON.stringify(event), env: spawnEnv({ HOME: home }), encoding: 'utf8' });
+    const result = spawnSync('bash', [policy], { cwd, input, env: spawnEnv({ HOME: home, DOFLOW_PROJECT_DIR: cwd }), encoding: 'utf8' });
     const label = home === RESOLVER_HOME ? 'with resolver' : 'no resolver';
     assert.strictEqual(result.status, code, `${label}: exit ${result.status}, stderr: ${result.stderr}`);
     if (stderr !== undefined) assert.strictEqual(result.stderr, stderr, label);
@@ -195,6 +200,22 @@ HOOK_TEST('a feature branch with a register and three artifacts needs a READY fe
   });
   writeRecord(main, path.join('900-demo', 'A.1.json'), { taskId: 'A.1', taskClass: 'feature', state: 'READY' });
   expectHook({ ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1'), code: 0, stderr: '' });
+
+  // This v1-only readiness event has no native tool fields. Without the v1 branch the gate allows
+  // it, proving the migrated case exercises normalized envelope fields. Keep the mutation in a copy.
+  const noV1Policy = path.join(scratch.dir, 'no-v1', 'pre-implementation-gate.sh');
+  const policyText = fs.readFileSync(POLICY, 'utf8');
+  assert.ok(policyText.includes('if [ "$DF_ENV_CLASS" = v1 ]; then'), 'the v1 branch is present');
+  write(noV1Policy, policyText.replace('if [ "$DF_ENV_CLASS" = v1 ]; then', 'if false; then'));
+  fs.chmodSync(noV1Policy, 0o755);
+  const envelopeOnly = envelopeEvent(main, path.join(main, 'src', 'a.js'), '900-demo');
+  delete envelopeOnly.tool_name;
+  delete envelopeOnly.tool_input;
+  expectHook({
+    ...base, event: envelopeOnly, code: 2,
+    stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`,
+  });
+  expectHook({ ...base, policy: noV1Policy, event: envelopeOnly, code: 0, stderr: '' });
 
   writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
   expectHook({
