@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { loadCorpus } = require('../helper/hook-fixtures');
+const { encodeEnvelope, loadCorpus } = require('../helper/hook-fixtures');
 
 const CONTRACT = path.resolve(__dirname, '..', '..', 'core/harnesses/shared/hooks/policies/contract.sh');
 const BASH = '/bin/bash';
@@ -93,21 +93,21 @@ describe('policy contract decision records', () => {
     ]);
   });
 
-  test('empty and non-object input classify as invalid', { skip: !HAS_JQ && 'jq is not installed' }, () => {
+  test('empty and non-object input classify as missing', { skip: !HAS_JQ && 'jq is not installed' }, () => {
     for (const input of ['', '[]', 'null', '{"doflow_event":"x"}']) {
       const r = spawnSync(BASH, ['-c', `. '${CONTRACT}'; INPUT=$(cat); doflow_read_envelope; printf '%s' "$DF_ENV_CLASS"`], {
         input, encoding: 'utf8',
       });
       assert.equal(r.status, 0, r.stderr);
-      assert.equal(r.stdout, 'invalid');
+      assert.equal(r.stdout, 'missing');
     }
   });
 });
 
 describe('policy contract envelope classes', { skip: !HAS_JQ && 'jq is not installed' }, () => {
   for (const [name, event, expected] of [
-    ['legacy missing event', {}, 'v0'],
-    ['legacy missing version', { doflow_event: { operation: 'edit' } }, 'v0'],
+    ['missing event', {}, 'missing'],
+    ['missing version', { doflow_event: { operation: 'edit' } }, 'missing'],
     ['numeric one', { doflow_event: { version: 1, operation: 'edit' } }, 'v1'],
     ['string one', { doflow_event: { version: '1' } }, 'unsupported'],
     ['null version', { doflow_event: { version: null } }, 'unsupported'],
@@ -125,7 +125,7 @@ describe('policy contract envelope classes', { skip: !HAS_JQ && 'jq is not insta
   }
 });
 
-test('closed decision fd keeps all seven canonical policies byte-identical to 0fcd973, including stop-check deny', (t) => {
+test('closed decision fd keeps v1 policy calls byte-identical to 0fcd973, including stop-check deny', (t) => {
   const dir = tempDir(t, 'doflow-closed-fd-baseline-');
   const archive = spawnSync('git', ['archive', '0fcd973', 'core/harnesses'], { cwd: path.resolve(__dirname, '../..') });
   assert.equal(archive.status, 0, archive.stderr.toString());
@@ -144,12 +144,21 @@ test('closed decision fd keeps all seven canonical policies byte-identical to 0f
   };
   const currentRoot = path.resolve(__dirname, '../..');
   for (const policy of policies) {
-    const inputs = policy === 'pre-implementation-gate' ? loadCorpus(policy).map((row) => [row.name, row.input])
-      : policy === 'pre-bash-guard' ? loadCorpus(policy).map((row) => [row.name, row.input])
-        : policy === 'mcp-tool-guard' ? loadCorpus(policy).map((row) => [row.name, row.input])
-          : [[`${policy}-native-input`, policy === 'stop-check' ? JSON.stringify({ last_assistant_message: 'TODO: finish this' }) : '{}']];
-    for (const [name, input] of inputs) {
-      const baseline = run(dir, policy, input);
+    const inputs = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard'].includes(policy)
+      ? loadCorpus(policy).map((row) => [row.name, row.input])
+      : [[`${policy}-fixture`, JSON.stringify(policy === 'stop-check'
+        ? { last_assistant_message: 'TODO: finish this' }
+        : policy === 'session-context' ? { session_id: 'policy-contract', cwd: dir }
+        : policy === 'user-prompt-submit' ? {}
+            : { session_id: 'policy-contract', hook_event_name: 'SubagentStart' })]];
+    for (const [name, nativeInput] of inputs) {
+      let native;
+      try { native = JSON.parse(nativeInput); } catch { continue; }
+      if (!native || typeof native !== 'object' || Array.isArray(native)) continue;
+      const event = policy === 'stop-check' ? 'Stop' : policy === 'session-context' ? 'SessionStart'
+        : policy === 'user-prompt-submit' ? 'UserPromptSubmit' : policy === 'subagent-audit' ? 'SubagentStart' : 'PreToolUse';
+      const input = encodeEnvelope('claude', event, policy, nativeInput);
+      const baseline = run(dir, policy, nativeInput);
       const actual = run(currentRoot, policy, input);
       assert.deepEqual(actual, baseline, `${policy}/${name} with fd 3 closed`);
     }

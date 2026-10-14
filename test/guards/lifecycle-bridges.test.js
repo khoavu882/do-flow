@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { REPO, loadCorpus, parseRecords, runPolicy } = require('../helper/hook-fixtures');
+const { REPO, loadCorpus, parseRecords, runPolicy, encodeEnvelope } = require('../helper/hook-fixtures');
 const { tempDir } = require('../helper/tmp');
 const { rowsDigest, renderEnforcementMatrix, NEVER_BLOCKING_EVENTS } = require('../../src/lifecycle/coverage.ts');
 const { hookReachabilityFindings, runnerHeaderFindings } = require('../helper/hook-reachability');
@@ -164,17 +164,17 @@ test('G35.1 control: reverting the production version encoder line fails against
   assert.throws(() => assert.deepEqual(actual, expected));
 });
 
-test('G35.2: unknown envelope versions are unsupported and absent version remains v0', () => {
+test('G35.2: unknown envelope versions are unsupported and absent version is missing', () => {
   for (const version of [2, '1', null]) {
     assert.equal(contractClass(JSON.stringify({ doflow_event: { version } })), 'unsupported', `version ${JSON.stringify(version)}`);
   }
-  assert.equal(contractClass(JSON.stringify({ doflow_event: {} })), 'v0');
-  assert.equal(contractClass('{}'), 'v0');
+  assert.equal(contractClass(JSON.stringify({ doflow_event: {} })), 'missing');
+  assert.equal(contractClass('{}'), 'missing');
 });
 
 test('G35.2 control: treating an unknown version as v0 is detected', () => {
   const expected = contractClass(JSON.stringify({ doflow_event: { version: 2 } }));
-  assert.notEqual(expected, 'v0');
+  assert.notEqual(expected, 'missing');
 });
 
 function policyHasDenyBeforeEveryExit(text) {
@@ -210,10 +210,13 @@ test('G35.3: canonical policy no-fd bytes match committed 0fcd973 goldens and re
       row = { name: 'golden', input: fs.readFileSync(path.join(root, 'input.json'), 'utf8'), ...expected };
     }
     assert.ok(row, `${policy}: golden corpus exists`);
-    const actual = runPolicy(policy, row.input);
+    const native = JSON.parse(row.input);
+    const events = { 'pre-implementation-gate': 'PreToolUse', 'pre-bash-guard': 'PreToolUse', 'mcp-tool-guard': 'PreToolUse', 'session-context': 'SessionStart', 'stop-check': 'Stop', 'user-prompt-submit': 'UserPromptSubmit', 'subagent-audit': 'SubagentStart' };
+    const input = native.doflow_event?.version === 1 ? row.input : encodeEnvelope('claude', events[policy], policy, row.input);
+    const actual = runPolicy(policy, input);
     assert.deepEqual({ status: actual.status, stdout: actual.stdout, stderr: actual.stderr },
       { status: row.status, stdout: row.stdout, stderr: row.stderr }, `${policy}/${row.name} no-fd golden`);
-    const recorded = runPolicy(policy, row.input, { decisionFd: true });
+    const recorded = runPolicy(policy, input, { decisionFd: true });
     const records = parseRecords(recorded.records);
     assert.deepEqual(records[0], { v: 1, policy, policyVersion: 1, outcome: 'allow', code: 'allow' }, `${policy} provisional allow first`);
     assert.deepEqual(policyHasDenyBeforeEveryExit(fs.readFileSync(path.join(POLICY_DIR, `${policy}.sh`), 'utf8')), [], `${policy} deny sites`);

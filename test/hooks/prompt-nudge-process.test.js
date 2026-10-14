@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { runPolicyV1 } = require('../helper/hook-fixtures');
 const {
   scratch, LAYOUT, REGISTRY, MESSAGE, REPO, POLICIES, CASE, env, repo, prompt, request, out, markerText, sessionFolder, write, git, ownLayout, registryWith, plainContext, runPolicy, walk, AS_ROOT, suiteTempDir
 } = require('./prompt-nudge.shared');
@@ -20,8 +21,9 @@ describe('per-session', () => {
     git(rel, 'commit', '-q', '--allow-empty', '-m', 'first');
     // Run from `base` with a hard limit: a walk that never ends fails here instead of hanging the suite.
     const run = (script, payload) => {
-      const r = spawnSync('bash', [path.join(LAYOUT, script)], {
-        cwd: base, input: JSON.stringify(payload), env: env('claude'), encoding: 'utf8', timeout: 5000,
+      const r = runPolicyV1(script.replace(/\.sh$/, ''), payload, {
+        harness: 'claude', event: script === 'session-context.sh' ? 'SessionStart' : 'UserPromptSubmit',
+        policyPath: path.join(LAYOUT, script), cwd: base, env: env('claude'), timeout: 5000,
       });
       assert.equal(r.error && r.error.code, undefined, `${script} with cwd ${payload.cwd} did not finish in 5 s`);
       assert.equal(r.status, 0, r.stderr);
@@ -75,7 +77,7 @@ describe('per-session', () => {
       if (later) runPolicy(LAYOUT, 'user-prompt-submit.sh', { session_id: id, cwd: dir, prompt: 'hi' }, 'claude');
       const payload = { session_id: id, cwd: dir, prompt: `${request()}\n${body(size)}` };
       const start = process.hrtime.bigint();
-      const r = spawnSync('bash', [path.join(LAYOUT, 'user-prompt-submit.sh')], { input: JSON.stringify(payload), env: env('claude'), encoding: 'utf8' });
+      const r = runPolicyV1('user-prompt-submit', payload, { harness: 'claude', event: 'UserPromptSubmit', policyPath: path.join(LAYOUT, 'user-prompt-submit.sh'), env: env('claude') });
       const ms = Number(process.hrtime.bigint() - start) / 1e6;
       assert.equal(r.status, 0, r.stderr);
       assert.ok(out(r.stdout).additionalContext.endsWith(MESSAGE), `${size} bytes, ${later ? 'later' : 'first'} prompt: no nudge`);

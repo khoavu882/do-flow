@@ -449,14 +449,13 @@ POLICY_DIR="$REPO_ROOT/core/harnesses/shared/hooks/policies"
 FLOOR_DIR=$(mktemp -d)
 cp "$POLICY_DIR/pre-bash-guard.sh" "$FLOOR_DIR/pre-bash-guard.sh"
 cp "$POLICY_DIR/contract.sh" "$FLOOR_DIR/contract.sh"
-cp "$POLICY_DIR/contract.sh" "$FLOOR_DIR/contract.sh"
 
 # policy_verdict <script> <command> -> prints "deny: <reason>" or "allow"
 policy_verdict() {
   local script="$1" command="$2" payload err code
   payload=$(jq -n --arg cmd "$command" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
-  err=$(printf '%s' "$payload" | bash "$script" 2>&1 >/dev/null)
-  code=$?
+  payload=$(printf '%s\n' "$payload" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-bash-guard -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq")
+  err=$(printf '%s' "$payload" | bash "$script" 2>&1 >/dev/null) || code=$?
   if [[ $code -ne 0 ]]; then echo "deny: $err"; else echo "allow"; fi
 }
 
@@ -668,6 +667,7 @@ check_policy conf "$P" deny  'echo "$(git reset --hard)"' "Destructive reset"
 time_policy() {  # <label> <command>  -> prints seconds, fails above 3 s
   local label="$1" command="$2" payload tf secs
   payload=$(jq -n --arg cmd "$command" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
+  payload=$(printf '%s\n' "$payload" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-bash-guard -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq")
   tf=$(mktemp)
   TIMEFORMAT=%R
   { time bash "$P" <<<"$payload" >/dev/null 2>&1; } 2>"$tf"
@@ -789,13 +789,15 @@ cap_run "" mcp-tool-guard.sh "$MCP_CALL"
 assert_eq "mcp-tool-guard records policy-file-missing as a hook line" "hook|mcp-tool-guard|policy-file-missing|null" \
   "$(jq -r '[.source,.command,.kind,(.exit|tostring)]|join("|")' "$CAP_EVENTS")"
 
-# Malformed and empty stdin never reach the fail-open branch: same output as capture off, nothing recorded.
+# Malformed and empty stdin are out of step: blocking policies exit 2 with the DEC-033 refresh reason.
 for BAD_INPUT in "not json at all" ""; do
   rm -rf "$CAP_XDG/doflow"
   cap_run off pre-bash-guard.sh "$BAD_INPUT"; CAP_OFF="$CAP_RESULT"
   cap_run "" pre-bash-guard.sh "$BAD_INPUT"; CAP_ON="$CAP_RESULT"
   assert_eq "malformed stdin '$BAD_INPUT': output identical with capture on and off" "$CAP_OFF" "$CAP_ON"
-  assert_eq "malformed stdin '$BAD_INPUT': nothing recorded" "0" "$(cap_lines)"
+  assert_eq "malformed stdin '$BAD_INPUT': exits with out-of-step block" "2" "${CAP_ON%%|*}"
+  assert_eq "malformed stdin '$BAD_INPUT': records one out-of-step failure" "1" "$(cap_lines)"
+  assert_matches "malformed stdin '$BAD_INPUT': asks for harness refresh" "${CAP_ON#*|}" 'DoFlow hooks out of step; run: doflow update'
 done
 
 # HOME unset and no XDG_CONFIG_HOME: capture is skipped and the guard answers as before.

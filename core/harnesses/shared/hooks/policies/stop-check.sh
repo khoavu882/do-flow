@@ -60,20 +60,27 @@ else
   doflow_decision_init() { :; }
   doflow_decide() { :; }
   ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure stop-check contract-missing ) >/dev/null 2>&1 || true
+  exit 0
 fi
 if ! command -v jq >/dev/null 2>&1; then
   doflow_decide error dependency-missing:jq
   ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure stop-check dependency-missing:jq ) >/dev/null 2>&1 || true
 fi
 require_jq
-SESSION_ID="" ENVELOPE_CLASS=""
+SESSION_ID="" ENVELOPE_CLASS=missing
 { IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; } < <(
-  printf '%s' "$INPUT" | jq -j 'if ((. | type) == "object") and ((.doflow_event | type) == "object") and (.doflow_event | has("version")) and ((.doflow_event.version | type) != "number" or .doflow_event.version != 1) then "unsupported" else "v0" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000"' 2>/dev/null
+  printf '%s' "$INPUT" | jq -j 'if ((. | type) != "object") or ((.doflow_event | type) != "object") or ((.doflow_event | has("version")) | not) then "missing" elif ((.doflow_event.version | type) == "number") and .doflow_event.version == 1 then "v1" else "unsupported" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000"' 2>/dev/null
 ) || true
-if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=v0; fi
-if [ "$ENVELOPE_CLASS" = unsupported ]; then
-  doflow_decide unsupported envelope-version
-  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure stop-check unsupported:envelope-version ) >/dev/null 2>&1 || true
+ENVELOPE_CLASS=${ENVELOPE_CLASS:-missing}
+if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=missing; fi
+if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
+  code=envelope-version
+  [ "$ENVELOPE_CLASS" = missing ] && code=envelope-missing
+  [ -f "$POLICY_DIR/contract.sh" ] || code=contract-missing
+  doflow_decide unsupported "$code"
+  if [ -f "$POLICY_DIR/contract.sh" ]; then
+    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure stop-check "$code" ) >/dev/null 2>&1 || true
+  fi
   exit 0
 fi
 

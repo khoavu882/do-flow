@@ -1,1 +1,1 @@
-{"doflow_event":{"version":1,"harness":"claude","event":"SessionStart","operation":"session-start"}}
+{"session_id":"perf-test-session","cwd":".","doflow_event":{"version":1,"harness":"claude","event":"SessionStart","operation":"session-start","identity":{"session":"perf-test-session"}}}
