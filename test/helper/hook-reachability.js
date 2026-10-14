@@ -5,7 +5,6 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
-const SHIPPED_ROOTS = ['core/harnesses', 'core/.antigravity-plugin', 'core/harnesses/pi/extensions'];
 const TEMPLATE_PATHS = [
   'core/harnesses/claude/settings/settings.json',
   'core/harnesses/codex/hooks/hooks.json',
@@ -13,7 +12,6 @@ const TEMPLATE_PATHS = [
   'core/harnesses/kiro/hooks/doflow.json',
   'core/harnesses/kiro/agents/doflow.json',
 ];
-const HARNESS_DIRS = ['claude', 'codex', 'gemini', 'kiro'];
 
 function trackedFiles(root) {
   const result = spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });

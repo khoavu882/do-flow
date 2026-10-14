@@ -439,6 +439,30 @@ test('G37.3 control: an old runner header is rejected', () => {
   assert.notEqual(restored, runner);
   assert.deepEqual(runnerHeaderFindings(restored), ['runner header names a harness other than Antigravity']);
 });
+test('G37.3 control: wiring to a missing door is reported for every door harness', (t) => {
+  const tracked = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
+  const cases = [
+    { harness: 'claude', template: 'core/harnesses/claude/settings/settings.json' },
+    { harness: 'codex', template: 'core/harnesses/codex/hooks/hooks.json' },
+    { harness: 'gemini', template: 'core/harnesses/gemini/hooks/hooks.json' },
+    { harness: 'kiro', template: 'core/harnesses/kiro/hooks/doflow.json' },
+    { harness: 'antigravity', template: 'core/registry/harnesses.json' },
+  ];
+  for (const { harness, template } of cases) {
+    const root = tempDir(t, `doflow-g37-missing-${harness}-`);
+    fs.cpSync(path.join(REPO, 'core'), path.join(root, 'core'), { recursive: true });
+    const file = path.join(root, template);
+    if (harness === 'antigravity') {
+      const registry = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const entry = registry.harnesses.find((item) => item.id === harness);
+      entry.paths.hookScript.project.segments[entry.paths.hookScript.project.segments.length - 1] = 'missing-door.sh';
+      fs.writeFileSync(file, JSON.stringify(registry));
+    } else {
+      fs.appendFileSync(file, '\nmissing-door.sh\n');
+    }
+    assert.ok(hookReachabilityFindings(root, tracked).some((finding) => finding.includes('missing-door.sh')), harness);
+  }
+});
 test('G37.4: Kiro Stop rows remain unknown with documented and fixture provenance', () => { assert.deepEqual(kiroStopFindings(readCoverage()),[]); });
 test('G37.4 control: Kiro Stop blocking without trigger documentation is detected', () => { const c=structuredClone(readCoverage()); const r=c.rows.find(x=>x.harness==='kiro'&&x.event==='Stop'); r.class='blocking'; r.provenance=r.provenance.filter(p=>p.kind!=='doc'); assert.ok(kiroStopFindings(c).length); });
 

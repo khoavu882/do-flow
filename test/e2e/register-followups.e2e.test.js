@@ -18,7 +18,7 @@ const { spawnSync } = require('node:child_process');
 const {
   REPO, SKIP, git, makeRepo, run, decision, writeFiles, read, featureDir, initRegister, addBatch, haveTagOrSkip, gitShow, squash, HISTORY, v1120Validate,
 } = require('./register-followups.shared');
-const { claudeDoorFindings } = require('../helper/hook-reachability');
+const { claudeDoorFindings, hookReachabilityFindings } = require('../helper/hook-reachability');
 const { tempDir } = require('../helper/tmp');
 
 // ── US1: compaction ─────────────────────────────────────────────────────────────────────────────────
@@ -384,6 +384,7 @@ describe('NFR-004: no write-time hook or refusal was added', { skip: SKIP }, () 
   test('every claude hook door is wired or sourced, and every wiring command resolves', () => {
     const files = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
     assert.deepStrictEqual(claudeDoorFindings(REPO, files), []);
+    assert.deepStrictEqual(hookReachabilityFindings(REPO, files), []);
   });
 
   test('current-truth controls reject a missing wiring target and an unwired claude door', (t) => {
