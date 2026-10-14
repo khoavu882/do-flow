@@ -63,6 +63,29 @@ test('pi guard extension installs at user scope beside a verified shared bridge 
   assert.equal(fs.existsSync(userExtension), true);
 });
 
+test('Pi user extensions survive install, update and remove at both scopes', () => {
+  for (const scope of ['global', 'project']) {
+    const root = tempHome();
+    const adapter = createPiAdapter({ env: {} });
+    const input = baseInput(root, { scope });
+    const extensionDir = scope === 'global' ? path.join(root, '.pi/agent/extensions') : path.join(root, '.pi/extensions');
+    const userExtension = path.join(extensionDir, 'user-extension.js');
+    fs.mkdirSync(extensionDir, { recursive: true });
+    fs.writeFileSync(userExtension, 'export default function userExtension() {}\n');
+
+    const installed = install(adapter, input);
+    const updateInput = { ...input, ledger: installed.ledger, context: { ...input.context, operation: 'update' } };
+    const update = plan(adapter, updateInput);
+    assert.deepEqual(update.result.conflicts, [], `${scope} update has no conflict`);
+    adapter.apply({ changes: update.result.changes });
+    assert.equal(fs.readFileSync(userExtension, 'utf8'), 'export default function userExtension() {}\n', `${scope} user extension survives update`);
+
+    const removal = plan(adapter, { ...input, ledger: installed.ledger, context: { ...input.context, operation: 'remove' } });
+    adapter.remove({ changes: removal.result.changes });
+    assert.equal(fs.readFileSync(userExtension, 'utf8'), 'export default function userExtension() {}\n', `${scope} user extension survives remove`);
+  }
+});
+
 test('pi guard extension follows PI_CODING_AGENT_DIR for user install, verification and removal', () => {
   const home = tempHome();
   const agentDir = path.join(home, 'alternate-agent');

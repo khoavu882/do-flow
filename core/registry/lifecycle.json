@@ -441,7 +441,7 @@
           "writes via shell commands"
         ],
         "caveats": [
-          "Pi user-scope extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
@@ -553,7 +553,7 @@
           "writes via shell commands"
         ],
         "caveats": [
-          "Pi user-scope extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
           "Pi extension unavailable in this profile"
         ],
         "provenance": [
@@ -629,7 +629,7 @@
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "Pi user-scope extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
@@ -735,7 +735,7 @@
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "Pi user-scope extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
           "Pi extension unavailable in this profile"
         ],
         "provenance": [
@@ -774,7 +774,7 @@
         "doesNotCover": [],
         "caveats": [
           "not wired for this harness mapping",
-          "Pi user-scope extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
@@ -839,7 +839,7 @@
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "Pi user-scope extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
@@ -945,7 +945,7 @@
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "Pi user-scope extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
           "Pi extension unavailable in this profile"
         ],
         "provenance": [
@@ -984,7 +984,7 @@
         "doesNotCover": [],
         "caveats": [
           "not wired for this harness mapping",
-          "Pi user-scope extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
@@ -2259,6 +2259,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:6ea507df3d79d5cb2a55c0e6bb3befa9db33a4ab9752800c3225ede2552a457e"
+    "rowsDigest": "sha256:c42c01971d00df30a367ef7dd999da0e2f20f0d76906b55872614205e79ddb7e"
   }
 }

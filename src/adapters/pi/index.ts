@@ -13,7 +13,7 @@
 //
 // MCP servers are merged per server into Pi's mcp.json (.pi/mcp.json project; ~/.pi/agent/mcp.json
 // or $PI_CODING_AGENT_DIR/mcp.json user) by ./mcp.ts; Pi reads it through its built-in MCP from
-// 0.99.0. The user-scope lifecycle extension is ledger-owned and resolves its shared bridge at install time.
+// 0.99.0. The user- and project-scope lifecycle extension is ledger-owned and resolves its shared bridge at install time.
 //
 // Evidence: https://pi.dev/docs/latest/settings, https://pi.dev/docs/latest/skills,
 // https://pi.dev/docs/latest/quickstart, https://pi.dev/docs/latest/extensions,

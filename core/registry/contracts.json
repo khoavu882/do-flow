@@ -134,7 +134,7 @@
     {
       "harness": "pi",
       "completeness": "lower-bound",
-    "note": "DoFlow installs a user- or project-scope extension that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust. The handler can block before tools execute; tool_execution_start remains observation-only. See https://pi.dev/docs/latest/extensions.",
+      "note": "DoFlow installs a user- or project-scope extension that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust. The handler can block before tools execute; tool_execution_start remains observation-only. See https://pi.dev/docs/latest/extensions.",
       "hookEvents": ["tool_call"],
       "evidence": [
         "https://pi.dev/docs/latest/extensions",

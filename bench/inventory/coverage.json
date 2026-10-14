@@ -1000,10 +1000,10 @@
       "executionMode": "unknown",
       "event": "tool_call",
       "wired": true,
-    "wiredSource": "core/harnesses/pi/extensions/doflow-guard.js: user- and project-scope extension registers tool_call",
+      "wiredSource": "core/harnesses/pi/extensions/doflow-guard.js: user- and project-scope extension registers tool_call",
       "registryClaim": "different",
       "observedSemantics": {
-      "value": "documented, not exercised in a live session: the user- and project-scope DoFlow extension registers tool_call through pi.on() and invokes the shared lifecycle bridge; the installed extension file is ledger-owned",
+        "value": "documented, not exercised in a live session: the user- and project-scope DoFlow extension registers tool_call through pi.on() and invokes the shared lifecycle bridge; the installed extension file is ledger-owned",
         "source": "https://pi.dev/docs/latest/extensions",
         "verifiedOn": "2026-10-12"
       },

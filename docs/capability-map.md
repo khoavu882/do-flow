@@ -38,8 +38,8 @@ For OpenCode and Pi, several rows read “Different” because those harnesses e
 rather than projection: DoFlow points OpenCode's settings at its existing skills directory instead
 of copying a second tree (Pi's skills are copied into `.pi/skills/` or `~/.pi/agent/skills/`;
 `settings.json` is Pi's supported settings surface, but DoFlow writes no key in it). Pi's installed
-user-scope extension registers `tool_call` and invokes the shared lifecycle bridge; project-scope
-extension projection remains unsupported.
+user- and project-scope extensions register `tool_call` and invoke the shared lifecycle bridge;
+project-scope installs require project trust.
 
 Kiro reads “Unavailable” for two rows for a different reason than OpenCode/Pi's
 “Different”: no documented native surface exists at all for those capabilities — no general settings
@@ -99,8 +99,8 @@ an event declared supported must be in the harness contract, and an unavailable 
 a reason.
 
 **Supported** means DoFlow installs a hook for that event. **Different** means the harness fires an
-equivalent event through a different mechanism. OpenCode uses plugin modules; Pi's user-scope
-extension registers `tool_call` and invokes the shared bridge. **Unavailable** means no equivalent
+equivalent event through a different mechanism. OpenCode uses plugin modules; Pi's user- and
+project-scope extensions register `tool_call` and invoke the shared bridge. **Unavailable** means no equivalent
 event exists at matching semantics.
 
 A dash means the harness declares no such event name in DoFlow's taxonomy. Copilot CLI's hooks
@@ -132,7 +132,7 @@ the other four documented events as the Different statuses recorded in the regis
 | `PermissionRequest` | — | Different | — | — | — | — | — | — | **Codex:** Native PermissionRequest runs before an approval prompt; DoFlow projects no policy to it on Codex. |
 | `PostCompact` | Supported | Different | — | Different | Different | — | — | — | **Codex:** Native PostCompact exists; DoFlow's post-compact policy is not projected to Codex. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.compacted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: compaction_end. |
 | `PostInvocation` | — | — | — | — | — | — | — | Different | **Antigravity CLI:** Documented (terminationBehavior control); no current DoFlow policy maps to it. |
-| `PostToolUse` | Supported | Supported | — | Different | Different | Different | — | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.after. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_end, exposed through session.subscribe rather than pi.on. **GitHub Copilot CLI:** Native postToolUse can rewrite results/inject context; not projected. **Antigravity CLI:** Documented (post-edit lint candidate), not projected yet. |
+| `PostToolUse` | Supported | Supported | — | Different | Different | Different | — | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.after. **Pi Coding Agent:** The DoFlow extension does not register tool_execution_end. **GitHub Copilot CLI:** Native postToolUse can rewrite results/inject context; not projected. **Antigravity CLI:** Documented (post-edit lint candidate), not projected yet. |
 | `PostToolUseFailure` | Supported | Unavailable | Unavailable | Unavailable | Unavailable | Different | — | — | **Codex:** No Codex event fires only on tool failure; PostToolUse cannot distinguish the two. **Gemini CLI:** AfterTool fires regardless of outcome; failure cannot be isolated. **OpenCode:** tool.execute.after fires for both outcomes; no failure-only event exists. **Pi Coding Agent:** tool_execution_end reports both outcomes; no failure-only event exists. **GitHub Copilot CLI:** Native postToolUseFailure exists — a failure-only event Claude lacks a direct name for. |
 | `PreCompact` | Supported | Supported | — | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: experimental.session.compacting. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary. **GitHub Copilot CLI:** Native preCompact exists. |
 | `PreCompress` | — | — | Supported | — | — | — | — | — |  |
