@@ -8,14 +8,16 @@
 #     --rawfile git <git-context.json> --rawfile summary <claimed summary> \
 #     --rawfile grant <claimed grant> --rawfile warning <warning text> --arg nudge "$NUDGE"
 #
-# All four --rawfile names are always passed (jq refuses an undefined $name). A file that does not
+# All four names are always bound (jq refuses an undefined $name); emission.sh binds $warning with
+# --arg, because the warning claim reads the file and removes it before the render. A file that does not
 # exist is passed as /dev/null and its name listed in plan.absent; an empty existing file is not
 # absent (an empty warning still renders, an empty git capture is "Not a git repository.").
 #
 # plan:
 #   actions       IC-001 actions by segment; only git, summary, warning, grant and nudge render here
 #   maxBytes      positive integer, the IC-002 byte budget
-#   harness       "claude" or "codex"; sessionTitle is only ever added on "claude"
+#   harness       the harness name (DOFLOW_AGENT); sessionTitle is added on every harness but
+#                 "codex", whose envelope rejects unknown fields (DEC-030)
 #   title         true when a title may be set (the payload carries no session_title)
 #   absent        names among git, summary, grant, warning whose file does not exist (default [])
 #   summaryBytes  the claimed summary file's full size, which can exceed the bounded read; it
@@ -25,7 +27,7 @@
 #
 # Response bytes (jq's default pretty print): emission is
 #   {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ...}}
-# with sessionTitle on Claude only, when plan.title holds and the git action built a title
+# with sessionTitle on every harness but Codex (DEC-030), when plan.title holds and the git action built a title
 # ("{branch?unknown} — {sha?unknown}", or "no-git" outside a repository; none when the capture
 # file is missing). Nothing rendered prints {} and a newline. Any error exits non-zero and the
 # caller answers with the silent response.
@@ -169,7 +171,7 @@ def render($plan; $in):
 def response($plan; $in; $result):
   if $result.text == null then {}
   else
-    (if $plan.harness == "claude" and $plan.title == true and ($plan.actions // {}).git == "include"
+    (if $plan.harness != "codex" and $plan.title == true and ($plan.actions // {}).git == "include"
       then git_title($in.git; ($plan.absent // []) | map(select(. == "git")) | length > 0) else null end) as $title
     | {"hookSpecificOutput": ({"hookEventName": "UserPromptSubmit", "additionalContext": $result.text}
         + (if $title != null and $title != "" then {"sessionTitle": $title} else {} end))}
