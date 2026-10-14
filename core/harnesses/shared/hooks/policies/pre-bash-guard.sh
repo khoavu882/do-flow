@@ -10,13 +10,8 @@
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional; not required to
 #          evaluate this policy)
-#   stdin  a PreToolUse-shaped JSON payload; tool name is read from the union
-#          of field names harnesses use, and matched against the union of
-#          known shell-command tool names (Bash/bash — Claude/Codex;
-#          run_shell_command — Gemini; run_command — the generic name
-#          stream-hook-runner.js's own COMMAND_TOOL_PATTERN already
-#          recognized), since a native front door (Claude/Codex/Kiro) execs
-#          this script directly with no payload translation of its own.
+#   stdin  a native payload with envelope v1 under doflow_event; only the
+#          envelope's operation, tool and command fields are used.
 #   exit   0 = allow, non-zero = deny with the reason on stderr.
 #
 # Reconciliation note (022-normalize-hooks, Phase A / D1): this also absorbs
@@ -82,8 +77,6 @@ else
   exit 2
 fi
 
-# Fast exit for non-shell-command tool events (union of every known
-# shell-command tool name across harnesses, case-insensitive).
 # Nothing to check if command is empty
 [ -z "$COMMAND" ] && exit 0
 

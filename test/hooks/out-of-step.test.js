@@ -4,13 +4,44 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { parseRecords, runPolicy } = require('../helper/hook-fixtures');
+const { buildInstallMirror, createScratchGitRepo, parseRecords, runPolicy } = require('../helper/hook-fixtures');
 
 const POLICIES = path.resolve(__dirname, '../../core/harnesses/shared/hooks/policies');
 const BLOCKING = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard'];
 const QUIET = ['stop-check', 'session-context', 'subagent-audit', 'user-prompt-submit'];
+const OLD_DOORS = {
+  claude: ['core/harnesses/claude/hooks/pre-implement-gate.sh', '.claude/hooks/pre-implement-gate.sh'],
+  codex: ['core/harnesses/codex/hooks/pre-implement-gate.sh', '.codex/hooks/pre-implement-gate.sh'],
+  gemini: ['core/harnesses/gemini/hooks/pre-implement-gate.sh', '.gemini/hooks/pre-implement-gate.sh'],
+  kiro: ['core/harnesses/kiro/hooks/pre-implement-gate.sh', '.kiro/hooks/pre-implement-gate.sh'],
+};
+
+function write(file, contents) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, contents);
+}
+
+function installOldDoors(mirror) {
+  for (const [source, installed] of Object.values(OLD_DOORS)) {
+    const contents = execFileSync('git', ['show', `0fcd973:${source}`], { cwd: path.resolve(__dirname, '../..'), encoding: 'utf8' });
+    write(path.join(mirror, installed), contents);
+    fs.chmodSync(path.join(mirror, installed), 0o755);
+  }
+}
+
+function runOldDoor(harness, mirror, project, input) {
+  const [, installed] = OLD_DOORS[harness];
+  const result = spawnSync('bash', [path.join(mirror, installed)], {
+    cwd: project,
+    input: `${JSON.stringify(input)}\n`,
+    encoding: 'utf8',
+    env: { ...process.env, DOFLOW_AGENT: harness, DOFLOW_PROJECT_DIR: project, DOFLOW_FAILURE_CAPTURE: 'off' },
+  });
+  assert.equal(result.error, undefined, result.error?.message);
+  return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
+}
 
 test('missing, empty, malformed and non-object input take the IC-036 policy rule', () => {
   const cases = [
@@ -52,4 +83,57 @@ test('contract.sh missing is the same out-of-step rule with contract-missing rec
     assert.equal(result.stderr, isBlocking ? `[${policy}] DoFlow hooks out of step; run: doflow update -t claude\n` : '', `${policy} stderr`);
     assert.deepEqual(parseRecords(result.records), [], `${policy} has no contract with which to write decisions`);
   }
+});
+
+test('0fcd973 pre-tool doors turn native payloads into DEC-033 out-of-step denies', (t) => {
+  const temp = tempDir(t, 'doflow-out-of-step-old-doors-');
+  const mirror = path.join(temp, 'mirror');
+  buildInstallMirror(mirror);
+  installOldDoors(mirror);
+  const { root: project } = createScratchGitRepo({ path: (...parts) => path.join(temp, ...parts) }, 'project');
+  const nativeByHarness = {
+    claude: { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } },
+    codex: { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } },
+    gemini: { hook_event_name: 'BeforeTool', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } },
+    kiro: { hook_event_name: 'PreToolUse', tool_name: 'write', tool_input: { path: 'src/a.js' } },
+  };
+  for (const harness of Object.keys(OLD_DOORS)) {
+    const result = runOldDoor(harness, mirror, project, nativeByHarness[harness]);
+    const reason = `[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t ${harness}`;
+    if (harness === 'kiro') {
+      assert.equal(result.status, 2, `${harness} native deny exit`);
+      assert.equal(result.stdout, '', `${harness} stdout`);
+      assert.equal(result.stderr, `${reason}\n`, `${harness} native deny reason`);
+    } else {
+      assert.equal(result.status, 0, `${harness} translated deny exit`);
+      const response = JSON.parse(result.stdout);
+      if (harness === 'gemini') {
+        assert.equal(response.decision, 'deny');
+        assert.equal(response.reason, reason);
+      } else {
+        assert.equal(response.hookSpecificOutput.permissionDecision, 'deny');
+        assert.equal(response.hookSpecificOutput.permissionDecisionReason, reason);
+      }
+    }
+  }
+});
+
+test('legacy native tool read in a temp policy lets the 0fcd973 Claude door allow', (t) => {
+  const temp = tempDir(t, 'doflow-out-of-step-legacy-control-');
+  const mirror = path.join(temp, 'mirror');
+  buildInstallMirror(mirror);
+  installOldDoors(mirror);
+  const { root: project } = createScratchGitRepo({ path: (...parts) => path.join(temp, ...parts) }, 'project');
+  const policy = path.join(mirror, '.doflow/shared/hooks/policies/pre-implementation-gate.sh');
+  const policyText = fs.readFileSync(policy, 'utf8');
+  const missingBranch = /else\n  if \[ "\$\{DF_ENV_CODE:-envelope-missing\}" != contract-missing \]; then[\s\S]*?  doflow_decide deny "\$\{DF_ENV_CODE:-envelope-missing\}"\n  exit 2\nfi\n/;
+  assert.match(policyText, missingBranch, 'temporary policy contains the missing-envelope rule');
+  const nativeRead = `else\n  ENVELOPE_OP=$(jq -r 'if .tool_name == "Edit" or .tool_name == "Write" or .tool_name == "MultiEdit" then "edit" else empty end' <<<"$INPUT")\n  [ "$ENVELOPE_OP" = edit ] || exit 0\n  FILES=$(jq -r '.tool_input.file_path // empty' <<<"$INPUT")\nfi\n`;
+  fs.writeFileSync(policy, policyText.replace(missingBranch, nativeRead));
+  const result = runOldDoor('claude', mirror, project, {
+    hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' },
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, '');
 });

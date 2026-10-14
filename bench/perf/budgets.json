@@ -1350,6 +1350,7 @@
       ],
       "harness": "shared",
       "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/capture-failure.json",
       "enforced": false
     },
     {
@@ -1361,6 +1362,7 @@
       ],
       "harness": "shared",
       "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/mcp-tool-guard.json",
       "enforced": false
     },
     {
@@ -1372,6 +1374,7 @@
       ],
       "harness": "shared",
       "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/pre-implementation-gate.json",
       "enforced": false
     },
     {
@@ -1383,6 +1386,7 @@
       ],
       "harness": "shared",
       "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/session-context.json",
       "enforced": false
     },
     {
@@ -1394,6 +1398,7 @@
       ],
       "harness": "shared",
       "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/stop-check.json",
       "enforced": false
     },
     {
@@ -1405,6 +1410,7 @@
       ],
       "harness": "shared",
       "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/subagent-audit.json",
       "enforced": false
     }
   ],

@@ -207,8 +207,7 @@ HOOK_TEST('a feature branch with a register and three artifacts needs a READY fe
   writeRecord(main, path.join('900-demo', 'A.1.json'), { taskId: 'A.1', taskClass: 'feature', state: 'READY' });
   expectHook({ ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1'), code: 0, stderr: '' });
 
-  // This v1-only readiness event has no native tool fields. Without the v1 branch the gate allows
-  // it, proving the migrated case exercises normalized envelope fields. Keep the mutation in a copy.
+  // DEC-033: this v1-only input has no legacy tool fields; the copy that skips v1 takes the out-of-step block.
   const noV1Policy = path.join(scratch.dir, 'no-v1', 'pre-implementation-gate.sh');
   const policyText = fs.readFileSync(POLICY, 'utf8');
   assert.ok(policyText.includes('if [ "$DF_ENV_CLASS" = v1 ]; then'), 'the v1 branch is present');

@@ -13,19 +13,9 @@
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional; not required to
 #          evaluate this policy)
-#   stdin  a PreToolUse-shaped JSON payload; tool name is read from the union
-#          of field names harnesses use (tool_name/tool/toolName/name), since
-#          a native front door (Claude/Codex/Kiro) execs this script directly
-#          with no payload translation of its own.
+#   stdin  a native payload with envelope v1 under doflow_event; only the
+#          envelope's operation and tool fields are used.
 #   exit   0 = allow, non-zero = deny with the reason on stderr.
-#
-# Reconciliation note (022-normalize-hooks, Phase A): MCP tool-name
-# vocabularies differ per harness — Claude/Codex/Kiro use a double-underscore
-# "mcp__<server>__<tool>" convention, Gemini documents a single-underscore
-# "mcp_<server>_<tool>" convention. A single-underscore prefix check ("^mcp_")
-# matches both conventions (the double-underscore form is a superset match of
-# the single-underscore prefix), so this script uses that one generic check
-# instead of hardcoding either harness's exact convention.
 #
 # mcp-policy.conf's shape (TAB-separated regex<TAB>reason, '#'-comments,
 # blank lines skipped) is identical across every harness that ships one today

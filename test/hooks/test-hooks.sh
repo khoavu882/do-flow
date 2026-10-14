@@ -789,7 +789,7 @@ cap_run "" mcp-tool-guard.sh "$MCP_CALL"
 assert_eq "mcp-tool-guard records policy-file-missing as a hook line" "hook|mcp-tool-guard|policy-file-missing|null" \
   "$(jq -r '[.source,.command,.kind,(.exit|tostring)]|join("|")' "$CAP_EVENTS")"
 
-# Malformed and empty stdin are out of step: blocking policies exit 2 with the DEC-033 refresh reason.
+# DEC-033: malformed and empty stdin are out of step and blocking policies exit 2 with the refresh reason.
 for BAD_INPUT in "not json at all" ""; do
   rm -rf "$CAP_XDG/doflow"
   cap_run off pre-bash-guard.sh "$BAD_INPUT"; CAP_OFF="$CAP_RESULT"

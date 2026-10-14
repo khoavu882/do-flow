@@ -267,6 +267,7 @@ test('negative control: skipping the envelope merge sends an out-of-step denial'
   assert.notEqual(sabotaged, original, 'the temporary bridge contains the envelope merge line');
   fs.writeFileSync(bridge, sabotaged);
   const result = executeShell('claude', row, project, mirror, 'negative-control');
+  // DEC-033: a bridge without a v1 envelope reaches the explicit out-of-step deny.
   assert.equal(result.denied, true, 'a bridge that drops its v1 envelope is denied as out of step');
 });
 
