@@ -1027,6 +1027,26 @@
         "verifiedOn": "2026-10-12"
       },
       "sameNameNotAssumed": true
+    },
+    {
+      "harness": "kiro",
+      "installedVersion": {
+        "value": "kiro-cli 2.29.1",
+        "source": "kiro-cli --version → kiro-cli 2.29.1",
+        "verifiedOn": "2026-10-12"
+      },
+      "executionMode": "unknown",
+      "event": "stop",
+      "wired": true,
+      "wiredSource": "core/harnesses/kiro/agents/doflow.json:50",
+      "registryClaim": "absent",
+      "observedSemantics": {
+        "value": "documented, not exercised in a live session: on Kiro CLI 2.x, the agent stop hook warns and allows completion; it is not blockable",
+        "source": "https://kiro.dev/docs/hooks/types/",
+        "verifiedOn": "2026-10-14"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "agent-profile stop is observed on CLI 2.x; the standalone Stop trigger name remains unresolved against documented AgentStop"
     }
   ]
 }

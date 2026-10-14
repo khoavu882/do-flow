@@ -137,14 +137,97 @@ the other four documented events as the Different statuses recorded in the regis
 | `PreCompact` | Supported | Supported | — | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: experimental.session.compacting. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary. **GitHub Copilot CLI:** Native preCompact exists. |
 | `PreCompress` | — | — | Supported | — | — | — | — | — |  |
 | `PreInvocation` | — | — | — | — | — | — | — | Different | **Antigravity CLI:** Documented step-injection point; no current DoFlow policy needs model-call interception. |
-| `PreToolUse` | Supported | Supported | — | Different | Different | Different | — | Supported | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before. **Pi Coding Agent:** DoFlow's user- or project-scope extension evaluates `tool_call` before execution; `tool_execution_start` remains observation-only. **GitHub Copilot CLI:** Blocking contract matches ({permissionDecision} on stdout) but tool names differ from Claude's Edit\|Write\|MultiEdit and the gate reads CLAUDE_* envs. **Antigravity CLI:** DoFlow projects its pre-implementation gate as a native shim: matcher write_to_file\|replace_file_content\|multi_replace_file_content, deny decision until the branch-coupled feature's three specifications exist. |
+| `PreToolUse` | Supported | Supported | — | Different | Different | Different | Supported | Supported | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before. **Pi Coding Agent:** DoFlow's user- or project-scope extension evaluates `tool_call` before execution; `tool_execution_start` remains observation-only. **GitHub Copilot CLI:** Blocking contract matches ({permissionDecision} on stdout) but tool names differ from Claude's Edit\|Write\|MultiEdit and the gate reads CLAUDE_* envs. **Antigravity CLI:** DoFlow projects its pre-implementation gate as a native shim: matcher write_to_file\|replace_file_content\|multi_replace_file_content, deny decision until the branch-coupled feature's three specifications exist. |
 | `SessionEnd` | Supported | Supported | Supported | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle / session.deleted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown. **GitHub Copilot CLI:** Native sessionEnd exists; same payload-schema caveat. |
-| `SessionStart` | Supported | Supported | Supported | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.created. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:"reload" on /reload. **GitHub Copilot CLI:** Native sessionStart exists; DoFlow's script reads Claude's .session_id/.cwd stdin fields. |
-| `Stop` | Supported | Supported | Unavailable | Different | Different | Different | — | Supported | **Gemini CLI:** No exact match; AfterAgent fires at agent-loop end and can halt or retry the turn, which is coarser than Claude's Stop. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end. **GitHub Copilot CLI:** Native agentStop forces continuation via stdout {decision:'block'} (8-block runaway cap), unlike Claude's exit-2 semantics; stop-check relies on .transcript_path. **Antigravity CLI:** DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is optional and unverified — empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end. |
+| `SessionStart` | Supported | Supported | Supported | Different | Different | Different | Supported | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.created. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:"reload" on /reload. **GitHub Copilot CLI:** Native sessionStart exists; DoFlow's script reads Claude's .session_id/.cwd stdin fields. |
+| `Stop` | Supported | Supported | Unavailable | Different | Different | Different | Different | Supported | **Gemini CLI:** No exact match; AfterAgent fires at agent-loop end and can halt or retry the turn, which is coarser than Claude's Stop. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end. **GitHub Copilot CLI:** Native agentStop forces continuation via stdout {decision:'block'} (8-block runaway cap), unlike Claude's exit-2 semantics; stop-check relies on .transcript_path. **Antigravity CLI:** DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is optional and unverified — empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end. |
 | `SubagentStart` | Supported | Supported | Unavailable | Unavailable | Unavailable | Different | — | — | **Gemini CLI:** BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. **GitHub Copilot CLI:** Native subagentStart/subagentStop exist. |
 | `SubagentStop` | Supported | Supported | Unavailable | Unavailable | Unavailable | Different | — | — | **Gemini CLI:** BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. **GitHub Copilot CLI:** Native subagentStart/subagentStop exist. |
 | `UserPromptSubmit` | Supported | Supported | Unavailable | Unavailable | Different | Different | Different | Unavailable | **Claude Code:** DoFlow's once-per-session `/do` suggestion is delivered by this per-prompt hook. **Codex:** DoFlow's once-per-session `/do` suggestion is delivered by this per-prompt hook. **Gemini CLI:** No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context — not a per-prompt pre-submission gate. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **OpenCode:** OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **GitHub Copilot CLI:** Natives are userPromptSubmitted and userPromptTransformed; pre-submission gating semantics unverified. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **Kiro:** Kiro documents a native UserPromptSubmit trigger that is blockable via a non-zero exit code and exposes the prompt as the USER_PROMPT environment variable; DoFlow wires no hook to it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **Antigravity CLI:** Antigravity documents no event that fires when a user submits a prompt; the nearest point, PreInvocation, fires before every model call and no DoFlow policy uses it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. |
 <!-- END GENERATED:hook-event-matrix -->
+
+<!-- BEGIN GENERATED:enforcement-matrix -->
+Schema 1; revision 1; sha256:93dd91b925199ff45cff798f792b0d565bfee97e0bff5cff44fcc1f9573f8fe3
+| Policy | Harness | Native event | Profile | Class | Verification | Prerequisites | Does not cover |
+|---|---|---|---|---|---|---|---|
+| pre-implementation-gate | claude | PreToolUse | any | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | codex | PreToolUse | any | unknown | unverified | hook-review | writes via shell commands |
+| pre-implementation-gate | gemini | BeforeTool | any | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | opencode | * | any | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | * | no-extensions | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool_call | cli-extension | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool_call | project-headless | unknown | unverified | project-trust | writes via shell commands |
+| pre-implementation-gate | pi | tool_call | project-interactive | blocking | verified | project-trust | writes via shell commands |
+| pre-implementation-gate | pi | tool_call | user-headless | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool_execution_start | cli-extension | observation | unverified |  | writes via shell commands |
+| pre-implementation-gate | copilot | * | any | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | copilot | PreToolUse | any | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | kiro | PreToolUse | cli-2x-agent | blocking | verified |  | writes via shell commands |
+| pre-implementation-gate | kiro | PreToolUse | cli-v3 | blocking | verified |  | writes via shell commands |
+| pre-implementation-gate | kiro | PreToolUse | cli-v3-agent | blocking | verified |  | writes via shell commands |
+| pre-implementation-gate | kiro | PreToolUse | ide | blocking | verified |  | writes via shell commands |
+| pre-implementation-gate | antigravity | PreToolUse | any | unknown | unverified |  | writes via shell commands |
+| pre-bash-guard | claude | PreToolUse | any | unknown | unverified |  |  |
+| pre-bash-guard | codex | PreToolUse | any | unknown | unverified | hook-review |  |
+| pre-bash-guard | gemini | BeforeTool | any | unknown | unverified |  |  |
+| pre-bash-guard | opencode | * | any | unsupported | unverified |  |  |
+| pre-bash-guard | pi | * | no-extensions | unsupported | unverified |  |  |
+| pre-bash-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool_call | project-headless | unknown | unverified | project-trust |  |
+| pre-bash-guard | pi | tool_call | project-interactive | blocking | verified | project-trust |  |
+| pre-bash-guard | pi | tool_call | user-headless | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool_execution_start | cli-extension | observation | unverified |  |  |
+| pre-bash-guard | copilot | * | any | unsupported | unverified |  |  |
+| pre-bash-guard | kiro | PreToolUse | cli-2x-agent | blocking | verified |  |  |
+| pre-bash-guard | kiro | PreToolUse | cli-v3 | blocking | verified |  |  |
+| pre-bash-guard | kiro | PreToolUse | cli-v3-agent | blocking | verified |  |  |
+| pre-bash-guard | kiro | PreToolUse | ide | blocking | verified |  |  |
+| pre-bash-guard | antigravity | * | any | unsupported | unverified |  |  |
+| session-context | claude | SessionStart | any | advisory | unverified |  |  |
+| session-context | codex | SessionStart | any | advisory | unverified | hook-review |  |
+| session-context | gemini | SessionStart | any | advisory | unverified |  |  |
+| session-context | opencode | * | any | unsupported | unverified |  |  |
+| session-context | pi | * | any | unsupported | unverified |  |  |
+| session-context | copilot | * | any | unsupported | unverified |  |  |
+| session-context | copilot | PreCompact | any | unknown | unverified |  |  |
+| session-context | copilot | SessionEnd | any | unknown | unverified |  |  |
+| session-context | copilot | SessionStart | any | unknown | unverified |  |  |
+| session-context | copilot | SubagentStart | any | unknown | unverified |  |  |
+| session-context | copilot | SubagentStop | any | unknown | unverified |  |  |
+| session-context | copilot | UserPromptSubmit | any | unknown | unverified |  |  |
+| session-context | kiro | SessionStart | any | advisory | unverified |  |  |
+| session-context | antigravity | * | any | unsupported | unverified |  |  |
+| mcp-tool-guard | claude | PreToolUse | any | unknown | unverified |  |  |
+| mcp-tool-guard | codex | PreToolUse | any | unknown | unverified | hook-review |  |
+| mcp-tool-guard | gemini | BeforeTool | any | unknown | unverified |  |  |
+| mcp-tool-guard | opencode | * | any | unsupported | unverified |  |  |
+| mcp-tool-guard | pi | * | no-extensions | unsupported | unverified |  |  |
+| mcp-tool-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool_call | project-headless | unknown | unverified | project-trust |  |
+| mcp-tool-guard | pi | tool_call | project-interactive | blocking | verified | project-trust |  |
+| mcp-tool-guard | pi | tool_call | user-headless | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool_execution_start | cli-extension | observation | unverified |  |  |
+| mcp-tool-guard | copilot | * | any | unsupported | unverified |  |  |
+| mcp-tool-guard | copilot | PermissionDenied | any | unknown | unverified |  |  |
+| mcp-tool-guard | copilot | PostToolUse | any | unknown | unverified |  |  |
+| mcp-tool-guard | copilot | PostToolUseFailure | any | unknown | unverified |  |  |
+| mcp-tool-guard | kiro | PreToolUse | cli-2x-agent | blocking | verified |  |  |
+| mcp-tool-guard | kiro | PreToolUse | cli-v3 | blocking | verified |  |  |
+| mcp-tool-guard | kiro | PreToolUse | cli-v3-agent | blocking | verified |  |  |
+| mcp-tool-guard | kiro | PreToolUse | ide | blocking | verified |  |  |
+| mcp-tool-guard | antigravity | * | any | unsupported | unverified |  |  |
+| stop-check | claude | Stop | any | unknown | unverified |  |  |
+| stop-check | codex | Stop | any | unknown | unverified | hook-review |  |
+| stop-check | gemini | * | any | unsupported | unverified |  |  |
+| stop-check | opencode | * | any | unsupported | unverified |  |  |
+| stop-check | pi | * | any | unsupported | unverified |  |  |
+| stop-check | copilot | * | any | unsupported | unverified |  |  |
+| stop-check | copilot | Stop | any | unknown | unverified |  |  |
+| stop-check | kiro | stop | cli-2x-agent | observation | verified |  |  |
+| stop-check | kiro | Stop | cli-v3 | unknown | unverified |  |  |
+| stop-check | kiro | Stop | ide | unknown | unverified |  |  |
+| stop-check | antigravity | Stop | any | unknown | unverified |  |  |
+<!-- END GENERATED:enforcement-matrix -->
 
 ## Native verification and prerequisites
 
