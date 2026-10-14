@@ -9,6 +9,7 @@ const { spawnSync } = require('node:child_process');
 const { REPO, loadCorpus, parseRecords, runPolicy } = require('../helper/hook-fixtures');
 const { tempDir } = require('../helper/tmp');
 const { rowsDigest, renderEnforcementMatrix, NEVER_BLOCKING_EVENTS } = require('../../src/lifecycle/coverage.ts');
+const { hookReachabilityFindings, runnerHeaderFindings } = require('../helper/hook-reachability');
 
 const POLICY_DIR = path.join(REPO, 'core/harnesses/shared/hooks/policies');
 const BRIDGE_DIR = path.join(REPO, 'core/harnesses/shared/hooks/bridge');
@@ -387,20 +388,6 @@ function wiredTemplateFindings(coverage, lifecycle) {
   }
   return errors;
 }
-function notShippedFindings(lifecycle, root = REPO) {
-  const errors = [];
-  const templates = walkFiles(path.join(root,'core/harnesses')).filter(f => /\.(json|js)$/.test(f) && (f.includes('/settings/') || f.includes('/hooks/') || f.includes('/extensions/')) && !f.includes('/adapters/'));
-  for (const item of lifecycle.coverage.notShipped) {
-    if (!fs.existsSync(path.join(root,item.path))) errors.push(`notShipped missing ${item.path}`);
-    for (const file of templates) if (fs.readFileSync(file,'utf8').includes(item.path)) errors.push(`notShipped referenced by template ${path.relative(REPO,file)}`);
-    if (fs.existsSync(path.join(root,'src'))) for (const file of walkFiles(path.join(root,'src'))) if (fs.readFileSync(file,'utf8').includes(item.path)) errors.push(`notShipped referenced by source ${path.relative(root,file)}`);
-  }
-  const runner = fs.readFileSync(path.join(root,'core/harnesses/shared/hooks/stream-hook-runner.js'),'utf8');
-  if (/Gemini wiring|Gemini.*hook/i.test(runner)) errors.push('runner header names Gemini wiring');
-  const gemini = fs.readFileSync(path.join(root,'core/harnesses/shared/hooks/adapters/gemini.js'),'utf8');
-  if (!/not.shipped/i.test(gemini.slice(0,500))) errors.push('gemini adapter missing not-shipped header');
-  return errors;
-}
 function kiroStopFindings(coverage) {
   return coverage.rows.filter(r => r.harness === 'kiro' && r.event === 'Stop').flatMap(r => {
     const pinned = r.provenance.some(p => p.kind === 'doc' && /Stop|stop/.test(p.locator));
@@ -430,8 +417,28 @@ test('G37.1: wired events have corpus fixtures enumerated by their parity suite'
 test('G37.1 control: removing a corpus fixture is detected by event coverage', () => { const files=corpusFiles(); const candidates=files.filter(f=>{const x=JSON.parse(fs.readFileSync(f,'utf8')); return x.expect?.envelope?.harness==='claude'&&x.expect.envelope.event==='PreToolUse';}); assert.ok(candidates.length); const removed=files.filter(f=>!candidates.includes(f)); assert.ok(missingWiredFixtures(readCoverage(),removed).includes('claude\0PreToolUse')); });
 test('G37.2: wired configSource entries resolve and canonical policies have rows', () => { const {lifecycle,coverage}=g36Data(); assert.deepEqual(wiredTemplateFindings(coverage,lifecycle),[]); });
 test('G37.2 control: a row pointing at a removed template line is detected', () => { const {lifecycle,coverage}=g36Data(); const c=structuredClone(coverage); c.rows[0].configSource='core/missing/template.json:1'; assert.ok(wiredTemplateFindings(c,lifecycle).some(x=>x.includes('configSource missing'))); });
-test('G37.3: not-shipped paths are unreferenced and Gemini runner metadata is current', () => { const l=JSON.parse(fs.readFileSync(COVERAGE_PATH,'utf8')); assert.deepEqual(notShippedFindings(l),[]); });
-test('G37.3 control: a temp template naming a not-shipped path is reported', (t) => { const root=tempDir(t,'doflow-g37-not-shipped-'); const target='core/harnesses/shared/hooks/hooks.json'; fs.mkdirSync(path.join(root,'core/harnesses/shared/hooks'),{recursive:true}); fs.mkdirSync(path.join(root,'core/harnesses/shared/hooks/adapters'),{recursive:true}); fs.writeFileSync(path.join(root,target),'{}'); fs.writeFileSync(path.join(root,'core/harnesses/shared/hooks/settings.json'),JSON.stringify({file:target})); fs.writeFileSync(path.join(root,'core/harnesses/shared/hooks/stream-hook-runner.js'),'// unwired'); fs.writeFileSync(path.join(root,'core/harnesses/shared/hooks/adapters/gemini.js'),'// not shipped'); const l=structuredClone(JSON.parse(fs.readFileSync(COVERAGE_PATH,'utf8'))); l.coverage.notShipped=[{path:target,reason:'test',decision:'DEC-014'}]; assert.ok(notShippedFindings(l,root).some(x=>x.includes('referenced by template'))); });
+test('G37.3: shipped hook files are reachable from wiring and owned by registry assets', () => { assert.deepEqual(hookReachabilityFindings(), []); });
+test('G37.3 control: orphan hook files are reported, including a mutually-referencing pair', (t) => {
+  const tracked = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
+  const root = tempDir(t, 'doflow-g37-orphans-');
+  fs.cpSync(path.join(REPO, 'core'), path.join(root, 'core'), { recursive: true });
+  const orphan = 'core/harnesses/shared/hooks/orphan.sh';
+  const pairA = 'core/harnesses/shared/hooks/pair-a.sh';
+  const pairB = 'core/harnesses/shared/hooks/pair-b.sh';
+  fs.writeFileSync(path.join(root, orphan), '. "$(dirname "$0")/pair-a.sh"\n');
+  fs.writeFileSync(path.join(root, pairA), '. "$(dirname "$0")/pair-b.sh"\n');
+  fs.writeFileSync(path.join(root, pairB), '. "$(dirname "$0")/pair-a.sh"\n');
+  const withOrphan = hookReachabilityFindings(root, [...tracked, orphan, pairA, pairB]);
+  assert.ok(withOrphan.includes(`orphan shipped hook file ${orphan}`));
+  assert.ok(withOrphan.includes(`orphan shipped hook file ${pairA}`));
+  assert.ok(withOrphan.includes(`orphan shipped hook file ${pairB}`));
+});
+test('G37.3 control: an old runner header is rejected', () => {
+  const runner = fs.readFileSync(path.join(REPO, 'core/harnesses/shared/hooks/stream-hook-runner.js'), 'utf8');
+  const restored = runner.replace('translation (delegated', 'Gemini is a wired harness. translation (delegated');
+  assert.notEqual(restored, runner);
+  assert.deepEqual(runnerHeaderFindings(restored), ['runner header names a harness other than Antigravity']);
+});
 test('G37.4: Kiro Stop rows remain unknown with documented and fixture provenance', () => { assert.deepEqual(kiroStopFindings(readCoverage()),[]); });
 test('G37.4 control: Kiro Stop blocking without trigger documentation is detected', () => { const c=structuredClone(readCoverage()); const r=c.rows.find(x=>x.harness==='kiro'&&x.event==='Stop'); r.class='blocking'; r.provenance=r.provenance.filter(p=>p.kind!=='doc'); assert.ok(kiroStopFindings(c).length); });
 

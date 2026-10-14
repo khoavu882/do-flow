@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const REPO = path.resolve(__dirname, '../..');
 
-test('Antigravity plugin manifest packages the core skills and hooks', () => {
+test('Antigravity plugin manifest packages skills and declares no hooks', () => {
   const manifestPath = path.join(REPO, 'core', '.antigravity-plugin', 'plugin.json');
   assert.ok(fs.existsSync(manifestPath), 'core/.antigravity-plugin/plugin.json must exist');
 
@@ -14,22 +14,22 @@ test('Antigravity plugin manifest packages the core skills and hooks', () => {
   assert.strictEqual(manifest.name, 'doflow');
   assert.ok(manifest.skills.length > 0);
   assert.ok(manifest.rules.length > 0);
-  assert.strictEqual(manifest.hooks, './hooks.json');
+  assert.ok(!Object.hasOwn(manifest, 'hooks'));
   assert.strictEqual(manifest.mcp, './mcp_config.json');
 
   const hooksPath = path.join(REPO, 'core', '.antigravity-plugin', 'hooks.json');
-  assert.ok(fs.existsSync(hooksPath), 'core/.antigravity-plugin/hooks.json must exist');
+  assert.ok(!fs.existsSync(hooksPath), 'the plugin bundle has no hook configuration');
 
   const mcpPath = path.join(REPO, 'core', '.antigravity-plugin', 'mcp_config.json');
   assert.ok(fs.existsSync(mcpPath), 'core/.antigravity-plugin/mcp_config.json must exist');
 });
 
-test('Shared stream-hook-runner is executable and exports evaluation functions', () => {
+test('Shared stream-hook-runner is executable and exposes its runtime entry points', () => {
   const runnerPath = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js');
   assert.ok(fs.existsSync(runnerPath), 'stream-hook-runner.js must exist');
   
   const runner = require(runnerPath);
-  assert.strictEqual(typeof runner.evaluateToolCall, 'function');
+  assert.strictEqual(typeof runner.delegateToPolicy, 'function');
   assert.strictEqual(typeof runner.resolveProjectRoot, 'function');
 });
 

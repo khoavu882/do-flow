@@ -11,6 +11,7 @@ function validate(block) { const errors = []; validateCoverage(block, base.lifec
 
 test('coverage validator rejects invalid enums, required fields, duplicate tuples and malformed digest', (t) => {
   const valid = JSON.parse(require('node:fs').readFileSync(path.join(ROOT, 'core/registry/lifecycle.json'), 'utf8')).coverage;
+  assert.ok(!Object.hasOwn(valid, 'notShipped'), 'coverage has no retired notShipped list');
   assert.deepEqual(validate(valid), []);
   const badEnum = structuredClone(valid); badEnum.rows[0].class = 'almost-blocking';
   assert.ok(validate(badEnum).some((message) => message.includes('class')));

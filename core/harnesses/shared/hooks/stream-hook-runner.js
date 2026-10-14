@@ -3,16 +3,13 @@
 
 /**
  * DoFlow Cross-Harness Hook Runner — front door for every in-scope lifecycle
- * event (SessionStart, PreToolUse, PostToolUse, Stop, PreInvocation) for Antigravity. The Gemini
- * adapter branch is retained but unwired. It owns event dispatch and native payload/decision
- * translation (delegated to adapters/{gemini,antigravity}.js) and delegates every policy decision
+ * event (SessionStart, PreToolUse, PostToolUse, Stop, PreInvocation) for Antigravity. It owns
+ * event dispatch and native payload/decision
+ * translation (delegated to adapters/antigravity.js) and delegates every policy decision
  * to the shared lifecycle bridge — it implements no guard policy logic itself.
  *
  * Invocation: `node stream-hook-runner.js [EventName]`, JSON payload on stdin, JSON decision on
- * stdout. EventName is the preferred way to select which canonical policy applies; when omitted
- * (older hooks.json wiring that doesn't yet pass it), the event is inferred from the payload's
- * own shape as a fallback, matching this runner's behavior before event names were threaded
- * through argv.
+ * stdout. EventName selects which canonical policy applies.
  */
 
 const { spawnSync } = require('node:child_process');
@@ -20,7 +17,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const geminiAdapter = require('./adapters/gemini');
 const antigravityAdapter = require('./adapters/antigravity');
 
 // Tool-name classification for PreToolUse, generalized to the union every Phase A canonical
@@ -409,78 +405,7 @@ function evaluateEvent(event, payload, nativeRaw, projectRoot, agent) {
   }
 }
 
-// Falls back to 'antigravity' (this runner's legacy default) for any value other than
-// 'gemini', including unset/empty. An unrecognized non-empty value is likely a typo, so it
-// gets a stderr warning even though the fallback still applies.
-function resolveAgent() {
-  const raw = process.env.DOFLOW_AGENT || '';
-  const agent = raw.toLowerCase();
-  if (agent === 'gemini') return 'gemini';
-  if (raw && agent !== 'antigravity') {
-    process.stderr.write(`stream-hook-runner: unrecognized DOFLOW_AGENT="${raw}", falling back to antigravity\n`);
-  }
-  return 'antigravity';
-}
-
-function resolveAdapter(agent) {
-  return agent === 'gemini' ? geminiAdapter : antigravityAdapter;
-}
-
-function sniffEventFromPayload(payload) {
-  if (!payload || typeof payload !== 'object') return null;
-  // 'toolCall' in payload (key presence), not payload.toolCall (truthiness): a real Antigravity
-  // PreToolUse payload can carry a null/empty toolCall alongside stepIdx (also present on
-  // PostToolUse payloads) — truthiness alone let such a payload fall through to the stepIdx check
-  // below and get misclassified as PostToolUse, silently skipping the gate entirely
-  // (022-code-review finding). Checked before Stop/PostToolUse since a missed PreToolUse
-  // classification fails the gate open, the worse failure mode of the two.
-  if ('toolCall' in payload || payload.tool_name !== undefined) return 'PreToolUse';
-  if (payload.invocationNum !== undefined) return 'PreInvocation';
-  if (payload.terminationReason !== undefined || payload.executionNum !== undefined) return 'Stop';
-  if (payload.stepIdx !== undefined || payload.terminationBehavior !== undefined) return 'PostToolUse';
-  if (payload.session_id !== undefined && payload.cwd !== undefined) return 'SessionStart';
-  return null;
-}
-
-// ── Back-compat helpers ──────────────────────────────────────────────────────
-//
-// evaluateToolCall/evaluatePayload remain test and library entry points over native payloads.
-
-function evaluateToolCall(toolCall, projectRoot) {
-  if (!toolCall || typeof toolCall !== 'object') {
-    return { decision: 'allow' };
-  }
-  const payload = { toolCall };
-  return evaluatePreToolUsePolicy(payload, JSON.stringify(payload), projectRoot, 'antigravity');
-}
-
-function evaluatePayload(payload, projectRoot) {
-  if (!payload || typeof payload !== 'object') {
-    return { decision: 'allow' };
-  }
-
-  // PreToolUse: toolCall object present
-  if (payload.toolCall) {
-    return evaluatePreToolUsePolicy(payload, JSON.stringify(payload), projectRoot, 'antigravity');
-  }
-
-  // PreInvocation: injection hook
-  if (payload.invocationNum !== undefined) {
-    return { injectSteps: [] };
-  }
-
-  // Stop hook: delegate to the canonical stop-check policy
-  if (payload.terminationReason !== undefined) {
-    return delegateToPolicy(projectRoot, 'antigravity', 'Stop', 'stop-check', JSON.stringify(payload));
-  }
-
-  // PostToolUse / PostInvocation: empty object response
-  if (payload.stepIdx !== undefined || payload.terminationBehavior !== undefined) {
-    return {};
-  }
-
-  return { decision: 'allow' };
-}
+const RUNNER_EVENTS = new Set(['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop', 'PreInvocation']);
 
 async function main() {
   try {
@@ -497,11 +422,12 @@ async function main() {
     }
 
     const projectRoot = resolveProjectRoot(payload.workspacePaths);
-    const agent = resolveAgent();
-    const adapter = resolveAdapter(agent);
-    const event = explicitEvent || sniffEventFromPayload(payload);
+    const agent = 'antigravity';
+    const adapter = antigravityAdapter;
+    const event = explicitEvent;
 
-    if (!event) {
+    if (!event || !RUNNER_EVENTS.has(event)) {
+      captureHookFailure({ command: 'stream-hook-runner', kind: 'runner-event-missing' });
       process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
       return;
     }
@@ -530,14 +456,10 @@ if (require.main === module) {
 }
 
 module.exports = {
-  evaluateToolCall,
-  evaluatePayload,
   resolveProjectRoot,
+  delegateToPolicy,
   evaluateEvent,
-  resolveAgent,
-  resolveAdapter,
   classifyPreToolUsePolicy,
-  sniffEventFromPayload,
   isProgrammingError,
   captureHookFailure,
 };
