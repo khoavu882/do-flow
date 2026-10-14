@@ -1,0 +1,32 @@
+{
+  "native": {
+    "hook_event_name": "SubagentStart",
+    "session_id": "codex-subagent-perf",
+    "agent_id": "a1",
+    "agent_type": "general"
+  },
+  "policy": "subagent-audit",
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "{}\n",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "SubagentStart",
+      "operation": "subagent-start",
+      "identity": {
+        "session": "codex-subagent-perf"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  },
+  "perf": true
+}

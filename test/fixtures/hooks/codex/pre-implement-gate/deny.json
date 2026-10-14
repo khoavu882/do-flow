@@ -1,0 +1,39 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-gate-deny",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "src/a.js"
+    }
+  },
+  "policy": "pre-implementation-gate",
+  "state": "no-design",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 424,
+    "decision": {
+      "outcome": "deny",
+      "code": "missing-artifacts",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "Edit",
+      "paths": [
+        "src/a.js"
+      ],
+      "identity": {
+        "session": "codex-gate-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

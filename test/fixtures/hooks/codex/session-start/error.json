@@ -1,0 +1,33 @@
+{
+  "native": {
+    "hook_event_name": "SessionStart",
+    "session_id": "codex-session-error",
+    "cwd": "/nonexistent/codex-session-error",
+    "source": "startup"
+  },
+  "policy": "session-context",
+  "state": "none",
+  "fault": "context-crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": "",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 0,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "SessionStart",
+      "operation": "session-start",
+      "identity": {
+        "session": "codex-session-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-bash-allow",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "ls"
+    }
+  },
+  "policy": "pre-bash-guard",
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "ls",
+      "identity": {
+        "session": "codex-bash-allow"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

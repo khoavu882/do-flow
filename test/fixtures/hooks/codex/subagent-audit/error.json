@@ -1,0 +1,33 @@
+{
+  "native": {
+    "hook_event_name": "SubagentStart",
+    "session_id": "codex-subagent-error",
+    "agent_id": "a1",
+    "agent_type": "general"
+  },
+  "policy": "subagent-audit",
+  "state": "none",
+  "fault": "context-crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": "",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 0,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "SubagentStart",
+      "operation": "subagent-start",
+      "identity": {
+        "session": "codex-subagent-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true
+  }
+}

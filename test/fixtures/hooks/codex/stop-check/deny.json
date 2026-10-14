@@ -1,0 +1,32 @@
+{
+  "native": {
+    "hook_event_name": "Stop",
+    "session_id": "codex-stop-deny",
+    "last_assistant_message": "```js\n// TODO: unfinished\n```"
+  },
+  "policy": "stop-check",
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 2,
+    "stdout": "",
+    "stderrIncludes": "unfinished-work",
+    "modelVisibleBytesMax": 300,
+    "decision": {
+      "outcome": "deny",
+      "code": "unfinished-work",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "Stop",
+      "operation": "stop",
+      "identity": {
+        "session": "codex-stop-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "native": {
+    "hook_event_name": "PostToolUse",
+    "session_id": "codex-post",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "src/a.js"
+    }
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": null,
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PostToolUse",
+      "operation": "edit",
+      "tool": "Edit",
+      "paths": [
+        "src/a.js"
+      ],
+      "identity": {
+        "session": "codex-post"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-mcp-deny",
+    "tool_name": "mcp__blocked__write",
+    "tool_input": {}
+  },
+  "policy": "mcp-tool-guard",
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "deny",
+      "code": "blocked-pattern",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "mcp",
+      "tool": "mcp__blocked__write",
+      "identity": {
+        "session": "codex-mcp-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 500
+  },
+  "policyConfig": {
+    "file": "mcp-policy.conf",
+    "contents": "blocked\tBlocked test MCP tool\n"
+  }
+}
