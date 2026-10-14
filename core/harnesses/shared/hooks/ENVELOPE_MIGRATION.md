@@ -1,5 +1,7 @@
 # The normalized hook envelope, and each front door's share of the migration
 
+Every shipped bridge places envelope version 1 under `doflow_event`, beside the native fields. Policies read v1 fields only when `version` is the JSON number `1`; an absent envelope or version uses the accepted legacy v0/native-field path, while any other version is unsupported and is evaluated as such (IC-003, DEC-003).
+
 `policies/pre-implementation-gate.sh` prefers one normalized event over every native payload
 shape (review R7):
 
@@ -24,8 +26,10 @@ tool's official docs (cross-checked against tool source where docs were incomple
 | Gemini CLI | `BeforeTool` | also offers `BeforeToolSelection` (pre-selection restriction), which the gate does not use |
 | GitHub Copilot | `preToolUse` | camelCase event names; `permissionRequest` is CLI-only, not fired in the cloud agent |
 | OpenCode | `tool.execute.before` | a pluggable hook method, not a sub-event of the generic `event` hook |
-| Pi | `tool_execution_start` | Pi's 36-event surface also exposes `tool_call`; the execution-start event is the gate's anchor |
+| Pi | `tool_call` | The DoFlow extension blocks a matching call before execution; `tool_execution_start` is observation-only |
 | Antigravity | `PreToolUse` | 5-event surface, `hooks.json` + stdin/stdout JSON contract |
+
+Pi 1.1.0 declares 41 `on()` overloads in its shipped extension types. `tool_call` is the enforcement event; `tool_execution_start` is not a gate.
 
 `operation` is `"edit"` for anything that writes source; a decoder maps its native create/replace/
 patch tool vocabulary down to that one word. Non-edit operations may be sent (the policy allows
@@ -35,5 +39,5 @@ them through), but sending nothing for a non-edit tool is equally correct and ch
 
 - The envelope, when present, **outranks** any native fields beside it.
 - Root resolution: `DOFLOW_PROJECT_DIR` beats the envelope's `projectRoot` beats git discovery.
-- The policy remains a pure file-existence gate (FR-012): the envelope changes how it hears about
-  an edit, never what it decides, and it must never consult readiness or evidence state.
+- The envelope changes how the policy hears about an edit. The pre-implementation gate checks the
+  required artifacts and reads run and readiness records; it does not consult evidence state.

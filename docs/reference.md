@@ -195,6 +195,31 @@ Notes on three rows:
 - **Run partitions** are pruned after 180 days, so `trace`, `stats` and `discover` without `--days` now cover at most the last 180 days.
 - **Readiness records** that could not be parsed are renamed to `<task>.json.unreadable`. The `task-readiness` store does not select that name, so pruning never removes those files; delete them by hand when you no longer need them.
 
+## Hook envelope and migration notes
+
+Shipped hook bridges decode native events into envelope v1, call a canonical policy and render the harness's native response. The versioned coverage block in `core/registry/lifecycle.json` records policy, harness, event, profile and evidence; `doflow enforcement` reports what that evidence supports.
+
+### Envelope, decision and diagnostics
+
+Envelope v1 is the object under `doflow_event` in the native payload. It carries `version: 1`, the registry harness id, the native event name verbatim and a canonical operation; tool, paths, command, patch, correlation and identity fields appear only when the native input supplies them. `projectRoot` is reserved for a launcher and is never inferred from native `cwd`. An absent envelope or version uses the legacy v0/native-field path; a version other than numeric `1` is unsupported. The envelope takes precedence over native fields beside it.
+
+When `DOFLOW_DECISION_FD` names an open single-digit descriptor from 3 through 9, each policy writes a compact version-1 record on that descriptor: `v`, `policy`, `policyVersion`, `outcome` and `code`. The provisional allow record comes first; the last record determines the policy outcome. With the variable unset or an unusable descriptor, no record is written. Records contain no free text.
+
+`DOFLOW_FAULT_PROFILE` selects `compat-1` (default) or `strict-1`; an unknown value uses `compat-1` and records `fault-profile-unknown`. Compat preserves each front door's current effect. Strict blocks faults for blocking policies. `DOFLOW_BRIDGE_TRACE`, when set to a file path, appends the bridge's decision object there; it is not model-visible. `DOFLOW_RUN_ID`, `DOFLOW_ATTEMPT` and `DOFLOW_TASK_ID` are reserved inputs for a launcher: in 077 they populate envelope identity or task fields when supplied and are otherwise absent. `DOFLOW_SESSION_ROLE` is accepted only as `main` or `worker`.
+
+Bridge diagnostics use the existing failure store and leave its storage declaration unchanged. Bridge points include `eval-error:exit-2-unmarked`, `eval-error:exit-<n>`, `eval-error:signal-<NAME>` (not SIGTERM, SIGINT or SIGPIPE), `bridge-spawn`, `bridge-timeout`, `decision-mismatch`, `envelope-encode` and `fault-profile-unknown`. Policies may record `unsupported:envelope-version`, `edit-without-target`, `dependency-missing:jq` and their existing policy-specific points. Diagnostic messages remain empty.
+
+### Migration notes
+
+Compared with the 0fcd973 front doors, the shared bridge intentionally changes these cases:
+
+- A missing policy file is an evaluation error: `compat-1` proceeds and records a diagnostic; `strict-1` denies (DEC-025). Previously the shell's missing-file exit 127 could accidentally deny.
+- A blocking evaluation error renders `[<policy-id>] DoFlow policy error; details: doflow-run failure list` (IC-013/DEC-019), rather than exposing raw policy or runtime stderr as the reason.
+- Context and advisory policy faults render nothing to the model and record a diagnostic (DEC-022).
+- Kiro's agent-config event names (`agentSpawn`, `preToolUse`, `stop`) resolve to the same effects and native responses as their hook-config aliases (`SessionStart`, `PreToolUse`, `Stop`); the envelope retains the native event name.
+- Antigravity's runner decodes its routed command, MCP and edit tools in the shared envelope path, including the additional edit-tool case recorded by RA1 (E.1).
+- A policy terminated by SIGSEGV is classified as `signal-SEGV` and reported with status `139` (128 plus signal 11).
+
 ## Storage and retention
 
 DoFlow prunes what it writes by default. A pass runs silently after a runtime verb (at most once a day per root), after `verify`, after `install` and `update`, and from the session hooks of harnesses that have them. It removes only entries of finished work past the bound in the table above, never open, waiting or unfinished work, stops after 750 ms or 5,000 removals and continues on the next pass. A pass never changes a command's output or exit status.
