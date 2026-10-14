@@ -261,6 +261,7 @@ test('spawn errors and timeout proceed and request detached failure capture', as
   fs.writeFileSync(capture, `#!/bin/bash\nprintf '%s %s\\n' "$2" "$3" >> ${JSON.stringify(captureLog)}\n`);
   fs.chmodSync(capture, 0o755);
   const missing = path.join(bridgeDir, 'bridge.sh');
+  fs.writeFileSync(missing, 'exit 7\n');
   const handler = await loadExtension(t, missing);
   assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'spawn', input: { command: 'true' } }, context('/tmp')), undefined);
   assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'sync-spawn', input: { command: 'true' } }, context(42)), undefined);
@@ -272,6 +273,19 @@ test('spawn errors and timeout proceed and request detached failure capture', as
   assert.equal(await timeoutHandler({ type: 'tool_call', toolName: 'bash', toolCallId: 'timeout', input: { command: 'true' } }, context('/tmp')), undefined);
   for (let attempt = 0; attempt < 100 && !fs.readFileSync(captureLog, 'utf8').includes('bridge-timeout'); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.match(fs.readFileSync(captureLog, 'utf8'), /pre-bash-guard bridge-timeout/);
+});
+
+test('a missing bridge blocks routed tool calls and captures bridge-missing', async (t) => {
+  const root = tempDir(t, 'doflow-pi-bridge-missing-');
+  const captureLog = captureRecorder(root);
+  const missing = path.join(root, 'bridge', 'bridge.sh');
+  const handler = await loadExtension(t, missing);
+  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing', input: {} }, context('/tmp')), {
+    block: true,
+    reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi',
+  });
+  await waitForText(captureLog, 'pre-implementation-gate bridge-missing');
+  assert.deepEqual(fs.readFileSync(captureLog, 'utf8').trim().split('\n'), ['pre-implementation-gate bridge-missing']);
 });
 
 test('output overflow, non-zero exit and malformed bridge answer allow with one capture each', async (t) => {
@@ -300,7 +314,9 @@ test('strict-1 blocks a bridge spawn failure with the fixed reason', async (t) =
   const old = process.env.DOFLOW_FAULT_PROFILE;
   process.env.DOFLOW_FAULT_PROFILE = 'strict-1';
   t.after(() => { if (old === undefined) delete process.env.DOFLOW_FAULT_PROFILE; else process.env.DOFLOW_FAULT_PROFILE = old; });
-  const handler = await loadExtension(t, path.join(tempDir(t, 'doflow-pi-strict-'), 'absent.sh'));
+  const missing = path.join(tempDir(t, 'doflow-pi-strict-'), 'absent.sh');
+  fs.writeFileSync(missing, 'exit 7\n');
+  const handler = await loadExtension(t, missing);
   assert.deepEqual(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'strict', input: { command: 'true' } }, context('/tmp')), {
     block: true,
     reason: '[pre-bash-guard] DoFlow policy error; details: doflow-run failure list',
