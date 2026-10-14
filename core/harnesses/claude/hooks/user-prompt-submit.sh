@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Claude front door: reuse the canonical context policy with Claude's output envelope.
-set -euo pipefail
+# Claude front door: user-prompt-submit through the shared lifecycle bridge.
+set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-claude}"
-exec bash "$(dirname "$0")/../../.doflow/shared/hooks/policies/user-prompt-submit.sh"
+if ! . "$(dirname "$0")/../../.doflow/shared/hooks/bridge/bridge.sh" 2>/dev/null; then exit 0; fi
+doflow_bridge claude UserPromptSubmit user-prompt-submit
+exit $?

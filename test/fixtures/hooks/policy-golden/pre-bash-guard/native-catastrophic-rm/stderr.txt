@@ -1,0 +1,1 @@
+[pre-bash-guard] Catastrophic delete blocked — recursive rm of the root directory (/)

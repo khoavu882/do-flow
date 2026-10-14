@@ -1,0 +1,26 @@
+{
+  "native": {
+    "terminationReason": "model_stop",
+    "fullyIdle": true,
+    "transcriptPath": "<transcript>"
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "<continue-json>",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 161,
+    "decision": {
+      "harness": "antigravity",
+      "event": "Stop",
+      "policy": "stop-check",
+      "outcome": "deny",
+      "effect": "block"
+    },
+    "taskStateUnchanged": true
+  }
+}

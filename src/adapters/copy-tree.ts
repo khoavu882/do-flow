@@ -578,17 +578,17 @@ function sharedTreeDestDir(rootDir: string, nativeDir: any): string | null {
   return dest;
 }
 
-/** The assets that project a tree several harnesses claim at one scope root: the runtime tree, and
- * the guidance tree. A harness whose
+/** The assets that project a tree several harnesses claim at one scope root: the runtime, guidance,
+ * and shared hooks trees. A harness whose
  * install predates its own rows for a shared tree (Pi gained guidance rows in v1.15.0) can only
  * recognise the bytes a sibling recorded. */
 const SHARED_TREE_ASSETS = new Set([
   'scripts.doflow', 'runtime.cli', 'runtime.lib', 'runtime.registry',
-  'guidance.context-layer', 'kiro.guidance-tree',
+  'guidance.context-layer', 'kiro.guidance-tree', 'hooks.shared',
 ]);
 
 /** For each shared-tree target, the fingerprints other harnesses recorded and which harness
- * recorded each, so an update accepts a runtime or guidance tree a sibling wrote (several harnesses
+ * recorded each, so an update accepts a runtime, guidance, or shared hooks tree a sibling wrote (several harnesses
  * claim one `.doflow` file) while bytes no such row recorded are still refused as a hand edit. */
 function ledgerSiblingFingerprints(resources: any, harness: string): Map<string, Map<string, string>> {
   const byTarget = new Map<string, Map<string, string>>();

@@ -19,7 +19,7 @@ const PLAN_TEXT = '- [ ] A.1 [US1] demo — owner: x; files: src/a.js\n';
 const GIT_IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const CASE_TIMEOUT_MS = 240_000;
 const GATE = 'doflow gate readiness-before-implementation';
-const HOOKLESS_NOTE = 'opencode, pi, copilot have no hook layer';
+const HOOKLESS_NOTE = 'opencode, copilot have no hook layer';
 
 const scratch = createScratch('doflow-readiness-enforcement-');
 after(() => scratch.remove());

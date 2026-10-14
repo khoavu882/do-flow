@@ -8,22 +8,57 @@
 # the front door right there, before it ever reached the code below that emits
 # the deny JSON. Sourcing this file must never change the caller's shell options.
 #
-# Usage: source "$(dirname "$0")/../../shared/hooks/policies/deny-json.sh"
+# Usage: source "<policy-dir>/deny-json.sh"
+
+case ${BASH_SOURCE[0]} in */*) _DOFLOW_DENY_JSON_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_DENY_JSON_DIR=. ;; esac
+
+# Escape a string as a JSON string body without external tools. Work bytewise so
+# every control byte is handled the same way regardless of the caller's locale.
+doflow_json_escape() {
+  local LC_ALL=C input="${1-}" output="" char ordinal i
+  for ((i = 0; i < ${#input}; i++)); do
+    char="${input:i:1}"
+    case "$char" in
+      '\') output="$output\\\\" ;;
+      '"') output="$output\\\"" ;;
+      $'\n') output="$output\\n" ;;
+      $'\r') output="$output\\r" ;;
+      $'\t') output="$output\\t" ;;
+      *)
+        printf -v ordinal '%d' "'${char}"
+        if [ "$ordinal" -ge 32 ]; then output="$output$char"; fi
+        ;;
+    esac
+  done
+  printf '%s' "$output"
+}
+
+_doflow_json_reason() {
+  printf '"%s"' "$(doflow_json_escape "$1")"
+}
 
 # Claude/Codex shape: nested under hookSpecificOutput.permissionDecision.
 emit_pretooluse_deny_nested() {
   local reason="$1"
-  jq -n --arg reason "$reason" '{
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg reason "$reason" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
       permissionDecisionReason: $reason
     }
-  }'
+    }'
+  else
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$(_doflow_json_reason "$reason")"
+  fi
 }
 
 # Gemini shape: flat {decision, reason} (packages/core/src/hooks/types.ts).
 emit_pretooluse_deny_flat() {
   local reason="$1"
-  jq -n --arg reason "$reason" '{decision: "deny", reason: $reason}'
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg reason "$reason" '{decision: "deny", reason: $reason}'
+  else
+    printf '{"decision":"deny","reason":%s}\n' "$(_doflow_json_reason "$reason")"
+  fi
 }

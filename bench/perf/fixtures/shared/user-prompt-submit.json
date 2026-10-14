@@ -1,4 +1,1 @@
-{
-  "session_id": "perf-test-session",
-  "cwd": "."
-}
+{"session_id":"perf-test-session","cwd":".","doflow_event":{"version":1,"harness":"claude","event":"UserPromptSubmit","operation":"prompt","identity":{"session":"perf-test-session"}}}

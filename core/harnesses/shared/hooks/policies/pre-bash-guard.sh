@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # pre-bash-guard.sh — Canonical Policy Library: PreToolUse(shell-command) hook
 #
 # Intercepts every shell-command tool call and blocks dangerous commands by
@@ -10,14 +11,9 @@
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional; not required to
 #          evaluate this policy)
-#   stdin  a PreToolUse-shaped JSON payload; tool name is read from the union
-#          of field names harnesses use, and matched against the union of
-#          known shell-command tool names (Bash/bash — Claude/Codex;
-#          run_shell_command — Gemini; run_command — the generic name
-#          stream-hook-runner.js's own COMMAND_TOOL_PATTERN already
-#          recognized), since a native front door (Claude/Codex/Kiro) execs
-#          this script directly with no payload translation of its own.
-#   exit   0 = allow, non-zero = deny with the reason on stderr.
+#   stdin  a native payload with envelope v1 under doflow_event; only the
+#          envelope's operation, tool and command fields are used.
+#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011.
 #
 # Reconciliation note (022-normalize-hooks, Phase A / D1): this also absorbs
 # stream-hook-runner.js's inline DESTRUCTIVE_COMMAND_PATTERN
@@ -38,29 +34,54 @@
 
 set -uo pipefail
 
-command -v jq >/dev/null 2>&1 || exit 0          # no jq -> cannot evaluate -> allow
-
 INPUT=$(cat)
+if [ -f "$_DOFLOW_POLDIR/contract.sh" ]; then
+  . "$_DOFLOW_POLDIR/contract.sh"
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  doflow_read_envelope() { DF_ENV_CLASS=missing; DF_ENV_CODE=contract-missing; }
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-bash-guard contract-missing ) >/dev/null 2>&1 || true
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then
+    printf '[pre-bash-guard] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2
+  else
+    printf '[pre-bash-guard] DoFlow hooks out of step; run: doflow update\n' >&2
+  fi
+  doflow_decide deny contract-missing
+  exit 2
+fi
+doflow_decision_init pre-bash-guard 1
+command -v jq >/dev/null 2>&1 || {
+  doflow_decide error dependency-missing:jq
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-bash-guard dependency-missing:jq ) >/dev/null 2>&1 || true
+  exit 0
+}
+DF_ENV_CLASS=missing DF_ENV_CODE=envelope-missing
+doflow_read_envelope || true
 
 TOOL_NAME=""
-for field in '.tool_name' '.tool' '.toolName' '.name'; do
-  TOOL_NAME=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-  [ -n "$TOOL_NAME" ] && break
-done
-
-# Fast exit for non-shell-command tool events (union of every known
-# shell-command tool name across harnesses, case-insensitive).
-case "$TOOL_NAME" in
-  Bash|bash|run_shell_command|run_command) ;;
-  *) exit 0 ;;
-esac
-
-COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+COMMAND=""
+if [ "$DF_ENV_CLASS" = v1 ]; then
+  [ "$DF_ENV_OP" = command ] || exit 0
+  TOOL_NAME=$DF_ENV_TOOL
+  COMMAND=$DF_ENV_COMMAND
+elif [ "$DF_ENV_CLASS" = unsupported ]; then
+  doflow_decide unsupported envelope-version
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-bash-guard unsupported:envelope-version ) >/dev/null 2>&1 || true
+  exit 0
+else
+  if [ "${DF_ENV_CODE:-envelope-missing}" != contract-missing ]; then
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-bash-guard envelope-missing ) >/dev/null 2>&1 || true
+  fi
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[pre-bash-guard] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[pre-bash-guard] DoFlow hooks out of step; run: doflow update\n' >&2; fi
+  doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
+  exit 2
+fi
 
 # Nothing to check if command is empty
 [ -z "$COMMAND" ] && exit 0
 
-PATTERNS_FILE="$(dirname "$0")/blocked-patterns.conf"
+PATTERNS_FILE="$_DOFLOW_POLDIR/blocked-patterns.conf"
 
 # ASCII-only patterns: the C locale keeps bash's substring/pattern operations
 # byte-wise (much faster than multibyte-aware in a UTF-8 locale).
@@ -268,23 +289,51 @@ if [ ! -f "$PATTERNS_FILE" ]; then
   # The pattern file ships with DoFlow, so a missing one means a broken install: record it on this
   # machine (feature 046, IC-018) and go on exactly as before. Subshell, output discarded: nothing
   # the helper does can reach this policy's options, variables, output or exit status.
-  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard patterns-missing ) >/dev/null 2>&1 || true
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-bash-guard patterns-missing ) >/dev/null 2>&1 || true
+  doflow_decide error patterns-missing
   if _floor_rm_hits '/+\*{0,2}'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the root directory (/)" >&2
+    doflow_decide deny catastrophic-rm-root
     exit 2
   fi
   if _floor_rm_hits '(~[A-Za-z_][A-Za-z0-9_.-]*|~|\$HOME|\$\{HOME\})(/\*{0,2})?'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the home directory" >&2
+    doflow_decide deny catastrophic-rm-home
     exit 2
   fi
   if _floor_rm_hits '/(Users|home|etc|usr|bin|sbin|var|opt|System|Library|Applications|Volumes|private|root|boot|lib|dev|proc)(/\*{0,2})?'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of a system directory" >&2
+    doflow_decide deny catastrophic-rm-system
     exit 2
   fi
   # No patterns file beyond the hardcoded floor — allow everything else
   # (fail open — don't block the agent).
   exit 0
 fi
+
+# One combined ERE cheaply rules out commands that match no live pattern. A
+# grep match or regex error falls through to the original per-line loop, which
+# still owns the reason and optional exclude semantics.
+_anchored_patterns="" _full_patterns="" _has_backreference=false
+while IFS=$'\t' read -r pattern _reason _exclude || [ -n "$pattern" ]; do
+  [ -z "$pattern" ] && continue
+  case "$pattern" in \#*) continue ;; esac
+  if [[ "$pattern" =~ \\[1-9] ]]; then _has_backreference=true; fi
+  case "$pattern" in
+    '(^|'*) _anchored_patterns="${_anchored_patterns:+$_anchored_patterns|}($pattern)" ;;
+    *) _full_patterns="${_full_patterns:+$_full_patterns|}($pattern)" ;;
+  esac
+done < "$PATTERNS_FILE"
+_anchored_status=1 _full_status=1
+if [ -n "$_anchored_patterns" ]; then
+  grep -qiE -- "$_anchored_patterns" <<<"$SHELL_TEXT" 2>/dev/null
+  _anchored_status=$?
+fi
+if [ -n "$_full_patterns" ]; then
+  grep -qiE -- "$_full_patterns" <<<"$COMMAND" 2>/dev/null
+  _full_status=$?
+fi
+if [ "$_anchored_status" -eq 1 ] && [ "$_full_status" -eq 1 ] && [ "$_has_backreference" != true ]; then exit 0; fi
 
 # ── Pattern matching ──────────────────────────────────────────────────────────
 
@@ -320,6 +369,7 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
 
   if [ "$matched" = "true" ]; then
     echo "[pre-bash-guard] ${reason:-Command blocked by pre-bash-guard}" >&2
+    doflow_decide deny blocked-pattern
     exit 2
   fi
 done < "$PATTERNS_FILE"

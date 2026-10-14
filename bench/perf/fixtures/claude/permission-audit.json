@@ -1,0 +1,4 @@
+{
+  "hook_event_name": "PermissionDenied",
+  "tool_name": "Edit"
+}

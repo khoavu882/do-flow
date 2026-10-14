@@ -1,0 +1,31 @@
+{
+  "native": {
+    "hook_event_name": "Stop",
+    "session_id": "codex-stop-perf",
+    "last_assistant_message": "Done."
+  },
+  "policy": "stop-check",
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "{}\n",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "Stop",
+      "operation": "stop",
+      "identity": {
+        "session": "codex-stop-perf"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  },
+  "perf": true
+}

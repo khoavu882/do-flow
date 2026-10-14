@@ -1,0 +1,5 @@
+{
+  "native":{"hook_event_name":"stop","assistant_response":"all done"},
+  "state":"none","fault":"none","env":{"KIRO_SESSION_ID":"kiro-stop-agent-perf"},
+  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"stop","operation":"stop","identity":{"session":"kiro-stop-agent-perf"}},"failurePoint":null,"taskStateUnchanged":true}
+}

@@ -1,22 +1,10 @@
 #!/usr/bin/env bash
-# Gemini front door: delegates the pre-implementation-gate decision to the
-# Canonical Policy Library, then translates it into Gemini's verified deny
-# contract.
-#
-# Gemini's hook output schema (packages/core/src/hooks/types.ts, confirmed this
-# session) is a top-level {"decision": "deny", "reason": "..."} — NOT nested
-# under hookSpecificOutput.permissionDecision like Claude/Codex. Exit code alone
-# is not sufficient here, so this front door is a translator, not a bare exec
-# (unlike session-context, which never needs this translation).
+# Gemini front door: pre-implementation-gate through the shared lifecycle bridge.
 set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-gemini}"
-
-command -v jq >/dev/null 2>&1 || exit 0
-source "$(dirname "$0")/../../.doflow/shared/hooks/policies/deny-json.sh"
-
-POLICY="$(dirname "$0")/../../.doflow/shared/hooks/policies/pre-implementation-gate.sh"
-REASON=$(bash "$POLICY" 2>&1 >/dev/null)
-CODE=$?
-
-[ "$CODE" -ne 0 ] && emit_pretooluse_deny_flat "${REASON:-Implementation requires an approved plan.md}"
-exit 0
+if ! . "$(dirname "$0")/../../.doflow/shared/hooks/bridge/bridge.sh" 2>/dev/null; then
+  printf '%s\n' '{"decision":"deny","reason":"[doflow] shared hooks lack the bridge; run: doflow update -t gemini"}'
+  exit 0
+fi
+doflow_bridge gemini BeforeTool pre-implementation-gate
+exit $?

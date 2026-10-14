@@ -13,6 +13,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { captureIsOff } = require('../../src/runtime/failure/home.ts');
+const { encodeEnvelope } = require('../helper/hook-fixtures');
 
 const POLICIES = path.resolve(__dirname, '..', '..', 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const HAS_JQ = spawnSync('jq', ['--version']).status === 0;
@@ -45,7 +46,7 @@ function run(m, policy, stdin, { env = {}, dropHome = false, cwd = m.cwd } = {})
 }
 
 const lines = (m) => (fs.existsSync(m.events) ? fs.readFileSync(m.events, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
-const bash = (tool, command) => JSON.stringify({ tool_name: tool, tool_input: { command } });
+const bash = (tool, command, harness = 'claude') => encodeEnvelope(harness, 'PreToolUse', 'pre-bash-guard', JSON.stringify({ tool_name: tool, tool_input: { command } }));
 
 /** Same call with capture on and off in twin machines; the two must be identical. */
 function pair(policy, stdin, { patterns = false, env = {}, dropHome = false } = {}) {
@@ -63,7 +64,7 @@ describe('pre-bash-guard patterns-missing', { skip: !HAS_JQ && 'jq is not instal
     ['an allowed command', bash('Bash', 'ls -la'), 0],
     ['a floor deny (rm -rf /)', bash('Bash', 'rm -rf /'), 2],
     ['a floor deny of the home directory', bash('Bash', 'rm -rf ~'), 2],
-    ['the run_shell_command tool name', bash('run_shell_command', 'echo hi'), 0],
+    ['the run_shell_command tool name', bash('run_shell_command', 'echo hi', 'gemini'), 0],
   ];
   for (const [name, stdin, status] of cases) {
     test(`${name}: recorded once; output and status identical with capture off`, () => {
@@ -74,18 +75,18 @@ describe('pre-bash-guard patterns-missing', { skip: !HAS_JQ && 'jq is not instal
       assert.deepEqual([out[0].source, out[0].command, out[0].kind, out[0].message, out[0].frame, out[0].exit], ['hook', 'pre-bash-guard', 'patterns-missing', '', null, null]);
     });
   }
-  for (const [name, stdin] of [
-    ['malformed stdin', 'not json at all'],
-    ['empty stdin', ''],
-    ['a non-Bash tool', bash('Read', 'ls')],
-    ['an empty command', bash('Bash', '')],
-    ['a JSON document with no tool name', '{"a":1}'],
+  for (const [name, stdin, status] of [
+    ['malformed stdin', 'not json at all', 2],
+    ['empty stdin', '', 2],
+    ['a non-Bash tool', bash('Read', 'ls'), 0],
+    ['an empty command', bash('Bash', ''), 0],
+    ['a JSON document with no tool name', '{"a":1}', 2],
   ]) {
     test(`${name}: never reaches the fail-open branch, so nothing is recorded, output identical`, () => {
       const { on, a } = pair('pre-bash-guard.sh', stdin);
-      assert.equal(a.status, 0);
-      assert.equal(lines(on).length, 0);
-      assert.equal(fs.existsSync(on.failures), false);
+      assert.equal(a.status, status);
+      if (status === 2) assert.equal(lines(on).at(-1).kind, 'envelope-missing');
+      else assert.equal(lines(on).length, 0);
     });
   }
   test('with the pattern file present nothing is recorded and a deny is unchanged', () => {
@@ -159,7 +160,7 @@ describe('pre-bash-guard patterns-missing', { skip: !HAS_JQ && 'jq is not instal
 });
 
 describe('mcp-tool-guard policy-file-missing', { skip: !HAS_JQ && 'jq is not installed' }, () => {
-  const mcp = JSON.stringify({ tool_name: 'mcp__srv__tool', tool_input: {} });
+    const mcp = encodeEnvelope('claude', 'PreToolUse', 'mcp-tool-guard', JSON.stringify({ tool_name: 'mcp__srv__tool', tool_input: {} }));
   test('recorded once; output and status identical with capture off', () => {
     const { on, a } = pair('mcp-tool-guard.sh', mcp);
     assert.deepEqual([a.status, a.stdout, a.stderr], [0, '', '']);
@@ -168,14 +169,19 @@ describe('mcp-tool-guard policy-file-missing', { skip: !HAS_JQ && 'jq is not ins
     assert.deepEqual([out[0].source, out[0].command, out[0].kind, out[0].message, out[0].frame, out[0].exit], ['hook', 'mcp-tool-guard', 'policy-file-missing', '', null, null]);
   });
   test('the single-underscore Gemini spelling is recorded too', () => {
-    const { on } = pair('mcp-tool-guard.sh', JSON.stringify({ tool_name: 'mcp_srv_tool' }));
+    const { on } = pair('mcp-tool-guard.sh', encodeEnvelope('gemini', 'BeforeTool', 'mcp-tool-guard', JSON.stringify({ tool_name: 'mcp_srv_tool' })));
     assert.equal(lines(on).length, 1);
   });
-  for (const [name, stdin] of [['malformed stdin', '{not json'], ['empty stdin', ''], ['a non-MCP tool', JSON.stringify({ tool_name: 'Bash' })]]) {
+  for (const [name, stdin] of [['malformed stdin', '{not json'], ['empty stdin', ''], ['a non-MCP tool', encodeEnvelope('claude', 'PreToolUse', 'mcp-tool-guard', JSON.stringify({ tool_name: 'Bash' }))]]) {
     test(`${name}: nothing recorded, output identical`, () => {
       const { on, a } = pair('mcp-tool-guard.sh', stdin);
-      assert.equal(a.status, 0);
-      assert.equal(lines(on).length, 0);
+      if (name === 'a non-MCP tool') {
+        assert.equal(a.status, 0);
+        assert.equal(lines(on).length, 0);
+      } else {
+        assert.equal(a.status, 2);
+        assert.equal(lines(on).at(-1).kind, 'envelope-missing');
+      }
     });
   }
   test('with the policy file present a deny is unchanged and nothing is recorded', () => {
@@ -307,11 +313,18 @@ describe('what the guard policies must not do (DEC-018, DEC-032)', () => {
   const read = (name) => fs.readFileSync(path.join(POLICIES, name), 'utf8');
   const code = (text) => text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
 
-  for (const policy of ['pre-bash-guard.sh', 'mcp-tool-guard.sh']) {
-    test(`${policy} calls the helper only as a discarded subshell, and does not source lib.sh, set -e or trap`, () => {
+  const capturePoints = {
+    'pre-bash-guard.sh': ['contract-missing', 'dependency-missing:jq', 'unsupported:envelope-version', 'envelope-missing', 'patterns-missing'],
+    'mcp-tool-guard.sh': ['contract-missing', 'dependency-missing:jq', 'unsupported:envelope-version', 'envelope-missing', 'policy-file-missing'],
+    'pre-implementation-gate.sh': ['contract-missing', 'dependency-missing:jq', 'edit-without-target', 'unsupported:envelope-version', 'envelope-missing'],
+  };
+  for (const [policy, expectedPoints] of Object.entries(capturePoints)) {
+    test(`${policy} names every capture point and calls the helper only as discarded subshells`, () => {
       const text = code(read(policy));
-      assert.equal((text.match(/capture-failure\.sh/g) || []).length, 1);
-      assert.match(text, /\( \. "\$\(dirname "\$0"\)\/capture-failure\.sh"; doflow_capture_failure [a-z-]+ [a-z-]+ \) >\/dev\/null 2>&1 \|\| true/);
+      const points = [...text.matchAll(/doflow_capture_failure [a-z-]+ ([A-Za-z0-9:._-]+)/g)].map((match) => match[1]);
+      assert.deepEqual(points, expectedPoints, `${policy} capture points`);
+      assert.equal((text.match(/capture-failure\.sh/g) || []).length, expectedPoints.length);
+      assert.equal((text.match(/\( \. "\$_DOFLOW_POLDIR\/capture-failure\.sh"; doflow_capture_failure/g) || []).length, expectedPoints.length);
       assert.ok(!/lib\.sh/.test(text), 'sources lib.sh');
       assert.ok(!/^\s*set\s+-[a-zA-Z]*e/m.test(text), 'sets -e');
       assert.ok(!/\btrap\b/.test(text), 'installs a trap');

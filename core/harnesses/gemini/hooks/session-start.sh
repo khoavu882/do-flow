@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Gemini adapter: reuse the Canonical Policy Library's session-context policy.
-set -euo pipefail
+# Gemini front door: session-context through the shared lifecycle bridge.
+set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-gemini}"
-exec bash "$(dirname "$0")/../../.doflow/shared/hooks/policies/session-context.sh"
+if ! . "$(dirname "$0")/../../.doflow/shared/hooks/bridge/bridge.sh" 2>/dev/null; then exit 0; fi
+doflow_bridge gemini SessionStart session-context
+exit $?

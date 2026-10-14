@@ -88,8 +88,25 @@ how a shared asset projects onto it:
 | `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.ts`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence. A harness's `capabilities.mcp` may carry `toolName`, a template holding `{server}` and `{tool}` (only `claude` has one: `mcp__{server}__{tool}`); the brief block uses it to show a provider's MCP tool name |
 | `core/registry/assets.json` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
 | `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
-| `core/registry/lifecycle.json` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check) and each harness's support status or fallback |
+| `core/registry/lifecycle.json` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check), each harness's support status or fallback, and the versioned `coverage` block with evidence-backed enforcement rows |
 | `core/registry/mcp.json` | The neutral MCP server catalog every harness's adapter selects from. Each server also carries a required `trigger` (one sentence, 20 to 300 characters: the generic condition under which a stage consults it) and `steps` (the skill files that name it, each `{skill, file}` and optionally `expectedWhen: "research-request"`); adapters ignore both. `src/registry/index.ts` fails the load on a server missing either |
+
+## Lifecycle bridges
+
+Hook enforcement has three separate responsibilities:
+
+| Responsibility | Owns | Must not |
+|---|---|---|
+| Install adapter | Projects, verifies and removes harness files with ledger ownership (`src/adapters/<harness>/` and `core/registry/assets.json`) | Decide a policy outcome |
+| Lifecycle bridge | Decodes one native hook input into envelope v1, calls one canonical policy and encodes its decision as the native response (`core/harnesses/shared/hooks/bridge/`, shell front doors, Antigravity runner delegation and Pi extension) | Hold policy rules, replan, spawn an agent or inject context beyond what hooks inject today |
+| Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it | 077 assigns it no implementation obligation |
+
+Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
+
+When an install or update changes shared hook files at a scope, lifecycle planning also refreshes
+outdated hook front doors for other installed harnesses at that scope. The companion changes share
+the backup, ledger write and rollback with the requested targets; edited companion doors make the
+plan unsafe unless forced. Antigravity shims are overwritten without an edited-door check.
 
 ## The runtime seam
 
@@ -666,6 +683,21 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   headings, states, and examples with score rejection (G33.16); retrieval README includes the three gate
   sentences verbatim (G33.17); and every deliverable defines refresh metadata and avoids transient
   feature-doc paths (G33.18).
+- **G36** (`lifecycle-bridges.test.js`) — coverage rows satisfy IC-022 fields, evidence, lifecycle and
+  inventory joins, digest, generated matrix, and shell-write exclusions (G36.1–G36.7).
+- **G37** (`lifecycle-bridges.test.js`) — wired events have parity fixtures and matching template
+  sources; shipped hook files equal the reachable closure plus declared documentation; every
+  shipped file belongs to a registry asset; Kiro Stop claims retain their evidence (G37.1–G37.4).
+
+- **G34** (`lifecycle-bridges.test.js`) — bridge files contain no policy rules, agent spawns, context
+  injection, bash-to-Node calls or Pi input mutation (G34.1); the lifecycle architecture names the
+  install adapter, lifecycle bridge and 081-owned harness execution adapter with their boundaries
+  (G34.2).
+- **G35** (`lifecycle-bridges.test.js`) — the envelope encoder matches every fixture expectation
+  and missing, v1 and unsupported version classes follow the v1-only contract (G35.1–G35.2); canonical policies preserve their
+  0fcd973 output without the decision fd and begin records with provisional allow (G35.3); exit-2
+  faults block with a fixed reason (G35.4), every policy deny has a record (G35.5), and migration
+  guidance anchors Pi on `tool_call` and envelope version 1 (G35.6).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

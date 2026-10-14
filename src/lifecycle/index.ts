@@ -16,6 +16,7 @@ const { renderPolicies } = require('./policies.ts');
 const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
 const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini/index.ts');
+const { planHookCompanions } = require('./hook-step.ts');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 /** A harness's MCP selection meaning "the servers it owns now", read through its adapter's
@@ -453,6 +454,18 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
     : withChanges(target, replaced.get(target.harness)!, added.get(target.harness)!, notices.get(target.harness)!)));
 }
 
+/** One harness's plan entry, from what its adapter returned: the changes checked against the
+ * harness's assets, and the conflicts, prerequisites and notices in the lifecycle's common shape. */
+function targetFromResult({ harness, assets, mcp, mcpSelected, policies, adapterInput, discovery, result }: any) {
+  if (!result || typeof result !== 'object') throw new Error(`Adapter '${harness.id}' returned an invalid plan`);
+  const changes = (result.changes || []).map((change: any) => normalizeChange(change, { harness, assets }));
+  const conflicts = adapterConflicts(result, harness);
+  const prerequisites = [...(result.prerequisites || []), ...changes.map((change: any) => change.prerequisite).filter(Boolean)];
+  const requiredNativeResources = result.requiredNativeResources ?? changes;
+  if (!Array.isArray(requiredNativeResources)) throw new Error(`Adapter '${harness.id}' returned invalid requiredNativeResources`);
+  return { harness: harness.id, adapter: harness.adapter, assets, mcp, mcpSelected, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
+}
+
 function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], ledger, context = {} }: any) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
@@ -478,13 +491,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const input = { ...adapterInput, registry, ledger: baseLedger };
     const discovery = adapter.discover(input);
     const result = adapter.plan({ ...input, discovery });
-    if (!result || typeof result !== 'object') throw new Error(`Adapter '${harness.id}' returned an invalid plan`);
-    const changes = (result.changes || []).map((change: any) => normalizeChange(change, { harness, assets }));
-    const conflicts = adapterConflicts(result, harness);
-    const prerequisites = [...(result.prerequisites || []), ...changes.map((change: any) => change.prerequisite).filter(Boolean)];
-    const requiredNativeResources = result.requiredNativeResources ?? changes;
-    if (!Array.isArray(requiredNativeResources)) throw new Error(`Adapter '${harness.id}' returned invalid requiredNativeResources`);
-    return { harness: harness.id, adapter: harness.adapter, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
+    return targetFromResult({ harness, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, result });
   });
   // The MCP index names every server a harness of this scope uses: the selections planned here and
   // the recorded selections of the harnesses this run does not touch.
@@ -495,12 +502,17 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   const retained = markRetainedRemovals(harnessPlans, baseLedger, scope);
   const annotated = context.operation === 'remove' ? retained
     : pruneRetiredRuntimeFiles(retained, baseLedger, { scopeRoot, repoRoot: context.repoRoot });
-  const changes = annotated.flatMap((item: any) => item.changes);
-  const conflicts = annotated.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
-  const prerequisites = annotated.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));
-  const requiredNativeResources = annotated.flatMap((item: any) => item.requiredNativeResources || []);
-  const notices = annotated.flatMap((item: any) => item.notices.map((notice: any) => ({ harness: item.harness, notice })));
-  return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: annotated, changes, requiredNativeResources, conflicts, prerequisites, notices,
+  // The shared hooks tree may have moved under harnesses this run does not name (IC-037): their
+  // front doors come along, as targets of this same plan.
+  const companions = planHookCompanions({ registry, adapters, scope, harnessScope: registryScope(scope), scopeRoot, ledger: baseLedger, context,
+    targets: annotated, targetFromResult });
+  const planned = [...annotated, ...companions];
+  const changes = planned.flatMap((item: any) => item.changes);
+  const conflicts = planned.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
+  const prerequisites = planned.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));
+  const requiredNativeResources = planned.flatMap((item: any) => item.requiredNativeResources || []);
+  const notices = planned.flatMap((item: any) => item.notices.map((notice: any) => ({ harness: item.harness, notice })));
+  return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: planned, changes, requiredNativeResources, conflicts, prerequisites, notices,
     retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0 });
 }
 
@@ -644,7 +656,9 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
     const plannedWrites = context.checkPlannedWrites
       ? target.changes.filter((change: any) => !change.retained && (change.operation === 'create' || change.operation === 'update')).map((change: any) => change.target)
       : undefined;
-    let verification = normalizeVerification(adapter.verify({ ...target.adapterInput,
+    // A hook-front-door companion (IC-037) is verified for its doors alone: the rest of that
+    // harness is not part of this run and may legitimately trail the current source.
+    let verification = normalizeVerification(adapter[target.hookDoorsOnly ? 'verifyHookDoors' : 'verify']({ ...target.adapterInput,
       registry: context.registry ?? plan.registry, discovery: target.discovery, ledger: plan.ledger,
       operation, context: { ...target.adapterInput.context, operation, ...(plannedWrites ? { plannedWrites } : {}) } }), harness);
     if (operation === 'remove') verification = normalizeRemovalVerification(verification, target.changes, plan.ledger);

@@ -112,13 +112,15 @@ was `READY` before its work began instead of evaluating again with whatever it i
 runtime asks it on all eight harnesses: `orchestrate` `handoff` and `complete-stage` of the gated
 `implementation` stage refuse without a `READY` record of the stage's template made before the call,
 and name the `readiness` command that clears the refusal; `verify` reports `INCONCLUSIVE` in place
-of `PASS` while a run with that stage pending has no such record. Five harnesses have a hook layer
-(Claude Code, Codex once its hooks are reviewed, Gemini CLI, Antigravity and Kiro), and there the
+of `PASS` while a run with that stage pending has no such record. Six harnesses have a hook layer
+(Claude Code, Codex once its hooks are reviewed, Gemini CLI, Pi, Antigravity and Kiro), and there the
 same check also refuses a source edit with the same text: on a feature branch whose three artifacts
 and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
 open with its implementation stage pending (the run is the one named by the host's task id, else by
-the branch's slug). OpenCode, Pi and Copilot CLI have no hook layer, so the handoff and `verify` are
-their only checks, and `trivial-edit` opts out of the edit-time check on every harness: it is held at
+the branch's slug). OpenCode and Copilot CLI have no hook layer, so the handoff and `verify` are
+their only checks. Pi has a `tool_call` guard extension. Its pre-implementation gate blocks only for the live-observed
+`cli-extension` row; project-interactive and user-interactive coverage remains unknown, including
+interactive loading and project-trust behavior. The handoff and `verify` still apply there. `trivial-edit` opts out of the edit-time check on every harness: it is held at
 the handoff and `verify` only. A linked worktree reads the main checkout's feature folder, readiness
 records and runs, and updates a run where it lives.
 

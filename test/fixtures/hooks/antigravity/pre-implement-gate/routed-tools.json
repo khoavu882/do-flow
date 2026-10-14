@@ -1,0 +1,22 @@
+{
+  "source": "core/harnesses/shared/hooks/stream-hook-runner.js tool-name classifiers",
+  "calls": [
+    { "name": "write_to_file", "operation": "edit", "native": { "toolCall": { "name": "write_to_file", "args": { "AbsolutePath": "/repo/a" } } } },
+    { "name": "replace_file_content", "operation": "edit", "native": { "toolCall": { "name": "replace_file_content", "args": { "TargetFile": "/repo/a" } } } },
+    { "name": "multi_replace_file_content", "operation": "edit", "native": { "toolCall": { "name": "multi_replace_file_content", "args": { "Path": "/repo/a" } } } },
+    { "name": "edit_file", "operation": "edit", "native": { "toolCall": { "name": "edit_file", "args": { "Path": "/repo/a" } } } },
+    { "name": "write_file", "operation": "edit", "native": { "toolCall": { "name": "write_file", "args": { "file_path": "/repo/a" } } } },
+    { "name": "create_file", "operation": "edit", "native": { "toolCall": { "name": "create_file", "args": { "file_path": "/repo/a" } } } },
+    { "name": "replace_file", "operation": "edit", "native": { "toolCall": { "name": "replace_file", "args": { "path": "/repo/a" } } } },
+    { "name": "replace", "operation": "edit", "native": { "toolCall": { "name": "replace", "args": { "path": "/repo/a" } } } },
+    { "name": "Edit", "operation": "edit", "native": { "toolCall": { "name": "Edit", "args": { "file_path": "/repo/a" } } } },
+    { "name": "Write", "operation": "edit", "native": { "toolCall": { "name": "Write", "args": { "file_path": "/repo/a" } } } },
+    { "name": "MultiEdit", "operation": "edit", "native": { "toolCall": { "name": "MultiEdit", "args": { "file_path": "/repo/a" } } } },
+    { "name": "apply_patch", "operation": "edit", "native": { "toolCall": { "name": "apply_patch", "args": { "AbsolutePath": "/repo/a" } } } },
+    { "name": "run_command", "operation": "command", "native": { "toolCall": { "name": "run_command", "args": { "CommandLine": "rm -rf /" } } } },
+    { "name": "run_shell_command", "operation": "command", "native": { "toolCall": { "name": "run_shell_command", "args": { "command": "rm -rf /" } } } },
+    { "name": "Bash", "operation": "command", "native": { "toolCall": { "name": "Bash", "args": { "command": "rm -rf /" } } } },
+    { "name": "bash", "operation": "command", "native": { "toolCall": { "name": "bash", "args": { "command": "rm -rf /" } } } },
+    { "name": "mcp_gh_delete_repo", "operation": "mcp", "native": { "toolCall": { "name": "mcp_gh_delete_repo", "args": {} } } }
+  ]
+}

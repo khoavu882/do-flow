@@ -1,0 +1,26 @@
+{
+  "native": {
+    "hook_event_name": "PreCompact",
+    "session_id": "codex-compact",
+    "cwd": "/tmp/project"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": null,
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreCompact",
+      "operation": "compact",
+      "identity": {
+        "session": "codex-compact"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

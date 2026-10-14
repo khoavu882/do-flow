@@ -18,6 +18,8 @@ const { spawnSync } = require('node:child_process');
 const {
   REPO, SKIP, git, makeRepo, run, decision, writeFiles, read, featureDir, initRegister, addBatch, haveTagOrSkip, gitShow, squash, HISTORY, v1120Validate,
 } = require('./register-followups.shared');
+const { claudeDoorFindings, hookReachabilityFindings } = require('../helper/hook-reachability');
+const { tempDir } = require('../helper/tmp');
 
 // ── US1: compaction ─────────────────────────────────────────────────────────────────────────────────
 
@@ -379,22 +381,27 @@ describe('NFR-004: no write-time hook or refusal was added', { skip: SKIP }, () 
       'after a write only the existing lint hook runs');
   });
 
-  test('hook files and the claude hook wiring are the v1.12.0 set (compared when the tag is present)', (t) => {
-    const hookFiles = () => spawnSync('git', ['ls-files', 'core'], { cwd: REPO, encoding: 'utf8' }).stdout
-      .split('\n').filter((f) => /(^|\/)hooks\//.test(f) || /hooks\.json$/.test(f)).sort();
-    assert.ok(hookFiles().length >= 15, 'the checkout ships its hook files');
-    if (!haveTagOrSkip(t, 'v1.12.0')) return;
-    const tagged = spawnSync('git', ['ls-tree', '-r', '--name-only', 'v1.12.0', 'core'], { cwd: REPO, encoding: 'utf8' }).stdout
-      .split('\n').filter((f) => /(^|\/)hooks\//.test(f) || /hooks\.json$/.test(f)).sort();
-    // Feature 046 adds exactly one file: the failure capture helper (IC-018, DEC-032). It is sourced
-    // inside the two guard policies' existing fail-open branches and has no wiring entry, so the
-    // no-write-time-hook intent holds; the wiring comparison below stays strict.
-    const failureCaptureHelper = 'core/harnesses/shared/hooks/policies/capture-failure.sh';
-    // Feature 059 adds the prompt nudge's decision program (IC-005): a jq file with no wiring entry
-    // and no write-time effect, run by the existing UserPromptSubmit policy.
-    const exempt = [failureCaptureHelper, 'core/harnesses/shared/hooks/policies/prompt-nudge.jq'];
-    assert.deepStrictEqual(hookFiles().filter((f) => !exempt.includes(f)), tagged, 'no hook file was added or removed since v1.12.0');
-    const old = JSON.parse(gitShow('v1.12.0', 'core/harnesses/claude/settings/settings.json'));
-    assert.deepStrictEqual(settings.hooks, old.hooks, 'the claude hook wiring is unchanged since v1.12.0');
+  test('every claude hook door is wired or sourced, and every wiring command resolves', () => {
+    const files = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
+    assert.deepStrictEqual(claudeDoorFindings(REPO, files), []);
+    assert.deepStrictEqual(hookReachabilityFindings(REPO, files), []);
+  });
+
+  test('current-truth controls reject a missing wiring target and an unwired claude door', (t) => {
+    const root = tempDir(t, 'doflow-ic035-claude-');
+    fs.mkdirSync(path.join(root, 'core/harnesses/claude/settings'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'core/harnesses/claude/hooks'), { recursive: true });
+    fs.cpSync(path.join(REPO, 'core/harnesses/claude/hooks'), path.join(root, 'core/harnesses/claude/hooks'), { recursive: true });
+    const settingsPath = path.join(root, 'core/harnesses/claude/settings/settings.json');
+    fs.copyFileSync(path.join(REPO, 'core/harnesses/claude/settings/settings.json'), settingsPath);
+    const files = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    settings.hooks.SessionStart[0].hooks[0].command = 'bash "$DOFLOW_PROJECT_DIR/.claude/hooks/missing-door.sh"';
+    fs.writeFileSync(settingsPath, JSON.stringify(settings));
+    assert.ok(claudeDoorFindings(root, files).some((finding) => finding.includes('missing-door.sh')));
+
+    const extra = 'core/harnesses/claude/hooks/orphan-check.sh';
+    fs.writeFileSync(path.join(root, extra), '#!/usr/bin/env bash\ntrue\n');
+    assert.ok(claudeDoorFindings(root, [...files, extra]).some((finding) => finding.includes(extra)));
   });
 });

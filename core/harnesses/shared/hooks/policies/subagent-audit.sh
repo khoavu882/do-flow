@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # subagent-audit.sh — Canonical Policy Library: SubagentStart + SubagentStop hook
 # (pure observability, no deny path)
 #
@@ -18,11 +19,40 @@
 
 set -euo pipefail
 # shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
-require_jq
-
+source "$_DOFLOW_POLDIR/lib.sh"
 INPUT=$(cat)
-SESSION_ID=$(json_field "$INPUT" ".session_id")
+POLICY_DIR=$_DOFLOW_POLDIR
+if [ -f "$POLICY_DIR/contract.sh" ]; then
+  # shellcheck source=contract.sh
+  source "$POLICY_DIR/contract.sh"
+  doflow_decision_init subagent-audit 1
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure subagent-audit contract-missing ) >/dev/null 2>&1 || true
+  exit 0
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  doflow_decide error dependency-missing:jq
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure subagent-audit dependency-missing:jq ) >/dev/null 2>&1 || true
+fi
+require_jq
+SESSION_ID="" ENVELOPE_CLASS=missing
+{ IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; } < <(
+  printf '%s' "$INPUT" | jq -j 'if ((. | type) != "object") or ((.doflow_event | type) != "object") or ((.doflow_event | has("version")) | not) then "missing" elif ((.doflow_event.version | type) == "number") and .doflow_event.version == 1 then "v1" else "unsupported" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000"' 2>/dev/null
+) || true
+ENVELOPE_CLASS=${ENVELOPE_CLASS:-missing}
+if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=missing; fi
+if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
+  code=envelope-version
+  [ "$ENVELOPE_CLASS" = missing ] && code=envelope-missing
+  [ -f "$POLICY_DIR/contract.sh" ] || code=contract-missing
+  doflow_decide unsupported "$code"
+  if [ -f "$POLICY_DIR/contract.sh" ]; then
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure subagent-audit "$code" ) >/dev/null 2>&1 || true
+  fi
+  exit 0
+fi
 
 # Guard: if we can't determine the session, nothing to do
 [[ -z "$SESSION_ID" ]] && exit 0
@@ -41,6 +71,6 @@ jq -nc \
   --arg agent_type "$AGENT_TYPE" \
   --arg agent_id "$AGENT_ID" \
   '{timestamp: $ts, session_id: $session, event: $event, agent_type: $agent_type, agent_id: $agent_id}' \
-  >> "$SESSION_PATH/subagent-audit.log" 2>/dev/null || true
+  >> "$SESSION_PATH/subagent-audit.log" 2>/dev/null || doflow_decide error audit-write-failed
 
 exit 0

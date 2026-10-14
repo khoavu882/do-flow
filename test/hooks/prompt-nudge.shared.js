@@ -14,6 +14,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { runPolicyV1 } = require('../helper/hook-fixtures');
 
 const REPO = path.resolve(__dirname, '../..');
 const POLICIES = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies');
@@ -61,7 +62,10 @@ function repo({ git = true } = {}) {
 }
 
 function runPolicy(layout, script, payload, agent, envExtra = {}) {
-  const r = spawnSync('bash', [path.join(layout, script)], { input: JSON.stringify(payload), env: env(agent, envExtra), encoding: 'utf8' });
+  const event = script === 'session-context.sh' ? 'SessionStart' : 'UserPromptSubmit';
+  const r = runPolicyV1(script.replace(/\.sh$/, ''), payload, {
+    harness: 'claude', event, policyPath: path.join(layout, script), env: env(agent, envExtra),
+  });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }

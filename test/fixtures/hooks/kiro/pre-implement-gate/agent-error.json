@@ -1,0 +1,38 @@
+{
+  "native": {
+    "hook_event_name": "preToolUse",
+    "session_id": "kiro-agent-gate-error",
+    "tool_name": "write",
+    "tool_input": {
+      "path": "src/a.js"
+    }
+  },
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": "",
+    "stderrIncludes": "[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list",
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "preToolUse",
+      "operation": "edit",
+      "tool": "Write",
+      "paths": [
+        "src/a.js"
+      ],
+      "identity": {
+        "session": "kiro-agent-gate-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 79
+  }
+}

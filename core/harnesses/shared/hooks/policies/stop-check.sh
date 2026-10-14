@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # stop-check.sh — Canonical Policy Library: Stop hook
 #
 # Two responsibilities:
@@ -24,14 +25,8 @@
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional here)
-#   stdin  a Stop-shaped JSON payload. session_id and transcript path field
-#          names both vary by harness (transcript_path vs. Antigravity's
-#          camelCase transcriptPath) — this script reads the union of known
-#          field names rather than assuming one, since a native front door
-#          (Claude/Codex/Kiro) execs this script directly with no payload
-#          translation of its own.
-#   exit   0 = allow the stop, non-zero = deny (block the stop) with the
-#          reason on stderr.
+#   stdin  envelope v1 from a native front door via the shared lifecycle bridge.
+#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011.
 #
 # Depends on lib.sh (require_jq, json_field, ensure_session_dir,
 # run_with_timeout) being discoverable next to this script when it runs — see
@@ -48,11 +43,41 @@
 
 set -euo pipefail
 # shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
-require_jq
-
+source "$_DOFLOW_POLDIR/lib.sh"
 INPUT=$(cat)
-SESSION_ID=$(json_field "$INPUT" ".session_id")
+# Decision records stay off every stream unless a bridge supplied the fd.
+POLICY_DIR=$_DOFLOW_POLDIR
+if [ -f "$POLICY_DIR/contract.sh" ]; then
+  # shellcheck source=contract.sh
+  source "$POLICY_DIR/contract.sh"
+  doflow_decision_init stop-check 1
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure stop-check contract-missing ) >/dev/null 2>&1 || true
+  exit 0
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  doflow_decide error dependency-missing:jq
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure stop-check dependency-missing:jq ) >/dev/null 2>&1 || true
+fi
+require_jq
+SESSION_ID="" ENVELOPE_CLASS=missing
+{ IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; } < <(
+  printf '%s' "$INPUT" | jq -j 'if ((. | type) != "object") or ((.doflow_event | type) != "object") or ((.doflow_event | has("version")) | not) then "missing" elif ((.doflow_event.version | type) == "number") and .doflow_event.version == 1 then "v1" else "unsupported" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000"' 2>/dev/null
+) || true
+ENVELOPE_CLASS=${ENVELOPE_CLASS:-missing}
+if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=missing; fi
+if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
+  code=envelope-version
+  [ "$ENVELOPE_CLASS" = missing ] && code=envelope-missing
+  [ -f "$POLICY_DIR/contract.sh" ] || code=contract-missing
+  doflow_decide unsupported "$code"
+  if [ -f "$POLICY_DIR/contract.sh" ]; then
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure stop-check "$code" ) >/dev/null 2>&1 || true
+  fi
+  exit 0
+fi
 
 TRANSCRIPT_PATH=$(json_field "$INPUT" ".transcript_path")
 [ -z "$TRANSCRIPT_PATH" ] && TRANSCRIPT_PATH=$(json_field "$INPUT" ".transcriptPath")
@@ -107,7 +132,7 @@ if [ -n "$SESSION_ID" ]; then
     # before the {} reply is invalid hook output)
     if [ ${#py_files[@]} -gt 0 ]; then
       if command -v ruff &>/dev/null; then
-        nohup ruff format "${py_files[@]}" </dev/null >/dev/null 2>&1 &
+        nohup ruff format "${py_files[@]}" </dev/null >/dev/null 2>&1 3>&- 5>&- &
         run_with_timeout 2 -- ruff check "${py_files[@]}" >&2 || true
       fi
     fi
@@ -115,7 +140,7 @@ if [ -n "$SESSION_ID" ]; then
     # JS/TS: async fix only (eslint --fix rarely needs the caller's immediate attention)
     if [ ${#js_files[@]} -gt 0 ]; then
       if command -v eslint &>/dev/null; then
-        nohup eslint --fix "${js_files[@]}" </dev/null >/dev/null 2>&1 &
+        nohup eslint --fix "${js_files[@]}" </dev/null >/dev/null 2>&1 3>&- 5>&- &
       fi
     fi
 
@@ -129,7 +154,7 @@ if [ -n "$SESSION_ID" ]; then
     # Java: async spotlessApply (slow — only if gradlew exists in cwd)
     if [ "$java_has_files" = "true" ]; then
       if [ -x "./gradlew" ]; then
-        nohup ./gradlew spotlessApply </dev/null >/dev/null 2>&1 &
+        nohup ./gradlew spotlessApply </dev/null >/dev/null 2>&1 3>&- 5>&- &
       fi
     fi
 
@@ -143,6 +168,7 @@ if [ -n "$SESSION_ID" ]; then
       if [ -n "$DOFLOW_RUN" ]; then
         leak_out="$(run_with_timeout 2 -- "$DOFLOW_RUN" leak-scan "${leak_args[@]}" 2>/dev/null || true)"
         if [ -n "$leak_out" ] && printf '%s' "$leak_out" | grep -q ':[0-9]'; then
+          doflow_decide advisory internal-identifiers-found
           printf 'doflow: internal identifiers found in shipped files (warning, not a block):\n%s\n' \
             "$leak_out" >&2
         fi
@@ -258,6 +284,7 @@ if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
   fi
   [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && { printf '%s\n' "$MESSAGE_SUM" > "$GUARD_FILE"; } 2>/dev/null || true
   echo "[stop-check] The last response contains an unfinished-work marker (TODO/FIXME/stub comment or a not-implemented raise/throw)." >&2
+  doflow_decide deny unfinished-work
   exit 2
 fi
 

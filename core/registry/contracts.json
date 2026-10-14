@@ -134,8 +134,8 @@
     {
       "harness": "pi",
       "completeness": "lower-bound",
-      "note": "hookEvents is empty by design, not by omission: Pi implements lifecycle handlers as TypeScript extension modules registering handlers through pi.on(), executing with full system permissions, while DoFlow ships shell scripts invoked by a command string. The events exist natively and are recorded under capabilities.hooks.events with status \"different\"; wiring them would mean shipping executable code into the user's agent, which is a distribution decision rather than a projection. Widen this list only alongside that decision and an added evidence URL. See https://pi.dev/docs/latest/extensions.",
-      "hookEvents": [],
+      "note": "DoFlow installs a user- or project-scope extension that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust. The handler can block before tools execute; tool_execution_start remains observation-only. See https://pi.dev/docs/latest/extensions.",
+      "hookEvents": ["tool_call"],
       "evidence": [
         "https://pi.dev/docs/latest/extensions",
         "https://pi.dev/docs/latest/settings",

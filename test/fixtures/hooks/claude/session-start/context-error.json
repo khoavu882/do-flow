@@ -1,0 +1,31 @@
+{
+  "native": {
+    "hook_event_name": "SessionStart",
+    "session_id": "c1-context-error",
+    "source": "startup"
+  },
+  "state": "none",
+  "fault": "context-crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "claude",
+      "event": "SessionStart",
+      "operation": "session-start",
+      "identity": {
+        "session": "c1-context-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 0
+  }
+}

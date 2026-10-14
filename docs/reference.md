@@ -41,6 +41,7 @@ These are `doflow` CLI commands, not slash-command skills. Installation and life
 |---|---|
 | `doflow doctor [--json]` | Health check: harness adapters, capability providers, index freshness, and the project's detected build and test commands. Health means a provider **answered a probe**, not that its binary is on `PATH` — an installed provider that cannot answer reports `UNHEALTHY`, and one that declares no probe reports `UNVERIFIED`. Its `[Runtime Reach]` section lists, per installed harness and scope, whether the skills' resolver finds a dispatcher and runtime (`REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`; in `--json`, `harnesses[].reach[]`). Reach is a static check of the installed files: it does not consider the other ways the dispatcher finds the CLI (`DOFLOW_CLI`, a `node_modules` install, a `doflow` on `PATH`). Two further sections report on MCP servers and never enter `[Warnings]` or `[Findings]` (in `--json`, `mcp.servers` and `mcp.consultations`). `[MCP Servers]` lists each server a shipped stage names and, per installed harness and scope, whether it is `selected` (in DoFlow's catalog selection), `configured` (present in the harness's MCP config, whoever wrote it), `not selected`, `not taken` (the harness takes no catalog servers; both only where DoFlow read every config the harness merges) or `unknown` (DoFlow cannot see every config the harness merges, as for Claude Code and Gemini CLI, or a config it reads could not be parsed, which prints `fix <file> first`), with the command that adds it where it is missing. `[MCP Consultations]` reads this project's orchestration journals (`.doflow/state/orchestration/`) and, per stage skill, counts the servers' outcomes over the 20 most recent recorded stage runs: `consulted, used`, `consulted, nothing usable`, `skipped`, `unavailable` and `no outcome recorded`, each in its own column, and, per server and skill, lists the latest 3 runs with no outcome after their count. Only runs that recorded MCP outcomes are counted, so a stage completed before this existed never shows as missing one. Finished orchestration journals are pruned 30 days after their work finished (see the `task-orchestration` row below), so the window counts only the runs still kept. `[Decision Model]` reports the optional local decision model; `[Advice Agreement]` summarizes recorded advisory picks and outcomes. These sections do not change the exit status. Doctor reads files and starts no MCP server. The adapter line of the text output reads `adapter PASS`; the JSON gains additive fields only. Exits 1 when a provider is installed but does not answer, or a harness has `NO-REACH`; neither MCP section changes the exit status |
 | `doflow capabilities [--json] [--check]` | Which provider currently backs each abstract capability on this machine. `--check` runs a deep smoke check instead of a presence check |
+| `doflow enforcement --harness <id> --policy <id> [--profile <id>] [--json]` | Read the lifecycle coverage matrix and report whether the selected policy is verified to block before a tool runs; JSON includes the evidence rows, prerequisites and known gaps. Exits 0 when enforced, 1 otherwise, or 2 for usage and unknown ids |
 | `doflow readiness --task-class <class> --task-id <id> [--slug <name>] [--verification-plan <text>] [--scope <text>] [--invariants <text>] [--user-decision-pending] [--json]` | Evaluate a task's readiness contract. Classes: `bug`, `feature`, `refactor`, `trivial-edit`, `dependency-change`. Returns one of four states — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — never a number. The four trailing flags are inputs the **caller states** rather than evidence the gate measured, so they are reported straight back as `callerAsserted` (JSON) and `Caller-stated:` (text), and a requirement satisfied that way links no evidence. Every call records its evaluation, whatever its state, as the task's latest record under `.doflow/state/readiness/` (in a `<slug>/` subdirectory under the same rule as evidence, described below) and prints `Recorded:` with the path; `--json` adds `record` and `declaredScope`. A `--scope` that is a comma-separated list of repository-relative paths is also kept as the task's declared scope, which `verify` bounds a change by (`Declared scope:`); any other wording stays a statement. A previous record that cannot be read is moved to `<record>.unreadable` and a `Replaced:` line says so; a record written by a newer DoFlow is never replaced. The call exits 1 when it could not record the evaluation |
 | `doflow evidence --task-id <id> [--slug <name>] [--action list\|add] [--kind <k>] [--provenance extracted\|inferred\|asserted] [--provider <p>] [--capability <c>] [--locator <file[:line]\|uri>] [--content <text>] [--need <intent>] [--absence] [--batch <file>] [--json]` | List a task's recorded evidence, or record it with `--action add`: one item from the flags, or a whole stage batch from `--batch` (a JSON array, or an object whose only key is `evidence`; `--batch=-` reads stdin — the `=` spelling is required, since a bare `-` reads as the next flag). Per item `kind`, `provenance` and `source` (`--provider` + `--capability`) are required and none is defaulted; `extracted` additionally requires a locator, `inferred` and `asserted` require content, and `generated-analysis`/`user-statement` may never be `extracted`. `--need <intent>` names exactly one declared intent and stamps `source.queryRef` from the task's current plan; without it the item remains unbound. `source.attemptRef` is read from the active task attempt. `--absence` requires `--need`, takes no locator, requires `extracted` provenance, writes `result: EMPTY`, and measures freshness from the provider's index at write time. Caller-supplied `queryRef` is refused with the fix to re-run using `--need`; `attemptRef` is refused with the fix to claim the task attempt and re-run without it; `result` is refused with the fix to use `--absence --need`. Absence without `--need` asks you to name the need, a locator asks you to drop it or record a positive item, and non-extracted provenance asks you to use `extracted`. Freshness is measured at the write and never accepted from the caller. A batch is validated whole, so one rejected item writes nothing. `--confidence`, `--score`, `--relevance` and every other score-shaped flag are refused by name: relevance is a property of a search, not of a fact |
 | `doflow-run render-diagrams [--slug=<slug>] [--artifact=<path>] [--format=png|svg] [--json]` (`render-diagrams.sh`) | Render a chain artifact's fenced Mermaid blocks to image files, styled by the shipped theme. A **faithful** render: same nodes, same edges, same labels, and the committed Markdown is never modified. Output lands in `<feature dir>/design/diagrams/` and is excluded from version control by an ignore rule the verb writes on first run. Requires `@mermaid-js/mermaid-cli` on `PATH`, an optional dependency DoFlow never installs: when it is absent the verb reports how to obtain it and exits 0, because it sits outside the chain and must never make a missing optional capability read as a broken run. Runs only when a user invokes it, never as part of a stage, which is why no skill names it and `test/guards/verb-reachability.test.js` allowlists the verb |
@@ -194,6 +195,64 @@ Notes on three rows:
 - **Run partitions** are pruned after 180 days, so `trace`, `stats` and `discover` without `--days` now cover at most the last 180 days.
 - **Readiness records** that could not be parsed are renamed to `<task>.json.unreadable`. The `task-readiness` store does not select that name, so pruning never removes those files; delete them by hand when you no longer need them.
 
+## Hook envelope and migration notes
+
+Shipped hook bridges decode native events into envelope v1, call a canonical policy and render the harness's native response. The versioned coverage block in `core/registry/lifecycle.json` records policy, harness, event, profile and evidence; `doflow enforcement` reports what that evidence supports.
+
+### Envelope, decision and diagnostics
+
+Envelope v1 is the object under `doflow_event` in the native payload. It carries `version: 1`, the registry harness id, the native event name verbatim and a canonical operation; tool, paths, command, patch, correlation and identity fields appear only when the native input supplies them. `projectRoot` is reserved for a launcher and is never inferred from native `cwd`. Policies read v1 only; every other version is unsupported, and no native-field fallback remains. A direct policy caller must send v1 or pipe its native payload through `bash .doflow/shared/hooks/bridge/bridge.sh <harness> <event> <policy>`.
+
+When `DOFLOW_DECISION_FD` names an open single-digit descriptor from 3 through 9, each policy writes a compact version-1 record on that descriptor: `v`, `policy`, `policyVersion`, `outcome` and `code`. The provisional allow record comes first; the last record determines the policy outcome. With the variable unset or an unusable descriptor, no record is written. Records contain no free text.
+
+`DOFLOW_FAULT_PROFILE` selects `compat-1` (default) or `strict-1`; an unknown value uses `compat-1` and records `fault-profile-unknown`. Compat preserves each front door's current effect. Strict blocks faults for blocking policies, except Stop faults, which remain non-blocking under both profiles; a real Stop deny still blocks (DEC-039). `DOFLOW_BRIDGE_TRACE`, when set to a file path, appends the bridge's decision object there; it is not model-visible. `DOFLOW_RUN_ID`, `DOFLOW_ATTEMPT` and `DOFLOW_TASK_ID` are reserved inputs for a launcher: in 077 they populate envelope identity or task fields when supplied and are otherwise absent. `DOFLOW_SESSION_ROLE` is normalized case-insensitively: unset or empty means `main`, `worker` means `worker`, and any other value emits a warning and is treated as `worker` by session policies; the envelope includes the role only when the supplied value is exactly `main` or `worker`.
+
+Bridge diagnostics use the existing failure store and leave its storage declaration unchanged. Bridge failure-store points include `eval-error:exit-2-unmarked`, `eval-error:exit-<n>`, `eval-error:signal-<NAME>` (not SIGTERM, SIGINT or SIGPIPE), `bridge-spawn`, `bridge-timeout`, `bridge-missing`, `envelope-missing`, `contract-missing`, `envelope-encode` and `fault-profile-unknown`. The Antigravity runner records `runner-event-missing` when its event argument is missing or unknown. A `decision-mismatch` appears in the decision object and bridge trace only; it is a policy contract bug, not a failure-store point (DEC-028). Policies may record `unsupported:envelope-version`, `edit-without-target`, `dependency-missing:jq` and their existing policy-specific points. Diagnostic messages remain empty.
+
+### Migration notes
+
+The legacy native-field decoder has been removed. This is a breaking change for scripts that
+pipe native payloads directly to a policy: update them to send a v1 envelope or use the bridge
+command above. Input without a v1 envelope is out of step. The gate, bash and MCP policies deny
+with `[<policy>] DoFlow hooks out of step; run: doflow update -t <harness>`; Stop and context
+policies exit silently, with the prompt hook's `{}` no-op. If a door cannot load the bridge, it
+uses a fixed native out-of-step response.
+
+When an install or update changes shared hooks, it also refreshes outdated hook front doors for
+other installed harnesses at that scope. Install/update plans report companion refreshes,
+including harnesses the command did not name; dry-run lists them too. Edited
+companion doors refuse the plan unless `-f` is supplied. The single backup includes companions,
+and `doflow rollback <id>` restores them with the shared tree. On installs made before 077, Codex
+and Gemini hook scripts have no ledger rows, so an edited script is replaced on the first update,
+not refused. That update's backup keeps the edited copy for `doflow rollback <id>`; subsequent
+edits are detected and refused. Antigravity shims are always overwritten and have no edited-door
+check.
+
+The Antigravity plugin bundle no longer declares hooks because its old entries pointed at files
+the Antigravity projection does not install. Its skills, rules, agents and MCP configuration
+remain available. The runner's unused Gemini-specific agent branch has also been removed.
+
+Compared with the 0fcd973 front doors, the shared bridge intentionally changes these cases:
+
+- A missing policy file is an evaluation error: `compat-1` proceeds and records a diagnostic; `strict-1` denies (DEC-025). Previously the shell's missing-file exit 127 could accidentally deny.
+- The bridge captures policy output without a temporary file; an unwritable `TMPDIR` does not turn a gate deny into an allow. Background jobs close inherited bridge descriptors, so they do not hold Stop or SessionStart open. In `strict-1`, missing `jq` still produces the native deny; `compat-1` keeps its allow behavior (FX.1–FX.3).
+- Codex `update -t codex -f` re-merges edited `hooks.json`, preserving user entries. Without `-f`, the conflict remains and the message gives a working remedy (DEC-040).
+- A blocking evaluation error renders `[<policy-id>] DoFlow policy error; details: doflow-run failure list` on stdout (IC-013/DEC-019), rather than exposing raw policy or runtime stderr as the reason. Kiro PreToolUse and Stop doors use stderr for the fixed reason where their native contract requires it; Claude Stop retains its original exit code. Codex Stop crash stderr is suppressed (DEC-037).
+- Context and advisory policy faults render nothing to the model and record a diagnostic (DEC-022).
+- Codex `subagent-audit` now prints nothing for an error outcome; previously it printed `{}` when the policy failed.
+- Kiro's agent-config event names (`agentSpawn`, `preToolUse`, `stop`) resolve to the same effects and native responses as their hook-config aliases (`SessionStart`, `PreToolUse`, `Stop`); the envelope retains the native event name.
+- Antigravity's runner decodes its routed command, MCP and edit tools in the shared envelope path. Under RA1, `apply_patch` with `AbsolutePath` is now denied when design artifacts are absent; the legacy matcher allowed it.
+- A policy terminated by a signal on a pass-through door exits with status `128+n` (128 plus the signal number), such as `139` for SIGSEGV. Blocking doors render their native deny response instead.
+- A missing v1 envelope or contract is an out-of-step state: gate, bash and MCP policies deny
+  with the update command; Stop and context policies exit silently (DEC-032, DEC-033).
+- A missing bridge file makes a shell door render its fixed native out-of-step response. The Pi
+  extension blocks with the fixed native out-of-step reason; its coverage is blocking only for the
+  live-observed `cli-extension` pre-implementation gate row. Project-interactive and
+  user-interactive rows remain unknown; the live record does not establish interactive loading or
+  project-trust behavior (DEC-036). The Antigravity runner applies this rule for a missing
+  bridge under every fault profile: its gate denies and Stop stays silent (DEC-035).
+- The bridge preserves a caller-set, non-empty `DOFLOW_AGENT`; otherwise it sets the harness id.
+
 ## Storage and retention
 
 DoFlow prunes what it writes by default. A pass runs silently after a runtime verb (at most once a day per root), after `verify`, after `install` and `update`, and from the session hooks of harnesses that have them. It removes only entries of finished work past the bound in the table above, never open, waiting or unfinished work, stops after 750 ms or 5,000 removals and continues on the next pass. A pass never changes a command's output or exit status.
@@ -246,7 +305,10 @@ budget on an idle machine; it is not free, so a slow machine can feel it.
 
 - **Where.** Claude Code and Codex only, through the existing per-prompt hook
   (`core/harnesses/shared/hooks/policies/user-prompt-submit.sh`). The other six harnesses
-  (Gemini CLI, Antigravity, OpenCode, Pi, Copilot CLI, Kiro) get no hook for this; they get only the
+  (Gemini CLI, Antigravity, OpenCode, Pi, Copilot CLI, Kiro) get no hook for this; Pi separately has
+  a `tool_call` guard extension. Only the live-observed `cli-extension` pre-implementation gate row
+  blocks; project-interactive and user-interactive coverage remains unknown, including interactive
+  loading and project-trust behavior. These harnesses get only the
   rewritten `description` of `do`, `do-implement` and `do-flow`, which steer a plain change request
   to `/do` first.
 - **When.** The first prompt of a session that reads as a code-change request: it starts with a

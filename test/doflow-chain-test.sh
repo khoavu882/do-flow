@@ -184,7 +184,7 @@ ROOT="$(pwd -P)"
 CANONICAL_POLICY="$REPO_ROOT/core/harnesses/shared/hooks/policies/pre-implementation-gate.sh"
 decision() {
   local rc
-  echo "$1" | bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  printf '%s\n' "$1" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-implementation-gate -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq" | bash "$CANONICAL_POLICY" >/dev/null 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then echo "allow"; else echo "deny"; fi
 }
@@ -198,19 +198,33 @@ eq "outside-repo edit -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/etc/hosts\"}}")" "allow"
 eq "non-edit tool -> allow" \
    "$(decision "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}")" "allow"
-# Normalized doflow_event envelope (review R7): an adapter that already decoded its native event
-# sends {operation, paths, projectRoot}; the policy consumes it without union field-guessing.
-eq "normalized envelope edit, design missing -> deny" \
-   "$(decision "{\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "deny"
-eq "normalized envelope non-edit operation -> allow" \
-   "$(decision "{\"doflow_event\":{\"operation\":\"read\",\"paths\":[\"$ROOT/src/A.java\"]}}")" "allow"
-eq "envelope outranks stray native fields beside it -> deny" \
-   "$(decision "{\"tool_name\":\"Bash\",\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "deny"
+# v1 doflow_event envelope (DEC-029): an adapter that already decoded its native event hands the
+# policy {version:1, harness, event, operation, paths, identity}; the policy trusts it without
+# field-guessing. envelope.jq only ever REBUILDS an envelope from native fields, so these cases send
+# the envelope straight to the canonical policy (decision_env) to exercise the already-decoded path.
+decision_env() {
+  local rc
+  printf '%s\n' "$1" | bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then echo "allow"; else echo "deny"; fi
+}
+v1_event() { # $1 operation, $2 path
+  printf '{"doflow_event":{"version":1,"harness":"claude","event":"PreToolUse","operation":"%s","paths":["%s"],"identity":{"session":"chain-test"}}}' "$1" "$2"
+}
+eq "v1 envelope edit, design missing -> deny" \
+   "$(decision_env "$(v1_event edit "$ROOT/src/A.java")")" "deny"
+eq "v1 envelope non-edit operation -> allow" \
+   "$(decision_env "$(v1_event read "$ROOT/src/A.java")")" "allow"
+eq "v1 envelope outranks stray native fields beside it -> deny" \
+   "$(decision_env "$(v1_event edit "$ROOT/src/A.java" | jq -c '. + {tool_name:"Bash"}')")" "deny"
+# DEC-033: the retired unversioned shape (no version) is not trusted by a gate policy.
+eq "legacy unversioned doflow_event sent to the policy -> deny (out of step)" \
+   "$(decision_env "{\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "deny"
 echo d > agent-docs/doflow/001-auth/design.md
 eq "prereqs met -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"
-eq "normalized envelope, prereqs met -> allow" \
-   "$(decision "{\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "allow"
+eq "v1 envelope, prereqs met -> allow" \
+   "$(decision_env "$(v1_event edit "$ROOT/src/A.java")")" "allow"
 git checkout -q master
 eq "not-in-flow (trunk) -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"
@@ -220,7 +234,7 @@ eq "not-in-flow (trunk) -> allow" \
 # the resolver installed or not.
 NO_RESOLVER_HOME="$T/no-resolver"; mkdir -p "$NO_RESOLVER_HOME"
 decision_bare() {
-  echo "$1" | CLAUDE_CONFIG_DIR="$NO_RESOLVER_HOME" HOME="$NO_RESOLVER_HOME" bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  printf '%s\n' "$1" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-implementation-gate -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq" | CLAUDE_CONFIG_DIR="$NO_RESOLVER_HOME" HOME="$NO_RESOLVER_HOME" bash "$CANONICAL_POLICY" >/dev/null 2>&1
   if [ "$?" -eq 0 ]; then echo "allow"; else echo "deny"; fi
 }
 GATE_EDIT="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}"

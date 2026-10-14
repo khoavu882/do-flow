@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Claude adapter: reuse the shared stop-completion check with Claude attribution.
-set -euo pipefail
+# Claude front door: stop-check through the shared lifecycle bridge.
+set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-claude}"
-exec bash "$(dirname "$0")/../../.doflow/shared/hooks/policies/stop-check.sh"
+if ! . "$(dirname "$0")/../../.doflow/shared/hooks/bridge/bridge.sh" 2>/dev/null; then exit 0; fi
+doflow_bridge claude Stop stop-check
+exit $?

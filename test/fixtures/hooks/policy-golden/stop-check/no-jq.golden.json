@@ -1,0 +1,1 @@
+{"status":0,"stdout":"","stderr":"[hooks] jq not found — install jq to enable session lifecycle hooks (apt install jq / brew install jq)\n"}

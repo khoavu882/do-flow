@@ -1,0 +1,40 @@
+{
+  "native": {
+    "hook_event_name": "BeforeTool",
+    "session_id": "gemini-bash-deny",
+    "tool_name": "run_shell_command",
+    "tool_input": {
+      "command": "git reset --hard"
+    }
+  },
+  "state": "none",
+  "fault": "none",
+  "policyConfig": {
+    "file": "blocked-patterns.conf",
+    "contents": "git[[:space:]]+reset[[:space:]]+--hard\tBlocked test command\n"
+  },
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 78,
+    "decision": {
+      "outcome": "deny",
+      "code": "blocked-pattern",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "gemini",
+      "event": "BeforeTool",
+      "operation": "command",
+      "tool": "run_shell_command",
+      "command": "git reset --hard",
+      "identity": {
+        "session": "gemini-bash-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-bash-deny",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git reset --hard"
+    }
+  },
+  "policy": "pre-bash-guard",
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "deny",
+      "code": "blocked-pattern",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "git reset --hard",
+      "identity": {
+        "session": "codex-bash-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 175
+  },
+  "policyConfig": {
+    "file": "blocked-patterns.conf",
+    "contents": "git[[:space:]]+reset[[:space:]]+--hard\tBlocked test command\n"
+  }
+}

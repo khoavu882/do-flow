@@ -1,0 +1,37 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-bash-error",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "printf ok"
+    }
+  },
+  "policy": "pre-bash-guard",
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 0,
+    "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"PreToolUse\",\n    \"permissionDecision\": \"deny\",\n    \"permissionDecisionReason\": \"[pre-bash-guard] DoFlow policy error; details: doflow-run failure list\"\n  }\n}\n",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 208,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "printf ok",
+      "identity": {
+        "session": "codex-bash-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true
+  }
+}

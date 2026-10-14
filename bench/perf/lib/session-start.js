@@ -56,15 +56,11 @@ function runHookProcess(hookPath, { cwd, homeDir, fixtureStdin, env: customEnv }
       encoding: 'utf8',
       timeout: 10000,
     });
-    if (res.error) {
-      // Some hooks intentionally ignore stdin and exit immediately. Node can report EPIPE
-      // for the input write even though the child completed successfully and emitted output.
-      if (res.error.code === 'EPIPE' && res.status === 0) {
-        return {
-          stdoutBytes: Buffer.byteLength(res.stdout || '', 'utf8'),
-          stderrBytes: Buffer.byteLength(res.stderr || '', 'utf8'),
-        };
-      }
+    // Some hooks ignore stdin and exit before spawnSync finishes writing it. Node then reports EPIPE
+    // although the child ran to completion, so EPIPE with an exit status is a completed run: the exit
+    // status below decides it, whatever it is. Any other error still fails the measurement.
+    const completed = res.error && res.error.code === 'EPIPE' && res.status !== null;
+    if (res.error && !completed) {
       if (res.error.code === 'ETIMEDOUT') {
         return {
           stdoutBytes: { unmeasured: 'hook timed out after 10s' },

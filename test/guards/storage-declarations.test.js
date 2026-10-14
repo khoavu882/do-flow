@@ -15,6 +15,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 const { createScratch } = require('../helper/scratch-env');
+const { encodeEnvelope } = require('../helper/hook-fixtures');
 const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 
@@ -283,7 +284,12 @@ function runScenario() {
     const verb = (...args) => ({ cmd: '/bin/bash', args: [DOFLOW_RUN, ...args] });
     const cli = (...args) => ({ cmd: process.execPath, args: [DOFLOW_CLI, ...args] });
     const node = (...args) => ({ cmd: process.execPath, args });
-    const hook = (script, payload) => ({ cmd: '/bin/bash', args: [script], input: JSON.stringify(payload) });
+    const hook = (script, payload) => ({
+      cmd: '/bin/bash', args: [script],
+      input: script.endsWith('/session-context.sh')
+        ? encodeEnvelope('claude', 'SessionStart', 'session-context', JSON.stringify(payload))
+        : JSON.stringify(payload),
+    });
     const target = ['--force', '--target', TARGETS];
     const enableAdvice = "const fs=require('node:fs'),path=require('node:path');const f=path.join(process.env.XDG_CONFIG_HOME,'doflow','decision-model.json');fs.writeFileSync(f,JSON.stringify({schema:1,enabled:true,provider:'ollama',endpoint:'http://127.0.0.1:9',model:'clef-flash'})+'\\n');";
     const seedOldAdvice = "const fs=require('node:fs'),path=require('node:path');const d=path.join(process.argv[1],'advice','picks');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'2000-01-01.jsonl'),'{}\\n');";

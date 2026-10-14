@@ -1,0 +1,34 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-mcp-error",
+    "tool_name": "mcp__example__read",
+    "tool_input": {}
+  },
+  "policy": "mcp-tool-guard",
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 0,
+    "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"PreToolUse\",\n    \"permissionDecision\": \"deny\",\n    \"permissionDecisionReason\": \"[mcp-tool-guard] DoFlow policy error; details: doflow-run failure list\"\n  }\n}\n",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 208,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "mcp",
+      "tool": "mcp__example__read",
+      "identity": {
+        "session": "codex-mcp-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true
+  }
+}

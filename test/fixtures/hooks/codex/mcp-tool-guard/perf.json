@@ -1,0 +1,33 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-mcp-perf",
+    "tool_name": "mcp__safe__read",
+    "tool_input": {}
+  },
+  "policy": "mcp-tool-guard",
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "mcp",
+      "tool": "mcp__safe__read",
+      "identity": {
+        "session": "codex-mcp-perf"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  },
+  "perf": true
+}
