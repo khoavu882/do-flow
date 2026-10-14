@@ -103,6 +103,12 @@ Hook enforcement has three separate responsibilities:
 
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 
+When an install or update changes shared hook files at a scope, lifecycle planning also refreshes
+outdated hook front doors for other installed harnesses at that scope. The companion changes share
+the backup, ledger write and rollback with the requested targets; edited companion doors make the
+plan unsafe unless forced. `status` and `reconcile` report companion refreshes even when those
+harnesses were not named. Antigravity shims are overwritten without an edited-door check.
+
 ## The runtime seam
 
 Installation is one half of the system; the other half is what a skill does once installed. Every
@@ -681,14 +687,15 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G36** (`lifecycle-bridges.test.js`) — coverage rows satisfy IC-022 fields, evidence, lifecycle and
   inventory joins, digest, generated matrix, and shell-write exclusions (G36.1–G36.7).
 - **G37** (`lifecycle-bridges.test.js`) — wired events have parity fixtures and matching template
-  sources; not-shipped assets remain unwired; Kiro Stop claims retain their evidence (G37.1–G37.4).
+  sources; shipped hook files equal the reachable closure plus declared documentation; every
+  shipped file belongs to a registry asset; Kiro Stop claims retain their evidence (G37.1–G37.4).
 
 - **G34** (`lifecycle-bridges.test.js`) — bridge files contain no policy rules, agent spawns, context
   injection, bash-to-Node calls or Pi input mutation (G34.1); the lifecycle architecture names the
   install adapter, lifecycle bridge and 081-owned harness execution adapter with their boundaries
   (G34.2).
 - **G35** (`lifecycle-bridges.test.js`) — the envelope encoder matches every fixture expectation
-  and version classification remains compatible (G35.1–G35.2); canonical policies preserve their
+  and missing, v1 and unsupported version classes follow the v1-only contract (G35.1–G35.2); canonical policies preserve their
   0fcd973 output without the decision fd and begin records with provisional allow (G35.3); exit-2
   faults block with a fixed reason (G35.4), every policy deny has a record (G35.5), and migration
   guidance anchors Pi on `tool_call` and envelope version 1 (G35.6).

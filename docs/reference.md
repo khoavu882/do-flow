@@ -201,7 +201,7 @@ Shipped hook bridges decode native events into envelope v1, call a canonical pol
 
 ### Envelope, decision and diagnostics
 
-Envelope v1 is the object under `doflow_event` in the native payload. It carries `version: 1`, the registry harness id, the native event name verbatim and a canonical operation; tool, paths, command, patch, correlation and identity fields appear only when the native input supplies them. `projectRoot` is reserved for a launcher and is never inferred from native `cwd`. An absent envelope or version uses the legacy v0/native-field path; a version other than numeric `1` is unsupported. The envelope takes precedence over native fields beside it.
+Envelope v1 is the object under `doflow_event` in the native payload. It carries `version: 1`, the registry harness id, the native event name verbatim and a canonical operation; tool, paths, command, patch, correlation and identity fields appear only when the native input supplies them. `projectRoot` is reserved for a launcher and is never inferred from native `cwd`. Policies read v1 only; every other version is unsupported, and no native-field fallback remains. A direct policy caller must send v1 or pipe its native payload through `bash .doflow/shared/hooks/bridge/bridge.sh <harness> <event> <policy>`.
 
 When `DOFLOW_DECISION_FD` names an open single-digit descriptor from 3 through 9, each policy writes a compact version-1 record on that descriptor: `v`, `policy`, `policyVersion`, `outcome` and `code`. The provisional allow record comes first; the last record determines the policy outcome. With the variable unset or an unusable descriptor, no record is written. Records contain no free text.
 
@@ -210,6 +210,27 @@ When `DOFLOW_DECISION_FD` names an open single-digit descriptor from 3 through 9
 Bridge diagnostics use the existing failure store and leave its storage declaration unchanged. Bridge failure-store points include `eval-error:exit-2-unmarked`, `eval-error:exit-<n>`, `eval-error:signal-<NAME>` (not SIGTERM, SIGINT or SIGPIPE), `bridge-spawn`, `bridge-timeout`, `envelope-encode` and `fault-profile-unknown`. The Antigravity runner records `runner-event-missing` when its event argument is missing or unknown. A `decision-mismatch` appears in the decision object and bridge trace only; it is a policy contract bug, not a failure-store point (DEC-028). Policies may record `unsupported:envelope-version`, `edit-without-target`, `dependency-missing:jq` and their existing policy-specific points. Diagnostic messages remain empty.
 
 ### Migration notes
+
+The legacy native-field decoder has been removed. This is a breaking change for scripts that
+pipe native payloads directly to a policy: update them to send a v1 envelope or use the bridge
+command above. Input without a v1 envelope is out of step. The gate, bash and MCP policies deny
+with `[<policy>] DoFlow hooks out of step; run: doflow update -t <harness>`; Stop and context
+policies exit silently, with the prompt hook's `{}` no-op. If a door cannot load the bridge, it
+uses a fixed native out-of-step response.
+
+When a lifecycle update changes shared hooks, it also refreshes outdated hook front doors for
+other installed harnesses at that scope. `install`, `update`, `status` and `reconcile` report
+companion refreshes, including harnesses the command did not name; dry-run lists them too. Edited
+companion doors refuse the plan unless `-f` is supplied. The single backup includes companions,
+and `doflow rollback <id>` restores them with the shared tree. On installs made before 077, Codex
+and Gemini hook scripts have no ledger rows, so an edited script is replaced on the first update,
+not refused. That update's backup keeps the edited copy for `doflow rollback <id>`; subsequent
+edits are detected and refused. Antigravity shims are always overwritten and have no edited-door
+check.
+
+The Antigravity plugin bundle no longer declares hooks because its old entries pointed at files
+the Antigravity projection does not install. Its skills, rules, agents and MCP configuration
+remain available. The runner's unused Gemini-specific agent branch has also been removed.
 
 Compared with the 0fcd973 front doors, the shared bridge intentionally changes these cases:
 
@@ -220,6 +241,12 @@ Compared with the 0fcd973 front doors, the shared bridge intentionally changes t
 - Kiro's agent-config event names (`agentSpawn`, `preToolUse`, `stop`) resolve to the same effects and native responses as their hook-config aliases (`SessionStart`, `PreToolUse`, `Stop`); the envelope retains the native event name.
 - Antigravity's runner decodes its routed command, MCP and edit tools in the shared envelope path. Under RA1, `apply_patch` with `AbsolutePath` is now denied when design artifacts are absent; the legacy matcher allowed it.
 - A policy terminated by a signal on a pass-through door exits with status `128+n` (128 plus the signal number), such as `139` for SIGSEGV. Blocking doors render their native deny response instead.
+- A missing v1 envelope or contract is an out-of-step state: gate, bash and MCP policies deny
+  with the update command; Stop and context policies exit silently (DEC-032, DEC-033).
+- A missing bridge file makes a shell door render its fixed native out-of-step response. The Pi
+  extension blocks with the same reason. The Antigravity runner applies this rule for a missing
+  bridge under every fault profile: its gate denies and Stop stays silent (DEC-035).
+- The bridge preserves a caller-set, non-empty `DOFLOW_AGENT`; otherwise it sets the harness id.
 
 ## Storage and retention
 

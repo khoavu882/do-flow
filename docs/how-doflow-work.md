@@ -117,8 +117,9 @@ of `PASS` while a run with that stage pending has no such record. Six harnesses 
 same check also refuses a source edit with the same text: on a feature branch whose three artifacts
 and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
 open with its implementation stage pending (the run is the one named by the host's task id, else by
-the branch's slug). OpenCode, Pi and Copilot CLI have no hook layer, so the handoff and `verify` are
-their only checks, and `trivial-edit` opts out of the edit-time check on every harness: it is held at
+the branch's slug). OpenCode and Copilot CLI have no hook layer, so the handoff and `verify` are
+their only checks. Pi has a `tool_call` guard extension, but its coverage remains unknown until the
+live probe; the handoff and `verify` still apply there. `trivial-edit` opts out of the edit-time check on every harness: it is held at
 the handoff and `verify` only. A linked worktree reads the main checkout's feature folder, readiness
 records and runs, and updates a run where it lives.
 
