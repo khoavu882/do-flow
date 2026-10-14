@@ -1,0 +1,259 @@
+{
+  "//": "078 IC-007 parity corpus (G38.6). policies/identity.sh (doflow_identity) and src/runtime/context/identity.ts (resolveIdentity) must both produce every expect block. Placeholders in env values, cwd and expect are substituted by the runner: $CWD an existing canonical directory used as payload cwd, $WT a second existing canonical directory, $WT_LINK a symlink to $WT, $FILE an existing regular file. Expect fields map to DF_ID_RUN, DF_ID_ATTEMPT, DF_ID_LINEAGE, DF_ID_ROLE, DF_ID_WORKTREE, DF_ID_KIND, DF_ID_UNIT; an empty string is an empty variable. diagnostics is the sorted set of codes raised: role-unknown (the one stderr line), identity-invalid and identity-inherited (doflow_capture_failure codes). Variables absent from env are unset; a variable present with an empty string is set but empty, which the contract treats as unset. Binding sequences run every event in order against one fresh store root (XDG_CONFIG_HOME set to a temp dir), binding enabled; an event's env merges over its sequence's env. An event's bound is the content, without its trailing newline, of sessions/L.<run>.<lineage>.<attempt>/bound for the launched unit the event's env names; null means no bound file exists anywhere under sessions/. Cases follow IC-007 literally where it reads two ways: an explicit DOFLOW_RUN_ID=local is invalid (the valid value is an id that is not local), so lineage becomes solo; default-main means run local with lineage main, whether main was defaulted or set; attempt is canonical 1 to 9999 with no leading zero, so the unit id has one spelling; an inherited session keeps run and attempt, takes lineage solo and its own session id as unit.",
+  "version": 1,
+  "idPattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$",
+  "cwdHash": [
+    { "path": "/", "hash": "f465c3739385890c" },
+    { "path": "/nonexistent/doflow-078-identity/a", "hash": "d4eae5f76336f01a" },
+    { "path": "/nonexistent/doflow-078-identity/with space", "hash": "27294a99e1a53dd6" },
+    { "path": "/nonexistent/doflow-078-identity/ünïcode", "hash": "3ad549d49a888063" },
+    { "path": "/nonexistent/doflow-078-identity/trailing/", "hash": "ff21e113d86bfd95" },
+    { "path": "/nonexistent/doflow-078-identity/x/../y", "hash": "954fa5aeaaaada54" },
+    { "path": "relative/doflow-078-missing", "hash": "60212fc60d591c30" },
+    { "path": "", "hash": "01ba4719c80b6fe9" }
+  ],
+  "identity": [
+    {
+      "name": "everything unset: main session, default-main lineage",
+      "env": {}, "cwd": "$CWD", "sessionId": "s-main",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-main", "diagnostics": [] }
+    },
+    {
+      "name": "every variable set but empty is the same as unset",
+      "env": { "DOFLOW_RUN_ID": "", "DOFLOW_ATTEMPT": "", "DOFLOW_LINEAGE_ID": "", "DOFLOW_SESSION_ROLE": "", "DOFLOW_WORKTREE": "" }, "cwd": "$CWD", "sessionId": "s-main",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-main", "diagnostics": [] }
+    },
+    {
+      "name": "role main explicit",
+      "env": { "DOFLOW_SESSION_ROLE": "main" }, "cwd": "$CWD", "sessionId": "s-main",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-main", "diagnostics": [] }
+    },
+    {
+      "name": "role is case-insensitive: MAIN",
+      "env": { "DOFLOW_SESSION_ROLE": "MAIN" }, "cwd": "$CWD", "sessionId": "s-main",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-main", "diagnostics": [] }
+    },
+    {
+      "name": "role worker unset lineage defaults to solo",
+      "env": { "DOFLOW_SESSION_ROLE": "worker" }, "cwd": "$CWD", "sessionId": "s-worker",
+      "expect": { "run": "local", "attempt": "", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-worker", "diagnostics": [] }
+    },
+    {
+      "name": "role is case-insensitive: WoRkEr",
+      "env": { "DOFLOW_SESSION_ROLE": "WoRkEr" }, "cwd": "$CWD", "sessionId": "s-worker",
+      "expect": { "run": "local", "attempt": "", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-worker", "diagnostics": [] }
+    },
+    {
+      "name": "unknown role is worker with the stderr line",
+      "env": { "DOFLOW_SESSION_ROLE": "boss" }, "cwd": "$CWD", "sessionId": "s-x",
+      "expect": { "run": "local", "attempt": "", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-x", "diagnostics": ["role-unknown"] }
+    },
+    {
+      "name": "role with surrounding space is unknown",
+      "env": { "DOFLOW_SESSION_ROLE": " main" }, "cwd": "$CWD", "sessionId": "s-x",
+      "expect": { "run": "local", "attempt": "", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-x", "diagnostics": ["role-unknown"] }
+    },
+    {
+      "name": "launched worker",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a", "DOFLOW_SESSION_ROLE": "worker" }, "cwd": "$CWD", "sessionId": "s-w",
+      "expect": { "run": "run-1", "attempt": "1", "lineage": "lin_a", "role": "worker", "worktree": "$CWD", "kind": "launched", "unit": "L.run-1.lin_a.1", "diagnostics": [] }
+    },
+    {
+      "name": "launched main",
+      "env": { "DOFLOW_RUN_ID": "R2", "DOFLOW_ATTEMPT": "9999", "DOFLOW_LINEAGE_ID": "main", "DOFLOW_SESSION_ROLE": "main" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "R2", "attempt": "9999", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "launched", "unit": "L.R2.main.9999", "diagnostics": [] }
+    },
+    {
+      "name": "run set without lineage: main default lineage, not launched, not default-main",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "1" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "run-1", "attempt": "1", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "lineage and attempt without run: run local, not launched",
+      "env": { "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "1", "lineage": "lin_a", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "lineage main explicit with run unset is default-main",
+      "env": { "DOFLOW_LINEAGE_ID": "main", "DOFLOW_SESSION_ROLE": "worker" }, "cwd": "$CWD", "sessionId": "s-w",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "worker", "worktree": "$CWD", "kind": "default-main", "unit": "s-w", "diagnostics": [] }
+    },
+    {
+      "name": "run and lineage without attempt: not launched",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_LINEAGE_ID": "lin_a", "DOFLOW_SESSION_ROLE": "worker" }, "cwd": "$CWD", "sessionId": "s-w",
+      "expect": { "run": "run-1", "attempt": "", "lineage": "lin_a", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-w", "diagnostics": [] }
+    },
+    {
+      "name": "run local explicit is not a valid launched run",
+      "env": { "DOFLOW_RUN_ID": "local", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a", "DOFLOW_SESSION_ROLE": "worker" }, "cwd": "$CWD", "sessionId": "s-w",
+      "expect": { "run": "local", "attempt": "1", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-w", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "run local explicit on a main session loses the default-main lineage",
+      "env": { "DOFLOW_RUN_ID": "local" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid run: dot",
+      "env": { "DOFLOW_RUN_ID": "run.1", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "1", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid run: path separator",
+      "env": { "DOFLOW_RUN_ID": "../x", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a", "DOFLOW_SESSION_ROLE": "worker" }, "cwd": "$CWD", "sessionId": "s-w",
+      "expect": { "run": "local", "attempt": "1", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-w", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid run: leading dash",
+      "env": { "DOFLOW_RUN_ID": "-run", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "1", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid run: leading underscore",
+      "env": { "DOFLOW_RUN_ID": "_run", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "1", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid run: space",
+      "env": { "DOFLOW_RUN_ID": "run 1", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "1", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid run: 57 characters is one over DEC-024",
+      "env": { "DOFLOW_RUN_ID": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcde", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "1", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "valid run and lineage at exactly 56 characters",
+      "env": { "DOFLOW_RUN_ID": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd", "DOFLOW_ATTEMPT": "12", "DOFLOW_LINEAGE_ID": "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD", "DOFLOW_SESSION_ROLE": "worker" }, "cwd": "$CWD", "sessionId": "s-w",
+      "expect": { "run": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd", "attempt": "12", "lineage": "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD", "role": "worker", "worktree": "$CWD", "kind": "launched", "unit": "L.abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd.ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD.12", "diagnostics": [] }
+    },
+    {
+      "name": "invalid lineage with a valid run: lineage solo",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "a/b", "DOFLOW_SESSION_ROLE": "worker" }, "cwd": "$CWD", "sessionId": "s-w",
+      "expect": { "run": "run-1", "attempt": "1", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-w", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid lineage on a main session: lineage solo, not default-main",
+      "env": { "DOFLOW_LINEAGE_ID": "lin.a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid run and invalid lineage raise identity-invalid once",
+      "env": { "DOFLOW_RUN_ID": "r/1", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "l/1" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "1", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": ["identity-invalid"] }
+    },
+    {
+      "name": "invalid attempt 0 is as unset",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "0", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "run-1", "attempt": "", "lineage": "lin_a", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "invalid attempt 10000 is as unset",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "10000", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "run-1", "attempt": "", "lineage": "lin_a", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "invalid attempt with a leading zero is as unset",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "01", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "run-1", "attempt": "", "lineage": "lin_a", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "invalid attempt non-numeric is as unset",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "abc", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "run-1", "attempt": "", "lineage": "lin_a", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "invalid attempt negative is as unset",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "-1", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "run-1", "attempt": "", "lineage": "lin_a", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "invalid attempt with a space is as unset",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": " 1", "DOFLOW_LINEAGE_ID": "lin_a" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "run-1", "attempt": "", "lineage": "lin_a", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "worktree absolute existing directory",
+      "env": { "DOFLOW_WORKTREE": "$WT" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$WT", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "worktree through a symlink is canonicalised",
+      "env": { "DOFLOW_WORKTREE": "$WT_LINK" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$WT", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "worktree relative falls back to cwd",
+      "env": { "DOFLOW_WORKTREE": "relative/dir" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "worktree dot is relative and falls back to cwd",
+      "env": { "DOFLOW_WORKTREE": "." }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "worktree missing falls back to cwd",
+      "env": { "DOFLOW_WORKTREE": "/nonexistent/doflow-078-identity/wt" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "worktree naming a regular file falls back to cwd",
+      "env": { "DOFLOW_WORKTREE": "$FILE" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "payload cwd through a symlink is canonicalised",
+      "env": {}, "cwd": "$WT_LINK", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$WT", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "launched worker with a worktree",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "3", "DOFLOW_LINEAGE_ID": "lin_a", "DOFLOW_SESSION_ROLE": "worker", "DOFLOW_WORKTREE": "$WT" }, "cwd": "$CWD", "sessionId": "s-w",
+      "expect": { "run": "run-1", "attempt": "3", "lineage": "lin_a", "role": "worker", "worktree": "$WT", "kind": "launched", "unit": "L.run-1.lin_a.3", "diagnostics": [] }
+    }
+  ],
+  "binding": [
+    {
+      "name": "first session binds; the same session again keeps the unit; another session is inherited and keeps its role",
+      "env": { "DOFLOW_RUN_ID": "run-1", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a", "DOFLOW_SESSION_ROLE": "worker" },
+      "events": [
+        { "cwd": "$CWD", "sessionId": "s-first", "bound": "s-first",
+          "expect": { "run": "run-1", "attempt": "1", "lineage": "lin_a", "role": "worker", "worktree": "$CWD", "kind": "launched", "unit": "L.run-1.lin_a.1", "diagnostics": [] } },
+        { "cwd": "$CWD", "sessionId": "s-first", "bound": "s-first",
+          "expect": { "run": "run-1", "attempt": "1", "lineage": "lin_a", "role": "worker", "worktree": "$CWD", "kind": "launched", "unit": "L.run-1.lin_a.1", "diagnostics": [] } },
+        { "cwd": "$CWD", "sessionId": "s-second", "bound": "s-first",
+          "expect": { "run": "run-1", "attempt": "1", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-second", "diagnostics": ["identity-inherited"] } }
+      ]
+    },
+    {
+      "name": "an inherited main session keeps role main",
+      "env": { "DOFLOW_RUN_ID": "run-2", "DOFLOW_ATTEMPT": "2", "DOFLOW_LINEAGE_ID": "main", "DOFLOW_SESSION_ROLE": "main" },
+      "events": [
+        { "cwd": "$CWD", "sessionId": "s-a", "bound": "s-a",
+          "expect": { "run": "run-2", "attempt": "2", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "launched", "unit": "L.run-2.main.2", "diagnostics": [] } },
+        { "cwd": "$CWD", "sessionId": "s-b", "bound": "s-a",
+          "expect": { "run": "run-2", "attempt": "2", "lineage": "solo", "role": "main", "worktree": "$CWD", "kind": "solo", "unit": "s-b", "diagnostics": ["identity-inherited"] } }
+      ]
+    },
+    {
+      "name": "a different attempt is a different unit and binds on its own",
+      "env": { "DOFLOW_RUN_ID": "run-3", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_a", "DOFLOW_SESSION_ROLE": "worker" },
+      "events": [
+        { "cwd": "$CWD", "sessionId": "s-a", "bound": "s-a",
+          "expect": { "run": "run-3", "attempt": "1", "lineage": "lin_a", "role": "worker", "worktree": "$CWD", "kind": "launched", "unit": "L.run-3.lin_a.1", "diagnostics": [] } },
+        { "env": { "DOFLOW_ATTEMPT": "2" }, "cwd": "$CWD", "sessionId": "s-b", "bound": "s-b",
+          "expect": { "run": "run-3", "attempt": "2", "lineage": "lin_a", "role": "worker", "worktree": "$CWD", "kind": "launched", "unit": "L.run-3.lin_a.2", "diagnostics": [] } }
+      ]
+    },
+    {
+      "name": "an unlaunched session never writes bound",
+      "env": { "DOFLOW_SESSION_ROLE": "worker" },
+      "events": [
+        { "cwd": "$CWD", "sessionId": "s-solo", "bound": null,
+          "expect": { "run": "local", "attempt": "", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-solo", "diagnostics": [] } }
+      ]
+    }
+  ]
+}
