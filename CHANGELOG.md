@@ -36,14 +36,12 @@ All notable changes to DoFlow are documented here. Format follows
   a real Stop deny still blocks; crashed Codex Stop stderr is suppressed. Bridge capture no longer
   depends on a temporary file, background jobs do not hold Stop or SessionStart open, and strict-1
   renders native denies when `jq` is unavailable. Codex `update -t codex -f` re-merges edited
-  `hooks.json` while preserving user entries. These notes describe behavior without assigning a
-  release version; the MAJOR/MINOR choice remains pending.
+  `hooks.json` while preserving user entries.
 
 ### Removed
 
 - Removed `gemini.js`, `arg-fields.js`, the shared hooks `hooks.json`, and Antigravity plugin hook
-  declarations. These removals are recorded here without assigning a release version; the
-  MAJOR/MINOR choice remains pending.
+  declarations.
 - **Breaking for direct policy callers:** removed the legacy native-field and unversioned
   `doflow_event` decoder. Scripts that pipe native hook payloads to policies must migrate to v1 or
   call `bridge.sh`.
