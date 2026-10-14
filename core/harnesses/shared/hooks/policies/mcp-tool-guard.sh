@@ -15,7 +15,7 @@
 #          evaluate this policy)
 #   stdin  a native payload with envelope v1 under doflow_event; only the
 #          envelope's operation and tool fields are used.
-#   exit   0 = allow, non-zero = deny with the reason on stderr.
+#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011.
 #
 # mcp-policy.conf's shape (TAB-separated regex<TAB>reason, '#'-comments,
 # blank lines skipped) is identical across every harness that ships one today

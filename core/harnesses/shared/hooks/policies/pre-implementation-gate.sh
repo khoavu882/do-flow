@@ -21,7 +21,7 @@
 #   - edit target is under agent-docs/ -> allow (editing the artifacts themselves)
 #   - edit target outside the repo     -> allow
 # It reads files with jq and lists checkouts with one git call; it never runs
-# the DoFlow runtime. Self-contained + fail-open: any uncertainty -> allow (exit 0).
+# the DoFlow runtime. Missing or malformed v1 input is denied as out of step; other faults follow IC-011.
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR (repo root, if the front door sets it),
@@ -31,10 +31,8 @@
 #          replaces — kept so an unmodified front door still resolves its own
 #          harness's do-paths.sh resolver)
 #   stdin  a native payload encoded as envelope v1 by the lifecycle bridge.
-#   exit   0 = allow, non-zero = deny with the reason on stderr. A front door
-#          translates this into whatever JSON/exit-code shape its harness
-#          natively expects — this script never speaks a harness-specific
-#          decision shape.
+#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011. A front
+#          door translates this into its native response shape.
 #
 # Reconciliation note (022-normalize-hooks, Phase A): claude/gemini/codex/kiro
 # each shipped a separately-adapted copy of this gate; antigravity's copy

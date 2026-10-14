@@ -12,7 +12,7 @@
 #          evaluate this policy)
 #   stdin  a native payload with envelope v1 under doflow_event; only the
 #          envelope's operation, tool and command fields are used.
-#   exit   0 = allow, non-zero = deny with the reason on stderr.
+#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011.
 #
 # Reconciliation note (022-normalize-hooks, Phase A / D1): this also absorbs
 # stream-hook-runner.js's inline DESTRUCTIVE_COMMAND_PATTERN

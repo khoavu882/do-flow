@@ -327,7 +327,7 @@ storage_upkeep_async() {
     # Background the fully redirected subshell; an inner `&` leaves this shell
     # holding the hook's captured stdout open until the dispatcher exits. The
     # storage verb takes its project from the working directory: run it at the root.
-    ( cd "$root" 2>/dev/null && nohup "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 &
+    ( cd "$root" 2>/dev/null && nohup "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 3>&- 5>&- &
     return 0
   done
   return 0

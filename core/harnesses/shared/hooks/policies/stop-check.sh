@@ -24,14 +24,8 @@
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional here)
-#   stdin  a Stop-shaped JSON payload. session_id and transcript path field
-#          names both vary by harness (transcript_path vs. Antigravity's
-#          camelCase transcriptPath) — this script reads the union of known
-#          field names rather than assuming one, since a native front door
-#          (Claude/Codex/Kiro) execs this script directly with no payload
-#          translation of its own.
-#   exit   0 = allow the stop, non-zero = deny (block the stop) with the
-#          reason on stderr.
+#   stdin  envelope v1 from a native front door via the shared lifecycle bridge.
+#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011.
 #
 # Depends on lib.sh (require_jq, json_field, ensure_session_dir,
 # run_with_timeout) being discoverable next to this script when it runs — see
@@ -137,7 +131,7 @@ if [ -n "$SESSION_ID" ]; then
     # before the {} reply is invalid hook output)
     if [ ${#py_files[@]} -gt 0 ]; then
       if command -v ruff &>/dev/null; then
-        nohup ruff format "${py_files[@]}" </dev/null >/dev/null 2>&1 &
+        nohup ruff format "${py_files[@]}" </dev/null >/dev/null 2>&1 3>&- 5>&- &
         run_with_timeout 2 -- ruff check "${py_files[@]}" >&2 || true
       fi
     fi
@@ -145,7 +139,7 @@ if [ -n "$SESSION_ID" ]; then
     # JS/TS: async fix only (eslint --fix rarely needs the caller's immediate attention)
     if [ ${#js_files[@]} -gt 0 ]; then
       if command -v eslint &>/dev/null; then
-        nohup eslint --fix "${js_files[@]}" </dev/null >/dev/null 2>&1 &
+        nohup eslint --fix "${js_files[@]}" </dev/null >/dev/null 2>&1 3>&- 5>&- &
       fi
     fi
 
@@ -159,7 +153,7 @@ if [ -n "$SESSION_ID" ]; then
     # Java: async spotlessApply (slow — only if gradlew exists in cwd)
     if [ "$java_has_files" = "true" ]; then
       if [ -x "./gradlew" ]; then
-        nohup ./gradlew spotlessApply </dev/null >/dev/null 2>&1 &
+        nohup ./gradlew spotlessApply </dev/null >/dev/null 2>&1 3>&- 5>&- &
       fi
     fi
 

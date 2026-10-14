@@ -11,8 +11,8 @@
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional here; DOFLOW_AGENT
 #          only affects the "last_agent" field recorded in meta.json)
-#   stdin  the harness's native SessionStart JSON payload — must expose at
-#          least ".session_id" and ".cwd"
+#   stdin  envelope v1 from the native SessionStart payload, including
+#          the session_id and cwd fields used by this policy.
 #   exit   this policy never denies — it always exits 0 (side-effect only)
 #
 # Depends on lib.sh (require_jq, json_field, ensure_session_dir,
