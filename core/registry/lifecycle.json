@@ -29,8 +29,8 @@
           "fallback": "guidance"
         },
         "pi": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "tool_call",
+          "status": "different"
         },
         "copilot": {
           "status": "unavailable",
@@ -74,8 +74,8 @@
           "fallback": "guidance"
         },
         "pi": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "tool_call",
+          "status": "different"
         },
         "copilot": {
           "status": "unavailable",
@@ -165,8 +165,8 @@
           "fallback": "guidance"
         },
         "pi": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "tool_call",
+          "status": "different"
         },
         "copilot": {
           "status": "unavailable",
@@ -231,7 +231,6 @@
   "coverage": {
     "schemaVersion": 1,
     "revision": 1,
-    "rowsDigest": "sha256:79da602e7a82250cc24f63d02af3227921b0fb2c404b0444666a5c2b3f906cb6",
     "refresh": {
       "trigger": "a harness bridge, template or installed harness version changes",
       "owner": "the feature that changes it"
@@ -386,9 +385,161 @@
       {
         "policy": "pre-implementation-gate",
         "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "cli-extension",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/edit-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "pi",
+        "event": "tool_execution_start",
+        "timing": "pre-tool",
+        "profile": "cli-extension",
+        "wired": true,
+        "configSource": "Pi JSON event stream",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "observation",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://pi.dev/docs/latest/extensions",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "user-headless",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/edit-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "project-headless",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "project-trust"
+        ],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending",
+          "project-trust is required for the project-scope extension"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/edit-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "pi",
         "event": "*",
         "timing": "pre-tool",
-        "profile": "any",
+        "profile": "no-extensions",
         "wired": false,
         "configSource": null,
         "harnessVersion": {
@@ -402,12 +553,443 @@
           "writes via shell commands"
         ],
         "caveats": [
-          "not wired for this harness mapping"
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "Pi extension unavailable in this profile"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/edit-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "cli-extension",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/bash-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "pi",
+        "event": "tool_execution_start",
+        "timing": "pre-tool",
+        "profile": "cli-extension",
+        "wired": true,
+        "configSource": "Pi JSON event stream",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "observation",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
             "kind": "doc",
-            "locator": "core/registry/lifecycle.json: policy pre-implementation-gate mapping for pi",
+            "locator": "https://pi.dev/docs/latest/extensions",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "user-headless",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/bash-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "project-headless",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "project-trust"
+        ],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending",
+          "project-trust is required for the project-scope extension"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/bash-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "pi",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "no-extensions",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "Pi extension unavailable in this profile"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/bash-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "pi",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping",
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy session-context mapping for pi",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "cli-extension",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/nested-mcp-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "pi",
+        "event": "tool_execution_start",
+        "timing": "pre-tool",
+        "profile": "cli-extension",
+        "wired": true,
+        "configSource": "Pi JSON event stream",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "observation",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://pi.dev/docs/latest/extensions",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "user-headless",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/nested-mcp-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "project-headless",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "project-trust"
+        ],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending",
+          "project-trust is required for the project-scope extension"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/nested-mcp-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "pi",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "no-extensions",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "Pi extension unavailable in this profile"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/nested-mcp-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "pi",
+        "event": "*",
+        "timing": "stop",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping",
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy stop-check mapping for pi",
             "date": "2026-10-14"
           }
         ]
@@ -636,33 +1218,6 @@
       },
       {
         "policy": "pre-bash-guard",
-        "harness": "pi",
-        "event": "*",
-        "timing": "pre-tool",
-        "profile": "any",
-        "wired": false,
-        "configSource": null,
-        "harnessVersion": {
-          "tested": "1.1.0"
-        },
-        "class": "unsupported",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [
-          "not wired for this harness mapping"
-        ],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "core/registry/lifecycle.json: policy pre-bash-guard mapping for pi",
-            "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "pre-bash-guard",
         "harness": "copilot",
         "event": "*",
         "timing": "pre-tool",
@@ -845,33 +1400,6 @@
             "kind": "doc",
             "locator": "core/registry/harnesses.json: opencode harness; core/registry/contracts.json: unavailable hook mapping",
             "date": "2026-10-12"
-          }
-        ]
-      },
-      {
-        "policy": "session-context",
-        "harness": "pi",
-        "event": "*",
-        "timing": "session",
-        "profile": "any",
-        "wired": false,
-        "configSource": null,
-        "harnessVersion": {
-          "tested": "1.1.0"
-        },
-        "class": "unsupported",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [
-          "not wired for this harness mapping"
-        ],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "core/registry/lifecycle.json: policy session-context mapping for pi",
-            "date": "2026-10-14"
           }
         ]
       },
@@ -1226,33 +1754,6 @@
       },
       {
         "policy": "mcp-tool-guard",
-        "harness": "pi",
-        "event": "*",
-        "timing": "pre-tool",
-        "profile": "any",
-        "wired": false,
-        "configSource": null,
-        "harnessVersion": {
-          "tested": "1.1.0"
-        },
-        "class": "unsupported",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [
-          "not wired for this harness mapping"
-        ],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "core/registry/lifecycle.json: policy mcp-tool-guard mapping for pi",
-            "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "mcp-tool-guard",
         "harness": "copilot",
         "event": "PermissionDenied",
         "timing": "session",
@@ -1523,33 +2024,6 @@
       },
       {
         "policy": "stop-check",
-        "harness": "pi",
-        "event": "*",
-        "timing": "stop",
-        "profile": "any",
-        "wired": false,
-        "configSource": null,
-        "harnessVersion": {
-          "tested": "1.1.0"
-        },
-        "class": "unsupported",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [
-          "not wired for this harness mapping"
-        ],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "core/registry/lifecycle.json: policy stop-check mapping for pi",
-            "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "stop-check",
         "harness": "copilot",
         "event": "Stop",
         "timing": "stop",
@@ -1661,7 +2135,130 @@
             "date": "2026-10-12"
           }
         ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "project-interactive",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "project-trust"
+        ],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "project-trust is required for the project-scope extension"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/edit-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "project-interactive",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "project-trust"
+        ],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "project-trust is required for the project-scope extension"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/bash-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "project-interactive",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "project-trust"
+        ],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "project-trust is required for the project-scope extension"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/nested-mcp-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
       }
-    ]
+    ],
+    "rowsDigest": "sha256:c42c01971d00df30a367ef7dd999da0e2f20f0d76906b55872614205e79ddb7e"
   }
 }

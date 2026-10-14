@@ -1254,8 +1254,8 @@
           "evidence": [
             "https://pi.dev/docs/latest/extensions"
           ],
-          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions — a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
-          "verification": "Report that DoFlow installs no Pi extension and its shell hooks do not apply here.",
+          "note": "DoFlow installs a ledger-owned extension at user scope or project scope that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust.",
+          "verification": "Verify the installed extension fingerprint, resolved shared bridge path, bash/jq prerequisites, and the project-trust prerequisite for project scope.",
           "events": {
             "SessionStart": {
               "status": "different",
@@ -1279,11 +1279,11 @@
             },
             "PreToolUse": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on."
+              "note": "DoFlow's user- or project-scope extension evaluates tool_call before execution; tool_execution_start is observation-only."
             },
             "PostToolUse": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_end, exposed through session.subscribe rather than pi.on."
+              "note": "DoFlow does not register Pi tool_execution_end."
             },
             "Stop": {
               "status": "different",

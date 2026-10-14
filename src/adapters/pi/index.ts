@@ -13,9 +13,7 @@
 //
 // MCP servers are merged per server into Pi's mcp.json (.pi/mcp.json project; ~/.pi/agent/mcp.json
 // or $PI_CODING_AGENT_DIR/mcp.json user) by ./mcp.ts; Pi reads it through its built-in MCP from
-// 0.99.0. Hooks are absent — Pi lifecycle handlers are TypeScript modules registered via pi.on(),
-// executing with full system permissions, which is a different trust model from the shell scripts
-// DoFlow ships.
+// 0.99.0. The user- and project-scope lifecycle extension is ledger-owned and resolves its shared bridge at install time.
 //
 // Evidence: https://pi.dev/docs/latest/settings, https://pi.dev/docs/latest/skills,
 // https://pi.dev/docs/latest/quickstart, https://pi.dev/docs/latest/extensions,
@@ -27,9 +25,11 @@ const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp.ts');
+const { planPiHooks, verifyPiHooks, removePiHooks } = require('./hooks.ts');
 
 const HARNESS = 'pi';
-const AGENT_DIR_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
+const AGENT_DIR_MCP_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
+const AGENT_DIR_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, and DoFlow moves mcp.json and the guard extension there; skills and AGENTS.md stay in ~/.pi/agent.';
 
 // Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
 // resolve through the shared harness-paths resolver; nothing below hardcodes them.
@@ -43,8 +43,8 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
   function nativePaths({ scope, scopeRoot }: any = {}) {
     const paths = resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
     // Pi's user-scope mcp.json follows $PI_CODING_AGENT_DIR when set. It is not declared in the
-    // registry because the path schema has no environment base (src/helper/harness-paths.js); only
-    // mcp moves, skills and AGENTS.md keep their declared locations.
+    // registry because the path schema has no environment base (src/helper/harness-paths.js); the
+    // guard extension follows it too, while skills and AGENTS.md keep their declared locations.
     if ((scope === 'user' || scope === 'global') && agentDirOverride()) paths.mcp = path.join(path.resolve(agentDirOverride()), 'mcp.json');
     return paths;
   }
@@ -191,12 +191,18 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     changes.push(...copyTree.changes);
     conflicts.push(...copyTree.conflicts);
 
+    const piHooks = planPiHooks({ scope, scopeRoot, assets, ledger, context, adopt: context?.adopt === true, env, fsImpl });
+    changes.push(...piHooks.changes);
+    conflicts.push(...piHooks.conflicts);
+
     const piMcp = planPiMcp({ selected: mcp, rows: mcpRows(ledger), file: found.paths.mcp, scope, removing, snapshot: found.mcp, assets });
     changes.push(...piMcp.changes);
     conflicts.push(...piMcp.conflicts);
 
-    const notices = [...copyTree.notices, ...piMcp.notices];
-    if (!removing && scope !== 'project' && agentDirOverride()) notices.push(AGENT_DIR_NOTICE);
+    const notices = [...copyTree.notices, ...piMcp.notices, ...piHooks.notices];
+    if (!removing && scope !== 'project' && agentDirOverride()) {
+      notices.push(assets.some((asset: any) => asset.id === 'pi.guard-extension') ? AGENT_DIR_NOTICE : AGENT_DIR_MCP_NOTICE);
+    }
     return { changes, conflicts, notices, paths: found.paths };
   }
 
@@ -226,10 +232,12 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     let removed = applyPiMcp(changes.filter(isPiMcp), { fsImpl }).applied;
     for (const change of changes) {
       if (change.operation !== 'remove' || change.projection?.renderer === 'copy-tree' || isPiMcp(change)) continue;
+      if (change.projection?.renderer === 'pi-guard-extension') continue;
       if (change.content === null) continue;
       writeChange(change, fsImpl);
       removed += 1;
     }
+    removed += removePiHooks(changes, { fsImpl });
     removed += removeCopyTreeAssets(changes, { fsImpl });
     return { removed };
   }
@@ -262,6 +270,11 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     statuses.push(...piMcp.statuses);
     resources.push(...piMcp.resources);
     conflicts.push(...piMcp.conflicts);
+
+    const piHooks = verifyPiHooks({ scope, scopeRoot, assets, ledger, context, adopt: context?.adopt === true, env, fsImpl });
+    statuses.push(...piHooks.statuses);
+    resources.push(...piHooks.resources);
+    conflicts.push(...piHooks.conflicts);
 
     return { ok: conflicts.length === 0 && !statuses.some((s) => s.status === 'invalid' || s.status === 'conflict'), resources, statuses, conflicts };
   }
