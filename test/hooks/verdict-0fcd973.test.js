@@ -122,8 +122,11 @@ test('each canonical corpus v1 policy verdict matches its 0fcd973 native verdict
   fs.cpSync(path.join(REPO, 'core/harnesses/shared/hooks/policies'), current, { recursive: true });
   const cases = corpusCases();
   assert.ok(cases.length > 0, 'canonical corpus includes envelope cases');
+  // IC-031 rows 1 and 8 compare pre-077 doors; Pi had no 0fcd973 front door.
+  const excludedHarnesses = [...new Set(cases.map(({ harness }) => harness).filter((harness) => harness === 'pi'))].sort();
+  assert.deepEqual(excludedHarnesses, ['pi'], 'only Pi lacks a 0fcd973 front door');
 
-  cases.forEach(({ file, fixture, harness, event, policy }, index) => {
+  cases.filter(({ harness }) => !excludedHarnesses.includes(harness)).forEach(({ file, fixture, harness, event, policy }, index) => {
     const label = path.relative(FIXTURE_ROOT, file).split(path.sep).join('/');
     const project = projectFor(scratch, `project-${index}`, fixture.state || 'none');
     const home = path.join(tempDirRoot, `home-${index}`);
