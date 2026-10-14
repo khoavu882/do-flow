@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Codex adapter: preserve a blocking exit while returning valid Stop JSON on success.
-set -euo pipefail
+# Codex front door: stop-check through the shared lifecycle bridge.
+set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-codex}"
+if ! . "$(dirname "$0")/../../.doflow/shared/hooks/bridge/bridge.sh" 2>/dev/null; then printf '{}\n'; exit 0; fi
 rc=0
-bash "$(dirname "$0")/../../.doflow/shared/hooks/policies/stop-check.sh" || rc=$?
-[ "$rc" -eq 2 ] && exit 2
-printf '{}\n'
+output="$(doflow_bridge codex Stop stop-check)" || rc=$?
+if [ "$rc" -eq 0 ]; then printf '%s\n' "$output"; fi
+exit "$rc"

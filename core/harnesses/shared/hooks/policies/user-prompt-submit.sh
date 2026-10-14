@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # user-prompt-submit.sh — Canonical Policy Library: UserPromptSubmit hook
 #
 # 022-hooks-remaining-duplication: claude and codex's UserPromptSubmit policies share the same
@@ -26,22 +27,52 @@
 
 set -euo pipefail
 # shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
-require_jq
-
+source "$_DOFLOW_POLDIR/lib.sh"
 INPUT=$(cat)
+POLICY_DIR=$_DOFLOW_POLDIR
+if [ -f "$POLICY_DIR/contract.sh" ]; then
+  # shellcheck source=contract.sh
+  source "$POLICY_DIR/contract.sh"
+  doflow_decision_init user-prompt-submit 1
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit contract-missing ) >/dev/null 2>&1 || true
+  printf '{}'
+  exit 0
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  doflow_decide error dependency-missing:jq
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit dependency-missing:jq ) >/dev/null 2>&1 || true
+fi
+require_jq
 # One jq pass over the payload for every field this hook reads (each pass costs about 8 ms on a
 # 20 KB prompt, and the budget is 100 ms), NUL-separated: session_id, cwd and session_title, null
 # and false read as empty as json_field does, with any NUL inside a value dropped so no field can
 # shift into the next; then `subagent` when agent_id or agent_type holds anything but null or "".
-SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT=""
-{ IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD; IFS= read -r -d '' PAYLOAD_TITLE; IFS= read -r -d '' SUBAGENT; } < <(
+SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT="" ENVELOPE_CLASS=missing
+{ IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD; IFS= read -r -d '' PAYLOAD_TITLE; IFS= read -r -d '' SUBAGENT; IFS= read -r -d '' ENVELOPE_CLASS; } < <(
   printf '%s' "$INPUT" | jq -j '. as $p
-    | [$p.session_id, $p.cwd, $p.session_title]
+    | [if ($p.session_id | type) == "string" then ($p.session_id | rtrimstr("\n")) else $p.session_id end, $p.cwd, $p.session_title]
     | map(if . == null or . == false then "" elif type == "string" then . else tojson end | split("\u0000") | join(""))
     | . + [if any($p.agent_id, $p.agent_type; . != null and . != "") then "subagent" else "" end]
+    | . + [if (($p | type) != "object") or (($p.doflow_event | type) != "object") or (($p.doflow_event | has("version")) | not) then "missing" elif (($p.doflow_event.version | type) == "number") and $p.doflow_event.version == 1 then "v1" else "unsupported" end]
     | join("\u0000") + "\u0000"' 2>/dev/null
 ) || true
+ENVELOPE_CLASS=${ENVELOPE_CLASS:-missing}
+if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=missing; fi
+
+if [[ "$ENVELOPE_CLASS" == unsupported || "$ENVELOPE_CLASS" == missing ]]; then
+  code=envelope-version
+  [[ "$ENVELOPE_CLASS" == missing ]] && code=envelope-missing
+  [[ -f "$POLICY_DIR/contract.sh" ]] || code=contract-missing
+  doflow_decide unsupported "$code"
+  if [[ -f "$POLICY_DIR/contract.sh" ]]; then
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit "$code" ) >/dev/null 2>&1 || true
+  fi
+  printf '{}'
+  exit 0
+fi
 
 [[ -z "$SESSION_ID" ]] && exit 0
 
@@ -65,7 +96,7 @@ nudge_message() {
   # N5: a subagent prompt carries agent_id or agent_type (read with the other fields above).
   [[ -z "$SUBAGENT" ]] || return 0
   # N6: the policy script's physical directory, found with built-ins (a subshell costs about 4 ms).
-  case "$0" in */*) policy_dir="${0%/*}" ;; *) policy_dir="." ;; esac
+  policy_dir=$_DOFLOW_POLDIR
   here="$PWD"
   cd -P -- "$policy_dir" 2>/dev/null || return 0
   policy_dir="$PWD"
@@ -103,6 +134,7 @@ emit_envelope() {
 if [[ -f "$INJECTED_FLAG" ]]; then
   NUDGE=$(nudge_message 2>/dev/null) || NUDGE=""
   if [[ -n "$NUDGE" ]]; then
+    doflow_decide advisory prompt-nudge
     emit_envelope "$NUDGE" ""
   else
     echo "{}"
@@ -221,6 +253,7 @@ touch "$INJECTED_FLAG"
 # The nudge, when earned, follows the context after a blank line.
 NUDGE=$(nudge_message 2>/dev/null) || NUDGE=""
 if [[ -n "$NUDGE" ]]; then
+  doflow_decide advisory prompt-nudge
   CONTEXT+=$'\n\n'"$NUDGE"
 fi
 

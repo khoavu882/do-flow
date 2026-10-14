@@ -118,6 +118,20 @@ function ancestorWithDoflow(start) {
   }
 }
 
+/** The notice an update names when the shared hooks tree moved under a harness it did not name (IC-037). */
+const CLAUDE_REFRESH = 'refreshed claude hook front doors to match the shared hooks tree';
+
+/** A scratch git repo on a feature branch with requirement.md and plan.md but no design.md. */
+function noDesignProject(cell) {
+  const root = path.join(cell.dir, 'no-design');
+  fs.mkdirSync(path.join(root, 'agent-docs', 'doflow', '077-reach', 'intention'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'agent-docs', 'doflow', '077-reach', 'intention', 'requirement.md'), '# requirement\n');
+  fs.writeFileSync(path.join(root, 'agent-docs', 'doflow', '077-reach', 'plan.md'), '- [ ] C.1 [US1] reach \u2014 owner: test; files: src/a.js\n');
+  const git = (...args) => spawnSync('git', ['-c', 'user.name=reach', '-c', 'user.email=reach@example.invalid', ...args], { cwd: root, env: { ...emptyEnv(cell), PATH: process.env.PATH }, encoding: 'utf8' });
+  for (const args of [['init', '-q', '-b', 'feat/077-reach'], ['add', '-A'], ['commit', '-q', '-m', 'seed']]) assert.equal(git(...args).status, 0, `git ${args.join(' ')}`);
+  return root;
+}
+
 describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 4 }, () => {
   before(() => {
     const parent = path.dirname(base);
@@ -264,6 +278,17 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     const updated = await step('update', 'pi');
     const notices = `${updated.stdout}\n${updated.stderr}`.split('\n').filter((line) => line.includes('replaced shared files'));
     assert.deepEqual(notices, ['[INFO] pi: replaced shared files written by claude; reinstall that harness to restore them'], `${updated.stdout}${updated.stderr}`);
+    // IC-037: the run named pi, but the shared hooks tree moved, so claude's front doors came along.
+    assert.ok(updated.stdout.includes(`[INFO] claude: ${CLAUDE_REFRESH}`), updated.stdout);
+    const door = path.join(cell.proj, '.claude', 'hooks', 'pre-implement-gate.sh');
+    assert.ok(fs.readFileSync(door).equals(fs.readFileSync(path.join(REPO, 'core', 'harnesses', 'claude', 'hooks', 'pre-implement-gate.sh'))), 'the claude gate door equals the source after `update -t pi`');
+    // And the refreshed door works against the refreshed tree: a source edit with no design.md is denied natively.
+    const gated = noDesignProject(cell);
+    const gate = spawnSync('bash', [door], { cwd: gated, encoding: 'utf8',
+      env: { ...emptyEnv(cell), PATH: process.env.PATH, DOFLOW_PROJECT_DIR: gated, DOFLOW_AGENT: 'claude', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '' },
+      input: `${JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'reach', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } })}\n` });
+    assert.equal(gate.status, 0, gate.stderr);
+    assert.equal(JSON.parse(gate.stdout).hookSpecificOutput.permissionDecision, 'deny', gate.stdout);
     // Every file THIS checkout's source produces is present and byte-correct in the mirror after
     // the update — the reconciliation this cell exists to prove.
     for (const rel of filesUnder(path.join(REPO, 'src'))) {
@@ -380,6 +405,28 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.deepEqual(retired.filter((rel) => fs.existsSync(path.join(mirror, rel))), []);
     ok(await cli(['remove', 'proj', '-f', '-t', 'claude,pi']), 'remove after rollback');
     assert.equal(fs.existsSync(path.join(cell.proj, '.doflow', 'runtime')), false);
+  });
+
+  // IC-037: a claude door edited by hand makes `update -t pi` refuse the whole plan rather than leave the doors behind the tree.
+  const DOORS_TAG = 'v2.0.0';
+  test(`a ${DOORS_TAG} install with one claude door edited: \`update -t pi\` refuses and leaves the tree and every door unchanged`, { skip: tagSkip(DOORS_TAG) }, async () => {
+    const cell = newCell('edited-door');
+    const legacy = path.join(cell.dir, 'legacy');
+    fs.mkdirSync(legacy);
+    const archive = spawnSync('git', ['archive', '--format=tar', '-o', path.join(cell.dir, 'legacy.tar'), DOORS_TAG], { cwd: REPO, encoding: 'utf8' });
+    assert.equal(archive.status, 0, archive.stderr);
+    assert.equal(spawnSync('tar', ['-x', '-f', path.join(cell.dir, 'legacy.tar'), '-C', legacy]).status, 0);
+    const older = await install(cell, 'project', 'claude,pi', path.join(legacy, 'bin', 'doflow.js'));
+    assert.equal(older.status, 0, `${DOORS_TAG} install: ${older.stderr}`);
+
+    fs.appendFileSync(path.join(cell.proj, '.claude', 'hooks', 'pre-implement-gate.sh'), '# edited by hand\n');
+    const guarded = () => ['.claude/hooks', '.doflow/shared/hooks', '.pi'].map((dir) => filesUnder(path.join(cell.proj, dir)).sort().map((rel) => `${dir}/${rel}:${fs.readFileSync(path.join(cell.proj, dir, rel)).toString('base64')}`));
+    const before = guarded();
+
+    const refused = await spawn(cell, process.execPath, [CLI, 'update', 'proj', '-t', 'pi'], cell.dir, 'y\n');
+    assert.equal(refused.status, 1, `${refused.stdout}${refused.stderr}`);
+    assert.ok(refused.stderr.includes('claude hook front doors must move with the shared hooks tree; run: doflow update -t pi,claude (add -f to overwrite edited doors)'), refused.stderr);
+    assert.deepEqual(guarded(), before, 'a refused plan changes neither the tree nor a door');
   });
 
   test(`mixed versions: a ${LEGACY_TAG} install updates to this checkout's runtime and is removed cleanly`, { skip: tagSkip(LEGACY_TAG) }, mixedVersion(LEGACY_TAG, false));

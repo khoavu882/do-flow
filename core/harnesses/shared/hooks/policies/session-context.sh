@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # session-context.sh — Canonical Policy Library: SessionStart guard policy
 #
 # Fires when a harness starts a new session. Captures git state into a
@@ -11,24 +12,53 @@
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional here; DOFLOW_AGENT
 #          only affects the "last_agent" field recorded in meta.json)
-#   stdin  the harness's native SessionStart JSON payload — must expose at
-#          least ".session_id" and ".cwd"
+#   stdin  envelope v1 from the native SessionStart payload, including
+#          the session_id and cwd fields used by this policy.
 #   exit   this policy never denies — it always exits 0 (side-effect only)
 #
 # Depends on lib.sh (require_jq, json_field, ensure_session_dir,
 # ensure_project_dir, cwd_hash, run_with_timeout, $SESSIONS_LOG) being
 # discoverable next to this script when it runs — a front door invoking this
 # canonical script is responsible for making lib.sh resolvable via
-# "$(dirname "$0")/lib.sh", exactly as every harness's own SessionStart script
+# the sibling lib.sh, exactly as every harness's own SessionStart script
 # already required before this policy moved to a shared location.
 
 set -euo pipefail
 # shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
-require_jq
-
+source "$_DOFLOW_POLDIR/lib.sh"
 INPUT=$(cat)
-SESSION_ID=$(json_field "$INPUT" ".session_id")
+POLICY_DIR=$_DOFLOW_POLDIR
+if [ -f "$POLICY_DIR/contract.sh" ]; then
+  # shellcheck source=contract.sh
+  source "$POLICY_DIR/contract.sh"
+  doflow_decision_init session-context 1
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure session-context contract-missing ) >/dev/null 2>&1 || true
+  exit 0
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  doflow_decide error dependency-missing:jq
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure session-context dependency-missing:jq ) >/dev/null 2>&1 || true
+fi
+require_jq
+SESSION_ID="" ENVELOPE_CLASS=missing
+{ IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; } < <(
+  printf '%s' "$INPUT" | jq -j 'if ((. | type) != "object") or ((.doflow_event | type) != "object") or ((.doflow_event | has("version")) | not) then "missing" elif ((.doflow_event.version | type) == "number") and .doflow_event.version == 1 then "v1" else "unsupported" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000"' 2>/dev/null
+) || true
+ENVELOPE_CLASS=${ENVELOPE_CLASS:-missing}
+if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=missing; fi
+if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
+  code=envelope-version
+  [ "$ENVELOPE_CLASS" = missing ] && code=envelope-missing
+  [ -f "$POLICY_DIR/contract.sh" ] || code=contract-missing
+  doflow_decide unsupported "$code"
+  if [ -f "$POLICY_DIR/contract.sh" ]; then
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure session-context "$code" ) >/dev/null 2>&1 || true
+  fi
+  exit 0
+fi
 CWD=$(json_field "$INPUT" ".cwd")
 
 # Guard: if we can't determine the session, nothing to do

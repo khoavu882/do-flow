@@ -754,6 +754,7 @@
         "claude",
         "codex",
         "gemini",
+        "pi",
         "kiro",
         "antigravity"
       ],
@@ -762,6 +763,7 @@
         "claude": "../.doflow/shared/hooks",
         "codex": "../.doflow/shared/hooks",
         "gemini": "../.doflow/shared/hooks",
+        "pi": "../.doflow/shared/hooks",
         "kiro": "../.doflow/shared/hooks",
         "antigravity": "../.doflow/shared/hooks"
       },
@@ -778,6 +780,10 @@
           "renderer": "copy-tree",
           "capability": "hooks"
         },
+        "pi": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        },
         "kiro": {
           "renderer": "copy-tree",
           "capability": "hooks"
@@ -787,6 +793,19 @@
           "capability": "hooks"
         }
       }
+    },
+    {
+      "id": "pi.guard-extension",
+      "kind": "hooks",
+      "source": "core/harnesses/pi/extensions/doflow-guard.js",
+      "appliesTo": ["pi"],
+      "projection": {
+        "pi": {
+          "renderer": "pi-guard-extension",
+          "capability": "hooks"
+        }
+      },
+      "ownership": "ledger-owned-file"
     }
   ]
 }

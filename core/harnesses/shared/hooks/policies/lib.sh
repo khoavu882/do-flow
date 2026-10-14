@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # lib.sh — shared constants and helpers for the Canonical Policy Library
 #
-# Usage: source "$(dirname "$0")/lib.sh"
+# Usage: source "<policy-dir>/lib.sh"
 #
 # All hooks must:
 #   1. source this file at the top
 #   2. call require_jq immediately after
 #   3. capture stdin once: INPUT=$(cat)
 #   4. use: json_field "$INPUT" ".field_name"
+
+case ${BASH_SOURCE[0]} in */*) _DOFLOW_LIB_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_LIB_DIR=. ;; esac
 #
 # Deployment:
 #   This file is installed by the doflow CLI and overwritten on update — do
@@ -327,7 +329,7 @@ storage_upkeep_async() {
     # Background the fully redirected subshell; an inner `&` leaves this shell
     # holding the hook's captured stdout open until the dispatcher exits. The
     # storage verb takes its project from the working directory: run it at the root.
-    ( cd "$root" 2>/dev/null && nohup "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 &
+    ( cd "$root" 2>/dev/null && nohup "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 3>&- 5>&- &
     return 0
   done
   return 0

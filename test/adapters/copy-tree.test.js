@@ -424,6 +424,29 @@ test('planTree accepts content a sibling harness recorded at that target', () =>
   assert.equal(changes[0].fingerprint, sha256('MINE'));
 });
 
+test('a Pi or Codex update accepts hooks.shared bytes recorded by Claude', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'capture-failure.sh': 'NEW' });
+  const destDir = path.join(root, '.doflow', 'shared', 'hooks');
+  fs.mkdirSync(destDir, { recursive: true });
+  const target = path.join(destDir, 'capture-failure.sh');
+  fs.writeFileSync(target, 'OLD');
+  const siblingRows = [
+    { harness: 'claude', assetId: 'hooks.shared', kind: 'copy-tree-file', target, fingerprint: sha256('OLD') },
+  ];
+
+  for (const harness of ['pi', 'codex']) {
+    const { changes, conflicts } = planTree({
+      sourceDir,
+      destDir,
+      siblingFingerprints: ledgerSiblingFingerprints(siblingRows, harness),
+    });
+    assert.deepEqual(conflicts, [], `${harness} should accept Claude's recorded shared hooks bytes`);
+    assert.equal(changes.length, 1);
+    assert.equal(changes[0].fingerprint, sha256('NEW'));
+  }
+});
+
 test('planTree names the sibling whose recorded bytes it replaced, and only then', () => {
   const { sourceDir, destDir, target, siblingRows } = siblingFixture();
   const siblingFingerprints = ledgerSiblingFingerprints(siblingRows, 'mine');

@@ -1,0 +1,44 @@
+{
+  "native": {
+    "toolCall": {
+      "name": "write_to_file",
+      "args": {
+        "AbsolutePath": "src/a.js"
+      }
+    },
+    "workspacePaths": [
+      "<project>"
+    ]
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
+  "state": "all-artifacts",
+  "fault": "policy-exit-9",
+  "expect": {
+    "exit": 0,
+    "stdout": "<error-json>",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 111,
+    "decision": {
+      "harness": "antigravity",
+      "event": "PreToolUse",
+      "policy": "pre-implementation-gate",
+      "outcome": "error",
+      "code": "exit-9",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "antigravity",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "write_to_file",
+      "paths": [
+        "src/a.js"
+      ]
+    },
+    "failurePoint": "eval-error:exit-9",
+    "taskStateUnchanged": true
+  }
+}

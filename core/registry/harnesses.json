@@ -1254,40 +1254,40 @@
           "evidence": [
             "https://pi.dev/docs/latest/extensions"
           ],
-          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions — a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
-          "verification": "Report that DoFlow installs no Pi extension and its shell hooks do not apply here.",
+          "note": "DoFlow installs a ledger-owned extension at user scope or project scope that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust.",
+          "verification": "Verify the installed extension fingerprint, resolved shared bridge path, bash/jq prerequisites, and the project-trust prerequisite for project scope.",
           "events": {
             "SessionStart": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:\"reload\" on /reload."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: session_start, which carries reason:\"reload\" on /reload."
             },
             "SessionEnd": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: session_shutdown."
             },
             "UserPromptSubmit": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
+              "note": "DoFlow does not project a prompt hook; its separate code extension guards tool_call. Native equivalent: input, which fires before skill expansion. DoFlow's once-per-session `/do` suggestion reaches this harness through skill descriptions only."
             },
             "PreCompact": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: session_before_compact, which may cancel or supply a summary."
             },
             "PostCompact": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: compaction_end."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: compaction_end."
             },
             "PreToolUse": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on."
+              "note": "DoFlow's user- or project-scope extension evaluates tool_call before execution; tool_execution_start is observation-only."
             },
             "PostToolUse": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_end, exposed through session.subscribe rather than pi.on."
+              "note": "DoFlow does not register Pi tool_execution_end."
             },
             "Stop": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: agent_end."
             },
             "SubagentStart": {
               "status": "unavailable",
@@ -1834,6 +1834,16 @@
             "UserPromptSubmit": {
               "status": "different",
               "note": "Kiro documents a native UserPromptSubmit trigger that is blockable via a non-zero exit code and exposes the prompt as the USER_PROMPT environment variable; DoFlow wires no hook to it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
+            },
+            "SessionStart": {
+              "status": "supported"
+            },
+            "PreToolUse": {
+              "status": "supported"
+            },
+            "Stop": {
+              "status": "different",
+              "note": "DoFlow config uses Stop, while Kiro documents AgentStop; native trigger equivalence is unresolved."
             }
           }
         },

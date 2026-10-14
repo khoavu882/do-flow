@@ -1,0 +1,34 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "c1-mcp-perf",
+    "tool_name": "mcp__safe__tool",
+    "tool_input": {}
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "claude",
+      "event": "PreToolUse",
+      "operation": "mcp",
+      "tool": "mcp__safe__tool",
+      "identity": {
+        "session": "c1-mcp-perf"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

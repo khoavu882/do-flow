@@ -55,7 +55,7 @@ function cmdInstall(o: any): void {
     // One lifecycle view across every requested target — computed unconditionally (not only under
     // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
     const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
-      mcpSelections: selection.selections, mcpAdoptable: selection.adoptable, retainedMcpIds: selection.retainedMcpIds,
+      mcpSelections: selection.selections, mcpAdoptable: selection.adoptable, retainedMcpIds: selection.retainedMcpIds, operation: 'install',
       force: o.force, adopt: o.adopt === true, permissions: o.permissions === true, statusline: o.statusline === true });
     if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 

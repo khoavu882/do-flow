@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # pre-implementation-gate.sh — Canonical Policy Library: PreToolUse(Edit|Write|...)
 # backstop for the doflow implement gate. The HARD half of the one enforced
 # gate (the other half is the prompt-level do-prereqs.sh inside
@@ -21,7 +22,7 @@
 #   - edit target is under agent-docs/ -> allow (editing the artifacts themselves)
 #   - edit target outside the repo     -> allow
 # It reads files with jq and lists checkouts with one git call; it never runs
-# the DoFlow runtime. Self-contained + fail-open: any uncertainty -> allow (exit 0).
+# the DoFlow runtime. Missing or malformed v1 input is denied as out of step; other faults follow IC-011.
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR (repo root, if the front door sets it),
@@ -30,17 +31,9 @@
 #          (each already read by the harness-specific dispatcher this policy
 #          replaces — kept so an unmodified front door still resolves its own
 #          harness's do-paths.sh resolver)
-#   stdin  a PreToolUse-shaped JSON payload for an edit tool. Every harness's
-#          own field names differ (Claude/Gemini: tool_name/tool_input.file_path;
-#          Codex: tool_name=apply_patch with a unified diff in
-#          tool_input.command; Kiro: field names undocumented) — this script
-#          reads the union of known shapes rather than assuming one, since a
-#          native front door (Claude/Codex/Kiro) execs this script directly
-#          with no payload translation of its own.
-#   exit   0 = allow, non-zero = deny with the reason on stderr. A front door
-#          translates this into whatever JSON/exit-code shape its harness
-#          natively expects — this script never speaks a harness-specific
-#          decision shape.
+#   stdin  a native payload encoded as envelope v1 by the lifecycle bridge.
+#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011. A front
+#          door translates this into its native response shape.
 #
 # Reconciliation note (022-normalize-hooks, Phase A): claude/gemini/codex/kiro
 # each shipped a separately-adapted copy of this gate; antigravity's copy
@@ -58,73 +51,70 @@
 
 set -uo pipefail
 
-command -v jq >/dev/null 2>&1 || exit 0          # no jq -> cannot evaluate -> allow
-
 INPUT=$(cat)
-
-# ── Normalized envelope (preferred; review R7) ────────────────────────────────
-# A host adapter that has already decoded its native event sends
-#   {"doflow_event": {"operation": "edit", "paths": [..], "projectRoot": "..", "taskId": ".."}}
-# and this policy consumes it verbatim. The union decoder below remains the
-# fallback for front doors that still forward raw native payloads; per-harness
-# knowledge belongs in those adapters, and each one that starts sending the
-# envelope retires its share of the union.
-ENVELOPE_ROOT=""
-ENVELOPE_TASK=""
-ENVELOPE_OP=$(printf '%s' "$INPUT" | jq -r '.doflow_event.operation // empty' 2>/dev/null)
-if [ -n "$ENVELOPE_OP" ]; then
-  [ "$ENVELOPE_OP" = "edit" ] || exit 0          # only edits are gated
-  FILES=$(printf '%s' "$INPUT" | jq -r '.doflow_event.paths[]? // empty' 2>/dev/null | sed '/^$/d' | sort -u)
-  [ -n "$FILES" ] || exit 0
-  ENVELOPE_ROOT=$(printf '%s' "$INPUT" | jq -r '.doflow_event.projectRoot // empty' 2>/dev/null)
-  ENVELOPE_TASK=$(printf '%s' "$INPUT" | jq -r '.doflow_event.taskId // empty' 2>/dev/null)
+if [ -f "$_DOFLOW_POLDIR/contract.sh" ]; then
+  . "$_DOFLOW_POLDIR/contract.sh"
 else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  doflow_read_envelope() { DF_ENV_CLASS=missing; DF_ENV_CODE=contract-missing; }
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate contract-missing ) >/dev/null 2>&1 || true
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then
+    printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2
+  else
+    printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' >&2
+  fi
+  doflow_decide deny contract-missing
+  exit 2
+fi
+doflow_decision_init pre-implementation-gate 1
+command -v jq >/dev/null 2>&1 || {
+  doflow_decide error dependency-missing:jq
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate dependency-missing:jq ) >/dev/null 2>&1 || true
+  exit 0
+}
 
-# ── Tool name (union of every known field name across harnesses; LEGACY decoder) ──
-tool=""
-for field in '.tool_name' '.tool' '.toolName' '.name'; do
-  tool=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-  [ -n "$tool" ] && break
-done
-
-is_patch_tool=false
-case "$tool" in
-  Edit|Write|MultiEdit|edit_file|write_file|create_file|replace_file|replace) ;;
-  write_to_file|replace_file_content|multi_replace_file_content) ;;
-  apply_patch) is_patch_tool=true ;;
-  *) exit 0 ;;
-esac
-
-# ── Candidate files to gate ────────────────────────────────────────────────────
-# Normal edit tools: one file, from the union of field names harnesses use.
-# apply_patch (Codex): the tool has no file_path field at all — the paths are
-# embedded in a unified diff under tool_input.command.
-FILES=""
-if [ "$is_patch_tool" = true ]; then
-  PATCH=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-  [ -n "$PATCH" ] || exit 0
-  # "#" (not the original codex script's "|") is the sed delimiter here: BSD
-  # sed (macOS, no GNU coreutils) misparses "s|...(Add|Update|Delete)...|...|"
-  # because it splits on every unescaped "|", including the ones meant as ERE
-  # alternation inside the pattern — a portability bug in the source script
-  # this reconciliation fixes rather than ports, since it silently broke
-  # apply_patch parsing under this exact invocation on any non-GNU-sed host.
-  FILES=$(printf '%s\n' "$PATCH" | sed -nE \
+# Parse v1 apply_patch paths using the shared parser.
+parse_patch_paths() {
+  printf '%s\n' "$1" | sed -nE \
     -e 's#^\*\*\* (Add|Update|Delete) File: (.+)$#\2#p' \
     -e 's#^\+\+\+ (a/|b/)?(.+)$#\2#p' \
-    | sed '/^\/dev\/null$/d' | sort -u)
-  [ -n "$FILES" ] || exit 0
-else
-  file=""
-  for field in '.tool_input.file_path' '.tool_input.path' '.tool_input.target' '.file_path' '.path'; do
-    file=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-    [ -n "$file" ] && break
-  done
-  [ -n "$file" ] || exit 0
-  FILES="$file"
-fi
+    | sed '/^\/dev\/null$/d' | sort -u
+}
 
-fi  # end legacy union decoder
+DF_ENV_CLASS=missing DF_ENV_CODE=envelope-missing
+doflow_read_envelope || true
+
+# ── Envelope v1 ───────────────────────────────────────────────────────────────
+ENVELOPE_ROOT=""
+ENVELOPE_TASK=""
+if [ "$DF_ENV_CLASS" = v1 ]; then
+  ENVELOPE_OP=$DF_ENV_OP
+  [ "$ENVELOPE_OP" = "edit" ] || exit 0          # only edits are gated
+  FILES=$DF_ENV_PATHS
+  ENVELOPE_ROOT=$DF_ENV_ROOT
+  ENVELOPE_TASK=$DF_ENV_TASK
+  if [ -z "$FILES" ] && [ -z "$DF_ENV_PATCH" ]; then
+    doflow_decide unsupported edit-without-target
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate edit-without-target ) >/dev/null 2>&1 || true
+    exit 0
+  fi
+  if [ -z "$FILES" ] && [ -n "$DF_ENV_PATCH" ]; then
+    FILES=$(parse_patch_paths "$DF_ENV_PATCH")
+    [ -n "$FILES" ] || exit 0
+  fi
+elif [ "$DF_ENV_CLASS" = unsupported ]; then
+  doflow_decide unsupported envelope-version
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate unsupported:envelope-version ) >/dev/null 2>&1 || true
+  exit 0
+else
+  if [ "${DF_ENV_CODE:-envelope-missing}" != contract-missing ]; then
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate envelope-missing ) >/dev/null 2>&1 || true
+  fi
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' >&2; fi
+  doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
+  exit 2
+fi
 
 # ── Resolve repo root ───────────────────────────────────────────────────────
 # DOFLOW_PROJECT_DIR (explicit) beats the envelope's projectRoot beats git discovery.
@@ -384,13 +374,14 @@ PLANNED=false
 # plan.md all exist. Classes that cannot be a feature skip this check.
 if [ "$exempt" = false ] && [ -n "$FEATURE_ROOT" ] && [ "$PLANNED" = false ]; then
   echo "[pre-implementation-gate] doflow gate: feature $feature_dir is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)" >&2
+  doflow_decide deny missing-artifacts
   exit 2
 fi
 
 # ── Readiness ────────────────────────────────────────────────────────────────
 # The workflow registry the installed runtime reads: beside this policy in an
 # install, the source tree's own, the project's install, the global install.
-POLICY_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || POLICY_DIR=""
+POLICY_DIR=$_DOFLOW_POLDIR
 REGISTRY=""
 for candidate in \
   "${POLICY_DIR:+$POLICY_DIR/../../../runtime/core/registry/workflows.json}" \
@@ -480,16 +471,19 @@ gate="doflow gate readiness-before-implementation: task '$task_id'"
 rest="Next: $next, then gather what it lists until it reports READY. Nothing was changed."
 if [ -z "$FOUND" ]; then
   printf "%s has no readiness record for the '%s' template. %s\n" "$gate" "$STAGE_TEMPLATE" "$rest" >&2
+  doflow_decide deny readiness-missing
   exit 2
 fi
 if [ "$record_state" != READY ]; then
   printf "%s was last evaluated %s at %s against the '%s' template, not READY. %s\n" \
     "$gate" "$record_state" "$record_at" "$STAGE_TEMPLATE" "$rest" >&2
+  doflow_decide deny readiness-not-ready
   exit 2
 fi
 if [ "$record_class" != "$STAGE_TEMPLATE" ]; then
   printf "%s has a READY record for the '%s' template, and this stage needs '%s'. %s\n" \
     "$gate" "$record_class" "$STAGE_TEMPLATE" "$rest" >&2
+  doflow_decide deny readiness-wrong-template
   exit 2
 fi
 

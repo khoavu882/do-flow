@@ -15,6 +15,37 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- The `doflow enforcement` verb and lifecycle coverage block report which harness/policy pairs are enforced and what they do not cover. Pi installs a `tool_call` guard extension; only the live-observed `cli-extension` gate row is blocking, while project-interactive and user-interactive coverage remains unknown. Added `DOFLOW_FAULT_PROFILE` for compat/strict fault behavior and `DOFLOW_BRIDGE_TRACE` for bridge decisions.
+
+### Changed
+
+- Hook policies now accept envelope v1 only. Scripts that send native payloads directly to a
+  policy must send v1 or invoke the shared bridge. Missing envelopes take the explicit out-of-step
+  rule; a missing bridge gets a fixed native response, including in the Pi extension and the
+  Antigravity runner.
+- Lifecycle plans that change shared hooks refresh outdated front doors for other installed
+  harnesses at that scope, with one backup and rollback. Edited companion doors refuse unless
+  forced. The bridge preserves a caller-set `DOFLOW_AGENT` value.
+- The Antigravity runner no longer carries the unused Gemini branch. The Antigravity plugin bundle
+  no longer declares hook entries for files its projection does not install.
+- Input without envelope v1, including a missing contract, follows the explicit out-of-step rule;
+  a missing policy is an evaluation error (compat proceeds with a diagnostic, strict denies).
+  Blocking evaluation errors use the IC-013 fixed reason. Strict-1 never fault-blocks Stop, though
+  a real Stop deny still blocks; crashed Codex Stop stderr is suppressed. Bridge capture no longer
+  depends on a temporary file, background jobs do not hold Stop or SessionStart open, and strict-1
+  renders native denies when `jq` is unavailable. Codex `update -t codex -f` re-merges edited
+  `hooks.json` while preserving user entries.
+
+### Removed
+
+- Removed `gemini.js`, `arg-fields.js`, the shared hooks `hooks.json`, and Antigravity plugin hook
+  declarations.
+- **Breaking for direct policy callers:** removed the legacy native-field and unversioned
+  `doflow_event` decoder. Scripts that pipe native hook payloads to policies must migrate to v1 or
+  call `bridge.sh`.
+
 ## [2.0.0] - 2026-10-14
 
 First stable 2.x release. It consolidates 2.0.0-beta.1 to 2.0.0-beta.4 (the TypeScript runtime, the perf budgets and retrieval benchmark, and the packed JavaScript npm package) with context delivery (075) and evidence attempts (076). Upgrading from 1.24.1 needs Node `^22.18.0 || >=24.3.0`; see the 2.0.0-beta.3 entry for the Node floor and the `.js` to `.ts` runtime rename.

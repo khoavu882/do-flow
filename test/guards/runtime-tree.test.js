@@ -118,13 +118,7 @@ test('G32.1 control: a harness-specific layout, a second tree, or a foreign asse
   ]);
 });
 
-/** References already broken when this guard was added, each with why it is not fixed here. An
- * entry that starts resolving fails the guard, so the list only shrinks. */
 const KNOWN_STALE = new Map([
-  // The runner ships under .doflow/shared/hooks (hooks.shared), not .doflow/scripts. Nothing in
-  // src/ loads this shared hooks.json as a harness config, so repointing it is a hook-behaviour
-  // change outside 073 T4; reported to the feature's open issues instead.
-  ['core/harnesses/shared/hooks/hooks.json: .doflow/scripts/stream-hook-runner.js', 'hooks.shared ships the runner elsewhere'],
 ]);
 
 test('G32.2: every path under a shared .doflow tree that a projected file names exists in this source', () => {

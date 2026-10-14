@@ -13,6 +13,7 @@
 # PATH pointing at any of them.
 #
 # Usage: doflow-run <verb> [args...]
+#   enforcement --harness <id> --policy <id> [--profile <id>] [--json]
 #   Every verb accepts --json. Exit 0 = success, 1 = an actionable finding, 2 = usage or
 #   resolution error, 3 = context-pack overflow. Arguments, stdin and exit status pass through the
 #   dispatcher unmodified —
@@ -381,6 +382,7 @@ Observability:
   discover         missed opportunities in recorded runs
   inventory        both scopes at once: shadowed assets, drift, unmanaged contenders
   capabilities     provider resolution
+  enforcement      verified lifecycle policy coverage
   doctor           installation and provider health
   storage          report stored data and its retention bounds
 EOF
@@ -480,7 +482,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|task-attempt|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|orchestrate|research-request|task-attempt|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
     *) return 1 ;;
   esac
 }

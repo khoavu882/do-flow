@@ -1,0 +1,30 @@
+{
+  "native": {
+    "hook_event_name": "agentSpawn",
+    "session_id": "kiro-agent-session-error"
+  },
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "agentSpawn",
+      "operation": "session-start",
+      "identity": {
+        "session": "kiro-agent-session-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 0
+  }
+}

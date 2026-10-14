@@ -1,0 +1,17 @@
+{
+  "native": {
+    "hook_event_name": "PreCompact"
+  },
+  "env": {},
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "Include in compact summary:\n- cwd: unknown (not a git repository)\nPreserve: decisions made, files modified, open questions, planned next steps.",
+    "stderrIncludes": null,
+    "decision": null,
+    "envelope": null,
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

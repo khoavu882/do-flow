@@ -498,6 +498,920 @@
       ],
       "intentClass": "none",
       "enforced": false
+    },
+    {
+      "id": "hook.claude.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/mcp-tool-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.permission-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/permission-audit.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.post-compact",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/post-compact.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.post-edit-lint",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/post-edit-lint.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.post-tool-failure",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/post-tool-failure.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/pre-bash-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.pre-compact",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/pre-compact.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.pre-implement-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/pre-implement-gate/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.session-end",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/session-end.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.session-start",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/session-start.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/session-start/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.skill-config-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/skill-config-audit.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.stop-check",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/stop-check.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/stop-check/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.subagent-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/subagent-audit.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/subagent-audit/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.user-prompt-submit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/user-prompt-submit.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/user-prompt-submit/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/mcp-tool-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.post-edit-lint",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/post-edit-lint.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.codex.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/pre-bash-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.pre-compact",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/pre-compact.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.codex.pre-implement-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/pre-implement-gate/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.session-end",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/session-end.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.codex.session-start",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/session-start.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/session-start/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.stop-check",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/stop-check.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/stop-check/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.subagent-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/subagent-audit.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/subagent-audit/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.user-prompt-submit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/user-prompt-submit.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/user-prompt-submit/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.gemini.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/gemini/mcp-tool-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.gemini.post-edit-lint",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/post-edit-lint.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.gemini.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/gemini/pre-bash-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.gemini.pre-compact",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/pre-compact.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.gemini.pre-implement-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/gemini/pre-implement-gate/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.gemini.session-end",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/session-end.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.gemini.session-start",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/session-start.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/gemini/session-start/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.opencode",
+      "kind": "hook",
+      "argv": [],
+      "harness": "opencode",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.copilot",
+      "kind": "hook",
+      "argv": [],
+      "harness": "copilot",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.kiro.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/mcp-tool-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.mcp-tool-guard.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/mcp-tool-guard/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/pre-bash-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.pre-bash-guard.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/pre-bash-guard/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.pre-implement-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/pre-implement-gate/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.pre-implement-gate.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/pre-implement-gate/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.session-start",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/session-start.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/session-start/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.session-start.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/session-start.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/session-start/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.stop-check",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/stop-check.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/stop-check/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.stop-check.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/stop-check.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/stop-check/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.antigravity.pre-implementation-gate",
+      "kind": "hook",
+      "argv": [
+        "node",
+        "core/harnesses/shared/hooks/stream-hook-runner.js",
+        "PreToolUse"
+      ],
+      "harness": "antigravity",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "stdinFixture": "test/fixtures/hooks/antigravity/pre-implement-gate/allow-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.antigravity.stop-check",
+      "kind": "hook",
+      "argv": [
+        "node",
+        "core/harnesses/shared/hooks/stream-hook-runner.js",
+        "Stop"
+      ],
+      "harness": "antigravity",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "stdinFixture": "test/fixtures/hooks/antigravity/stop-check/allow-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.pi.tool-call-pre-implementation-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "pi",
+        "tool_call",
+        "pre-implementation-gate"
+      ],
+      "harness": "pi",
+      "intentClass": "hook",
+      "enforced": false,
+      "stdinFixture": "test/fixtures/hooks/pi/tool_call/perf-edit.json",
+      "stdinField": "native",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "note": "excludes the in-process extension spawn"
+    },
+    {
+      "id": "hook.pi.tool-call-pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "pi",
+        "tool_call",
+        "pre-bash-guard"
+      ],
+      "harness": "pi",
+      "intentClass": "hook",
+      "enforced": false,
+      "stdinFixture": "test/fixtures/hooks/pi/tool_call/perf-bash.json",
+      "stdinField": "native",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "note": "excludes the in-process extension spawn"
+    },
+    {
+      "id": "hook.pi.tool-call-mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "pi",
+        "tool_call",
+        "mcp-tool-guard"
+      ],
+      "harness": "pi",
+      "intentClass": "hook",
+      "enforced": false,
+      "stdinFixture": "test/fixtures/hooks/pi/tool_call/perf-mcp.json",
+      "stdinField": "native",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "note": "excludes the in-process extension spawn"
+    },
+    {
+      "id": "hook.shared.capture-failure",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/capture-failure.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/capture-failure.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/mcp-tool-guard.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/mcp-tool-guard.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.pre-implementation-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/pre-implementation-gate.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/pre-implementation-gate.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.session-context",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/session-context.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/session-context.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.stop-check",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/stop-check.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/stop-check.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.subagent-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/subagent-audit.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/subagent-audit.json",
+      "enforced": false
     }
   ],
   "rows": [
@@ -713,191 +1627,187 @@
     },
     {
       "surfaceId": "hook.claude.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.permission-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-tool-failure",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.pre-bash-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.pre-implement-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.session-start",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.skill-config-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.subagent-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.user-prompt-submit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.pre-bash-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.pre-implement-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.session-start",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.subagent-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.user-prompt-submit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.pre-bash-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.pre-implement-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.session-start",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.opencode",
-      "unmeasured": "hooks projected through a native plugin with no shell entry point"
-    },
-    {
-      "surfaceId": "hook.pi",
-      "unmeasured": "hooks projected through a native plugin with no shell entry point"
+      "unmeasured": "no hooks are projected"
     },
     {
       "surfaceId": "hook.copilot",
-      "unmeasured": "hooks projected through a native plugin with no shell entry point"
+      "unmeasured": "no hooks are projected"
     },
     {
       "surfaceId": "hook.kiro.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.kiro.pre-bash-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.kiro.pre-implement-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.kiro.session-start",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.kiro.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.antigravity.pre-implementation-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.antigravity.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.capture-failure",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.pre-implementation-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.session-context",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.subagent-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "cli.version",
@@ -1258,6 +2168,1118 @@
       "headroomMs": 35.8,
       "ceilingMs": 150,
       "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.mcp-tool-guard.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-bash-guard.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-implement-gate.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.kiro.session-start.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.kiro.stop-check.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-pre-implementation-gate",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-pre-bash-guard",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-mcp-tool-guard",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.shared.pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 17.83,
+      "p95Ms": 35.51,
+      "maxMs": 44.97,
+      "madMs": 1.51,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 46,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.user-prompt-submit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 11.38,
+      "p95Ms": 20.55,
+      "maxMs": 20.83,
+      "madMs": 0.8,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 31,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.mcp-tool-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 28.93,
+      "p95Ms": 36.06,
+      "maxMs": 56.56,
+      "madMs": 2.13,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 47,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.permission-audit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 11.48,
+      "p95Ms": 16.65,
+      "maxMs": 17.91,
+      "madMs": 0.82,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 27,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.post-compact",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 27.33,
+      "p95Ms": 30.44,
+      "maxMs": 37.36,
+      "madMs": 1.62,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 41,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.post-edit-lint",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 15.63,
+      "p95Ms": 25.89,
+      "maxMs": 27.92,
+      "madMs": 1.17,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 36,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.post-tool-failure",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 11.33,
+      "p95Ms": 14.82,
+      "maxMs": 24.75,
+      "madMs": 0.48,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 25,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 35.49,
+      "p95Ms": 40.11,
+      "maxMs": 47.85,
+      "madMs": 2.02,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10.03,
+      "ceilingMs": 51,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.pre-compact",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 12.31,
+      "p95Ms": 26.48,
+      "maxMs": 29.02,
+      "madMs": 1.11,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 37,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.pre-implement-gate",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 67.69,
+      "p95Ms": 80.62,
+      "maxMs": 94.81,
+      "madMs": 5.2,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 20.16,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.session-end",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 46.97,
+      "p95Ms": 76.81,
+      "maxMs": 121.12,
+      "madMs": 3.33,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 19.2,
+      "ceilingMs": 97,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.session-start",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 84.42,
+      "p95Ms": 128.96,
+      "maxMs": 153.69,
+      "madMs": 7.8,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 32.24,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.skill-config-audit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 11.55,
+      "p95Ms": 14.2,
+      "maxMs": 14.73,
+      "madMs": 0.65,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 25,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.stop-check",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 48.9,
+      "p95Ms": 55.83,
+      "maxMs": 89.37,
+      "madMs": 2.61,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 13.96,
+      "ceilingMs": 70,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.subagent-audit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 48.1,
+      "p95Ms": 76.34,
+      "maxMs": 82.62,
+      "madMs": 2.65,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 19.09,
+      "ceilingMs": 96,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.claude.user-prompt-submit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 50.35,
+      "p95Ms": 86.96,
+      "maxMs": 87.43,
+      "madMs": 4.36,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 21.74,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.mcp-tool-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 27.95,
+      "p95Ms": 38.9,
+      "maxMs": 40.71,
+      "madMs": 2.05,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 49,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.post-edit-lint",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 19.31,
+      "p95Ms": 38.01,
+      "maxMs": 44.3,
+      "madMs": 1.42,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 49,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 35.93,
+      "p95Ms": 50.04,
+      "maxMs": 56.66,
+      "madMs": 1.95,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 12.51,
+      "ceilingMs": 63,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.pre-compact",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 19.89,
+      "p95Ms": 31.51,
+      "maxMs": 39.55,
+      "madMs": 1.78,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 42,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.pre-implement-gate",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 68.96,
+      "p95Ms": 90.87,
+      "maxMs": 102.76,
+      "madMs": 4.98,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 22.72,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.session-end",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 48.34,
+      "p95Ms": 66.1,
+      "maxMs": 75.81,
+      "madMs": 3.82,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 16.52,
+      "ceilingMs": 83,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.session-start",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 86.81,
+      "p95Ms": 101.54,
+      "maxMs": 115.4,
+      "madMs": 5.82,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 25.39,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.stop-check",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 58.72,
+      "p95Ms": 84.55,
+      "maxMs": 106.38,
+      "madMs": 4.34,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 21.14,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.subagent-audit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 53.66,
+      "p95Ms": 71.5,
+      "maxMs": 84.53,
+      "madMs": 3.85,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 17.88,
+      "ceilingMs": 90,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.codex.user-prompt-submit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 49.26,
+      "p95Ms": 66.49,
+      "maxMs": 80.19,
+      "madMs": 3.66,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 16.62,
+      "ceilingMs": 84,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.gemini.mcp-tool-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 27.47,
+      "p95Ms": 58.4,
+      "maxMs": 66.54,
+      "madMs": 2.02,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 14.6,
+      "ceilingMs": 73,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.gemini.post-edit-lint",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 15.64,
+      "p95Ms": 19.79,
+      "maxMs": 22.04,
+      "madMs": 1.03,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 30,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.gemini.pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 35.6,
+      "p95Ms": 57.26,
+      "maxMs": 83.42,
+      "madMs": 2.9,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 14.32,
+      "ceilingMs": 72,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.gemini.pre-compact",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 15.78,
+      "p95Ms": 19.37,
+      "maxMs": 33.06,
+      "madMs": 1.09,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 30,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.gemini.pre-implement-gate",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 68.41,
+      "p95Ms": 100.28,
+      "maxMs": 106.46,
+      "madMs": 4.36,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 25.07,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.gemini.session-end",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 43.55,
+      "p95Ms": 102.42,
+      "maxMs": 103.48,
+      "madMs": 1.88,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 25.61,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.gemini.session-start",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 86.01,
+      "p95Ms": 112.52,
+      "maxMs": 114.78,
+      "madMs": 5.51,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 28.13,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.mcp-tool-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 41.67,
+      "p95Ms": 49.21,
+      "maxMs": 50.65,
+      "madMs": 3.02,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 12.3,
+      "ceilingMs": 62,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.mcp-tool-guard.agent-config",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 42.97,
+      "p95Ms": 74.43,
+      "maxMs": 77.95,
+      "madMs": 3.48,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 18.61,
+      "ceilingMs": 94,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 51.22,
+      "p95Ms": 66.2,
+      "maxMs": 81.45,
+      "madMs": 3.28,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 16.55,
+      "ceilingMs": 83,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-bash-guard.agent-config",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 49.29,
+      "p95Ms": 66.7,
+      "maxMs": 69.89,
+      "madMs": 2.83,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 16.68,
+      "ceilingMs": 84,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-implement-gate",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 80.38,
+      "p95Ms": 122.67,
+      "maxMs": 170.12,
+      "madMs": 4.17,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 30.67,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-implement-gate.agent-config",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 87.06,
+      "p95Ms": 98.25,
+      "maxMs": 116.12,
+      "madMs": 3.4,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 24.56,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.session-start",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 101.37,
+      "p95Ms": 145.6,
+      "maxMs": 168.64,
+      "madMs": 6.09,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 36.4,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.session-start.agent-config",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 106.07,
+      "p95Ms": 154.46,
+      "maxMs": 155.83,
+      "madMs": 11.69,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 38.62,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.stop-check",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 77.34,
+      "p95Ms": 96.96,
+      "maxMs": 129,
+      "madMs": 7.58,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 24.24,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.stop-check.agent-config",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 75.49,
+      "p95Ms": 114.85,
+      "maxMs": 121.8,
+      "madMs": 4.96,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 28.71,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.antigravity.pre-implementation-gate",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 176.07,
+      "p95Ms": 226.71,
+      "maxMs": 308.8,
+      "madMs": 15.21,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 56.68,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.antigravity.stop-check",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 74.75,
+      "p95Ms": 104.47,
+      "maxMs": 105.34,
+      "madMs": 5.86,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 26.12,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-pre-implementation-gate",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 147.9,
+      "p95Ms": 199.49,
+      "maxMs": 247.11,
+      "madMs": 11.6,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 49.87,
+      "ceilingMs": 100,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-pre-bash-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 34.03,
+      "p95Ms": 56.98,
+      "maxMs": 60.81,
+      "madMs": 2.12,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 14.25,
+      "ceilingMs": 72,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-mcp-tool-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 25.3,
+      "p95Ms": 27.86,
+      "maxMs": 28.83,
+      "madMs": 1.5,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 38,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.capture-failure",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.94,
+      "p95Ms": 7.07,
+      "maxMs": 8.58,
+      "madMs": 0.23,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 18,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.mcp-tool-guard",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 10.11,
+      "p95Ms": 13.29,
+      "maxMs": 56.11,
+      "madMs": 0.68,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 24,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.pre-implementation-gate",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 9.46,
+      "p95Ms": 11.83,
+      "maxMs": 14.2,
+      "madMs": 0.54,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 22,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.session-context",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 13.96,
+      "p95Ms": 15.88,
+      "maxMs": 17.23,
+      "madMs": 0.81,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 26,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.stop-check",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 29.76,
+      "p95Ms": 45.68,
+      "maxMs": 68.4,
+      "madMs": 2.42,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 11.42,
+      "ceilingMs": 58,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.subagent-audit",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-14",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 29.43,
+      "p95Ms": 33.65,
+      "maxMs": 33.78,
+      "madMs": 2.25,
+      "controlP50Ms": 27.44,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 44,
+      "status": "proposed"
     }
   ],
   "startupContext": [
@@ -1269,7 +3291,9 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "first": 144,
+        "steady": 3,
+        "basis": "measured:fixture test/fixtures/hooks/claude/user-prompt-submit/perf.json; project=bench/perf/fixtures/hook-bridge-project (feat/perf, all artifacts)"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1285,7 +3309,9 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "first": 144,
+        "steady": 3,
+        "basis": "measured:fixture test/fixtures/hooks/codex/user-prompt-submit/perf.json; project=bench/perf/fixtures/hook-bridge-project (feat/perf, all artifacts)"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1301,7 +3327,7 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/gemini/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1321,7 +3347,7 @@
       },
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: no OpenCode hook template is projected"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1333,15 +3359,13 @@
       "harness": "pi",
       "installedVersion": "1.1.0",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no session-start hook"
-      },
+      "sessionStartStdoutBytes": 0,
       "sessionStartStderrBytes": {
         "unmeasured": "no session-start hook"
       },
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/pi/extensions/doflow-guard.js"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1361,7 +3385,7 @@
       },
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/.plugin/plugin.json (skills-only; hooks are not projected)"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1377,7 +3401,7 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/kiro/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1397,7 +3421,7 @@
       },
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/antigravity/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",

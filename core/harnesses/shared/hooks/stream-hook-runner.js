@@ -2,27 +2,21 @@
 'use strict';
 
 /**
- * DoFlow Cross-Harness Hook Runner (design.md C2) — front door for every in-scope lifecycle
- * event (SessionStart, PreToolUse, PostToolUse, Stop, PreInvocation) for the two harnesses whose
- * native hook contract speaks JSON stdin/stdout rather than a bare exit code: Gemini CLI and
- * Antigravity. It owns event dispatch and per-harness payload/decision translation (delegated to
- * adapters/{gemini,antigravity}.js, D2) and delegates every policy decision to the Canonical
- * Policy Library (core/harnesses/shared/hooks/policies/*.sh, Phase A) — it implements no guard
- * policy logic itself.
+ * DoFlow Cross-Harness Hook Runner — front door for every in-scope lifecycle
+ * event (SessionStart, PreToolUse, PostToolUse, Stop, PreInvocation) for Antigravity. It owns
+ * event dispatch and native payload/decision
+ * translation (delegated to adapters/antigravity.js) and delegates every policy decision
+ * to the shared lifecycle bridge — it implements no guard policy logic itself.
  *
  * Invocation: `node stream-hook-runner.js [EventName]`, JSON payload on stdin, JSON decision on
- * stdout. EventName is the preferred way to select which canonical policy applies; when omitted
- * (older hooks.json wiring that doesn't yet pass it), the event is inferred from the payload's
- * own shape as a fallback, matching this runner's behavior before event names were threaded
- * through argv.
+ * stdout. EventName selects which canonical policy applies.
  */
 
-const { execFileSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const geminiAdapter = require('./adapters/gemini');
 const antigravityAdapter = require('./adapters/antigravity');
 
 // Tool-name classification for PreToolUse, generalized to the union every Phase A canonical
@@ -249,15 +243,6 @@ function captureHookFailure({ command, kind, frame = null }, env = process.env) 
   }
 }
 
-// Canonical script name -> pre-normalization per-harness file name, for the fallback search only.
-const LEGACY_SCRIPT_NAMES = {
-  'session-context.sh': 'session-start.sh',
-  'pre-implementation-gate.sh': 'pre-implement-gate.sh',
-  'mcp-tool-guard.sh': 'mcp-tool-guard.sh',
-  'stop-check.sh': 'stop-check.sh',
-  'pre-bash-guard.sh': 'pre-bash-guard.sh',
-};
-
 // A hook payload is one tool call's JSON — a few KB in the overwhelming majority of cases, a few
 // hundred KB for a large file edit at most. These bounds exist only to stop a misbehaving harness
 // process (stdin that never closes, or streams unboundedly) from hanging this front door forever;
@@ -334,75 +319,55 @@ function resolveProjectRoot(workspacePaths) {
 }
 
 /**
- * Resolve a Canonical Policy Library script's absolute path. Primary location is this runner's
- * own `policies/` sibling directory (core/harnesses/shared/hooks/policies/) — the canonical
- * source of truth (design.md C1) that ships alongside this file, so the lookup needs no
- * project-root guessing and works identically in-repo and once installed, as long as the
- * `shared/hooks/` tree is projected together. The per-harness candidate search below is kept only
- * as a fallback for an install that hasn't picked up the canonical policies/ directory yet.
+ * Delegate the native payload to the shared lifecycle bridge. The bridge owns encoding,
+ * classification, effects and diagnostics; this runner only applies Antigravity's native render.
  */
-function resolvePolicyScript(projectRoot, scriptName) {
-  const primary = path.join(__dirname, 'policies', scriptName);
-  if (fs.existsSync(primary)) return primary;
-
-  const legacyName = LEGACY_SCRIPT_NAMES[scriptName] || scriptName;
-  const candidates = [
-    path.join(projectRoot, '.gemini/hooks', legacyName),
-    path.join(projectRoot, '.claude/hooks', legacyName),
-    path.join(projectRoot, '.codex/hooks', legacyName),
-    path.join(projectRoot, '.doflow/scripts', legacyName),
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-/**
- * Delegate one canonical-decision evaluation to a Phase A policy script (design.md's Canonical
- * Policy Script Contract): the canonical payload goes in on stdin, DOFLOW_PROJECT_DIR/DOFLOW_AGENT
- * are set, and the exit code decides allow/deny — exit 0 = allow, non-zero = deny with the reason
- * read from stderr (falling back to stdout if a script has none). Returns the CANONICAL decision
- * shape ({decision:'allow'} | {decision:'deny', reason}); harness-native translation happens one
- * layer up, in the adapter's toNative, not here — this function never speaks a harness-specific
- * decision vocabulary.
- */
-function delegateToPolicy(projectRoot, agent, scriptName, canonicalPayload) {
-  const scriptPath = resolvePolicyScript(projectRoot, scriptName);
-  if (!scriptPath) return { decision: 'allow' };
-
-  try {
-    execFileSync('bash', [scriptPath], {
-      cwd: projectRoot,
-      input: JSON.stringify(canonicalPayload || {}),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, DOFLOW_PROJECT_DIR: projectRoot, DOFLOW_AGENT: agent },
-    });
-    return { decision: 'allow' };
-  } catch (err) {
-    // A real policy deny has a numeric exit status — the script ran and its own canonical exit
-    // code (1 = deny) is the contract this delegates to. `err.status` is null/undefined when the
-    // process never produced an exit code at all (bash missing from PATH, EACCES, etc.) — that is
-    // an execution fault, not a policy decision, and every sourced .sh policy in this library
-    // fails open on its own uncertainty (`command -v jq || exit 0`); this delegator matches that
-    // posture instead of turning an environment fault into a silent deny.
-    if (typeof err.status !== 'number') {
-      // A policy killed by a signal is a fault in DoFlow's own install worth recording (IC-018); a
-      // missing `bash` or a permission error is the user's environment and is not. Either way the
-      // decision is the same as it always was.
-      // SIGTERM, SIGINT and SIGPIPE are the user or the harness stopping the process (DEC-031), not
-      // a fault. Any other signal is recorded under its own kind, so a SEGV and a KILL do not share a fingerprint.
-      if (typeof err.signal === 'string' && err.signal && !['SIGTERM', 'SIGINT', 'SIGPIPE'].includes(err.signal)) {
-        captureHookFailure({ command: scriptName.replace(/\.sh$/, ''), kind: `policy-exec-fault:${err.signal}` });
-      }
-      return { decision: 'allow' };
+function delegateToPolicy(projectRoot, agent, event, policyId, nativeRaw) {
+  const bridgeSh = path.join(__dirname, 'bridge', 'bridge.sh');
+  if (!fs.existsSync(bridgeSh)) {
+    captureHookFailure({ command: policyId, kind: 'bridge-missing' });
+    if (policyId === 'stop-check') {
+      return { v: 1, harness: agent, event, policy: policyId, policyVersion: 0, outcome: 'unsupported', code: 'bridge-missing', effect: 'proceed' };
     }
-    const reason = err.stderr ? err.stderr.toString().trim() : (err.stdout ? err.stdout.toString().trim() : '');
     return {
-      decision: 'deny',
-      reason: reason || `[${scriptName}] blocked by DoFlow guard policy`,
+      v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
+      outcome: 'deny', code: 'bridge-missing', reason: '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity', effect: 'block',
     };
   }
+  const profile = process.env.DOFLOW_FAULT_PROFILE || 'compat-1';
+  const effectiveProfile = profile === 'compat-1' || profile === 'strict-1' ? profile : 'compat-1';
+  if (profile !== effectiveProfile) captureHookFailure({ command: policyId, kind: 'fault-profile-unknown' });
+  const blockingPolicy = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check'].includes(policyId);
+  const faultEffect = effectiveProfile === 'strict-1' && blockingPolicy ? 'block' : 'proceed';
+  const faultDecision = (code) => ({
+    v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
+    outcome: 'error', code, reason: code, faultProfile: effectiveProfile, effect: faultEffect,
+  });
+  const result = spawnSync('bash', [bridgeSh, agent, event, policyId, '--emit', 'decision'], {
+    cwd: projectRoot,
+    input: nativeRaw,
+    encoding: 'utf8',
+    timeout: 5000,
+    maxBuffer: 1024 * 1024,
+    env: { ...process.env, DOFLOW_PROJECT_DIR: projectRoot, DOFLOW_AGENT: agent },
+  });
+
+  if (result.error && result.error.code === 'ETIMEDOUT') {
+    captureHookFailure({ command: policyId, kind: 'bridge-timeout' });
+    return faultDecision('bridge-timeout');
+  }
+  if (result.error || result.status === null) {
+    if (result.signal && !['SIGTERM', 'SIGINT', 'SIGPIPE'].includes(result.signal)) {
+      captureHookFailure({ command: policyId, kind: `bridge-exec-fault:${result.signal}` });
+    }
+    return faultDecision('bridge-spawn');
+  }
+  try {
+    const decision = JSON.parse(result.stdout.trim());
+    if (decision && typeof decision === 'object' && typeof decision.effect === 'string') return decision;
+  } catch { /* malformed bridge output is a bridge fault */ }
+  captureHookFailure({ command: policyId, kind: 'bridge-answer-invalid' });
+  return faultDecision('bridge-answer-invalid');
 }
 
 function classifyPreToolUsePolicy(toolName) {
@@ -412,11 +377,11 @@ function classifyPreToolUsePolicy(toolName) {
   return null;
 }
 
-function evaluatePreToolUsePolicy(canonicalPayload, projectRoot, agent) {
-  const toolName = (canonicalPayload && canonicalPayload.tool_name) || '';
+function evaluatePreToolUsePolicy(payload, nativeRaw, projectRoot, agent) {
+  const toolName = payload && payload.toolCall && payload.toolCall.name || payload && payload.tool_name || '';
   const scriptName = classifyPreToolUsePolicy(toolName);
   if (!scriptName) return { decision: 'allow' };
-  return delegateToPolicy(projectRoot, agent, scriptName, canonicalPayload);
+  return delegateToPolicy(projectRoot, agent, 'PreToolUse', scriptName.replace(/\.sh$/, ''), nativeRaw);
 }
 
 /**
@@ -431,17 +396,17 @@ function evaluatePreToolUsePolicy(canonicalPayload, projectRoot, agent) {
  *                   role is out of FR-001's four-policy scope) — ack only; the adapter's toNative
  *                   decides the harness-native shape regardless of this placeholder decision.
  */
-function evaluateEvent(event, canonicalPayload, projectRoot, agent) {
+function evaluateEvent(event, payload, nativeRaw, projectRoot, agent) {
   switch (event) {
     case 'SessionStart':
-      delegateToPolicy(projectRoot, agent, 'session-context.sh', canonicalPayload);
+      delegateToPolicy(projectRoot, agent, event, 'session-context', nativeRaw);
       return { decision: 'allow' };
 
     case 'PreToolUse':
-      return evaluatePreToolUsePolicy(canonicalPayload, projectRoot, agent);
+      return evaluatePreToolUsePolicy(payload, nativeRaw, projectRoot, agent);
 
     case 'Stop':
-      return delegateToPolicy(projectRoot, agent, 'stop-check.sh', canonicalPayload);
+      return delegateToPolicy(projectRoot, agent, event, 'stop-check', nativeRaw);
 
     case 'PostToolUse':
     case 'PreInvocation':
@@ -450,82 +415,7 @@ function evaluateEvent(event, canonicalPayload, projectRoot, agent) {
   }
 }
 
-// Falls back to 'antigravity' (this runner's legacy default) for any value other than
-// 'gemini', including unset/empty. An unrecognized non-empty value is likely a typo, so it
-// gets a stderr warning even though the fallback still applies.
-function resolveAgent() {
-  const raw = process.env.DOFLOW_AGENT || '';
-  const agent = raw.toLowerCase();
-  if (agent === 'gemini') return 'gemini';
-  if (raw && agent !== 'antigravity') {
-    process.stderr.write(`stream-hook-runner: unrecognized DOFLOW_AGENT="${raw}", falling back to antigravity\n`);
-  }
-  return 'antigravity';
-}
-
-function resolveAdapter(agent) {
-  return agent === 'gemini' ? geminiAdapter : antigravityAdapter;
-}
-
-function sniffEventFromPayload(payload) {
-  if (!payload || typeof payload !== 'object') return null;
-  // 'toolCall' in payload (key presence), not payload.toolCall (truthiness): a real Antigravity
-  // PreToolUse payload can carry a null/empty toolCall alongside stepIdx (also present on
-  // PostToolUse payloads) — truthiness alone let such a payload fall through to the stepIdx check
-  // below and get misclassified as PostToolUse, silently skipping the gate entirely
-  // (022-code-review finding). Checked before Stop/PostToolUse since a missed PreToolUse
-  // classification fails the gate open, the worse failure mode of the two.
-  if ('toolCall' in payload || payload.tool_name !== undefined) return 'PreToolUse';
-  if (payload.invocationNum !== undefined) return 'PreInvocation';
-  if (payload.terminationReason !== undefined || payload.executionNum !== undefined) return 'Stop';
-  if (payload.stepIdx !== undefined || payload.terminationBehavior !== undefined) return 'PostToolUse';
-  if (payload.session_id !== undefined && payload.cwd !== undefined) return 'SessionStart';
-  return null;
-}
-
-// ── Back-compat helpers ──────────────────────────────────────────────────────
-//
-// evaluateToolCall/evaluatePayload predate the event-dispatcher/adapter split and are kept for
-// callers (including test/hooks/stream-hook-runner.test.js) that evaluate a single Antigravity-
-// shaped payload directly without going through main()'s argv/env-driven dispatch. Both return the
-// CANONICAL decision shape (never harness-native-translated) exactly as they always have.
-
-function evaluateToolCall(toolCall, projectRoot) {
-  if (!toolCall || typeof toolCall !== 'object') {
-    return { decision: 'allow' };
-  }
-  const canonicalPayload = antigravityAdapter.toCanonical('PreToolUse', { toolCall });
-  return evaluatePreToolUsePolicy(canonicalPayload, projectRoot, 'antigravity');
-}
-
-function evaluatePayload(payload, projectRoot) {
-  if (!payload || typeof payload !== 'object') {
-    return { decision: 'allow' };
-  }
-
-  // PreToolUse: toolCall object present
-  if (payload.toolCall) {
-    return evaluateToolCall(payload.toolCall, projectRoot);
-  }
-
-  // PreInvocation: injection hook
-  if (payload.invocationNum !== undefined) {
-    return { injectSteps: [] };
-  }
-
-  // Stop hook: delegate to the canonical stop-check policy
-  if (payload.terminationReason !== undefined) {
-    const canonicalPayload = antigravityAdapter.toCanonical('Stop', payload);
-    return delegateToPolicy(projectRoot, 'antigravity', 'stop-check.sh', canonicalPayload);
-  }
-
-  // PostToolUse / PostInvocation: empty object response
-  if (payload.stepIdx !== undefined || payload.terminationBehavior !== undefined) {
-    return {};
-  }
-
-  return { decision: 'allow' };
-}
+const RUNNER_EVENTS = new Set(['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop', 'PreInvocation']);
 
 async function main() {
   try {
@@ -542,17 +432,17 @@ async function main() {
     }
 
     const projectRoot = resolveProjectRoot(payload.workspacePaths);
-    const agent = resolveAgent();
-    const adapter = resolveAdapter(agent);
-    const event = explicitEvent || sniffEventFromPayload(payload);
+    const agent = 'antigravity';
+    const adapter = antigravityAdapter;
+    const event = explicitEvent;
 
-    if (!event) {
+    if (!event || !RUNNER_EVENTS.has(event)) {
+      captureHookFailure({ command: 'stream-hook-runner', kind: 'runner-event-missing' });
       process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
       return;
     }
 
-    const canonicalPayload = adapter.toCanonical(event, payload);
-    const decision = evaluateEvent(event, canonicalPayload, projectRoot, agent);
+    const decision = evaluateEvent(event, payload, rawInput, projectRoot, agent);
     const native = adapter.toNative(event, decision);
 
     // An empty object is a harness's documented "say nothing" answer (e.g. Antigravity's Stop
@@ -576,15 +466,10 @@ if (require.main === module) {
 }
 
 module.exports = {
-  evaluateToolCall,
-  evaluatePayload,
   resolveProjectRoot,
+  delegateToPolicy,
   evaluateEvent,
-  resolveAgent,
-  resolveAdapter,
-  resolvePolicyScript,
   classifyPreToolUsePolicy,
-  sniffEventFromPayload,
   isProgrammingError,
   captureHookFailure,
 };
