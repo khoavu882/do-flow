@@ -13,14 +13,14 @@ const FIXTURE_DIR = path.join(ROOT, 'test/fixtures/hooks/policy-golden');
 const POLICIES = ['stop-check', 'session-context', 'user-prompt-submit', 'subagent-audit'];
 const BASH = '/bin/bash';
 
-function run(policy, input, { records = false, configHome } = {}) {
+function run(policy, input, { records = false, configHome, policyDir = POLICY_DIR } = {}) {
   const options = {
     input,
     encoding: 'utf8',
     env: { ...process.env, ...(records ? { DOFLOW_DECISION_FD: '3' } : {}), ...(configHome ? { XDG_CONFIG_HOME: configHome } : {}) },
   };
   if (records) options.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
-  const result = spawnSync(BASH, [path.join(POLICY_DIR, `${policy}.sh`)], options);
+  const result = spawnSync(BASH, [path.join(policyDir, `${policy}.sh`)], options);
   return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '', records: result.output?.[3]?.toString() || '' };
 }
 
@@ -52,6 +52,28 @@ describe('B.2 policy decision records', () => {
         { v: 1, policy, policyVersion: 1, outcome: 'allow', code: 'allow' },
         { v: 1, policy, policyVersion: 1, outcome: 'unsupported', code: 'envelope-version' },
       ]);
+    });
+
+    test(`${policy} preserves native behavior and captures contract-missing without contract.sh`, (t) => {
+      const root = tempDir(t, `doflow-policy-contract-missing-${policy}-`);
+      const policyCopy = path.join(root, 'policies');
+      fs.cpSync(POLICY_DIR, policyCopy, { recursive: true });
+      fs.unlinkSync(path.join(policyCopy, 'contract.sh'));
+      const inputPath = path.join(FIXTURE_DIR, policy, 'input.json');
+      const input = fs.readFileSync(inputPath, 'utf8');
+      const configHome = path.join(root, 'config');
+      const expected = run(policy, input);
+      const nativePayload = JSON.parse(input);
+      nativePayload.doflow_event = { version: 2 };
+      const actual = run(policy, JSON.stringify(nativePayload), { policyDir: policyCopy, configHome });
+      assert.equal(actual.status, expected.status, 'exit status matches native policy');
+      assert.equal(actual.stdout, expected.stdout, 'stdout matches native policy');
+      assert.equal(actual.stderr, expected.stderr, 'stderr matches native policy');
+      const eventsPath = path.join(configHome, 'doflow/failures/events.jsonl');
+      const events = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').map(JSON.parse);
+      assert.equal(events.length, 1);
+      assert.equal(events[0].command, policy);
+      assert.equal(events[0].kind, 'contract-missing');
     });
   }
 

@@ -28,9 +28,16 @@ set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 INPUT=$(cat)
-# shellcheck source=contract.sh
-source "$(dirname "$0")/contract.sh"
-doflow_decision_init user-prompt-submit 1
+POLICY_DIR=$(dirname "$0")
+if [ -f "$POLICY_DIR/contract.sh" ]; then
+  # shellcheck source=contract.sh
+  source "$POLICY_DIR/contract.sh"
+  doflow_decision_init user-prompt-submit 1
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit contract-missing ) >/dev/null 2>&1 || true
+fi
 if ! command -v jq >/dev/null 2>&1; then doflow_decide error dependency-missing:jq; fi
 require_jq
 # One jq pass over the payload for every field this hook reads (each pass costs about 8 ms on a
@@ -46,6 +53,7 @@ SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT="" ENVELOPE_CLASS=""
     | . + [if (($p | type) == "object") and (($p.doflow_event | type) == "object") and ($p.doflow_event | has("version")) and (($p.doflow_event.version | type) != "number" or $p.doflow_event.version != 1) then "unsupported" else "v0" end]
     | join("\u0000") + "\u0000"' 2>/dev/null
 ) || true
+if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=v0; fi
 
 if [[ "$ENVELOPE_CLASS" == unsupported ]]; then
   doflow_decide unsupported envelope-version
