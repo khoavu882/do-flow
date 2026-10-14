@@ -1,0 +1,5 @@
+{
+  "native":{"hook_event_name":"PreToolUse","session_id":"kiro-bash-perf","tool_name":"shell","tool_input":{"command":"ls -la"}},
+  "state":"none","fault":"none",
+  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"PreToolUse","operation":"command","tool":"Bash","command":"ls -la","identity":{"session":"kiro-bash-perf"}},"failurePoint":null,"taskStateUnchanged":true}
+}

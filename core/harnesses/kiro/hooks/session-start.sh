@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Kiro adapter: reuse the canonical session-context policy with Kiro attribution.
+# Kiro front door: session-context through the shared lifecycle bridge.
 set -euo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-kiro}"
+here="$(dirname "$0")"
 # shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
-# Translate Kiro's payload (tool names, KIRO_SESSION_ID, assistant_response) to the canonical one.
-payload=$(kiro_bridge_payload)
-exec bash "$(dirname "$0")/../../.doflow/shared/hooks/policies/session-context.sh" <<<"$payload"
+source "$here/lib.sh"
+raw=$(cat)
+payload=$(kiro_bridge_payload <<<"$raw")
+event="SessionStart"
+if command -v jq >/dev/null 2>&1; then event=$(printf '%s' "$raw" | jq -r '.hook_event_name // "SessionStart"' 2>/dev/null) || event="SessionStart"; fi
+. "$here/../../.doflow/shared/hooks/bridge/bridge.sh"
+doflow_bridge kiro "$event" session-context <<<"$payload"

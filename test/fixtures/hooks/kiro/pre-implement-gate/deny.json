@@ -1,0 +1,39 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "kiro-gate-deny",
+    "cwd": "/tmp",
+    "tool_name": "write",
+    "tool_input": {
+      "path": "src/a.js"
+    }
+  },
+  "state": "no-design",
+  "fault": "none",
+  "expect": {
+    "exit": 2,
+    "stdout": "",
+    "stderrIncludes": "missing requirement.md, design.md, or plan.md",
+    "decision": {
+      "outcome": "deny",
+      "code": "missing-artifacts",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "Write",
+      "paths": [
+        "src/a.js"
+      ],
+      "identity": {
+        "session": "kiro-gate-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 292
+  }
+}

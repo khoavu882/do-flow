@@ -1,0 +1,36 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "kiro-mcp-deny",
+    "tool_name": "@evil/drop",
+    "tool_input": {}
+  },
+  "state": "none",
+  "fault": "none",
+  "policyConfig": {
+    "file": "mcp-policy.conf",
+    "contents": "^mcp__evil__drop\tKiro MCP test blocked\n"
+  },
+  "expect": {
+    "exit": 2,
+    "stdout": "",
+    "stderrIncludes": "Kiro MCP test blocked",
+    "decision": {
+      "outcome": "deny",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "PreToolUse",
+      "operation": "mcp",
+      "tool": "mcp__evil__drop",
+      "identity": {
+        "session": "kiro-mcp-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 63
+  }
+}

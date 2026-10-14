@@ -1,0 +1,35 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "kiro-bash-deny",
+    "tool_name": "shell",
+    "tool_input": {
+      "command": "rm -rf /"
+    }
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 2,
+    "stdout": "",
+    "stderrIncludes": "blocked",
+    "decision": {
+      "outcome": "deny",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "rm -rf /",
+      "identity": {
+        "session": "kiro-bash-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 88
+  }
+}

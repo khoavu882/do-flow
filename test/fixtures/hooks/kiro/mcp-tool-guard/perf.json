@@ -1,0 +1,5 @@
+{
+  "native":{"hook_event_name":"PreToolUse","session_id":"kiro-mcp-perf","tool_name":"@evil/list","tool_input":{}},
+  "state":"none","fault":"none",
+  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"PreToolUse","operation":"mcp","tool":"mcp__evil__list","identity":{"session":"kiro-mcp-perf"}},"failurePoint":null,"taskStateUnchanged":true}
+}
