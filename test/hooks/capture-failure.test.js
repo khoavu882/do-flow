@@ -324,7 +324,7 @@ describe('what the guard policies must not do (DEC-018, DEC-032)', () => {
       const points = [...text.matchAll(/doflow_capture_failure [a-z-]+ ([A-Za-z0-9:._-]+)/g)].map((match) => match[1]);
       assert.deepEqual(points, expectedPoints, `${policy} capture points`);
       assert.equal((text.match(/capture-failure\.sh/g) || []).length, expectedPoints.length);
-      assert.equal((text.match(/\( \. "\$\(dirname "\$0"\)\/capture-failure\.sh"; doflow_capture_failure/g) || []).length, expectedPoints.length);
+      assert.equal((text.match(/\( \. "\$_DOFLOW_POLDIR\/capture-failure\.sh"; doflow_capture_failure/g) || []).length, expectedPoints.length);
       assert.ok(!/lib\.sh/.test(text), 'sources lib.sh');
       assert.ok(!/^\s*set\s+-[a-zA-Z]*e/m.test(text), 'sets -e');
       assert.ok(!/\btrap\b/.test(text), 'installs a trap');

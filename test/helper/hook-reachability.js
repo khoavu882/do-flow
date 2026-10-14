@@ -69,12 +69,26 @@ function dependencyTargets(root, file, files, text) {
   };
   for (const match of text.matchAll(/require\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g)) addPath(match[1]);
   for (const match of text.matchAll(/dirname\s+["']?\$0["']?\)?\)\/?([^\s"'`]+)/g)) addPath(match[1]);
+  for (const match of text.matchAll(/\$\{0%\/\*\}\/([A-Za-z0-9_.-]+\.(?:sh|jq|js|conf))/g)) {
+    addPath(match[1]);
+  }
+  for (const match of text.matchAll(/\$_DOFLOW_POLDIR\/([A-Za-z0-9_.-]+\.(?:sh|jq|js|conf))/g)) {
+    addPath(match[1]);
+  }
+  for (const match of text.matchAll(/\$_DOFLOW_(BRIDGE|RESPOND)_DIR\/([A-Za-z0-9_.-]+\.(?:sh|jq|js|conf))/g)) {
+    add(`core/harnesses/shared/hooks/bridge/${match[2]}`);
+  }
+  const shellDirs = new Map();
+  for (const match of text.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)=\$\{0%\/\*\}/g)) {
+    shellDirs.set(match[1], match[1].toLowerCase().includes('bridge') ? 'bridge' : 'policies');
+  }
   for (const match of text.matchAll(/(?:^|[;\n])\s*(?:source|\.)\s+["']?([^\s"']+)/gm)) {
     const value = match[1];
     if (value.includes('$')) {
       const basename = path.posix.basename(value);
       const lower = value.toLowerCase();
-      const prefix = lower.includes('polic') ? 'core/harnesses/shared/hooks/policies/' : lower.includes('bridge') ? 'core/harnesses/shared/hooks/bridge/' : null;
+      const dir = value.match(/^\$([A-Za-z_][A-Za-z0-9_]*)\//);
+      const prefix = lower.includes('polic') ? 'core/harnesses/shared/hooks/policies/' : lower.includes('bridge') ? 'core/harnesses/shared/hooks/bridge/' : dir && shellDirs.has(dir[1]) ? `core/harnesses/shared/hooks/${shellDirs.get(dir[1])}/` : null;
       if (prefix) add(prefix + basename);
       else if (value.includes('here') || value.includes('dirname')) add(path.posix.join(path.posix.dirname(file), basename));
     } else addPath(value);

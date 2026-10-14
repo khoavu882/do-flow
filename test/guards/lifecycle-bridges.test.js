@@ -9,7 +9,7 @@ const { spawnSync } = require('node:child_process');
 const { REPO, loadCorpus, parseRecords, runPolicy, encodeEnvelope } = require('../helper/hook-fixtures');
 const { tempDir } = require('../helper/tmp');
 const { rowsDigest, renderEnforcementMatrix, NEVER_BLOCKING_EVENTS } = require('../../src/lifecycle/coverage.ts');
-const { hookReachabilityFindings, runnerHeaderFindings } = require('../helper/hook-reachability');
+const { hookReachabilityFindings, runnerHeaderFindings, dependencyTargets } = require('../helper/hook-reachability');
 
 const POLICY_DIR = path.join(REPO, 'core/harnesses/shared/hooks/policies');
 const BRIDGE_DIR = path.join(REPO, 'core/harnesses/shared/hooks/bridge');
@@ -559,6 +559,17 @@ test('G37.3 control: orphan hook files are reported, including a mutually-refere
   assert.ok(withOrphan.includes(`orphan shipped hook file ${orphan}`));
   assert.ok(withOrphan.includes(`orphan shipped hook file ${pairA}`));
   assert.ok(withOrphan.includes(`orphan shipped hook file ${pairB}`));
+});
+
+test('G37.3 control: the bare-safe policy directory variable keeps capture-failure reachable', () => {
+  const source = 'case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac\n. "$_DOFLOW_POLDIR/capture-failure.sh"\n';
+  const shipped = [
+    'core/harnesses/shared/hooks/policies/pre-bash-guard.sh',
+    'core/harnesses/shared/hooks/policies/capture-failure.sh',
+  ];
+  assert.deepEqual(dependencyTargets(REPO, shipped[0], shipped, source), [shipped[1]]);
+  const withoutReference = source.replace('. "$_DOFLOW_POLDIR/capture-failure.sh"', ':');
+  assert.deepEqual(dependencyTargets(REPO, shipped[0], shipped, withoutReference), []);
 });
 test('G37.3 control: an old runner header is rejected', () => {
   const runner = fs.readFileSync(path.join(REPO, 'core/harnesses/shared/hooks/stream-hook-runner.js'), 'utf8');

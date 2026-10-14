@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # user-prompt-submit.sh — Canonical Policy Library: UserPromptSubmit hook
 #
 # 022-hooks-remaining-duplication: claude and codex's UserPromptSubmit policies share the same
@@ -26,9 +27,9 @@
 
 set -euo pipefail
 # shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
+source "$_DOFLOW_POLDIR/lib.sh"
 INPUT=$(cat)
-POLICY_DIR=$(dirname "$0")
+POLICY_DIR=$_DOFLOW_POLDIR
 if [ -f "$POLICY_DIR/contract.sh" ]; then
   # shellcheck source=contract.sh
   source "$POLICY_DIR/contract.sh"
@@ -67,7 +68,7 @@ if [[ "$ENVELOPE_CLASS" == unsupported || "$ENVELOPE_CLASS" == missing ]]; then
   [[ -f "$POLICY_DIR/contract.sh" ]] || code=contract-missing
   doflow_decide unsupported "$code"
   if [[ -f "$POLICY_DIR/contract.sh" ]]; then
-    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure user-prompt-submit "$code" ) >/dev/null 2>&1 || true
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit "$code" ) >/dev/null 2>&1 || true
   fi
   printf '{}'
   exit 0
@@ -95,7 +96,7 @@ nudge_message() {
   # N5: a subagent prompt carries agent_id or agent_type (read with the other fields above).
   [[ -z "$SUBAGENT" ]] || return 0
   # N6: the policy script's physical directory, found with built-ins (a subshell costs about 4 ms).
-  case "$0" in */*) policy_dir="${0%/*}" ;; *) policy_dir="." ;; esac
+  policy_dir=$_DOFLOW_POLDIR
   here="$PWD"
   cd -P -- "$policy_dir" 2>/dev/null || return 0
   policy_dir="$PWD"

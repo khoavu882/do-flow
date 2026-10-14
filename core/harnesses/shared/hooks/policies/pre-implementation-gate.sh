@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # pre-implementation-gate.sh — Canonical Policy Library: PreToolUse(Edit|Write|...)
 # backstop for the doflow implement gate. The HARD half of the one enforced
 # gate (the other half is the prompt-level do-prereqs.sh inside
@@ -51,13 +52,13 @@
 set -uo pipefail
 
 INPUT=$(cat)
-if [ -f "$(dirname "$0")/contract.sh" ]; then
-  . "$(dirname "$0")/contract.sh"
+if [ -f "$_DOFLOW_POLDIR/contract.sh" ]; then
+  . "$_DOFLOW_POLDIR/contract.sh"
 else
   doflow_decision_init() { :; }
   doflow_decide() { :; }
   doflow_read_envelope() { DF_ENV_CLASS=missing; DF_ENV_CODE=contract-missing; }
-  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate contract-missing ) >/dev/null 2>&1 || true
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate contract-missing ) >/dev/null 2>&1 || true
   if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then
     printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2
   else
@@ -69,7 +70,7 @@ fi
 doflow_decision_init pre-implementation-gate 1
 command -v jq >/dev/null 2>&1 || {
   doflow_decide error dependency-missing:jq
-  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate dependency-missing:jq ) >/dev/null 2>&1 || true
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate dependency-missing:jq ) >/dev/null 2>&1 || true
   exit 0
 }
 
@@ -95,7 +96,7 @@ if [ "$DF_ENV_CLASS" = v1 ]; then
   ENVELOPE_TASK=$DF_ENV_TASK
   if [ -z "$FILES" ] && [ -z "$DF_ENV_PATCH" ]; then
     doflow_decide unsupported edit-without-target
-    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate edit-without-target ) >/dev/null 2>&1 || true
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate edit-without-target ) >/dev/null 2>&1 || true
     exit 0
   fi
   if [ -z "$FILES" ] && [ -n "$DF_ENV_PATCH" ]; then
@@ -104,11 +105,11 @@ if [ "$DF_ENV_CLASS" = v1 ]; then
   fi
 elif [ "$DF_ENV_CLASS" = unsupported ]; then
   doflow_decide unsupported envelope-version
-  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate unsupported:envelope-version ) >/dev/null 2>&1 || true
+  ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate unsupported:envelope-version ) >/dev/null 2>&1 || true
   exit 0
 else
   if [ "${DF_ENV_CODE:-envelope-missing}" != contract-missing ]; then
-    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate envelope-missing ) >/dev/null 2>&1 || true
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate envelope-missing ) >/dev/null 2>&1 || true
   fi
   if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' >&2; fi
   doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
@@ -380,7 +381,7 @@ fi
 # ── Readiness ────────────────────────────────────────────────────────────────
 # The workflow registry the installed runtime reads: beside this policy in an
 # install, the source tree's own, the project's install, the global install.
-POLICY_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || POLICY_DIR=""
+POLICY_DIR=$_DOFLOW_POLDIR
 REGISTRY=""
 for candidate in \
   "${POLICY_DIR:+$POLICY_DIR/../../../runtime/core/registry/workflows.json}" \

@@ -6,7 +6,7 @@
 # example its pattern file is missing). It exists only to be sourced, in a subshell with all output
 # discarded, from inside a branch where the policy already fails open:
 #
-#   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard patterns-missing ) >/dev/null 2>&1 || true
+#   ( . "<policy-dir>/capture-failure.sh"; doflow_capture_failure pre-bash-guard patterns-missing ) >/dev/null 2>&1 || true
 #
 # The subshell keeps anything this file does away from the policy, which runs with `set -uo pipefail`,
 # does not source lib.sh and would change exit codes under `set -e`. So this file:
@@ -15,6 +15,8 @@
 #   - reads no stdin and writes nothing to stdout or stderr;
 #   - never rotates the file (rotation is done by the Node writers only, DEC-019);
 #   - never blocks, never changes the policy's decision, and swallows every error.
+
+case ${BASH_SOURCE[0]} in */*) _DOFLOW_CAPTURE_FAILURE_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_CAPTURE_FAILURE_DIR=. ;; esac
 # The line holds only the policy name and the point name from DoFlow's own code, the working
 # directory, the harness name and the install version: never the tool call, its arguments or stdin.
 # It is a no-op when no failure home can be resolved (HOME unset, or XDG_CONFIG_HOME relative) and
@@ -54,7 +56,7 @@ doflow_capture_failure() {
   [[ "$harness" =~ ^[A-Za-z0-9._-]{1,40}$ ]] || harness="none"
 
   # script_version of the nearest install manifest: walking up from this file, then the global one.
-  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || here=""
+  here="$(CDPATH= cd -P -- "$_DOFLOW_CAPTURE_FAILURE_DIR" 2>/dev/null && pwd -P)" || here=""
   dir="$here"
   while [ -n "$dir" ] && [ -z "$version" ]; do
     if [ -f "$dir/.doflow/.install-manifest.json" ]; then

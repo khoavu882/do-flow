@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Shared lifecycle bridge. Sourcing defines functions only; it sets no shell options or traps.
-DOFLOW_BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+case ${BASH_SOURCE[0]} in */*) _DOFLOW_BRIDGE_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_BRIDGE_DIR=. ;; esac
 
 doflow_bridge_failure() {
   local policy="$1" point="$2"
-  ( . "$DOFLOW_BRIDGE_DIR/../policies/capture-failure.sh"; doflow_capture_failure "$policy" "$point" ) >/dev/null 2>&1 || true
+  ( . "$_DOFLOW_BRIDGE_DIR/../policies/capture-failure.sh"; doflow_capture_failure "$policy" "$point" ) >/dev/null 2>&1 || true
 }
 
 doflow_bridge_classify() {
@@ -36,7 +36,7 @@ doflow_bridge_classify() {
 
 doflow_bridge_effect() {
   local harness="$1" event="$2" policy="$3" outcome="$4" profile="${DOFLOW_FAULT_PROFILE:-compat-1}" block=0
-  event="$(doflow_bridge_native_event "$harness" "$event")"
+  doflow_bridge_native_event_var "$harness" "$event"; event=$DF_NE
   if [ "$profile" != compat-1 ] && [ "$profile" != strict-1 ]; then
     profile=compat-1; doflow_bridge_failure "$policy" fault-profile-unknown
   fi
@@ -76,16 +76,16 @@ doflow_bridge_drops_tool_stderr() {
 
 doflow_bridge() {
   local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 encode_failed=0
-  . "$DOFLOW_BRIDGE_DIR/respond.sh"
-  response_event="$(doflow_bridge_native_event "$harness" "$event")"
+  . "$_DOFLOW_BRIDGE_DIR/respond.sh"
+  doflow_bridge_native_event_var "$harness" "$event"; response_event=$DF_NE
   if [ "${4:-}" = --emit ]; then emit="${5:-native}"; fi
   payload="$(cat)"
   if command -v jq >/dev/null 2>&1; then
-    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode encode -f "$DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
+    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode encode -f "$_DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
       case "$encoded" in \{*) payload="$encoded" ;; *) encode_failed=1 ;; esac
     } || { encode_failed=1; }
     if [ "$encode_failed" -eq 1 ]; then
-      encoded="$(jq -cn --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode minimal -f "$DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" || encoded=""
+      encoded="$(jq -cn --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode minimal -f "$_DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" || encoded=""
       case "$encoded" in \{*) payload="$encoded" ;; *) payload="{\"doflow_event\":{\"version\":1,\"harness\":\"$harness\",\"event\":\"$event\",\"operation\":\"tool\"}}" ;; esac
       doflow_bridge_failure "$policy" envelope-encode
     fi
@@ -96,7 +96,7 @@ doflow_bridge() {
     pre-implementation-gate|pre-bash-guard|mcp-tool-guard|stop-check|session-context|user-prompt-submit|subagent-audit) ;;
     *) spawn_failed=1 ;;
   esac
-  policy_path="$DOFLOW_BRIDGE_DIR/../policies/$policy.sh"
+  policy_path="$_DOFLOW_BRIDGE_DIR/../policies/$policy.sh"
   if [ "$spawn_failed" -eq 1 ] || [ ! -f "$policy_path" ]; then
     code=127; err=""; spawn_failed=1
   else
@@ -178,7 +178,7 @@ doflow_bridge() {
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-  . "$DOFLOW_BRIDGE_DIR/respond.sh"
+  . "$_DOFLOW_BRIDGE_DIR/respond.sh"
   doflow_bridge "${1:-}" "${2:-}" "${3:-}" "${4:-}" "${5:-}"
   exit $?
 fi
