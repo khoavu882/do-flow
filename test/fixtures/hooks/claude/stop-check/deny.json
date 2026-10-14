@@ -5,9 +5,7 @@
     "last_assistant_message": "// TODO: finish this work"
   },
   "env": {
-    "DOFLOW_FAULT_PROFILE": "compat-1",
-    "HOME": "/dev/null",
-    "XDG_CONFIG_HOME": "/dev/null"
+    "DOFLOW_FAULT_PROFILE": "compat-1"
   },
   "state": "none",
   "fault": "none",
@@ -31,6 +29,6 @@
     },
     "failurePoint": null,
     "taskStateUnchanged": true,
-    "modelVisibleBytesMax": 160
+    "modelVisibleBytesMax": 126
   }
 }
