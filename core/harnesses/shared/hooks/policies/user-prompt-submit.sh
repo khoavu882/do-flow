@@ -27,21 +27,42 @@
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
-require_jq
-
 INPUT=$(cat)
+POLICY_DIR=$(dirname "$0")
+if [ -f "$POLICY_DIR/contract.sh" ]; then
+  # shellcheck source=contract.sh
+  source "$POLICY_DIR/contract.sh"
+  doflow_decision_init user-prompt-submit 1
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit contract-missing ) >/dev/null 2>&1 || true
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  doflow_decide error dependency-missing:jq
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit dependency-missing:jq ) >/dev/null 2>&1 || true
+fi
+require_jq
 # One jq pass over the payload for every field this hook reads (each pass costs about 8 ms on a
 # 20 KB prompt, and the budget is 100 ms), NUL-separated: session_id, cwd and session_title, null
 # and false read as empty as json_field does, with any NUL inside a value dropped so no field can
 # shift into the next; then `subagent` when agent_id or agent_type holds anything but null or "".
-SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT=""
-{ IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD; IFS= read -r -d '' PAYLOAD_TITLE; IFS= read -r -d '' SUBAGENT; } < <(
+SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT="" ENVELOPE_CLASS=""
+{ IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD; IFS= read -r -d '' PAYLOAD_TITLE; IFS= read -r -d '' SUBAGENT; IFS= read -r -d '' ENVELOPE_CLASS; } < <(
   printf '%s' "$INPUT" | jq -j '. as $p
-    | [$p.session_id, $p.cwd, $p.session_title]
+    | [if ($p.session_id | type) == "string" then ($p.session_id | rtrimstr("\n")) else $p.session_id end, $p.cwd, $p.session_title]
     | map(if . == null or . == false then "" elif type == "string" then . else tojson end | split("\u0000") | join(""))
     | . + [if any($p.agent_id, $p.agent_type; . != null and . != "") then "subagent" else "" end]
+    | . + [if (($p | type) == "object") and (($p.doflow_event | type) == "object") and ($p.doflow_event | has("version")) and (($p.doflow_event.version | type) != "number" or $p.doflow_event.version != 1) then "unsupported" else "v0" end]
     | join("\u0000") + "\u0000"' 2>/dev/null
 ) || true
+if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=v0; fi
+
+if [[ "$ENVELOPE_CLASS" == unsupported ]]; then
+  doflow_decide unsupported envelope-version
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure user-prompt-submit unsupported:envelope-version ) >/dev/null 2>&1 || true
+  exit 0
+fi
 
 [[ -z "$SESSION_ID" ]] && exit 0
 
@@ -103,6 +124,7 @@ emit_envelope() {
 if [[ -f "$INJECTED_FLAG" ]]; then
   NUDGE=$(nudge_message 2>/dev/null) || NUDGE=""
   if [[ -n "$NUDGE" ]]; then
+    doflow_decide advisory prompt-nudge
     emit_envelope "$NUDGE" ""
   else
     echo "{}"
@@ -221,6 +243,7 @@ touch "$INJECTED_FLAG"
 # The nudge, when earned, follows the context after a blank line.
 NUDGE=$(nudge_message 2>/dev/null) || NUDGE=""
 if [[ -n "$NUDGE" ]]; then
+  doflow_decide advisory prompt-nudge
   CONTEXT+=$'\n\n'"$NUDGE"
 fi
 
