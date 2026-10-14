@@ -24,9 +24,7 @@ const { readScopes } = require('../../src/runtime/inventory/read-scopes.ts');
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const OLDER = '0fcd973';
-const OLDER_SKIP = IS_WIN ? 'the hook scripts are POSIX shell'
-  : (spawnSync('git', ['cat-file', '-e', `${OLDER}^{commit}`], { cwd: REPO }).status === 0 ? false
-    : `commit ${OLDER} is absent from this clone, so the older doors cannot be installed (git fetch --all)`);
+const OLDER_SKIP = IS_WIN ? 'the hook scripts are POSIX shell' : false;
 const SKIP = IS_WIN ? 'the hook scripts are POSIX shell' : false;
 
 const notice = (harness) => `refreshed ${harness} hook front doors to match the shared hooks tree`;
@@ -36,6 +34,8 @@ let olderCli = null;
 
 before(() => {
   if (OLDER_SKIP) return;
+  const reachable = spawnSync('git', ['cat-file', '-e', `${OLDER}^{commit}`], { cwd: REPO, encoding: 'utf8' });
+  assert.equal(reachable.status, 0, `required baseline commit ${OLDER} is unreachable; fetch the full history before running IC-037 lifecycle tests${reachable.stderr ? `: ${reachable.stderr.trim()}` : ''}`);
   const dir = suiteTempDir('doflow-hook-step-older-');
   const archive = spawnSync('git', ['archive', '--format=tar', '-o', path.join(dir, 'older.tar'), OLDER], { cwd: REPO, encoding: 'utf8' });
   assert.equal(archive.status, 0, archive.stderr);

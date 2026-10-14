@@ -137,3 +137,31 @@ test('legacy native tool read in a temp policy lets the 0fcd973 Claude door allo
   assert.equal(result.stdout, '');
   assert.equal(result.stderr, '');
 });
+
+test('0fcd973 Claude and Codex Stop and SessionStart doors stay silent against the current tree', (t) => {
+  const temp = tempDir(t, 'doflow-out-of-step-old-lifecycle-doors-');
+  const mirror = path.join(temp, 'mirror');
+  buildInstallMirror(mirror);
+  const { root: project } = createScratchGitRepo({ path: (...parts) => path.join(temp, ...parts) }, 'project');
+  const rows = [
+    ['claude', 'stop-check.sh', 'core/harnesses/claude/hooks/stop-check.sh', { hook_event_name: 'Stop', stop_hook_active: false }],
+    ['codex', 'stop-check.sh', 'core/harnesses/codex/hooks/stop-check.sh', { hook_event_name: 'Stop', stop_hook_active: false }],
+    ['claude', 'session-start.sh', 'core/harnesses/claude/hooks/session-start.sh', { hook_event_name: 'SessionStart', source: 'startup' }],
+    ['codex', 'session-start.sh', 'core/harnesses/codex/hooks/session-start.sh', { hook_event_name: 'SessionStart', source: 'startup' }],
+  ];
+  for (const [harness, name, source, input] of rows) {
+    const contents = execFileSync('git', ['show', `0fcd973:${source}`], { cwd: path.resolve(__dirname, '../..'), encoding: 'utf8' });
+    const installed = path.join(mirror, `.${harness}/hooks/${name}`);
+    write(installed, contents);
+    fs.chmodSync(installed, 0o755);
+    const result = spawnSync('bash', [installed], {
+      cwd: project, input: `${JSON.stringify(input)}\n`, encoding: 'utf8',
+      env: { ...process.env, DOFLOW_AGENT: harness, DOFLOW_PROJECT_DIR: project, DOFLOW_FAILURE_CAPTURE: 'off' },
+    });
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.equal(result.status, 0, `${harness}/${name} exit`);
+    // Codex's legacy Stop adapter always emits its native continue object; it carries no deny output.
+    assert.equal(result.stdout || '', harness === 'codex' && name === 'stop-check.sh' ? '{}\n' : '', `${harness}/${name} stdout`);
+    assert.equal(result.stderr || '', '', `${harness}/${name} stderr`);
+  }
+});
