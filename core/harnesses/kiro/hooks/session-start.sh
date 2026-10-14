@@ -9,5 +9,7 @@ raw=$(cat)
 payload=$(kiro_bridge_payload <<<"$raw")
 event="SessionStart"
 if command -v jq >/dev/null 2>&1; then event=$(printf '%s' "$raw" | jq -r '.hook_event_name // "SessionStart"' 2>/dev/null) || event="SessionStart"; fi
-. "$here/../../.doflow/shared/hooks/bridge/bridge.sh"
+bridge="$here/../../.doflow/shared/hooks/bridge/bridge.sh"
+if [ ! -f "$bridge" ]; then exit 0; fi
+. "$bridge" 2>/dev/null || exit 0
 doflow_bridge kiro "$event" session-context <<<"$payload"

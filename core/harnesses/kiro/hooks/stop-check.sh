@@ -18,7 +18,9 @@ if [ -n "$raw_sid" ]; then
 else
   export DOFLOW_KIRO_ENGINE=2x
 fi
-. "$here/../../.doflow/shared/hooks/bridge/bridge.sh"
+bridge="$here/../../.doflow/shared/hooks/bridge/bridge.sh"
+if [ ! -f "$bridge" ]; then exit 0; fi
+. "$bridge" 2>/dev/null || exit 0
 exec 4>&1
 if bridge_stderr=$(doflow_bridge kiro "$event" stop-check <<<"$payload" 2>&1 1>&4); then
   status=0

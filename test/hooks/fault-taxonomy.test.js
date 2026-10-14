@@ -424,7 +424,7 @@ test('advisory faults preserve model-visible bytes in compat-1 and strict-1', (t
   }
 });
 
-test('real Pi extension maps bridge spawn faults by profile without throwing', async (t) => {
+test('real Pi extension blocks a missing bridge as an out-of-step install', async (t) => {
   const source = fs.readFileSync(path.join(ROOT, 'core/harnesses/pi/extensions/doflow-guard.js'), 'utf8');
   const piMirror = tempDir(t, 'doflow-fault-pi-spawn-');
   buildInstallMirror(piMirror);
@@ -448,14 +448,45 @@ test('real Pi extension maps bridge spawn faults by profile without throwing', a
     if (prior === undefined) delete process.env.DOFLOW_FAULT_PROFILE; else process.env.DOFLOW_FAULT_PROFILE = prior;
     if (priorXdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = priorXdg;
   });
-  for (const profile of ['compat-1', 'strict-1']) {
+  const missingLog = path.join(piXdg, 'doflow/failures/events.jsonl');
+  for (const [index, profile] of ['compat-1', 'strict-1'].entries()) {
     process.env.DOFLOW_FAULT_PROFILE = profile;
     const result = await handler({ type: 'tool_call', toolName: 'edit', toolCallId: profile, input: { path: 'src/a.js' } }, {
       cwd: path.dirname(absentBridge), sessionManager: { getSessionId: () => 'fault-test' },
     });
-    if (profile === 'compat-1') assert.equal(result, undefined, 'Pi compat-1 spawn fault proceeds');
-    else assert.deepEqual(result, { block: true, reason: REASON }, 'Pi strict-1 spawn fault blocks with its native response');
+    assert.deepEqual(result, { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' }, `Pi ${profile} missing bridge blocks with the out-of-step response`);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (fs.existsSync(missingLog) && fs.readFileSync(missingLog, 'utf8').trim().split('\n').length >= index + 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
+  assert.ok(fs.existsSync(missingLog), 'missing bridge capture file is created');
+  assert.deepEqual(fs.readFileSync(missingLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line).kind), ['bridge-missing', 'bridge-missing'], 'missing bridge is captured for each profile');
+
+  const spawnRoot = tempDir(t, 'doflow-fault-pi-present-bridge-');
+  buildInstallMirror(spawnRoot);
+  const presentBridge = path.join(spawnRoot, '.doflow/shared/hooks/bridge/bridge.sh');
+  fs.writeFileSync(presentBridge, '#!/bin/bash\nexit 1\n');
+  const spawnSource = source.replace(
+    "const BRIDGE = new URL('../../shared/hooks/bridge/bridge.sh', import.meta.url);",
+    `const BRIDGE = new URL(${JSON.stringify(pathToFileURL(presentBridge).href)});`,
+  );
+  assert.notEqual(spawnSource, source, 'Pi spawn-fault case points at an existing bridge');
+  const { default: registerSpawn } = await import(`data:text/javascript;base64,${Buffer.from(spawnSource).toString('base64')}`);
+  let spawnHandler;
+  registerSpawn({ on(_event, callback) { spawnHandler = callback; } });
+  const spawnXdg = path.join(spawnRoot, 'xdg');
+  process.env.DOFLOW_FAULT_PROFILE = 'compat-1';
+  process.env.XDG_CONFIG_HOME = spawnXdg;
+  const spawnResult = await spawnHandler({ type: 'tool_call', toolName: 'edit', toolCallId: 'present-bridge-spawn-failure', input: { path: 'src/a.js' } }, {
+    cwd: spawnRoot, sessionManager: { getSessionId: () => 'fault-test' },
+  });
+  assert.equal(spawnResult, undefined, 'Pi compat-1 proceeds when the present bridge exits unsuccessfully');
+  const spawnLog = path.join(spawnXdg, 'doflow/failures/events.jsonl');
+  for (let attempt = 0; attempt < 100 && !fs.existsSync(spawnLog); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(fs.existsSync(spawnLog), 'present bridge spawn fault capture file is created');
+  assert.deepEqual(fs.readFileSync(spawnLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line).kind), ['bridge-spawn'], 'present-but-failing bridge is captured once as bridge-spawn');
+  process.env.XDG_CONFIG_HOME = piXdg;
 
   const slowBridge = path.join(path.dirname(absentBridge), 'slow-bridge.sh');
   const slowStarted = path.join(path.dirname(absentBridge), 'slow-started');
@@ -517,7 +548,7 @@ test('real Pi extension maps bridge spawn faults by profile without throwing', a
   await new Promise((resolve) => setTimeout(resolve, 50));
   const piStore = path.join(piXdg, 'doflow/failures/events.jsonl');
   const piKinds = fs.readFileSync(piStore, 'utf8').trim().split('\n').map((line) => JSON.parse(line).kind);
-  assert.ok(piKinds.includes('bridge-spawn'), 'Pi spawn fault reaches failure store');
+  assert.ok(piKinds.includes('bridge-missing'), 'Pi missing bridge reaches failure store');
   assert.ok(piKinds.includes('bridge-timeout'), 'Pi timeout fault reaches failure store');
   assert.ok(piKinds.includes('fault-profile-unknown'), 'unknown Pi profile reaches failure store');
 });

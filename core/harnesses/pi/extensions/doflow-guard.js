@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // C.3's renderer replaces this relative source-tree path for each install scope.
@@ -130,6 +131,10 @@ export default function (pi) {
     try {
       policy = route(event.toolName);
       if (!policy) return undefined;
+      if (!existsSync(BRIDGE)) {
+        captureFailure(policy, 'bridge-missing');
+        return { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' };
+      }
       const payload = JSON.stringify({
         type: event.type,
         toolName: event.toolName,
@@ -143,7 +148,7 @@ export default function (pi) {
       return await bridgeCall(policy, payload, ctx);
     } catch (error) {
       const point = error?.failurePoint || 'bridge-spawn';
-      captureFailure(policy, point === 'bridge-timeout' ? point : 'bridge-spawn');
+      captureFailure(policy, point === 'bridge-timeout' || point === 'bridge-missing' ? point : 'bridge-spawn');
       if ((process.env.DOFLOW_FAULT_PROFILE || 'compat-1') === 'strict-1') return { block: true, reason: ERROR_REASON(policy) };
       return undefined;
     }
