@@ -23,7 +23,7 @@ function defineHookScriptTests(harness) {
     assert.ok(staleScripts(c, harness).includes('pre-implement-gate.sh'), 'the older install carries older scripts');
   };
   // The tree made to change, so an update that names only pi has a reason to look at the doors.
-  const moveTree = (c) => fs.rmSync(path.join(c.proj, '.doflow', 'shared', 'hooks', 'hooks.json'));
+  const moveTree = (c) => fs.rmSync(path.join(c.proj, '.doflow', 'shared', 'hooks', 'policies', 'lib.sh'));
 
   describe(`${harness} hook scripts follow their bytes`, { concurrency: 4 }, () => {
     test(`older scripts beside a current config: \`update -t ${harness}\` replaces them and the door emits a v1 decision`, { skip: SKIP }, () => {
@@ -72,7 +72,7 @@ function defineHookScriptTests(harness) {
       fs.appendFileSync(door, '# edited by hand\n');
       const edited = fs.readFileSync(door);
       moveTree(c);
-      const treeFile = path.join(c.proj, '.doflow', 'shared', 'hooks', 'hooks.json');
+      const treeFile = path.join(c.proj, '.doflow', 'shared', 'hooks', 'policies', 'lib.sh');
 
       const own = c.run(['update', 'proj', '-t', harness]);
       assert.equal(own.status, 1, own.output);
