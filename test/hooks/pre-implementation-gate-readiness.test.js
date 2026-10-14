@@ -201,6 +201,22 @@ HOOK_TEST('a feature branch with a register and three artifacts needs a READY fe
   writeRecord(main, path.join('900-demo', 'A.1.json'), { taskId: 'A.1', taskClass: 'feature', state: 'READY' });
   expectHook({ ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1'), code: 0, stderr: '' });
 
+  // This v1-only readiness event has no native tool fields. Without the v1 branch the gate allows
+  // it, proving the migrated case exercises normalized envelope fields. Keep the mutation in a copy.
+  const noV1Policy = path.join(scratch.dir, 'no-v1', 'pre-implementation-gate.sh');
+  const policyText = fs.readFileSync(POLICY, 'utf8');
+  assert.ok(policyText.includes('if [ "$DF_ENV_CLASS" = v1 ]; then'), 'the v1 branch is present');
+  write(noV1Policy, policyText.replace('if [ "$DF_ENV_CLASS" = v1 ]; then', 'if false; then'));
+  fs.chmodSync(noV1Policy, 0o755);
+  const envelopeOnly = envelopeEvent(main, path.join(main, 'src', 'a.js'), '900-demo');
+  delete envelopeOnly.tool_name;
+  delete envelopeOnly.tool_input;
+  expectHook({
+    ...base, event: envelopeOnly, code: 2,
+    stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`,
+  });
+  expectHook({ ...base, policy: noV1Policy, event: envelopeOnly, code: 0, stderr: '' });
+
   writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
   expectHook({
     ...base, code: 2,

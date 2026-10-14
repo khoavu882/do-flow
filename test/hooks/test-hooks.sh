@@ -781,7 +781,7 @@ for CASE in "pre-bash-guard.sh|$BASH_LS|allowed command" "pre-bash-guard.sh|$BAS
 done
 
 rm -rf "$CAP_XDG/doflow"
-  cap_run "" pre-bash-guard.sh "$BASH_LS"
+cap_run "" pre-bash-guard.sh "$BASH_LS"
 assert_eq "pre-bash-guard records patterns-missing as a hook line" "hook|pre-bash-guard|patterns-missing|null" \
   "$(jq -r '[.source,.command,.kind,(.exit|tostring)]|join("|")' "$CAP_EVENTS")"
 rm -rf "$CAP_XDG/doflow"
