@@ -81,7 +81,7 @@ doflow_bridge() {
   if [ "${4:-}" = --emit ]; then emit="${5:-native}"; fi
   payload="$(cat)"
   if command -v jq >/dev/null 2>&1; then
-    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode encode -f "$_DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
+    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_LINEAGE_ID="${DOFLOW_LINEAGE_ID:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" DOFLOW_WORKTREE="${DOFLOW_WORKTREE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode encode -f "$_DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
       case "$encoded" in \{*) payload="$encoded" ;; *) encode_failed=1 ;; esac
     } || { encode_failed=1; }
     if [ "$encode_failed" -eq 1 ]; then

@@ -341,3 +341,65 @@ test('contract missing takes the out-of-step rule and records contract-missing f
     assert.deepEqual([events.command, events.kind], [policy, 'contract-missing']);
   }
 });
+
+// IC-008: the bridge copies DOFLOW_LINEAGE_ID and DOFLOW_WORKTREE into identity, never defaulted or derived.
+const IDENTITY_KEYS = ['DOFLOW_TASK_ID', 'DOFLOW_RUN_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_LINEAGE_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
+const IDENTITY_ENV = {
+  DOFLOW_TASK_ID: '078-identity', DOFLOW_RUN_ID: 'run-envelope-1', DOFLOW_ATTEMPT: '3',
+  DOFLOW_LINEAGE_ID: 'lineage-envelope-1', DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKTREE: '/tmp/doflow-worktree-envelope',
+};
+const IDENTITY_NATIVE = { hook_event_name: 'PreToolUse', session_id: 'identity-session', cwd: '/tmp/identity-cwd', tool_name: 'Bash', tool_input: { command: 'printf safe' } };
+
+function envWithoutIdentity(extra = {}) {
+  const env = { ...process.env };
+  for (const key of IDENTITY_KEYS) delete env[key];
+  return { ...env, ...extra };
+}
+
+// Runs the real bridge.sh against a stub pre-bash-guard that captures the payload it receives.
+function bridgeEnvelope(label, env, bridgeSource) {
+  const root = scratch.path(`identity-bridge/${label}`);
+  fs.cpSync(path.resolve(__dirname, '../../core/harnesses/shared/hooks'), root, { recursive: true });
+  if (bridgeSource) fs.writeFileSync(path.join(root, 'bridge/envelope.jq'), bridgeSource);
+  const capture = path.join(root, 'captured.json');
+  fs.writeFileSync(path.join(root, 'policies/pre-bash-guard.sh'), `#!/usr/bin/env bash\ncat > '${capture}'\nexit 0\n`, { mode: 0o755 });
+  const result = spawnSync('bash', [path.join(root, 'bridge/bridge.sh'), 'claude', 'PreToolUse', 'pre-bash-guard'], {
+    cwd: scratch.path(), input: `${JSON.stringify(IDENTITY_NATIVE)}\n`, encoding: 'utf8',
+    env: { ...env, HOME: scratch.path('identity-home'), XDG_CONFIG_HOME: scratch.path('identity-xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' },
+  });
+  assert.equal(result.status, 0, `${label}: bridge exit ${result.stderr}`);
+  return JSON.parse(fs.readFileSync(capture, 'utf8')).doflow_event;
+}
+
+function assertUnsetIdentity(envelope) {
+  assert.deepEqual(envelope.identity, { session: 'identity-session' }, 'unset identity carries only the harness session');
+  assert.equal(Object.hasOwn(envelope, 'taskId'), false, 'unset task id is absent');
+}
+
+test('IC-008: the bridge carries all six identity variables into the envelope', () => {
+  const envelope = bridgeEnvelope('six', envWithoutIdentity(IDENTITY_ENV));
+  assert.equal(envelope.taskId, '078-identity');
+  assert.deepEqual(envelope.identity, {
+    session: 'identity-session', run: 'run-envelope-1', attempt: 3,
+    lineage: 'lineage-envelope-1', role: 'worker', worktree: '/tmp/doflow-worktree-envelope',
+  });
+});
+
+test('IC-008: unset and empty lineage and worktree are absent, never defaulted or derived from cwd', () => {
+  assertUnsetIdentity(bridgeEnvelope('unset', envWithoutIdentity()));
+  assertUnsetIdentity(bridgeEnvelope('empty', envWithoutIdentity(Object.fromEntries(IDENTITY_KEYS.map((key) => [key, ''])))));
+});
+
+test('IC-008 negative control: an encoder that defaults lineage or derives worktree from cwd fails the unset case', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../core/harnesses/shared/hooks/bridge/envelope.jq'), 'utf8');
+  const lineageLine = '($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) as $lineage |';
+  const worktreeLine = '($ENV.DOFLOW_WORKTREE | nonempty(.)) as $worktree |';
+  for (const [label, from, to] of [
+    ['default-lineage', lineageLine, '(($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) // "main") as $lineage |'],
+    ['cwd-worktree', worktreeLine, '(($ENV.DOFLOW_WORKTREE | nonempty(.)) // $native.cwd) as $worktree |'],
+  ]) {
+    assert.ok(source.includes(from), `${label}: production encoder line exists`);
+    const envelope = bridgeEnvelope(label, envWithoutIdentity(), source.replace(from, to));
+    assert.throws(() => assertUnsetIdentity(envelope), `${label}: defaulted identity is detected`);
+  }
+});

@@ -69,7 +69,7 @@ function bridgeInput(harness, native, fixtureEnv = {}) {
 
 function encodeFixture(harness, event, policy, native, envelopePath = path.join(BRIDGE_DIR, 'envelope.jq'), fixtureEnv = {}) {
   const result = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy, '-f', envelopePath], {
-    input: bridgeInput(harness, native, fixtureEnv), encoding: 'utf8',
+    input: bridgeInput(harness, native, fixtureEnv), encoding: 'utf8', env: { ...process.env, ...fixtureEnv },
   });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout).doflow_event;
