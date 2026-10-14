@@ -51,10 +51,12 @@ if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),h
   ($ENV.DOFLOW_TASK_ID | nonempty(.)) as $task |
   ($ENV.DOFLOW_RUN_ID | nonempty(.)) as $run |
   ($ENV.DOFLOW_ATTEMPT | try tonumber catch null) as $attempt |
+  ($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) as $lineage |
+  ($ENV.DOFLOW_WORKTREE | nonempty(.)) as $worktree |
   (if $ENV.DOFLOW_SESSION_ROLE == "main" or $ENV.DOFLOW_SESSION_ROLE == "worker" then $ENV.DOFLOW_SESSION_ROLE else null end) as $role |
   (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "gemini" then decode_gemini elif $harness == "kiro" then decode_kiro elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
   ({version:1,harness:$harness,event:(event_name($event)),operation:$d.operation,tool:$d.tool,paths:$d.paths,command:$d.command,patch:$d.patch,taskId:$task,
-    identity:($d.identity + {run:$run,attempt:$attempt,role:$role} | with_entries(select(.value != null)) | if length > 0 then . else null end),
+    identity:($d.identity + {run:$run,attempt:$attempt,lineage:$lineage,role:$role,worktree:$worktree} | with_entries(select(.value != null)) | if length > 0 then . else null end),
     correlation:(($d.correlation // {}) | with_entries(select(.value != null)) | if length > 0 then . else null end) } | with_entries(select(.value != null))) as $envelope |
   $native + {doflow_event:$envelope}
 end

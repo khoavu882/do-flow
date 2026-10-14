@@ -1,0 +1,49 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "kiro-bash-identity",
+    "tool_name": "shell",
+    "tool_input": {
+      "command": "printf safe"
+    }
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1",
+    "DOFLOW_TASK_ID": "078-kiro-identity",
+    "DOFLOW_RUN_ID": "run-kiro-1",
+    "DOFLOW_ATTEMPT": "2",
+    "DOFLOW_LINEAGE_ID": "lineage-kiro-1",
+    "DOFLOW_SESSION_ROLE": "worker",
+    "DOFLOW_WORKTREE": "/tmp/doflow-worktree-kiro"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "printf safe",
+      "taskId": "078-kiro-identity",
+      "identity": {
+        "session": "kiro-bash-identity",
+        "run": "run-kiro-1",
+        "attempt": 2,
+        "lineage": "lineage-kiro-1",
+        "role": "worker",
+        "worktree": "/tmp/doflow-worktree-kiro"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

@@ -122,7 +122,7 @@ function run(row, index) {
       cwd: project,
       input: native === null ? 'null\n' : `${JSON.stringify(native)}\n`,
       encoding: 'utf8',
-      env: { ...process.env, DOFLOW_TASK_ID: '', DOFLOW_RUN_ID: '', DOFLOW_ATTEMPT: '', DOFLOW_SESSION_ROLE: '' },
+      env: { ...process.env, DOFLOW_TASK_ID: '', DOFLOW_RUN_ID: '', DOFLOW_ATTEMPT: '', DOFLOW_LINEAGE_ID: '', DOFLOW_SESSION_ROLE: '', DOFLOW_WORKTREE: '', ...(row.fixture.env || {}) },
     });
     assert.equal(encoded.status, 0, `${label}: envelope encoder`);
     const envelope = JSON.parse(encoded.stdout).doflow_event;

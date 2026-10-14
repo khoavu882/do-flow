@@ -1,0 +1,56 @@
+{
+  "native": {
+    "toolCall": {
+      "name": "replace_file_content",
+      "args": {
+        "TargetFile": "src/a.js"
+      }
+    },
+    "workspacePaths": [
+      "<project>"
+    ]
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1",
+    "DOFLOW_TASK_ID": "078-antigravity-identity",
+    "DOFLOW_RUN_ID": "run-antigravity-1",
+    "DOFLOW_ATTEMPT": "2",
+    "DOFLOW_LINEAGE_ID": "lineage-antigravity-1",
+    "DOFLOW_SESSION_ROLE": "worker",
+    "DOFLOW_WORKTREE": "/tmp/doflow-worktree-antigravity"
+  },
+  "state": "all-artifacts",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "{\"decision\":\"allow\"}\n",
+    "stderrIncludes": null,
+    "decision": {
+      "harness": "antigravity",
+      "event": "PreToolUse",
+      "policy": "pre-implementation-gate",
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "antigravity",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "replace_file_content",
+      "paths": [
+        "src/a.js"
+      ],
+      "taskId": "078-antigravity-identity",
+      "identity": {
+        "run": "run-antigravity-1",
+        "attempt": 2,
+        "lineage": "lineage-antigravity-1",
+        "role": "worker",
+        "worktree": "/tmp/doflow-worktree-antigravity"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}
