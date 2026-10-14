@@ -312,6 +312,15 @@ test('stream-hook-runner: missing bridge is out of step while a failing bridge f
   assert.deepEqual(JSON.parse(stopStrict.stdout), { decision: 'continue', reason: '[stop-check] DoFlow policy error; details: doflow-run failure list' });
 });
 
+test('stream-hook-runner: a bridge that exits before reading a large payload is an invalid answer, not a spawn fault', () => {
+  // Far more than a pipe holds, so the bridge's exit reaches the runner's stdin write as EPIPE.
+  const native = JSON.stringify({ toolCall: { name: 'write_to_file', args: { AbsolutePath: 'src/a.js', Contents: 'x'.repeat(2 * 1024 * 1024) } } });
+  const machine = capMachine('epipe-gate');
+  const out = runRunner(machine, runnerWithBridge('exit 1'), ['PreToolUse'], native, { env: { DOFLOW_FAULT_PROFILE: 'compat-1' } });
+  assert.deepEqual(JSON.parse(out.stdout), { decision: 'allow' });
+  assert.deepEqual(capLines(machine).map((line) => line.kind), ['bridge-answer-invalid']);
+});
+
 test('stream-hook-runner capture: captureHookFailure writes the IC-011 line, caps it at 2048 bytes, rotates at 1 MiB and keeps four', () => {
   const m = capMachine('unit');
   const env = { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: 'codex' };
