@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Claude front door: reuse the canonical subagent-audit policy with Claude attribution.
-# No JSON-shape translation needed — claude/codex's copies were byte-identical
-# (022-hooks-remaining-duplication).
-set -euo pipefail
+# Claude front door: subagent-audit through the shared lifecycle bridge.
+set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-claude}"
-exec bash "$(dirname "$0")/../../.doflow/shared/hooks/policies/subagent-audit.sh"
+. "$(dirname "$0")/../../.doflow/shared/hooks/bridge/bridge.sh"
+doflow_bridge claude SubagentStart subagent-audit
+exit $?

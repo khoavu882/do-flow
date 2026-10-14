@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Claude adapter: reuse the shared session initializer with Claude attribution.
-set -euo pipefail
+# Claude front door: session-context through the shared lifecycle bridge.
+set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-claude}"
-exec bash "$(dirname "$0")/../../.doflow/shared/hooks/policies/session-context.sh"
+. "$(dirname "$0")/../../.doflow/shared/hooks/bridge/bridge.sh"
+doflow_bridge claude SessionStart session-context
+exit $?
