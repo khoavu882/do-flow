@@ -50,7 +50,7 @@ function planHookCompanions({ registry, adapters, scope, harnessScope, scopeRoot
       // The assets that own the doors this run plans, not the harness's whole set.
       assets: target.assets.filter((asset: any) => target.changes.some((change: any) => change.assetId === asset.id)),
       conflicts: target.conflicts.length
-        ? [...target.conflicts, `${harness.id} hook front doors must move with the shared hooks tree; run: doflow update -t ${run},${harness.id} (add -f to overwrite edited doors)`]
+        ? [...target.conflicts, `${harness.id} hook front doors must move with the shared hooks tree; run: doflow update -t ${run},${harness.id} (add -f to overwrite edited doors). Working command: doflow update -t ${run},${harness.id} -f`]
         : target.conflicts,
       notices: target.changes.length ? [`refreshed ${harness.id} hook front doors to match the shared hooks tree`, ...target.notices] : target.notices,
     });
