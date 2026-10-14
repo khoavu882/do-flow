@@ -11,7 +11,7 @@
     "exit": 2,
     "stdout": "",
     "stderrIncludes": "unfinished-work",
-    "modelVisibleBytesMax": 300,
+    "modelVisibleBytesMax": 126,
     "decision": {
       "outcome": "deny",
       "code": "unfinished-work",

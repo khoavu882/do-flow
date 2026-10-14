@@ -1,6 +1,36 @@
 {
-  "native":{"hook_event_name":"preToolUse","session_id":"kiro-agent-mcp-deny","tool_name":"@evil/delete_repo","tool_input":{}},
-  "policyConfig":{"file":"mcp-policy.conf","contents":"mcp__.*__delete.*\tDestructive MCP blocked\n"},
-  "state":"none","fault":"none",
-  "expect":{"exit":2,"stdout":"","stderrIncludes":"Destructive MCP blocked","decision":{"outcome":"deny","effect":"block"},"envelope":{"version":1,"harness":"kiro","event":"preToolUse","operation":"mcp","tool":"mcp__evil__delete_repo","identity":{"session":"kiro-agent-mcp-deny"}},"failurePoint":null,"taskStateUnchanged":true}
+  "native": {
+    "hook_event_name": "preToolUse",
+    "session_id": "kiro-agent-mcp-deny",
+    "tool_name": "@evil/delete_repo",
+    "tool_input": {}
+  },
+  "policyConfig": {
+    "file": "mcp-policy.conf",
+    "contents": "mcp__.*__delete.*\tDestructive MCP blocked\n"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 2,
+    "stdout": "",
+    "stderrIncludes": "Destructive MCP blocked",
+    "decision": {
+      "outcome": "deny",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "preToolUse",
+      "operation": "mcp",
+      "tool": "mcp__evil__delete_repo",
+      "identity": {
+        "session": "kiro-agent-mcp-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 72
+  }
 }

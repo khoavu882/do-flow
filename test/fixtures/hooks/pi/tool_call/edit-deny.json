@@ -1,8 +1,45 @@
 {
-  "native": { "type": "tool_call", "toolName": "edit", "toolCallId": "edit-deny", "input": { "path": "src/a.js", "oldText": "a", "newText": "b" } },
+  "native": {
+    "type": "tool_call",
+    "toolName": "edit",
+    "toolCallId": "edit-deny",
+    "input": {
+      "path": "src/a.js",
+      "oldText": "a",
+      "newText": "b"
+    }
+  },
   "policy": "pre-implementation-gate",
   "state": "no-design",
-  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
   "fault": "none",
-  "expect": { "result": { "block": true, "reason": "[pre-implementation-gate] doflow gate: feature agent-docs/doflow/pi-gate is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)" }, "decision": { "outcome": "deny", "code": "missing-artifacts", "effect": "block" }, "modelVisibleBytesMax": 120 }
+  "expect": {
+    "result": {
+      "block": true,
+      "reason": "[pre-implementation-gate] doflow gate: feature agent-docs/doflow/pi-gate is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)"
+    },
+    "decision": {
+      "outcome": "deny",
+      "code": "missing-artifacts",
+      "effect": "block"
+    },
+    "modelVisibleBytesMax": 309,
+    "exit": 0,
+    "failurePoint": null,
+    "envelope": {
+      "version": 1,
+      "harness": "pi",
+      "event": "tool_call",
+      "operation": "edit",
+      "tool": "edit",
+      "paths": [
+        "src/a.js"
+      ],
+      "correlation": {
+        "toolCallId": "edit-deny"
+      }
+    }
+  }
 }

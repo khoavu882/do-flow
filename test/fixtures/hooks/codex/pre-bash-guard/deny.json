@@ -32,7 +32,7 @@
     },
     "failurePoint": null,
     "taskStateUnchanged": true,
-    "modelVisibleBytesMax": 500
+    "modelVisibleBytesMax": 175
   },
   "policyConfig": {
     "file": "blocked-patterns.conf",

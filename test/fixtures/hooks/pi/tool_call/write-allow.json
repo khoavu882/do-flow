@@ -1,8 +1,41 @@
 {
-  "native": { "type": "tool_call", "toolName": "write", "toolCallId": "write-allow", "input": { "path": "src/new.js", "content": "x" } },
+  "native": {
+    "type": "tool_call",
+    "toolName": "write",
+    "toolCallId": "write-allow",
+    "input": {
+      "path": "src/new.js",
+      "content": "x"
+    }
+  },
   "policy": "pre-implementation-gate",
   "state": "all-artifacts",
-  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
   "fault": "none",
-  "expect": { "result": null, "decision": { "outcome": "allow", "code": "allow", "effect": "proceed" }, "modelVisibleBytesMax": 0 }
+  "expect": {
+    "result": null,
+    "decision": {
+      "outcome": "allow",
+      "code": "allow",
+      "effect": "proceed"
+    },
+    "modelVisibleBytesMax": 0,
+    "exit": 0,
+    "failurePoint": null,
+    "envelope": {
+      "version": 1,
+      "harness": "pi",
+      "event": "tool_call",
+      "operation": "edit",
+      "tool": "write",
+      "paths": [
+        "src/new.js"
+      ],
+      "correlation": {
+        "toolCallId": "write-allow"
+      }
+    }
+  }
 }

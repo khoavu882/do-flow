@@ -29,7 +29,7 @@
     },
     "failurePoint": null,
     "taskStateUnchanged": true,
-    "modelVisibleBytesMax": 500
+    "modelVisibleBytesMax": 204
   },
   "policyConfig": {
     "file": "mcp-policy.conf",

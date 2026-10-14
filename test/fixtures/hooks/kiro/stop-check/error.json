@@ -1,5 +1,27 @@
 {
-  "native":{"hook_event_name":"stop","assistant_response":"all done"},
-  "state":"none","fault":"crash-exit-1",
-  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"error","code":"exit-1","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"stop","operation":"stop"},"failurePoint":"eval-error:exit-1","taskStateUnchanged":true}
+  "native": {
+    "hook_event_name": "stop",
+    "assistant_response": "all done"
+  },
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "stop",
+      "operation": "stop"
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 0
+  }
 }

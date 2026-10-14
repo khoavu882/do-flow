@@ -1,5 +1,33 @@
 {
-  "native":{"hook_event_name":"PreToolUse","session_id":"kiro-mcp-error","tool_name":"@evil/list","tool_input":{}},
-  "state":"none","fault":"crash-exit-1",
-  "expect":{"exit":1,"stdout":"","stderrIncludes":"[mcp-tool-guard] DoFlow policy error; details: doflow-run failure list","decision":{"outcome":"error","code":"exit-1","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"PreToolUse","operation":"mcp","tool":"mcp__evil__list","identity":{"session":"kiro-mcp-error"}},"failurePoint":"eval-error:exit-1","taskStateUnchanged":true,"modelVisibleBytesMax":80}
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "kiro-mcp-error",
+    "tool_name": "@evil/list",
+    "tool_input": {}
+  },
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": "",
+    "stderrIncludes": "[mcp-tool-guard] DoFlow policy error; details: doflow-run failure list",
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "kiro",
+      "event": "PreToolUse",
+      "operation": "mcp",
+      "tool": "mcp__evil__list",
+      "identity": {
+        "session": "kiro-mcp-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 70
+  }
 }

@@ -1,9 +1,18 @@
 {
   "native": {
-    "toolCall": { "name": "write_to_file", "args": { "AbsolutePath": "src/a.js" } },
-    "workspacePaths": ["<project>"]
+    "toolCall": {
+      "name": "write_to_file",
+      "args": {
+        "AbsolutePath": "src/a.js"
+      }
+    },
+    "workspacePaths": [
+      "<project>"
+    ]
   },
-  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
   "state": "no-design",
   "fault": "none",
   "expect": {
@@ -11,8 +20,23 @@
     "stdout": "<deny-json>",
     "stderrIncludes": null,
     "modelVisibleBytesMax": 323,
-    "decision": { "harness": "antigravity", "event": "PreToolUse", "policy": "pre-implementation-gate", "outcome": "deny", "effect": "block" },
-    "envelope": { "version": 1, "harness": "antigravity", "event": "PreToolUse", "operation": "edit", "tool": "write_to_file", "paths": ["src/a.js"] },
+    "decision": {
+      "harness": "antigravity",
+      "event": "PreToolUse",
+      "policy": "pre-implementation-gate",
+      "outcome": "deny",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "antigravity",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "write_to_file",
+      "paths": [
+        "src/a.js"
+      ]
+    },
     "failurePoint": null,
     "taskStateUnchanged": true
   }
