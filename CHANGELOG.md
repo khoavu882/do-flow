@@ -15,6 +15,24 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Hook policies now accept envelope v1 only. Scripts that send native payloads directly to a
+  policy must send v1 or invoke the shared bridge. Missing envelopes take the explicit out-of-step
+  rule; a missing bridge gets a fixed native response, including in the Pi extension and the
+  Antigravity runner.
+- Lifecycle plans that change shared hooks refresh outdated front doors for other installed
+  harnesses at that scope, with one backup and rollback. Edited companion doors refuse unless
+  forced. The bridge preserves a caller-set `DOFLOW_AGENT` value.
+- The Antigravity runner no longer carries the unused Gemini branch. The Antigravity plugin bundle
+  no longer declares hook entries for files its projection does not install.
+
+### Removed
+
+- **Breaking for direct policy callers:** removed the legacy native-field and unversioned
+  `doflow_event` decoder. Scripts that pipe native hook payloads to policies must migrate to v1 or
+  call `bridge.sh`.
+
 ## [2.0.0] - 2026-10-14
 
 First stable 2.x release. It consolidates 2.0.0-beta.1 to 2.0.0-beta.4 (the TypeScript runtime, the perf budgets and retrieval benchmark, and the packed JavaScript npm package) with context delivery (075) and evidence attempts (076). Upgrading from 1.24.1 needs Node `^22.18.0 || >=24.3.0`; see the 2.0.0-beta.3 entry for the Node floor and the `.js` to `.ts` runtime rename.

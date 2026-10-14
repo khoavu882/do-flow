@@ -1259,23 +1259,23 @@
           "events": {
             "SessionStart": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:\"reload\" on /reload."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: session_start, which carries reason:\"reload\" on /reload."
             },
             "SessionEnd": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: session_shutdown."
             },
             "UserPromptSubmit": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
+              "note": "DoFlow does not project a prompt hook; its separate code extension guards tool_call. Native equivalent: input, which fires before skill expansion. DoFlow's once-per-session `/do` suggestion reaches this harness through skill descriptions only."
             },
             "PreCompact": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: session_before_compact, which may cancel or supply a summary."
             },
             "PostCompact": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: compaction_end."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: compaction_end."
             },
             "PreToolUse": {
               "status": "different",
@@ -1287,7 +1287,7 @@
             },
             "Stop": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: agent_end."
             },
             "SubagentStart": {
               "status": "unavailable",
