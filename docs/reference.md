@@ -273,7 +273,9 @@ budget on an idle machine; it is not free, so a slow machine can feel it.
 
 - **Where.** Claude Code and Codex only, through the existing per-prompt hook
   (`core/harnesses/shared/hooks/policies/user-prompt-submit.sh`). The other six harnesses
-  (Gemini CLI, Antigravity, OpenCode, Pi, Copilot CLI, Kiro) get no hook for this; they get only the
+  (Gemini CLI, Antigravity, OpenCode, Pi, Copilot CLI, Kiro) get no hook for this; Pi separately has
+  a `tool_call` guard extension (coverage remains unknown pending the live probe; project scope
+  requires project trust). These harnesses get only the
   rewritten `description` of `do`, `do-implement` and `do-flow`, which steer a plain change request
   to `/do` first.
 - **When.** The first prompt of a session that reads as a code-change request: it starts with a
