@@ -1,0 +1,1 @@
+{"native":{"hook_event_name":"PreCompress","session_id":"gemini-pre-compress","cwd":"/tmp/not-a-git-project"},"state":"none","fault":"none","expect":{"exit":0,"stdout":null,"stderrIncludes":null,"decision":null,"envelope":null,"failurePoint":null,"taskStateUnchanged":true}}
