@@ -133,6 +133,69 @@ exit 0
   assert.equal(result.stdout,'','v1 envelope replaces stale native version 99 and proceeds');
 });
 
+BRIDGE_TEST('IC-036 malformed and non-object stdin reaches every bridge as a minimal envelope', () => {
+  const bridges = [
+    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['gemini', 'BeforeTool'],
+    ['kiro', 'PreToolUse'], ['antigravity', 'PreToolUse'], ['pi', 'tool_call'],
+  ];
+  const inputs = [['empty', ''], ['malformed', 'not json'], ['array', '[]'], ['string', '"s"'], ['null', 'null']];
+  for (const [harness, event] of bridges) {
+    for (const [label, input] of inputs) {
+      const dir = makeTree();
+      const payloadFile = path.join(dir, 'policy-input.json');
+      fs.writeFileSync(path.join(dir, 'policies/pre-implementation-gate.sh'), `#!/bin/bash\ncat >"$PAYLOAD_FILE"\nprintf '\\036%s\\n' '{"outcome":"allow","code":"allow","policyVersion":1}' >&3\nexit 0\n`);
+      const result = run(dir, harness, event, 'pre-implementation-gate', input, ['--emit', 'decision'], {
+        DOFLOW_FAILURE_CAPTURE: 'on', XDG_CONFIG_HOME: path.join(dir, 'xdg'), PAYLOAD_FILE: payloadFile,
+      });
+      assert.equal(result.status, 0, `${harness}:${event} ${label}`);
+      assert.deepEqual(JSON.parse(fs.readFileSync(payloadFile, 'utf8')), {
+        doflow_event: { version: 1, harness, event, operation: 'tool' },
+      }, `${harness}:${event} ${label} minimal envelope`);
+      assert.equal(JSON.parse(result.stdout).code, 'envelope-encode', `${harness}:${event} ${label} diagnostic`);
+      const events = path.join(dir, 'xdg/doflow/failures/events.jsonl');
+      assert.match(fs.readFileSync(events, 'utf8'), /"kind":"envelope-encode"/, `${harness}:${event} ${label} captured`);
+    }
+  }
+});
+
+BRIDGE_TEST('IC-036 encode fault preserves compat result and blocks strict blocking policies', () => {
+  const bridges = [
+    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['gemini', 'BeforeTool'],
+    ['kiro', 'PreToolUse'], ['antigravity', 'PreToolUse'], ['pi', 'tool_call'],
+  ];
+  const blocking = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check'];
+  for (const [harness, event] of bridges) {
+    for (const policy of [...blocking, 'session-context', 'user-prompt-submit', 'subagent-audit']) {
+      for (const profile of ['compat-1', 'strict-1']) {
+        const dir = makeTree();
+        const result = run(dir, harness, event, policy, 'not json', ['--emit', 'decision'], {
+          DOFLOW_FAULT_PROFILE: profile,
+        });
+        const decision = JSON.parse(result.stdout);
+        assert.equal(decision.code, 'envelope-encode', `${harness}:${event} ${policy} ${profile}`);
+        assert.equal(decision.effect, profile === 'strict-1' && blocking.includes(policy) ? 'block' : 'proceed', `${harness}:${event} ${policy} ${profile}`);
+      }
+    }
+  }
+});
+
+BRIDGE_TEST('IC-036 minimal envelope maps non-tool events to the canonical operation', () => {
+  const dir = makeTree();
+  const policy = path.join(dir, 'policies/session-context.sh');
+  const payloadFile = path.join(dir, 'policy-input.json');
+  fs.writeFileSync(policy, `#!/bin/bash\ncat >"$PAYLOAD_FILE"\nprintf '\\036%s\\n' '{"outcome":"allow","code":"allow","policyVersion":1}' >&3\nexit 0\n`);
+  const rows = [
+    ['SessionStart', 'session-start'], ['SessionEnd', 'session-end'], ['UserPromptSubmit', 'prompt'],
+    ['Stop', 'stop'], ['SubagentStart', 'subagent-start'], ['SubagentStop', 'subagent-stop'],
+    ['PreCompact', 'compact'], ['PostToolUse', 'post-tool'], ['unknown-event', 'tool'],
+  ];
+  for (const [event, operation] of rows) {
+    run(dir, 'claude', event, 'session-context', 'not json', ['--emit', 'decision'], { PAYLOAD_FILE: payloadFile });
+    const envelope = JSON.parse(fs.readFileSync(payloadFile, 'utf8')).doflow_event;
+    assert.deepEqual(envelope, { version: 1, harness: 'claude', event, operation }, event);
+  }
+});
+
 BRIDGE_TEST('IC-007 classifies signal names, ordinary exit 255, spawn failure, and mismatch', () => {
   const dir = makeTree();
   const p = path.join(dir, 'policies/pre-implementation-gate.sh');
@@ -552,7 +615,7 @@ BRIDGE_TEST('sourced bridge survives set -euo pipefail; jq and node process coun
 cat > '${capture}'
 exit 0
 `);
-  run(nonobject,'claude','PreToolUse','session-context','17'); assert.equal(fs.readFileSync(capture,'utf8').trim(),'17');
+  run(nonobject,'claude','PreToolUse','session-context','17'); assert.deepEqual(JSON.parse(fs.readFileSync(capture,'utf8')), { doflow_event: { version: 1, harness: 'claude', event: 'PreToolUse', operation: 'tool' } });
 
   const noJqTree=makeTree();
   const noJqBin=path.join(noJqTree,'no-jq-bin'); fs.mkdirSync(noJqBin);

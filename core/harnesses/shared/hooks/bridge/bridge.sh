@@ -44,7 +44,7 @@ doflow_bridge_effect() {
   case "$policy" in pre-implementation-gate|pre-bash-guard|mcp-tool-guard|stop-check) block=1;; esac
   DF_BRIDGE_EFFECT=proceed
   if [ "$outcome" = deny ]; then DF_BRIDGE_EFFECT=block
-  elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ] || [ "$DF_BRIDGE_CODE" = bridge-spawn ]; }; then DF_BRIDGE_EFFECT=block
+  elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ] || [ "$DF_BRIDGE_CODE" = bridge-spawn ] || [ "$DF_BRIDGE_CODE" = envelope-encode ]; }; then DF_BRIDGE_EFFECT=block
   elif [ "$outcome" = error ] && [ "$DF_BRIDGE_CODE" != bridge-spawn ] && [ -n "$DF_BRIDGE_POINT" ] && [ "$profile" = compat-1 ]; then
     case "$harness:$event" in
       claude:PreToolUse|codex:PreToolUse|gemini:BeforeTool|pi:tool_call) DF_BRIDGE_EFFECT=block ;;
@@ -75,15 +75,20 @@ doflow_bridge_drops_tool_stderr() {
 }
 
 doflow_bridge() {
-  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 stderr_file=""
+  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 stderr_file="" encode_failed=0
   . "$DOFLOW_BRIDGE_DIR/respond.sh"
   response_event="$(doflow_bridge_native_event "$harness" "$event")"
   if [ "${4:-}" = --emit ]; then emit="${5:-native}"; fi
   payload="$(cat)"
   if command -v jq >/dev/null 2>&1; then
-    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" -f "$DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
-      case "$encoded" in \{*) payload="$encoded" ;; *) doflow_bridge_failure "$policy" envelope-encode ;; esac
-    } || { doflow_bridge_failure "$policy" envelope-encode; }
+    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode encode -f "$DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
+      case "$encoded" in \{*) payload="$encoded" ;; *) encode_failed=1 ;; esac
+    } || { encode_failed=1; }
+    if [ "$encode_failed" -eq 1 ]; then
+      encoded="$(jq -cn --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode minimal -f "$DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" || encoded=""
+      case "$encoded" in \{*) payload="$encoded" ;; *) payload="{\"doflow_event\":{\"version\":1,\"harness\":\"$harness\",\"event\":\"$event\",\"operation\":\"tool\"}}" ;; esac
+      doflow_bridge_failure "$policy" envelope-encode
+    fi
   else
     doflow_bridge_failure "$policy" dependency-missing:jq
   fi
@@ -106,6 +111,7 @@ $captured
 EOF
   reason="${err%$'\n'}"
   doflow_bridge_classify "$code" "$record" "$reason"
+  if [ "$encode_failed" -eq 1 ]; then DF_BRIDGE_CODE=envelope-encode; DF_BRIDGE_POINT=envelope-encode; fi
   if [ "$spawn_failed" -eq 1 ]; then DF_BRIDGE_OUTCOME=error; DF_BRIDGE_CODE=bridge-spawn; DF_BRIDGE_REASON=bridge-spawn; DF_BRIDGE_VERSION=0; DF_BRIDGE_POINT=bridge-spawn; fi
   if [ -n "$DF_BRIDGE_POINT" ] && [ "$DF_BRIDGE_POINT" != decision-mismatch ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-TERM ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-INT ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-PIPE ]; then doflow_bridge_failure "$policy" "$DF_BRIDGE_POINT"; fi
   doflow_bridge_effect "$harness" "$event" "$policy" "$DF_BRIDGE_OUTCOME"

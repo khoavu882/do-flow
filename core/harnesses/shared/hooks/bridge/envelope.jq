@@ -46,7 +46,7 @@ def decode_antigravity:
 def decode_pi:
   (canonical_tool(.toolName // ""; "pi")) as $t |
   {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.input; ["path"]) else null end),command:(if $t.operation == "command" then string_value(.input; ["command"]) else null end),identity:session_identity(.sessionId),correlation:(correlation(.toolCallId;.parentToolCallId))};
-if type != "object" then . else
+if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),harness:$harness,event:(event_name($event)),operation:event_operation($event)}} elif type != "object" then . else
   . as $native |
   ($ENV.DOFLOW_TASK_ID | nonempty(.)) as $task |
   ($ENV.DOFLOW_RUN_ID | nonempty(.)) as $run |
