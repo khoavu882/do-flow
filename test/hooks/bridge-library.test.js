@@ -46,17 +46,20 @@ BRIDGE_TEST('decode is fixture-backed, harness-scoped, and only emits operation 
     ['codex', 'PreToolUse', { tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch\n' }, cwd: '/repo' }, 'edit', [], 'test/hooks/stream-hook-runner.test.js'],
     ['gemini', 'BeforeTool', { tool_name: 'write_file', tool_input: { path: '/repo/a' } }, 'edit', ['/repo/a'], 'test/adapters/gemini/gemini-hooks.test.js'],
     ['kiro', 'PreToolUse', { tool_name: 'Write', tool_input: { file_path: '/repo/a' }, session_id: 'k' }, 'edit', ['/repo/a'], 'test/hooks/kiro-bridge.test.js'],
+    ['kiro', 'PreToolUse', { tool_name: 'mcp_evil_drop', tool_input: {} }, 'mcp', [], 'test/hooks/kiro-bridge.test.js (mcp-tool-guard evaluates a V3 `mcp_<server>_<tool>` ID against the policy)'],
+    ['kiro', 'PreToolUse', { tool_name: '@evil/drop', tool_input: {} }, 'mcp', [], 'test/hooks/kiro-bridge.test.js (mcp-tool-guard sees `@server/tool` as mcp__server__tool and lets built-in tools through)'],
     ['antigravity', 'PreToolUse', { toolCall: { name: 'write_to_file', args: { TargetFile: '/repo/a' } }, workspacePaths: ['/repo'], cwd: '/ignored' }, 'edit', ['/repo/a'], 'test/adapters/antigravity/adapter.test.js'],
-    ['pi', 'tool_call', JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/hooks/pi/tool_call/edit.json'), 'utf8')), 'edit', ['/repo/a'], 'test/fixtures/hooks/pi/tool_call/edit.json'],
+    ['pi', 'tool_call', JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/hooks/pi/tool_call/edit.json'), 'utf8')).native, 'edit', ['src/a.js'], 'test/fixtures/hooks/pi/tool_call/edit.json'],
   ];
   for (const [harness, event, native, operation, paths, source] of cases) {
-    assert.ok(fs.existsSync(path.join(ROOT, source)), `${harness} fixture source exists: ${source}`);
+    assert.ok(fs.existsSync(path.join(ROOT, source.split(' (')[0])), `${harness} fixture source exists: ${source}`);
     const payload = { ...native, unknown_field: 'ignored' };
     const decoded = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', 'session-context', '-f', path.join(dir, 'bridge/envelope.jq')], { input: JSON.stringify(payload), encoding: 'utf8' });
     assert.equal(decoded.status, 0, decoded.stderr);
     const value = JSON.parse(decoded.stdout).doflow_event;
     assert.equal(value.version, 1, harness);
     assert.equal(value.operation, operation, harness);
+    if (harness === 'kiro' && operation === 'mcp') assert.equal(value.tool, native.tool_name.startsWith('@') ? 'mcp__evil__drop' : native.tool_name);
     assert.deepEqual(value.paths || [], paths, harness);
     assert.equal('projectRoot' in value, false, harness);
     assert.equal('cwd' in value, false, harness);
@@ -330,27 +333,39 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
   }
 });
 
-BRIDGE_TEST('DEC-025 missing policy proceeds with compat capture and blocks with strict-1', () => {
-  const dir = makeTree();
-  const policy = path.join(dir, 'policies/pre-implementation-gate.sh');
-  fs.unlinkSync(policy);
-  for (const [profile, effect] of [['compat-1','proceed'], ['strict-1','block']]) {
-    const xdg = path.join(dir, `xdg-${profile}`);
-    const result = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit','native'], {
-      DOFLOW_FAULT_PROFILE: profile, DOFLOW_FAILURE_CAPTURE: 'on', XDG_CONFIG_HOME: xdg,
-    });
-    const decision = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit','decision'], {
-      DOFLOW_FAULT_PROFILE: profile,
-    });
-    assert.equal(JSON.parse(decision.stdout).effect, effect, `${profile} missing policy effect`);
-    assert.equal(result.status, 0, `${profile} native response status`);
-    if (profile === 'compat-1') {
-      assert.equal(result.stdout, '');
-      assert.ok(fs.readFileSync(path.join(xdg, 'doflow/failures/events.jsonl'), 'utf8').includes('bridge-spawn'));
-    } else {
-      assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, 'deny');
-      assert.equal(result.stderr, '');
-    }
+BRIDGE_TEST('DEC-025 missing policy is a captured bridge-spawn for every policy kind', () => {
+  const cases = [
+    ['pre-implementation-gate','claude','PreToolUse',true], ['pre-bash-guard','claude','PreToolUse',true],
+    ['mcp-tool-guard','claude','PreToolUse',true], ['stop-check','claude','Stop',true],
+    ['session-context','claude','SessionStart',false], ['user-prompt-submit','claude','UserPromptSubmit',false],
+    ['subagent-audit','claude','SubagentStart',false],
+  ];
+  for (const [policyId, harness, event, canDeny] of cases) {
+    const dir = makeTree();
+    fs.unlinkSync(path.join(dir, `policies/${policyId}.sh`));
+    const xdg = path.join(dir, `xdg-${policyId}`);
+    const env = { DOFLOW_FAILURE_CAPTURE: 'on', XDG_CONFIG_HOME: xdg };
+    const result = run(dir, harness, event, policyId, {}, ['--emit','native'], env);
+    const decisionResult = run(dir, harness, event, policyId, {}, ['--emit','decision'], { ...env, DOFLOW_FAILURE_CAPTURE: 'off' });
+    const decision = JSON.parse(decisionResult.stdout);
+    assert.equal(decision.outcome, 'error', `${policyId}: IC-007 bridge-spawn classification`);
+    assert.equal(decision.code, 'bridge-spawn', `${policyId}: bridge-spawn code`);
+    assert.equal(decision.effect, 'proceed', `${policyId}: compat-1 proceeds`);
+    assert.equal(result.status, 0, `${policyId}: compat-1 never leaks native 127`);
+    const events = fs.readFileSync(path.join(xdg, 'doflow/failures/events.jsonl'), 'utf8').trim().split('\n').filter(Boolean);
+    assert.equal(events.length, 1, `${policyId}: one diagnostic`);
+    assert.equal(JSON.parse(events[0]).kind, 'bridge-spawn', `${policyId}: bridge-spawn diagnostic`);
+
+    const strictResult = run(dir, harness, event, policyId, {}, ['--emit','native'], { ...env, DOFLOW_FAULT_PROFILE: 'strict-1', XDG_CONFIG_HOME: `${xdg}-strict` });
+    const strictDecision = run(dir, harness, event, policyId, {}, ['--emit','decision'], { ...env, DOFLOW_FAULT_PROFILE: 'strict-1', DOFLOW_FAILURE_CAPTURE: 'off' });
+    assert.equal(JSON.parse(strictDecision.stdout).effect, canDeny ? 'block' : 'proceed', `${policyId}: strict-1 effect`);
+    if (canDeny) {
+      if (event === 'PreToolUse') assert.equal(JSON.parse(strictResult.stdout).hookSpecificOutput.permissionDecision, 'deny', `${policyId}: strict native deny`);
+      else {
+        assert.equal(strictResult.status, 2, `${policyId}: strict Stop exit`);
+        assert.match(strictResult.stderr, new RegExp(`^\\[${policyId}\\] DoFlow policy error`), `${policyId}: strict Stop reason`);
+      }
+    } else assert.equal(strictResult.status, 0, `${policyId}: context/advisory remains non-blocking`);
   }
 });
 

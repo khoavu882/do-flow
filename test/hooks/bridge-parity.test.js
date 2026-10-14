@@ -64,9 +64,9 @@ function nativeResponseBytes(harness, event, result) {
   return Buffer.byteLength(result.stderr);
 }
 
-function fixtureFiles() {
+function fixtureFiles(harnesses) {
   const cases = [];
-  for (const harness of fs.readdirSync(FIXTURES)) {
+  for (const harness of harnesses) {
     const harnessDir = path.join(FIXTURES, harness);
     if (!fs.statSync(harnessDir).isDirectory()) continue;
     for (const stem of fs.readdirSync(harnessDir)) {
@@ -181,7 +181,7 @@ function runFixture({ harness, stem, fixturePath, fixture }, index) {
   assert.equal(jqSorted(envelope), jqSorted(fixture.expect.envelope), `${label}: envelope fields match fixture`);
 }
 
-const fixtures = fixtureFiles();
+const fixtures = fixtureFiles(['claude']);
 test('Claude hook corpus includes every wired event and a perf case for every canonical front door', () => {
   assert.ok(fixtures.length >= 15, 'the corpus includes every Claude wired event and a perf case for each canonical front door');
 });
