@@ -293,25 +293,10 @@ require_jq() {
   fi
 }
 
-# ── Session role ──────────────────────────────────────────────────────────────
+# ── Session role and identity ─────────────────────────────────────────────────
 
-# Print `main` or `worker` for this session, read from DOFLOW_SESSION_ROLE (matched
-# case-insensitively). Unset or empty is `main`; a value that is neither `main` nor
-# `worker` is `worker` and writes one line to stderr. A worker never writes or claims the
-# project's compact summary or warning. Always returns 0. bash 3.2 safe (no ${var,,}).
-doflow_session_role() {
-  local role
-  role=$(printf '%s' "${DOFLOW_SESSION_ROLE:-}" | tr '[:upper:]' '[:lower:]') || role=""
-  case "$role" in
-    ""|main) printf 'main\n' ;;
-    worker) printf 'worker\n' ;;
-    *)
-      echo "[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker" >&2
-      printf 'worker\n'
-      ;;
-  esac
-  return 0
-}
+# doflow_session_role and doflow_identity live in identity.sh, their only definition (IC-009).
+. "$_DOFLOW_LIB_DIR/identity.sh"
 
 # Start storage cleanup without changing the hook's output, status, or latency.
 storage_upkeep_async() {
