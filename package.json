@@ -34,6 +34,7 @@
     "build:package": "node src/release/build-package.ts .pack",
     "bench": "node bench/runner.js",
     "drift": "node scripts/check-format-drift.js",
+    "emission-rules": "node src/runtime/context/emission-rules.ts --check",
     "release-notes": "node src/release/changelog-section.ts",
     "version": "node src/release/sync-plugin-versions.ts && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json"
   },
