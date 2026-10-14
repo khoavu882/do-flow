@@ -464,7 +464,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       // conflict — that one is `--force`'s business, not adoption's.
       if (!record && !adopt) {
         hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json exists but is not owned by the neutral ledger'] };
-      } else if (record && record.fingerprint !== current) {
+      } else if (record && record.fingerprint !== current && !force) {
         hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json was modified outside DoFlow'] };
       }
     }
