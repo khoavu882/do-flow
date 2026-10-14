@@ -76,6 +76,45 @@ BRIDGE_TEST('decode is fixture-backed, harness-scoped, and only emits operation 
   }
 });
 
+BRIDGE_TEST('Antigravity decodes every tool name routed by the runner from its committed routing fixture', () => {
+  const dir = makeTree();
+  const fixturePath = path.join(ROOT, 'test/fixtures/hooks/antigravity/pre-implement-gate/routed-tools.json');
+  const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+  for (const row of fixture.calls) {
+    const decoded = spawnSync('jq', ['-c', '--arg', 'harness', 'antigravity', '--arg', 'event', 'PreToolUse', '--arg', 'policy', 'pre-implementation-gate', '-f', path.join(dir, 'bridge/envelope.jq')], {
+      input: JSON.stringify(row.native), encoding: 'utf8',
+    });
+    assert.equal(decoded.status, 0, row.name);
+    const envelope = JSON.parse(decoded.stdout).doflow_event;
+    assert.equal(envelope.operation, row.operation, row.name);
+    assert.equal(envelope.tool, row.name, row.name);
+    if (row.operation === 'edit') assert.deepEqual(envelope.paths, ['/repo/a'], row.name);
+    if (row.operation === 'command') assert.equal(envelope.command, 'rm -rf /', row.name);
+  }
+  assert.equal(fixture.source, 'core/harnesses/shared/hooks/stream-hook-runner.js tool-name classifiers');
+});
+
+BRIDGE_TEST('policy mode 0644 is byte-identical to 0755 for allow, deny, and error outcomes', () => {
+  const rows = [
+    ['allow', `#!/bin/bash\nprintf '\\036%s\\n' '{"outcome":"allow","code":"allow","policyVersion":1}' >&3\nexit 0\n`],
+    ['deny', denyPolicy()],
+    ['error', '#!/bin/bash\necho raw-error >&2\nexit 9\n'],
+  ];
+  for (const [label, body] of rows) {
+    const dir = makeTree();
+    const policy = path.join(dir, 'policies/pre-implementation-gate.sh');
+    fs.writeFileSync(policy, body, { mode: 0o755 });
+    const executable = run(dir, 'antigravity', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'native']);
+    fs.chmodSync(policy, 0o644);
+    const nonExecutable = run(dir, 'antigravity', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'native']);
+    assert.deepEqual(
+      { status: nonExecutable.status, stdout: nonExecutable.stdout, stderr: nonExecutable.stderr },
+      { status: executable.status, stdout: executable.stdout, stderr: executable.stderr },
+      `${label}: policy file permissions do not affect bridge behavior`,
+    );
+  }
+});
+
 BRIDGE_TEST('bridge replaces a stale native doflow_event with its v1 envelope before policy evaluation', () => {
   const dir = makeTree();
   const policy = path.join(dir,'policies/pre-implementation-gate.sh');

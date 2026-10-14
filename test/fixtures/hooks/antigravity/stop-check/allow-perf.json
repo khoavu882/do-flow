@@ -1,0 +1,20 @@
+{
+  "native": {
+    "executionNum": 1,
+    "terminationReason": "model_stop",
+    "fullyIdle": true,
+    "transcriptPath": ""
+  },
+  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": { "harness": "antigravity", "event": "Stop", "policy": "stop-check", "outcome": "allow", "effect": "proceed" },
+    "envelope": { "version": 1, "harness": "antigravity", "event": "Stop", "operation": "stop" },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

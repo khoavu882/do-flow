@@ -17,9 +17,9 @@ def event_operation($e):
   else "tool" end;
 def canonical_tool($name; $harness):
   if ($name | type) != "string" then {operation:"tool"}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and ($name | test("^mcp__"))) or ($harness == "gemini" and ($name | test("^mcp_"))) or ($harness == "pi" and ($name | test("^mcp__"))) then {operation:"mcp",tool:$name}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and (["Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "gemini" and (["write_file","replace"] | index($name)) != null) or ($harness == "antigravity" and (["write_to_file","replace_file_content","multi_replace_file_content"] | index($name)) != null) or ($harness == "pi" and (["edit","write"] | index($name)) != null) then {operation:"edit",tool:$name}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and $name == "Bash") or ($harness == "gemini" and $name == "run_shell_command") or ($harness == "pi" and $name == "bash") then {operation:"command",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and ($name | test("^mcp__"))) or (($harness == "gemini" or $harness == "antigravity") and ($name | test("^mcp_"))) or ($harness == "pi" and ($name | test("^mcp__"))) then {operation:"mcp",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and (["Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "gemini" and (["write_file","replace"] | index($name)) != null) or ($harness == "antigravity" and (["write_to_file","replace_file_content","multi_replace_file_content","edit_file","write_file","create_file","replace_file","replace","Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "pi" and (["edit","write"] | index($name)) != null) then {operation:"edit",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and $name == "Bash") or ($harness == "gemini" and $name == "run_shell_command") or ($harness == "antigravity" and (["run_command","run_shell_command","Bash","bash"] | index($name)) != null) or ($harness == "pi" and $name == "bash") then {operation:"command",tool:$name}
   else {operation:"tool",tool:$name} end;
 def decode_claude:
   (canonical_tool(.tool_name // ""; "claude")) as $t |
