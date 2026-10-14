@@ -678,6 +678,10 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   headings, states, and examples with score rejection (G33.16); retrieval README includes the three gate
   sentences verbatim (G33.17); and every deliverable defines refresh metadata and avoids transient
   feature-doc paths (G33.18).
+- **G36** (`lifecycle-bridges.test.js`) — coverage rows satisfy IC-022 fields, evidence, lifecycle and
+  inventory joins, digest, generated matrix, and shell-write exclusions (G36.1–G36.7).
+- **G37** (`lifecycle-bridges.test.js`) — wired events have parity fixtures and matching template
+  sources; not-shipped assets remain unwired; Kiro Stop claims retain their evidence (G37.1–G37.4).
 
 - **G34** (`lifecycle-bridges.test.js`) — bridge files contain no policy rules, agent spawns, context
   injection, bash-to-Node calls or Pi input mutation (G34.1); the lifecycle architecture names the
