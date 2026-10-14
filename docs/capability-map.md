@@ -37,8 +37,9 @@ gap and offers guidance instead of installing a non-functional approximation.
 For OpenCode and Pi, several rows read “Different” because those harnesses expect **registration**
 rather than projection: DoFlow points OpenCode's settings at its existing skills directory instead
 of copying a second tree (Pi's skills are copied into `.pi/skills/` or `~/.pi/agent/skills/`;
-`settings.json` is Pi's supported settings surface, but DoFlow writes no key in it), and their hook and plugin surfaces take JS/TS modules rather
-than the shell scripts DoFlow ships.
+`settings.json` is Pi's supported settings surface, but DoFlow writes no key in it). Pi's installed
+user-scope extension registers `tool_call` and invokes the shared lifecycle bridge; project-scope
+extension projection remains unsupported.
 
 Kiro reads “Unavailable” for two rows for a different reason than OpenCode/Pi's
 “Different”: no documented native surface exists at all for those capabilities — no general settings
@@ -98,10 +99,9 @@ an event declared supported must be in the harness contract, and an unavailable 
 a reason.
 
 **Supported** means DoFlow installs a hook for that event. **Different** means the harness fires an
-equivalent event but DoFlow does not wire it — OpenCode and Pi both implement handlers as JS/TS code
-modules rather than command strings, so DoFlow's shell hooks have nothing to attach to. Wiring those
-would mean shipping executable code into the user's agent, which is a distribution decision rather
-than a projection. **Unavailable** means no equivalent event exists at matching semantics.
+equivalent event through a different mechanism. OpenCode uses plugin modules; Pi's user-scope
+extension registers `tool_call` and invokes the shared bridge. **Unavailable** means no equivalent
+event exists at matching semantics.
 
 A dash means the harness declares no such event name in DoFlow's taxonomy. Copilot CLI's hooks
 capability reads Different: a full native surface is documented upstream, but DoFlow wires none of
@@ -137,7 +137,7 @@ the other four documented events as the Different statuses recorded in the regis
 | `PreCompact` | Supported | Supported | — | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: experimental.session.compacting. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary. **GitHub Copilot CLI:** Native preCompact exists. |
 | `PreCompress` | — | — | Supported | — | — | — | — | — |  |
 | `PreInvocation` | — | — | — | — | — | — | — | Different | **Antigravity CLI:** Documented step-injection point; no current DoFlow policy needs model-call interception. |
-| `PreToolUse` | Supported | Supported | — | Different | Different | Different | — | Supported | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on. **GitHub Copilot CLI:** Blocking contract matches ({permissionDecision} on stdout) but tool names differ from Claude's Edit\|Write\|MultiEdit and the gate reads CLAUDE_* envs. **Antigravity CLI:** DoFlow projects its pre-implementation gate as a native shim: matcher write_to_file\|replace_file_content\|multi_replace_file_content, deny decision until the branch-coupled feature's three specifications exist. |
+| `PreToolUse` | Supported | Supported | — | Different | Different | Different | — | Supported | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before. **Pi Coding Agent:** DoFlow's user- or project-scope extension evaluates `tool_call` before execution; `tool_execution_start` remains observation-only. **GitHub Copilot CLI:** Blocking contract matches ({permissionDecision} on stdout) but tool names differ from Claude's Edit\|Write\|MultiEdit and the gate reads CLAUDE_* envs. **Antigravity CLI:** DoFlow projects its pre-implementation gate as a native shim: matcher write_to_file\|replace_file_content\|multi_replace_file_content, deny decision until the branch-coupled feature's three specifications exist. |
 | `SessionEnd` | Supported | Supported | Supported | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle / session.deleted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown. **GitHub Copilot CLI:** Native sessionEnd exists; same payload-schema caveat. |
 | `SessionStart` | Supported | Supported | Supported | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.created. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:"reload" on /reload. **GitHub Copilot CLI:** Native sessionStart exists; DoFlow's script reads Claude's .session_id/.cwd stdin fields. |
 | `Stop` | Supported | Supported | Unavailable | Different | Different | Different | — | Supported | **Gemini CLI:** No exact match; AfterAgent fires at agent-loop end and can halt or retry the turn, which is coarser than Claude's Stop. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end. **GitHub Copilot CLI:** Native agentStop forces continuation via stdout {decision:'block'} (8-block runaway cap), unlike Claude's exit-2 semantics; stop-check relies on .transcript_path. **Antigravity CLI:** DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is optional and unverified — empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end. |

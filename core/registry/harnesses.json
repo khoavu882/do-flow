@@ -184,7 +184,7 @@
         "spawn": {
           "status": "supported",
           "evidence": [
-            "https://code.claude.com/docs/en/tools-reference → Agent: \"Spawns a subagent with its own context window to handle a task.\""
+            "https://code.claude.com/docs/en/tools-reference \u2192 Agent: \"Spawns a subagent with its own context window to handle a task.\""
           ],
           "verification": "Ask Claude Code to delegate a task to an installed subagent and confirm a subagent runs.",
           "verifiedOn": "2026-10-12"
@@ -192,8 +192,8 @@
         "wait": {
           "status": "supported",
           "evidence": [
-            "https://code.claude.com/docs/en/sub-agents → \"Foreground subagents block the main conversation until complete.\"",
-            "https://code.claude.com/docs/en/sub-agents → \"A background subagent's results reach Claude as a completion notification in a later turn.\""
+            "https://code.claude.com/docs/en/sub-agents \u2192 \"Foreground subagents block the main conversation until complete.\"",
+            "https://code.claude.com/docs/en/sub-agents \u2192 \"A background subagent's results reach Claude as a completion notification in a later turn.\""
           ],
           "verification": "Run a foreground subagent and confirm the main conversation resumes with its result.",
           "verifiedOn": "2026-10-12"
@@ -201,7 +201,7 @@
         "status": {
           "status": "supported",
           "evidence": [
-            "https://code.claude.com/docs/en/sub-agents → \"To check which model a subagent is running on, run /tasks.\""
+            "https://code.claude.com/docs/en/sub-agents \u2192 \"To check which model a subagent is running on, run /tasks.\""
           ],
           "verification": "Run /tasks while a background subagent is active.",
           "verifiedOn": "2026-10-12"
@@ -209,7 +209,7 @@
         "cancel": {
           "status": "supported",
           "evidence": [
-            "https://code.claude.com/docs/en/tools-reference → TaskStop: \"Stops a running background task by ID. It also accepts an agent-team teammate or a named background agent by agent ID or name.\""
+            "https://code.claude.com/docs/en/tools-reference \u2192 TaskStop: \"Stops a running background task by ID. It also accepts an agent-team teammate or a named background agent by agent ID or name.\""
           ],
           "verification": "Start a background subagent and stop it with TaskStop.",
           "verifiedOn": "2026-10-12"
@@ -217,7 +217,7 @@
         "resume": {
           "status": "supported",
           "evidence": [
-            "https://code.claude.com/docs/en/sub-agents → \"Claude uses the SendMessage tool with the agent's ID or name as the to field to resume it.\""
+            "https://code.claude.com/docs/en/sub-agents \u2192 \"Claude uses the SendMessage tool with the agent's ID or name as the to field to resume it.\""
           ],
           "verification": "Complete a subagent, then send it a follow-up through SendMessage and confirm it keeps its history.",
           "verifiedOn": "2026-10-12"
@@ -486,7 +486,7 @@
         "spawn": {
           "status": "supported",
           "evidence": [
-            "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Ask for subagents or parallel agent work directly.\""
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents \u2192 \"Ask for subagents or parallel agent work directly.\""
           ],
           "verification": "Ask Codex to spawn two agents and confirm both appear under Subagents.",
           "verifiedOn": "2026-10-12"
@@ -494,7 +494,7 @@
         "wait": {
           "status": "supported",
           "evidence": [
-            "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"When many agents are running, Codex waits until all requested results are available, then returns a consolidated response.\""
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents \u2192 \"When many agents are running, Codex waits until all requested results are available, then returns a consolidated response.\""
           ],
           "verification": "Spawn two agents and confirm one consolidated response arrives after both finish.",
           "verifiedOn": "2026-10-12"
@@ -502,7 +502,7 @@
         "status": {
           "status": "supported",
           "evidence": [
-            "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Open Subagents to see read-only Active and Done lists.\" and \"Use /agent in the CLI to switch between active agent threads and inspect the ongoing thread.\""
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents \u2192 \"Open Subagents to see read-only Active and Done lists.\" and \"Use /agent in the CLI to switch between active agent threads and inspect the ongoing thread.\""
           ],
           "verification": "Open Subagents or run /agent while a subagent is active.",
           "verifiedOn": "2026-10-12"
@@ -510,7 +510,7 @@
         "cancel": {
           "status": "supported",
           "evidence": [
-            "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Ask Codex directly to steer a running subagent, stop it, or close completed agent threads.\""
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents \u2192 \"Ask Codex directly to steer a running subagent, stop it, or close completed agent threads.\""
           ],
           "verification": "Ask Codex to stop a running subagent and confirm the thread ends.",
           "verifiedOn": "2026-10-12"
@@ -696,7 +696,7 @@
             },
             "UserPromptSubmit": {
               "status": "unavailable",
-              "note": "No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context — not a per-prompt pre-submission gate. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
+              "note": "No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context \u2014 not a per-prompt pre-submission gate. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
             },
             "Stop": {
               "status": "unavailable",
@@ -732,7 +732,7 @@
           "evidence": [
             "https://geminicli.com/docs/extensions/"
           ],
-          "note": "Extensions (gemini-extension.json) now package skills, hooks, sub-agents, and MCP; security.blockGitExtensions/allowedExtensions can gate Git-sourced installs. Context: Google sunset Gemini CLI for consumer tiers on 2026-06-18 — enterprise/paid-API use only; Antigravity CLI (GA 2026-05-19, antigravity.google/docs/gcli-migration) is the successor surface carrying skills/hooks/subagents/plugins.",
+          "note": "Extensions (gemini-extension.json) now package skills, hooks, sub-agents, and MCP; security.blockGitExtensions/allowedExtensions can gate Git-sourced installs. Context: Google sunset Gemini CLI for consumer tiers on 2026-06-18 \u2014 enterprise/paid-API use only; Antigravity CLI (GA 2026-05-19, antigravity.google/docs/gcli-migration) is the successor surface carrying skills/hooks/subagents/plugins.",
           "verification": "Verify extensions through the native host workflow."
         }
       },
@@ -740,8 +740,8 @@
         "spawn": {
           "status": "supported",
           "evidence": [
-            "https://geminicli.com/docs/core/subagents → \"When the main agent calls the tool, it delegates the task to the subagent.\"",
-            "https://geminicli.com/docs/core/subagents → \"You can explicitly direct a task to a specific subagent by using the @ symbol followed by the subagent's name at the beginning of your prompt.\""
+            "https://geminicli.com/docs/core/subagents \u2192 \"When the main agent calls the tool, it delegates the task to the subagent.\"",
+            "https://geminicli.com/docs/core/subagents \u2192 \"You can explicitly direct a task to a specific subagent by using the @ symbol followed by the subagent's name at the beginning of your prompt.\""
           ],
           "verification": "Prompt with @<subagent> and confirm the subagent runs.",
           "verifiedOn": "2026-10-12"
@@ -749,7 +749,7 @@
         "wait": {
           "status": "supported",
           "evidence": [
-            "https://geminicli.com/docs/core/subagents → \"Once the subagent completes its task, it reports back to the main agent with its findings.\""
+            "https://geminicli.com/docs/core/subagents \u2192 \"Once the subagent completes its task, it reports back to the main agent with its findings.\""
           ],
           "verification": "Delegate a task and confirm the main agent continues from the subagent report.",
           "verifiedOn": "2026-10-12"
@@ -1042,8 +1042,8 @@
         "spawn": {
           "status": "supported",
           "evidence": [
-            "https://opencode.ai/docs/agents → \"Control which subagents an agent can invoke via the Task tool with permission.task.\"",
-            "https://opencode.ai/docs/agents → \"Subagents can be invoked: Automatically by primary agents for specialized tasks based on their descriptions. Manually by @ mentioning a subagent in your message.\""
+            "https://opencode.ai/docs/agents \u2192 \"Control which subagents an agent can invoke via the Task tool with permission.task.\"",
+            "https://opencode.ai/docs/agents \u2192 \"Subagents can be invoked: Automatically by primary agents for specialized tasks based on their descriptions. Manually by @ mentioning a subagent in your message.\""
           ],
           "verification": "Mention a subagent with @ or let a primary agent call the Task tool and confirm a child session starts.",
           "verifiedOn": "2026-10-12"
@@ -1254,8 +1254,8 @@
           "evidence": [
             "https://pi.dev/docs/latest/extensions"
           ],
-          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions — a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
-          "verification": "Report that DoFlow installs no Pi extension and its shell hooks do not apply here.",
+      "note": "DoFlow installs a ledger-owned extension at user scope or project scope that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust.",
+      "verification": "Verify the installed extension fingerprint, resolved shared bridge path, bash/jq prerequisites, and the project-trust prerequisite for project scope.",
           "events": {
             "SessionStart": {
               "status": "different",
@@ -1279,7 +1279,7 @@
             },
             "PreToolUse": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on."
+              "note": "DoFlow's user-scope extension evaluates tool_call before execution; tool_execution_start is observation-only and exposed through session.subscribe."
             },
             "PostToolUse": {
               "status": "different",
@@ -1334,7 +1334,7 @@
         "spawn": {
           "status": "unsupported",
           "evidence": [
-            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md → \"Pi ships with powerful defaults but skips features like sub-agents and plan mode.\""
+            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md \u2192 \"Pi ships with powerful defaults but skips features like sub-agents and plan mode.\""
           ],
           "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md and https://pi.dev/docs/latest/extensions; an extension may add subagents, which is not recorded as a Pi capability.",
           "verifiedOn": "2026-10-12",
@@ -1515,7 +1515,7 @@
           "evidence": [
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
           ],
-          "verification": "Confirm Copilot CLI discovers the installed skill from .agents/skills (project) or ~/.agents/skills (personal) — the same SKILL.md + YAML frontmatter format DoFlow already authors, so no per-harness transformation is required."
+          "verification": "Confirm Copilot CLI discovers the installed skill from .agents/skills (project) or ~/.agents/skills (personal) \u2014 the same SKILL.md + YAML frontmatter format DoFlow already authors, so no per-harness transformation is required."
         },
         "agents": {
           "status": "supported",
@@ -1562,7 +1562,7 @@
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks",
             "https://docs.github.com/en/copilot/reference/hooks-reference"
           ],
-          "note": "Copilot CLI documented a full hook surface (2026): .github/hooks/*.json (repo) and ~/.copilot/hooks/ (user), shape {\"version\":1,\"hooks\":{\"<camelCase event>\":[entries]}}, command entries fail-closed on non-zero exit, preToolUse decides via stdout JSON {permissionDecision}. DoFlow wires NONE of it yet, deliberately: its shipped scripts are Claude-payload-coupled (tool names Edit|Write|MultiEdit, .session_id/.transcript_path stdin fields, CLAUDE_CONFIG_DIR/CLAUDE_PROJECT_DIR envs). Projecting them onto Copilot's unverified payload schemas would install hooks that silently misfire — recorded here instead of imitated.",
+          "note": "Copilot CLI documented a full hook surface (2026): .github/hooks/*.json (repo) and ~/.copilot/hooks/ (user), shape {\"version\":1,\"hooks\":{\"<camelCase event>\":[entries]}}, command entries fail-closed on non-zero exit, preToolUse decides via stdout JSON {permissionDecision}. DoFlow wires NONE of it yet, deliberately: its shipped scripts are Claude-payload-coupled (tool names Edit|Write|MultiEdit, .session_id/.transcript_path stdin fields, CLAUDE_CONFIG_DIR/CLAUDE_PROJECT_DIR envs). Projecting them onto Copilot's unverified payload schemas would install hooks that silently misfire \u2014 recorded here instead of imitated.",
           "verification": "Report that no Copilot hook is installed; revisit once payload schemas are verified in a live session.",
           "events": {
             "SessionStart": {
@@ -1583,7 +1583,7 @@
             },
             "PostToolUseFailure": {
               "status": "different",
-              "note": "Native postToolUseFailure exists — a failure-only event Claude lacks a direct name for."
+              "note": "Native postToolUseFailure exists \u2014 a failure-only event Claude lacks a direct name for."
             },
             "Stop": {
               "status": "different",
@@ -1632,7 +1632,7 @@
         "spawn": {
           "status": "supported",
           "evidence": [
-            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli → \"Work performed by a custom agent is carried out using a subagent, which is a temporary agent spun up to complete the task.\""
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli \u2192 \"Work performed by a custom agent is carried out using a subagent, which is a temporary agent spun up to complete the task.\""
           ],
           "verification": "Run a custom agent task and confirm a subagent appears in /tasks.",
           "verifiedOn": "2026-10-12"
@@ -1648,7 +1648,7 @@
         "status": {
           "status": "supported",
           "evidence": [
-            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference → tasks dialog (/tasks): \"Enter - View task details, or teleport into the selected subagent's own session view\"; subagents that spawn nested subagents \"appear as an indented tree\"."
+            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference \u2192 tasks dialog (/tasks): \"Enter - View task details, or teleport into the selected subagent's own session view\"; subagents that spawn nested subagents \"appear as an indented tree\"."
           ],
           "verification": "Open /tasks while a subagent is active.",
           "verifiedOn": "2026-10-12"
@@ -1656,7 +1656,7 @@
         "cancel": {
           "status": "supported",
           "evidence": [
-            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference → tasks dialog (/tasks): \"X - Kill the selected active task\"; the dialog lists subagents and shells (\"Toggle showing finished subagents and shells\")."
+            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference \u2192 tasks dialog (/tasks): \"X - Kill the selected active task\"; the dialog lists subagents and shells (\"Toggle showing finished subagents and shells\")."
           ],
           "verification": "Open /tasks, select an active subagent and press X.",
           "verifiedOn": "2026-10-12"
@@ -1778,7 +1778,7 @@
           "evidence": [
             "https://kiro.dev/docs/skills/"
           ],
-          "note": "Kiro has a dedicated skills system, separate from steering: a skill is a folder containing SKILL.md with YAML frontmatter (name, description) plus optional scripts/references/assets subdirectories, following the same open Agent Skills standard DoFlow already authors — no transformation needed. Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict. This corrects an earlier declaration made before kiro.dev/docs/skills/ was found.",
+          "note": "Kiro has a dedicated skills system, separate from steering: a skill is a folder containing SKILL.md with YAML frontmatter (name, description) plus optional scripts/references/assets subdirectories, following the same open Agent Skills standard DoFlow already authors \u2014 no transformation needed. Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict. This corrects an earlier declaration made before kiro.dev/docs/skills/ was found.",
           "verification": "Confirm the installed skill is discoverable under .kiro/skills/ (workspace) or ~/.kiro/skills/ (global)."
         },
         "agents": {
@@ -1794,7 +1794,7 @@
           "evidence": [
             "https://kiro.dev/docs/skills/"
           ],
-          "note": "A skill's own scripts/ subdirectory travels with it inside .kiro/skills/, per the same bundled-with-skill pattern opencode/pi/copilot already use — not a standalone tree DoFlow projects separately.",
+          "note": "A skill's own scripts/ subdirectory travels with it inside .kiro/skills/, per the same bundled-with-skill pattern opencode/pi/copilot already use \u2014 not a standalone tree DoFlow projects separately.",
           "verification": "Confirm a bundled skill scripts/ directory is reachable from the installed .kiro/skills/ path."
         },
         "templates": {
@@ -1857,7 +1857,7 @@
         "spawn": {
           "status": "supported",
           "evidence": [
-            "https://kiro.dev/docs/custom-agents/subagents/ → \"Use the code-reviewer agent to analyze src/auth/ for security issues\" (invocation example for a sub-agent)."
+            "https://kiro.dev/docs/custom-agents/subagents/ \u2192 \"Use the code-reviewer agent to analyze src/auth/ for security issues\" (invocation example for a sub-agent)."
           ],
           "verification": "Prompt the main agent to use a custom agent and confirm a sub-agent runs.",
           "verifiedOn": "2026-10-12"
@@ -1865,7 +1865,7 @@
         "wait": {
           "status": "supported",
           "evidence": [
-            "https://kiro.dev/docs/custom-agents/subagents/ → \"When finished, the sub-agent returns findings to the main agent\"."
+            "https://kiro.dev/docs/custom-agents/subagents/ \u2192 \"When finished, the sub-agent returns findings to the main agent\"."
           ],
           "verification": "Delegate a task and confirm the main agent continues from the returned findings.",
           "verifiedOn": "2026-10-12"
@@ -1873,7 +1873,7 @@
         "status": {
           "status": "supported",
           "evidence": [
-            "https://kiro.dev/docs/custom-agents/subagents/ → \"In CLI, use Ctrl+G to check on long-running sub-agents\"."
+            "https://kiro.dev/docs/custom-agents/subagents/ \u2192 \"In CLI, use Ctrl+G to check on long-running sub-agents\"."
           ],
           "verification": "Press Ctrl+G in the Kiro CLI while a sub-agent is running.",
           "verifiedOn": "2026-10-12"
@@ -2133,7 +2133,7 @@
             },
             "Stop": {
               "status": "supported",
-              "note": "DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is optional and unverified — empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end."
+              "note": "DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is optional and unverified \u2014 empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end."
             },
             "UserPromptSubmit": {
               "status": "unavailable",
@@ -2162,7 +2162,7 @@
         "spawn": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/subagents?tab=cli → \"The parent agent calls the invoke_subagent tool to spawn a new concurrent session with a dedicated role and initial prompt\"."
+            "https://antigravity.google/docs/subagents?tab=cli \u2192 \"The parent agent calls the invoke_subagent tool to spawn a new concurrent session with a dedicated role and initial prompt\"."
           ],
           "verification": "Ask the agent to delegate and confirm a subagent appears in the subagent panel.",
           "verifiedOn": "2026-10-12"
@@ -2178,7 +2178,7 @@
         "status": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/subagents?tab=cli → \"You can directly monitor the progress of any subagent by clicking into its conversation in the subagent panel or pressing Alt+J\"."
+            "https://antigravity.google/docs/subagents?tab=cli \u2192 \"You can directly monitor the progress of any subagent by clicking into its conversation in the subagent panel or pressing Alt+J\"."
           ],
           "verification": "Open the subagent panel while a subagent is running.",
           "verifiedOn": "2026-10-12"
@@ -2186,7 +2186,7 @@
         "cancel": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/subagents?tab=cli → \"You can cancel a running subagent by clicking Stop Subagent in the subagent panel (or pressing k in the CLI).\""
+            "https://antigravity.google/docs/subagents?tab=cli \u2192 \"You can cancel a running subagent by clicking Stop Subagent in the subagent panel (or pressing k in the CLI).\""
           ],
           "verification": "Press k on a running subagent in the CLI and confirm it is Killed.",
           "verifiedOn": "2026-10-12"
@@ -2194,7 +2194,7 @@
         "resume": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/subagents?tab=cli → \"An idle agent automatically re-awakens to the Running state upon receiving a message from another agent.\""
+            "https://antigravity.google/docs/subagents?tab=cli \u2192 \"An idle agent automatically re-awakens to the Running state upon receiving a message from another agent.\""
           ],
           "verification": "Message an Idle subagent and confirm it returns to Running.",
           "verifiedOn": "2026-10-12"
