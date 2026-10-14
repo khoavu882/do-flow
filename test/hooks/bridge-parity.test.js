@@ -95,6 +95,7 @@ function runFixture({ harness, stem, fixturePath, fixture }, index) {
   const script = path.join(mirror, `.${harness}`, 'hooks', `${stem}.sh`);
   assert.ok(fs.existsSync(script), `fixture ${fixturePath} names an installed front door ${harness}/${stem}.sh`);
   const policy = stem;
+  if (fixture.policyConfig) write(path.join(mirror, '.doflow/shared/hooks/policies', fixture.policyConfig.file), fixture.policyConfig.contents);
   const event = fixture.native.hook_event_name;
   const trace = path.join(scratch.dir, `trace-${index}.jsonl`);
   const home = path.join(scratch.dir, `home-${index}`);
@@ -108,16 +109,24 @@ function runFixture({ harness, stem, fixturePath, fixture }, index) {
     ...(fixture.env || {}),
   };
   const before = snapshotState(project);
-  if (fixture.fault === 'crash-exit-1') {
-    const policyPath = path.join(mirror, '.doflow/shared/hooks/policies/pre-implementation-gate.sh');
-    write(policyPath, `#!/usr/bin/env bash\ncat >/dev/null\nprintf '%s' '${'P'.repeat(200)}' >&2\nexit 1\n`);
+  if (fixture.fault === 'missing-policy') {
+    const policyId = ({ 'pre-implement-gate': 'pre-implementation-gate', 'session-start': 'session-context' })[stem] || stem;
+    const policyPath = path.join(mirror, '.doflow/shared/hooks/policies', `${policyId}.sh`);
+    fs.renameSync(policyPath, `${policyPath}.missing`);
+  }
+  if (['crash-exit-1', 'context-crash-exit-1', 'policy-stderr', 'stop-exit-2', 'stop-exit-7'].includes(fixture.fault)) {
+    const policyId = ({ 'pre-implement-gate': 'pre-implementation-gate', 'session-start': 'session-context' })[stem] || stem;
+    const policyPath = path.join(mirror, '.doflow/shared/hooks/policies', `${policyId}.sh`);
+    if (fixture.fault === 'policy-stderr') write(policyPath, `#!/usr/bin/env bash\ncat >/dev/null\nprintf 'fixture stderr\\n' >&2\nexit 0\n`);
+    else if (fixture.fault === 'stop-exit-2' || fixture.fault === 'stop-exit-7') write(policyPath, `#!/usr/bin/env bash\ncat >/dev/null\nprintf 'stop private stderr\\n' >&2\nexit ${fixture.fault === 'stop-exit-2' ? 2 : 7}\n`);
+    else write(policyPath, `#!/usr/bin/env bash\ncat >/dev/null\nprintf '%s' '${'P'.repeat(200)}' >&2\nexit 1\n`);
     fs.chmodSync(policyPath, 0o755);
   }
   const result = call(['bash', script], { cwd: project, input: `${JSON.stringify(fixture.native)}\n`, env });
   const label = `${harness}/${stem}/${caseName}`;
   assert.equal(result.status, fixture.expect.exit, `${label}: exit status`);
   if (fixture.expect.stdout !== null) assert.equal(result.stdout, fixture.expect.stdout, `${label}: stdout`);
-  if (fixture.expect.stderrIncludes !== null) assert.ok(result.stderr.includes(fixture.expect.stderrIncludes), `${label}: stderr contains expected text`);
+  if (fixture.expect.stderrIncludes !== null) assert.ok(result.stderr.includes(fixture.expect.stderrIncludes), `${label}: stderr contains expected text (${JSON.stringify(result.stderr)})`);
   if (fixture.expect.modelVisibleBytesMax !== undefined) {
     const bytes = nativeResponseBytes(harness, event, result);
     assert.ok(bytes <= fixture.expect.modelVisibleBytesMax, `${label}: model-visible bytes (${bytes} > ${fixture.expect.modelVisibleBytesMax})`);
@@ -126,6 +135,10 @@ function runFixture({ harness, stem, fixturePath, fixture }, index) {
     const body = JSON.parse(result.stdout);
     assert.equal(body.hookSpecificOutput.permissionDecisionReason, '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list', `${label}: fixed error reason`);
     assert.ok(!result.stdout.includes('P'.repeat(200)), `${label}: private policy stderr is not forwarded`);
+  }
+  if (fixture.fault === 'stop-exit-2' || fixture.fault === 'stop-exit-7') {
+    assert.equal(result.stderr, '[stop-check] DoFlow policy error; details: doflow-run failure list\n', `${label}: fixed Stop reason has baseline newline`);
+    assert.equal(result.stderr.includes('private'), false, `${label}: raw Stop stderr is hidden`);
   }
   if (fixture.expect.taskStateUnchanged) assert.deepEqual(snapshotState(project), before, `${label}: task state unchanged`);
 
@@ -139,6 +152,9 @@ function runFixture({ harness, stem, fixturePath, fixture }, index) {
     'session-start': 'session-context',
   })[stem] || stem;
   const decision = JSON.parse(fs.readFileSync(trace, 'utf8').trim());
+  assert.equal(decision.harness, harness, `${label}: actual decision harness`);
+  assert.equal(decision.event, event, `${label}: actual decision event`);
+  assert.equal(decision.policy, policyId, `${label}: actual decision policy`);
   for (const [key, value] of Object.entries(fixture.expect.decision)) assert.equal(decision[key], value, `${label}: decision.${key}`);
   const failureFile = path.join(xdg, 'doflow/failures/events.jsonl');
   const actualFailurePoints = fs.existsSync(failureFile)
@@ -165,8 +181,10 @@ function runFixture({ harness, stem, fixturePath, fixture }, index) {
   assert.equal(jqSorted(envelope), jqSorted(fixture.expect.envelope), `${label}: envelope fields match fixture`);
 }
 
-test('Claude hook corpus passes through installed front doors and keeps v1 verdicts equal to v0', () => {
-  const fixtures = fixtureFiles();
+const fixtures = fixtureFiles();
+test('Claude hook corpus includes every wired event and a perf case for every canonical front door', () => {
   assert.ok(fixtures.length >= 15, 'the corpus includes every Claude wired event and a perf case for each canonical front door');
-  fixtures.forEach(runFixture);
+});
+fixtures.forEach((fixture, index) => {
+  test(`Claude parity ${path.relative(FIXTURES, fixture.fixturePath)}`, () => runFixture(fixture, index));
 });

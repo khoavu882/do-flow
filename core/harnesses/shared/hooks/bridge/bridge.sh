@@ -43,7 +43,7 @@ doflow_bridge_effect() {
   case "$policy" in pre-implementation-gate|pre-bash-guard|mcp-tool-guard|stop-check) block=1;; esac
   DF_BRIDGE_EFFECT=proceed
   if [ "$outcome" = deny ]; then DF_BRIDGE_EFFECT=block
-  elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ]; }; then DF_BRIDGE_EFFECT=block
+  elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ] || [ "$DF_BRIDGE_CODE" = bridge-spawn ]; }; then DF_BRIDGE_EFFECT=block
   elif [ "$outcome" = error ] && [ "$DF_BRIDGE_CODE" != bridge-spawn ] && [ -n "$DF_BRIDGE_POINT" ] && [ "$profile" = compat-1 ]; then
     case "$harness:$event" in
       claude:PreToolUse|codex:PreToolUse|gemini:BeforeTool|pi:tool_call) DF_BRIDGE_EFFECT=block ;;
@@ -53,6 +53,17 @@ doflow_bridge_effect() {
       codex:Stop|codex:stop|kiro:Stop|kiro:stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block || DF_BRIDGE_EFFECT=proceed ;;
     esac
   fi
+}
+
+doflow_bridge_drops_tool_streams() {
+  case "$1" in
+    pre-implementation-gate|pre-bash-guard|mcp-tool-guard) ;;
+    *) return 1 ;;
+  esac
+  case "$2:$3" in
+    claude:PreToolUse|codex:PreToolUse|gemini:BeforeTool|kiro:PreToolUse|antigravity:PreToolUse|antigravity:Stop|pi:tool_call) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 doflow_bridge() {
@@ -73,7 +84,7 @@ doflow_bridge() {
   else
     stderr_file="$(mktemp "${TMPDIR:-/tmp}/doflow-bridge-stderr.XXXXXX" 2>/dev/null)" || stderr_file=""
     if [ -n "$stderr_file" ]; then
-      exec 5>&1
+      if [ "$emit" = decision ] || doflow_bridge_drops_tool_streams "$policy" "$harness" "$event"; then exec 5>/dev/null; else exec 5>&1; fi
       if captured="$(DOFLOW_AGENT="$harness" DOFLOW_DECISION_FD=3 bash "$policy_path" 2>"$stderr_file" 3>&1 1>&5 <<<"$payload")"; then code=0; else code=$?; fi
       exec 5>&-
       err="$(cat "$stderr_file")"
@@ -93,7 +104,12 @@ EOF
   if [ "$DF_BRIDGE_OUTCOME" != deny ] && [ "$DF_BRIDGE_EFFECT" = proceed ]; then
     case "$harness:$event:$DF_BRIDGE_OUTCOME" in
       kiro:PreToolUse:error|claude:Stop:error)
-        case "$DF_BRIDGE_CODE" in exit-*|signal-*) reason="[$policy] DoFlow policy error; details: doflow-run failure list" ;; esac
+        case "$DF_BRIDGE_CODE" in
+          exit-*|signal-*)
+            reason="[$policy] DoFlow policy error; details: doflow-run failure list"
+            if [ "$harness:$event" = claude:Stop ]; then reason="$reason"$'\n'; fi
+            ;;
+        esac
         ;;
       *) reason="$DF_BRIDGE_CODE" ;;
     esac
@@ -128,7 +144,9 @@ EOF
   case "$policy:$DF_BRIDGE_OUTCOME:$harness:$event:$DF_BRIDGE_CODE" in
     session-context:error:*:*:*|user-prompt-submit:error:*:*:*|subagent-audit:error:*:*:*|session-context:unsupported:*:*:*|user-prompt-submit:unsupported:*:*:*|subagent-audit:unsupported:*:*:*) ;;
     *:error:kiro:PreToolUse:exit-*|*:error:kiro:PreToolUse:signal-*|*:error:claude:Stop:exit-*|*:error:claude:Stop:signal-*) ;;
-    *) if [ -n "$stderr_file" ]; then cat "$stderr_file" >&2; fi ;;
+    *)
+      if ! doflow_bridge_drops_tool_streams "$policy" "$harness" "$event" && [ -n "$stderr_file" ]; then cat "$stderr_file" >&2; fi
+      ;;
   esac
   doflow_render_response "$harness" "$event" "$DF_BRIDGE_OUTCOME" "$reason" "$status"
   local render_status=$?

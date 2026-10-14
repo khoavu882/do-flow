@@ -267,7 +267,7 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
       if (expected === 'proceed') {
         const expectedStdout = b.kind === 'codex-stop' ? '{}\n' : b.kind === 'antigravity' && b.e === 'PreToolUse' ? '{"decision":"allow"}\n' : '';
         assert.equal(native.stdout,expectedStdout,`${profile} ${b.h}:${b.e} ${scenario} proceed stdout`);
-        if (expected === 'proceed' && ['numeric','signal'].includes(scenario) && (b.kind === 'kiro-tool' || b.kind === 'claude-stop')) assert.equal(native.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list`,`${profile} ${b.h}:${b.e} ${scenario} fixed diagnostic on stderr`);
+        if (expected === 'proceed' && ['numeric','signal'].includes(scenario) && (b.kind === 'kiro-tool' || b.kind === 'claude-stop')) assert.equal(native.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list${b.kind === 'claude-stop' ? '\n' : ''}`,`${profile} ${b.h}:${b.e} ${scenario} fixed diagnostic on stderr`);
         else assert.equal(native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} proceed stderr`);
       } else {
         assert.notEqual(native.stdout + native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} block has native response`);
@@ -278,7 +278,7 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
   }
 });
 
-BRIDGE_TEST('DEC-024 passes policy stderr byte-for-byte for every non-blocking effect cell', () => {
+BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proceed cell', () => {
   const dir = makeTree();
   const bridges = [
     {h:'claude',e:'PreToolUse',p:'pre-implementation-gate',kind:'claude'},
@@ -302,7 +302,7 @@ BRIDGE_TEST('DEC-024 passes policy stderr byte-for-byte for every non-blocking e
         const code = scenario === 'allow' ? 'allow' : scenario === 'numeric' ? 'exit-9' : scenario === 'signal' ? 'signal-SEGV' : scenario;
         const record = scenario === 'numeric' || scenario === 'signal' ? '' : `printf '\\036%s\\n' '{"outcome":"${outcome}","code":"${code}","policyVersion":1}' >&3\n`;
         const status = scenario === 'numeric' ? 9 : scenario === 'signal' ? 139 : 0;
-        fs.writeFileSync(policy, `#!/bin/bash\nprintf 'policy stderr\\n\\n' >&2\n${record}exit ${status}\n`);
+        fs.writeFileSync(policy, `#!/bin/bash\nprintf 'policy stdout\\n'\nprintf 'policy stderr\\n\\n' >&2\n${record}exit ${status}\n`);
 
         const expectedEffect = profile === 'strict-1' && b.kind !== 'context' && scenario !== 'allow' ? 'block'
           : scenario === 'numeric' ? (['claude','codex','gemini','antigravity-tool','antigravity-stop','pi'].includes(b.kind) ? 'block' : 'proceed')
@@ -314,16 +314,53 @@ BRIDGE_TEST('DEC-024 passes policy stderr byte-for-byte for every non-blocking e
         const label = `${profile} ${b.h}:${b.e} ${scenario}`;
         const decision = run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
         assert.equal(JSON.parse(decision.stdout).effect,'proceed',`${label}: table cell proceeds`);
+        const dropToolStreams = ['claude','codex','gemini','kiro-tool','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
         if (b.kind === 'context' && scenario !== 'allow') {
           assert.equal(result.stderr,'',`${label}: context fault is silent`);
         } else if ((b.kind === 'kiro-tool' || b.kind === 'claude-stop') && ['numeric','signal'].includes(scenario)) {
-          assert.equal(result.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list`,`${label}: fixed IC-013 reason`);
+          assert.equal(result.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list${b.kind === 'claude-stop' ? '\n' : ''}`,`${label}: fixed IC-013 reason`);
+        } else if (dropToolStreams) {
+          assert.equal(result.stderr,'',`${label}: tool door drops policy stderr`);
         } else {
           assert.equal(result.stderr,rawStderr,`${label}: exact stderr pass-through`);
         }
+        assert.equal(result.stdout.includes('policy stdout'),!dropToolStreams,`${label}: policy stdout follows IC-012 door`);
       }
     }
   }
+});
+
+BRIDGE_TEST('DEC-025 missing policy proceeds with compat capture and blocks with strict-1', () => {
+  const dir = makeTree();
+  const policy = path.join(dir, 'policies/pre-implementation-gate.sh');
+  fs.unlinkSync(policy);
+  for (const [profile, effect] of [['compat-1','proceed'], ['strict-1','block']]) {
+    const xdg = path.join(dir, `xdg-${profile}`);
+    const result = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit','native'], {
+      DOFLOW_FAULT_PROFILE: profile, DOFLOW_FAILURE_CAPTURE: 'on', XDG_CONFIG_HOME: xdg,
+    });
+    const decision = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit','decision'], {
+      DOFLOW_FAULT_PROFILE: profile,
+    });
+    assert.equal(JSON.parse(decision.stdout).effect, effect, `${profile} missing policy effect`);
+    assert.equal(result.status, 0, `${profile} native response status`);
+    if (profile === 'compat-1') {
+      assert.equal(result.stdout, '');
+      assert.ok(fs.readFileSync(path.join(xdg, 'doflow/failures/events.jsonl'), 'utf8').includes('bridge-spawn'));
+    } else {
+      assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, 'deny');
+      assert.equal(result.stderr, '');
+    }
+  }
+});
+
+BRIDGE_TEST('tool-door policy stdout cannot precede a native deny response', () => {
+  const dir = makeTree(`#!/bin/bash\nprintf 'stub stdout\\n'\nprintf 'private reason\\n' >&2\nexit 1\n`);
+  const result = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit','native']);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(response.hookSpecificOutput.permissionDecisionReason, FIXED);
+  assert.equal(result.stderr, '');
 });
 
 BRIDGE_TEST('unknown-profile fallback records fault-profile-unknown', () => {

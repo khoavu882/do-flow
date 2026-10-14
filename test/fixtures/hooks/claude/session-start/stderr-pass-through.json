@@ -1,0 +1,14 @@
+{
+  "native": { "hook_event_name": "SessionStart", "session_id": "c1-context-stderr", "source": "startup" },
+  "state": "none",
+  "fault": "policy-stderr",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": "fixture stderr\n",
+    "decision": { "outcome": "allow", "code": "allow", "effect": "proceed" },
+    "envelope": { "version": 1, "harness": "claude", "event": "SessionStart", "operation": "session-start", "identity": { "session": "c1-context-stderr" } },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}
