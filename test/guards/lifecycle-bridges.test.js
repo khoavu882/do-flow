@@ -51,9 +51,9 @@ function boundaryFindings(files) {
   return findings;
 }
 
-function corpusFiles() {
-  return walkFiles(path.join(REPO, 'test/fixtures/hooks')).filter((file) => {
-    const relative = path.relative(path.join(REPO, 'test/fixtures/hooks'), file).split(path.sep).join('/');
+function corpusFiles(root = REPO) {
+  return walkFiles(path.join(root, 'test/fixtures/hooks')).filter((file) => {
+    const relative = path.relative(path.join(root, 'test/fixtures/hooks'), file).split(path.sep).join('/');
     return file.endsWith('.json') && !relative.startsWith('policy-golden/');
   });
 }
@@ -170,6 +170,15 @@ test('G35.2: unknown envelope versions are unsupported and absent version is mis
   }
   assert.equal(contractClass(JSON.stringify({ doflow_event: {} })), 'missing');
   assert.equal(contractClass('{}'), 'missing');
+  for (const policy of POLICIES) for (const input of ['', '[]', '{}', '{"doflow_event":{}}']) {
+    assert.equal(contractClass(input), 'missing', `${policy} classifies ${JSON.stringify(input)} as missing`);
+    const result = runPolicy(policy, input);
+    const blocking = ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(policy);
+    const native = policy === 'user-prompt-submit' ? '{}' : '';
+    assert.deepEqual({status:result.status,stdout:result.stdout,stderr:result.stderr}, blocking
+      ? {status:2,stdout:'',stderr:`[${policy}] DoFlow hooks out of step; run: doflow update\n`}
+      : {status:0,stdout:native,stderr:''}, `${policy} IC-036 result for ${JSON.stringify(input)}`);
+  }
 });
 
 test('G35.2 control: treating an unknown version as v0 is detected', () => {
@@ -311,12 +320,22 @@ function coverageFindings(coverage) {
   }
   return errors;
 }
-function honestyFindings(coverage) {
+function honestyFindings(coverage, root = REPO) {
   const errors = [];
   for (const row of coverage.rows) {
     const key = `${row.harness}\0${row.event}`;
     const evidence = row.provenance || [];
-    if (row.class === 'blocking' && (row.verification !== 'verified' || !evidence.some(p => ['doc','types'].includes(p.kind)) || !evidence.some(p => p.kind === 'fixture' && fs.existsSync(path.join(REPO, p.locator))))) errors.push(`${rowKey(row)} blocking evidence`);
+    const externalDoc = (locator) => /^https?:\/\//.test(locator) || /^\S+@\S+\s+\S/.test(locator);
+    const fixtureEvidence = evidence.some((p) => {
+      if (p.kind !== 'fixture' || !fs.existsSync(path.join(root, p.locator))) return false;
+      return corpusFiles(root).includes(path.join(root, p.locator)) && (() => {
+        const fixture = JSON.parse(fs.readFileSync(path.join(root, p.locator), 'utf8'));
+        return fixture.expect?.decision?.outcome === 'deny' || fixture.expect?.result?.block === true;
+      })();
+    });
+    if (row.class === 'blocking' && (row.verification !== 'verified' || !evidence.some(p => ['doc','types'].includes(p.kind) && externalDoc(p.locator)) || !fixtureEvidence)) errors.push(`${rowKey(row)} blocking evidence`);
+    if (row.class === 'blocking' && row.harness === 'pi' && row.event === 'tool_call' && !evidence.some(p => p.kind === 'live' && p.locator.startsWith('test/fixtures/hooks/pi/live/') && fs.existsSync(path.join(root, p.locator)) && fs.readFileSync(path.join(root, p.locator), 'utf8').split('\n').some(line => { try { return JSON.parse(line).trace === true && JSON.parse(line).outcome === 'deny'; } catch { return false; } }))) errors.push(`${rowKey(row)} Pi tool_call live evidence`);
+    if (row.class === 'blocking' && !['pre-tool','stop'].includes(row.timing)) errors.push(`${rowKey(row)} blocking timing`);
     if (row.verification === 'unverified' && row.class === 'blocking') errors.push(`${rowKey(row)} unverified class`);
     if (NEVER_BLOCKING_EVENTS.has(key) && row.class === 'blocking') errors.push(`${rowKey(row)} never-blocking event`);
     if (row.policy === 'pre-implementation-gate' && !row.doesNotCover.includes('writes via shell commands')) errors.push(`${rowKey(row)} missing shell-write exclusion`);
@@ -357,7 +376,52 @@ function parityEnumeratesCorpus(files) {
     return harness && !parityHarnesses.has(harness);
   });
 }
-function missingWiredFixtures(coverage, files) {
+const FAULTS = new Set(['none','crash-exit-1','exit-127','syntax-exit-2','jq-missing','config-missing','timeout','spawn','policy-exit-9','missing-policy','context-crash-exit-1','policy-stderr','stop-exit-2','stop-exit-7']);
+function corpusShapeFindings(files) {
+  const errors=[];
+  for(const file of files){
+    const fixture=JSON.parse(fs.readFileSync(file,'utf8')),expect=fixture.expect||{};
+    const name=path.relative(path.join(REPO,'test/fixtures/hooks'),file).split(path.sep).join('/');
+    if(expect.fault!==undefined&&!FAULTS.has(expect.fault)) errors.push(`${name} invalid fault ${expect.fault}`);
+    if(!['deny','error'].includes(expect.decision?.outcome) && expect.result?.block!==true) continue;
+    if(!Number.isInteger(expect.modelVisibleBytesMax)||expect.modelVisibleBytesMax<0) errors.push(`${name} missing modelVisibleBytesMax`);
+    if(name.startsWith('pi/') && expect.result && Buffer.byteLength(JSON.stringify(expect.result),'utf8')>expect.modelVisibleBytesMax) errors.push(`${name} Pi result exceeds modelVisibleBytesMax`);
+  }
+  return errors;
+}
+function templateEntries(root = REPO) {
+  const entries = [];
+  const policies = new Set(JSON.parse(fs.readFileSync(path.join(root,'core/registry/lifecycle.json'),'utf8')).policies.map(p=>p.id));
+  const policyFor = (command) => {
+    const name = String(command || '').match(/([A-Za-z0-9_-]+)\.sh\b/)?.[1] || '';
+    const mapped = name === 'pre-implement-gate' ? 'pre-implementation-gate' : name === 'session-start' ? 'session-context' : name;
+    return policies.has(mapped) ? mapped : null;
+  };
+  const templates = {
+    claude: 'core/harnesses/claude/settings/settings.json', codex: 'core/harnesses/codex/hooks/hooks.json',
+    gemini: 'core/harnesses/gemini/hooks/hooks.json',
+  };
+  for (const [harness, filename] of Object.entries(templates)) {
+    const config = JSON.parse(fs.readFileSync(path.join(root, filename), 'utf8'));
+    for (const [event, groups] of Object.entries(config.hooks)) for (const group of groups) for (const hook of group.hooks || []) {
+      const policy = policyFor(hook.command); if (policy) entries.push({harness,event,policy});
+    }
+  }
+  for (const [harness, filename] of [['kiro','core/harnesses/kiro/hooks/doflow.json'],['kiro','core/harnesses/kiro/agents/doflow.json']]) {
+    const config = JSON.parse(fs.readFileSync(path.join(root, filename), 'utf8'));
+    for (const hook of config.hooks) {
+      const policy = policyFor(hook.action?.command); if (policy) entries.push({harness,event:hook.trigger === 'preToolUse' ? 'PreToolUse' : hook.trigger === 'stop' ? 'Stop' : hook.trigger === 'agentSpawn' ? 'SessionStart' : hook.trigger,policy});
+    }
+  }
+  const antigravity = fs.readFileSync(path.join(root,'src/adapters/antigravity/index.ts'),'utf8');
+  if (antigravity.includes('pre-implementation-gate.sh')) entries.push({harness:'antigravity',event:'PreToolUse',policy:'pre-implementation-gate'});
+  if (antigravity.includes('stop-check.sh')) entries.push({harness:'antigravity',event:'Stop',policy:'stop-check'});
+  const pi = fs.readFileSync(path.join(root,'core/harnesses/pi/extensions/doflow-guard.js'),'utf8');
+  for (const policy of ['pre-implementation-gate','pre-bash-guard']) if (pi.includes(`policy: '${policy}'`)) entries.push({harness:'pi',event:'tool_call',policy});
+  if (pi.includes("'mcp-tool-guard'")) entries.push({harness:'pi',event:'tool_call',policy:'mcp-tool-guard'});
+  return entries;
+}
+function missingWiredFixtures(coverage, files, root = REPO) {
   const events = new Set(files.flatMap(file => {
     const row = JSON.parse(fs.readFileSync(file,'utf8'));
     const envelope = row.expect?.envelope;
@@ -365,36 +429,80 @@ function missingWiredFixtures(coverage, files) {
     if (file.includes('/pi/') && row.native?.type === 'tool_call') return ['pi\0tool_call'];
     return [];
   }));
-  return [...new Set(coverage.rows.filter(r=>r.wired).filter(r=>{
+  const missingRows = coverage.rows.filter(r=>r.wired).filter(r=>{
     const aliases = r.harness === 'kiro' ? [r.event, r.event === 'PreToolUse' ? 'preToolUse' : r.event === 'Stop' ? 'stop' : r.event] : [r.event];
     return !aliases.some(event=>events.has(`${r.harness}\0${event}`));
-  }).map(r=>`${r.harness}\0${r.event}`))];
+  }).map(r=>`${r.harness}\0${r.event}`);
+  for (const entry of templateEntries(root)) {
+    const alias = entry.harness === 'kiro' && entry.event === 'Stop' ? 'stop' : entry.event;
+    if (!events.has(`${entry.harness}\0${entry.event}`) && !events.has(`${entry.harness}\0${alias}`)) missingRows.push(`${entry.harness}\0${entry.event}`);
+  }
+  return [...new Set(missingRows)];
 }
-function wiredTemplateFindings(coverage, lifecycle) {
+function wiredTemplateFindings(coverage, lifecycle, root = REPO) {
   const errors = [];
+  const doorReferences = (harness, event, policy) => {
+    const doorName = {'pre-implementation-gate':'pre-implement-gate','session-context':'session-start'}[policy] || policy;
+    const base = harness === 'antigravity' && policy === 'pre-implementation-gate' ? 'pre-implementation-gate' : doorName;
+    if (harness === 'pi') { const text=fs.readFileSync(path.join(root,'core/harnesses/pi/extensions/doflow-guard.js'),'utf8'); return text.includes(`policy: '${policy}'`) || text.includes(`'${policy}'`); }
+    if (harness === 'antigravity') return fs.readFileSync(path.join(root,'src/adapters/antigravity/index.ts'),'utf8').includes(`${base}.sh`);
+    if (harness === 'kiro') {
+      const filename = coverage.rows.some(r => r.harness==='kiro'&&r.policy===policy&&r.event===event&&r.profile==='cli-v3-agent'&&r.configSource?.includes('/agents/')) || (event.toLowerCase() === 'stop' && coverage.rows.some(r => r.harness==='kiro'&&r.policy===policy&&r.profile==='cli-2x-agent')) ? 'core/harnesses/kiro/agents/doflow.json' : 'core/harnesses/kiro/hooks/doflow.json';
+      const config = JSON.parse(fs.readFileSync(path.join(root,filename),'utf8'));
+      const alias = event === 'PreToolUse' ? 'preToolUse' : event === 'Stop' ? 'stop' : event === 'SessionStart' && filename.includes('/agents/') ? 'agentSpawn' : event;
+      return config.hooks.some(h => [event,alias].includes(h.trigger) && h.action.command.includes(`${base}.sh`));
+    }
+    const filename = harness === 'claude' ? 'core/harnesses/claude/settings/settings.json' : harness === 'codex' ? 'core/harnesses/codex/hooks/hooks.json' : harness === 'gemini' ? 'core/harnesses/gemini/hooks/hooks.json' : null;
+    if (!filename) return false;
+    const config = JSON.parse(fs.readFileSync(path.join(root,filename),'utf8'));
+    return (config.hooks[event] || []).some(group => group.hooks.some(h => h.command.includes(`${base}.sh`)));
+  };
   for (const row of coverage.rows.filter(r => r.wired)) {
     const [relative, lineText] = row.configSource.split(':');
-    const file = path.join(REPO, relative);
+    if (!/^.+:\d+$/.test(row.configSource)) { errors.push(`${rowKey(row)} configSource must be path:line`); continue; }
+    const file = path.join(root, relative);
     if (!fs.existsSync(file)) { errors.push(`${rowKey(row)} configSource missing ${relative}`); continue; }
     const text = fs.readFileSync(file, 'utf8');
     const line = Number(lineText);
-    const nearby = Number.isInteger(line) ? text.split('\n').slice(Math.max(0,line-2),line+3).join('\n') : text;
+    const nearby = Number.isInteger(line) ? text.split('\n').slice(Math.max(0,line-2),line+3).join('\n') : '';
     const policy = lifecycle.policies.find(p => p.id === row.policy);
     const sourcePolicy = row.policy === 'pre-implementation-gate' ? 'pre-implement-gate' : row.policy;
     const doflowName = row.policy === 'pre-implementation-gate' ? 'pre-implementation-gate' : sourcePolicy;
-    const hasPolicy = policy && (text.includes(policy.id) || text.includes(row.policy) || text.includes(sourcePolicy) || text.includes(`doflow-${doflowName}`));
-    const hasEvent = row.harness === 'pi' ? text.includes("'tool_call'") || text.includes('tool_call') : text.includes(row.event) || (row.harness === 'kiro' && text.includes(row.event === 'PreToolUse' ? 'preToolUse' : row.event === 'Stop' ? 'stop' : row.event)) || (row.harness === 'antigravity' && text.includes(row.event));
-    if (row.harness === 'pi' && row.event === 'tool_execution_start') continue;
-    const sourceHasEvent = text.includes(row.event) || (row.harness === 'kiro' && text.includes(row.event === 'Stop' ? 'stop' : row.event === 'PreToolUse' ? 'preToolUse' : row.event));
-    if (!hasEvent || (!hasPolicy && row.harness !== 'pi' && !['claude','codex','gemini'].includes(row.harness))) errors.push(`${rowKey(row)} configSource does not contain event/policy`);
-    if (!sourceHasEvent && !(row.harness === 'pi' && row.event === 'tool_call')) errors.push(`${rowKey(row)} configSource has no event declaration`);
+    const eventToken = row.harness === 'kiro' && relative.includes('/agents/') ? (row.event === 'PreToolUse' ? 'preToolUse' : row.event === 'Stop' ? 'stop' : row.policy === 'session-context' && row.event === 'SessionStart' ? 'agentSpawn' : row.event) : row.event;
+    const door = row.policy === 'pre-implementation-gate' ? 'pre-implement-gate' : row.policy;
+    const hasDoor = doorReferences(row.harness, row.event, row.policy);
+    if (!nearby.includes(eventToken) || !hasDoor) errors.push(`${rowKey(row)} configSource line window lacks event/door`);
   }
+  // Canonical mappings in the registry must have rows, and direct hook templates must expose each mapped door.
+  for (const policy of lifecycle.policies) for (const [harness, mapping] of Object.entries(policy.mappings)) {
+    if (!['supported','different'].includes(mapping.status) || !mapping.event || ['opencode','copilot'].includes(harness)) continue;
+    if (!coverage.rows.some(r => r.policy === policy.id && r.harness === harness && r.event === mapping.event)) errors.push(`${policy.id}/${harness}/${mapping.event} missing row`);
+  }
+  for (const entry of templateEntries(root)) if (!coverage.rows.some(r => r.harness===entry.harness && r.event===entry.event && r.policy===entry.policy && r.wired)) errors.push(`${entry.harness}/${entry.event}/${entry.policy} template missing wired row`);
+  const doorFiles = {
+    claude: 'core/harnesses/claude/settings/settings.json', codex: 'core/harnesses/codex/hooks/hooks.json',
+    gemini: 'core/harnesses/gemini/hooks/hooks.json', kiro: 'core/harnesses/kiro/hooks/doflow.json',
+  };
+  for (const [harness, filename] of Object.entries(doorFiles)) {
+    const config = JSON.parse(fs.readFileSync(path.join(root, filename), 'utf8'));
+    const hooks = harness === 'kiro' ? config.hooks.map(h => [h.trigger === 'preToolUse' ? 'PreToolUse' : h.trigger === 'stop' ? 'Stop' : h.trigger, h.action.command]) : Object.entries(config.hooks).flatMap(([event, groups]) => groups.flatMap(group => group.hooks.map(h => [event, h.command])));
+    for (const [event, command] of hooks) {
+      const basename = path.basename(String(command).match(/[\w-]+\.sh/)?.[0] || '');
+      const policy = basename.replace(/^pre-implement-gate$/, 'pre-implementation-gate').replace(/\.sh$/, '');
+      if (['pre-implementation-gate','pre-bash-guard','mcp-tool-guard','session-context','stop-check'].includes(policy) && !coverage.rows.some(r => r.harness === harness && r.event === event && r.policy === policy && r.wired)) errors.push(`${harness}/${event}/${policy} template missing wired row`);
+    }
+  }
+  const antigravity = fs.readFileSync(path.join(root, 'src/adapters/antigravity/index.ts'), 'utf8');
+  for (const policy of ['pre-implementation-gate','stop-check']) if (antigravity.includes(`${policy}.sh`) && !coverage.rows.some(r => r.harness === 'antigravity' && r.policy === policy && r.wired)) errors.push(`antigravity/${policy} template missing wired row`);
+  const pi = fs.readFileSync(path.join(root, 'core/harnesses/pi/extensions/doflow-guard.js'), 'utf8');
+  for (const policy of ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard']) if (pi.includes(`policy: '${policy}'`) && !coverage.rows.some(r => r.harness === 'pi' && r.event === 'tool_call' && r.policy === policy && r.wired)) errors.push(`pi/tool_call/${policy} route missing wired row`);
   return errors;
 }
 function kiroStopFindings(coverage) {
   return coverage.rows.filter(r => r.harness === 'kiro' && r.event === 'Stop').flatMap(r => {
-    const pinned = r.provenance.some(p => p.kind === 'doc' && /Stop|stop/.test(p.locator));
-    return (!pinned && (r.class !== 'unknown' || !r.provenance.some(p => p.kind === 'doc') || !r.provenance.some(p => p.kind === 'fixture'))) ? [`${rowKey(r)} must be unknown with doc and fixture provenance`] : [];
+    const pinned = r.provenance.some(p => p.kind === 'doc' && (/^https?:\/\//.test(p.locator) || /^[^/\s]+@[^/\s]+\s+\S/.test(p.locator)));
+    const fixture = r.provenance.some(p => p.kind === 'fixture' && fs.existsSync(path.join(REPO,p.locator)) && (() => { const f=JSON.parse(fs.readFileSync(path.join(REPO,p.locator),'utf8')); return f.expect?.decision?.outcome==='deny'||f.expect?.result?.block===true; })());
+    return (r.class !== 'unknown' || !pinned || !fixture) ? [`${rowKey(r)} must be unknown with external doc and deny fixture provenance`] : [];
   });
 }
 
@@ -406,6 +514,9 @@ test('G36.1: coverage rows have required fields, enums, and unique tuples', () =
 test('G36.1 control: deleting provenance from a copied row fails', () => { const c=structuredClone(readCoverage()); delete c.rows[0].provenance; assert.ok(coverageFindings(c).some(x=>x.includes('missing provenance'))); });
 test('G36.2: coverage rows satisfy IC-022 rules 1 to 4 and 8', () => { assert.deepEqual(honestyFindings(readCoverage()), []); });
 test('G36.2 control: flipping Pi observation to blocking is detected', () => { const c=structuredClone(readCoverage()); c.rows.find(r=>r.harness==='pi'&&r.event==='tool_execution_start').class='blocking'; assert.ok(honestyFindings(c).some(x=>x.includes('never-blocking'))); });
+test('G36.2 control: blocking session context is rejected by timing rule 3', () => {const c=structuredClone(readCoverage());c.rows.find(r=>r.policy==='session-context'&&r.harness==='claude').class='blocking';assert.ok(honestyFindings(c).some(x=>x.includes('blocking timing')));});
+test('G36.2 control: package.json and an error fixture cannot support a blocking row', () => {const c=structuredClone(readCoverage()),r=c.rows.find(x=>x.policy==='stop-check'&&x.harness==='claude');r.provenance.find(p=>p.kind==='doc').locator='package.json';r.provenance.find(p=>p.kind==='fixture').locator='test/fixtures/hooks/claude/stop-check/exit-2.json';assert.ok(honestyFindings(c).some(x=>x.includes('blocking evidence')));});
+test('G36.2 control: removing the Pi live record is detected', (t) => {const c=structuredClone(readCoverage()),root=tempDir(t,'doflow-g362-live-control-');fs.cpSync(path.join(REPO,'test/fixtures/hooks'),path.join(root,'test/fixtures/hooks'),{recursive:true});fs.rmSync(path.join(root,'test/fixtures/hooks/pi/live/probe-2026-10-14.jsonl'));assert.ok(honestyFindings(c,root).some(x=>x.includes('Pi tool_call live evidence')));});
 test('G36.3: lifecycle supported, different, and unavailable mappings join to rows', () => { const {lifecycle,coverage}=g36Data(); assert.deepEqual(joinFindings(coverage,lifecycle,JSON.parse('{"rows":[]}')).filter(x=>x.includes('missing row')||x.includes('missing unavailable')), []); });
 test('G36.3 control: a supported mapping without a coverage row is detected', () => { const {lifecycle,coverage}=g36Data(); const c=structuredClone(coverage); c.rows=c.rows.filter(r=>!(r.policy==='stop-check'&&r.harness==='claude')); assert.ok(joinFindings(c,lifecycle,{rows:[]}).some(x=>x.includes('missing row'))); });
 test('G36.4: wired rows join inventory and installed-version caveats', () => { const {lifecycle,coverage,inventory}=g36Data(); assert.deepEqual(joinFindings(coverage,lifecycle,inventory).filter(x=>x.includes('inventory')||x.includes('version-drift')), []); });
@@ -418,8 +529,21 @@ test('G36.7: every gate row declares shell writes outside its coverage', () => {
 test('G36.7 control: deleting shell-write exclusion is detected', () => { const c=structuredClone(readCoverage()); c.rows[0].doesNotCover=[]; assert.ok(honestyFindings(c).some(x=>x.includes('shell-write'))); });
 test('G37.1: wired events have corpus fixtures enumerated by their parity suite', () => { const files=corpusFiles(); assert.deepEqual(parityEnumeratesCorpus(files),[]); assert.deepEqual(missingWiredFixtures(readCoverage(),files),[]); });
 test('G37.1 control: removing a corpus fixture is detected by event coverage', () => { const files=corpusFiles(); const candidates=files.filter(f=>{const x=JSON.parse(fs.readFileSync(f,'utf8')); return x.expect?.envelope?.harness==='claude'&&x.expect.envelope.event==='PreToolUse';}); assert.ok(candidates.length); const removed=files.filter(f=>!candidates.includes(f)); assert.ok(missingWiredFixtures(readCoverage(),removed).includes('claude\0PreToolUse')); });
+test('G37.1 control: a new wired template event without a corpus fixture is detected', (t) => {
+  const root=tempDir(t,'doflow-g37-template-event-'); fs.cpSync(path.join(REPO,'core'),path.join(root,'core'),{recursive:true}); fs.cpSync(path.join(REPO,'src/adapters/antigravity'),path.join(root,'src/adapters/antigravity'),{recursive:true});
+  const file=path.join(root,'core/harnesses/codex/hooks/hooks.json'),config=JSON.parse(fs.readFileSync(file,'utf8'));
+  config.hooks.Notification=[{hooks:[{type:'command',command:'~/.codex/hooks/pre-implement-gate.sh'}]}]; fs.writeFileSync(file,JSON.stringify(config));
+  assert.ok(missingWiredFixtures(readCoverage(),corpusFiles(),root).includes('codex\0Notification'));
+});
 test('G37.2: wired configSource entries resolve and canonical policies have rows', () => { const {lifecycle,coverage}=g36Data(); assert.deepEqual(wiredTemplateFindings(coverage,lifecycle),[]); });
 test('G37.2 control: a row pointing at a removed template line is detected', () => { const {lifecycle,coverage}=g36Data(); const c=structuredClone(coverage); c.rows[0].configSource='core/missing/template.json:1'; assert.ok(wiredTemplateFindings(c,lifecycle).some(x=>x.includes('configSource missing'))); });
+test('G37.2 control: a new canonical door event without a row is detected', (t) => {
+  const {lifecycle,coverage}=g36Data(),root=tempDir(t,'doflow-g37-template-row-'); fs.cpSync(path.join(REPO,'core'),path.join(root,'core'),{recursive:true}); fs.cpSync(path.join(REPO,'src/adapters/antigravity'),path.join(root,'src/adapters/antigravity'),{recursive:true});
+  const file=path.join(root,'core/harnesses/codex/hooks/hooks.json'),config=JSON.parse(fs.readFileSync(file,'utf8'));
+  config.hooks.Notification=[{hooks:[{type:'command',command:'~/.codex/hooks/pre-implement-gate.sh'}]}]; fs.writeFileSync(file,JSON.stringify(config));
+  assert.ok(wiredTemplateFindings(coverage,lifecycle,root).some(x=>x.includes('codex/Notification/pre-implementation-gate')));
+});
+test('G37.2 control: repointing configSources to line 1 is detected', () => {const {lifecycle,coverage}=g36Data();const c=structuredClone(coverage);for(const row of c.rows.filter(r=>r.wired))row.configSource=row.configSource.replace(/:\d+$/,':1');assert.ok(wiredTemplateFindings(c,lifecycle).length>0);});
 test('G37.3: shipped hook files are reachable from wiring and owned by registry assets', () => { assert.deepEqual(hookReachabilityFindings(), []); });
 test('G37.3 control: orphan hook files are reported, including a mutually-referencing pair', (t) => {
   const tracked = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
@@ -467,5 +591,7 @@ test('G37.3 control: wiring to a missing door is reported for every door harness
   }
 });
 test('G37.4: Kiro Stop rows remain unknown with documented and fixture provenance', () => { assert.deepEqual(kiroStopFindings(readCoverage()),[]); });
-test('G37.4 control: Kiro Stop blocking without trigger documentation is detected', () => { const c=structuredClone(readCoverage()); const r=c.rows.find(x=>x.harness==='kiro'&&x.event==='Stop'); r.class='blocking'; r.provenance=r.provenance.filter(p=>p.kind!=='doc'); assert.ok(kiroStopFindings(c).length); });
+test('G37.4 control: Kiro Stop set to blocking is detected', () => { const c=structuredClone(readCoverage()); const r=c.rows.find(x=>x.harness==='kiro'&&x.event==='Stop'); r.class='blocking'; assert.ok(kiroStopFindings(c).length); });
+test('G37.5: deny and error fixtures pin valid visible-byte ceilings and Pi result sizes', () => {assert.deepEqual(corpusShapeFindings(corpusFiles()),[]);});
+test('G37.5 control: an error fixture without a ceiling is detected', (t) => {const root=tempDir(t,'doflow-g375-control-');const file=path.join(root,'error.json');fs.writeFileSync(file,JSON.stringify({expect:{decision:{outcome:'error'}}}));assert.ok(corpusShapeFindings([file]).some(x=>x.includes('missing modelVisibleBytesMax')));});
 

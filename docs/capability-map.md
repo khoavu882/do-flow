@@ -147,7 +147,7 @@ the other four documented events as the Different statuses recorded in the regis
 <!-- END GENERATED:hook-event-matrix -->
 
 <!-- BEGIN GENERATED:enforcement-matrix -->
-Schema 1; revision 2; sha256:d50513987af03fd5a44ca679b5414603f2f4b7d64c14ad33203d87ee915c33b1
+Schema 1; revision 2; sha256:199bb689b2034157ecb3ade2b47b70470a00e567fa27134fc0cf5ef467369768
 | Policy | Harness | Native event | Profile | Class | Verification | Prerequisites | Does not cover |
 |---|---|---|---|---|---|---|---|
 | pre-implementation-gate | claude | PreToolUse | any | blocking | verified |  | writes via shell commands |
@@ -155,10 +155,11 @@ Schema 1; revision 2; sha256:d50513987af03fd5a44ca679b5414603f2f4b7d64c14ad33203
 | pre-implementation-gate | gemini | BeforeTool | any | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | opencode | * | any | unsupported | unverified |  | writes via shell commands |
 | pre-implementation-gate | pi | * | no-extensions | unsupported | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | cli-extension | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool_call | cli-extension | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | pi | tool_call | project-headless | unknown | unverified | project-trust | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | project-interactive | blocking | verified | project-trust | writes via shell commands |
+| pre-implementation-gate | pi | tool_call | project-interactive | unknown | unverified | project-trust | writes via shell commands |
 | pre-implementation-gate | pi | tool_call | user-headless | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool_call | user-interactive | unknown | unverified |  | writes via shell commands |
 | pre-implementation-gate | pi | tool_execution_start | cli-extension | observation | unverified |  | writes via shell commands |
 | pre-implementation-gate | copilot | * | any | unsupported | unverified |  | writes via shell commands |
 | pre-implementation-gate | copilot | PreToolUse | any | unknown | unverified |  | writes via shell commands |
@@ -174,8 +175,9 @@ Schema 1; revision 2; sha256:d50513987af03fd5a44ca679b5414603f2f4b7d64c14ad33203
 | pre-bash-guard | pi | * | no-extensions | unsupported | unverified |  |  |
 | pre-bash-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
 | pre-bash-guard | pi | tool_call | project-headless | unknown | unverified | project-trust |  |
-| pre-bash-guard | pi | tool_call | project-interactive | blocking | verified | project-trust |  |
+| pre-bash-guard | pi | tool_call | project-interactive | unknown | unverified | project-trust |  |
 | pre-bash-guard | pi | tool_call | user-headless | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool_call | user-interactive | unknown | unverified |  |  |
 | pre-bash-guard | pi | tool_execution_start | cli-extension | observation | unverified |  |  |
 | pre-bash-guard | copilot | * | any | unsupported | unverified |  |  |
 | pre-bash-guard | kiro | PreToolUse | cli-2x-agent | blocking | verified |  |  |
@@ -196,6 +198,7 @@ Schema 1; revision 2; sha256:d50513987af03fd5a44ca679b5414603f2f4b7d64c14ad33203
 | session-context | copilot | SubagentStop | any | unknown | unverified |  |  |
 | session-context | copilot | UserPromptSubmit | any | unknown | unverified |  |  |
 | session-context | kiro | SessionStart | any | advisory | unverified |  |  |
+| session-context | kiro | SessionStart | cli-v3-agent | advisory | unverified |  |  |
 | session-context | antigravity | * | any | unsupported | unverified |  |  |
 | mcp-tool-guard | claude | PreToolUse | any | blocking | verified |  |  |
 | mcp-tool-guard | codex | PreToolUse | any | blocking | verified | hook-review |  |
@@ -204,8 +207,9 @@ Schema 1; revision 2; sha256:d50513987af03fd5a44ca679b5414603f2f4b7d64c14ad33203
 | mcp-tool-guard | pi | * | no-extensions | unsupported | unverified |  |  |
 | mcp-tool-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
 | mcp-tool-guard | pi | tool_call | project-headless | unknown | unverified | project-trust |  |
-| mcp-tool-guard | pi | tool_call | project-interactive | blocking | verified | project-trust |  |
+| mcp-tool-guard | pi | tool_call | project-interactive | unknown | unverified | project-trust |  |
 | mcp-tool-guard | pi | tool_call | user-headless | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool_call | user-interactive | unknown | unverified |  |  |
 | mcp-tool-guard | pi | tool_execution_start | cli-extension | observation | unverified |  |  |
 | mcp-tool-guard | copilot | * | any | unsupported | unverified |  |  |
 | mcp-tool-guard | copilot | PermissionDenied | any | unknown | unverified |  |  |
