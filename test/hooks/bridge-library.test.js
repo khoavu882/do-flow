@@ -28,9 +28,11 @@ function makeTree(policyBody) {
 }
 
 function run(dir, harness, event, policy, input = {}, args = [], env = []) {
+  const childEnv = { ...process.env, DOFLOW_FAILURE_CAPTURE: 'off', ...env };
+  for (const [key, value] of Object.entries(env)) if (value === null) delete childEnv[key];
   return spawnSync('bash', [path.join(dir, 'bridge/bridge.sh'), harness, event, policy, ...args], {
     cwd: dir, encoding: 'utf8', input: typeof input === 'string' ? input : JSON.stringify(input),
-    env: { ...process.env, DOFLOW_FAILURE_CAPTURE: 'off', ...env },
+    env: childEnv,
   });
 }
 
@@ -632,4 +634,20 @@ exit 0
   assert.equal(noJq.stderr,'','jq absent allow has no model-visible diagnostic');
   const noJqEvents=fs.readFileSync(path.join(config,'doflow/failures/events.jsonl'),'utf8');
   assert.match(noJqEvents, /"kind":"dependency-missing:jq"/);
+});
+
+BRIDGE_TEST('DEC-006 preserves a caller-set DOFLOW_AGENT across all six bridges', () => {
+  const dir = makeTree(`#!/bin/bash\nprintf '%s' "$DOFLOW_AGENT" > "$AGENT_CAPTURE"\nprintf '\\036%s\\n' '{"v":1,"policy":"pre-implementation-gate","policyVersion":1,"outcome":"allow","code":"allow"}' >&3\nexit 0\n`);
+  const harnesses = ['claude', 'codex', 'gemini', 'kiro', 'antigravity', 'pi'];
+  for (const harness of harnesses) {
+    const capture = path.join(dir, `agent-${harness}`);
+    const unset = run(dir, harness, 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'decision'], { DOFLOW_AGENT: null, AGENT_CAPTURE: capture });
+    assert.equal(unset.status, 0, `${harness}: unset caller value exits cleanly`);
+    assert.equal(fs.readFileSync(capture, 'utf8'), harness, `${harness}: unset DOFLOW_AGENT defaults to harness id`);
+
+    const callerValue = `caller-${harness}`;
+    const set = run(dir, harness, 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'decision'], { DOFLOW_AGENT: callerValue, AGENT_CAPTURE: capture });
+    assert.equal(set.status, 0, `${harness}: set caller value exits cleanly`);
+    assert.equal(fs.readFileSync(capture, 'utf8'), callerValue, `${harness}: caller-set DOFLOW_AGENT passes through`);
+  }
 });
