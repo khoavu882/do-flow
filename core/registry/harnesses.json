@@ -1834,6 +1834,16 @@
             "UserPromptSubmit": {
               "status": "different",
               "note": "Kiro documents a native UserPromptSubmit trigger that is blockable via a non-zero exit code and exposes the prompt as the USER_PROMPT environment variable; DoFlow wires no hook to it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
+            },
+            "SessionStart": {
+              "status": "supported"
+            },
+            "PreToolUse": {
+              "status": "supported"
+            },
+            "Stop": {
+              "status": "different",
+              "note": "DoFlow config uses Stop, while Kiro documents AgentStop; native trigger equivalence is unresolved."
             }
           }
         },
