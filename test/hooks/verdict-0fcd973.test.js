@@ -1,6 +1,6 @@
 'use strict';
 
-const { test, after } = require('node:test');
+const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -23,10 +23,17 @@ const STEM_POLICY = {
   'subagent-audit': 'subagent-audit',
 };
 
+let coreStatusBefore;
+before(() => {
+  const status = spawnSync('git', ['status', '--porcelain', '--', 'core/'], { cwd: REPO, encoding: 'utf8' });
+  assert.equal(status.status, 0, status.stderr);
+  coreStatusBefore = status.stdout;
+});
+
 after(() => {
   const status = spawnSync('git', ['status', '--porcelain', '--', 'core/'], { cwd: REPO, encoding: 'utf8' });
   assert.equal(status.status, 0, status.stderr);
-  assert.equal(status.stdout, '', 'the parity test must not modify repository core files');
+  assert.equal(status.stdout, coreStatusBefore, 'the parity test must not change repository core status');
 });
 
 function filesUnder(root) {

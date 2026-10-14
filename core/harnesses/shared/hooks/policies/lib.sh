@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # lib.sh — shared constants and helpers for the Canonical Policy Library
 #
-# Usage: source "$(dirname "$0")/lib.sh"
+# Usage: source "${0%/*}/lib.sh"
 #
 # All hooks must:
 #   1. source this file at the top

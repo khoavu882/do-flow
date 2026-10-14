@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Native hook response renderers for the shared lifecycle bridge.
-BRIDGE_RESPOND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+BRIDGE_RESPOND_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
 . "$BRIDGE_RESPOND_DIR/../policies/deny-json.sh"
+
+doflow_bridge_native_event_var() {
+  DF_NE=$2
+  case "$1:$2" in
+    kiro:preToolUse) DF_NE=PreToolUse ;;
+    kiro:agentSpawn) DF_NE=SessionStart ;;
+    kiro:stop) DF_NE=Stop ;;
+  esac
+}
 
 doflow_bridge_native_event() {
   local harness="$1" event="$2"
@@ -15,7 +24,7 @@ doflow_bridge_native_event() {
 
 doflow_render_response() {
   local harness="$1" event="$2" outcome="$3" reason="$4" status="$5" engine="${DOFLOW_KIRO_ENGINE:-2x}"
-  event="$(doflow_bridge_native_event "$harness" "$event")"
+  doflow_bridge_native_event_var "$harness" "$event"; event=$DF_NE
   if [ "$outcome" = deny ]; then
     case "$harness:$event" in
       claude:PreToolUse|codex:PreToolUse) emit_pretooluse_deny_nested "$reason" || return $?; return 0 ;;

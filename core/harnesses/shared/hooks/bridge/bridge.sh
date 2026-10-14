@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared lifecycle bridge. Sourcing defines functions only; it sets no shell options or traps.
-DOFLOW_BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DOFLOW_BRIDGE_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
 
 doflow_bridge_failure() {
   local policy="$1" point="$2"
@@ -36,7 +36,7 @@ doflow_bridge_classify() {
 
 doflow_bridge_effect() {
   local harness="$1" event="$2" policy="$3" outcome="$4" profile="${DOFLOW_FAULT_PROFILE:-compat-1}" block=0
-  event="$(doflow_bridge_native_event "$harness" "$event")"
+  doflow_bridge_native_event_var "$harness" "$event"; event=$DF_NE
   if [ "$profile" != compat-1 ] && [ "$profile" != strict-1 ]; then
     profile=compat-1; doflow_bridge_failure "$policy" fault-profile-unknown
   fi
@@ -77,7 +77,7 @@ doflow_bridge_drops_tool_stderr() {
 doflow_bridge() {
   local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 encode_failed=0
   . "$DOFLOW_BRIDGE_DIR/respond.sh"
-  response_event="$(doflow_bridge_native_event "$harness" "$event")"
+  doflow_bridge_native_event_var "$harness" "$event"; response_event=$DF_NE
   if [ "${4:-}" = --emit ]; then emit="${5:-native}"; fi
   payload="$(cat)"
   if command -v jq >/dev/null 2>&1; then

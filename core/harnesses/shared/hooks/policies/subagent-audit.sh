@@ -18,9 +18,9 @@
 
 set -euo pipefail
 # shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
+source "${0%/*}/lib.sh"
 INPUT=$(cat)
-POLICY_DIR=$(dirname "$0")
+POLICY_DIR=${0%/*}
 if [ -f "$POLICY_DIR/contract.sh" ]; then
   # shellcheck source=contract.sh
   source "$POLICY_DIR/contract.sh"
@@ -48,7 +48,7 @@ if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
   [ -f "$POLICY_DIR/contract.sh" ] || code=contract-missing
   doflow_decide unsupported "$code"
   if [ -f "$POLICY_DIR/contract.sh" ]; then
-    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure subagent-audit "$code" ) >/dev/null 2>&1 || true
+    ( . "${0%/*}/capture-failure.sh"; doflow_capture_failure subagent-audit "$code" ) >/dev/null 2>&1 || true
   fi
   exit 0
 fi

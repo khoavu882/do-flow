@@ -6,7 +6,7 @@
 # example its pattern file is missing). It exists only to be sourced, in a subshell with all output
 # discarded, from inside a branch where the policy already fails open:
 #
-#   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard patterns-missing ) >/dev/null 2>&1 || true
+#   ( . "${0%/*}/capture-failure.sh"; doflow_capture_failure pre-bash-guard patterns-missing ) >/dev/null 2>&1 || true
 #
 # The subshell keeps anything this file does away from the policy, which runs with `set -uo pipefail`,
 # does not source lib.sh and would change exit codes under `set -e`. So this file:

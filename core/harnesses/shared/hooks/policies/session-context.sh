@@ -19,14 +19,14 @@
 # ensure_project_dir, cwd_hash, run_with_timeout, $SESSIONS_LOG) being
 # discoverable next to this script when it runs — a front door invoking this
 # canonical script is responsible for making lib.sh resolvable via
-# "$(dirname "$0")/lib.sh", exactly as every harness's own SessionStart script
+# "${0%/*}/lib.sh", exactly as every harness's own SessionStart script
 # already required before this policy moved to a shared location.
 
 set -euo pipefail
 # shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
+source "${0%/*}/lib.sh"
 INPUT=$(cat)
-POLICY_DIR=$(dirname "$0")
+POLICY_DIR=${0%/*}
 if [ -f "$POLICY_DIR/contract.sh" ]; then
   # shellcheck source=contract.sh
   source "$POLICY_DIR/contract.sh"
@@ -54,7 +54,7 @@ if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
   [ -f "$POLICY_DIR/contract.sh" ] || code=contract-missing
   doflow_decide unsupported "$code"
   if [ -f "$POLICY_DIR/contract.sh" ]; then
-    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure session-context "$code" ) >/dev/null 2>&1 || true
+    ( . "${0%/*}/capture-failure.sh"; doflow_capture_failure session-context "$code" ) >/dev/null 2>&1 || true
   fi
   exit 0
 fi
