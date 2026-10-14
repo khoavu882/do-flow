@@ -322,6 +322,33 @@ test('perf runner feeds a surface the exact stdin bytes from its fixture', (t) =
   assert.equal(fs.readFileSync(markerPath, 'utf8'), expected);
 });
 
+test('perf runner treats stdin EPIPE as a completed surface run but reports other spawn errors', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-epipe-');
+  const fixturePath = path.join(dir, 'native.json');
+  fs.writeFileSync(fixturePath, '{"hook_event_name":"PreToolUse"}', 'utf8');
+  const surface = {
+    id: 'stub.stdin-epipe',
+    argv: ['bash', '-c', 'exit 0'],
+    stdinFixture: fixturePath,
+  };
+  const epipeSpawn = (cmd, args, options) => {
+    assert.equal(cmd, 'bash');
+    assert.deepEqual(args, ['-c', 'exit 0']);
+    assert.equal(options.input, '{"hook_event_name":"PreToolUse"}');
+    return { status: 0, error: Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }) };
+  };
+  assert.equal(typeof runner.runSurfaceProcess(surface, dir, undefined, epipeSpawn), 'number');
+
+  const missingSpawn = () => ({
+    status: null,
+    error: Object.assign(new Error('spawn bash ENOENT'), { code: 'ENOENT' }),
+  });
+  assert.throws(
+    () => runner.runSurfaceProcess(surface, dir, undefined, missingSpawn),
+    /process error: spawn bash ENOENT/
+  );
+});
+
 test('perf fixture-backed hook surfaces smoke through --surface without writing budget rows', () => {
   const addedIds = [
     'hook.claude.permission-audit', 'hook.claude.post-compact', 'hook.claude.post-edit-lint',
