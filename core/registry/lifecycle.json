@@ -381,20 +381,20 @@
         "timing": "pre-tool",
         "profile": "cli-extension",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
-        "class": "unknown",
-        "verification": "unverified",
+        "class": "blocking",
+        "verification": "verified",
         "prerequisites": [],
         "covers": [],
         "doesNotCover": [
           "writes via shell commands"
         ],
         "caveats": [
-          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
-          "live probe pending"
+          "live-verified only: print mode, `-e` load, project-scope install; interactive mode, project-trust auto-load and user scope not observed",
+          "a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
@@ -411,6 +411,11 @@
             "kind": "fixture",
             "locator": "test/fixtures/hooks/pi/tool_call/edit-deny.json",
             "date": "2026-10-14"
+          },
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/pi/live/probe-2026-10-14.jsonl",
+            "date": "2026-10-14"
           }
         ]
       },
@@ -418,7 +423,7 @@
         "policy": "pre-implementation-gate",
         "harness": "pi",
         "event": "tool_execution_start",
-        "timing": "pre-tool",
+        "timing": "post-tool",
         "profile": "cli-extension",
         "wired": false,
         "configSource": null,
@@ -450,7 +455,7 @@
         "timing": "pre-tool",
         "profile": "user-headless",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -490,7 +495,7 @@
         "timing": "pre-tool",
         "profile": "project-headless",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -573,7 +578,7 @@
         "timing": "pre-tool",
         "profile": "cli-extension",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -583,8 +588,7 @@
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
-          "live probe pending"
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
@@ -608,7 +612,7 @@
         "policy": "pre-bash-guard",
         "harness": "pi",
         "event": "tool_execution_start",
-        "timing": "pre-tool",
+        "timing": "post-tool",
         "profile": "cli-extension",
         "wired": false,
         "configSource": null,
@@ -638,7 +642,7 @@
         "timing": "pre-tool",
         "profile": "user-headless",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -676,7 +680,7 @@
         "timing": "pre-tool",
         "profile": "project-headless",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -783,7 +787,7 @@
         "timing": "pre-tool",
         "profile": "cli-extension",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -793,8 +797,7 @@
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
-          "live probe pending"
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
         ],
         "provenance": [
           {
@@ -818,7 +821,7 @@
         "policy": "mcp-tool-guard",
         "harness": "pi",
         "event": "tool_execution_start",
-        "timing": "pre-tool",
+        "timing": "post-tool",
         "profile": "cli-extension",
         "wired": false,
         "configSource": null,
@@ -848,7 +851,7 @@
         "timing": "pre-tool",
         "profile": "user-headless",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -886,7 +889,7 @@
         "timing": "pre-tool",
         "profile": "project-headless",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
@@ -1148,7 +1151,7 @@
         "timing": "pre-tool",
         "profile": "cli-2x-agent",
         "wired": true,
-        "configSource": "core/harnesses/kiro/agents/doflow.json:11",
+        "configSource": "core/harnesses/kiro/hooks/doflow.json:15",
         "harnessVersion": {
           "tested": "kiro-cli 2.29.1"
         },
@@ -1180,7 +1183,7 @@
         "timing": "pre-tool",
         "profile": "any",
         "wired": true,
-        "configSource": "src/adapters/antigravity/index.ts:59",
+        "configSource": "src/adapters/antigravity/index.ts:60",
         "harnessVersion": {
           "tested": "1.3.3"
         },
@@ -2253,7 +2256,7 @@
           },
           {
             "kind": "fixture",
-            "locator": "test/fixtures/hooks/claude/stop-check/exit-2.json",
+            "locator": "test/fixtures/hooks/claude/stop-check/deny.json",
             "date": "2026-10-14"
           }
         ]
@@ -2427,6 +2430,11 @@
             "kind": "doc",
             "locator": "core/registry/harnesses.json: Kiro V3 Stop observation; bench/inventory/coverage.json: AgentStop",
             "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/kiro/stop-check/v3-deny.json",
+            "date": "2026-10-14"
           }
         ]
       },
@@ -2459,6 +2467,11 @@
           {
             "kind": "doc",
             "locator": "core/registry/harnesses.json: Kiro V3 Stop observation; bench/inventory/coverage.json: AgentStop",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/kiro/stop-check/v3-deny.json",
             "date": "2026-10-14"
           }
         ]
@@ -2500,12 +2513,12 @@
         "timing": "pre-tool",
         "profile": "project-interactive",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
-        "class": "blocking",
-        "verification": "verified",
+        "class": "unknown",
+        "verification": "unverified",
         "prerequisites": [
           "project-trust"
         ],
@@ -2514,7 +2527,8 @@
           "writes via shell commands"
         ],
         "caveats": [
-          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "project-trust is required for the project-scope extension",
+          "loading path not live-observed",
           "project-trust is required for the project-scope extension"
         ],
         "provenance": [
@@ -2542,19 +2556,20 @@
         "timing": "pre-tool",
         "profile": "project-interactive",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
-        "class": "blocking",
-        "verification": "verified",
+        "class": "unknown",
+        "verification": "unverified",
         "prerequisites": [
           "project-trust"
         ],
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "project-trust is required for the project-scope extension",
+          "loading path not live-observed",
           "project-trust is required for the project-scope extension"
         ],
         "provenance": [
@@ -2582,19 +2597,20 @@
         "timing": "pre-tool",
         "profile": "project-interactive",
         "wired": true,
-        "configSource": "core/harnesses/pi/extensions/doflow-guard.js",
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
         "harnessVersion": {
           "tested": "1.1.0"
         },
-        "class": "blocking",
-        "verification": "verified",
+        "class": "unknown",
+        "verification": "unverified",
         "prerequisites": [
           "project-trust"
         ],
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "project-trust is required for the project-scope extension",
+          "loading path not live-observed",
           "project-trust is required for the project-scope extension"
         ],
         "provenance": [
@@ -2677,10 +2693,158 @@
             "kind": "doc",
             "locator": "core/registry/harnesses.json: Kiro V3 Stop observation; bench/inventory/coverage.json: AgentStop",
             "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/kiro/stop-check/v3-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "user-interactive",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/edit-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "user-interactive",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/bash-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "pi",
+        "event": "tool_call",
+        "timing": "pre-tool",
+        "profile": "user-interactive",
+        "wired": true,
+        "configSource": "core/harnesses/pi/extensions/doflow-guard.js:129",
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "Pi extension has not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it",
+          "live probe pending"
+        ],
+        "provenance": [
+          {
+            "kind": "types",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 dist/core/extensions/types.d.ts:907-958",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "@earendil-works/pi-coding-agent@1.1.0 docs/extensions.md:169",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/pi/tool_call/nested-mcp-deny.json",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "kiro",
+        "event": "SessionStart",
+        "timing": "session",
+        "profile": "cli-v3-agent",
+        "wired": true,
+        "configSource": "core/harnesses/kiro/agents/doflow.json:42",
+        "harnessVersion": {
+          "tested": "kiro-cli 2.29.1"
+        },
+        "class": "advisory",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://kiro.dev/docs/hooks/types/",
+            "date": "2026-10-12"
           }
         ]
       }
     ],
-    "rowsDigest": "sha256:d50513987af03fd5a44ca679b5414603f2f4b7d64c14ad33203d87ee915c33b1"
+    "rowsDigest": "sha256:199bb689b2034157ecb3ade2b47b70470a00e567fa27134fc0cf5ef467369768"
   }
 }
