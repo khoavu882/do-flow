@@ -498,6 +498,914 @@
       ],
       "intentClass": "none",
       "enforced": false
+    },
+    {
+      "id": "hook.claude.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/mcp-tool-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.permission-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/permission-audit.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.post-compact",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/post-compact.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.post-edit-lint",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/post-edit-lint.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.post-tool-failure",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/post-tool-failure.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/pre-bash-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.pre-compact",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/pre-compact.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.pre-implement-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/pre-implement-gate/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.session-end",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/session-end.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.session-start",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/session-start.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/session-start/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.skill-config-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/skill-config-audit.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.claude.stop-check",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/stop-check.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/stop-check/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.subagent-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/subagent-audit.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/subagent-audit/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.claude.user-prompt-submit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.claude/hooks/user-prompt-submit.sh"
+      ],
+      "harness": "claude",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/claude/user-prompt-submit/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/mcp-tool-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.post-edit-lint",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/post-edit-lint.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.codex.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/pre-bash-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.pre-compact",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/pre-compact.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.codex.pre-implement-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/pre-implement-gate/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.session-end",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/session-end.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.codex.session-start",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/session-start.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/session-start/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.stop-check",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/stop-check.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/stop-check/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.subagent-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/subagent-audit.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/subagent-audit/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.codex.user-prompt-submit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.codex/hooks/user-prompt-submit.sh"
+      ],
+      "harness": "codex",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/codex/user-prompt-submit/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.gemini.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/gemini/mcp-tool-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.gemini.post-edit-lint",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/post-edit-lint.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.gemini.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/gemini/pre-bash-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.gemini.pre-compact",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/pre-compact.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.gemini.pre-implement-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/gemini/pre-implement-gate/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.gemini.session-end",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/session-end.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      }
+    },
+    {
+      "id": "hook.gemini.session-start",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.gemini/hooks/session-start.sh"
+      ],
+      "harness": "gemini",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/gemini/session-start/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.opencode",
+      "kind": "hook",
+      "argv": [],
+      "harness": "opencode",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.copilot",
+      "kind": "hook",
+      "argv": [],
+      "harness": "copilot",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.kiro.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/mcp-tool-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.mcp-tool-guard.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/mcp-tool-guard.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/mcp-tool-guard/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/pre-bash-guard/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.pre-bash-guard.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/pre-bash-guard.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/pre-bash-guard/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.pre-implement-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/pre-implement-gate/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.pre-implement-gate.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/pre-implement-gate.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/pre-implement-gate/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.session-start",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/session-start.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/session-start/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.session-start.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/session-start.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/session-start/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.stop-check",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/stop-check.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/stop-check/perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.kiro.stop-check.agent-config",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "{mirror}/.kiro/hooks/stop-check.sh"
+      ],
+      "harness": "kiro",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "hook-install-mirror",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true
+      },
+      "stdinFixture": "test/fixtures/hooks/kiro/stop-check/agent-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.antigravity.pre-implementation-gate",
+      "kind": "hook",
+      "argv": [
+        "node",
+        "core/harnesses/shared/hooks/stream-hook-runner.js",
+        "PreToolUse"
+      ],
+      "harness": "antigravity",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "stdinFixture": "test/fixtures/hooks/antigravity/pre-implement-gate/allow-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.antigravity.stop-check",
+      "kind": "hook",
+      "argv": [
+        "node",
+        "core/harnesses/shared/hooks/stream-hook-runner.js",
+        "Stop"
+      ],
+      "harness": "antigravity",
+      "intentClass": "hook",
+      "enforced": false,
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "stdinFixture": "test/fixtures/hooks/antigravity/stop-check/allow-perf.json",
+      "stdinField": "native"
+    },
+    {
+      "id": "hook.pi.tool-call-pre-implementation-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "pi",
+        "tool_call",
+        "pre-implementation-gate"
+      ],
+      "harness": "pi",
+      "intentClass": "hook",
+      "enforced": false,
+      "stdinFixture": "test/fixtures/hooks/pi/tool_call/perf-edit.json",
+      "stdinField": "native",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "note": "excludes the in-process extension spawn"
+    },
+    {
+      "id": "hook.pi.tool-call-pre-bash-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "pi",
+        "tool_call",
+        "pre-bash-guard"
+      ],
+      "harness": "pi",
+      "intentClass": "hook",
+      "enforced": false,
+      "stdinFixture": "test/fixtures/hooks/pi/tool_call/perf-bash.json",
+      "stdinField": "native",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "note": "excludes the in-process extension spawn"
+    },
+    {
+      "id": "hook.pi.tool-call-mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "pi",
+        "tool_call",
+        "mcp-tool-guard"
+      ],
+      "harness": "pi",
+      "intentClass": "hook",
+      "enforced": false,
+      "stdinFixture": "test/fixtures/hooks/pi/tool_call/perf-mcp.json",
+      "stdinField": "native",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      },
+      "note": "excludes the in-process extension spawn"
+    },
+    {
+      "id": "hook.shared.capture-failure",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/capture-failure.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.mcp-tool-guard",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/mcp-tool-guard.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.pre-implementation-gate",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/pre-implementation-gate.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.session-context",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/session-context.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.stop-check",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/stop-check.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.subagent-audit",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/subagent-audit.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": false
     }
   ],
   "rows": [
@@ -713,191 +1621,187 @@
     },
     {
       "surfaceId": "hook.claude.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.permission-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-tool-failure",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.pre-bash-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.pre-implement-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.session-start",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.skill-config-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.subagent-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.user-prompt-submit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.pre-bash-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.pre-implement-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.session-start",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.subagent-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.user-prompt-submit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.pre-bash-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.pre-implement-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.session-start",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.opencode",
-      "unmeasured": "hooks projected through a native plugin with no shell entry point"
-    },
-    {
-      "surfaceId": "hook.pi",
-      "unmeasured": "hooks projected through a native plugin with no shell entry point"
+      "unmeasured": "no hooks are projected"
     },
     {
       "surfaceId": "hook.copilot",
-      "unmeasured": "hooks projected through a native plugin with no shell entry point"
+      "unmeasured": "no hooks are projected"
     },
     {
       "surfaceId": "hook.kiro.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.kiro.pre-bash-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.kiro.pre-implement-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.kiro.session-start",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.kiro.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.antigravity.pre-implementation-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.antigravity.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.capture-failure",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.pre-implementation-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.session-context",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.subagent-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "cli.version",
@@ -1258,6 +2162,38 @@
       "headroomMs": 35.8,
       "ceilingMs": 150,
       "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.kiro.mcp-tool-guard.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-bash-guard.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.kiro.pre-implement-gate.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.kiro.session-start.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.kiro.stop-check.agent-config",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-pre-implementation-gate",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-pre-bash-guard",
+      "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.pi.tool-call-mcp-tool-guard",
+      "unmeasured": "measurement deferred to V.2"
     }
   ],
   "startupContext": [
@@ -1269,7 +2205,9 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "first": 144,
+        "steady": 3,
+        "basis": "measured:fixture test/fixtures/hooks/claude/user-prompt-submit/perf.json; project=bench/perf/fixtures/hook-bridge-project (feat/perf, all artifacts)"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1285,7 +2223,9 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "first": 144,
+        "steady": 3,
+        "basis": "measured:fixture test/fixtures/hooks/codex/user-prompt-submit/perf.json; project=bench/perf/fixtures/hook-bridge-project (feat/perf, all artifacts)"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1301,7 +2241,7 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/gemini/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1321,7 +2261,7 @@
       },
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/opencode/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1333,15 +2273,13 @@
       "harness": "pi",
       "installedVersion": "1.1.0",
       "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": {
-        "unmeasured": "no session-start hook"
-      },
+      "sessionStartStdoutBytes": 0,
       "sessionStartStderrBytes": {
         "unmeasured": "no session-start hook"
       },
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/pi/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1361,7 +2299,7 @@
       },
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/copilot/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1377,7 +2315,7 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/kiro/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -1397,7 +2335,7 @@
       },
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "unmeasured": "owner 077"
+        "unmeasured": "no prompt hook: core/harnesses/antigravity/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
