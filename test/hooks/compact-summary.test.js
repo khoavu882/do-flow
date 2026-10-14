@@ -15,6 +15,7 @@ const REPO = path.resolve(__dirname, '..', '..');
 const scratch = createScratch('doflow-compact-summary-');
 const mirror = path.join(scratch.dir, 'mirror');
 const SUMMARY_DIR = path.join(scratch.xdg, 'doflow', 'session-env', 'projects');
+const SCOPE_DIR = path.join(scratch.xdg, 'doflow', 'session-env', 'summaries');
 
 test.before(() => {
   const built = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
@@ -57,7 +58,7 @@ function prompt(harness, sessionId, cwd, { first = true, env } = {}) {
 function summaryFileFor(cwd) {
   const lib = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
   const hash = spawnSync('bash', ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
-  const file = path.join(SUMMARY_DIR, hash, 'last-compact-summary.md');
+  const file = path.join(SCOPE_DIR, hash, 'local', 'main', 'summary.md');
   return fs.existsSync(file) ? file : undefined;
 }
 
@@ -345,4 +346,96 @@ test('a worker session end still logs the end marker', () => {
   hook('claude', 'session-end.sh', { session_id: 'WLOG', cwd }, WORKER);
   const log = fs.readFileSync(path.join(scratch.xdg, 'doflow', 'sessions.log'), 'utf8');
   assert.match(log, /END WLOG /);
+});
+
+// ── Compaction on the rules and the scoped store (feature 078, IC-011) ──────────────────────────
+
+/** The hash directory name for a working directory, as every hook computes it. */
+function hashOf(cwd) {
+  const lib = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
+  return spawnSync('bash', ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
+}
+const LEGACY_FILE = (cwd) => path.join(SUMMARY_DIR, hashOf(cwd), 'last-compact-summary.md');
+const SCOPE_FILE = (cwd, run, lineage) => path.join(SCOPE_DIR, hashOf(cwd), run, lineage, 'summary.md');
+const LAUNCHED_WORKER = { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'w1', DOFLOW_ATTEMPT: '1' };
+
+test('a main compaction never writes the retired project-level summary path', () => {
+  const cwd = project('topic');
+  compact('A', cwd, 'SUMMARY-SCOPED');
+  assert.match(fs.readFileSync(SCOPE_FILE(cwd, 'local', 'main'), 'utf8'), /SUMMARY-SCOPED/);
+  assert.equal(fs.existsSync(LEGACY_FILE(cwd)), false);
+  assert.deepEqual(fs.readdirSync(path.dirname(SCOPE_FILE(cwd, 'local', 'main'))), ['summary.md']);
+});
+
+test('a solo worker compaction writes nothing anywhere', () => {
+  const cwd = project();
+  compact('W', cwd, 'SOLO-SUMMARY', WORKER);
+  assert.equal(fs.existsSync(path.join(SCOPE_DIR, hashOf(cwd))), false);
+  assert.equal(fs.existsSync(path.join(SUMMARY_DIR, hashOf(cwd))), false);
+});
+
+test('a launched worker compaction writes its own scope and leaves meta.json untouched', () => {
+  const cwd = project('topic');
+  const dir = projectDirFor(cwd);
+  fs.writeFileSync(path.join(dir, 'meta.json'), '{"compacted_at":"2020-01-01T00:00:00Z"}\n');
+  const metaBefore = fs.readFileSync(path.join(dir, 'meta.json'));
+  compact('LW', cwd, 'LAUNCHED-SUMMARY', LAUNCHED_WORKER);
+  const text = fs.readFileSync(SCOPE_FILE(cwd, 'r1', 'w1'), 'utf8');
+  assert.match(text, /LAUNCHED-SUMMARY/);
+  assert.match(text, /^role: worker$/m);
+  assert.match(text, /^lineage: w1$/m);
+  assert.match(text, /^attempt: 1$/m);
+  assert.equal(fs.existsSync(SCOPE_FILE(cwd, 'local', 'main')), false);
+  assert.deepEqual(fs.readFileSync(path.join(dir, 'meta.json')), metaBefore);
+});
+
+test('meta.json compacted_at moves only for the default main lineage', () => {
+  const cwd = project();
+  const meta = path.join(projectDirFor(cwd), 'meta.json');
+  fs.writeFileSync(meta, '{"compacted_at":"2020-01-01T00:00:00Z","keep":1}\n');
+  compact('LM', cwd, 'LAUNCHED-MAIN', { DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'main', DOFLOW_ATTEMPT: '1' });
+  assert.ok(fs.existsSync(SCOPE_FILE(cwd, 'r1', 'main')));
+  assert.equal(JSON.parse(fs.readFileSync(meta, 'utf8')).compacted_at, '2020-01-01T00:00:00Z');
+  compact('A', cwd, 'DEFAULT-MAIN');
+  const after = JSON.parse(fs.readFileSync(meta, 'utf8'));
+  assert.notEqual(after.compacted_at, '2020-01-01T00:00:00Z');
+  assert.equal(after.keep, 1);
+});
+
+// Pre-compact output bytes are pinned to develop 468e77b (DEC-023), taken from `git archive`.
+const GOLDEN_REF = '468e77b';
+const hasGoldenRef = spawnSync('git', ['-C', REPO, 'cat-file', '-e', `${GOLDEN_REF}^{commit}`]).status === 0;
+test('pre-compact output on Claude, Codex and Gemini is byte-identical to 468e77b', { skip: !hasGoldenRef && `${GOLDEN_REF} not in this clone` }, () => {
+  const golden = path.join(scratch.dir, 'golden');
+  const extract = path.join(scratch.dir, 'golden-src');
+  fs.mkdirSync(extract);
+  const archive = spawnSync('git', ['-C', REPO, 'archive', '--format=tar', GOLDEN_REF, 'core/harnesses'], { maxBuffer: 1 << 28 });
+  assert.equal(archive.status, 0, String(archive.stderr));
+  const untar = spawnSync('tar', ['-x', '-C', extract], { input: archive.stdout });
+  assert.equal(untar.status, 0, String(untar.stderr));
+  for (const harness of ['claude', 'codex', 'gemini']) {
+    fs.cpSync(path.join(extract, 'core', 'harnesses', harness, 'hooks'), path.join(golden, `.${harness}`, 'hooks'), { recursive: true });
+  }
+  fs.cpSync(path.join(extract, 'core', 'harnesses', 'shared', 'hooks'), path.join(golden, '.doflow', 'shared', 'hooks'), { recursive: true });
+
+  const repo = project('topic');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  for (const args of [['add', '.'], ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first']]) {
+    assert.equal(spawnSync('git', ['-C', repo, ...args], { env: scratch.env() }).status, 0);
+  }
+  fs.writeFileSync(path.join(repo, 'dirty.txt'), 'x\n');
+  const run = (root, harness, cwd, env) => spawnSync('bash', [path.join(root, `.${harness}`, 'hooks', 'pre-compact.sh')], {
+    input: JSON.stringify({ session_id: 'P', cwd }), env: scratch.env(env),
+  });
+  for (const harness of ['claude', 'codex', 'gemini']) {
+    for (const cwd of [repo, project()]) {
+      for (const env of [{}, WORKER, LAUNCHED_WORKER]) {
+        const before = run(golden, harness, cwd, env);
+        const after = run(mirror, harness, cwd, env);
+        assert.equal(after.status, 0);
+        assert.ok(before.stdout.length > 0, `${harness} golden produced output`);
+        assert.deepEqual(after.stdout, before.stdout, `${harness} ${cwd} ${JSON.stringify(env)}`);
+      }
+    }
+  }
 });
