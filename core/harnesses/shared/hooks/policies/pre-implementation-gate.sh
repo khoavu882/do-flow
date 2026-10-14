@@ -30,13 +30,7 @@
 #          (each already read by the harness-specific dispatcher this policy
 #          replaces — kept so an unmodified front door still resolves its own
 #          harness's do-paths.sh resolver)
-#   stdin  a PreToolUse-shaped JSON payload for an edit tool. Every harness's
-#          own field names differ (Claude/Gemini: tool_name/tool_input.file_path;
-#          Codex: tool_name=apply_patch with a unified diff in
-#          tool_input.command; Kiro: field names undocumented) — this script
-#          reads the union of known shapes rather than assuming one, since a
-#          native front door (Claude/Codex/Kiro) execs this script directly
-#          with no payload translation of its own.
+#   stdin  a native payload encoded as envelope v1 by the lifecycle bridge.
 #   exit   0 = allow, non-zero = deny with the reason on stderr. A front door
 #          translates this into whatever JSON/exit-code shape its harness
 #          natively expects — this script never speaks a harness-specific
@@ -64,8 +58,15 @@ if [ -f "$(dirname "$0")/contract.sh" ]; then
 else
   doflow_decision_init() { :; }
   doflow_decide() { :; }
-  doflow_read_envelope() { DF_ENV_CLASS=invalid; }
+  doflow_read_envelope() { DF_ENV_CLASS=missing; DF_ENV_CODE=contract-missing; }
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate contract-missing ) >/dev/null 2>&1 || true
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then
+    printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2
+  else
+    printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' >&2
+  fi
+  doflow_decide deny contract-missing
+  exit 2
 fi
 doflow_decision_init pre-implementation-gate 1
 command -v jq >/dev/null 2>&1 || {
@@ -74,8 +75,7 @@ command -v jq >/dev/null 2>&1 || {
   exit 0
 }
 
-# Keep both envelope versions on the same patch parser so Codex apply_patch
-# paths cannot drift between the native and v1 inputs.
+# Parse v1 apply_patch paths using the shared parser.
 parse_patch_paths() {
   printf '%s\n' "$1" | sed -nE \
     -e 's#^\*\*\* (Add|Update|Delete) File: (.+)$#\2#p' \
@@ -83,16 +83,10 @@ parse_patch_paths() {
     | sed '/^\/dev\/null$/d' | sort -u
 }
 
-DF_ENV_CLASS=invalid
+DF_ENV_CLASS=missing DF_ENV_CODE=envelope-missing
 doflow_read_envelope || true
 
-# ── Normalized envelope (preferred; review R7) ────────────────────────────────
-# A host adapter that has already decoded its native event sends
-#   {"doflow_event": {"operation": "edit", "paths": [..], "projectRoot": "..", "taskId": ".."}}
-# and this policy consumes it verbatim. The union decoder below remains the
-# fallback for front doors that still forward raw native payloads; per-harness
-# knowledge belongs in those adapters, and each one that starts sending the
-# envelope retires its share of the union.
+# ── Envelope v1 ───────────────────────────────────────────────────────────────
 ENVELOPE_ROOT=""
 ENVELOPE_TASK=""
 if [ "$DF_ENV_CLASS" = v1 ]; then
@@ -115,58 +109,12 @@ elif [ "$DF_ENV_CLASS" = unsupported ]; then
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate unsupported:envelope-version ) >/dev/null 2>&1 || true
   exit 0
 else
-  # v0 and invalid input retain the native-field union decoder.
-  ENVELOPE_OP=$(printf '%s' "$INPUT" | jq -r '.doflow_event.operation // empty' 2>/dev/null)
-  if [ -n "$ENVELOPE_OP" ]; then
-    [ "$ENVELOPE_OP" = "edit" ] || exit 0          # only edits are gated
-    FILES=$(printf '%s' "$INPUT" | jq -r '.doflow_event.paths[]? // empty' 2>/dev/null | sed '/^$/d' | sort -u)
-    [ -n "$FILES" ] || exit 0
-    ENVELOPE_ROOT=$(printf '%s' "$INPUT" | jq -r '.doflow_event.projectRoot // empty' 2>/dev/null)
-    ENVELOPE_TASK=$(printf '%s' "$INPUT" | jq -r '.doflow_event.taskId // empty' 2>/dev/null)
-else
-
-# ── Tool name (union of every known field name across harnesses; LEGACY decoder) ──
-tool=""
-for field in '.tool_name' '.tool' '.toolName' '.name'; do
-  tool=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-  [ -n "$tool" ] && break
-done
-
-is_patch_tool=false
-case "$tool" in
-  Edit|Write|MultiEdit|edit_file|write_file|create_file|replace_file|replace) ;;
-  write_to_file|replace_file_content|multi_replace_file_content) ;;
-  apply_patch) is_patch_tool=true ;;
-  *) exit 0 ;;
-esac
-
-# ── Candidate files to gate ────────────────────────────────────────────────────
-# Normal edit tools: one file, from the union of field names harnesses use.
-# apply_patch (Codex): the tool has no file_path field at all — the paths are
-# embedded in a unified diff under tool_input.command.
-FILES=""
-if [ "$is_patch_tool" = true ]; then
-  PATCH=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-  [ -n "$PATCH" ] || exit 0
-  # "#" (not the original codex script's "|") is the sed delimiter here: BSD
-  # sed (macOS, no GNU coreutils) misparses "s|...(Add|Update|Delete)...|...|"
-  # because it splits on every unescaped "|", including the ones meant as ERE
-  # alternation inside the pattern — a portability bug in the source script
-  # this reconciliation fixes rather than ports, since it silently broke
-  # apply_patch parsing under this exact invocation on any non-GNU-sed host.
-  FILES=$(parse_patch_paths "$PATCH")
-  [ -n "$FILES" ] || exit 0
-else
-  file=""
-  for field in '.tool_input.file_path' '.tool_input.path' '.tool_input.target' '.file_path' '.path'; do
-    file=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-    [ -n "$file" ] && break
-  done
-  [ -n "$file" ] || exit 0
-  FILES="$file"
-fi
-
-  fi  # end legacy union decoder
+  if [ "${DF_ENV_CODE:-envelope-missing}" != contract-missing ]; then
+    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate envelope-missing ) >/dev/null 2>&1 || true
+  fi
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' >&2; fi
+  doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
+  exit 2
 fi
 
 # ── Resolve repo root ───────────────────────────────────────────────────────

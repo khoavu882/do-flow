@@ -35,7 +35,8 @@ doflow_decide() {
 doflow_read_envelope() {
   local assignments
   if [ -z "${INPUT:-}" ]; then
-    DF_ENV_CLASS=invalid
+    DF_ENV_CLASS=missing
+    DF_ENV_CODE=envelope-missing
     DF_ENV_HARNESS=
     DF_ENV_EVENT=
     DF_ENV_OP=
@@ -54,11 +55,12 @@ doflow_read_envelope() {
     ($event | if type == "object" then . else {} end) as $fields |
     def field($key): ($fields[$key] // "") | if type == "string" then . else "" end;
     def shellvar($name; $value): ($name + "=" + ($value | @sh));
-    (if ($root | type) != "object" or (($event | type) != "object") then "invalid"
-     elif ($event | has("version") | not) then "v0"
+    (if ($root | type) != "object" or (($event | type) != "object") then "missing"
+     elif ($event | has("version") | not) then "missing"
      elif ($event.version | type) == "number" and $event.version == 1 then "v1"
      else "unsupported" end) as $class |
     [shellvar("DF_ENV_CLASS"; $class),
+     shellvar("DF_ENV_CODE"; (if $class == "missing" then "envelope-missing" else "" end)),
      shellvar("DF_ENV_HARNESS"; field("harness")),
      shellvar("DF_ENV_EVENT"; field("event")),
      shellvar("DF_ENV_OP"; field("operation")),

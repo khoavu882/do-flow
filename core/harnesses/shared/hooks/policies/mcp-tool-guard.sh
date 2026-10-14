@@ -13,19 +13,9 @@
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional; not required to
 #          evaluate this policy)
-#   stdin  a PreToolUse-shaped JSON payload; tool name is read from the union
-#          of field names harnesses use (tool_name/tool/toolName/name), since
-#          a native front door (Claude/Codex/Kiro) execs this script directly
-#          with no payload translation of its own.
+#   stdin  a native payload with envelope v1 under doflow_event; only the
+#          envelope's operation and tool fields are used.
 #   exit   0 = allow, non-zero = deny with the reason on stderr.
-#
-# Reconciliation note (022-normalize-hooks, Phase A): MCP tool-name
-# vocabularies differ per harness — Claude/Codex/Kiro use a double-underscore
-# "mcp__<server>__<tool>" convention, Gemini documents a single-underscore
-# "mcp_<server>_<tool>" convention. A single-underscore prefix check ("^mcp_")
-# matches both conventions (the double-underscore form is a superset match of
-# the single-underscore prefix), so this script uses that one generic check
-# instead of hardcoding either harness's exact convention.
 #
 # mcp-policy.conf's shape (TAB-separated regex<TAB>reason, '#'-comments,
 # blank lines skipped) is identical across every harness that ships one today
@@ -40,8 +30,15 @@ if [ -f "$(dirname "$0")/contract.sh" ]; then
 else
   doflow_decision_init() { :; }
   doflow_decide() { :; }
-  doflow_read_envelope() { DF_ENV_CLASS=invalid; }
+  doflow_read_envelope() { DF_ENV_CLASS=missing; DF_ENV_CODE=contract-missing; }
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure mcp-tool-guard contract-missing ) >/dev/null 2>&1 || true
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then
+    printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2
+  else
+    printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update\n' >&2
+  fi
+  doflow_decide deny contract-missing
+  exit 2
 fi
 doflow_decision_init mcp-tool-guard 1
 command -v jq >/dev/null 2>&1 || {
@@ -49,7 +46,7 @@ command -v jq >/dev/null 2>&1 || {
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure mcp-tool-guard dependency-missing:jq ) >/dev/null 2>&1 || true
   exit 0
 }
-DF_ENV_CLASS=invalid
+DF_ENV_CLASS=missing DF_ENV_CODE=envelope-missing
 doflow_read_envelope || true
 
 TOOL_NAME=""
@@ -61,24 +58,13 @@ elif [ "$DF_ENV_CLASS" = unsupported ]; then
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure mcp-tool-guard unsupported:envelope-version ) >/dev/null 2>&1 || true
   exit 0
 else
-  for field in '.tool_name' '.tool' '.toolName' '.name'; do
-    TOOL_NAME=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-    [ -n "$TOOL_NAME" ] && break
-  done
+  if [ "${DF_ENV_CODE:-envelope-missing}" != contract-missing ]; then
+    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure mcp-tool-guard envelope-missing ) >/dev/null 2>&1 || true
+  fi
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update\n' >&2; fi
+  doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
+  exit 2
 fi
-
-# Fast exit for non-MCP tool events (also covers "tool name unresolved").
-# "mcp_" (single underscore) matches both Claude/Codex/Kiro's "mcp__" and
-# Gemini's "mcp_" naming conventions. Matched case-insensitively: the caller
-# (stream-hook-runner.js's MCP_TOOL_PATTERN) classifies case-insensitively
-# before ever routing here, so this check must not be stricter than the
-# classification that decided to invoke it (022-code-review finding).
-shopt -s nocasematch 2>/dev/null || true
-case "$TOOL_NAME" in
-  mcp_*) ;;
-  *) exit 0 ;;
-esac
-shopt -u nocasematch 2>/dev/null || true
 
 POLICY_FILE="$(dirname "$0")/mcp-policy.conf"
 

@@ -37,6 +37,8 @@ else
   doflow_decision_init() { :; }
   doflow_decide() { :; }
   ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit contract-missing ) >/dev/null 2>&1 || true
+  printf '{}'
+  exit 0
 fi
 if ! command -v jq >/dev/null 2>&1; then
   doflow_decide error dependency-missing:jq
@@ -47,20 +49,27 @@ require_jq
 # 20 KB prompt, and the budget is 100 ms), NUL-separated: session_id, cwd and session_title, null
 # and false read as empty as json_field does, with any NUL inside a value dropped so no field can
 # shift into the next; then `subagent` when agent_id or agent_type holds anything but null or "".
-SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT="" ENVELOPE_CLASS=""
+SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT="" ENVELOPE_CLASS=missing
 { IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD; IFS= read -r -d '' PAYLOAD_TITLE; IFS= read -r -d '' SUBAGENT; IFS= read -r -d '' ENVELOPE_CLASS; } < <(
   printf '%s' "$INPUT" | jq -j '. as $p
     | [if ($p.session_id | type) == "string" then ($p.session_id | rtrimstr("\n")) else $p.session_id end, $p.cwd, $p.session_title]
     | map(if . == null or . == false then "" elif type == "string" then . else tojson end | split("\u0000") | join(""))
     | . + [if any($p.agent_id, $p.agent_type; . != null and . != "") then "subagent" else "" end]
-    | . + [if (($p | type) == "object") and (($p.doflow_event | type) == "object") and ($p.doflow_event | has("version")) and (($p.doflow_event.version | type) != "number" or $p.doflow_event.version != 1) then "unsupported" else "v0" end]
+    | . + [if (($p | type) != "object") or (($p.doflow_event | type) != "object") or (($p.doflow_event | has("version")) | not) then "missing" elif (($p.doflow_event.version | type) == "number") and $p.doflow_event.version == 1 then "v1" else "unsupported" end]
     | join("\u0000") + "\u0000"' 2>/dev/null
 ) || true
-if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=v0; fi
+ENVELOPE_CLASS=${ENVELOPE_CLASS:-missing}
+if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=missing; fi
 
-if [[ "$ENVELOPE_CLASS" == unsupported ]]; then
-  doflow_decide unsupported envelope-version
-  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure user-prompt-submit unsupported:envelope-version ) >/dev/null 2>&1 || true
+if [[ "$ENVELOPE_CLASS" == unsupported || "$ENVELOPE_CLASS" == missing ]]; then
+  code=envelope-version
+  [[ "$ENVELOPE_CLASS" == missing ]] && code=envelope-missing
+  [[ -f "$POLICY_DIR/contract.sh" ]] || code=contract-missing
+  doflow_decide unsupported "$code"
+  if [[ -f "$POLICY_DIR/contract.sh" ]]; then
+    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure user-prompt-submit "$code" ) >/dev/null 2>&1 || true
+  fi
+  printf '{}'
   exit 0
 fi
 

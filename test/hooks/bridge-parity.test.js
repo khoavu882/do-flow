@@ -171,12 +171,11 @@ function runFixture({ harness, stem, fixturePath, fixture }, index) {
   const envelope = encodedPayload.doflow_event;
   for (const [key, value] of Object.entries(fixture.expect.envelope)) assert.deepEqual(envelope[key], value, `${label}: envelope.${key}`);
 
-  // Run the same native input through the canonical policy's legacy decoder in the same project.
+  // Run the bridge-produced v1 payload through the canonical policy in the same project.
   const nativePolicy = path.join(mirror, '.doflow/shared/hooks/policies', `${policyId}.sh`);
   if (fixture.fault === 'none') {
-    const v0 = call(['bash', nativePolicy], { cwd: project, input: `${JSON.stringify(fixture.native)}\n`, env: { ...env, DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' } });
-    const v0Outcome = v0.status === 2 ? 'deny' : 'allow';
-    assert.equal(decision.outcome === 'deny' ? 'deny' : 'allow', v0Outcome, `${label}: v1 and v0 verdict parity`);
+    const policyResult = call(['bash', nativePolicy], { cwd: project, input: encoded.stdout, env: { ...env, DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' } });
+    assert.equal(policyResult.status, decision.outcome === 'deny' ? 2 : 0, `${label}: bridge and direct v1 policy verdict parity`);
   }
   assert.equal(jqSorted(envelope), jqSorted(fixture.expect.envelope), `${label}: envelope fields match fixture`);
 }

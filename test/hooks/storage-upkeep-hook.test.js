@@ -52,7 +52,7 @@ test('session hooks launch asynchronous storage upkeep through the first availab
   makeDispatcher(configDispatcher, 'claude-config');
   makeDispatcher(globalDispatcher, 'global-home');
 
-  const payload = (sessionId) => JSON.stringify({ session_id: sessionId, cwd: project, source: 'startup' });
+  const payload = (sessionId) => encodeEnvelope('claude', 'SessionStart', 'session-context', JSON.stringify({ session_id: sessionId, cwd: project, source: 'startup' }));
   function runHook(script, sessionId, env = scratch.env({ STORAGE_TEST_RECORD: record })) {
     const started = Date.now();
     const result = spawnSync('/bin/bash', [script], { input: payload(sessionId), cwd: project, env, encoding: 'utf8' });

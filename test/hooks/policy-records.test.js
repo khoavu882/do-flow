@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
+const { encodeEnvelope } = require('../helper/hook-fixtures');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const POLICY_DIR = path.join(ROOT, 'core/harnesses/shared/hooks/policies');
@@ -14,8 +15,16 @@ const POLICIES = ['stop-check', 'session-context', 'user-prompt-submit', 'subage
 const BASH = '/bin/bash';
 
 function run(policy, input, { records = false, configHome, policyDir = POLICY_DIR, env = {} } = {}) {
+  let policyInput = input;
+  try {
+    const parsed = JSON.parse(input);
+    if (!parsed?.doflow_event) {
+      const event = policy === 'stop-check' ? 'Stop' : policy === 'session-context' ? 'SessionStart' : policy === 'user-prompt-submit' ? 'UserPromptSubmit' : 'SubagentStart';
+      policyInput = encodeEnvelope('claude', event, policy, input);
+    }
+  } catch { /* malformed input stays native for the out-of-step path */ }
   const options = {
-    input,
+    input: policyInput,
     encoding: 'utf8',
     env: { ...process.env, ...(records ? { DOFLOW_DECISION_FD: '3' } : {}), ...(configHome ? { XDG_CONFIG_HOME: configHome } : {}), ...env },
   };
@@ -46,7 +55,7 @@ describe('B.2 policy decision records', () => {
       const payload = JSON.stringify({ session_id: 'record-test', doflow_event: { version: 2 } });
       const result = run(policy, payload, { records: true, configHome });
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(result.stdout, '');
+      assert.equal(result.stdout, policy === 'user-prompt-submit' ? '{}' : '');
       assert.equal(result.stderr, '');
       assert.deepEqual(parseRecords(result.records), [
         { v: 1, policy, policyVersion: 1, outcome: 'allow', code: 'allow' },
@@ -62,17 +71,13 @@ describe('B.2 policy decision records', () => {
       const inputPath = path.join(FIXTURE_DIR, policy, 'input.json');
       const input = fs.readFileSync(inputPath, 'utf8');
       const configHome = path.join(root, 'config');
-      const expected = run(policy, input);
-      const nativePayload = JSON.parse(input);
-      nativePayload.doflow_event = { version: 2 };
-      const actual = run(policy, JSON.stringify(nativePayload), { policyDir: policyCopy, configHome });
-      assert.equal(actual.status, expected.status, 'exit status matches native policy');
-      assert.equal(actual.stdout, expected.stdout, 'stdout matches native policy');
-      assert.equal(actual.stderr, expected.stderr, 'stderr matches native policy');
+      const actual = run(policy, input, { policyDir: policyCopy, configHome });
+      assert.equal(actual.status, 0, 'context policies proceed on a missing envelope');
+      assert.equal(actual.stdout, policy === 'user-prompt-submit' ? '{}' : '', 'out-of-step output follows DEC-033');
+      assert.equal(actual.stderr, '');
       const eventsPath = path.join(configHome, 'doflow/failures/events.jsonl');
       const events = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').map(JSON.parse);
       assert.equal(events.length, 1);
-      assert.equal(events[0].command, policy);
       assert.equal(events[0].kind, 'contract-missing');
     });
   }

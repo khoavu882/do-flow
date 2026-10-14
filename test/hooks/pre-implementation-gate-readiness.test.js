@@ -19,6 +19,8 @@ const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const POLICY = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'pre-implementation-gate.sh');
 const REGISTRY = path.join(REPO, 'core', 'registry', 'workflows.json');
 const RESOLVER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
+const POLICY_CONTRACT = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'contract.sh');
+const BRIDGE = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'bridge');
 const { refusalText } = require('../../src/runtime/implementation-gate.ts');
 const { createScratch } = require('../helper/scratch-env');
 const { encodeEnvelope } = require('../helper/hook-fixtures');
@@ -41,6 +43,8 @@ function write(file, text) {
 function installLayout(dir, registryText) {
   const policy = path.join(dir, 'shared', 'hooks', 'policies', 'pre-implementation-gate.sh');
   write(policy, fs.readFileSync(POLICY, 'utf8'));
+  write(path.join(path.dirname(policy), 'contract.sh'), fs.readFileSync(POLICY_CONTRACT, 'utf8'));
+  fs.cpSync(BRIDGE, path.join(dir, 'shared', 'hooks', 'bridge'), { recursive: true });
   write(path.join(dir, 'runtime', 'core', 'registry', 'workflows.json'), registryText);
   return policy;
 }
@@ -58,6 +62,8 @@ const NO_TEMPLATE_POLICY = (() => {
 const ALONE_POLICY = (() => {
   const policy = path.join(scratch.dir, 'alone', 'a', 'b', 'c', 'pre-implementation-gate.sh');
   write(policy, fs.readFileSync(POLICY, 'utf8'));
+  write(path.join(path.dirname(policy), 'contract.sh'), fs.readFileSync(POLICY_CONTRACT, 'utf8'));
+  fs.cpSync(BRIDGE, path.join(path.dirname(policy), 'bridge'), { recursive: true });
   return policy;
 })();
 
@@ -201,12 +207,13 @@ HOOK_TEST('a feature branch with a register and three artifacts needs a READY fe
   writeRecord(main, path.join('900-demo', 'A.1.json'), { taskId: 'A.1', taskClass: 'feature', state: 'READY' });
   expectHook({ ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1'), code: 0, stderr: '' });
 
-  // This v1-only readiness event has no native tool fields. Without the v1 branch the gate allows
-  // it, proving the migrated case exercises normalized envelope fields. Keep the mutation in a copy.
+  // DEC-033: this v1-only input has no legacy tool fields; the copy that skips v1 takes the out-of-step block.
   const noV1Policy = path.join(scratch.dir, 'no-v1', 'pre-implementation-gate.sh');
   const policyText = fs.readFileSync(POLICY, 'utf8');
   assert.ok(policyText.includes('if [ "$DF_ENV_CLASS" = v1 ]; then'), 'the v1 branch is present');
   write(noV1Policy, policyText.replace('if [ "$DF_ENV_CLASS" = v1 ]; then', 'if false; then'));
+  write(path.join(path.dirname(noV1Policy), 'contract.sh'), fs.readFileSync(POLICY_CONTRACT, 'utf8'));
+  fs.cpSync(BRIDGE, path.join(path.dirname(noV1Policy), 'bridge'), { recursive: true });
   fs.chmodSync(noV1Policy, 0o755);
   const envelopeOnly = envelopeEvent(main, path.join(main, 'src', 'a.js'), '900-demo');
   delete envelopeOnly.tool_name;
@@ -215,7 +222,7 @@ HOOK_TEST('a feature branch with a register and three artifacts needs a READY fe
     ...base, event: envelopeOnly, code: 2,
     stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`,
   });
-  expectHook({ ...base, policy: noV1Policy, event: envelopeOnly, code: 0, stderr: '' });
+  expectHook({ ...base, policy: noV1Policy, event: envelopeOnly, code: 2, stderr: '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' });
 
   writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
   expectHook({

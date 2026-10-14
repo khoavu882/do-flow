@@ -10,13 +10,8 @@
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional; not required to
 #          evaluate this policy)
-#   stdin  a PreToolUse-shaped JSON payload; tool name is read from the union
-#          of field names harnesses use, and matched against the union of
-#          known shell-command tool names (Bash/bash — Claude/Codex;
-#          run_shell_command — Gemini; run_command — the generic name
-#          stream-hook-runner.js's own COMMAND_TOOL_PATTERN already
-#          recognized), since a native front door (Claude/Codex/Kiro) execs
-#          this script directly with no payload translation of its own.
+#   stdin  a native payload with envelope v1 under doflow_event; only the
+#          envelope's operation, tool and command fields are used.
 #   exit   0 = allow, non-zero = deny with the reason on stderr.
 #
 # Reconciliation note (022-normalize-hooks, Phase A / D1): this also absorbs
@@ -44,8 +39,15 @@ if [ -f "$(dirname "$0")/contract.sh" ]; then
 else
   doflow_decision_init() { :; }
   doflow_decide() { :; }
-  doflow_read_envelope() { DF_ENV_CLASS=invalid; }
+  doflow_read_envelope() { DF_ENV_CLASS=missing; DF_ENV_CODE=contract-missing; }
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard contract-missing ) >/dev/null 2>&1 || true
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then
+    printf '[pre-bash-guard] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2
+  else
+    printf '[pre-bash-guard] DoFlow hooks out of step; run: doflow update\n' >&2
+  fi
+  doflow_decide deny contract-missing
+  exit 2
 fi
 doflow_decision_init pre-bash-guard 1
 command -v jq >/dev/null 2>&1 || {
@@ -53,7 +55,7 @@ command -v jq >/dev/null 2>&1 || {
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard dependency-missing:jq ) >/dev/null 2>&1 || true
   exit 0
 }
-DF_ENV_CLASS=invalid
+DF_ENV_CLASS=missing DF_ENV_CODE=envelope-missing
 doflow_read_envelope || true
 
 TOOL_NAME=""
@@ -67,20 +69,13 @@ elif [ "$DF_ENV_CLASS" = unsupported ]; then
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard unsupported:envelope-version ) >/dev/null 2>&1 || true
   exit 0
 else
-  for field in '.tool_name' '.tool' '.toolName' '.name'; do
-    TOOL_NAME=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-    [ -n "$TOOL_NAME" ] && break
-  done
+  if [ "${DF_ENV_CODE:-envelope-missing}" != contract-missing ]; then
+    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard envelope-missing ) >/dev/null 2>&1 || true
+  fi
+  if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[pre-bash-guard] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[pre-bash-guard] DoFlow hooks out of step; run: doflow update\n' >&2; fi
+  doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
+  exit 2
 fi
-
-# Fast exit for non-shell-command tool events (union of every known
-# shell-command tool name across harnesses, case-insensitive).
-case "$TOOL_NAME" in
-  Bash|bash|run_shell_command|run_command) ;;
-  *) exit 0 ;;
-esac
-
-[ "$DF_ENV_CLASS" = v1 ] || COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
 # Nothing to check if command is empty
 [ -z "$COMMAND" ] && exit 0

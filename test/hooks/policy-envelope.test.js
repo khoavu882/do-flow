@@ -24,8 +24,13 @@ function runBaseline(policy, input, { cwd = path.resolve(__dirname, '../..'), en
   return { status: actual.status, stdout: actual.stdout || '', stderr: actual.stderr || '' };
 }
 
+function encodeForPolicy(policy, input, { harness = 'claude', event = 'PreToolUse', env = {} } = {}) {
+  const native = JSON.parse(input);
+  return encodeEnvelope(harness, event, policy, JSON.stringify(native), env);
+}
+
 for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
-  test(`${policy}: legacy inputs preserve golden stdout, stderr and exit status`, () => {
+  test(`${policy}: v1 inputs preserve develop golden stdout, stderr and exit status`, () => {
     let cwd = undefined;
     if (policy === 'pre-implementation-gate') {
       const repo = createScratchGitRepo(scratch, 'gate-golden');
@@ -36,18 +41,21 @@ for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-gua
     }
     for (const row of loadCorpus(policy)) {
       if (policy === 'mcp-tool-guard' && row.name === 'pattern-deny') continue;
-      const result = runPolicy(policy, row.input, { cwd, env: cwd ? { DOFLOW_PROJECT_DIR: cwd, HOME: scratch.path('golden-home') } : {} });
       const baseline = runBaseline(policy, row.input, { cwd, env: cwd ? { DOFLOW_PROJECT_DIR: cwd, HOME: scratch.path('golden-home') } : {} });
-      assert.equal(result.status, row.status, `${row.name} exit`);
-      assert.equal(result.stdout, row.stdout, `${row.name} stdout`);
-      assert.equal(result.stderr, row.stderr, `${row.name} stderr`);
       assert.deepEqual(baseline, { status: row.status, stdout: row.stdout, stderr: row.stderr }, `${row.name} 0fcd973 bytes`);
+      let native;
+      try { native = JSON.parse(row.input); } catch { continue; }
+      if (!native || typeof native !== 'object' || Array.isArray(native)) continue;
+      const event = typeof native.hook_event_name === 'string' ? native.hook_event_name : 'PreToolUse';
+      const input = encodeForPolicy(policy, row.input, { event });
+      const result = runPolicy(policy, input, { cwd, env: cwd ? { DOFLOW_PROJECT_DIR: cwd, HOME: scratch.path('golden-home') } : {} });
+      assert.deepEqual({ status: result.status, stdout: result.stdout, stderr: result.stderr }, baseline, `${row.name} v1 parity`);
     }
   });
 }
 
 test('decision fd writes provisional allow before each deny record', () => {
-  const input = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } });
+  const input = encodeEnvelope('claude', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } }));
   const result = runPolicy('pre-bash-guard', input, { decisionFd: true });
   assert.equal(result.status, 2);
   assert.match(result.stderr, /Catastrophic delete blocked/);
@@ -108,7 +116,8 @@ test('decision fd records all hardcoded floor deny sites when patterns are missi
   for (const [command, expected] of [
     ['rm -rf /', 'catastrophic-rm-root'], ['rm -rf ~', 'catastrophic-rm-home'], ['rm -rf /etc', 'catastrophic-rm-system'],
   ]) {
-    const result = runPolicy('pre-bash-guard', JSON.stringify({ tool_name: 'Bash', tool_input: { command } }), {
+    const input = encodeEnvelope('claude', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ tool_name: 'Bash', tool_input: { command } }));
+    const result = runPolicy('pre-bash-guard', input, {
       decisionFd: true, policyPath: path.join(policyDir, 'pre-bash-guard.sh'),
     });
     assert.equal(result.status, 2, command);
@@ -129,7 +138,8 @@ test('MCP deny, patterns-missing and mcp-policy-missing sites write records', ()
   const baselinePolicyDir = scratch.path('baseline-mcp-patterns');
   fs.cpSync(path.join(baselineRoot, 'core/harnesses/shared/hooks/policies'), baselinePolicyDir, { recursive: true });
   fs.copyFileSync(path.join(policyDir, 'mcp-policy.conf'), path.join(baselinePolicyDir, 'mcp-policy.conf'));
-  const denied = runPolicy('mcp-tool-guard', denyFixture.input, { decisionFd: true, policyPath: path.join(policyDir, 'mcp-tool-guard.sh') });
+  const denyInput = encodeForPolicy('mcp-tool-guard', denyFixture.input);
+  const denied = runPolicy('mcp-tool-guard', denyInput, { decisionFd: true, policyPath: path.join(policyDir, 'mcp-tool-guard.sh') });
   const baselineDeny = runBaseline('mcp-tool-guard', denyFixture.input, { policyPath: path.join(baselinePolicyDir, 'mcp-tool-guard.sh') });
   assert.equal(denied.status, 2);
   assert.equal(denied.stdout, denyFixture.stdout);
@@ -139,14 +149,14 @@ test('MCP deny, patterns-missing and mcp-policy-missing sites write records', ()
     ['allow', 'allow'], ['deny', 'blocked-pattern'],
   ]);
   fs.rmSync(path.join(policyDir, 'mcp-policy.conf'));
-  const missing = runPolicy('mcp-tool-guard', denyFixture.input, { decisionFd: true, policyPath: path.join(policyDir, 'mcp-tool-guard.sh') });
+    const missing = runPolicy('mcp-tool-guard', denyInput, { decisionFd: true, policyPath: path.join(policyDir, 'mcp-tool-guard.sh') });
   assert.equal(missing.status, 0);
   assert.deepEqual(parseRecords(missing.records).map(({ outcome, code }) => [outcome, code]), [
     ['allow', 'allow'], ['error', 'mcp-policy-missing'],
   ]);
 });
 
-test('v1 policy verdicts match v0 verdicts for every legacy fixture input', () => {
+test('v1 policy verdicts match develop native results for every legacy fixture input', () => {
   const gateStatuses = new Set();
   for (const row of loadCorpus('pre-implementation-gate')) {
     let native;
@@ -171,7 +181,7 @@ test('v1 policy verdicts match v0 verdicts for every legacy fixture input', () =
         fs.writeFileSync(path.join(featureDir, 'plan.md'), '# Plan\n');
       }
       const env = { DOFLOW_PROJECT_DIR: repo.root, HOME: scratch.path(`gate-v1-home-${slug}`) };
-      const legacyResult = runPolicy('pre-implementation-gate', row.input, { cwd: repo.root, env });
+      const legacyResult = runBaseline('pre-implementation-gate', row.input, { cwd: repo.root, env });
       const envelope = encodeEnvelope('claude', event, 'pre-implementation-gate', row.input);
       const envelopeResult = runPolicy('pre-implementation-gate', envelope, { cwd: repo.root, env });
       assert.equal(envelopeResult.status, legacyResult.status, `${slug} exit`);
@@ -192,7 +202,7 @@ test('v1 policy verdicts match v0 verdicts for every legacy fixture input', () =
       if (!native || Array.isArray(native) || typeof native !== 'object') continue;
       const eventName = native.hook_event_name || fallbackEvent;
       const envelope = encodeEnvelope(harness, eventName, policy, row.input);
-      const legacyResult = runPolicy(policy, row.input);
+      const legacyResult = runBaseline(policy, row.input);
       const envelopeResult = runPolicy(policy, envelope);
       assert.equal(envelopeResult.status, legacyResult.status, row.name);
       assert.equal(envelopeResult.stdout, legacyResult.stdout, row.name);
@@ -228,11 +238,13 @@ test('v1 patch input uses the same path parser and gate decision as native apply
   fs.writeFileSync(path.join(repo.root, 'agent-docs/doflow/patch-no-plan/requirement.md'), 'started\n');
   const patch = '*** Begin Patch\n*** Update File: src/a.js\n@@\n-a\n+b\n*** End Patch';
   const env = { DOFLOW_PROJECT_DIR: repo.root, HOME: scratch.path('patch-home') };
-  const native = runPolicy('pre-implementation-gate', JSON.stringify({ tool_name: 'apply_patch', tool_input: { command: patch } }), { decisionFd: true, cwd: repo.root, env });
-  const v1 = runPolicy('pre-implementation-gate', JSON.stringify({ doflow_event: { version: 1, operation: 'edit', patch } }), { decisionFd: true, cwd: repo.root, env });
-  assert.equal(native.status, 2);
-  assert.equal(v1.status, native.status);
-  assert.equal(v1.stderr, native.stderr);
+  const native = { tool_name: 'apply_patch', tool_input: { command: patch } };
+  const baseline = runBaseline('pre-implementation-gate', JSON.stringify(native), { cwd: repo.root, env });
+  const input = encodeEnvelope('codex', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(native));
+  const v1 = runPolicy('pre-implementation-gate', input, { decisionFd: true, cwd: repo.root, env });
+  assert.equal(baseline.status, 2);
+  assert.equal(v1.status, baseline.status);
+  assert.equal(v1.stderr, baseline.stderr);
   assert.deepEqual(parseRecords(v1.records).map(({ outcome, code }) => [outcome, code]), [
     ['allow', 'allow'], ['deny', 'missing-artifacts'],
   ]);
@@ -258,16 +270,19 @@ test('v1 policies use envelope fields and unsupported versions do not evaluate n
   }
 });
 
-test('v1 edit without a target is diagnosed; v0 remains silent', () => {
+test('v1 edit without a target is diagnosed; missing envelope takes the out-of-step rule', () => {
   const v1 = runPolicy('pre-implementation-gate', JSON.stringify({ doflow_event: { version: 1, operation: 'edit' } }), { decisionFd: true });
   assert.equal(v1.status, 0);
   assert.deepEqual(parseRecords(v1.records).map(({ outcome, code }) => [outcome, code]), [
     ['allow', 'allow'], ['unsupported', 'edit-without-target'],
   ]);
 
-  const v0 = runPolicy('pre-implementation-gate', JSON.stringify({ doflow_event: { operation: 'edit' } }), { decisionFd: true });
-  assert.equal(v0.status, 0);
-  assert.deepEqual(parseRecords(v0.records).map(({ outcome, code }) => [outcome, code]), [['allow', 'allow']]);
+  const missing = runPolicy('pre-implementation-gate', JSON.stringify({ doflow_event: { operation: 'edit' } }), { decisionFd: true, env: { DOFLOW_AGENT: 'claude' } });
+  assert.equal(missing.status, 2);
+  assert.equal(missing.stderr, '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t claude\n');
+  assert.deepEqual(parseRecords(missing.records).map(({ outcome, code }) => [outcome, code]), [
+    ['allow', 'allow'], ['deny', 'envelope-missing'],
+  ]);
 });
 
 test('all three policies remain safe when sourced under set -euo pipefail', () => {
@@ -302,7 +317,7 @@ test('jq missing records a fault and captures dependency-missing:jq while keepin
   }
 });
 
-test('contract missing keeps 0fcd973 bytes and records contract-missing for every policy', () => {
+test('contract missing takes the out-of-step rule and records contract-missing for every blocking policy', () => {
   const cases = [
     ['pre-implementation-gate', 'native-read'],
     ['pre-bash-guard', 'native-safe-command'],
@@ -319,9 +334,9 @@ test('contract missing keeps 0fcd973 bytes and records contract-missing for ever
       policyPath: path.join(policyDir, `${policy}.sh`),
       env: { XDG_CONFIG_HOME: failureRoot, DOFLOW_FAILURE_CAPTURE: '' },
     });
-    assert.equal(result.status, row.status, `${policy} exit`);
-    assert.equal(result.stdout, row.stdout, `${policy} stdout`);
-    assert.equal(result.stderr, row.stderr, `${policy} stderr`);
+    assert.equal(result.status, 2, `${policy} exit`);
+    assert.equal(result.stdout, '', `${policy} stdout`);
+    assert.match(result.stderr, /^\[(pre-implementation-gate|pre-bash-guard|mcp-tool-guard)\] DoFlow hooks out of step; run: doflow update/);
     const events = JSON.parse(fs.readFileSync(path.join(failureRoot, 'doflow/failures/events.jsonl'), 'utf8').trim());
     assert.deepEqual([events.command, events.kind], [policy, 'contract-missing']);
   }

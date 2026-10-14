@@ -1,1 +1,1 @@
-{"tool_name":"Read","doflow_event":{"version":1,"harness":"claude","event":"PreToolUse","operation":"tool","tool":"Read"}}
+{"tool_name":"mcp__srv__list","session_id":"perf-test-session","cwd":".","doflow_event":{"version":1,"harness":"claude","event":"PreToolUse","operation":"mcp","tool":"mcp__srv__list","identity":{"session":"perf-test-session"}}}

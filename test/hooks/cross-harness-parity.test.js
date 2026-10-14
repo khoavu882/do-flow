@@ -257,7 +257,7 @@ test('NFR-003: blocking pairs agree across harnesses for the same canonical deny
   }
 });
 
-test('negative control: skipping the envelope merge in a temporary Claude bridge copy fails the edit-deny scenario', () => {
+test('negative control: skipping the envelope merge sends an out-of-step denial', () => {
   const row = fixtureFor('claude', 'pre-implementation-gate');
   const project = makeProject('negative-control', false);
   const mirror = prepareMirror('claude', 'negative-control');
@@ -267,7 +267,8 @@ test('negative control: skipping the envelope merge in a temporary Claude bridge
   assert.notEqual(sabotaged, original, 'the temporary bridge contains the envelope merge line');
   fs.writeFileSync(bridge, sabotaged);
   const result = executeShell('claude', row, project, mirror, 'negative-control');
-  assert.equal(result.denied, false, 'the v1 edit scenario no longer denies when the bridge drops its merged envelope');
+  // DEC-033: a bridge without a v1 envelope reaches the explicit out-of-step deny.
+  assert.equal(result.denied, true, 'a bridge that drops its v1 envelope is denied as out of step');
 });
 
 test('Stop, turn-end and session-end fixtures plus Pi tool_call leave task state untouched', async () => {
