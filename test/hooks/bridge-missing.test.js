@@ -69,7 +69,8 @@ test('every current front door renders its IC-036 fallback with the bridge remov
       input,
       encoding: 'utf8',
     });
-    assert.equal(result.error, undefined, `${row.harness}/${row.door} starts`);
+    // A removed bridge can exit before spawnSync finishes writing stdin; only EPIPE is expected.
+    assert.ok(result.error === undefined || result.error.code === 'EPIPE', `${row.harness}/${row.door} starts`);
     const reason = REASON(row.harness);
     if (row.render === 'claude-tool') {
       assert.equal(result.status, 0, `${row.harness}/${row.door} exit`);

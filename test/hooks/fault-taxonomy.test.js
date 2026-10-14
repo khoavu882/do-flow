@@ -231,7 +231,8 @@ test('installed front doors exercise every blocking policy and native Stop fault
   for (const [harness, hook, compatStatus] of stopDoors) {
     for (const profile of ['compat-1', 'strict-1']) {
       const result = runInstalledDoor(t, harness, hook, { hook_event_name: 'Stop' }, profile, '#!/bin/bash\nexit 1\n', 'stop-check');
-      const expected = profile === 'strict-1' ? 2 : compatStatus;
+      // DEC-039: Stop policy faults proceed silently under strict-1; a real deny still blocks.
+      const expected = compatStatus;
       assert.equal(result.status, expected, `${harness} Stop ${profile} native status`);
       assert.deepEqual(failureKinds(result), ['eval-error:exit-1']);
       if (harness === 'codex' && profile === 'compat-1') assert.equal(result.stdout, '{}\n');
@@ -334,8 +335,9 @@ test('Antigravity Stop native fault row distinguishes numeric exit from signal',
     return JSON.parse(result.stdout);
   };
   for (const profile of ['compat-1', 'strict-1']) {
-    assert.equal(call(profile, 'exit 1').effect, 'block', `numeric Stop exit blocks under ${profile}`);
-    assert.equal(call(profile, 'kill -TERM $$').effect, profile === 'strict-1' ? 'block' : 'proceed', `signal Stop effect under ${profile}`);
+    assert.equal(call(profile, 'exit 1').effect, profile === 'strict-1' ? 'proceed' : 'block', `numeric Stop fault effect under ${profile}`);
+    // DEC-039: Antigravity Stop faults proceed under both profiles.
+    assert.equal(call(profile, 'kill -TERM $$').effect, 'proceed', `signal Stop effect under ${profile}`);
   }
   const kindsFile = path.join(root, 'xdg-compat-1/doflow/failures/events.jsonl');
   const kinds = fs.readFileSync(kindsFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line).kind);
@@ -363,7 +365,8 @@ test('Antigravity runner drives each blocking policy through its installed runne
       });
       assert.equal(result.status, 0, result.stderr);
       const decision = JSON.parse(result.stdout);
-      assert.equal(decision.effect, 'block', `Antigravity ${policy} ${profile} fault blocks`);
+      // DEC-039: Antigravity stop-check faults proceed under strict-1.
+      assert.equal(decision.effect, policy === 'stop-check' && profile === 'strict-1' ? 'proceed' : 'block', `Antigravity ${policy} ${profile} fault effect`);
       assert.equal(decision.code, 'exit-1');
       fs.writeFileSync(file, fs.readFileSync(path.join(POLICY_SOURCE, `${policy}.sh`)));
     }
