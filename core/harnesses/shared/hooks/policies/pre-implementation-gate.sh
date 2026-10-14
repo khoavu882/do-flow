@@ -58,9 +58,29 @@
 
 set -uo pipefail
 
-command -v jq >/dev/null 2>&1 || exit 0          # no jq -> cannot evaluate -> allow
-
 INPUT=$(cat)
+if [ -f "$(dirname "$0")/contract.sh" ]; then
+  . "$(dirname "$0")/contract.sh"
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  doflow_read_envelope() { DF_ENV_CLASS=invalid; }
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate contract-missing ) >/dev/null 2>&1 || true
+fi
+doflow_decision_init pre-implementation-gate 1
+command -v jq >/dev/null 2>&1 || { doflow_decide error dependency-missing:jq; exit 0; }
+
+# Keep both envelope versions on the same patch parser so Codex apply_patch
+# paths cannot drift between the native and v1 inputs.
+parse_patch_paths() {
+  printf '%s\n' "$1" | sed -nE \
+    -e 's#^\*\*\* (Add|Update|Delete) File: (.+)$#\2#p' \
+    -e 's#^\+\+\+ (a/|b/)?(.+)$#\2#p' \
+    | sed '/^\/dev\/null$/d' | sort -u
+}
+
+DF_ENV_CLASS=invalid
+doflow_read_envelope || true
 
 # ── Normalized envelope (preferred; review R7) ────────────────────────────────
 # A host adapter that has already decoded its native event sends
@@ -71,13 +91,34 @@ INPUT=$(cat)
 # envelope retires its share of the union.
 ENVELOPE_ROOT=""
 ENVELOPE_TASK=""
-ENVELOPE_OP=$(printf '%s' "$INPUT" | jq -r '.doflow_event.operation // empty' 2>/dev/null)
-if [ -n "$ENVELOPE_OP" ]; then
+if [ "$DF_ENV_CLASS" = v1 ]; then
+  ENVELOPE_OP=$DF_ENV_OP
   [ "$ENVELOPE_OP" = "edit" ] || exit 0          # only edits are gated
-  FILES=$(printf '%s' "$INPUT" | jq -r '.doflow_event.paths[]? // empty' 2>/dev/null | sed '/^$/d' | sort -u)
-  [ -n "$FILES" ] || exit 0
-  ENVELOPE_ROOT=$(printf '%s' "$INPUT" | jq -r '.doflow_event.projectRoot // empty' 2>/dev/null)
-  ENVELOPE_TASK=$(printf '%s' "$INPUT" | jq -r '.doflow_event.taskId // empty' 2>/dev/null)
+  FILES=$DF_ENV_PATHS
+  ENVELOPE_ROOT=$DF_ENV_ROOT
+  ENVELOPE_TASK=$DF_ENV_TASK
+  if [ -z "$FILES" ] && [ -z "$DF_ENV_PATCH" ]; then
+    doflow_decide unsupported edit-without-target
+    ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate edit-without-target ) >/dev/null 2>&1 || true
+    exit 0
+  fi
+  if [ -z "$FILES" ] && [ -n "$DF_ENV_PATCH" ]; then
+    FILES=$(parse_patch_paths "$DF_ENV_PATCH")
+    [ -n "$FILES" ] || exit 0
+  fi
+elif [ "$DF_ENV_CLASS" = unsupported ]; then
+  doflow_decide unsupported envelope-version
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate unsupported:envelope-version ) >/dev/null 2>&1 || true
+  exit 0
+else
+  # v0 and invalid input retain the native-field union decoder.
+  ENVELOPE_OP=$(printf '%s' "$INPUT" | jq -r '.doflow_event.operation // empty' 2>/dev/null)
+  if [ -n "$ENVELOPE_OP" ]; then
+    [ "$ENVELOPE_OP" = "edit" ] || exit 0          # only edits are gated
+    FILES=$(printf '%s' "$INPUT" | jq -r '.doflow_event.paths[]? // empty' 2>/dev/null | sed '/^$/d' | sort -u)
+    [ -n "$FILES" ] || exit 0
+    ENVELOPE_ROOT=$(printf '%s' "$INPUT" | jq -r '.doflow_event.projectRoot // empty' 2>/dev/null)
+    ENVELOPE_TASK=$(printf '%s' "$INPUT" | jq -r '.doflow_event.taskId // empty' 2>/dev/null)
 else
 
 # ── Tool name (union of every known field name across harnesses; LEGACY decoder) ──
@@ -109,10 +150,7 @@ if [ "$is_patch_tool" = true ]; then
   # alternation inside the pattern — a portability bug in the source script
   # this reconciliation fixes rather than ports, since it silently broke
   # apply_patch parsing under this exact invocation on any non-GNU-sed host.
-  FILES=$(printf '%s\n' "$PATCH" | sed -nE \
-    -e 's#^\*\*\* (Add|Update|Delete) File: (.+)$#\2#p' \
-    -e 's#^\+\+\+ (a/|b/)?(.+)$#\2#p' \
-    | sed '/^\/dev\/null$/d' | sort -u)
+  FILES=$(parse_patch_paths "$PATCH")
   [ -n "$FILES" ] || exit 0
 else
   file=""
@@ -124,7 +162,8 @@ else
   FILES="$file"
 fi
 
-fi  # end legacy union decoder
+  fi  # end legacy union decoder
+fi
 
 # ── Resolve repo root ───────────────────────────────────────────────────────
 # DOFLOW_PROJECT_DIR (explicit) beats the envelope's projectRoot beats git discovery.
@@ -384,6 +423,7 @@ PLANNED=false
 # plan.md all exist. Classes that cannot be a feature skip this check.
 if [ "$exempt" = false ] && [ -n "$FEATURE_ROOT" ] && [ "$PLANNED" = false ]; then
   echo "[pre-implementation-gate] doflow gate: feature $feature_dir is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)" >&2
+  doflow_decide deny missing-artifacts
   exit 2
 fi
 
@@ -480,16 +520,19 @@ gate="doflow gate readiness-before-implementation: task '$task_id'"
 rest="Next: $next, then gather what it lists until it reports READY. Nothing was changed."
 if [ -z "$FOUND" ]; then
   printf "%s has no readiness record for the '%s' template. %s\n" "$gate" "$STAGE_TEMPLATE" "$rest" >&2
+  doflow_decide deny readiness-missing
   exit 2
 fi
 if [ "$record_state" != READY ]; then
   printf "%s was last evaluated %s at %s against the '%s' template, not READY. %s\n" \
     "$gate" "$record_state" "$record_at" "$STAGE_TEMPLATE" "$rest" >&2
+  doflow_decide deny readiness-not-ready
   exit 2
 fi
 if [ "$record_class" != "$STAGE_TEMPLATE" ]; then
   printf "%s has a READY record for the '%s' template, and this stage needs '%s'. %s\n" \
     "$gate" "$record_class" "$STAGE_TEMPLATE" "$rest" >&2
+  doflow_decide deny readiness-wrong-template
   exit 2
 fi
 

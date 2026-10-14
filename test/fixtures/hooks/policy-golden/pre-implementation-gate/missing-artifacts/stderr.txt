@@ -1,0 +1,1 @@
+[pre-implementation-gate] doflow gate: feature agent-docs/doflow/missing-plan is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)

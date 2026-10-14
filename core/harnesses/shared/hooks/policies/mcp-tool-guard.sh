@@ -34,15 +34,34 @@
 
 set -uo pipefail
 
-command -v jq >/dev/null 2>&1 || exit 0          # no jq -> cannot evaluate -> allow
-
 INPUT=$(cat)
+if [ -f "$(dirname "$0")/contract.sh" ]; then
+  . "$(dirname "$0")/contract.sh"
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  doflow_read_envelope() { DF_ENV_CLASS=invalid; }
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure mcp-tool-guard contract-missing ) >/dev/null 2>&1 || true
+fi
+doflow_decision_init mcp-tool-guard 1
+command -v jq >/dev/null 2>&1 || { doflow_decide error dependency-missing:jq; exit 0; }
+DF_ENV_CLASS=invalid
+doflow_read_envelope || true
 
 TOOL_NAME=""
-for field in '.tool_name' '.tool' '.toolName' '.name'; do
-  TOOL_NAME=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-  [ -n "$TOOL_NAME" ] && break
-done
+if [ "$DF_ENV_CLASS" = v1 ]; then
+  [ "$DF_ENV_OP" = mcp ] || exit 0
+  TOOL_NAME=$DF_ENV_TOOL
+elif [ "$DF_ENV_CLASS" = unsupported ]; then
+  doflow_decide unsupported envelope-version
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure mcp-tool-guard unsupported:envelope-version ) >/dev/null 2>&1 || true
+  exit 0
+else
+  for field in '.tool_name' '.tool' '.toolName' '.name'; do
+    TOOL_NAME=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
+    [ -n "$TOOL_NAME" ] && break
+  done
+fi
 
 # Fast exit for non-MCP tool events (also covers "tool name unresolved").
 # "mcp_" (single underscore) matches both Claude/Codex/Kiro's "mcp__" and
@@ -64,6 +83,7 @@ if [ ! -f "$POLICY_FILE" ]; then
   # The policy file ships with DoFlow, so a missing one means a broken install: record it on this
   # machine (feature 046, IC-018) and fail open exactly as before. Subshell, output discarded.
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure mcp-tool-guard policy-file-missing ) >/dev/null 2>&1 || true
+  doflow_decide error mcp-policy-missing
   exit 0
 fi
 
@@ -83,6 +103,7 @@ while IFS=$'\t' read -r pattern reason || [ -n "$pattern" ]; do
 
   if [ "$matched" = "true" ]; then
     echo "[mcp-tool-guard] ${reason:-MCP tool call blocked by mcp-tool-guard} (tool: $TOOL_NAME)" >&2
+    doflow_decide deny blocked-pattern
     exit 2
   fi
 done < "$POLICY_FILE"
