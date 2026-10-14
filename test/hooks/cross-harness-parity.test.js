@@ -40,6 +40,12 @@ function makeProject(name, artifacts) {
   write(path.join(feature, 'intention/requirement.md'), '# requirement\n');
   write(path.join(feature, 'plan.md'), '- [ ] G.3 [US1] parity — owner: test; files: test/hooks/cross-harness-parity.test.js\n');
   if (artifacts) write(path.join(feature, 'design/design.md'), '# design\n');
+  const piFeature = path.join(project.root, 'agent-docs/doflow/pi-gate');
+  fs.mkdirSync(piFeature, { recursive: true });
+  write(path.join(piFeature, 'intention/requirement.md'), '# requirement\n');
+  write(path.join(piFeature, 'plan.md'), '# plan\n');
+  if (artifacts) write(path.join(piFeature, 'design/design.md'), '# design\n');
+  write(path.join(project.root, '.doflow/state/parity-seed.json'), JSON.stringify({ name, retained: true }) + '\n');
   return project.root;
 }
 
@@ -66,10 +72,19 @@ function call(command, args, options) {
 
 function fixtureFor(harness, policy, wantBlock = true) {
   if (harness === 'pi') {
-    const name = ({ 'pre-implementation-gate': 'edit-deny', 'pre-bash-guard': 'bash-deny', 'mcp-tool-guard': 'nested-mcp-deny' })[policy];
+    const name = ({
+      'pre-implementation-gate': wantBlock ? 'edit-deny' : 'edit-allow',
+      'pre-bash-guard': wantBlock ? 'bash-deny' : 'bash-allow',
+      'mcp-tool-guard': 'nested-mcp-deny',
+    })[policy];
     if (!name) return null;
     const filename = path.join(FIXTURES, 'pi/tool_call', `${name}.json`);
-    return { stem: 'tool_call', filename, fixture: JSON.parse(fs.readFileSync(filename, 'utf8')) };
+    const fixture = JSON.parse(fs.readFileSync(filename, 'utf8'));
+    if (policy === 'mcp-tool-guard' && !wantBlock) {
+      fixture.native.toolName = 'mcp__github__get_issue';
+      fixture.native.input = { issue_number: 1 };
+    }
+    return { stem: 'tool_call', filename, fixture };
   }
   const dir = path.join(FIXTURES, harness);
   for (const stem of fs.readdirSync(dir).sort()) {
@@ -79,8 +94,10 @@ function fixtureFor(harness, policy, wantBlock = true) {
       const filename = path.join(stemDir, name);
       const fixture = JSON.parse(fs.readFileSync(filename, 'utf8'));
       if (!fixture.native || !fixture.expect) continue;
-      const blocks = fixture.expect.decision?.effect === 'block' || fixture.expect.result?.block === true;
-      if (blocks === wantBlock) return { stem, filename, fixture };
+      const outcome = fixture.expect.decision?.outcome;
+      const blocks = outcome === 'deny' || fixture.expect.decision?.effect === 'block' || fixture.expect.result?.block === true;
+      const allows = outcome === 'allow';
+      if (wantBlock ? blocks : allows) return { stem, filename, fixture };
     }
   }
   return null;
@@ -107,6 +124,10 @@ function executeShell(harness, row, project, mirror, index) {
   if (row.fixture.fault === 'stop-exit-2' || row.fixture.fault === 'stop-exit-7') {
     write(path.join(mirror, '.doflow/shared/hooks/policies/stop-check.sh'), `#!/usr/bin/env bash\ncat >/dev/null\nexit ${row.fixture.fault === 'stop-exit-2' ? 2 : 7}\n`);
     fs.chmodSync(path.join(mirror, '.doflow/shared/hooks/policies/stop-check.sh'), 0o755);
+  }
+  if (row.stem === 'stop-check' && !native.transcript_path && !native.transcriptPath) {
+    native.transcript_path = path.join(scratch.dir, `transcript-${index}.jsonl`);
+    fs.writeFileSync(native.transcript_path, `${JSON.stringify({ role: 'assistant', content: 'Work is complete.' })}\n`);
   }
   if (harness === 'antigravity') {
     if (Array.isArray(native.workspacePaths)) native.workspacePaths = [project];
@@ -161,7 +182,20 @@ async function executePi(row, project, mirror, index) {
   const { default: register } = await import(moduleUrl);
   register({ on(name, callback) { assert.equal(name, 'tool_call'); handler = callback; } });
   const result = await handler(row.fixture.native, { cwd: project, sessionManager: { getSessionId: () => 'parity-session' } });
-  return { denied: result?.block === true, result };
+  return { denied: result?.block === true, result, native: row.fixture.native, trace: null };
+}
+
+function assertAllowed(harness, actual) {
+  assert.equal(actual.denied, false, `${harness}: canonical input is allowed (${JSON.stringify(actual.result)})`);
+  if (harness === 'pi') assert.equal(actual.result, undefined, 'Pi proceed render is undefined');
+  else {
+    assert.equal(actual.result.status, 0, `${harness}: allow exits 0`);
+    let response = {};
+    try { response = JSON.parse(actual.result.stdout || '{}'); } catch { /* empty native proceed output */ }
+    if (harness === 'antigravity') assert.equal(actual.result.stdout === '' || response.decision === 'allow', true, `${harness}: native proceed render`);
+    else if (harness === 'codex') assert.deepEqual(response, {}, 'Codex native proceed render is {}');
+    else assert.equal(actual.result.stdout, '', `${harness}: native proceed render is empty output`);
+  }
 }
 
 const blockingRows = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/lifecycle.json'), 'utf8'))
@@ -171,18 +205,21 @@ test('FR-004: each native bridge denies a design-less edit and allows it once al
   const harnesses = ['claude', 'codex', 'gemini', 'kiro', 'antigravity', 'pi'];
   const observed = [];
   for (const [index, harness] of harnesses.entries()) {
-    const row = fixtureFor(harness, 'pre-implementation-gate');
-    assert.ok(row, `${harness}: committed native edit fixture exists`);
+    const denyRow = fixtureFor(harness, 'pre-implementation-gate', true);
+    const allowRow = fixtureFor(harness, 'pre-implementation-gate', false);
+    assert.ok(denyRow, `${harness}: committed native edit deny fixture exists`);
+    assert.ok(allowRow, `${harness}: committed native edit allow fixture exists`);
     const outcomes = [];
     for (const artifacts of [false, true]) {
       const project = makeProject(`${harness}-${artifacts ? 'complete' : 'missing'}`, artifacts);
       const mirror = prepareMirror(harness, `${harness}-${artifacts ? 'complete' : 'missing'}`);
+      const row = artifacts ? allowRow : denyRow;
       const actual = harness === 'pi'
         ? await executePi(row, project, mirror, index + Number(artifacts))
         : executeShell(harness, row, project, mirror, index + Number(artifacts));
       outcomes.push(actual.denied);
       if (!artifacts) assert.equal(actual.denied, true, `${harness}: native edit is denied without design.md`);
-      else assert.equal(actual.denied, false, `${harness}: native edit is allowed with requirement, design and plan`);
+      else assertAllowed(harness, actual);
       observed.push({ harness, artifacts, denied: actual.denied });
     }
     assert.deepEqual(outcomes, [true, false], `${harness}: deny then allow`);
@@ -190,25 +227,34 @@ test('FR-004: each native bridge denies a design-less edit and allows it once al
   assert.equal(observed.length, 12);
 });
 
-test('NFR-003: each blocking coverage pair has a blocking native fixture and the same verdict for its policy', async () => {
+test('NFR-003: blocking pairs agree across harnesses for the same canonical deny and allow input/state', async () => {
   const pairs = new Map();
-  for (const row of blockingRows) pairs.set(`${row.harness}:${row.policy}`, row);
-  assert.ok(pairs.size > 0, 'blocking pairs are loaded from lifecycle.json');
-  const results = [];
-  let index = 0;
-  for (const pair of pairs.values()) {
-    const row = fixtureFor(pair.harness, pair.policy);
-    assert.ok(row, `${pair.harness}/${pair.policy}: committed blocking native fixture exists`);
-    const project = makeProject(`nfr-${index}`, false);
-    const mirror = prepareMirror(pair.harness, `nfr-${index}`);
-    let actual;
-    if (pair.harness === 'pi') actual = await executePi(row, project, mirror, index);
-    else actual = executeShell(pair.harness, row, project, mirror, index);
-    assert.equal(actual.denied, true, `${pair.harness}/${pair.policy}/${pair.event}: same canonical blocked verdict`);
-    results.push(`${pair.harness}/${pair.policy}`);
-    index += 1;
+  for (const row of blockingRows) {
+    if (!pairs.has(row.policy)) pairs.set(row.policy, new Map());
+    pairs.get(row.policy).set(row.harness, row);
   }
-  assert.deepEqual([...new Set(results)].sort(), [...pairs.keys()].map((key) => key.replace(':', '/')).sort(), 'every unique blocking harness/policy pair ran');
+  assert.ok(pairs.size > 0, 'blocking pairs are loaded from lifecycle.json');
+  let index = 0;
+  for (const [policy, harnessRows] of pairs) {
+    const harnesses = [...harnessRows.keys()].sort();
+    for (const wantBlock of [true, false]) {
+      const project = makeProject(`nfr-${policy}-${wantBlock ? 'deny' : 'allow'}`, wantBlock ? false : true);
+      const outcomes = [];
+      for (const harness of harnesses) {
+        const row = fixtureFor(harness, policy, wantBlock);
+        assert.ok(row, `${harness}/${policy}: committed native ${wantBlock ? 'deny' : 'allow'} fixture exists`);
+        const mirror = prepareMirror(harness, `nfr-${index}`);
+        const actual = harness === 'pi'
+          ? await executePi(row, project, mirror, index)
+          : executeShell(harness, row, project, mirror, index);
+        if (wantBlock) assert.equal(actual.denied, true, `${harness}/${policy}: native deny shape`);
+        else assertAllowed(harness, actual);
+        outcomes.push(actual.denied);
+        index += 1;
+      }
+      assert.equal(new Set(outcomes).size, 1, `${policy}: all blocking harnesses agree on ${wantBlock ? 'deny' : 'allow'} for equal project state`);
+    }
+  }
 });
 
 test('negative control: skipping the envelope merge in a temporary Claude bridge copy fails the edit-deny scenario', () => {
@@ -224,7 +270,7 @@ test('negative control: skipping the envelope merge in a temporary Claude bridge
   assert.equal(result.denied, false, 'the v1 edit scenario no longer denies when the bridge drops its merged envelope');
 });
 
-test('Stop, turn-end and session-end fixture events leave task state untouched', () => {
+test('Stop, turn-end and session-end fixtures plus Pi tool_call leave task state untouched', async () => {
   const relevant = [];
   for (const harness of ['claude', 'codex', 'gemini', 'kiro', 'antigravity']) {
     const root = path.join(FIXTURES, harness);
@@ -234,7 +280,7 @@ test('Stop, turn-end and session-end fixture events leave task state untouched',
       for (const name of fs.readdirSync(dir).filter((entry) => entry.endsWith('.json'))) {
         const fixture = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
         const event = fixture.native?.hook_event_name;
-        if (['Stop', 'SessionEnd', 'TurnEnd', 'SessionEnd'].includes(event) && fixture.expect?.taskStateUnchanged) {
+        if (['Stop', 'SessionEnd', 'TurnEnd'].includes(event) && fixture.expect?.taskStateUnchanged) {
           relevant.push({ harness, stem, name, fixture });
         }
       }
@@ -244,8 +290,16 @@ test('Stop, turn-end and session-end fixture events leave task state untouched',
   for (const [index, row] of relevant.entries()) {
     const project = makeProject(`end-event-${index}`, false);
     const before = stateSnapshot(project);
+    assert.ok(before?.length, `${row.harness}/${row.stem}/${row.name}: state snapshot starts non-empty`);
     const mirror = prepareMirror(row.harness, `end-event-${index}`);
     executeShell(row.harness, row, project, mirror, `end-event-${index}`);
     assert.deepEqual(stateSnapshot(project), before, `${row.harness}/${row.stem}/${row.name}: task state unchanged`);
   }
+  const piProject = makeProject('pi-state-unchanged', true);
+  const piBefore = stateSnapshot(piProject);
+  const piRow = fixtureFor('pi', 'pre-implementation-gate', false);
+  assert.ok(piRow, 'Pi has a committed allow tool_call fixture');
+  const piMirror = prepareMirror('pi', 'pi-state-unchanged');
+  await executePi(piRow, piProject, piMirror, 'pi-state-unchanged');
+  assert.deepEqual(stateSnapshot(piProject), piBefore, 'pi/tool_call/allow: state remains byte-identical');
 });
