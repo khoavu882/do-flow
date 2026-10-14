@@ -93,3 +93,17 @@ test('malformed combined regex falls through and a later valid pattern still den
   assert.equal(result.status, 2);
   assert.match(result.stderr, /Later valid rule/);
 });
+
+test('a backreference in a later live pattern bypasses the combined prefilter', () => {
+  const policySource = fs.readFileSync(path.join(policyDir, 'pre-bash-guard.sh'), 'utf8');
+  assert.ok(policySource.includes('&& [ "$_has_backreference" != true ]'));
+  const targetDir = scratch.path('backreference-regex');
+  fs.mkdirSync(targetDir, { recursive: true });
+  for (const file of ['pre-bash-guard.sh', 'contract.sh', 'capture-failure.sh']) {
+    fs.copyFileSync(path.join(policyDir, file), path.join(targetDir, file));
+  }
+  fs.writeFileSync(path.join(targetDir, 'blocked-patterns.conf'), 'never-match\tEarlier rule\n(foo)[[:space:]]+\\1\tBackref rule\n');
+  const result = run('echo foo foo', { policyPath: path.join(targetDir, 'pre-bash-guard.sh') });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Backref rule/);
+});

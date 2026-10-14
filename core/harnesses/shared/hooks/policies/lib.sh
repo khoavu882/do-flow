@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # lib.sh — shared constants and helpers for the Canonical Policy Library
 #
-# Usage: source "${0%/*}/lib.sh"
+# Usage: source "<policy-dir>/lib.sh"
 #
 # All hooks must:
 #   1. source this file at the top
 #   2. call require_jq immediately after
 #   3. capture stdin once: INPUT=$(cat)
 #   4. use: json_field "$INPUT" ".field_name"
+
+case ${BASH_SOURCE[0]} in */*) _DOFLOW_LIB_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_LIB_DIR=. ;; esac
 #
 # Deployment:
 #   This file is installed by the doflow CLI and overwritten on update — do

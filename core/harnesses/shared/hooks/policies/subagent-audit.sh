@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # subagent-audit.sh — Canonical Policy Library: SubagentStart + SubagentStop hook
 # (pure observability, no deny path)
 #
@@ -18,9 +19,9 @@
 
 set -euo pipefail
 # shellcheck source=lib.sh
-source "${0%/*}/lib.sh"
+source "$_DOFLOW_POLDIR/lib.sh"
 INPUT=$(cat)
-POLICY_DIR=${0%/*}
+POLICY_DIR=$_DOFLOW_POLDIR
 if [ -f "$POLICY_DIR/contract.sh" ]; then
   # shellcheck source=contract.sh
   source "$POLICY_DIR/contract.sh"
@@ -48,7 +49,7 @@ if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
   [ -f "$POLICY_DIR/contract.sh" ] || code=contract-missing
   doflow_decide unsupported "$code"
   if [ -f "$POLICY_DIR/contract.sh" ]; then
-    ( . "${0%/*}/capture-failure.sh"; doflow_capture_failure subagent-audit "$code" ) >/dev/null 2>&1 || true
+    ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure subagent-audit "$code" ) >/dev/null 2>&1 || true
   fi
   exit 0
 fi

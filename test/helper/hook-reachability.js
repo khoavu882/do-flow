@@ -72,6 +72,12 @@ function dependencyTargets(root, file, files, text) {
   for (const match of text.matchAll(/\$\{0%\/\*\}\/([A-Za-z0-9_.-]+\.(?:sh|jq|js|conf))/g)) {
     addPath(match[1]);
   }
+  for (const match of text.matchAll(/\$_DOFLOW_POLDIR\/([A-Za-z0-9_.-]+\.(?:sh|jq|js|conf))/g)) {
+    addPath(match[1]);
+  }
+  for (const match of text.matchAll(/\$_DOFLOW_(BRIDGE|RESPOND)_DIR\/([A-Za-z0-9_.-]+\.(?:sh|jq|js|conf))/g)) {
+    add(`core/harnesses/shared/hooks/bridge/${match[2]}`);
+  }
   const shellDirs = new Map();
   for (const match of text.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)=\$\{0%\/\*\}/g)) {
     shellDirs.set(match[1], match[1].toLowerCase().includes('bridge') ? 'bridge' : 'policies');

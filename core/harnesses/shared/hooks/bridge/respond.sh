@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Native hook response renderers for the shared lifecycle bridge.
-BRIDGE_RESPOND_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
-. "$BRIDGE_RESPOND_DIR/../policies/deny-json.sh"
+case ${BASH_SOURCE[0]} in */*) _DOFLOW_RESPOND_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_RESPOND_DIR=. ;; esac
+. "$_DOFLOW_RESPOND_DIR/../policies/deny-json.sh"
 
 doflow_bridge_native_event_var() {
   DF_NE=$2

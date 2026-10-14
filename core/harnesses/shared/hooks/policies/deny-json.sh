@@ -8,7 +8,9 @@
 # the front door right there, before it ever reached the code below that emits
 # the deny JSON. Sourcing this file must never change the caller's shell options.
 #
-# Usage: source "${0%/*}/../../shared/hooks/policies/deny-json.sh"
+# Usage: source "<policy-dir>/deny-json.sh"
+
+case ${BASH_SOURCE[0]} in */*) _DOFLOW_DENY_JSON_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_DENY_JSON_DIR=. ;; esac
 
 # Escape a string as a JSON string body without external tools. Work bytewise so
 # every control byte is handled the same way regardless of the caller's locale.
