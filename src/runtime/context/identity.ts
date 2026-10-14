@@ -87,12 +87,13 @@ function readRole(raw: string | undefined): { role: Role; unknown: boolean } {
   return { role: 'worker', unknown: true };
 }
 
+/** DOFLOW_WORKTREE canonicalised when it names an absolute existing directory; else the payload cwd as given (cwdHash canonicalises for the store key). */
 function readWorktree(raw: string | undefined, cwd: string): string {
   if (raw && raw.startsWith('/')) {
     const dir = physicalDir(raw);
     if (dir !== null) return dir;
   }
-  return physicalDir(cwd) ?? cwd;
+  return cwd;
 }
 
 /**

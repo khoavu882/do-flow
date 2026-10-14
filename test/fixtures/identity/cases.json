@@ -204,9 +204,19 @@
       "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
     },
     {
-      "name": "payload cwd through a symlink is canonicalised",
+      "name": "payload cwd through a symlink is kept as given",
       "env": {}, "cwd": "$WT_LINK", "sessionId": "s-m",
-      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$WT", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$WT_LINK", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "worktree relative falls back to a symlinked payload cwd as given",
+      "env": { "DOFLOW_WORKTREE": "relative/dir" }, "cwd": "$WT_LINK", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$WT_LINK", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
+    },
+    {
+      "name": "lineage main explicit with run unset on a main session is default-main",
+      "env": { "DOFLOW_LINEAGE_ID": "main" }, "cwd": "$CWD", "sessionId": "s-m",
+      "expect": { "run": "local", "attempt": "", "lineage": "main", "role": "main", "worktree": "$CWD", "kind": "default-main", "unit": "s-m", "diagnostics": [] }
     },
     {
       "name": "launched worker with a worktree",
