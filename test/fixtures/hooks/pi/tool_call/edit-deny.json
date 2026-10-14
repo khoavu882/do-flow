@@ -1,0 +1,6 @@
+{
+  "native": { "type": "tool_call", "toolName": "edit", "toolCallId": "edit-deny", "input": { "path": "src/a.js", "oldText": "a", "newText": "b" } },
+  "policy": "pre-implementation-gate",
+  "state": "no-design",
+  "expect": { "result": { "block": true }, "modelVisibleBytesMax": 120 }
+}

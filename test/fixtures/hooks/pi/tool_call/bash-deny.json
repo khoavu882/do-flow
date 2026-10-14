@@ -1,0 +1,6 @@
+{
+  "native": { "type": "tool_call", "toolName": "bash", "toolCallId": "bash-deny", "input": { "command": "rm -rf /" } },
+  "policy": "pre-bash-guard",
+  "state": "none",
+  "expect": { "result": { "block": true }, "modelVisibleBytesMax": 120 }
+}

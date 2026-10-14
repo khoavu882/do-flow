@@ -1,0 +1,6 @@
+{
+  "native": { "type": "tool_call", "toolName": "bash", "toolCallId": "bash-allow", "input": { "command": "printf ok" } },
+  "policy": "pre-bash-guard",
+  "state": "none",
+  "expect": { "result": null, "modelVisibleBytesMax": 0 }
+}

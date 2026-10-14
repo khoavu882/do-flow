@@ -1,0 +1,6 @@
+{
+  "native": { "type": "tool_call", "toolName": "mcp__github__list_issues", "toolCallId": "perf-mcp", "input": { "state": "open" } },
+  "policy": "mcp-tool-guard",
+  "state": "none",
+  "expect": { "result": null, "modelVisibleBytesMax": 0 }
+}

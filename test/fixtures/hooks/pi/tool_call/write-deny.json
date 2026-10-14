@@ -1,0 +1,6 @@
+{
+  "native": { "type": "tool_call", "toolName": "write", "toolCallId": "write-deny", "input": { "path": "src/new.js", "content": "x" } },
+  "policy": "pre-implementation-gate",
+  "state": "no-design",
+  "expect": { "result": { "block": true }, "modelVisibleBytesMax": 120 }
+}

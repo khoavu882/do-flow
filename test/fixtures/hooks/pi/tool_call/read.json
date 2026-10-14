@@ -1,0 +1,6 @@
+{
+  "native": { "type": "tool_call", "toolName": "read", "toolCallId": "read-1", "input": { "path": "README.md" } },
+  "policy": null,
+  "state": "none",
+  "expect": { "result": null, "spawn": false, "modelVisibleBytesMax": 0 }
+}

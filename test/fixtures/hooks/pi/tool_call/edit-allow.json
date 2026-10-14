@@ -1,0 +1,6 @@
+{
+  "native": { "type": "tool_call", "toolName": "edit", "toolCallId": "edit-allow", "input": { "path": "src/a.js", "oldText": "a", "newText": "b" } },
+  "policy": "pre-implementation-gate",
+  "state": "all-artifacts",
+  "expect": { "result": null, "modelVisibleBytesMax": 0 }
+}
