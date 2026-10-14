@@ -1,0 +1,33 @@
+{
+  "native": {
+    "hook_event_name": "SubagentStart",
+    "session_id": "c1-subagent-perf",
+    "agent_id": "a1",
+    "agent_type": "general"
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "claude",
+      "event": "SubagentStart",
+      "operation": "subagent-start",
+      "identity": {
+        "session": "c1-subagent-perf"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

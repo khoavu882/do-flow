@@ -1,0 +1,17 @@
+{
+  "native": {
+    "hook_event_name": "PermissionDenied"
+  },
+  "env": {},
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": null,
+    "envelope": null,
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

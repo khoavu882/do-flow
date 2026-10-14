@@ -1,0 +1,14 @@
+{
+  "native": { "hook_event_name": "Stop", "session_id": "c1-stop-exit-7", "stop_hook_active": true },
+  "state": "none",
+  "fault": "stop-exit-7",
+  "expect": {
+    "exit": 7,
+    "stdout": "",
+    "stderrIncludes": "[stop-check] DoFlow policy error; details: doflow-run failure list\n",
+    "decision": { "outcome": "error", "code": "exit-7", "effect": "proceed" },
+    "envelope": { "version": 1, "harness": "claude", "event": "Stop", "operation": "stop", "identity": { "session": "c1-stop-exit-7" } },
+    "failurePoint": "eval-error:exit-7",
+    "taskStateUnchanged": true
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "native": {
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "c1-prompt-perf",
+    "prompt": "hello"
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "claude",
+      "event": "UserPromptSubmit",
+      "operation": "prompt",
+      "identity": {
+        "session": "c1-prompt-perf"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}
