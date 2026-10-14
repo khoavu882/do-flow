@@ -1,0 +1,18 @@
+{
+  "native": {
+    "toolCall": { "name": "replace_file_content", "args": { "TargetFile": "src/a.js" } },
+    "workspacePaths": ["<project>"]
+  },
+  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "state": "all-artifacts",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "{\"decision\":\"allow\"}\n",
+    "stderrIncludes": null,
+    "decision": { "harness": "antigravity", "event": "PreToolUse", "policy": "pre-implementation-gate", "outcome": "allow", "effect": "proceed" },
+    "envelope": { "version": 1, "harness": "antigravity", "event": "PreToolUse", "operation": "edit", "tool": "replace_file_content", "paths": ["src/a.js"] },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

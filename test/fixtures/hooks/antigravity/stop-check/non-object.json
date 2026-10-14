@@ -1,0 +1,12 @@
+{
+  "native": null,
+  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "{\"decision\":\"allow\"}\n",
+    "stderrIncludes": "[stream-hook-runner error]",
+    "taskStateUnchanged": true
+  }
+}
