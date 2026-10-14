@@ -111,10 +111,14 @@ test('enforcement CLI returns exit 0 for an enforced synthetic registry answer',
 
 test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass-through', () => {
   const run = (args, executable = path.join(ROOT, 'bin/doflow.js')) => spawnSync(executable.endsWith('.js') ? process.execPath : executable, executable.endsWith('.js') ? [executable, ...args] : args, { cwd: ROOT, encoding: 'utf8' });
-  let result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json']);
-  assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).enforced, false);
+  let result = run(['enforcement', '--harness', 'opencode', '--policy', 'pre-implementation-gate', '--json']);
+  assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).class, 'unsupported');
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json']);
+  assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate']);
-  assert.equal(result.status, 1); assert.match(result.stdout, /claude pre-implementation-gate: not enforced/);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /claude pre-implementation-gate: enforced/);
+  assert.match(result.stdout, /does not cover: writes via shell commands/);
   result = run(['enforcement', '--harness', 'unknown', '--policy', 'pre-implementation-gate', '--json']);
   assert.equal(result.status, 2); assert.deepEqual(JSON.parse(result.stdout).error, 'unknown-harness');
   for (const harness of ['copilot', 'opencode']) {
@@ -135,5 +139,5 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
   assert.equal(result.status, 2); assert.match(result.stderr, /Unknown policy/);
   result = run(['enforcement', '--json']); assert.equal(result.status, 2); assert.equal(JSON.parse(result.stdout).error, 'usage');
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json'], path.join(ROOT, 'core/shared/scripts/doflow/bin/doflow-run'));
-  assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).enforced, false);
+  assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
 });

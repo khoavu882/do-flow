@@ -147,12 +147,12 @@ the other four documented events as the Different statuses recorded in the regis
 <!-- END GENERATED:hook-event-matrix -->
 
 <!-- BEGIN GENERATED:enforcement-matrix -->
-Schema 1; revision 1; sha256:93dd91b925199ff45cff798f792b0d565bfee97e0bff5cff44fcc1f9573f8fe3
+Schema 1; revision 1; sha256:29430a75aabcbb1f222d46135ef2772347eb7ea4fa21598694cbb86e4d695517
 | Policy | Harness | Native event | Profile | Class | Verification | Prerequisites | Does not cover |
 |---|---|---|---|---|---|---|---|
-| pre-implementation-gate | claude | PreToolUse | any | unknown | unverified |  | writes via shell commands |
-| pre-implementation-gate | codex | PreToolUse | any | unknown | unverified | hook-review | writes via shell commands |
-| pre-implementation-gate | gemini | BeforeTool | any | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | claude | PreToolUse | any | blocking | verified |  | writes via shell commands |
+| pre-implementation-gate | codex | PreToolUse | any | blocking | verified | hook-review | writes via shell commands |
+| pre-implementation-gate | gemini | BeforeTool | any | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | opencode | * | any | unsupported | unverified |  | writes via shell commands |
 | pre-implementation-gate | pi | * | no-extensions | unsupported | unverified |  | writes via shell commands |
 | pre-implementation-gate | pi | tool_call | cli-extension | unknown | unverified |  | writes via shell commands |
@@ -166,10 +166,10 @@ Schema 1; revision 1; sha256:93dd91b925199ff45cff798f792b0d565bfee97e0bff5cff44f
 | pre-implementation-gate | kiro | PreToolUse | cli-v3 | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | kiro | PreToolUse | cli-v3-agent | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | kiro | PreToolUse | ide | blocking | verified |  | writes via shell commands |
-| pre-implementation-gate | antigravity | PreToolUse | any | unknown | unverified |  | writes via shell commands |
-| pre-bash-guard | claude | PreToolUse | any | unknown | unverified |  |  |
-| pre-bash-guard | codex | PreToolUse | any | unknown | unverified | hook-review |  |
-| pre-bash-guard | gemini | BeforeTool | any | unknown | unverified |  |  |
+| pre-implementation-gate | antigravity | PreToolUse | any | blocking | verified |  | writes via shell commands |
+| pre-bash-guard | claude | PreToolUse | any | blocking | verified |  |  |
+| pre-bash-guard | codex | PreToolUse | any | blocking | verified | hook-review |  |
+| pre-bash-guard | gemini | BeforeTool | any | blocking | verified |  |  |
 | pre-bash-guard | opencode | * | any | unsupported | unverified |  |  |
 | pre-bash-guard | pi | * | no-extensions | unsupported | unverified |  |  |
 | pre-bash-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
@@ -197,9 +197,9 @@ Schema 1; revision 1; sha256:93dd91b925199ff45cff798f792b0d565bfee97e0bff5cff44f
 | session-context | copilot | UserPromptSubmit | any | unknown | unverified |  |  |
 | session-context | kiro | SessionStart | any | advisory | unverified |  |  |
 | session-context | antigravity | * | any | unsupported | unverified |  |  |
-| mcp-tool-guard | claude | PreToolUse | any | unknown | unverified |  |  |
-| mcp-tool-guard | codex | PreToolUse | any | unknown | unverified | hook-review |  |
-| mcp-tool-guard | gemini | BeforeTool | any | unknown | unverified |  |  |
+| mcp-tool-guard | claude | PreToolUse | any | blocking | verified |  |  |
+| mcp-tool-guard | codex | PreToolUse | any | blocking | verified | hook-review |  |
+| mcp-tool-guard | gemini | BeforeTool | any | blocking | verified |  |  |
 | mcp-tool-guard | opencode | * | any | unsupported | unverified |  |  |
 | mcp-tool-guard | pi | * | no-extensions | unsupported | unverified |  |  |
 | mcp-tool-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
@@ -216,8 +216,8 @@ Schema 1; revision 1; sha256:93dd91b925199ff45cff798f792b0d565bfee97e0bff5cff44f
 | mcp-tool-guard | kiro | PreToolUse | cli-v3-agent | blocking | verified |  |  |
 | mcp-tool-guard | kiro | PreToolUse | ide | blocking | verified |  |  |
 | mcp-tool-guard | antigravity | * | any | unsupported | unverified |  |  |
-| stop-check | claude | Stop | any | unknown | unverified |  |  |
-| stop-check | codex | Stop | any | unknown | unverified | hook-review |  |
+| stop-check | claude | Stop | any | blocking | verified |  |  |
+| stop-check | codex | Stop | any | blocking | verified | hook-review |  |
 | stop-check | gemini | * | any | unsupported | unverified |  |  |
 | stop-check | opencode | * | any | unsupported | unverified |  |  |
 | stop-check | pi | * | any | unsupported | unverified |  |  |
@@ -225,8 +225,9 @@ Schema 1; revision 1; sha256:93dd91b925199ff45cff798f792b0d565bfee97e0bff5cff44f
 | stop-check | copilot | Stop | any | unknown | unverified |  |  |
 | stop-check | kiro | stop | cli-2x-agent | observation | verified |  |  |
 | stop-check | kiro | Stop | cli-v3 | unknown | unverified |  |  |
+| stop-check | kiro | Stop | cli-v3-agent | unknown | unverified |  |  |
 | stop-check | kiro | Stop | ide | unknown | unverified |  |  |
-| stop-check | antigravity | Stop | any | unknown | unverified |  |  |
+| stop-check | antigravity | Stop | any | blocking | verified |  |  |
 <!-- END GENERATED:enforcement-matrix -->
 
 ## Native verification and prerequisites
