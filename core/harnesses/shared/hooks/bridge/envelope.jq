@@ -33,7 +33,10 @@ def decode_gemini:
   if .tool_name == null then {operation:event_operation($event),identity:session_identity(.session_id)}
   else {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.tool_input; ["file_path","path"]) else null end),command:(if $t.operation == "command" then string_value(.tool_input; ["command"]) else null end),identity:session_identity(.session_id)} end;
 def decode_kiro:
-  (canonical_tool(.tool_name // ""; "kiro")) as $t |
+  (if ((.tool_name // "") | type) == "string" and ((.tool_name // "") | startswith("mcp_")) then {operation:"mcp",tool:.tool_name}
+   elif ((.tool_name // "") | type) == "string" and ((.tool_name // "") | test("^@[^/]+/.+")) then
+     ((.tool_name | capture("^@(?<server>[^/]+)/(?<tool>.+)$")) as $m | {operation:"mcp",tool:("mcp__" + $m.server + "__" + $m.tool)})
+   else canonical_tool(.tool_name // ""; "kiro") end) as $t |
   if .tool_name == null then {operation:event_operation($event),identity:session_identity(.session_id)}
   else {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.tool_input; ["file_path"]) else null end),command:(if $t.operation == "command" then string_value(.tool_input; ["command"]) else null end),identity:session_identity(.session_id)} end;
 def decode_antigravity:

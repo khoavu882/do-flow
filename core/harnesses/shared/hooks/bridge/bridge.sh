@@ -135,6 +135,7 @@ EOF
       esac
     fi
   fi
+  if [ "$spawn_failed" -eq 1 ] && [ "$DF_BRIDGE_EFFECT" = proceed ]; then status=0; fi
   if [ "$DF_BRIDGE_EFFECT" = block ]; then
     doflow_render_response "$harness" "$event" deny "$reason" "$status"
     local render_status=$?
