@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Antigravity native decision renderer for the Cross-Harness Hook Runner (design.md C2's
+ * Antigravity native decision renderer for the Cross-Harness Hook Runner's
  * Decision Adapter seam, D2). The shared bridge owns native payload decoding.
  *
  * Antigravity's own native contracts — evidenced by core/harnesses/antigravity/hooks/*.sh (the

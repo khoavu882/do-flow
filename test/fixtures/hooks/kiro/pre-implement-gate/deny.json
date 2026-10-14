@@ -23,11 +23,8 @@
       "version": 1,
       "harness": "kiro",
       "event": "PreToolUse",
-      "operation": "edit",
-      "tool": "Write",
-      "paths": [
-        "src/a.js"
-      ],
+      "operation": "tool",
+      "tool": "write",
       "identity": {
         "session": "kiro-gate-deny"
       }
