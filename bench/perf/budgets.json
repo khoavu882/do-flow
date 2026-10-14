@@ -1542,27 +1542,6 @@
       "approvedOn": "2026-10-13"
     },
     {
-      "surfaceId": "hook.shared.pre-bash-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-13",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 15.83,
-      "p95Ms": 21.98,
-      "maxMs": 29.64,
-      "madMs": 0.56,
-      "controlP50Ms": 26.56,
-      "redos": 0,
-      "headroomMs": 10,
-      "ceilingMs": 32,
-      "status": "approved",
-      "approvedOn": "2026-10-13"
-    },
-    {
       "surfaceId": "hook.shared.user-prompt-submit",
       "platform": "darwin",
       "arch": "arm64",
@@ -2219,7 +2198,8 @@
       "redos": 0,
       "headroomMs": 10,
       "ceilingMs": 46,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.shared.user-prompt-submit",
@@ -2259,7 +2239,8 @@
       "redos": 0,
       "headroomMs": 10,
       "ceilingMs": 47,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.claude.permission-audit",
@@ -2359,7 +2340,8 @@
       "redos": 0,
       "headroomMs": 10.03,
       "ceilingMs": 51,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.claude.pre-compact",
@@ -2399,7 +2381,8 @@
       "redos": 0,
       "headroomMs": 20.16,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.claude.session-end",
@@ -2439,7 +2422,8 @@
       "redos": 0,
       "headroomMs": 32.24,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.claude.skill-config-audit",
@@ -2479,7 +2463,8 @@
       "redos": 0,
       "headroomMs": 13.96,
       "ceilingMs": 70,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.claude.subagent-audit",
@@ -2499,7 +2484,8 @@
       "redos": 0,
       "headroomMs": 19.09,
       "ceilingMs": 96,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.claude.user-prompt-submit",
@@ -2519,7 +2505,8 @@
       "redos": 0,
       "headroomMs": 21.74,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.codex.mcp-tool-guard",
@@ -2539,7 +2526,8 @@
       "redos": 0,
       "headroomMs": 10,
       "ceilingMs": 49,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.codex.post-edit-lint",
@@ -2579,7 +2567,8 @@
       "redos": 0,
       "headroomMs": 12.51,
       "ceilingMs": 63,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.codex.pre-compact",
@@ -2619,7 +2608,8 @@
       "redos": 0,
       "headroomMs": 22.72,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.codex.session-end",
@@ -2659,7 +2649,8 @@
       "redos": 0,
       "headroomMs": 25.39,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.codex.stop-check",
@@ -2679,7 +2670,8 @@
       "redos": 0,
       "headroomMs": 21.14,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.codex.subagent-audit",
@@ -2699,7 +2691,8 @@
       "redos": 0,
       "headroomMs": 17.88,
       "ceilingMs": 90,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.codex.user-prompt-submit",
@@ -2719,7 +2712,8 @@
       "redos": 0,
       "headroomMs": 16.62,
       "ceilingMs": 84,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.gemini.mcp-tool-guard",
@@ -2779,7 +2773,8 @@
       "redos": 0,
       "headroomMs": 14.32,
       "ceilingMs": 72,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.gemini.pre-compact",
@@ -2819,7 +2814,8 @@
       "redos": 0,
       "headroomMs": 25.07,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.gemini.session-end",
@@ -2859,7 +2855,8 @@
       "redos": 0,
       "headroomMs": 28.13,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.mcp-tool-guard",
@@ -2879,7 +2876,8 @@
       "redos": 0,
       "headroomMs": 12.3,
       "ceilingMs": 62,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.mcp-tool-guard.agent-config",
@@ -2899,7 +2897,8 @@
       "redos": 0,
       "headroomMs": 18.61,
       "ceilingMs": 94,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.pre-bash-guard",
@@ -2919,7 +2918,8 @@
       "redos": 0,
       "headroomMs": 16.55,
       "ceilingMs": 83,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.pre-bash-guard.agent-config",
@@ -2939,7 +2939,8 @@
       "redos": 0,
       "headroomMs": 16.68,
       "ceilingMs": 84,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.pre-implement-gate",
@@ -2959,7 +2960,8 @@
       "redos": 0,
       "headroomMs": 30.67,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.pre-implement-gate.agent-config",
@@ -2979,7 +2981,8 @@
       "redos": 0,
       "headroomMs": 24.56,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.session-start",
@@ -2999,7 +3002,8 @@
       "redos": 0,
       "headroomMs": 36.4,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.session-start.agent-config",
@@ -3019,7 +3023,8 @@
       "redos": 0,
       "headroomMs": 38.62,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.stop-check",
@@ -3039,7 +3044,8 @@
       "redos": 0,
       "headroomMs": 24.24,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.kiro.stop-check.agent-config",
@@ -3059,7 +3065,8 @@
       "redos": 0,
       "headroomMs": 28.71,
       "ceilingMs": 100,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.antigravity.pre-implementation-gate",
@@ -3199,7 +3206,8 @@
       "redos": 0,
       "headroomMs": 10,
       "ceilingMs": 24,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.shared.pre-implementation-gate",
@@ -3259,7 +3267,8 @@
       "redos": 0,
       "headroomMs": 11.42,
       "ceilingMs": 58,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.shared.subagent-audit",
@@ -3279,7 +3288,8 @@
       "redos": 0,
       "headroomMs": 10,
       "ceilingMs": 44,
-      "status": "proposed"
+      "status": "approved",
+      "approvedOn": "2026-10-14"
     }
   ],
   "startupContext": [
