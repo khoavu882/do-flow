@@ -38,10 +38,13 @@ function planPiHooks({ scope, scopeRoot, assets = [], ledger, context = {}, adop
   if (scope !== 'user' && scope !== 'global' && scope !== 'project') return { changes: [], conflicts: [], notices: [] };
   const asset = assets.find((row: any) => row.id === ASSET_ID);
   if (!asset) return { changes: [], conflicts: [], notices: [] };
-  const target = targetPath(scopeRoot, env, scope);
+  const computedTarget = targetPath(scopeRoot, env, scope);
   const removing = context.operation === 'remove';
-  const owned = (ledger?.resources || []).find((row: any) => row.harness === 'pi' && row.assetId === ASSET_ID
-    && row.ownershipIdentity === OWNERSHIP && row.target === target);
+  const ownedRows = (ledger?.resources || []).filter((row: any) => row.harness === 'pi' && row.assetId === ASSET_ID
+    && row.ownershipIdentity === OWNERSHIP);
+  const exactOwned = ownedRows.find((row: any) => row.target === computedTarget);
+  const owned = exactOwned || (removing && ownedRows.length === 1 ? ownedRows[0] : undefined);
+  const target = removing && owned ? owned.target : computedTarget;
   const exists = fsImpl.existsSync(target);
   const notices: string[] = [];
   if (removing) {

@@ -128,9 +128,12 @@ function bridgeCall(policy, payload, ctx) {
 export default function (pi) {
   pi.on('tool_call', async (event, ctx) => {
     let policy = 'unknown';
+    let profile = process.env.DOFLOW_FAULT_PROFILE || 'compat-1';
     try {
       policy = route(event.toolName);
       if (!policy) return undefined;
+      profile = process.env.DOFLOW_FAULT_PROFILE || 'compat-1';
+      if (profile !== 'compat-1' && profile !== 'strict-1') captureFailure(policy, 'fault-profile-unknown');
       if (!existsSync(BRIDGE)) {
         captureFailure(policy, 'bridge-missing');
         return { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' };
@@ -142,14 +145,14 @@ export default function (pi) {
         parentToolCallId: event.parentToolCallId,
         input: event.input,
         cwd: ctx.cwd,
-        sessionId: ctx.sessionManager.getSessionId(),
+        sessionId: ctx.sessionManager?.getSessionId?.() ?? null,
       });
       if (Buffer.byteLength(payload) > LIMIT) throw Object.assign(new Error('bridge input exceeded limit'), { failurePoint: 'bridge-input-limit' });
       return await bridgeCall(policy, payload, ctx);
     } catch (error) {
       const point = error?.failurePoint || 'bridge-spawn';
       captureFailure(policy, point === 'bridge-timeout' || point === 'bridge-missing' ? point : 'bridge-spawn');
-      if ((process.env.DOFLOW_FAULT_PROFILE || 'compat-1') === 'strict-1') return { block: true, reason: ERROR_REASON(policy) };
+      if (profile === 'strict-1') return { block: true, reason: ERROR_REASON(policy) };
       return undefined;
     }
   });
