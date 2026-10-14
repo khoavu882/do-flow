@@ -139,10 +139,13 @@ function runFixture({ stem, filename, fixture }, index) {
     assert.equal(typeof response.reason, 'string', `${label}: Gemini deny reason`);
     assert.equal('hookSpecificOutput' in response, false, `${label}: deny is not nested in Claude shape`);
   }
-  if (fixture.fault === 'crash-exit-1') {
+  if (fixture.fault === 'crash-exit-1' && fixture.expect.decision.effect === 'block') {
     const response = JSON.parse(result.stdout);
     assert.equal(response.reason, `[${policy}] DoFlow policy error; details: doflow-run failure list`, `${label}: fixed error reason`);
     assert.equal(result.stdout.includes('P'.repeat(200)), false, `${label}: private policy stderr is not exposed`);
+  } else if (fixture.fault === 'crash-exit-1') {
+    assert.equal(result.stdout, '', `${label}: advisory fault is silent`);
+    assert.equal(result.stderr.includes('P'.repeat(200)), false, `${label}: private policy stderr is not exposed`);
   }
 }
 
