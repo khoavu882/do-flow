@@ -127,7 +127,7 @@ function pathWithoutJq(t) {
   return bin;
 }
 
-test('IC-011 fault taxonomy follows both profiles on all six bridge identities', (t) => {
+test('IC-011 fault taxonomy follows both profiles on all six bridge identities', async (t) => {
   const cases = [
     ['crash exit 1', 'crash-exit-1', 'eval-error:exit-1'],
     ['exit 127', 'exit-127', 'eval-error:exit-127'],
@@ -141,7 +141,7 @@ test('IC-011 fault taxonomy follows both profiles on all six bridge identities',
   for (const [harness, event, policy] of bridgeRows) {
     for (const profile of ['compat-1', 'strict-1']) {
       for (const [label, fault, point] of cases) {
-        t.test(`${harness} ${profile}: ${label}`, (subtest) => {
+        await t.test(`${harness} ${profile}: ${label}`, (subtest) => {
           const root = bridgeTree(subtest);
           if (fault === 'missing-policy') fs.unlinkSync(path.join(root, 'policies', `${policy}.sh`));
           else installPolicy(root, policy, faultPolicy(fault, policy, root));
@@ -168,7 +168,7 @@ test('IC-011 fault taxonomy follows both profiles on all six bridge identities',
   }
 });
 
-test('installed shell front doors apply IC-011 to real bridge faults', (t) => {
+test('installed shell front doors apply IC-011 to real bridge faults', async (t) => {
   const faultCases = [
     ['crash exit 1', '#!/bin/bash\nexit 1\n', 'block'],
     ['exit 127', '#!/bin/bash\nexit 127\n', 'block'],
@@ -178,7 +178,7 @@ test('installed shell front doors apply IC-011 to real bridge faults', (t) => {
   for (const [harness, hook, input] of shellDoors) {
     for (const profile of ['compat-1', 'strict-1']) {
       for (const [label, body, compatEffect] of faultCases) {
-        t.test(`${harness} installed door ${profile}: ${label}`, (st) => {
+        await t.test(`${harness} installed door ${profile}: ${label}`, (st) => {
           const result = runInstalledDoor(st, harness, hook, input, profile, body);
           const shouldBlock = (profile === 'strict-1') || compatEffect === 'block';
           const kiroPassThrough = harness === 'kiro' && profile === 'compat-1' && body && body !== '#!/bin/bash\nif then\n';
