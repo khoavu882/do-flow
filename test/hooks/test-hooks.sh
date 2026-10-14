@@ -452,7 +452,7 @@ cp "$POLICY_DIR/contract.sh" "$FLOOR_DIR/contract.sh"
 
 # policy_verdict <script> <command> -> prints "deny: <reason>" or "allow"
 policy_verdict() {
-  local script="$1" command="$2" payload err code
+  local script="$1" command="$2" payload err code=0
   payload=$(jq -n --arg cmd "$command" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
   payload=$(printf '%s\n' "$payload" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-bash-guard -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq")
   err=$(printf '%s' "$payload" | bash "$script" 2>&1 >/dev/null) || code=$?
