@@ -449,6 +449,7 @@ POLICY_DIR="$REPO_ROOT/core/harnesses/shared/hooks/policies"
 FLOOR_DIR=$(mktemp -d)
 cp "$POLICY_DIR/pre-bash-guard.sh" "$FLOOR_DIR/pre-bash-guard.sh"
 cp "$POLICY_DIR/contract.sh" "$FLOOR_DIR/contract.sh"
+cp "$POLICY_DIR/contract.sh" "$FLOOR_DIR/contract.sh"
 
 # policy_verdict <script> <command> -> prints "deny: <reason>" or "allow"
 policy_verdict() {

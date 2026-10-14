@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
+const { loadCorpus } = require('../helper/hook-fixtures');
 
 const CONTRACT = path.resolve(__dirname, '..', '..', 'core/harnesses/shared/hooks/policies/contract.sh');
 const BASH = '/bin/bash';
@@ -93,7 +94,7 @@ describe('policy contract decision records', () => {
   });
 
   test('empty and non-object input classify as invalid', { skip: !HAS_JQ && 'jq is not installed' }, () => {
-    for (const input of ['', '[]', 'null']) {
+    for (const input of ['', '[]', 'null', '{"doflow_event":"x"}']) {
       const r = spawnSync(BASH, ['-c', `. '${CONTRACT}'; INPUT=$(cat); doflow_read_envelope; printf '%s' "$DF_ENV_CLASS"`], {
         input, encoding: 'utf8',
       });
@@ -121,5 +122,36 @@ describe('policy contract envelope classes', { skip: !HAS_JQ && 'jq is not insta
       assert.equal(r.status, 0, r.stderr);
       assert.equal(r.stdout, expected);
     });
+  }
+});
+
+test('closed decision fd keeps all seven canonical policies byte-identical to 0fcd973, including stop-check deny', (t) => {
+  const dir = tempDir(t, 'doflow-closed-fd-baseline-');
+  const archive = spawnSync('git', ['archive', '0fcd973', 'core/harnesses'], { cwd: path.resolve(__dirname, '../..') });
+  assert.equal(archive.status, 0, archive.stderr.toString());
+  const extracted = spawnSync('tar', ['-x', '-C', dir], { input: archive.stdout });
+  assert.equal(extracted.status, 0, extracted.stderr.toString());
+  const policies = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
+  const run = (root, policy, input) => {
+    const policyDir = path.join(root, 'core/harnesses/shared/hooks/policies');
+    const result = spawnSync(BASH, [path.join(policyDir, `${policy}.sh`)], {
+      cwd: dir,
+      input,
+      encoding: 'utf8',
+      env: { ...process.env, HOME: path.join(dir, 'home'), XDG_CONFIG_HOME: path.join(dir, 'xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_DECISION_FD: '3', DOFLOW_PROJECT_DIR: dir, DOFLOW_AGENT: '' },
+    });
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+  };
+  const currentRoot = path.resolve(__dirname, '../..');
+  for (const policy of policies) {
+    const inputs = policy === 'pre-implementation-gate' ? loadCorpus(policy).map((row) => [row.name, row.input])
+      : policy === 'pre-bash-guard' ? loadCorpus(policy).map((row) => [row.name, row.input])
+        : policy === 'mcp-tool-guard' ? loadCorpus(policy).map((row) => [row.name, row.input])
+          : [[`${policy}-native-input`, policy === 'stop-check' ? JSON.stringify({ last_assistant_message: 'TODO: finish this' }) : '{}']];
+    for (const [name, input] of inputs) {
+      const baseline = run(dir, policy, input);
+      const actual = run(currentRoot, policy, input);
+      assert.deepEqual(actual, baseline, `${policy}/${name} with fd 3 closed`);
+    }
   }
 });

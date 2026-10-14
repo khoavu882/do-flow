@@ -70,6 +70,15 @@ fi
 doflow_decision_init pre-implementation-gate 1
 command -v jq >/dev/null 2>&1 || { doflow_decide error dependency-missing:jq; exit 0; }
 
+# Keep both envelope versions on the same patch parser so Codex apply_patch
+# paths cannot drift between the native and v1 inputs.
+parse_patch_paths() {
+  printf '%s\n' "$1" | sed -nE \
+    -e 's#^\*\*\* (Add|Update|Delete) File: (.+)$#\2#p' \
+    -e 's#^\+\+\+ (a/|b/)?(.+)$#\2#p' \
+    | sed '/^\/dev\/null$/d' | sort -u
+}
+
 DF_ENV_CLASS=invalid
 doflow_read_envelope || true
 
@@ -94,10 +103,7 @@ if [ "$DF_ENV_CLASS" = v1 ]; then
     exit 0
   fi
   if [ -z "$FILES" ] && [ -n "$DF_ENV_PATCH" ]; then
-    FILES=$(printf '%s\n' "$DF_ENV_PATCH" | sed -nE \
-      -e 's#^\*\*\* (Add|Update|Delete) File: (.+)$#\2#p' \
-      -e 's#^\+\+\+ (a/|b/)?(.+)$#\2#p' \
-      | sed '/^\/dev\/null$/d' | sort -u)
+    FILES=$(parse_patch_paths "$DF_ENV_PATCH")
     [ -n "$FILES" ] || exit 0
   fi
 elif [ "$DF_ENV_CLASS" = unsupported ]; then
@@ -144,10 +150,7 @@ if [ "$is_patch_tool" = true ]; then
   # alternation inside the pattern — a portability bug in the source script
   # this reconciliation fixes rather than ports, since it silently broke
   # apply_patch parsing under this exact invocation on any non-GNU-sed host.
-  FILES=$(printf '%s\n' "$PATCH" | sed -nE \
-    -e 's#^\*\*\* (Add|Update|Delete) File: (.+)$#\2#p' \
-    -e 's#^\+\+\+ (a/|b/)?(.+)$#\2#p' \
-    | sed '/^\/dev\/null$/d' | sort -u)
+  FILES=$(parse_patch_paths "$PATCH")
   [ -n "$FILES" ] || exit 0
 else
   file=""

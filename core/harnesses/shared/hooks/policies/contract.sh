@@ -24,8 +24,10 @@ doflow_decide() {
   esac
   case "$fd" in
     3|4|5|6|7|8|9)
-      printf '\036{"v":1,"policy":"%s","policyVersion":%s,"outcome":"%s","code":"%s"}\n' \
-        "${DF_POLICY:-}" "${DF_POLICY_VERSION:-0}" "$outcome" "$code" >&"$fd"
+      # A caller may set the descriptor name without passing an open fd. Keep
+      # that broken handoff silent and harmless, including under `set -e`.
+      { printf '\036{"v":1,"policy":"%s","policyVersion":%s,"outcome":"%s","code":"%s"}\n' \
+        "${DF_POLICY:-}" "${DF_POLICY_VERSION:-0}" "$outcome" "$code" >&"$fd"; } 2>/dev/null || :
       ;;
   esac
 }
@@ -49,7 +51,8 @@ doflow_read_envelope() {
     (.[0]) as $root |
     ($root | if type == "object" then . else {} end) as $object |
     ($object.doflow_event // {}) as $event |
-    def field($key): ($event[$key] // "") | if type == "string" then . else "" end;
+    ($event | if type == "object" then . else {} end) as $fields |
+    def field($key): ($fields[$key] // "") | if type == "string" then . else "" end;
     def shellvar($name; $value): ($name + "=" + ($value | @sh));
     (if ($root | type) != "object" or (($event | type) != "object") then "invalid"
      elif ($event | has("version") | not) then "v0"
@@ -60,7 +63,7 @@ doflow_read_envelope() {
      shellvar("DF_ENV_EVENT"; field("event")),
      shellvar("DF_ENV_OP"; field("operation")),
      shellvar("DF_ENV_TOOL"; field("tool")),
-     shellvar("DF_ENV_PATHS"; ([$event.paths[]? | select(type == "string")] | join("\n"))),
+     shellvar("DF_ENV_PATHS"; ([$fields.paths[]? | select(type == "string")] | join("\n"))),
      shellvar("DF_ENV_COMMAND"; field("command")),
      shellvar("DF_ENV_PATCH"; field("patch")),
      shellvar("DF_ENV_ROOT"; field("projectRoot")),
