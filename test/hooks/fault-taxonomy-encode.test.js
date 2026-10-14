@@ -112,7 +112,8 @@ test('envelope-encode is a bridge fault under both profiles on all six bridges',
         const decision = JSON.parse(result.stdout.trim());
         assert.equal(decision.code, 'envelope-encode', `${harness}/${policy}/${profile} point`);
         assert.equal(decision.faultProfile, profile, `${harness}/${policy}/${profile} profile`);
-        assert.equal(decision.effect, profile === 'strict-1' && BLOCKING.has(policy) ? 'block' : 'proceed',
+        // DEC-039: strict-1 faults never block Stop; a real Stop deny still blocks.
+        assert.equal(decision.effect, profile === 'strict-1' && BLOCKING.has(policy) && policy !== 'stop-check' ? 'block' : 'proceed',
           `${harness}/${policy}/${profile} IC-011 effect`);
         const events = path.join(result.xdg, 'doflow/failures/events.jsonl');
         assert.match(fs.readFileSync(events, 'utf8'), /"kind":"envelope-encode"/, `${harness}/${policy}/${profile} capture`);

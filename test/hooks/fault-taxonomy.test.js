@@ -459,7 +459,10 @@ test('real Pi extension blocks a missing bridge as an out-of-step install', asyn
     });
     assert.deepEqual(result, { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' }, `Pi ${profile} missing bridge blocks with the out-of-step response`);
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      if (fs.existsSync(missingLog) && fs.readFileSync(missingLog, 'utf8').trim().split('\n').length >= index + 1) break;
+      if (fs.existsSync(missingLog)) {
+        const contents = fs.readFileSync(missingLog, 'utf8');
+        if (contents.endsWith('\n') && contents.trim().split('\n').length >= index + 1) break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
