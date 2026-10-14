@@ -99,7 +99,7 @@ doflow_bridge() {
     stderr_file="$(mktemp "${TMPDIR:-/tmp}/doflow-bridge-stderr.XXXXXX" 2>/dev/null)" || stderr_file=""
     if [ -n "$stderr_file" ]; then
       if [ "$emit" = decision ] || doflow_bridge_drops_tool_streams "$policy" "$harness" "$response_event" || { [ "$harness" = kiro ] && [ "$response_event" = Stop ]; }; then exec 5>/dev/null; else exec 5>&1; fi
-      if captured="$(DOFLOW_AGENT="$harness" DOFLOW_DECISION_FD=3 bash "$policy_path" 2>"$stderr_file" 3>&1 1>&5 <<<"$payload")"; then code=0; else code=$?; fi
+      if captured="$(DOFLOW_AGENT="${DOFLOW_AGENT:-$harness}" DOFLOW_DECISION_FD=3 bash "$policy_path" 2>"$stderr_file" 3>&1 1>&5 <<<"$payload")"; then code=0; else code=$?; fi
       exec 5>&-
       err="$(cat "$stderr_file")"
     else
