@@ -679,6 +679,16 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   sentences verbatim (G33.17); and every deliverable defines refresh metadata and avoids transient
   feature-doc paths (G33.18).
 
+- **G34** (`lifecycle-bridges.test.js`) — bridge files contain no policy rules, agent spawns, context
+  injection, bash-to-Node calls or Pi input mutation (G34.1); the lifecycle architecture names the
+  install adapter, lifecycle bridge and 081-owned harness execution adapter with their boundaries
+  (G34.2).
+- **G35** (`lifecycle-bridges.test.js`) — the envelope encoder matches every fixture expectation
+  and version classification remains compatible (G35.1–G35.2); canonical policies preserve their
+  0fcd973 output without the decision fd and begin records with provisional allow (G35.3); exit-2
+  faults block with a fixed reason (G35.4), every policy deny has a record (G35.5), and migration
+  guidance anchors Pi on `tool_call` and envelope version 1 (G35.6).
+
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
 

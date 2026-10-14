@@ -15,7 +15,7 @@
       "version": 1,
       "harness": "codex",
       "event": "PreCompact",
-      "operation": "subagent-start",
+      "operation": "compact",
       "identity": {
         "session": "codex-compact"
       }

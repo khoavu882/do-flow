@@ -25,6 +25,7 @@
       "event": "PreToolUse",
       "operation": "edit",
       "tool": "apply_patch",
+      "patch": "*** Begin Patch\n*** Update File: src/a.js\n*** End Patch",
       "identity": {
         "session": "codex-patch-deny"
       }

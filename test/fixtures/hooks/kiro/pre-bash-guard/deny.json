@@ -21,9 +21,8 @@
       "version": 1,
       "harness": "kiro",
       "event": "PreToolUse",
-      "operation": "command",
-      "tool": "Bash",
-      "command": "rm -rf /",
+      "operation": "tool",
+      "tool": "shell",
       "identity": {
         "session": "kiro-bash-deny"
       }

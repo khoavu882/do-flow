@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * DoFlow Cross-Harness Hook Runner (design.md C2) — front door for every in-scope lifecycle
+ * DoFlow Cross-Harness Hook Runner — front door for every in-scope lifecycle
  * event (SessionStart, PreToolUse, PostToolUse, Stop, PreInvocation) for Antigravity. The Gemini
  * adapter branch is retained but unwired. It owns event dispatch and native payload/decision
  * translation (delegated to adapters/{gemini,antigravity}.js) and delegates every policy decision

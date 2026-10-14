@@ -1,5 +1,5 @@
 {
   "native":{"hook_event_name":"stop","assistant_response":"// TODO finish"},
   "state":"none","fault":"none","env":{"KIRO_SESSION_ID":"kiro-agent-stop-deny"},
-  "expect":{"exit":2,"stdout":"","stderrIncludes":"unfinished-work","decision":{"outcome":"deny","effect":"block"},"envelope":{"version":1,"harness":"kiro","event":"stop","operation":"stop","identity":{"session":"kiro-agent-stop-deny"}},"failurePoint":null,"taskStateUnchanged":true,"modelVisibleBytesMax":126}
+  "expect":{"exit":2,"stdout":"","stderrIncludes":"unfinished-work","decision":{"outcome":"deny","effect":"block"},"envelope":{"version":1,"harness":"kiro","event":"stop","operation":"stop"},"failurePoint":null,"taskStateUnchanged":true,"modelVisibleBytesMax":126}
 }
