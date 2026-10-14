@@ -49,10 +49,22 @@
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
-require_jq
-
 INPUT=$(cat)
-SESSION_ID=$(json_field "$INPUT" ".session_id")
+# Decision records stay off every stream unless a bridge supplied the fd.
+# shellcheck source=contract.sh
+source "$(dirname "$0")/contract.sh"
+doflow_decision_init stop-check 1
+if ! command -v jq >/dev/null 2>&1; then doflow_decide error dependency-missing:jq; fi
+require_jq
+SESSION_ID="" ENVELOPE_CLASS=""
+{ IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; } < <(
+  printf '%s' "$INPUT" | jq -j 'if ((. | type) == "object") and ((.doflow_event | type) == "object") and (.doflow_event | has("version")) and ((.doflow_event.version | type) != "number" or .doflow_event.version != 1) then "unsupported" else "v0" end, "\u0000", (.session_id // "" | if type == "string" then . else tojson end), "\u0000"' 2>/dev/null
+) || true
+if [ "$ENVELOPE_CLASS" = unsupported ]; then
+  doflow_decide unsupported envelope-version
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure stop-check unsupported:envelope-version ) >/dev/null 2>&1 || true
+  exit 0
+fi
 
 TRANSCRIPT_PATH=$(json_field "$INPUT" ".transcript_path")
 [ -z "$TRANSCRIPT_PATH" ] && TRANSCRIPT_PATH=$(json_field "$INPUT" ".transcriptPath")
@@ -143,6 +155,7 @@ if [ -n "$SESSION_ID" ]; then
       if [ -n "$DOFLOW_RUN" ]; then
         leak_out="$(run_with_timeout 2 -- "$DOFLOW_RUN" leak-scan "${leak_args[@]}" 2>/dev/null || true)"
         if [ -n "$leak_out" ] && printf '%s' "$leak_out" | grep -q ':[0-9]'; then
+          doflow_decide advisory internal-identifiers-found
           printf 'doflow: internal identifiers found in shipped files (warning, not a block):\n%s\n' \
             "$leak_out" >&2
         fi
@@ -258,6 +271,7 @@ if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
   fi
   [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && { printf '%s\n' "$MESSAGE_SUM" > "$GUARD_FILE"; } 2>/dev/null || true
   echo "[stop-check] The last response contains an unfinished-work marker (TODO/FIXME/stub comment or a not-implemented raise/throw)." >&2
+  doflow_decide deny unfinished-work
   exit 2
 fi
 
