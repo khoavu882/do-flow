@@ -227,5 +227,1441 @@
         }
       }
     }
-  ]
+  ],
+  "coverage": {
+    "schemaVersion": 1,
+    "revision": 1,
+    "rowsDigest": "sha256:79da602e7a82250cc24f63d02af3227921b0fb2c404b0444666a5c2b3f906cb6",
+    "refresh": {
+      "trigger": "a harness bridge, template or installed harness version changes",
+      "owner": "the feature that changes it"
+    },
+    "profiles": {
+      "any": "Applies across every installed profile; query evaluates all applicable rows.",
+      "user-interactive": "User-scope interactive harness session.",
+      "user-headless": "User-scope non-interactive harness session.",
+      "project-interactive": "Project-scope interactive harness session.",
+      "project-headless": "Project-scope non-interactive harness session.",
+      "cli-extension": "Harness launched with its CLI extension mechanism.",
+      "no-extensions": "Harness profile where extensions are unavailable.",
+      "ide": "Harness IDE integration.",
+      "cli-v3": "Kiro CLI V3.",
+      "cli-v3-agent": "Kiro CLI V3 agent mode.",
+      "cli-2x-agent": "Kiro CLI 2.x agent mode."
+    },
+    "notShipped": [
+      {
+        "path": "core/harnesses/shared/hooks/hooks.json",
+        "reason": "Legacy shared hook configuration is not shipped by a harness template.",
+        "decision": "DEC-014"
+      },
+      {
+        "path": "core/.antigravity-plugin/hooks.json",
+        "reason": "Plugin packaging file routes to .gemini/hooks scripts that the Antigravity projection does not use.",
+        "decision": "DEC-014"
+      },
+      {
+        "path": "core/harnesses/shared/hooks/adapters/gemini.js",
+        "reason": "Gemini is wired directly through its hooks template, not this adapter.",
+        "decision": "DEC-014"
+      }
+    ],
+    "rows": [
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "claude",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/claude/settings/settings.json:89",
+        "harnessVersion": {
+          "tested": "2.1.287 (Claude Code)"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://code.claude.com/docs/en/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "codex",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/codex/hooks/hooks.json:45",
+        "harnessVersion": {
+          "tested": "codex-cli 0.162.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "hook-review"
+        ],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://learn.chatgpt.com/docs/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "gemini",
+        "event": "BeforeTool",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/gemini/hooks/hooks.json:25",
+        "harnessVersion": {
+          "tested": "0.55.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://geminicli.com/docs/hooks/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "opencode",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.18.30"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: opencode harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "pi",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy pre-implementation-gate mapping for pi",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "copilot",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "copilot",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "kiro",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/kiro/hooks/doflow.json:15",
+        "harnessVersion": {
+          "tested": "kiro-cli 2.29.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://kiro.dev/docs/hooks/types/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-implementation-gate",
+        "harness": "antigravity",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "src/adapters/antigravity/index.ts:59",
+        "harnessVersion": {
+          "tested": "1.3.3"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://antigravity.google/docs/hooks/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "claude",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/claude/settings/settings.json:89",
+        "harnessVersion": {
+          "tested": "2.1.287 (Claude Code)"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://code.claude.com/docs/en/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "codex",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/codex/hooks/hooks.json:45",
+        "harnessVersion": {
+          "tested": "codex-cli 0.162.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "hook-review"
+        ],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://learn.chatgpt.com/docs/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "gemini",
+        "event": "BeforeTool",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/gemini/hooks/hooks.json:25",
+        "harnessVersion": {
+          "tested": "0.55.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://geminicli.com/docs/hooks/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "opencode",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.18.30"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: opencode harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "pi",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy pre-bash-guard mapping for pi",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "copilot",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "kiro",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/kiro/hooks/doflow.json:15",
+        "harnessVersion": {
+          "tested": "kiro-cli 2.29.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://kiro.dev/docs/hooks/types/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "pre-bash-guard",
+        "harness": "antigravity",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.3.3"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy pre-bash-guard mapping for antigravity",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "claude",
+        "event": "SessionStart",
+        "timing": "session",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/claude/settings/settings.json:36",
+        "harnessVersion": {
+          "tested": "2.1.287 (Claude Code)"
+        },
+        "class": "advisory",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://code.claude.com/docs/en/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "codex",
+        "event": "SessionStart",
+        "timing": "session",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/codex/hooks/hooks.json:4",
+        "harnessVersion": {
+          "tested": "codex-cli 0.162.1"
+        },
+        "class": "advisory",
+        "verification": "unverified",
+        "prerequisites": [
+          "hook-review"
+        ],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://learn.chatgpt.com/docs/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "gemini",
+        "event": "SessionStart",
+        "timing": "session",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/gemini/hooks/hooks.json:4",
+        "harnessVersion": {
+          "tested": "0.55.1"
+        },
+        "class": "advisory",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://geminicli.com/docs/hooks/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "opencode",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.18.30"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: opencode harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "pi",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy session-context mapping for pi",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "copilot",
+        "event": "PreCompact",
+        "timing": "compact",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "copilot",
+        "event": "SessionEnd",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "copilot",
+        "event": "SessionStart",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "copilot",
+        "event": "SubagentStart",
+        "timing": "subagent",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "copilot",
+        "event": "SubagentStop",
+        "timing": "subagent",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "copilot",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "copilot",
+        "event": "UserPromptSubmit",
+        "timing": "prompt",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "kiro",
+        "event": "SessionStart",
+        "timing": "session",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/kiro/hooks/doflow.json:6",
+        "harnessVersion": {
+          "tested": "kiro-cli 2.29.1"
+        },
+        "class": "advisory",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://kiro.dev/docs/hooks/types/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "session-context",
+        "harness": "antigravity",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.3.3"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy session-context mapping for antigravity",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "claude",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/claude/settings/settings.json:89",
+        "harnessVersion": {
+          "tested": "2.1.287 (Claude Code)"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://code.claude.com/docs/en/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "codex",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/codex/hooks/hooks.json:45",
+        "harnessVersion": {
+          "tested": "codex-cli 0.162.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "hook-review"
+        ],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://learn.chatgpt.com/docs/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "gemini",
+        "event": "BeforeTool",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/gemini/hooks/hooks.json:25",
+        "harnessVersion": {
+          "tested": "0.55.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://geminicli.com/docs/hooks/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "opencode",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.18.30"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: opencode harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "pi",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy mcp-tool-guard mapping for pi",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "copilot",
+        "event": "PermissionDenied",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "copilot",
+        "event": "PostToolUse",
+        "timing": "post-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "copilot",
+        "event": "PostToolUseFailure",
+        "timing": "post-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "copilot",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "kiro",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/kiro/hooks/doflow.json:15",
+        "harnessVersion": {
+          "tested": "kiro-cli 2.29.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://kiro.dev/docs/hooks/types/",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "mcp-tool-guard",
+        "harness": "antigravity",
+        "event": "*",
+        "timing": "pre-tool",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.3.3"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy mcp-tool-guard mapping for antigravity",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "claude",
+        "event": "Stop",
+        "timing": "stop",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/claude/settings/settings.json:138",
+        "harnessVersion": {
+          "tested": "2.1.287 (Claude Code)"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending",
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://code.claude.com/docs/en/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "codex",
+        "event": "Stop",
+        "timing": "stop",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/codex/hooks/hooks.json:99",
+        "harnessVersion": {
+          "tested": "codex-cli 0.162.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [
+          "hook-review"
+        ],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending",
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://learn.chatgpt.com/docs/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "gemini",
+        "event": "*",
+        "timing": "stop",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "0.55.1"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy stop-check mapping for gemini",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "opencode",
+        "event": "*",
+        "timing": "stop",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.18.30"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: opencode harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "pi",
+        "event": "*",
+        "timing": "stop",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy stop-check mapping for pi",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "copilot",
+        "event": "Stop",
+        "timing": "stop",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "copilot",
+        "event": "*",
+        "timing": "stop",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.78"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "kiro",
+        "event": "Stop",
+        "timing": "stop",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/kiro/hooks/doflow.json:44",
+        "harnessVersion": {
+          "tested": "kiro-cli 2.29.1"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending",
+          "native event enforcement is not yet verified",
+          "V3 payload carries no transcript"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://kiro.dev/docs/hooks/types/",
+            "date": "2026-10-12"
+          },
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: Kiro V3 Stop observation; bench/inventory/coverage.json: AgentStop",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "policy": "stop-check",
+        "harness": "antigravity",
+        "event": "Stop",
+        "timing": "stop",
+        "profile": "any",
+        "wired": true,
+        "configSource": "src/adapters/antigravity/index.ts:60",
+        "harnessVersion": {
+          "tested": "1.3.3"
+        },
+        "class": "unknown",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "fixture-pending",
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://antigravity.google/docs/hooks/",
+            "date": "2026-10-12"
+          }
+        ]
+      }
+    ]
+  }
 }

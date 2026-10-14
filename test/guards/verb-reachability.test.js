@@ -57,6 +57,7 @@ const ALLOWLIST = new Map([
     'inventory',
     'CLI-only cross-scope install diagnostic (doflow inventory): reads both ownership ledgers in one invocation and reports shadowed assets, drift, withheld precedence verdicts and unmanaged contenders. Read-only and invoked by no skill workflow, for the same reason doctor is not — it answers a question about the install a user is standing in ("why did my edit have no effect"), not a question any chain stage asks. The one consumer a later feature may add is a session-start warning, which is explicitly out of scope for the feature that built it',
   ],
+  ['enforcement', 'CLI-only lifecycle coverage query for people and scripts; the in-process enforcementFor API is consumed by a later feature'],
   [
     'storage',
     'user-run report and hook-run upkeep; no skill calls it',
