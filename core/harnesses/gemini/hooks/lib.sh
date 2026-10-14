@@ -281,22 +281,21 @@ require_jq() {
   fi
 }
 
-# ── Session role ──────────────────────────────────────────────────────────────
+# ── Session role and identity ─────────────────────────────────────────────────
 
-# Print `main` or `worker` for this session, read from DOFLOW_SESSION_ROLE (matched
-# case-insensitively). Unset or empty is `main`; a value that is neither `main` nor
-# `worker` is `worker` and writes one line to stderr. A worker never writes or claims the
-# project's compact summary or warning. Always returns 0. bash 3.2 safe (no ${var,,}).
-doflow_session_role() {
-  local role
-  role=$(printf '%s' "${DOFLOW_SESSION_ROLE:-}" | tr '[:upper:]' '[:lower:]') || role=""
-  case "$role" in
-    ""|main) printf 'main\n' ;;
-    worker) printf 'worker\n' ;;
-    *)
-      echo "[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker" >&2
-      printf 'worker\n'
-      ;;
-  esac
-  return 0
-}
+# doflow_session_role comes from the shared identity.sh, its only definition (IC-009). When an
+# install lacks that file, the session is a worker and the broken install is captured as
+# identity-missing: a worker writes and claims nothing, so a broken install cannot leak context.
+if [ -f "${BASH_SOURCE[0]%/*}/../../.doflow/shared/hooks/policies/identity.sh" ]; then
+  . "${BASH_SOURCE[0]%/*}/../../.doflow/shared/hooks/policies/identity.sh"
+else
+  doflow_session_role() {
+    local policy="${0##*/}"
+    policy="${policy%.sh}"
+    policy="${policy%.impl}"
+    ( . "${BASH_SOURCE[0]%/*}/../../.doflow/shared/hooks/policies/capture-failure.sh" \
+      && doflow_capture_failure "$policy" identity-missing ) >/dev/null 2>&1 || true
+    printf 'worker\n'
+    return 0
+  }
+fi
