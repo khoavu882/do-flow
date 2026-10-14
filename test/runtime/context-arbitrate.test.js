@@ -263,7 +263,7 @@ for (const c of CORPUS.cases) {
   });
 }
 
-test('IC-004: emission.jq response bytes for Claude, Codex and silence', (t) => {
+test('IC-004: emission.jq response bytes for Claude, Codex, Gemini and silence', (t) => {
   const c = CORPUS.cases.find((x) => x.name === 'git-repository');
   const ctx = JSON.stringify(c.expected.text);
   const claude = runEmissionJq(t, c, { harness: 'claude', title: true });
@@ -272,6 +272,7 @@ test('IC-004: emission.jq response bytes for Claude, Codex and silence', (t) => 
   const bare = `{\n  "hookSpecificOutput": {\n    "hookEventName": "UserPromptSubmit",\n    "additionalContext": ${ctx}\n  }\n}\n`;
   assert.equal(untitled, bare, 'a payload session_title suppresses sessionTitle');
   assert.equal(runEmissionJq(t, c, { harness: 'codex', title: true }), bare, 'Codex never carries sessionTitle');
+  assert.equal(runEmissionJq(t, c, { harness: 'gemini', title: true }), claude, 'every harness but Codex carries sessionTitle (DEC-030)');
 
   const notRepo = CORPUS.cases.find((x) => x.name === 'git-not-a-repository');
   assert.match(runEmissionJq(t, notRepo, { harness: 'claude', title: true }), /"sessionTitle": "no-git"\n/);

@@ -396,6 +396,7 @@
         "core/harnesses/gemini/hooks/lib.sh",
         "core/harnesses/gemini/hooks/post-edit-lint.sh",
         "core/harnesses/kiro/hooks/lib.sh",
+        "core/harnesses/shared/hooks/policies/emission.sh",
         "core/harnesses/shared/hooks/policies/identity.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",
         "core/harnesses/shared/hooks/policies/session-context.sh",
