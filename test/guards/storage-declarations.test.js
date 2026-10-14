@@ -292,6 +292,14 @@ function runScenario() {
     });
     const target = ['--force', '--target', TARGETS];
     const enableAdvice = "const fs=require('node:fs'),path=require('node:path');const f=path.join(process.env.XDG_CONFIG_HOME,'doflow','decision-model.json');fs.writeFileSync(f,JSON.stringify({schema:1,enabled:true,provider:'ollama',endpoint:'http://127.0.0.1:9',model:'clef-flash'})+'\\n');";
+    // The bash summary store (feature 078): a scoped summary write and its owner claim, then a grant
+    // seeded where grantSummary() would write it and claimed by rename.
+    const summaryStore = (script) => ({
+      cmd: '/bin/bash',
+      args: ['-c', `set -euo pipefail\n. "$1/lib.sh"\n. "$1/summary-store.sh"\n${script}`, 'summary-store.sh', path.join(mirror, '.doflow/shared/hooks/policies'), project],
+    });
+    const summaryWriteClaim = 'doflow_summary_write "$2" local main "" 2026-10-14T10:00:00Z g26-writer auto main main "a summary"\ndoflow_summary_claim "$2" local main g26-session g26-session\nrm -f "$DF_SUMMARY_CLAIMED"';
+    const grantWriteClaim = 'd="$STATE_DIR/grants/local/w-1"\nmkdir -p "$d"\nprintf -- "---\\nsummary_id: s-20261014T100500Z-G26aaa\\nfrom_lineage: main\\n---\\n\\na grant\\n" >"$d/s-20261014T100500Z-G26aaa.md"\ndoflow_grant_claim local w-1 g26-session 16384\nrm -f "$DF_GRANT_CLAIMED"';
     const seedOldAdvice = "const fs=require('node:fs'),path=require('node:path');const d=path.join(process.argv[1],'advice','picks');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'2000-01-01.jsonl'),'{}\\n');";
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
@@ -317,6 +325,8 @@ function runScenario() {
       ['lifecycle', verb('lifecycle'), 0],
       ['trace', verb('trace'), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
+      ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
+      ['summary-store.sh grant claim', summaryStore(grantWriteClaim), 0],
       ['post-edit-lint.sh', hook(path.join(mirror, '.claude/hooks/post-edit-lint.sh'), { ...sessionPayload, tool_name: 'Edit', tool_input: { file_path: path.join(project, 'f.js') } }), 0],
       ['project install', cli('install', project, ...target, '--mcp', 'none'), 0],
       ['project update', cli('update', project, ...target), 0],
