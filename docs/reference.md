@@ -172,6 +172,8 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `report-bodies` | `~/.config/doflow/reports` | prune orphan bodies after 24 hours; foreign folders after 180 days |
 | `session-dirs` | `~/.config/doflow/session-env/sessions` | prune inactive directories after 30 days |
 | `project-dirs` | `~/.config/doflow/session-env/projects` | prune inactive directories after 90 days |
+| `summary-scopes` | `~/.config/doflow/session-env/summaries` | prune inactive directories after 90 days |
+| `summary-grants` | `~/.config/doflow/session-env/grants` | prune inactive directories after 90 days |
 | `installer-backups-user-doflow` | `~/.doflow/backups` | keep 3 |
 | `installer-backups-project-doflow` | `.doflow/backups` | keep 3 |
 | `nudge-markers` | `~/.config/doflow/session-env/nudge` | prune after 30 days |
