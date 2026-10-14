@@ -15,9 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-10-14
+## [2.0.0-beta.5] - 2026-10-14
 
-First stable 2.x release. It consolidates 2.0.0-beta.1 to 2.0.0-beta.4 (the TypeScript runtime, the perf budgets and retrieval benchmark, and the packed JavaScript npm package) with context delivery (075) and evidence attempts (076). Upgrading from 1.24.1 needs Node `^22.18.0 || >=24.3.0`; see the 2.0.0-beta.3 entry for the Node floor and the `.js` to `.ts` runtime rename.
+Prerelease of 2.0.0 on the npm `beta` dist-tag (`npx @khoavu882/doflow@beta`), the release candidate for the first stable 2.x release. It consolidates 2.0.0-beta.1 to 2.0.0-beta.4 (the TypeScript runtime, the perf budgets and retrieval benchmark, and the packed JavaScript npm package) with context delivery (075) and evidence attempts (076). Upgrading from 1.24.1 needs Node `^22.18.0 || >=24.3.0`; see the 2.0.0-beta.3 entry for the Node floor and the `.js` to `.ts` runtime rename.
 
 ### Added
 - `doflow context-pack` caps the whole payload it emits, in both the markdown and the JSON form, in UTF-8 bytes. The cap is the task class's default, or `--max-bytes <n>`, or the budget of `--harness <id>`; when a harness declares no capacity the pack says so and uses the default. Defaults are 225000 (`feature`), 85000 (`dependency-change`), 71000 (`bug`, `refactor`), 57000 (`documentation`), 45000 (`operations`), 42000 (`review`), 35302 (`research`) and 30000 (`trivial-edit`).
