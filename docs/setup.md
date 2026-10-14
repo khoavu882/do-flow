@@ -46,9 +46,9 @@ skills, workflows); an untrusted workspace asks before every shell command, and 
 hook commands is undocumented. Copilot CLI now documents hooks (`.github/hooks/`,
 `~/.copilot/hooks/`), settings files, and a plugin-marketplace system upstream; DoFlow projects
 none of them yet, so its Copilot adapter stops at instructions, skills, agents, and MCP. OpenCode
-and Pi have no hook projection either: both
-extend behavior through JS/TS code modules rather than the shell commands DoFlow ships, so no hook
-is installed, though their `opencode.json` / `settings.json` settings merges are still supported.
+uses code modules rather than the shell commands DoFlow ships, so no OpenCode hook is installed.
+Pi now has a `tool_call` guard extension at user and project scope; the project extension runs only
+after the project is trusted. Their `opencode.json` / `settings.json` settings merges remain supported.
 Antigravity and Gemini CLI share `~/.gemini/GEMINI.md`, so a global `--target gemini` install
 affects both; see [what gets installed](#what-gets-installed).
 
