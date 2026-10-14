@@ -23,6 +23,12 @@ function run(cwd, args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
+// What the worktree's `.doflow` holds, for an assertion message: the entries beat a bare `false`.
+function listed(root) {
+  try { return fs.readdirSync(root, { recursive: true }).sort().join('\n') || '(empty)'; }
+  catch { return '(absent)'; }
+}
+
 function runJson(cwd, args) {
   const result = run(cwd, [...args, '--json']);
   try { return { ...result, data: JSON.parse(result.stdout) }; }
@@ -51,7 +57,8 @@ test('linked worktree routes retrieval state to main and measures absence freshn
     '--action', 'declare', '--need', 'locate-known-symbol']);
   assert.equal(declared.status, 0, `${declared.stdout}\n${declared.stderr}`);
   assert.ok(fs.existsSync(path.join(main, '.doflow', 'state', 'retrieval', `${taskId}.json`)), 'retrieval plan is stored with task state in main');
-  assert.ok(!fs.existsSync(path.join(worktree, '.doflow')), 'the worktree receives no task state');
+  assert.ok(!fs.existsSync(path.join(worktree, '.doflow')),
+    `the worktree receives no task state; found in ${path.join(worktree, '.doflow')}:\n${listed(path.join(worktree, '.doflow'))}\nstderr:\n${declared.stderr}`);
 
   const added = runJson(worktree, ['evidence', '--task-id', taskId, '--slug', slug, '--action', 'add',
     '--kind', 'structural', '--provenance', 'extracted', '--provider', declared.data.needs[0].provider,

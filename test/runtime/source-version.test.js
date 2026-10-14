@@ -253,7 +253,11 @@ test('folds submodule HEAD state into the parent fingerprint', (t) => {
   clearTreeStateCache();
   const before = measureTreeState(dir).fingerprint;
 
+  // The submodule is a fresh clone: it does not inherit the parent's identity, and a CI runner has
+  // no global one, so the commit below needs its own.
   fs.writeFileSync(path.join(dir, 'module', 'inner.txt'), 'two\n');
+  execFileSync('git', ['-C', path.join(dir, 'module'), 'config', 'user.email', 'test@example.com']);
+  execFileSync('git', ['-C', path.join(dir, 'module'), 'config', 'user.name', 'Test']);
   execFileSync('git', ['-C', path.join(dir, 'module'), 'add', 'inner.txt']);
   execFileSync('git', ['-C', path.join(dir, 'module'), 'commit', '-m', 'two'], { stdio: 'ignore' });
   clearTreeStateCache();
