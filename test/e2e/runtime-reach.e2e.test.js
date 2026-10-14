@@ -408,7 +408,8 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
   });
 
   // IC-037: a claude door edited by hand makes `update -t pi` refuse the whole plan rather than leave the doors behind the tree.
-  const DOORS_TAG = 'v2.0.0';
+  // Must name a release OLDER than this checkout: pinning the tag being released makes the install identical to HEAD.
+  const DOORS_TAG = 'v2.0.0-beta.4';
   test(`a ${DOORS_TAG} install with one claude door edited: \`update -t pi\` refuses and leaves the tree and every door unchanged`, { skip: tagSkip(DOORS_TAG) }, async () => {
     const cell = newCell('edited-door');
     const legacy = path.join(cell.dir, 'legacy');
