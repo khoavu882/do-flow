@@ -117,7 +117,8 @@ doflow_identity() {
   if [ "$run_ok" = 1 ] && [ "$lineage_ok" = 1 ] && [ "$attempt_ok" = 1 ]; then
     DF_ID_KIND=launched
     DF_ID_UNIT="L.$DF_ID_RUN.$DF_ID_LINEAGE.$DF_ID_ATTEMPT"
-  elif [ -z "$lineage" ] && [ "$DF_ID_LINEAGE" = main ] && [ "$DF_ID_RUN" = local ]; then
+  elif [ "$DF_ID_RUN" = local ] && [ "$DF_ID_LINEAGE" = main ]; then
+    # default-main: run unset and lineage main, whether main was defaulted or set explicitly.
     DF_ID_KIND=default-main
     DF_ID_UNIT=$session_id
   else

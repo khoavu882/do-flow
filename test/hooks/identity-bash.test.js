@@ -163,6 +163,63 @@ test('worktree: an absolute existing directory canonicalised, else the payload c
   assert.equal(identity('s', cwd, { DOFLOW_WORKTREE: file }).id.worktree, cwd);
 });
 
+// ── The shared IC-007 corpus (G38.6): every case in test/fixtures/identity/cases.json ───────────
+
+const CASES = JSON.parse(fs.readFileSync(path.join(REPO, 'test', 'fixtures', 'identity', 'cases.json'), 'utf8'));
+
+/** A fresh store root and the cases.json placeholders under it ($CWD, $WT, $WT_LINK, $FILE). */
+function corpusLayout() {
+  const root = dir('corpus');
+  const places = { $CWD: path.join(root, 'cwd'), $WT: path.join(root, 'wt'), $WT_LINK: path.join(root, 'wt-link'), $FILE: path.join(root, 'file.txt') };
+  fs.mkdirSync(places.$CWD);
+  fs.mkdirSync(places.$WT);
+  fs.symlinkSync(places.$WT, places.$WT_LINK);
+  fs.writeFileSync(places.$FILE, 'x\n');
+  const config = path.join(root, 'config');
+  fs.mkdirSync(config);
+  return { places, config };
+}
+const subst = (v, places) => (typeof v === 'string' ? v.replace(/\$(CWD|WT_LINK|WT|FILE)/g, (m) => places[m]) : v);
+const substAll = (o, places) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.isArray(v) ? v : subst(v, places)]));
+
+/** One doflow_identity call in its own process, as one hook event; diagnostics as cases.json names them. */
+function corpusEvent(config, env, sid, cwd) {
+  const events = path.join(config, 'doflow', 'failures', 'events.jsonl');
+  const read = () => (fs.existsSync(events) ? fs.readFileSync(events, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).kind) : []);
+  const before = read().length;
+  const { id, stderr } = identity(sid, cwd, { XDG_CONFIG_HOME: config, SESSION_DIR: '', ...env });
+  const codes = new Set(read().slice(before));
+  if (stderr === `${DIAGNOSTIC}\n`) codes.add('role-unknown');
+  else assert.equal(stderr, '', 'unexpected stderr');
+  return { ...id, diagnostics: [...codes].sort() };
+}
+
+for (const c of CASES.identity) {
+  test(`corpus identity case: ${c.name}`, () => {
+    const { places, config } = corpusLayout();
+    const got = corpusEvent(config, substAll(c.env, places), c.sessionId, subst(c.cwd, places));
+    assert.deepEqual(got, substAll(c.expect, places));
+  });
+}
+
+for (const s of CASES.binding) {
+  test(`corpus binding sequence: ${s.name}`, () => {
+    const { places, config } = corpusLayout();
+    const sessions = path.join(config, 'doflow', 'session-env', 'sessions');
+    for (const [i, e] of s.events.entries()) {
+      const env = { ...substAll(s.env, places), ...substAll(e.env || {}, places) };
+      assert.deepEqual(corpusEvent(config, env, e.sessionId, subst(e.cwd, places)), substAll(e.expect, places), `event ${i}`);
+      if (e.bound === null) {
+        const found = fs.existsSync(sessions) ? fs.readdirSync(sessions, { recursive: true }).filter((f) => path.basename(f) === 'bound') : [];
+        assert.deepEqual(found, [], `event ${i}: no bound file expected`);
+      } else {
+        const unit = `L.${env.DOFLOW_RUN_ID}.${env.DOFLOW_LINEAGE_ID}.${env.DOFLOW_ATTEMPT}`;
+        assert.equal(fs.readFileSync(path.join(sessions, unit, 'bound'), 'utf8').replace(/\n$/, ''), e.bound, `event ${i}`);
+      }
+    }
+  });
+}
+
 // ── Binding and inheritance (DEC-008) ───────────────────────────────────────────────────────────
 
 test('the binding session stays launched; a different session is inherited solo, keeps its role, captured once', () => {
