@@ -17,28 +17,42 @@ on:
         type: string
         default: '["ubuntu-latest", "macos-latest", "windows-latest"]'
 
+# A new push to a PR cancels that PR's older run (the pattern prettier, vite and pnpm use).
+# Every other event gets a group of its own (run_id), so a main push or a release tag is never
+# cancelled, and a workflow_call cannot collide with its caller.
+concurrency:
+  group: cross-os-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
-    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    name: test (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }}/4)
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     # Windows leg status: the exec-bit refusals, CRLF parse failures and $HOME redirection
     # bugs are FIXED (#40/#42), but the FR-001/009 dispatcher-spawn class remains FLAKY at
-    # runner level — identical code passes some runs and fails others. So this leg stays
-    # non-blocking (continue-on-error below) on PRs, and the release caller drops windows
-    # from its matrix entirely. Tracked on the Windows-gate issue (#11).
+    # runner level — identical code passes some runs and fails others. So this leg is
+    # non-blocking, runs only on pushes to main (never on PRs), and the release caller drops
+    # windows from its matrix entirely. Tracked on the Windows-gate issue (#11).
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        # `inputs` (and its default) exists only for workflow_call; on pull_request/push it is empty.
-        os: ${{ fromJSON(inputs.os_matrix || '["ubuntu-latest","macos-latest","windows-latest"]') }}
+        # `inputs` (and its default) exists only for workflow_call; on pull_request/push it is
+        # empty. PRs skip the non-blocking Windows leg; a push to main still runs it.
+        os: ${{ fromJSON(inputs.os_matrix || (github.event_name == 'pull_request' && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]')) }}
         node: ["24"]
+        # node --test --test-shard splits the test files across parallel jobs; the slowest leg
+        # (one runner running all 357 files) used to set the wall time.
+        shard: [1, 2, 3, 4]
         # package.json declares engines.node ^22.18.0 || >=24.3.0, so its lowest release (22.18.0) is exercised too — otherwise the
         # supported minimum is only asserted, never tested. One OS is enough for a version sweep;
         # the OS matrix above already covers the portability axis.
         include:
-          - os: ubuntu-latest
-            node: "22.18.0"
+          - { os: ubuntu-latest, node: "22.18.0", shard: 1 }
+          - { os: ubuntu-latest, node: "22.18.0", shard: 2 }
+          - { os: ubuntu-latest, node: "22.18.0", shard: 3 }
+          - { os: ubuntu-latest, node: "22.18.0", shard: 4 }
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -57,8 +71,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run Node test suite
-        run: npm test
+      # The same file set as `npm test`, one quarter of it per job.
+      - name: Run Node test suite (shard ${{ matrix.shard }}/4)
+        run: node --test --test-shard=${{ matrix.shard }}/4 "test/**/*.test.js"
 
   # The bash suites are a dedicated required job rather than per-OS steps: they are POSIX-only
   # by design, and isolating them on ubuntu makes a failure attributable to the suite that
@@ -67,7 +82,7 @@ jobs:
   shell-suites:
     name: shell-suites (ubuntu, bash)
     runs-on: ubuntu-latest
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
