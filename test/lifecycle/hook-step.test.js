@@ -124,7 +124,7 @@ describe('IC-037: the installer keeps front doors in step with the shared hooks 
   test('a tree change with the doors already current plans no companion and prints no notice', { skip: SKIP }, () => {
     const c = cell('current');
     assert.equal(c.run(['install', 'proj', '-f', '--no-backup', '-t', 'claude,pi']).status, 0);
-    const treeFile = path.join(c.proj, '.doflow', 'shared', 'hooks', 'hooks.json');
+    const treeFile = path.join(c.proj, '.doflow', 'shared', 'hooks', 'policies', 'lib.sh');
     fs.rmSync(treeFile);
     const doors = under(snapshot(c.proj), '.claude/hooks');
     const updated = c.run(['update', 'proj', '-t', 'pi']);
@@ -222,7 +222,7 @@ describe('IC-037: the installer keeps front doors in step with the shared hooks 
     assert.ok(fs.existsSync(skill));
     fs.rmSync(door);
     fs.rmSync(skill);
-    fs.rmSync(path.join(c.proj, '.doflow', 'shared', 'hooks', 'hooks.json'));
+    fs.rmSync(path.join(c.proj, '.doflow', 'shared', 'hooks', 'policies', 'lib.sh'));
     const updated = c.run(['update', 'proj', '-t', 'pi']);
     assert.equal(updated.status, 0, updated.output);
     assert.ok(updated.stdout.includes(`[INFO] claude: ${notice('claude')}`), updated.stdout);
@@ -259,7 +259,7 @@ describe('IC-037: the installer keeps front doors in step with the shared hooks 
       assert.equal(installed.status, 0, installed.output);
       spoil(c.proj);
       assert.equal(back(c.proj), false, 'the door is out of step');
-      fs.rmSync(path.join(c.proj, '.doflow', 'shared', 'hooks', 'hooks.json'));
+      fs.rmSync(path.join(c.proj, '.doflow', 'shared', 'hooks', 'policies', 'lib.sh'));
 
       const before = snapshot(c.scratch.dir);
       const dry = c.run(['update', 'proj', '-t', via, '--dry-run']);
