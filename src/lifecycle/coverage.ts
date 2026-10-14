@@ -21,11 +21,13 @@ class UnknownEnforcementTarget extends Error {
 function enforcementFor(coverage: any, query: { harness: string; policy: string; profile?: string }): any {
   const rows = coverage?.rows || [];
   const profiles = coverage?.profiles || {};
+  if (query.policy === '*') throw new UnknownEnforcementTarget('unknown-policy', "Unknown policy '*'");
   if (!rows.some((row: any) => row.harness === query.harness)) throw new UnknownEnforcementTarget('unknown-harness', `Unknown harness '${query.harness}'`);
-  if (query.policy !== '*' && !rows.some((row: any) => row.policy === query.policy)) throw new UnknownEnforcementTarget('unknown-policy', `Unknown policy '${query.policy}'`);
+  if (!rows.some((row: any) => row.policy === query.policy)) throw new UnknownEnforcementTarget('unknown-policy', `Unknown policy '${query.policy}'`);
   if (query.profile !== undefined && !Object.hasOwn(profiles, query.profile)) throw new UnknownEnforcementTarget('unknown-profile', `Unknown profile '${query.profile}'`);
   const pairRows = rows.filter((row: any) => row.harness === query.harness && (row.policy === query.policy || row.policy === '*'));
-  const applicable = pairRows.filter((row: any) => row.timing === 'pre-tool' && (query.profile === undefined || row.profile === query.profile || row.profile === 'any'));
+  const timing = query.policy === 'stop-check' ? 'stop' : 'pre-tool';
+  const applicable = pairRows.filter((row: any) => row.timing === timing && (query.profile === undefined || row.profile === query.profile || row.profile === 'any'));
   const enforced = applicable.length > 0 && applicable.every((row: any) => row.wired && row.class === 'blocking' && row.verification === 'verified');
   const rank = (row: any) => CLASS_ORDER.indexOf(row.class);
   const weakest = [...applicable].sort((a: any, b: any) => rank(a) - rank(b))[0];
