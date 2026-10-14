@@ -175,7 +175,8 @@ BRIDGE_TEST('IC-036 encode fault preserves compat result and blocks strict block
         });
         const decision = JSON.parse(result.stdout);
         assert.equal(decision.code, 'envelope-encode', `${harness}:${event} ${policy} ${profile}`);
-        assert.equal(decision.effect, profile === 'strict-1' && blocking.includes(policy) ? 'block' : 'proceed', `${harness}:${event} ${policy} ${profile}`);
+        // DEC-039: envelope faults from stop-check proceed under strict-1.
+        assert.equal(decision.effect, profile === 'strict-1' && blocking.includes(policy) && policy !== 'stop-check' ? 'block' : 'proceed', `${harness}:${event} ${policy} ${profile}`);
       }
     }
   }
@@ -280,22 +281,26 @@ BRIDGE_TEST('IC-011 full profile, harness, outcome grid including unknown-profil
   for (const profile of ['compat-1', 'strict-1', 'mystery']) {
     for (const [harness0,event,policy,outcome,code,compat] of rows) {
       const harness = harness0 === 'session' ? 'claude' : harness0;
-      const expected = profile === 'strict-1' && ['pre-implementation-gate','stop-check'].includes(policy) && ['error','unsupported','bridgefault'].includes(outcome) ? 'block' : compat;
+      // DEC-039: strict-1 Stop faults proceed; explicit Stop denies still block.
+      const expected = profile === 'strict-1' && event === 'Stop' && outcome !== 'deny' ? 'proceed'
+        : profile === 'strict-1' && ['pre-implementation-gate','stop-check'].includes(policy) && ['error','unsupported','bridgefault'].includes(outcome) ? 'block' : compat;
       if (outcome === 'bridgefault') {
         const policyPath = path.join(dir, 'policies', `${policy}.sh`);
         fs.renameSync(policyPath, `${policyPath}.missing`);
         const res = run(dir, harness, event, policy, {}, ['--emit','decision'], {DOFLOW_FAULT_PROFILE:profile});
         fs.renameSync(`${policyPath}.missing`, policyPath);
         const d = JSON.parse(res.stdout);
-        assert.equal(d.effect, profile === 'strict-1' ? 'block' : 'proceed', `${profile} ${harness}:${event} spawn`);
+        // DEC-039: strict Stop faults proceed; real Stop denies still block.
+        assert.equal(d.effect, profile === 'strict-1' && event !== 'Stop' ? 'block' : 'proceed', `${profile} ${harness}:${event} spawn`);
         if (profile === 'mystery') assert.equal(d.faultProfile, 'compat-1');
         const native=run(dir,harness,event,policy,{},['--emit','native'],{DOFLOW_FAULT_PROFILE:profile});
-        assert.equal(native.status,profile === 'strict-1' && (harness === 'kiro' || event === 'Stop') ? 2 : 0,`${profile} ${harness}:${event} spawn native exit`);
+        assert.equal(native.status,profile === 'strict-1' && event !== 'Stop' && harness === 'kiro' ? 2 : 0,`${profile} ${harness}:${event} spawn native exit`);
         if (profile !== 'strict-1') {
           assert.equal(native.stderr,'',`${profile} ${harness}:${event} spawn native stderr`);
           const expectedStdout=harness === 'codex' && event === 'Stop' ? '{}\n' : harness === 'antigravity' && event === 'PreToolUse' ? '{"decision":"allow"}\n' : '';
           assert.equal(native.stdout,expectedStdout,`${profile} ${harness}:${event} spawn proceed stdout`);
         } else {
+          assert.equal(native.stderr,'',`${profile} ${harness}:${event} Stop fault remains silent`);
           assert.notEqual(native.stdout+native.stderr,'',`${profile} ${harness}:${event} spawn block response`);
           assert.equal((native.stdout+native.stderr).includes('DoFlow policy error'),true,`${profile} ${harness}:${event} spawn fixed reason`);
         }
@@ -347,7 +352,9 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
         fs.renameSync(target,`${target}.missing`);
         const result=run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
         fs.renameSync(`${target}.missing`,target);
-        assert.equal(JSON.parse(result.stdout).effect,expected,`${profile} ${b.h}:${b.e} bridge-spawn`);
+        // DEC-039: strict-1 Stop spawn faults proceed after capture.
+        const spawnExpected = profile === 'strict-1' && b.e === 'Stop' ? 'proceed' : expected;
+        assert.equal(JSON.parse(result.stdout).effect,spawnExpected,`${profile} ${b.h}:${b.e} bridge-spawn`);
         continue;
       }
       const record = scenario === 'deny' ? `printf '\\036%s\\n' '{"outcome":"deny","code":"blocked","policyVersion":1}' >&3\nprintf denied >&2\n`
@@ -357,24 +364,27 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
       fs.writeFileSync(path.join(dir,'policies',`${b.p}.sh`),`#!/bin/bash\n${record}exit ${status}\n`);
       const result=run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
       const decision = JSON.parse(result.stdout);
-      assert.equal(decision.effect,expected,`${profile} ${b.h}:${b.e} ${scenario}`);
+        // DEC-039: Stop errors and unsupported outcomes proceed, while an explicit deny blocks.
+        const stopFault = b.e === 'Stop' && scenario !== 'deny';
+      const cellExpected = profile === 'strict-1' && stopFault ? 'proceed' : expected;
+        assert.equal(decision.effect,cellExpected,`${profile} ${b.h}:${b.e} ${scenario}`);
       assert.equal(result.status,0,`${profile} ${b.h}:${b.e} ${scenario} decision exit`);
       assert.equal(result.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} decision stderr`);
 
       const native=run(dir,b.h,b.e,b.p,{},['--emit','native'],{DOFLOW_FAULT_PROFILE:profile});
       const passThrough = scenario === 'numeric' || scenario === 'signal';
-      const shouldPassStatus = expected === 'proceed' && (
+      const shouldPassStatus = cellExpected === 'proceed' && (
         (passThrough && (b.kind === 'context' || b.kind === 'kiro-tool' || b.kind === 'claude-stop')) ||
-        (scenario === 'unmarked' && b.kind === 'context')
+        (scenario === 'unmarked' && (b.kind === 'context' || b.kind === 'claude-stop'))
       );
-      const nativeBlockStatus = expected === 'block' && (b.kind === 'kiro-tool' || (b.e === 'Stop' && b.kind !== 'antigravity')) ? 2 : 0;
+      const nativeBlockStatus = cellExpected === 'block' && (b.kind === 'kiro-tool' || (b.e === 'Stop' && b.kind !== 'antigravity')) ? 2 : 0;
       assert.equal(native.status, shouldPassStatus ? (scenario === 'signal' ? 139 : scenario === 'unmarked' ? 2 : 9) : nativeBlockStatus,
         `${profile} ${b.h}:${b.e} ${scenario} native exit`);
       assert.equal(native.stderr.includes('raw-secret'),false,`${profile} ${b.h}:${b.e} ${scenario} hides child stderr`);
-      if (expected === 'proceed') {
+      if (cellExpected === 'proceed') {
         const expectedStdout = b.kind === 'codex-stop' ? '{}\n' : b.kind === 'antigravity' && b.e === 'PreToolUse' ? '{"decision":"allow"}\n' : '';
         assert.equal(native.stdout,expectedStdout,`${profile} ${b.h}:${b.e} ${scenario} proceed stdout`);
-        if (expected === 'proceed' && ['numeric','signal'].includes(scenario) && (b.kind === 'kiro-tool' || b.kind === 'claude-stop')) assert.equal(native.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list${b.kind === 'claude-stop' ? '\n' : ''}`,`${profile} ${b.h}:${b.e} ${scenario} fixed diagnostic on stderr`);
+        if (cellExpected === 'proceed' && (['numeric','signal'].includes(scenario) || scenario === 'unmarked') && (b.kind === 'kiro-tool' || b.kind === 'claude-stop')) assert.equal(native.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list${b.kind === 'claude-stop' ? '\n' : ''}`,`${profile} ${b.h}:${b.e} ${scenario} fixed diagnostic on stderr`);
         else assert.equal(native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} proceed stderr`);
       } else {
         assert.notEqual(native.stdout + native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} block has native response`);
@@ -430,6 +440,9 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
           assert.equal(result.stderr,'',`${label}: failed Kiro Stop stderr stays private`);
         } else if ((b.kind === 'kiro-tool' || b.kind === 'claude-stop') && ['numeric','signal'].includes(scenario)) {
           assert.equal(result.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list${b.kind === 'claude-stop' ? '\n' : ''}`,`${label}: fixed IC-013 reason`);
+        } else if (b.kind === 'codex-stop' && ['numeric','signal'].includes(scenario)) {
+          // DEC-037: Codex Stop suppresses raw stderr from a crashed policy.
+          assert.equal(result.stderr,'',`${label}: Codex Stop suppresses policy stderr`);
         } else if (dropToolStderr) {
           assert.equal(result.stderr,'',`${label}: tool door drops policy stderr`);
         } else {
@@ -466,8 +479,9 @@ BRIDGE_TEST('DEC-025 missing policy is a captured bridge-spawn for every policy 
 
     const strictResult = run(dir, harness, event, policyId, {}, ['--emit','native'], { ...env, DOFLOW_FAULT_PROFILE: 'strict-1', XDG_CONFIG_HOME: `${xdg}-strict` });
     const strictDecision = run(dir, harness, event, policyId, {}, ['--emit','decision'], { ...env, DOFLOW_FAULT_PROFILE: 'strict-1', DOFLOW_FAILURE_CAPTURE: 'off' });
-    assert.equal(JSON.parse(strictDecision.stdout).effect, canDeny ? 'block' : 'proceed', `${policyId}: strict-1 effect`);
-    if (canDeny) {
+    const strictBlocks = canDeny && event !== 'Stop';
+    assert.equal(JSON.parse(strictDecision.stdout).effect, strictBlocks ? 'block' : 'proceed', `${policyId}: strict-1 effect`);
+    if (strictBlocks) {
       if (event === 'PreToolUse') assert.equal(JSON.parse(strictResult.stdout).hookSpecificOutput.permissionDecision, 'deny', `${policyId}: strict native deny`);
       else {
         assert.equal(strictResult.status, 2, `${policyId}: strict Stop exit`);
