@@ -542,6 +542,25 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       notices: [...copyTree.notices, ...(components.mcp?.notices || [])] };
   }
 
+  /** The hook front doors (IC-037): hooks.json and the scripts deployed beside it, planned and
+   * verified alone. A conflict reaches the lifecycle through `components`, as in plan(). */
+  function planHookDoors(options: any) {
+    const native = projectedNativeOptions(options);
+    const hooks = native.hooksSourceFile === undefined && native.hooksConfig === undefined ? null
+      : planHooksComponent({ native, neutralResources: options.managedResources || options.ledger?.resources || [], context: nativeContext(options),
+        adopt: options.context?.adopt === true });
+    const changes: any[] = [];
+    if (hooks) addChanges(changes, assetIdFor(options, 'hooks'), hooks, 'hooks');
+    return { changes, components: hooks ? { hooks } : {}, prerequisites: [], notices: [] };
+  }
+
+  function verifyHookDoors(options: any = {}) {
+    const hooks = verifyHooksResource({ native: projectedNativeOptions(options), context: nativeContext(options), options,
+      sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, recoveryRef: options.recoveryRef });
+    return { ok: hooks.conflicts.length === 0 && hooks.statuses.every((status: any) => status.status !== 'missing' && status.status !== 'conflict'),
+      resources: hooks.resources, statuses: hooks.statuses, conflicts: hooks.conflicts };
+  }
+
   /** Apply only native plans emitted by this adapter. MCP is first because it and
    * config.toml share a file; config is then re-planned over the MCP result so it
    * cannot overwrite an adjacent MCP table. */
@@ -691,7 +710,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { ok: conflicts.length === 0 && statuses.every((status) => status.status !== 'missing' && status.status !== 'conflict'), resources, statuses, conflicts };
   }
 
-  return { normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify };
+  return { normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify, planHookDoors, verifyHookDoors };
 }
 
 const singleton = createCodexAdapter();
@@ -703,5 +722,6 @@ module.exports = {
   ownershipIdentity: singleton.ownershipIdentity,
   discover: singleton.discover, render: singleton.render, plan: singleton.plan, apply: singleton.apply,
   remove: singleton.remove, verify: singleton.verify,
+  planHookDoors: singleton.planHookDoors, verifyHookDoors: singleton.verifyHookDoors,
   createCodexAdapter,
 };

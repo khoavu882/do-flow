@@ -258,6 +258,19 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     };
   }
 
+  /** The hook front doors (IC-037): the scripts and the agent that wires them. */
+  function hookDoorAssets(assets: any) { return (assets || []).filter((asset: any) => asset.id === 'kiro.hooks-scripts' || asset.id === 'kiro.doflow-agent'); }
+
+  function planHookDoors({ scope, scopeRoot, assets = [], context = {}, ledger, fsImpl = fs }: any) {
+    const doors = planCopyTreeAssets({ assets: hookDoorAssets(assets), scope, scopeRoot, context, ledger, removing: false, fsImpl });
+    return { changes: doors.changes, conflicts: doors.conflicts, prerequisites: [], notices: doors.notices };
+  }
+
+  function verifyHookDoors({ scope, scopeRoot, assets = [], context = {}, fsImpl = fs }: any) {
+    const doors = verifyCopyTreeAssets({ assets: hookDoorAssets(assets), scope, scopeRoot, context, fsImpl });
+    return { ok: doors.conflicts.length === 0, statuses: doors.statuses, resources: doors.resources, conflicts: doors.conflicts };
+  }
+
   function apply({ changes = [], fsImpl = fs }: any) {
     writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
     applyCopyTreeAssets(changes, { fsImpl });
@@ -297,7 +310,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     };
   }
 
-  return { nativePaths, discover, render, plan, apply, remove, verify, buildServerEntry };
+  return { nativePaths, discover, render, plan, apply, remove, verify, planHookDoors, verifyHookDoors, buildServerEntry };
 }
 
 const singleton = createKiroAdapter();
@@ -305,6 +318,7 @@ const singleton = createKiroAdapter();
 module.exports = {
   nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
   plan: singleton.plan, apply: singleton.apply, remove: singleton.remove, verify: singleton.verify,
+  planHookDoors: singleton.planHookDoors, verifyHookDoors: singleton.verifyHookDoors,
   buildServerEntry: singleton.buildServerEntry,
   createKiroAdapter,
 };

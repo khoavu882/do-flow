@@ -331,6 +331,32 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     removeCopyTreeAssets(changes, { fsImpl });
   }
 
+  /** Whether the hooks pseudo-component is on disk as the source declares it, with the resource that
+   * records it when so. Null status when the run carries no hooks source or settings.json is unreadable. */
+  function verifyHooksComponent({ found, assets, context, fsImpl }: any) {
+    if (!context.geminiHooksSourceFile || found.settings.error) return { hooksStatus: null, resources: [], conflicts: [] };
+    const hooksPlan = planGeminiHooks({ sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
+      settingsFile: found.paths.settings, destinationHooksDir: found.paths.hooksDirectory, trusted: context.hooksTrusted, fsImpl });
+    const hooksStatus = hooksPlan.ok && hooksPlan.status === 'unchanged' ? 'managed' : (hooksPlan.ok ? 'missing' : 'conflict');
+    const resources = hooksStatus === 'managed' ? [{ assetId: hooksAssetId(assets), target: hooksPlan.settingsFile, ownershipIdentity: 'gemini:hooks',
+      fingerprint: fingerprint(hooksPlan.merged.hooks), sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'gemini-hooks' } }] : [];
+    return { hooksStatus, resources, conflicts: hooksPlan.ok ? [] : (hooksPlan.errors || []) };
+  }
+
+  /** The hook front doors (IC-037): the hooks pseudo-component alone. */
+  function planHookDoors({ scope, scopeRoot, assets = [], discovery, context = {}, fsImpl = fs }: any) {
+    const found = discovery || discover({ scope, scopeRoot, context, fsImpl });
+    const hooks = planHooksChange({ removing: false, found, context, assets, fsImpl });
+    return { changes: hooks.changes, conflicts: [...(found.settings.error ? [found.settings.error] : []), ...hooks.conflicts], prerequisites: [], notices: [] };
+  }
+
+  function verifyHookDoors({ scope, scopeRoot, assets = [], context = {}, fsImpl = fs }: any) {
+    const found = discover({ scope, scopeRoot, context, fsImpl });
+    const hooks = verifyHooksComponent({ found, assets, context, fsImpl });
+    const conflicts = [...(found.settings.error ? [found.settings.error] : []), ...hooks.conflicts];
+    return { ok: conflicts.length === 0 && hooks.hooksStatus !== 'conflict', resources: hooks.resources, statuses: { hooks: hooks.hooksStatus }, conflicts };
+  }
+
   function verify({ scope, scopeRoot, assets = [], context = {}, fsImpl = fs }: any) {
     const found = discover({ scope, scopeRoot, context, fsImpl });
     const resources = [];
@@ -339,23 +365,16 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     }
     const copyTree = verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl });
     resources.push(...copyTree.resources);
-    let hooksStatus = null; const conflicts = [...(found.settings.error ? [found.settings.error] : []), ...copyTree.conflicts];
-    if (context.geminiHooksSourceFile && !found.settings.error) {
-      const hooksPlan = planGeminiHooks({ sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
-        settingsFile: found.paths.settings, destinationHooksDir: found.paths.hooksDirectory, trusted: context.hooksTrusted, fsImpl });
-      hooksStatus = hooksPlan.ok && hooksPlan.status === 'unchanged' ? 'managed' : (hooksPlan.ok ? 'missing' : 'conflict');
-      if (!hooksPlan.ok) conflicts.push(...(hooksPlan.errors || []));
-      if (hooksStatus === 'managed') {
-        resources.push({ assetId: hooksAssetId(assets), target: hooksPlan.settingsFile, ownershipIdentity: 'gemini:hooks',
-          fingerprint: fingerprint(hooksPlan.merged.hooks), sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'gemini-hooks' } });
-      }
-    }
+    const hooks = verifyHooksComponent({ found, assets, context, fsImpl });
+    resources.push(...hooks.resources);
+    const hooksStatus = hooks.hooksStatus;
+    const conflicts = [...(found.settings.error ? [found.settings.error] : []), ...copyTree.conflicts, ...hooks.conflicts];
     return { ok: !found.settings.error && copyTree.conflicts.length === 0 && hooksStatus !== 'conflict', resources,
       statuses: { settings: found.settings.error ? 'invalid' : 'supported', extensions: 'different', policies: policyStatuses(context.policies), copyTree: copyTree.statuses, hooks: hooksStatus },
       conflicts };
   }
 
-  return { nativePaths, discover, render, plan, apply, remove, verify };
+  return { nativePaths, discover, render, plan, apply, remove, verify, planHookDoors, verifyHookDoors };
 }
 
 const singleton = createGeminiAdapter();
@@ -385,6 +404,6 @@ module.exports = {
   MARKER_START, MARKER_END,
   nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
   managedInstruction, plan: singleton.plan, apply: singleton.apply, remove: singleton.remove,
-  verify: singleton.verify, planGeminiHooks, hookTrustFor,
+  verify: singleton.verify, planHookDoors: singleton.planHookDoors, verifyHookDoors: singleton.verifyHookDoors, planGeminiHooks, hookTrustFor,
   createGeminiAdapter,
 };
