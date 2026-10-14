@@ -207,18 +207,19 @@ When `DOFLOW_DECISION_FD` names an open single-digit descriptor from 3 through 9
 
 `DOFLOW_FAULT_PROFILE` selects `compat-1` (default) or `strict-1`; an unknown value uses `compat-1` and records `fault-profile-unknown`. Compat preserves each front door's current effect. Strict blocks faults for blocking policies. `DOFLOW_BRIDGE_TRACE`, when set to a file path, appends the bridge's decision object there; it is not model-visible. `DOFLOW_RUN_ID`, `DOFLOW_ATTEMPT` and `DOFLOW_TASK_ID` are reserved inputs for a launcher: in 077 they populate envelope identity or task fields when supplied and are otherwise absent. `DOFLOW_SESSION_ROLE` is accepted only as `main` or `worker`.
 
-Bridge diagnostics use the existing failure store and leave its storage declaration unchanged. Bridge points include `eval-error:exit-2-unmarked`, `eval-error:exit-<n>`, `eval-error:signal-<NAME>` (not SIGTERM, SIGINT or SIGPIPE), `bridge-spawn`, `bridge-timeout`, `decision-mismatch`, `envelope-encode` and `fault-profile-unknown`. Policies may record `unsupported:envelope-version`, `edit-without-target`, `dependency-missing:jq` and their existing policy-specific points. Diagnostic messages remain empty.
+Bridge diagnostics use the existing failure store and leave its storage declaration unchanged. Bridge failure-store points include `eval-error:exit-2-unmarked`, `eval-error:exit-<n>`, `eval-error:signal-<NAME>` (not SIGTERM, SIGINT or SIGPIPE), `bridge-spawn`, `bridge-timeout`, `envelope-encode` and `fault-profile-unknown`. A `decision-mismatch` appears in the decision object and bridge trace only; it is a policy contract bug, not a failure-store point (DEC-028). Policies may record `unsupported:envelope-version`, `edit-without-target`, `dependency-missing:jq` and their existing policy-specific points. Diagnostic messages remain empty.
 
 ### Migration notes
 
 Compared with the 0fcd973 front doors, the shared bridge intentionally changes these cases:
 
 - A missing policy file is an evaluation error: `compat-1` proceeds and records a diagnostic; `strict-1` denies (DEC-025). Previously the shell's missing-file exit 127 could accidentally deny.
-- A blocking evaluation error renders `[<policy-id>] DoFlow policy error; details: doflow-run failure list` (IC-013/DEC-019), rather than exposing raw policy or runtime stderr as the reason.
+- A blocking evaluation error renders `[<policy-id>] DoFlow policy error; details: doflow-run failure list` on stdout (IC-013/DEC-019), rather than exposing raw policy or runtime stderr as the reason. On pass-through doors that historically forward policy stderr, the fixed reason is also written to stderr; Claude Stop and Kiro PreToolUse retain the original exit code.
 - Context and advisory policy faults render nothing to the model and record a diagnostic (DEC-022).
+- Codex `subagent-audit` now prints nothing for an error outcome; previously it printed `{}` when the policy failed.
 - Kiro's agent-config event names (`agentSpawn`, `preToolUse`, `stop`) resolve to the same effects and native responses as their hook-config aliases (`SessionStart`, `PreToolUse`, `Stop`); the envelope retains the native event name.
-- Antigravity's runner decodes its routed command, MCP and edit tools in the shared envelope path, including the additional edit-tool case recorded by RA1 (E.1).
-- A policy terminated by SIGSEGV is classified as `signal-SEGV` and reported with status `139` (128 plus signal 11).
+- Antigravity's runner decodes its routed command, MCP and edit tools in the shared envelope path. Under RA1, `apply_patch` with `AbsolutePath` is now denied when design artifacts are absent; the legacy matcher allowed it.
+- A policy terminated by a signal on a pass-through door exits with status `128+n` (128 plus the signal number), such as `139` for SIGSEGV. Blocking doors render their native deny response instead.
 
 ## Storage and retention
 

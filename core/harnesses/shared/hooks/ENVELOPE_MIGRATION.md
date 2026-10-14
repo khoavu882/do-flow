@@ -6,7 +6,7 @@ Every shipped bridge places envelope version 1 under `doflow_event`, beside the 
 shape (review R7):
 
 ```json
-{"doflow_event": {"operation": "edit", "paths": ["src/a.js"], "projectRoot": "/repo", "taskId": "001-auth"}}
+{"doflow_event": {"version": 1, "harness": "claude", "event": "PreToolUse", "operation": "edit", "paths": ["src/a.js"], "projectRoot": "/repo", "taskId": "001-auth"}}
 ```
 
 A front door that sends this envelope needs none of the policy's legacy union parsing — the four
@@ -26,7 +26,7 @@ tool's official docs (cross-checked against tool source where docs were incomple
 | Gemini CLI | `BeforeTool` | also offers `BeforeToolSelection` (pre-selection restriction), which the gate does not use |
 | GitHub Copilot | `preToolUse` | camelCase event names; `permissionRequest` is CLI-only, not fired in the cloud agent |
 | OpenCode | `tool.execute.before` | a pluggable hook method, not a sub-event of the generic `event` hook |
-| Pi | `tool_call` | The DoFlow extension blocks a matching call before execution; `tool_execution_start` is observation-only |
+| Pi | `tool_call` | The extension is wired to evaluate matching calls before execution; whether it blocks in live use remains unverified pending the V.3 probe. Coverage rows remain `unknown` until then; `tool_execution_start` is observation-only |
 | Antigravity | `PreToolUse` | 5-event surface, `hooks.json` + stdin/stdout JSON contract |
 
 Pi 1.1.0 declares 41 `on()` overloads in its shipped extension types. `tool_call` is the enforcement event; `tool_execution_start` is not a gate.

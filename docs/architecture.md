@@ -101,7 +101,7 @@ Hook enforcement has three separate responsibilities:
 | Lifecycle bridge | Decodes one native hook input into envelope v1, calls one canonical policy and encodes its decision as the native response (`core/harnesses/shared/hooks/bridge/`, shell front doors, Antigravity runner delegation and Pi extension) | Hold policy rules, replan, spawn an agent or inject context beyond what hooks inject today |
 | Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it | 077 assigns it no implementation obligation |
 
-Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason. G34 enforces the install-adapter and lifecycle-bridge boundaries; G35 checks the envelope and decision contract; G36 checks the coverage matrix; G37 checks wired-event fixtures.
+Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 
 ## The runtime seam
 
