@@ -357,16 +357,20 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
         const decision = run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
         assert.equal(JSON.parse(decision.stdout).effect,'proceed',`${label}: table cell proceeds`);
         const dropToolStreams = ['claude','codex','gemini','kiro-tool','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
+        const dropToolStderr = ['claude','codex','gemini','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
+        const dropKiroStopStdout = b.kind === 'kiro-stop' && b.p === 'stop-check';
         if (b.kind === 'context' && scenario !== 'allow') {
           assert.equal(result.stderr,'',`${label}: context fault is silent`);
+        } else if (b.kind === 'kiro-stop' && ['numeric','signal'].includes(scenario)) {
+          assert.equal(result.stderr,'',`${label}: failed Kiro Stop stderr stays private`);
         } else if ((b.kind === 'kiro-tool' || b.kind === 'claude-stop') && ['numeric','signal'].includes(scenario)) {
           assert.equal(result.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list${b.kind === 'claude-stop' ? '\n' : ''}`,`${label}: fixed IC-013 reason`);
-        } else if (dropToolStreams) {
+        } else if (dropToolStderr) {
           assert.equal(result.stderr,'',`${label}: tool door drops policy stderr`);
         } else {
           assert.equal(result.stderr,rawStderr,`${label}: exact stderr pass-through`);
         }
-        assert.equal(result.stdout.includes('policy stdout'),!dropToolStreams,`${label}: policy stdout follows IC-012 door`);
+        assert.equal(result.stdout.includes('policy stdout'),!dropToolStreams && !dropKiroStopStdout,`${label}: policy stdout follows IC-012/077 Kiro Stop rule`);
       }
     }
   }
@@ -476,6 +480,47 @@ BRIDGE_TEST('--emit native covers every IC-012 bridge row and Kiro engine', () =
     if (harness === 'antigravity' && event === 'PreToolUse') assert.equal(result.stdout.trim(),' {"decision":"allow"}'.trim());
     if (harness === 'pi' && event === 'tool_call') assert.equal(result.stdout,'');
   }
+});
+
+BRIDGE_TEST('Kiro agent camelCase events share IDE effects and rendering while traces retain native names', () => {
+  const dir = makeTree();
+  const policy = path.join(dir, 'policies/pre-implementation-gate.sh');
+  const cases = [
+    {
+      event: 'preToolUse', status: 2, body: '#!/bin/bash\necho private >&2\nexit 2\n',
+      stderr: `${FIXED}`, stdout: '',
+    },
+    {
+      event: 'PreToolUse', status: 2, body: '#!/bin/bash\necho private >&2\nexit 2\n',
+      stderr: `${FIXED}`, stdout: '',
+    },
+    {
+      event: 'preToolUse', status: 1, body: '#!/bin/bash\necho private >&2\nexit 1\n',
+      stderr: FIXED, stdout: '',
+    },
+  ];
+  for (const row of cases) {
+    fs.writeFileSync(policy, row.body);
+    const result = run(dir, 'kiro', row.event, 'pre-implementation-gate');
+    assert.equal(result.status, row.status, `${row.event} preserves Kiro PreToolUse status`);
+    assert.equal(result.stdout, row.stdout, `${row.event} native stdout`);
+    assert.equal(result.stderr, row.stderr, `${row.event} renders fixed reason without extra newline`);
+    assert.equal(result.stderr.includes('private'), false, `${row.event} hides stub stderr`);
+  }
+
+  const trace = path.join(dir, 'agent-stop-trace.jsonl');
+  fs.writeFileSync(path.join(dir, 'policies/stop-check.sh'), `#!/bin/bash\nprintf '{"x":1}\\n'\nprintf '\\036%s\\n' '{"outcome":"deny","code":"unfinished-work","policyVersion":1}' >&3\necho stop-reason >&2\nexit 2\n`);
+  const stop = run(dir, 'kiro', 'stop', 'stop-check', {}, [], { DOFLOW_KIRO_ENGINE: '2x', DOFLOW_BRIDGE_TRACE: trace });
+  assert.equal(stop.status, 2, 'agent stop alias selects Kiro Stop block effect');
+  assert.equal(stop.stdout, '', 'Kiro Stop always discards policy stdout');
+  assert.equal(stop.stderr, 'stop-reason', 'agent stop alias renders the real deny reason');
+  assert.equal(JSON.parse(fs.readFileSync(trace, 'utf8')).event, 'stop', 'trace keeps the native event verbatim');
+
+  const sessionTrace = path.join(dir, 'agent-session-trace.jsonl');
+  fs.writeFileSync(path.join(dir, 'policies/session-context.sh'), '#!/bin/bash\nexit 0\n');
+  const session = run(dir, 'kiro', 'agentSpawn', 'session-context', {}, [], { DOFLOW_BRIDGE_TRACE: sessionTrace });
+  assert.equal(session.status, 0, 'agentSpawn alias renders SessionStart behavior');
+  assert.equal(JSON.parse(fs.readFileSync(sessionTrace, 'utf8')).event, 'agentSpawn', 'session trace keeps native event');
 });
 
 BRIDGE_TEST('sourced bridge survives set -euo pipefail; jq and node process counts, trace and decode edge cases', () => {

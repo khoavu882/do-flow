@@ -1,0 +1,5 @@
+{
+  "native":{"hook_event_name":"Stop","session_id":"kiro-stop-v3","assistant_response":"// TODO finish"},
+  "state":"none","fault":"none",
+  "expect":{"exit":0,"stdout":null,"stdoutIncludes":"\"decision\":\"block\"","modelVisibleBytesMax":159,"decision":{"outcome":"deny","effect":"block"},"envelope":{"version":1,"harness":"kiro","event":"Stop","operation":"stop","identity":{"session":"kiro-stop-v3"}},"failurePoint":null,"taskStateUnchanged":true}
+}

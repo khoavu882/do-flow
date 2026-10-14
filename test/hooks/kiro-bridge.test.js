@@ -32,9 +32,9 @@ function git(cwd, ...args) {
 }
 
 /** Runs one front door with `payload` on stdin. */
-function runDoor(door, payload, { cwd = scratch.dir, extra = {} } = {}) {
+function runDoor(door, payload, { cwd = scratch.dir, extra = {}, errexit = false } = {}) {
   const input = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  const result = spawnSync('bash', [path.join(HOOKS, door)], { cwd, env: env(extra), input, encoding: 'utf8' });
+  const result = spawnSync('bash', [...(errexit ? ['-euo', 'pipefail'] : []), path.join(HOOKS, door)], { cwd, env: env(extra), input, encoding: 'utf8' });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -210,7 +210,7 @@ HOOK_TEST('stop-check on a V3 payload turns a deny into a JSON block with exit 0
 });
 
 HOOK_TEST('stop-check on a 2.x payload without session_id keeps exit 2 with the reason on stderr', () => {
-  const result = runDoor('stop-check.sh', { hook_event_name: 'stop', assistant_response: '// TODO finish' }, { extra: { KIRO_SESSION_ID: 'kiro-2x' } });
+  const result = runDoor('stop-check.sh', { hook_event_name: 'stop', assistant_response: '// TODO finish' }, { extra: { KIRO_SESSION_ID: 'kiro-2x' }, errexit: true });
   assert.equal(result.status, 2, result.stderr);
   assert.match(result.stderr, /unfinished-work/);
   assert.equal(result.stdout, '');

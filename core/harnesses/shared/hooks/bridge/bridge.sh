@@ -36,6 +36,7 @@ doflow_bridge_classify() {
 
 doflow_bridge_effect() {
   local harness="$1" event="$2" policy="$3" outcome="$4" profile="${DOFLOW_FAULT_PROFILE:-compat-1}" block=0
+  event="$(doflow_bridge_native_event "$harness" "$event")"
   if [ "$profile" != compat-1 ] && [ "$profile" != strict-1 ]; then
     profile=compat-1; doflow_bridge_failure "$policy" fault-profile-unknown
   fi
@@ -66,9 +67,17 @@ doflow_bridge_drops_tool_streams() {
   esac
 }
 
+doflow_bridge_drops_tool_stderr() {
+  case "$1:$2:$3" in
+    pre-implementation-gate:kiro:PreToolUse|pre-bash-guard:kiro:PreToolUse|mcp-tool-guard:kiro:PreToolUse) return 1 ;;
+  esac
+  doflow_bridge_drops_tool_streams "$1" "$2" "$3"
+}
+
 doflow_bridge() {
-  local harness="${1:-}" event="${2:-}" policy="${3:-}" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 stderr_file=""
+  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 stderr_file=""
   . "$DOFLOW_BRIDGE_DIR/respond.sh"
+  response_event="$(doflow_bridge_native_event "$harness" "$event")"
   if [ "${4:-}" = --emit ]; then emit="${5:-native}"; fi
   payload="$(cat)"
   if command -v jq >/dev/null 2>&1; then
@@ -84,7 +93,7 @@ doflow_bridge() {
   else
     stderr_file="$(mktemp "${TMPDIR:-/tmp}/doflow-bridge-stderr.XXXXXX" 2>/dev/null)" || stderr_file=""
     if [ -n "$stderr_file" ]; then
-      if [ "$emit" = decision ] || doflow_bridge_drops_tool_streams "$policy" "$harness" "$event"; then exec 5>/dev/null; else exec 5>&1; fi
+      if [ "$emit" = decision ] || doflow_bridge_drops_tool_streams "$policy" "$harness" "$response_event" || { [ "$harness" = kiro ] && [ "$response_event" = Stop ]; }; then exec 5>/dev/null; else exec 5>&1; fi
       if captured="$(DOFLOW_AGENT="$harness" DOFLOW_DECISION_FD=3 bash "$policy_path" 2>"$stderr_file" 3>&1 1>&5 <<<"$payload")"; then code=0; else code=$?; fi
       exec 5>&-
       err="$(cat "$stderr_file")"
@@ -102,12 +111,12 @@ EOF
   doflow_bridge_effect "$harness" "$event" "$policy" "$DF_BRIDGE_OUTCOME"
   if [ "$DF_BRIDGE_EFFECT" = block ] && [ "$DF_BRIDGE_OUTCOME" != deny ]; then reason="[$policy] DoFlow policy error; details: doflow-run failure list"; fi
   if [ "$DF_BRIDGE_OUTCOME" != deny ] && [ "$DF_BRIDGE_EFFECT" = proceed ]; then
-    case "$harness:$event:$DF_BRIDGE_OUTCOME" in
+    case "$harness:$response_event:$DF_BRIDGE_OUTCOME" in
       kiro:PreToolUse:error|claude:Stop:error)
         case "$DF_BRIDGE_CODE" in
           exit-*|signal-*)
             reason="[$policy] DoFlow policy error; details: doflow-run failure list"
-            if [ "$harness:$event" = claude:Stop ]; then reason="$reason"$'\n'; fi
+            if [ "$harness:$response_event" = claude:Stop ]; then reason="$reason"$'\n'; fi
             ;;
         esac
         ;;
@@ -130,7 +139,7 @@ EOF
   else
     status=0
     if [ "$DF_BRIDGE_OUTCOME" = error ]; then
-      case "$policy:$harness:$event" in
+      case "$policy:$harness:$response_event" in
         session-context:*:*|user-prompt-submit:*:*|subagent-audit:*:*|*:kiro:PreToolUse|*:claude:Stop) status="$code" ;;
       esac
     fi
@@ -142,11 +151,11 @@ EOF
     [ -z "$stderr_file" ] || rm -f "$stderr_file"
     return "$render_status"
   fi
-  case "$policy:$DF_BRIDGE_OUTCOME:$harness:$event:$DF_BRIDGE_CODE" in
+  case "$policy:$DF_BRIDGE_OUTCOME:$harness:$response_event:$DF_BRIDGE_CODE" in
     session-context:error:*:*:*|user-prompt-submit:error:*:*:*|subagent-audit:error:*:*:*|session-context:unsupported:*:*:*|user-prompt-submit:unsupported:*:*:*|subagent-audit:unsupported:*:*:*) ;;
-    *:error:kiro:PreToolUse:exit-*|*:error:kiro:PreToolUse:signal-*|*:error:claude:Stop:exit-*|*:error:claude:Stop:signal-*) ;;
+    *:error:kiro:PreToolUse:exit-*|*:error:kiro:PreToolUse:signal-*|*:error:kiro:Stop:exit-*|*:error:kiro:Stop:signal-*|*:error:claude:Stop:exit-*|*:error:claude:Stop:signal-*) ;;
     *)
-      if ! doflow_bridge_drops_tool_streams "$policy" "$harness" "$event" && [ -n "$stderr_file" ]; then cat "$stderr_file" >&2; fi
+      if ! doflow_bridge_drops_tool_stderr "$policy" "$harness" "$response_event" && [ -n "$stderr_file" ]; then cat "$stderr_file" >&2; fi
       ;;
   esac
   doflow_render_response "$harness" "$event" "$DF_BRIDGE_OUTCOME" "$reason" "$status"

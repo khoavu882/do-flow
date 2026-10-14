@@ -1,0 +1,5 @@
+{
+  "native":{"hook_event_name":"preToolUse","session_id":"kiro-agent-gate-perf","tool_name":"write","tool_input":{"path":"src/a.js"}},
+  "state":"all-artifacts","fault":"none",
+  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"preToolUse","operation":"edit","tool":"Write","paths":["src/a.js"],"identity":{"session":"kiro-agent-gate-perf"}},"failurePoint":null,"taskStateUnchanged":true}
+}
