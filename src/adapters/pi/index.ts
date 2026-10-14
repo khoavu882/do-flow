@@ -206,6 +206,17 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     return { changes, conflicts, notices, paths: found.paths };
   }
 
+  /** The hook front door (IC-037): the guard extension. */
+  function planHookDoors({ scope, scopeRoot, assets = [], context = {}, ledger, fsImpl = fs }: any) {
+    const door = planPiHooks({ scope, scopeRoot, assets, ledger, context, adopt: context?.adopt === true, env, fsImpl });
+    return { changes: door.changes, conflicts: door.conflicts, notices: door.notices };
+  }
+
+  function verifyHookDoors({ scope, scopeRoot, assets = [], ledger, context = {}, fsImpl = fs }: any) {
+    const door = verifyPiHooks({ scope, scopeRoot, assets, ledger, context, adopt: context?.adopt === true, env, fsImpl });
+    return { ok: door.conflicts.length === 0 && !door.statuses.some((s: any) => s.status === 'invalid' || s.status === 'conflict'), ...door };
+  }
+
   function writeChange(change: any, fsImpl: any) {
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
     fsImpl.writeFileSync(change.target, change.content, 'utf8');
@@ -279,7 +290,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     return { ok: conflicts.length === 0 && !statuses.some((s) => s.status === 'invalid' || s.status === 'conflict'), resources, statuses, conflicts };
   }
 
-  return { nativePaths, discover, render, plan, apply, remove, verify };
+  return { nativePaths, discover, render, plan, apply, remove, verify, planHookDoors, verifyHookDoors };
 }
 
 const singleton = createPiAdapter();
@@ -287,6 +298,7 @@ const singleton = createPiAdapter();
 module.exports = {
   HARNESS, nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
   plan: singleton.plan, apply: singleton.apply, remove: singleton.remove, verify: singleton.verify,
+  planHookDoors: singleton.planHookDoors, verifyHookDoors: singleton.verifyHookDoors,
   managedInstruction: (singleton as any).managedInstruction, strippedInstruction: (singleton as any).strippedInstruction,
   createPiAdapter,
 };

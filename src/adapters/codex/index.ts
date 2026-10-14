@@ -12,7 +12,7 @@ const crypto = require('node:crypto');
 const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('./config.ts');
 const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds, userDefinedCodexMcpIds, serverTableText } = require('./mcp.ts');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents.ts');
-const { planCodexHooks, deployCodexHooks, removeCodexHookScripts } = require('./hooks.ts');
+const { planCodexHooks, deployCodexHooks, removeCodexHookScripts, scriptFingerprint } = require('./hooks.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree.ts');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { nativeMcpCatalog } = require('../../registry/index.ts');
@@ -445,9 +445,16 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   /** Codex hooks.json is only replaced when the file on disk still matches the ledger's last-known
    * fingerprint — a foreign edit (or a record the ledger never owned) downgrades an otherwise-clean
    * plan to a conflict rather than silently overwriting it. */
-  function planHooksComponent({ native, neutralResources, context, adopt = false }: any) {
+  /** This scope's ledger rows for the hook scripts deployed beside hooks.json. */
+  function scriptRows(neutralResources: any, context: any) {
+    return (neutralResources || []).filter((resource: any) => resource?.harness === HARNESS && resource.kind === 'hooks-script'
+      && (!resource.scope || resource.scope === context.scope));
+  }
+
+  function planHooksComponent({ native, neutralResources, context, adopt = false, force = false }: any) {
     let hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile,
-      sourceHooksDir: native.hooksSourceDir, trusted: native.hooksTrusted, destinationContext: context });
+      sourceHooksDir: native.hooksSourceDir, trusted: native.hooksTrusted, destinationContext: context,
+      scriptRows: scriptRows(neutralResources, context), force });
     const hooksFile = hooks.destination;
     if (hooks.ok && fs.existsSync(hooksFile)) {
       const [record] = nativeManagedResources(neutralResources, context, { kind: 'hooks-file', target: hooksFile });
@@ -466,13 +473,22 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
 
   /** Agents/hooks share one removing-vs-planning fork: removal always owns both via the neutral
    * ledger's own records, regardless of what native input the caller provided this run. */
+  /** A removal drops the rows of the hook scripts too. The scripts themselves go by their bytes
+   * (removeCodexHookScripts), so each row is only released here. */
+  function withScriptReleases(plan: any, neutralResources: any, context: any, extra: any) {
+    const releases = scriptRows(neutralResources, context).map((row: any) => ({ type: 'remove', assetId: row.assetId, identity: row.identity,
+      target: row.target, ownershipIdentity: row.ownershipIdentity, kind: row.kind, release: true }));
+    return { ...plan, ...extra, changes: [...plan.changes, ...releases],
+      status: plan.status === 'unchanged' && releases.length ? 'change' : plan.status };
+  }
+
   function planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options, adopt = false }: any) {
     if (removing) {
       return {
         agents: ownedRemovalPlan(neutralResources, context, 'custom-agent', agentsDirectory),
         // The scripts deployed beside hooks.json have no ledger rows; remove() matches them by bytes.
-        hooks: { ...ownedRemovalPlan(neutralResources, context, 'hooks-file'),
-          scriptsDir: native.hooksSourceDir, destinationHooksDir: context.paths.hooksDirectory },
+        hooks: withScriptReleases(ownedRemovalPlan(neutralResources, context, 'hooks-file'), neutralResources, context,
+          { scriptsDir: native.hooksSourceDir, destinationHooksDir: context.paths.hooksDirectory }),
       };
     }
     const components: Record<string, any> = {};
@@ -483,7 +499,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       components.agents = planCodexAgents({ ...context, managedResources, sourceDir: native.agentsSourceDir, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, adopt });
     }
     if (native.hooksSourceFile !== undefined || native.hooksConfig !== undefined) {
-      components.hooks = planHooksComponent({ native, neutralResources, context, adopt });
+      components.hooks = planHooksComponent({ native, neutralResources, context, adopt, force: options.context?.force === true });
     }
     return components;
   }
@@ -542,6 +558,25 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       notices: [...copyTree.notices, ...(components.mcp?.notices || [])] };
   }
 
+  /** The hook front doors (IC-037): hooks.json and the scripts deployed beside it, planned and
+   * verified alone. A conflict reaches the lifecycle through `components`, as in plan(). */
+  function planHookDoors(options: any) {
+    const native = projectedNativeOptions(options);
+    const hooks = native.hooksSourceFile === undefined && native.hooksConfig === undefined ? null
+      : planHooksComponent({ native, neutralResources: options.managedResources || options.ledger?.resources || [], context: nativeContext(options),
+        adopt: options.context?.adopt === true, force: options.context?.force === true });
+    const changes: any[] = [];
+    if (hooks) addChanges(changes, assetIdFor(options, 'hooks'), hooks, 'hooks');
+    return { changes, components: hooks ? { hooks } : {}, prerequisites: [], notices: [] };
+  }
+
+  function verifyHookDoors(options: any = {}) {
+    const hooks = verifyHooksResource({ native: projectedNativeOptions(options), context: nativeContext(options), options,
+      sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, recoveryRef: options.recoveryRef });
+    return { ok: hooks.conflicts.length === 0 && hooks.statuses.every((status: any) => status.status !== 'missing' && status.status !== 'conflict'),
+      resources: hooks.resources, statuses: hooks.statuses, conflicts: hooks.conflicts };
+  }
+
   /** Apply only native plans emitted by this adapter. MCP is first because it and
    * config.toml share a file; config is then re-planned over the MCP result so it
    * cannot overwrite an adjacent MCP table. */
@@ -579,7 +614,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   function remove({ changes = [], dryRun = false }: any = {}) {
     const result = apply({ changes, dryRun });
     const direct = new Map();
-    for (const change of changes) if (change?.nativePlan?.directRemove) direct.set(change.target, change);
+    for (const change of changes) if (change?.nativePlan?.directRemove && !change.retained) direct.set(change.target, change);
     for (const change of direct.values()) {
       if (!fs.existsSync(change.target)) continue;
       const current = sha256(fs.readFileSync(change.target, 'utf8'));
@@ -651,6 +686,13 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     if (!hooks.ok) conflicts.push(...hooks.errors);
     if (status === 'managed') resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'hooks'), kind: 'hooks-file', identity: 'hooks.json',
       target: hooks.destination, fingerprint: sha256(fs.readFileSync(hooks.destination, 'utf8')), sourceVersion, recoveryRef, projection: { renderer: 'codex-hooks' } }));
+    if (status === 'managed') {
+      for (const name of hooks.scriptNames) {
+        resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'hooks'), kind: 'hooks-script', identity: name,
+          target: path.join(hooks.destinationHooksDir, name), fingerprint: scriptFingerprint(fs.readFileSync(path.join(hooks.destinationHooksDir, name))),
+          sourceVersion, recoveryRef, projection: { renderer: 'codex-hooks' } }));
+      }
+    }
     return { statuses, resources, conflicts };
   }
 
@@ -691,7 +733,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { ok: conflicts.length === 0 && statuses.every((status) => status.status !== 'missing' && status.status !== 'conflict'), resources, statuses, conflicts };
   }
 
-  return { normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify };
+  return { normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify, planHookDoors, verifyHookDoors };
 }
 
 const singleton = createCodexAdapter();
@@ -703,5 +745,6 @@ module.exports = {
   ownershipIdentity: singleton.ownershipIdentity,
   discover: singleton.discover, render: singleton.render, plan: singleton.plan, apply: singleton.apply,
   remove: singleton.remove, verify: singleton.verify,
+  planHookDoors: singleton.planHookDoors, verifyHookDoors: singleton.verifyHookDoors,
   createCodexAdapter,
 };

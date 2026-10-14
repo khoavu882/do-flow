@@ -178,6 +178,8 @@ function createAntigravityAdapter({ declaredPaths = DEFAULT_DECLARED_PATHS }: an
     apply,
     remove,
     verify: (options: any, impl = {}) => verify(options, { ...impl, nativePaths: nativePathsFor }),
+    planHookDoors: (options: any, impl = {}) => planHookDoors(options, { ...impl, nativePaths: nativePathsFor }),
+    verifyHookDoors: (options: any, impl = {}) => verifyHookDoors(options, { ...impl, nativePaths: nativePathsFor }),
   };
 }
 
@@ -449,6 +451,29 @@ function plan(options: any = {}, impl: any = {}) {
   };
 }
 
+/** The hook front doors (IC-037): the shims and the hooks.json groups that run them, planned and
+ * verified alone. Project scope only, and only when the harness selected the hooks asset. */
+function planHookDoors(options: any = {}, impl: any = {}) {
+  const fsImpl = impl.fsImpl || fs;
+  const context = options.context ?? {};
+  const scope = options.scope ?? 'project';
+  if (!(options.assets ?? []).some((asset: any) => asset.id === HOOKS_ASSET_ID)) return { changes: [], conflicts: [], prerequisites: [], notices: [] };
+  const paths = (impl.nativePaths ?? singleton.nativePaths)({ ...options, scope, homeDir: context.homeDir });
+  const doors = planHooks({ paths, scope, neutralResources: ledgerResources(options), removing: false, repoRoot: context.repoRoot, fsImpl });
+  return { changes: doors.changes, conflicts: doors.conflicts, prerequisites: [], notices: [] };
+}
+
+function verifyHookDoors(options: any = {}, impl: any = {}) {
+  const fsImpl = impl.fsImpl || fs;
+  const context = options.context ?? {};
+  const scope = options.scope ?? 'project';
+  if (scope !== 'project' || !(options.assets ?? []).some((asset: any) => asset.id === HOOKS_ASSET_ID)) return { ok: true, statuses: [], resources: [], conflicts: [] };
+  const paths = (impl.nativePaths ?? singleton.nativePaths)({ ...options, scope, homeDir: context.homeDir });
+  const doors = verifyHooks({ options, paths, context, fsImpl });
+  const conflicts = doors.statuses.filter((status: any) => status.status === 'conflict').map((status: any) => status.reason ?? status.identity);
+  return { ok: conflicts.length === 0, ...doors, conflicts };
+}
+
 function apply(options: any = {}, impl: any = {}) {
   const fsImpl = impl.fsImpl || fs;
   // apply()/verify() are reached through the lifecycle with the same scope inputs plan() saw, so
@@ -504,6 +529,60 @@ function apply(options: any = {}, impl: any = {}) {
 // contract still requires the verb itself.
 function remove(options: any = {}, impl: any = {}) {
   return apply(options, impl);
+}
+
+/** The hook shims' bytes and the registered groups (project scope), as statuses and resources. */
+function verifyHooks({ options, paths, context, fsImpl }: any) {
+  const statuses: any[] = [];
+  const resources: any[] = [];
+  const hooksTarget = paths.hooksJson;
+  const scriptTargets: Record<string, any> = {
+    'pre-implementation-gate.sh': paths.hookScript,
+    'stop-check.sh': paths.stopHookScript,
+  };
+  // Source-side residue: reads the shims from THIS checkout (the authored source of the
+  // projection, not an install destination — the destination is declared as the paths above).
+  const scriptSourceDir = path.join(path.resolve(registryRepoRoot(options)), 'core', 'harnesses', 'antigravity', 'hooks');
+  const removingOp = (context.operation ?? options.operation ?? '') === 'remove';
+  const fingerprints: Record<string, any> = {};
+  let scriptsOk = true;
+  let anyPresent = false;
+  for (const identity of HOOK_SCRIPTS) {
+    let sourceFp = null;
+    try { sourceFp = sha256File(fsImpl, path.join(scriptSourceDir, identity)); } catch { /* checkout without that shim */ }
+    fingerprints[identity] = sourceFp;
+    const target = scriptTargets[identity];
+    const current = fsImpl.existsSync(target) ? sha256File(fsImpl, target) : null;
+    if (current !== null) anyPresent = true;
+    if (current === null || current !== sourceFp) scriptsOk = false;
+  }
+  const doc = readJsonObject(hooksTarget, { fsImpl });
+  const gate = doc?.[HOOKS_GROUP];
+  const stop = doc?.[STOP_HOOKS_GROUP];
+  const gateOk = Boolean(gate?.PreToolUse?.[0]?.hooks?.[0]?.command)
+    && gate.PreToolUse[0].hooks[0].command === scriptTargets['pre-implementation-gate.sh']
+    && gate.PreToolUse[0].matcher === GATE_MATCHER;
+  // Stop registration is matcher-free: handlers sit directly under the event key.
+  const stopOk = Array.isArray(stop?.Stop) && stop.Stop.length > 0
+    && stop.Stop[0]?.command === scriptTargets['stop-check.sh'];
+  const groupsOk = gateOk && stopOk;
+  statuses.push({ assetId: HOOKS_ASSET_ID, capability: 'hooks', status:
+    removingOp ? (!anyPresent && !groupsOk ? 'absent' : 'retained')
+      : (scriptsOk && groupsOk ? 'managed' : (!anyPresent && !groupsOk ? 'absent' : 'missing')),
+    ownershipIdentity: `${HARNESS}:hooks:registration`, target: hooksTarget });
+  if (!removingOp && scriptsOk && groupsOk) {
+    resources.push({ assetId: HOOKS_ASSET_ID, target: hooksTarget,
+      ownershipIdentity: `${HARNESS}:hooks:registration`, kind: 'hooks-json',
+      fingerprint: fingerprint(JSON.stringify(doc)), sourceVersion: 'registry-v1',
+      projection: { renderer: 'antigravity-hooks' } });
+    for (const identity of HOOK_SCRIPTS) {
+      resources.push({ assetId: HOOKS_ASSET_ID, target: scriptTargets[identity],
+        ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:${identity}`,
+        kind: 'copy-tree-file', identity, fingerprint: fingerprints[identity],
+        sourceVersion: 'registry-v1', projection: { renderer: 'antigravity-hooks' } });
+    }
+  }
+  return { statuses, resources };
 }
 
 function verify(options: any = {}, impl: any = {}) {
@@ -564,53 +643,9 @@ function verify(options: any = {}, impl: any = {}) {
 
   // Hooks projection (project scope): the shims' bytes and the registered groups.
   if (scope === 'project') {
-    const hooksTarget = paths.hooksJson;
-    const scriptTargets: Record<string, any> = {
-      'pre-implementation-gate.sh': paths.hookScript,
-      'stop-check.sh': paths.stopHookScript,
-    };
-    // Source-side residue: reads the shims from THIS checkout (the authored source of the
-    // projection, not an install destination — the destination is declared as the paths above).
-    const scriptSourceDir = path.join(path.resolve(registryRepoRoot(options)), 'core', 'harnesses', 'antigravity', 'hooks');
-    const removingOp = (context.operation ?? options.operation ?? '') === 'remove';
-    const fingerprints: Record<string, any> = {};
-    let scriptsOk = true;
-    let anyPresent = false;
-    for (const identity of HOOK_SCRIPTS) {
-      let sourceFp = null;
-      try { sourceFp = sha256File(fsImpl, path.join(scriptSourceDir, identity)); } catch { /* checkout without that shim */ }
-      fingerprints[identity] = sourceFp;
-      const target = scriptTargets[identity];
-      const current = fsImpl.existsSync(target) ? sha256File(fsImpl, target) : null;
-      if (current !== null) anyPresent = true;
-      if (current === null || current !== sourceFp) scriptsOk = false;
-    }
-    const doc = readJsonObject(hooksTarget, { fsImpl });
-    const gate = doc?.[HOOKS_GROUP];
-    const stop = doc?.[STOP_HOOKS_GROUP];
-    const gateOk = Boolean(gate?.PreToolUse?.[0]?.hooks?.[0]?.command)
-      && gate.PreToolUse[0].hooks[0].command === scriptTargets['pre-implementation-gate.sh']
-      && gate.PreToolUse[0].matcher === GATE_MATCHER;
-    // Stop registration is matcher-free: handlers sit directly under the event key.
-    const stopOk = Array.isArray(stop?.Stop) && stop.Stop.length > 0
-      && stop.Stop[0]?.command === scriptTargets['stop-check.sh'];
-    const groupsOk = gateOk && stopOk;
-    statuses.push({ assetId: HOOKS_ASSET_ID, capability: 'hooks', status:
-      removingOp ? (!anyPresent && !groupsOk ? 'absent' : 'retained')
-        : (scriptsOk && groupsOk ? 'managed' : (!anyPresent && !groupsOk ? 'absent' : 'missing')),
-      ownershipIdentity: `${HARNESS}:hooks:registration`, target: hooksTarget });
-    if (!removingOp && scriptsOk && groupsOk) {
-      resources.push({ assetId: HOOKS_ASSET_ID, target: hooksTarget,
-        ownershipIdentity: `${HARNESS}:hooks:registration`, kind: 'hooks-json',
-        fingerprint: fingerprint(JSON.stringify(doc)), sourceVersion: 'registry-v1',
-        projection: { renderer: 'antigravity-hooks' } });
-      for (const identity of HOOK_SCRIPTS) {
-        resources.push({ assetId: HOOKS_ASSET_ID, target: scriptTargets[identity],
-          ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:${identity}`,
-          kind: 'copy-tree-file', identity, fingerprint: fingerprints[identity],
-          sourceVersion: 'registry-v1', projection: { renderer: 'antigravity-hooks' } });
-      }
-    }
+    const hooks = verifyHooks({ options, paths, context, fsImpl });
+    statuses.push(...hooks.statuses);
+    resources.push(...hooks.resources);
   }
 
   const conflicts = [...statuses.filter((s) => s.status === 'conflict').map((s) => s.reason ?? s.identity), ...mcp.conflicts];
@@ -627,5 +662,6 @@ function conflictsToStatuses(conflicts: any, assetId: any, statuses: any) {
 
 module.exports = {
   HARNESS, nativePaths: singleton.nativePaths, discover, render, plan, apply, remove, verify,
+  planHookDoors: singleton.planHookDoors, verifyHookDoors: singleton.verifyHookDoors,
   createAntigravityAdapter,
 };

@@ -14,6 +14,7 @@
 // if a third harness with the same shape is ever added.
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { verifyHookCommands } = require('../hook-commands.ts');
 const { mergeHooks } = require('../../helper/settings-merge.ts');
 
@@ -103,7 +104,39 @@ function classifyClaudeGuardrails(claudeHooks: any = {}): { supported: any[], un
  * exists but fails to parse is a hard error, not silently treated as empty (this path merges
  * into content DoFlow does not own — a malformed-file work-around here risks losing it).
  */
-function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, destinationHooksDir: declaredHooksDir, trusted = false, fsImpl = fs }: any = {}): any {
+/** Every regular, non-JSON file in the shipped scripts directory: what deployGeminiHooks copies. */
+function shippedScripts(scriptsDir: any, fsImpl: any = fs): string[] {
+  if (!scriptsDir || !fsImpl.existsSync(scriptsDir)) return [];
+  return fsImpl.readdirSync(scriptsDir)
+    .filter((name: string) => !name.endsWith('.json') && fsImpl.statSync(path.join(scriptsDir, name)).isFile());
+}
+
+/** DoFlow's record of a deployed hook script: the sha256 of its bytes. */
+function scriptFingerprint(bytes: any): string { return crypto.createHash('sha256').update(bytes).digest('hex'); }
+
+/** The scripts beside the config that differ from the shipped source (or are absent), by name, and
+ * those among them a ledger row says were edited since DoFlow wrote them. A script with no row
+ * (an install from before scripts were recorded) is DoFlow's to refresh: the config deploy always
+ * overwrote it. `rows` are this harness's script rows: { target, fingerprint }. */
+function planHookScripts({ commands, sourceHooksDir, destinationHooksDir, rows = [], force = false, fsImpl = fs }: any) {
+  const sources = new Map<string, string>(commands.checks.map((check: any) => [check.script, check.file] as [string, string]));
+  for (const name of shippedScripts(sourceHooksDir, fsImpl)) if (!sources.has(name)) sources.set(name, path.join(sourceHooksDir, name));
+  const stale: string[] = [];
+  const edited: string[] = [];
+  for (const [name, source] of sources) {
+    const target = path.join(destinationHooksDir, name);
+    if (fsImpl.existsSync(target)) {
+      const current = fsImpl.readFileSync(target);
+      if (current.equals(fsImpl.readFileSync(source))) continue;
+      const row = rows.find((item: any) => path.resolve(item.target) === path.resolve(target));
+      if (row && row.fingerprint !== scriptFingerprint(current) && !force) edited.push(name);
+    }
+    stale.push(name);
+  }
+  return { names: [...sources.keys()], stale, edited };
+}
+
+function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, destinationHooksDir: declaredHooksDir, trusted = false, scriptRows = [], force = false, fsImpl = fs }: any = {}): any {
   let desired = config;
   try {
     if (!desired && sourceFile) desired = JSON.parse(fsImpl.readFileSync(sourceFile, 'utf8'));
@@ -124,20 +157,26 @@ function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, des
 
   const mergedHooks = existing.hooks ? mergeHooks(existing.hooks, desired.hooks) : desired.hooks;
   const merged = { ...existing, hooks: mergedHooks };
-  const changed = JSON.stringify(existing.hooks) !== JSON.stringify(mergedHooks);
+  const configChanged = JSON.stringify(existing.hooks) !== JSON.stringify(mergedHooks);
   // Preferred: the declared hooks directory (harnesses.json "paths".hooksDirectory); the derived
   // sibling-of-settings fallback stays for direct callers passing raw inputs, and resolves to the
   // same location.
   const destinationHooksDir = declaredHooksDir || path.join(path.dirname(settingsFile), 'hooks');
+  // The scripts are deployed with the hooks key but are not part of it: a script whose bytes differ
+  // from the source is redeployed even when the key is already right.
+  const scripts = planHookScripts({ commands, sourceHooksDir, destinationHooksDir, rows: scriptRows, force, fsImpl });
+  if (scripts.edited.length) {
+    return { ok: false, status: 'conflict', settingsFile, existing, changes: [], commands,
+      errors: scripts.edited.map((name: string) => `Gemini hook script '${name}' was modified outside DoFlow`) };
+  }
+  const scriptsOnly = !configChanged && scripts.stale.length > 0;
+  const changed = configChanged || scriptsOnly;
   // The scripts deployGeminiHooks copies beside settings.json, so a backup of this change holds them too.
-  const shipped = sourceHooksDir && fsImpl.existsSync(sourceHooksDir)
-    ? fsImpl.readdirSync(sourceHooksDir).filter((name: string) => !name.endsWith('.json') && fsImpl.statSync(path.join(sourceHooksDir, name)).isFile())
-    : [];
   const companionTargets = [...new Set([
     ...commands.checks.map((check: any) => path.join(destinationHooksDir, check.script)),
-    ...shipped.map((name: string) => path.join(destinationHooksDir, name)),
+    ...shippedScripts(sourceHooksDir, fsImpl).map((name: string) => path.join(destinationHooksDir, name)),
   ])].sort();
-  return { ok: true, status: changed ? 'change' : 'unchanged', settingsFile, existing, merged,
+  return { ok: true, status: changed ? 'change' : 'unchanged', settingsFile, existing, merged, scriptsOnly, scriptNames: scripts.names,
     changes: changed ? [{ type: fsImpl.existsSync(settingsFile) ? 'update' : 'create', file: settingsFile, key: 'hooks' }] : [],
     errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir, destinationHooksDir, companionTargets };
 }
@@ -145,14 +184,16 @@ function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, des
 function deployGeminiHooks(plan: any, { dryRun = false, fsImpl = fs }: { dryRun?: boolean, fsImpl?: any } = {}): any {
   if (!plan.ok) return { ...plan, applied: false };
   if (dryRun || plan.status === 'unchanged') return { ...plan, applied: false };
-  fsImpl.mkdirSync(path.dirname(plan.settingsFile), { recursive: true });
-  const content = `${JSON.stringify(plan.merged, null, 2)}\n`;
-  const temporary = path.join(path.dirname(plan.settingsFile), `.${path.basename(plan.settingsFile)}.${process.pid}.${Date.now()}.tmp`);
-  try {
-    fsImpl.writeFileSync(temporary, content, { flag: 'wx' });
-    fsImpl.renameSync(temporary, plan.settingsFile);
-  } finally {
-    if (fsImpl.existsSync(temporary)) fsImpl.unlinkSync(temporary);
+  if (!plan.scriptsOnly) {
+    fsImpl.mkdirSync(path.dirname(plan.settingsFile), { recursive: true });
+    const content = `${JSON.stringify(plan.merged, null, 2)}\n`;
+    const temporary = path.join(path.dirname(plan.settingsFile), `.${path.basename(plan.settingsFile)}.${process.pid}.${Date.now()}.tmp`);
+    try {
+      fsImpl.writeFileSync(temporary, content, { flag: 'wx' });
+      fsImpl.renameSync(temporary, plan.settingsFile);
+    } finally {
+      if (fsImpl.existsSync(temporary)) fsImpl.unlinkSync(temporary);
+    }
   }
   const deployed = new Set<string>();
   for (const check of plan.commands.checks) {
@@ -207,4 +248,4 @@ function deployRemoveGeminiHooks(plan: any, { dryRun = false, fsImpl = fs }: { d
   return { ...plan, applied: true };
 }
 
-module.exports = { SUPPORTED_EVENTS, validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks };
+module.exports = { SUPPORTED_EVENTS, validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planGeminiHooks, deployGeminiHooks, scriptFingerprint, shippedScripts, planRemoveGeminiHooks, deployRemoveGeminiHooks };

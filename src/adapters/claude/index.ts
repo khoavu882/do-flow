@@ -480,6 +480,19 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return { changes, conflicts, prerequisites: [], notices: [...copyTree.notices, ...mcpPlan.notices] };
   }
 
+  /** The hook front doors (IC-037): the one asset that holds the scripts the settings hooks run. */
+  function hookDoorAssets(assets: any) { return (assets || []).filter((asset: any) => asset.id === 'claude.hooks-scripts'); }
+
+  function planHookDoors({ assets, scope, scopeRoot, context = {}, ledger }: any) {
+    const doors = planCopyTreeAssets({ assets: hookDoorAssets(assets), scope, scopeRoot, context, ledger, removing: false });
+    return { changes: doors.changes, conflicts: doors.conflicts, prerequisites: [], notices: doors.notices };
+  }
+
+  function verifyHookDoors({ assets, scope, scopeRoot, context = {} }: any) {
+    const doors = verifyCopyTreeAssets({ assets: hookDoorAssets(assets), scope, scopeRoot, context });
+    return { ok: doors.conflicts.length === 0, statuses: doors.statuses, resources: doors.resources, conflicts: doors.conflicts };
+  }
+
   function apply({ changes, scope, scopeRoot, context = {} }: any) {
     for (const change of changes) {
       if (change.projection?.renderer !== INSTRUCTION_RENDERER) continue;
@@ -536,7 +549,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return { ok: conflicts.length === 0, statuses, resources, conflicts };
   }
 
-  return { nativePaths, discover, render, plan, apply, remove, verify };
+  return { nativePaths, discover, render, plan, apply, remove, verify, planHookDoors, verifyHookDoors };
 }
 
 const singleton = createClaudeAdapter();
@@ -544,5 +557,6 @@ const singleton = createClaudeAdapter();
 module.exports = {
   nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
   plan: singleton.plan, apply: singleton.apply, remove: singleton.remove, verify: singleton.verify,
+  planHookDoors: singleton.planHookDoors, verifyHookDoors: singleton.verifyHookDoors,
   createClaudeAdapter,
 };
