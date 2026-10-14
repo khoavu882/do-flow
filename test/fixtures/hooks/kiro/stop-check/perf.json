@@ -1,0 +1,5 @@
+{
+  "native":{"hook_event_name":"Stop","session_id":"kiro-stop-hooks-perf","assistant_response":"all done"},
+  "state":"none","fault":"none",
+  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"Stop","operation":"stop","identity":{"session":"kiro-stop-hooks-perf"}},"failurePoint":null,"taskStateUnchanged":true}
+}

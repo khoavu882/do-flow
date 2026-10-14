@@ -3,8 +3,19 @@
 BRIDGE_RESPOND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 . "$BRIDGE_RESPOND_DIR/../policies/deny-json.sh"
 
+doflow_bridge_native_event() {
+  local harness="$1" event="$2"
+  case "$harness:$event" in
+    kiro:preToolUse) event=PreToolUse ;;
+    kiro:agentSpawn) event=SessionStart ;;
+    kiro:stop) event=Stop ;;
+  esac
+  printf '%s\n' "$event"
+}
+
 doflow_render_response() {
   local harness="$1" event="$2" outcome="$3" reason="$4" status="$5" engine="${DOFLOW_KIRO_ENGINE:-2x}"
+  event="$(doflow_bridge_native_event "$harness" "$event")"
   if [ "$outcome" = deny ]; then
     case "$harness:$event" in
       claude:PreToolUse|codex:PreToolUse) emit_pretooluse_deny_nested "$reason"; return 0 ;;

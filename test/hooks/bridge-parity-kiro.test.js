@@ -63,6 +63,10 @@ function runFixture({ stem, fixturePath, fixture }, index) {
     const policyFile = path.join(mirror, '.doflow/shared/hooks/policies', fixture.policyConfig.file);
     fs.appendFileSync(policyFile, fixture.policyConfig.contents);
   }
+  if (fixture.fault === 'crash-exit-1') {
+    const policy = POLICIES[stem];
+    fs.writeFileSync(path.join(mirror, '.doflow/shared/hooks/policies', `${policy}.sh`), '#!/usr/bin/env bash\necho private-policy-stderr >&2\nexit 1\n');
+  }
   const trace = path.join(scratch.dir, `trace-${index}.jsonl`);
   const home = path.join(scratch.dir, `home-${index}`);
   const xdg = path.join(scratch.dir, `xdg-${index}`);
@@ -76,9 +80,11 @@ function runFixture({ stem, fixturePath, fixture }, index) {
   const result = run(['bash', door], { cwd: project, input: `${JSON.stringify(fixture.native)}\n`, env });
   const label = `Kiro ${path.relative(FIXTURES, fixturePath)}`;
   assert.equal(result.status, fixture.expect.exit, `${label}: native exit (stdout=${JSON.stringify(result.stdout)}, stderr=${JSON.stringify(result.stderr)}, trace=${fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8') : 'missing'})`);
+  if (fixture.fault) assert.equal(result.stderr.includes('private-policy-stderr'), false, `${label}: failed policy stderr stays private`);
   if (fixture.expect.stdout !== null) assert.equal(result.stdout, fixture.expect.stdout, `${label}: native stdout`);
   if (fixture.expect.stdoutIncludes) assert.ok(result.stdout.includes(fixture.expect.stdoutIncludes), `${label}: native stdout contains ${fixture.expect.stdoutIncludes}`);
   if (fixture.expect.stderrIncludes) assert.ok(result.stderr.includes(fixture.expect.stderrIncludes), `${label}: native stderr contains ${fixture.expect.stderrIncludes}`);
+  else if (fixture.expect.stderrIncludes === null) assert.equal(result.stderr, '', `${label}: native stderr is empty`);
   if (fixture.expect.modelVisibleBytesMax !== undefined) {
     const modelBytes = Buffer.byteLength(stem === 'stop-check' && fixture.native.session_id ? result.stdout : result.stderr);
     assert.ok(modelBytes <= fixture.expect.modelVisibleBytesMax, `${label}: model-visible bytes (${modelBytes} > ${fixture.expect.modelVisibleBytesMax})`);

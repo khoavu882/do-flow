@@ -19,23 +19,14 @@ else
   export DOFLOW_KIRO_ENGINE=2x
 fi
 . "$here/../../.doflow/shared/hooks/bridge/bridge.sh"
-bridge_stderr=$(mktemp "${TMPDIR:-/tmp}/doflow-kiro-stop.XXXXXX" 2>/dev/null) || bridge_stderr=""
-if [ -n "$bridge_stderr" ]; then
-  if doflow_bridge kiro "$event" stop-check <<<"$payload" 2>"$bridge_stderr"; then
-    status=0
-  else
-    status=$?
-  fi
-  if [ "$status" -eq 2 ] && [ "$DOFLOW_KIRO_ENGINE" = 2x ]; then
-    cat "$bridge_stderr" >&2
-    printf '\n' >&2
-  fi
-  rm -f "$bridge_stderr"
+exec 4>&1
+if bridge_stderr=$(doflow_bridge kiro "$event" stop-check <<<"$payload" 2>&1 1>&4); then
+  status=0
 else
-  if doflow_bridge kiro "$event" stop-check <<<"$payload"; then
-    status=0
-  else
-    status=$?
-  fi
+  status=$?
+fi
+exec 4>&-
+if [ "$status" -eq 2 ] && [ "$DOFLOW_KIRO_ENGINE" = 2x ]; then
+  printf '%s\n' "$bridge_stderr" >&2
 fi
 exit "$status"
