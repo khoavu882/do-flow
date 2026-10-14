@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Shared lifecycle bridge. Sourcing defines functions only; it sets no shell options or traps.
+DOFLOW_BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+doflow_bridge_failure() {
+  local policy="$1" point="$2"
+  ( . "$DOFLOW_BRIDGE_DIR/../policies/capture-failure.sh"; doflow_capture_failure "$policy" "$point" ) >/dev/null 2>&1 || true
+}
+
+doflow_bridge_classify() {
+  local code="$1" record="$2" outcome="" decision_code="" version=0 reason="$3"
+  if [ -n "$record" ]; then
+    outcome="${record#*\"outcome\":\"}"; outcome="${outcome%%\"*}"
+    decision_code="${record#*\"code\":\"}"; decision_code="${decision_code%%\"*}"
+    version="${record#*\"policyVersion\":}"; version="${version%%,*}"
+    case "$version" in ''|*[^0-9]*) version=0;; esac
+  fi
+  DF_BRIDGE_OUTCOME=error; DF_BRIDGE_CODE=exit-"$code"; DF_BRIDGE_VERSION="$version"; DF_BRIDGE_REASON="$DF_BRIDGE_CODE"; DF_BRIDGE_POINT="eval-error:exit-$code"
+  if [ "$code" -eq 2 ] 2>/dev/null; then
+    if [ "$outcome" = deny ]; then DF_BRIDGE_OUTCOME=deny; DF_BRIDGE_CODE="$decision_code"; DF_BRIDGE_REASON="$reason"; DF_BRIDGE_POINT=""
+    else DF_BRIDGE_CODE=exit-2-unmarked; DF_BRIDGE_REASON=exit-2-unmarked; DF_BRIDGE_POINT=eval-error:exit-2-unmarked; fi
+  elif [ "$code" -eq 0 ] 2>/dev/null; then
+    case "$outcome" in
+      allow|advisory|error|unsupported) DF_BRIDGE_OUTCOME="$outcome"; DF_BRIDGE_CODE="$decision_code"; DF_BRIDGE_REASON="$decision_code"; DF_BRIDGE_POINT="" ;;
+      deny) DF_BRIDGE_OUTCOME=allow; DF_BRIDGE_CODE=decision-mismatch; DF_BRIDGE_REASON=decision-mismatch; DF_BRIDGE_POINT=decision-mismatch ;;
+      *) DF_BRIDGE_OUTCOME=allow; DF_BRIDGE_CODE=allow; DF_BRIDGE_REASON=allow; DF_BRIDGE_POINT=""; DF_BRIDGE_VERSION=0 ;;
+    esac
+  elif [ "$code" -ge 129 ] && [ "$code" -le 255 ] && [ "$code" -ne 255 ] 2>/dev/null; then
+    local sig=""
+    sig="$(kill -l "$((code - 128))" 2>/dev/null)" || sig=""
+    sig="${sig#SIG}"
+    case "$sig" in ''|*[!A-Za-z0-9_-]*) return;; esac
+    DF_BRIDGE_OUTCOME=error; DF_BRIDGE_CODE=signal-"$sig"; DF_BRIDGE_REASON="$DF_BRIDGE_CODE"; DF_BRIDGE_POINT="eval-error:signal-$sig"
+  fi
+}
+
+doflow_bridge_effect() {
+  local harness="$1" event="$2" policy="$3" outcome="$4" profile="${DOFLOW_FAULT_PROFILE:-compat-1}" block=0
+  if [ "$profile" != compat-1 ] && [ "$profile" != strict-1 ]; then
+    profile=compat-1; doflow_bridge_failure "$policy" fault-profile-unknown
+  fi
+  DF_BRIDGE_PROFILE="$profile"
+  case "$policy" in pre-implementation-gate|pre-bash-guard|mcp-tool-guard|stop-check) block=1;; esac
+  DF_BRIDGE_EFFECT=proceed
+  if [ "$outcome" = deny ]; then DF_BRIDGE_EFFECT=block
+  elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ]; }; then DF_BRIDGE_EFFECT=block
+  elif [ "$outcome" = error ] && [ "$DF_BRIDGE_CODE" != bridge-spawn ] && [ -n "$DF_BRIDGE_POINT" ] && [ "$profile" = compat-1 ]; then
+    case "$harness:$event" in
+      claude:PreToolUse|codex:PreToolUse|gemini:BeforeTool|pi:tool_call) DF_BRIDGE_EFFECT=block ;;
+      antigravity:PreToolUse|antigravity:Stop) case "$DF_BRIDGE_CODE" in signal-*) DF_BRIDGE_EFFECT=proceed;; *) DF_BRIDGE_EFFECT=block;; esac ;;
+      kiro:PreToolUse) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block ;;
+      claude:Stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block ;;
+      codex:Stop|codex:stop|kiro:Stop|kiro:stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block || DF_BRIDGE_EFFECT=proceed ;;
+    esac
+  fi
+}
+
+doflow_bridge() {
+  local harness="${1:-}" event="${2:-}" policy="${3:-}" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0
+  . "$DOFLOW_BRIDGE_DIR/respond.sh"
+  if [ "${4:-}" = --emit ]; then emit="${5:-native}"; fi
+  payload="$(cat)"
+  if command -v jq >/dev/null 2>&1; then
+    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" -f "$DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
+      case "$encoded" in \{*) payload="$encoded" ;; *) doflow_bridge_failure "$policy" envelope-encode ;; esac
+    } || { doflow_bridge_failure "$policy" envelope-encode; }
+  else
+    doflow_bridge_failure "$policy" dependency-missing:jq
+  fi
+  policy_path="$DOFLOW_BRIDGE_DIR/../policies/$policy.sh"
+  if [ ! -f "$policy_path" ] || [ ! -x "$policy_path" ]; then
+    code=127; err=""; spawn_failed=1
+  else
+    exec 5>&1
+    if captured="$(DOFLOW_AGENT="$harness" DOFLOW_DECISION_FD=3 bash "$policy_path" 2>&1 3>&1 1>&5 <<<"$payload")"; then code=0; else code=$?; fi
+    exec 5>&-
+  fi
+  while IFS= read -r line; do case "$line" in $'\036'*) record="${line#?}";; *) err="${err}${line}"$'\n';; esac; done <<EOF
+$captured
+EOF
+  reason="${err%$'\n'}"
+  doflow_bridge_classify "$code" "$record" "$reason"
+  if [ "$spawn_failed" -eq 1 ]; then DF_BRIDGE_OUTCOME=error; DF_BRIDGE_CODE=bridge-spawn; DF_BRIDGE_REASON=bridge-spawn; DF_BRIDGE_VERSION=0; DF_BRIDGE_POINT=bridge-spawn; fi
+  if [ -n "$DF_BRIDGE_POINT" ] && [ "$DF_BRIDGE_POINT" != decision-mismatch ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-TERM ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-INT ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-PIPE ]; then doflow_bridge_failure "$policy" "$DF_BRIDGE_POINT"; fi
+  doflow_bridge_effect "$harness" "$event" "$policy" "$DF_BRIDGE_OUTCOME"
+  if [ "$DF_BRIDGE_EFFECT" = block ] && [ "$DF_BRIDGE_OUTCOME" != deny ]; then reason="[$policy] DoFlow policy error; details: doflow-run failure list"; fi
+  if [ "$DF_BRIDGE_OUTCOME" != deny ] && [ "$DF_BRIDGE_EFFECT" = proceed ]; then
+    case "$harness:$event:$DF_BRIDGE_OUTCOME" in
+      kiro:PreToolUse:error|claude:Stop:error) reason="[$policy] DoFlow policy error; details: doflow-run failure list" ;;
+      *) reason="$DF_BRIDGE_CODE" ;;
+    esac
+  fi
+  decision_reason="$DF_BRIDGE_CODE"
+  if [ "$DF_BRIDGE_OUTCOME" = deny ]; then decision_reason="$reason"; fi
+  if [ "$emit" = decision ] || [ -n "${DOFLOW_BRIDGE_TRACE:-}" ]; then
+    decision="$(jq -cn --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg outcome "$DF_BRIDGE_OUTCOME" --arg code "$DF_BRIDGE_CODE" --arg reason "$decision_reason" --arg profile "$DF_BRIDGE_PROFILE" --arg effect "$DF_BRIDGE_EFFECT" --argjson version "$DF_BRIDGE_VERSION" '{v:1,harness:$harness,event:$event,policy:$policy,policyVersion:$version,outcome:$outcome,code:$code,reason:$reason,faultProfile:$profile,effect:$effect}')"
+  fi
+  if [ -n "${DOFLOW_BRIDGE_TRACE:-}" ]; then printf '%s\n' "$decision" >>"$DOFLOW_BRIDGE_TRACE" 2>/dev/null || true; fi
+  if [ "$emit" = decision ]; then printf '%s\n' "$decision"; return 0; fi
+  if [ "$DF_BRIDGE_EFFECT" = block ]; then
+    status=2
+  else
+    status=0
+    if [ "$DF_BRIDGE_OUTCOME" = error ]; then
+      case "$policy:$harness:$event" in
+        session-context:*:*|user-prompt-submit:*:*|subagent-audit:*:*|*:kiro:PreToolUse|*:claude:Stop) status="$code" ;;
+      esac
+    fi
+  fi
+  if [ "$DF_BRIDGE_EFFECT" = block ]; then doflow_render_response "$harness" "$event" deny "$reason" "$status"; return $?; fi
+  doflow_render_response "$harness" "$event" "$DF_BRIDGE_OUTCOME" "$reason" "$status"
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  . "$DOFLOW_BRIDGE_DIR/respond.sh"
+  doflow_bridge "${1:-}" "${2:-}" "${3:-}" "${4:-}" "${5:-}"
+  exit $?
+fi
