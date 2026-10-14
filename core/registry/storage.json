@@ -450,7 +450,8 @@
         "verb"
       ],
       "writers": [
-        "core/harnesses/shared/hooks/policies/summary-store.sh"
+        "core/harnesses/shared/hooks/policies/summary-store.sh",
+        "src/runtime/context/summary-store.ts"
       ]
     },
     {
@@ -469,7 +470,8 @@
         "verb"
       ],
       "writers": [
-        "core/harnesses/shared/hooks/policies/summary-store.sh"
+        "core/harnesses/shared/hooks/policies/summary-store.sh",
+        "src/runtime/context/summary-store.ts"
       ]
     },
     {
