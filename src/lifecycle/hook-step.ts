@@ -12,6 +12,7 @@ const { resolveAdapter, projectAdapterInput } = require('../adapters/index.ts');
 const { renderPolicies } = require('./policies.ts');
 
 const HOOKS_TREE_ASSET = 'hooks.shared';
+const OPERATIONS = ['install', 'update'];
 
 /** Whether any target of the plan creates or updates a file of the shared hooks tree. */
 function hooksTreeChanged(targets: any[]) {
@@ -25,7 +26,8 @@ function hooksTreeChanged(targets: any[]) {
  * `harnessScope` is the registry's name for the scope. `targetFromResult` is the lifecycle's own
  * conversion of an adapter result into a plan entry. */
 function planHookCompanions({ registry, adapters, scope, harnessScope, scopeRoot, ledger, context, targets, targetFromResult }: any) {
-  if (!hooksTreeChanged(targets)) return [];
+  // DEC-034 is about install and update: every other operation plans exactly the targets it was asked for.
+  if (!OPERATIONS.includes(context.operation) || !hooksTreeChanged(targets)) return [];
   const named = new Set(targets.map((target: any) => target.harness));
   const installed = new Set((ledger?.resources ?? []).map((resource: any) => resource.harness));
   const run = targets.filter((target: any) => !target.skipped).map((target: any) => target.harness).join(',');

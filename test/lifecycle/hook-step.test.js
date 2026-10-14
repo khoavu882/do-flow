@@ -17,6 +17,9 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { suiteTempDir } = require('../helper/tmp');
 const { IS_WIN } = require('../helper-platform');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { registryLifecycleView } = require('../../src/lifecycle/view.ts');
+const { readScopes } = require('../../src/runtime/inventory/read-scopes.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -228,6 +231,36 @@ describe('IC-037: the installer keeps front doors in step with the shared hooks 
     assert.ok(updated.stdout.includes(`[INFO] claude: ${notice('claude')}`), updated.stdout);
     assert.ok(fs.existsSync(door), 'the door is back');
     assert.equal(fs.existsSync(skill), false, 'a skill is not a door; this run did not name claude');
+  });
+
+  // DEC-034 is about install and update. A read-only verb restricted to pi (status, reconcile and the
+  // inventory all read their plan through the same view) plans exactly pi, however stale claude's doors are.
+  test('inventory, status and reconcile restricted to pi plan no companion; install and update do', { skip: OLDER_SKIP }, () => {
+    const c = cell('operations');
+    installOlder(c);
+    const registry = loadRegistry({ repoRoot: REPO });
+    const scope = { global: false, projectRoot: c.proj };
+    const view = (operation) => registryLifecycleView({ registry, repoRoot: REPO, scope, targets: ['pi'], operation });
+    const harnesses = (plan) => plan.targets.map((target) => target.harness).sort();
+    c.scratch.apply();
+    try {
+      assert.deepEqual(harnesses(readScopes({ registry, repoRoot: REPO, projectRoot: c.proj, targets: ['pi'], locks: { global: null, project: null } }).project.plan), ['pi'], 'inventory');
+      assert.deepEqual(harnesses(view(undefined).plan), ['pi'], 'status and reconcile build the view with no operation');
+      assert.deepEqual(harnesses(view('verify').plan), ['pi'], 'any other operation');
+      assert.deepEqual(harnesses(view('update').plan), ['claude', 'pi'], 'update');
+      assert.deepEqual(harnesses(view('install').plan), ['claude', 'pi'], 'install');
+    } finally {
+      c.scratch.restore();
+    }
+  });
+
+  test('`install -t pi` refreshes the claude doors too', { skip: OLDER_SKIP }, () => {
+    const c = cell('install-companion');
+    installOlder(c);
+    const installed = c.run(['install', 'proj', '-f', '--no-backup', '-t', 'pi']);
+    assert.equal(installed.status, 0, installed.output);
+    assert.ok(installed.stdout.includes(`[INFO] claude: ${notice('claude')}`), installed.stdout);
+    assertClaudeDoorsCurrent(c);
   });
 
   // Every hook front-door component of IC-037, one harness each: its door is made out of step in the
