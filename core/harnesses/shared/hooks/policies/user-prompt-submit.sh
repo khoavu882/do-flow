@@ -38,7 +38,10 @@ else
   doflow_decide() { :; }
   ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit contract-missing ) >/dev/null 2>&1 || true
 fi
-if ! command -v jq >/dev/null 2>&1; then doflow_decide error dependency-missing:jq; fi
+if ! command -v jq >/dev/null 2>&1; then
+  doflow_decide error dependency-missing:jq
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit dependency-missing:jq ) >/dev/null 2>&1 || true
+fi
 require_jq
 # One jq pass over the payload for every field this hook reads (each pass costs about 8 ms on a
 # 20 KB prompt, and the budget is 100 ms), NUL-separated: session_id, cwd and session_title, null
@@ -47,7 +50,7 @@ require_jq
 SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT="" ENVELOPE_CLASS=""
 { IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD; IFS= read -r -d '' PAYLOAD_TITLE; IFS= read -r -d '' SUBAGENT; IFS= read -r -d '' ENVELOPE_CLASS; } < <(
   printf '%s' "$INPUT" | jq -j '. as $p
-    | [$p.session_id, $p.cwd, $p.session_title]
+    | [if ($p.session_id | type) == "string" then ($p.session_id | rtrimstr("\n")) else $p.session_id end, $p.cwd, $p.session_title]
     | map(if . == null or . == false then "" elif type == "string" then . else tojson end | split("\u0000") | join(""))
     | . + [if any($p.agent_id, $p.agent_type; . != null and . != "") then "subagent" else "" end]
     | . + [if (($p | type) == "object") and (($p.doflow_event | type) == "object") and ($p.doflow_event | has("version")) and (($p.doflow_event.version | type) != "number" or $p.doflow_event.version != 1) then "unsupported" else "v0" end]
