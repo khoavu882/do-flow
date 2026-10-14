@@ -18,14 +18,27 @@ doflow_render_response() {
   event="$(doflow_bridge_native_event "$harness" "$event")"
   if [ "$outcome" = deny ]; then
     case "$harness:$event" in
-      claude:PreToolUse|codex:PreToolUse) emit_pretooluse_deny_nested "$reason"; return 0 ;;
+      claude:PreToolUse|codex:PreToolUse) emit_pretooluse_deny_nested "$reason" || return $?; return 0 ;;
       gemini:BeforeTool) emit_pretooluse_deny_flat "$reason"; return 0 ;;
       kiro:PreToolUse) printf '%s' "$reason" >&2; return 2 ;;
-      antigravity:PreToolUse) jq -cn --arg reason "$reason" '{decision:"deny",reason:$reason}'; return 0 ;;
-      antigravity:Stop) jq -cn --arg reason "$reason" '{decision:"continue",reason:$reason}'; return 0 ;;
-      pi:tool_call) jq -cn --arg reason "$reason" '{block:true,reason:$reason}'; return 0 ;;
+      antigravity:PreToolUse)
+        if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"deny",reason:$reason}'
+        else printf '{"decision":"deny","reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
+        return $? ;;
+      antigravity:Stop)
+        if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"continue",reason:$reason}'
+        else printf '{"decision":"continue","reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
+        return $? ;;
+      pi:tool_call)
+        if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{block:true,reason:$reason}'
+        else printf '{"block":true,"reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
+        return $? ;;
       kiro:Stop|kiro:stop)
-        if [ "$engine" = v3 ]; then jq -cn --arg reason "$reason" '{decision:"block",reason:$reason}'; return 0; fi
+        if [ "$engine" = v3 ]; then
+          if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"block",reason:$reason}'
+          else printf '{"decision":"block","reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
+          return $?
+        fi
         printf '%s' "$reason" >&2; return 2 ;;
       codex:Stop|codex:stop) printf '%s\n' '{}' >&1; printf '%s\n' "$reason" >&2; return 2 ;;
       *) printf '%s\n' "$reason" >&2; return 2 ;;
