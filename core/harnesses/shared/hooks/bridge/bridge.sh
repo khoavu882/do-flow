@@ -64,6 +64,8 @@ doflow_bridge() {
     encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" -f "$DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
       case "$encoded" in \{*) payload="$encoded" ;; *) doflow_bridge_failure "$policy" envelope-encode ;; esac
     } || { doflow_bridge_failure "$policy" envelope-encode; }
+  else
+    doflow_bridge_failure "$policy" dependency-missing:jq
   fi
   policy_path="$DOFLOW_BRIDGE_DIR/../policies/$policy.sh"
   if [ ! -f "$policy_path" ] || [ ! -x "$policy_path" ]; then
@@ -95,7 +97,16 @@ EOF
   fi
   if [ -n "${DOFLOW_BRIDGE_TRACE:-}" ]; then printf '%s\n' "$decision" >>"$DOFLOW_BRIDGE_TRACE" 2>/dev/null || true; fi
   if [ "$emit" = decision ]; then printf '%s\n' "$decision"; return 0; fi
-  if [ "$DF_BRIDGE_EFFECT" = block ]; then status=2; else status=0; if [ "$DF_BRIDGE_OUTCOME" = error ]; then status="$code"; fi; fi
+  if [ "$DF_BRIDGE_EFFECT" = block ]; then
+    status=2
+  else
+    status=0
+    if [ "$DF_BRIDGE_OUTCOME" = error ]; then
+      case "$policy:$harness:$event" in
+        session-context:*:*|user-prompt-submit:*:*|subagent-audit:*:*|*:kiro:PreToolUse|*:claude:Stop) status="$code" ;;
+      esac
+    fi
+  fi
   if [ "$DF_BRIDGE_EFFECT" = block ]; then doflow_render_response "$harness" "$event" deny "$reason" "$status"; return $?; fi
   doflow_render_response "$harness" "$event" "$DF_BRIDGE_OUTCOME" "$reason" "$status"
 }

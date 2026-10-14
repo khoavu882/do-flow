@@ -164,6 +164,16 @@ BRIDGE_TEST('IC-011 full profile, harness, outcome grid including unknown-profil
         const d = JSON.parse(res.stdout);
         assert.equal(d.effect, profile === 'strict-1' ? 'block' : 'proceed', `${profile} ${harness}:${event} spawn`);
         if (profile === 'mystery') assert.equal(d.faultProfile, 'compat-1');
+        const native=run(dir,harness,event,policy,{},['--emit','native'],{DOFLOW_FAULT_PROFILE:profile});
+        assert.equal(native.status,profile === 'strict-1' && (harness === 'kiro' || event === 'Stop') ? 2 : 0,`${profile} ${harness}:${event} spawn native exit`);
+        if (profile !== 'strict-1') {
+          assert.equal(native.stderr,'',`${profile} ${harness}:${event} spawn native stderr`);
+          const expectedStdout=harness === 'codex' && event === 'Stop' ? '{}\n' : harness === 'antigravity' && event === 'PreToolUse' ? '{"decision":"allow"}\n' : '';
+          assert.equal(native.stdout,expectedStdout,`${profile} ${harness}:${event} spawn proceed stdout`);
+        } else {
+          assert.notEqual(native.stdout+native.stderr,'',`${profile} ${harness}:${event} spawn block response`);
+          assert.equal((native.stdout+native.stderr).includes('DoFlow policy error'),true,`${profile} ${harness}:${event} spawn fixed reason`);
+        }
         continue;
       }
       const p = path.join(dir, 'policies', `${policy}.sh`);
@@ -195,7 +205,7 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
     {h:'claude',e:'SessionStart',p:'session-context',kind:'context'},
   ];
   const scenarios = ['deny','unmarked','numeric','signal','recorded-error','unsupported','bridge-spawn'];
-  for (const profile of ['compat-1','strict-1']) {
+  for (const profile of ['compat-1','strict-1','mystery']) {
     for (const b of bridges) for (const scenario of scenarios) {
       if (b.kind === 'context' && scenario === 'deny') continue;
       const isBlocking = b.kind !== 'context';
@@ -221,9 +231,44 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
       const status = scenario === 'deny' || scenario === 'unmarked' ? 2 : scenario === 'numeric' ? 9 : scenario === 'signal' ? 139 : 0;
       fs.writeFileSync(path.join(dir,'policies',`${b.p}.sh`),`#!/bin/bash\n${record}exit ${status}\n`);
       const result=run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
-      assert.equal(JSON.parse(result.stdout).effect,expected,`${profile} ${b.h}:${b.e} ${scenario}`);
+      const decision = JSON.parse(result.stdout);
+      assert.equal(decision.effect,expected,`${profile} ${b.h}:${b.e} ${scenario}`);
+      assert.equal(result.status,0,`${profile} ${b.h}:${b.e} ${scenario} decision exit`);
+      assert.equal(result.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} decision stderr`);
+
+      const native=run(dir,b.h,b.e,b.p,{},['--emit','native'],{DOFLOW_FAULT_PROFILE:profile});
+      const passThrough = scenario === 'numeric' || scenario === 'signal';
+      const shouldPassStatus = expected === 'proceed' && (
+        (passThrough && (b.kind === 'context' || b.kind === 'kiro-tool' || b.kind === 'claude-stop')) ||
+        (scenario === 'unmarked' && b.kind === 'context')
+      );
+      const nativeBlockStatus = expected === 'block' && (b.kind === 'kiro-tool' || (b.e === 'Stop' && b.kind !== 'antigravity')) ? 2 : 0;
+      assert.equal(native.status, shouldPassStatus ? (scenario === 'signal' ? 139 : scenario === 'unmarked' ? 2 : 9) : nativeBlockStatus,
+        `${profile} ${b.h}:${b.e} ${scenario} native exit`);
+      assert.equal(native.stderr.includes('raw-secret'),false,`${profile} ${b.h}:${b.e} ${scenario} hides child stderr`);
+      if (expected === 'proceed') {
+        const expectedStdout = b.kind === 'codex-stop' ? '{}\n' : b.kind === 'antigravity' && b.e === 'PreToolUse' ? '{"decision":"allow"}\n' : '';
+        assert.equal(native.stdout,expectedStdout,`${profile} ${b.h}:${b.e} ${scenario} proceed stdout`);
+        if (shouldPassStatus && (b.kind === 'kiro-tool' || b.kind === 'claude-stop')) assert.ok(native.stderr.includes(`[${b.p}] DoFlow policy error; details: doflow-run failure list`),`${profile} ${b.h}:${b.e} ${scenario} fixed diagnostic on stderr`);
+        else assert.equal(native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} proceed stderr`);
+      } else {
+        assert.notEqual(native.stdout + native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} block has native response`);
+        if (scenario !== 'deny') assert.ok((native.stdout + native.stderr).includes(`[${b.p}] DoFlow policy error; details: doflow-run failure list`),`${profile} ${b.h}:${b.e} ${scenario} native fixed reason`);
+      }
+      if (profile === 'mystery') assert.equal(decision.faultProfile,'compat-1',`${b.h}:${b.e} unknown profile falls back`);
     }
   }
+});
+
+BRIDGE_TEST('unknown-profile fallback records fault-profile-unknown', () => {
+  const dir=makeTree();
+  const failures=path.join(dir,'config');
+  const result=run(dir,'claude','PreToolUse','pre-implementation-gate',{},['--emit','decision'],{
+    DOFLOW_FAULT_PROFILE:'mystery', XDG_CONFIG_HOME:failures, DOFLOW_FAILURE_CAPTURE:'on',
+  });
+  assert.equal(JSON.parse(result.stdout).faultProfile,'compat-1');
+  const events=fs.readFileSync(path.join(failures,'doflow/failures/events.jsonl'),'utf8');
+  assert.match(events, /"kind":"fault-profile-unknown"/);
 });
 
 BRIDGE_TEST('--emit native renders blocking outcomes for every IC-012 native response and hides stub stderr', () => {
@@ -306,4 +351,20 @@ cat > '${capture}'
 exit 0
 `);
   run(nonobject,'claude','PreToolUse','session-context','17'); assert.equal(fs.readFileSync(capture,'utf8').trim(),'17');
+
+  const noJqTree=makeTree();
+  const noJqBin=path.join(noJqTree,'no-jq-bin'); fs.mkdirSync(noJqBin);
+  for (const cmd of ['bash','cat','dirname','date','mkdir','tr']) {
+    const executable=spawnSync('which',[cmd],{encoding:'utf8'}).stdout.trim();
+    fs.symlinkSync(executable,path.join(noJqBin,cmd));
+  }
+  const config=path.join(noJqTree,'config');
+  const noJq=spawnSync('bash',[path.join(noJqTree,'bridge/bridge.sh'),'claude','PreToolUse','pre-implementation-gate'],{
+    cwd:noJqTree,encoding:'utf8',input:'{}',env:{...process.env,PATH:noJqBin,DOFLOW_FAILURE_CAPTURE:'on',XDG_CONFIG_HOME:config},
+  });
+  assert.equal(noJq.status,0,noJq.stderr);
+  assert.equal(noJq.stdout,'','jq absent preserves front-door silent allow');
+  assert.equal(noJq.stderr,'','jq absent allow has no model-visible diagnostic');
+  const noJqEvents=fs.readFileSync(path.join(config,'doflow/failures/events.jsonl'),'utf8');
+  assert.match(noJqEvents, /"kind":"dependency-missing:jq"/);
 });
