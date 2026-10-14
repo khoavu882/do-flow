@@ -48,7 +48,11 @@ else
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard contract-missing ) >/dev/null 2>&1 || true
 fi
 doflow_decision_init pre-bash-guard 1
-command -v jq >/dev/null 2>&1 || { doflow_decide error dependency-missing:jq; exit 0; }
+command -v jq >/dev/null 2>&1 || {
+  doflow_decide error dependency-missing:jq
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard dependency-missing:jq ) >/dev/null 2>&1 || true
+  exit 0
+}
 DF_ENV_CLASS=invalid
 doflow_read_envelope || true
 

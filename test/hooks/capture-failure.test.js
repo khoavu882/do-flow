@@ -308,9 +308,9 @@ describe('what the guard policies must not do (DEC-018, DEC-032)', () => {
   const code = (text) => text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
 
   const capturePoints = {
-    'pre-bash-guard.sh': ['contract-missing', 'unsupported:envelope-version', 'patterns-missing'],
-    'mcp-tool-guard.sh': ['contract-missing', 'unsupported:envelope-version', 'policy-file-missing'],
-    'pre-implementation-gate.sh': ['contract-missing', 'edit-without-target', 'unsupported:envelope-version'],
+    'pre-bash-guard.sh': ['contract-missing', 'dependency-missing:jq', 'unsupported:envelope-version', 'patterns-missing'],
+    'mcp-tool-guard.sh': ['contract-missing', 'dependency-missing:jq', 'unsupported:envelope-version', 'policy-file-missing'],
+    'pre-implementation-gate.sh': ['contract-missing', 'dependency-missing:jq', 'edit-without-target', 'unsupported:envelope-version'],
   };
   for (const [policy, expectedPoints] of Object.entries(capturePoints)) {
     test(`${policy} names every capture point and calls the helper only as discarded subshells`, () => {

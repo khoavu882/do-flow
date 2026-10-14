@@ -110,4 +110,13 @@ function jqSorted(value) {
   return result.stdout;
 }
 
-module.exports = { FIXTURE_ROOT, REPO, buildInstallMirror, createScratch, createScratchGitRepo, jqSorted, loadCorpus, parseRecords, runPolicy };
+function encodeEnvelope(harness, event, policy, nativeInput) {
+  const result = spawnSync('jq', [
+    '-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy,
+    '-f', path.join(REPO, 'core/harnesses/shared/hooks/bridge/envelope.jq'),
+  ], { input: nativeInput, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(result.stderr || `envelope encoding failed for ${harness}/${event}/${policy}`);
+  return result.stdout.trimEnd();
+}
+
+module.exports = { FIXTURE_ROOT, REPO, buildInstallMirror, createScratch, createScratchGitRepo, encodeEnvelope, jqSorted, loadCorpus, parseRecords, runPolicy };

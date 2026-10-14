@@ -68,7 +68,11 @@ else
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate contract-missing ) >/dev/null 2>&1 || true
 fi
 doflow_decision_init pre-implementation-gate 1
-command -v jq >/dev/null 2>&1 || { doflow_decide error dependency-missing:jq; exit 0; }
+command -v jq >/dev/null 2>&1 || {
+  doflow_decide error dependency-missing:jq
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-implementation-gate dependency-missing:jq ) >/dev/null 2>&1 || true
+  exit 0
+}
 
 # Keep both envelope versions on the same patch parser so Codex apply_patch
 # paths cannot drift between the native and v1 inputs.
