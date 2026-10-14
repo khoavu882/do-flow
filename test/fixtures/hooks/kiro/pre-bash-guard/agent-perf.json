@@ -1,5 +1,5 @@
 {
   "native":{"hook_event_name":"preToolUse","session_id":"kiro-agent-bash-perf","tool_name":"shell","tool_input":{"command":"ls -la"}},
   "state":"none","fault":"none",
-  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"preToolUse","operation":"tool","tool":"shell","identity":{"session":"kiro-agent-bash-perf"}},"failurePoint":null,"taskStateUnchanged":true}
+  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"preToolUse","operation":"command","tool":"Bash","command":"ls -la","identity":{"session":"kiro-agent-bash-perf"}},"failurePoint":null,"taskStateUnchanged":true}
 }

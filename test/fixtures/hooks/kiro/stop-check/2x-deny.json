@@ -21,7 +21,10 @@
       "version": 1,
       "harness": "kiro",
       "event": "stop",
-      "operation": "stop"
+      "operation": "stop",
+      "identity": {
+        "session": "kiro-stop-2x"
+      }
     },
     "failurePoint": null,
     "taskStateUnchanged": true

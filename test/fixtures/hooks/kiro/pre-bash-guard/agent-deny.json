@@ -1,5 +1,5 @@
 {
   "native":{"hook_event_name":"preToolUse","session_id":"kiro-agent-bash-deny","tool_name":"shell","tool_input":{"command":"rm -rf /"}},
   "state":"none","fault":"none",
-  "expect":{"exit":2,"stdout":"","stderrIncludes":"Catastrophic delete blocked","decision":{"outcome":"deny","effect":"block"},"envelope":{"version":1,"harness":"kiro","event":"preToolUse","operation":"tool","tool":"shell","identity":{"session":"kiro-agent-bash-deny"}},"failurePoint":null,"taskStateUnchanged":true}
+  "expect":{"exit":2,"stdout":"","stderrIncludes":"Catastrophic delete blocked","decision":{"outcome":"deny","effect":"block"},"envelope":{"version":1,"harness":"kiro","event":"preToolUse","operation":"command","tool":"Bash","command":"rm -rf /","identity":{"session":"kiro-agent-bash-deny"}},"failurePoint":null,"taskStateUnchanged":true}
 }

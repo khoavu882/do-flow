@@ -1,5 +1,5 @@
 {
   "native":{"hook_event_name":"PreToolUse","session_id":"kiro-gate-perf","tool_name":"write","tool_input":{"path":"src/a.js"}},
   "state":"all-artifacts","fault":"none",
-  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"PreToolUse","operation":"tool","tool":"write","identity":{"session":"kiro-gate-perf"}},"failurePoint":null,"taskStateUnchanged":true}
+  "expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":{"outcome":"allow","effect":"proceed"},"envelope":{"version":1,"harness":"kiro","event":"PreToolUse","operation":"edit","tool":"Write","paths":["src/a.js"],"identity":{"session":"kiro-gate-perf"}},"failurePoint":null,"taskStateUnchanged":true}
 }
