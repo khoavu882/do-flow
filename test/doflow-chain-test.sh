@@ -184,7 +184,7 @@ ROOT="$(pwd -P)"
 CANONICAL_POLICY="$REPO_ROOT/core/harnesses/shared/hooks/policies/pre-implementation-gate.sh"
 decision() {
   local rc
-  echo "$1" | bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  printf '%s\n' "$1" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-implementation-gate -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq" | bash "$CANONICAL_POLICY" >/dev/null 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then echo "allow"; else echo "deny"; fi
 }
@@ -220,7 +220,7 @@ eq "not-in-flow (trunk) -> allow" \
 # the resolver installed or not.
 NO_RESOLVER_HOME="$T/no-resolver"; mkdir -p "$NO_RESOLVER_HOME"
 decision_bare() {
-  echo "$1" | CLAUDE_CONFIG_DIR="$NO_RESOLVER_HOME" HOME="$NO_RESOLVER_HOME" bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  printf '%s\n' "$1" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-implementation-gate -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq" | CLAUDE_CONFIG_DIR="$NO_RESOLVER_HOME" HOME="$NO_RESOLVER_HOME" bash "$CANONICAL_POLICY" >/dev/null 2>&1
   if [ "$?" -eq 0 ]; then echo "allow"; else echo "deny"; fi
 }
 GATE_EDIT="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}"

@@ -752,8 +752,12 @@ rm -f "$CAP_POLICIES/blocked-patterns.conf" "$CAP_POLICIES/mcp-policy.conf"
 # cap_run <capture value> <policy> <stdin> -> CAP_RESULT="<exit>|<stdout>|<stderr>" (HOME and XDG pinned)
 cap_run() {
   local mode="$1" policy="$2" input="$3" code=0
+  case "$input" in
+    ''|'not json at all') CAP_ENCODED="$input" ;;
+    *) CAP_POLICY_ID="${policy%.sh}"; CAP_ENCODED=$(printf '%s\n' "$input" | jq -c --arg harness claude --arg event PreToolUse --arg policy "$CAP_POLICY_ID" -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq") ;;
+  esac
   # `|| code=$?`: lib.sh, sourced above, leaves errexit on, and a deny exits non-zero.
-  printf '%s' "$input" | env HOME="$CAP_HOME" XDG_CONFIG_HOME="$CAP_XDG" DOFLOW_FAILURE_CAPTURE="$mode" \
+  printf '%s' "$CAP_ENCODED" | env HOME="$CAP_HOME" XDG_CONFIG_HOME="$CAP_XDG" DOFLOW_FAILURE_CAPTURE="$mode" \
     bash "$CAP_POLICIES/$policy" >"$CAP_TMP/out" 2>"$CAP_TMP/err" || code=$?
   CAP_RESULT="$code|$(cat "$CAP_TMP/out")|$(cat "$CAP_TMP/err")"
 }
@@ -762,6 +766,9 @@ cap_lines() { if [[ -f "$CAP_EVENTS" ]]; then wc -l <"$CAP_EVENTS" | tr -d ' '; 
 BASH_LS='{"tool_name":"Bash","tool_input":{"command":"ls"}}'
 BASH_RM='{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}'
 MCP_CALL='{"tool_name":"mcp__srv__tool"}'
+BASH_LS_V1=$(printf '%s\n' "$BASH_LS" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-bash-guard -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq")
+BASH_RM_V1=$(printf '%s\n' "$BASH_RM" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-bash-guard -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq")
+MCP_CALL_V1=$(printf '%s\n' "$MCP_CALL" | jq -c --arg harness claude --arg event PreToolUse --arg policy mcp-tool-guard -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq")
 
 for CASE in "pre-bash-guard.sh|$BASH_LS|allowed command" "pre-bash-guard.sh|$BASH_RM|floor deny" "mcp-tool-guard.sh|$MCP_CALL|mcp call"; do
   CAP_POLICY="${CASE%%|*}"; CAP_REST="${CASE#*|}"; CAP_INPUT="${CAP_REST%%|*}"; CAP_NAME="${CAP_REST#*|}"
@@ -774,7 +781,7 @@ for CASE in "pre-bash-guard.sh|$BASH_LS|allowed command" "pre-bash-guard.sh|$BAS
 done
 
 rm -rf "$CAP_XDG/doflow"
-cap_run "" pre-bash-guard.sh "$BASH_LS"
+  cap_run "" pre-bash-guard.sh "$BASH_LS"
 assert_eq "pre-bash-guard records patterns-missing as a hook line" "hook|pre-bash-guard|patterns-missing|null" \
   "$(jq -r '[.source,.command,.kind,(.exit|tostring)]|join("|")' "$CAP_EVENTS")"
 rm -rf "$CAP_XDG/doflow"
@@ -793,14 +800,14 @@ done
 
 # HOME unset and no XDG_CONFIG_HOME: capture is skipped and the guard answers as before.
 rm -rf "$CAP_XDG/doflow"
-CAP_NOHOME_ON="$(printf '%s' "$BASH_RM" | env -u HOME -u XDG_CONFIG_HOME bash "$CAP_POLICIES/pre-bash-guard.sh" 2>&1; echo "exit=$?")"
-CAP_NOHOME_OFF="$(printf '%s' "$BASH_RM" | env -u HOME -u XDG_CONFIG_HOME DOFLOW_FAILURE_CAPTURE=off bash "$CAP_POLICIES/pre-bash-guard.sh" 2>&1; echo "exit=$?")"
+CAP_NOHOME_ON="$(printf '%s' "$BASH_RM_V1" | env -u HOME -u XDG_CONFIG_HOME bash "$CAP_POLICIES/pre-bash-guard.sh" 2>&1; echo "exit=$?")"
+CAP_NOHOME_OFF="$(printf '%s' "$BASH_RM_V1" | env -u HOME -u XDG_CONFIG_HOME DOFLOW_FAILURE_CAPTURE=off bash "$CAP_POLICIES/pre-bash-guard.sh" 2>&1; echo "exit=$?")"
 assert_eq "HOME unset: guard output and exit status identical with capture on and off" "$CAP_NOHOME_OFF" "$CAP_NOHOME_ON"
 assert_eq "HOME unset: guard still denies the floor case" "exit=2" "$(printf '%s' "$CAP_NOHOME_ON" | tail -1)"
 
 # The shipped pattern files are present in a normal install: no line, and the deny is as before.
 rm -rf "$CAP_XDG/doflow"
-printf '%s' "$BASH_RM" | env HOME="$CAP_HOME" XDG_CONFIG_HOME="$CAP_XDG" bash "$REPO_ROOT/core/harnesses/shared/hooks/policies/pre-bash-guard.sh" >/dev/null 2>&1 || true
+printf '%s' "$BASH_RM_V1" | env HOME="$CAP_HOME" XDG_CONFIG_HOME="$CAP_XDG" bash "$REPO_ROOT/core/harnesses/shared/hooks/policies/pre-bash-guard.sh" >/dev/null 2>&1 || true
 assert_eq "shipped policy folder: a deny writes no failure line" "0" "$(cap_lines)"
 
 rm -rf "$CAP_TMP"

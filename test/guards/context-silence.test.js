@@ -8,6 +8,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { REPO } = require('./_shared');
+const { encodeEnvelope } = require('../helper/hook-fixtures');
 
 const TOKENS = ['context-pack', 'delivery/', 'omissions', 'packEnd', '[end of pack]'];
 const SCAN_ROOTS = [
@@ -61,8 +62,8 @@ function policyOutput(project, home) {
   const xdg = path.join(home, 'xdg');
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_AGENT: 'codex' };
   const input = JSON.stringify({ session_id: 'silence-fixture', cwd: project });
-  const started = runPolicy(SESSION_POLICY, input, env, project);
-  const prompted = runPolicy(PROMPT_POLICY, input, env, project);
+  const started = runPolicy(SESSION_POLICY, encodeEnvelope('claude', 'SessionStart', 'session-context', input), env, project);
+  const prompted = runPolicy(PROMPT_POLICY, encodeEnvelope('claude', 'UserPromptSubmit', 'user-prompt-submit', input), env, project);
   return started + prompted;
 }
 

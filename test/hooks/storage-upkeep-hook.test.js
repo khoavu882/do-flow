@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { encodeEnvelope } = require('../helper/hook-fixtures');
 
 const REPO = path.resolve(__dirname, '../..');
 const LIB = path.join(REPO, 'core/harnesses/shared/hooks/policies/lib.sh');
@@ -130,7 +131,8 @@ test('session hooks launch asynchronous storage upkeep through the first availab
     const noCandidate = path.join(scratch.dir, 'no-candidate'); fs.mkdirSync(noCandidate);
     const env = scratch.env({ HOME: noCandidate, XDG_CONFIG_HOME: path.join(scratch.dir, 'empty-xdg'), STORAGE_TEST_RECORD: record });
     fs.mkdirSync(env.XDG_CONFIG_HOME, { recursive: true });
-    const result = spawnSync('/bin/bash', [POLICY], { input: payload('no-candidate'), cwd: project, env, encoding: 'utf8' });
+    const native = payload('no-candidate');
+    const result = spawnSync('/bin/bash', [POLICY], { input: encodeEnvelope('claude', 'SessionStart', 'session-context', native), cwd: project, env, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, ''); assert.equal(result.stderr, '');
     assert.equal(fs.existsSync(record), false);
 
@@ -168,7 +170,7 @@ test('a session started in a subdirectory runs upkeep from the project root (G.3
   fs.writeFileSync(dispatcher, `#!/bin/bash\nprintf '%s\\n' "$PWD" > "$STORAGE_TEST_RECORD.tmp.$$"\nmv -f "$STORAGE_TEST_RECORD.tmp.$$" "$STORAGE_TEST_RECORD"\n`);   // atomic, as above
   fs.chmodSync(dispatcher, 0o755);
   const result = spawnSync('/bin/bash', [POLICY], {
-    input: JSON.stringify({ session_id: 'subdir', cwd: sub, source: 'startup' }), cwd: sub,
+    input: encodeEnvelope('claude', 'SessionStart', 'session-context', JSON.stringify({ session_id: 'subdir', cwd: sub, source: 'startup' })), cwd: sub,
     env: scratch.env({ STORAGE_TEST_RECORD: record }), encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
