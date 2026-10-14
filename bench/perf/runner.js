@@ -241,6 +241,7 @@ function enumerateHookSurfaces({
         harness: 'pi',
         intentClass: 'hook',
         enforced: false,
+        note: 'excludes the in-process extension spawn',
         stdinFixture: path.join('test', 'fixtures', 'hooks', 'pi', 'tool_call', `${policy === 'pre-implementation-gate' ? 'perf-edit' : policy === 'pre-bash-guard' ? 'perf-bash' : 'perf-mcp'}.json`),
         stdinField: 'native',
         setup: { kind: 'copy-fixture-project', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true, branch: 'feat/perf', cwdProject: true },
@@ -320,6 +321,7 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
 
   let tempProjectDir = null;
   let tempMirrorDir = null;
+  let tempHookHomeDir = null;
   try {
     if (surface.setup && surface.setup.kind === 'hook-install-mirror') {
       tempMirrorDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-mirror-'));
@@ -329,6 +331,7 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
       });
       if (buildMirror.status !== 0) throw new Error(`install mirror failed: ${buildMirror.stderr || buildMirror.error?.message || buildMirror.status}`);
       tempProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-project-'));
+      tempHookHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-hook-home-'));
       const fixtureSrc = path.isAbsolute(surface.setup.fixture)
         ? surface.setup.fixture
         : path.join(repoRoot, surface.setup.fixture);
@@ -407,6 +410,9 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
     const env = { ...process.env, DOFLOW_QUIET: '1' };
     if (surface.kind === 'install' || surface.intentClass === 'install' || surface.id === 'install.dry-run') {
       if (tempHome) env.HOME = tempHome;
+    } else if (tempHookHomeDir) {
+      env.HOME = tempHookHomeDir;
+      env.XDG_CONFIG_HOME = path.join(tempHookHomeDir, '.config');
     }
     const timeoutMs = surface.timeoutMs != null
       ? surface.timeoutMs
@@ -462,6 +468,9 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
     }
     if (tempMirrorDir) {
       try { fs.rmSync(tempMirrorDir, { recursive: true, force: true }); } catch { /* ignored */ }
+    }
+    if (tempHookHomeDir) {
+      try { fs.rmSync(tempHookHomeDir, { recursive: true, force: true }); } catch { /* ignored */ }
     }
   }
 }

@@ -1290,7 +1290,8 @@
         "git": true,
         "branch": "feat/perf",
         "cwdProject": true
-      }
+      },
+      "note": "excludes the in-process extension spawn"
     },
     {
       "id": "hook.pi.tool-call-pre-bash-guard",
@@ -1313,7 +1314,8 @@
         "git": true,
         "branch": "feat/perf",
         "cwdProject": true
-      }
+      },
+      "note": "excludes the in-process extension spawn"
     },
     {
       "id": "hook.pi.tool-call-mcp-tool-guard",
@@ -1336,7 +1338,8 @@
         "git": true,
         "branch": "feat/perf",
         "cwdProject": true
-      }
+      },
+      "note": "excludes the in-process extension spawn"
     },
     {
       "id": "hook.shared.capture-failure",
@@ -1622,19 +1625,19 @@
     },
     {
       "surfaceId": "hook.claude.permission-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.post-tool-failure",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.pre-bash-guard",
@@ -1642,7 +1645,7 @@
     },
     {
       "surfaceId": "hook.claude.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.pre-implement-gate",
@@ -1650,7 +1653,7 @@
     },
     {
       "surfaceId": "hook.claude.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.session-start",
@@ -1658,7 +1661,7 @@
     },
     {
       "surfaceId": "hook.claude.skill-config-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.claude.stop-check",
@@ -1678,7 +1681,7 @@
     },
     {
       "surfaceId": "hook.codex.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.pre-bash-guard",
@@ -1686,7 +1689,7 @@
     },
     {
       "surfaceId": "hook.codex.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.pre-implement-gate",
@@ -1694,7 +1697,7 @@
     },
     {
       "surfaceId": "hook.codex.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.codex.session-start",
@@ -1718,7 +1721,7 @@
     },
     {
       "surfaceId": "hook.gemini.post-edit-lint",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.pre-bash-guard",
@@ -1726,7 +1729,7 @@
     },
     {
       "surfaceId": "hook.gemini.pre-compact",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.pre-implement-gate",
@@ -1734,7 +1737,7 @@
     },
     {
       "surfaceId": "hook.gemini.session-end",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.gemini.session-start",
@@ -1778,27 +1781,27 @@
     },
     {
       "surfaceId": "hook.shared.capture-failure",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.mcp-tool-guard",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.pre-implementation-gate",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.session-context",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.stop-check",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "hook.shared.subagent-audit",
-      "unmeasured": "no fixture"
+      "unmeasured": "measurement deferred to V.2"
     },
     {
       "surfaceId": "cli.version",
@@ -2202,9 +2205,9 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "first": 0,
-        "steady": 0,
-        "basis": "measured:fixture test/fixtures/hooks/claude/user-prompt-submit/perf.json"
+        "first": 144,
+        "steady": 3,
+        "basis": "measured:fixture test/fixtures/hooks/claude/user-prompt-submit/perf.json; project=bench/perf/fixtures/hook-bridge-project (feat/perf, all artifacts)"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -2220,9 +2223,9 @@
       "sessionStartStderrBytes": 0,
       "sessionStartBasis": "measured:temp-home-install",
       "perPromptStdoutBytes": {
-        "first": 0,
-        "steady": 0,
-        "basis": "measured:fixture test/fixtures/hooks/codex/user-prompt-submit/perf.json"
+        "first": 144,
+        "steady": 3,
+        "basis": "measured:fixture test/fixtures/hooks/codex/user-prompt-submit/perf.json; project=bench/perf/fixtures/hook-bridge-project (feat/perf, all artifacts)"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",

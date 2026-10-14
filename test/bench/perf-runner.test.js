@@ -287,6 +287,7 @@ test('perf hook surfaces use corpus native payloads and include Kiro config sour
 
   const result = runner.enumerateHookSurfaces({ repoRoot: dir, isToolInstalledFn: () => true });
   const byId = new Map(result.surfaces.map((surface) => [surface.id, surface]));
+  assert.ok(!result.unmeasuredRows.some((row) => row.surfaceId === 'hook.claude.pre-implement-gate' && row.unmeasured === 'no fixture'), 'a corpus perf case must prevent a no fixture report');
   assert.equal(byId.get('hook.claude.pre-implement-gate').stdinField, 'native');
   assert.match(byId.get('hook.claude.pre-implement-gate').argv[1], /\{mirror\}/);
   assert.equal(byId.get('hook.kiro.pre-implement-gate.agent-config').stdinFixture, path.join('test', 'fixtures', 'hooks', 'kiro', 'pre-implement-gate', 'agent-perf.json'));
@@ -296,7 +297,48 @@ test('perf hook surfaces use corpus native payloads and include Kiro config sour
     assert.ok(surface, `missing Pi surface for ${policy}`);
     assert.deepEqual(surface.argv.slice(-3), ['pi', 'tool_call', policy]);
     assert.equal(surface.stdinField, 'native');
+    assert.equal(surface.note, 'excludes the in-process extension spawn');
+    const budgetSurface = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'bench/perf/budgets.json'), 'utf8')).surfaces
+      .find((candidate) => candidate.id === surface.id);
+    assert.equal(budgetSurface.note, 'excludes the in-process extension spawn');
   }
+});
+
+test('perf runner feeds a surface the exact stdin bytes from its fixture', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-stdin-bytes-');
+  const fixturePath = path.join(dir, 'native.json');
+  const markerPath = path.join(dir, 'stdin.txt');
+  const expected = '{"hook_event_name":"PreToolUse","tool_name":"Edit"}';
+  fs.writeFileSync(fixturePath, JSON.stringify({ native: JSON.parse(expected) }), 'utf8');
+
+  const surface = {
+    id: 'stub.stdin-bytes',
+    argv: [process.execPath, '-e', 'require("node:fs").writeFileSync(process.argv[1], require("node:fs").readFileSync(0))', markerPath],
+    stdinFixture: fixturePath,
+    stdinField: 'native',
+  };
+  const duration = runner.runSurfaceProcess(surface, REPO_ROOT);
+  assert.equal(typeof duration, 'number');
+  assert.equal(fs.readFileSync(markerPath, 'utf8'), expected);
+});
+
+test('perf fixture-backed hook surfaces smoke through --surface without writing budget rows', () => {
+  const addedIds = [
+    'hook.claude.permission-audit', 'hook.claude.post-compact', 'hook.claude.post-edit-lint',
+    'hook.claude.post-tool-failure', 'hook.claude.pre-compact', 'hook.claude.session-end',
+    'hook.claude.skill-config-audit', 'hook.codex.post-edit-lint', 'hook.codex.pre-compact',
+    'hook.codex.session-end', 'hook.gemini.post-edit-lint', 'hook.gemini.pre-compact',
+    'hook.gemini.session-end', 'hook.shared.capture-failure', 'hook.shared.mcp-tool-guard',
+    'hook.shared.pre-implementation-gate', 'hook.shared.session-context', 'hook.shared.stop-check',
+    'hook.shared.subagent-audit',
+  ];
+  const { lines, io } = capture();
+  const exitCode = runner.main(['measure', '--runs', '1', '--warmups', '0', '--surface', addedIds.join(',')], {
+    ...io,
+    isAnotherNodeTestRunningFn: () => false,
+  });
+  assert.equal(exitCode, 0, lines.err.join('\n'));
+  for (const id of addedIds) assert.match(lines.out.join('\n'), new RegExp(id.replaceAll('.', '\\.')));
 });
 
 test('perf runner executes front doors in an install mirror and fixture project on a feat branch', () => {
