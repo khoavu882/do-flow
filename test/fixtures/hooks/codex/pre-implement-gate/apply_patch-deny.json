@@ -1,0 +1,36 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-patch-deny",
+    "tool_name": "apply_patch",
+    "tool_input": {
+      "command": "*** Begin Patch\n*** Update File: src/a.js\n*** End Patch"
+    }
+  },
+  "policy": "pre-implementation-gate",
+  "state": "no-design",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "deny",
+      "code": "missing-artifacts",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "apply_patch",
+      "identity": {
+        "session": "codex-patch-deny"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 424
+  }
+}

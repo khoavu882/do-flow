@@ -1,0 +1,26 @@
+{
+  "native": {
+    "hook_event_name": "PreCompact",
+    "session_id": "codex-compact",
+    "cwd": "/Users/kai/Workspace/learning/do-flow-077-d1"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": null,
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreCompact",
+      "operation": "subagent-start",
+      "identity": {
+        "session": "codex-compact"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

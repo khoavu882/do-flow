@@ -1,0 +1,37 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-gate-allow",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "src/a.js"
+    }
+  },
+  "policy": "pre-implementation-gate",
+  "state": "all-artifacts",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "Edit",
+      "paths": [
+        "src/a.js"
+      ],
+      "identity": {
+        "session": "codex-gate-allow"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

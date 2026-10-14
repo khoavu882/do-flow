@@ -1,0 +1,40 @@
+
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-gate-error",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "src/a.js"
+    }
+  },
+  "policy": "pre-implementation-gate",
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 0,
+    "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"PreToolUse\",\n    \"permissionDecision\": \"deny\",\n    \"permissionDecisionReason\": \"[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list\"\n  }\n}\n",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 217,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "Edit",
+      "paths": [
+        "src/a.js"
+      ],
+      "identity": {
+        "session": "codex-gate-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true
+  }
+}
