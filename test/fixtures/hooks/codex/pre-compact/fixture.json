@@ -2,7 +2,7 @@
   "native": {
     "hook_event_name": "PreCompact",
     "session_id": "codex-compact",
-    "cwd": "/Users/kai/Workspace/learning/do-flow-077-d1"
+    "cwd": "/tmp/project"
   },
   "state": "none",
   "fault": "none",

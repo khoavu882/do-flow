@@ -2,7 +2,7 @@
   "native": {
     "hook_event_name": "SessionStart",
     "session_id": "codex-session-perf",
-    "cwd": "/Users/kai/Workspace/learning/do-flow-077-d1",
+    "cwd": "/tmp/project",
     "source": "startup"
   },
   "policy": "session-context",
