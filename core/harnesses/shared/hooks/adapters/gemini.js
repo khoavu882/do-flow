@@ -3,6 +3,7 @@
 /**
  * Gemini CLI payload/decision adapter for the Cross-Harness Hook Runner (design.md C2's
  * Payload Adapter / Decision Adapter seam, D2).
+ * Not shipped: reachable only through DOFLOW_AGENT=gemini.
  *
  * Gemini's own native contract — evidenced by core/harnesses/gemini/hooks/*.sh and
  * core/harnesses/gemini/hooks/hooks.json, all currently invoked directly by bash rather than
