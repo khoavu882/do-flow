@@ -248,23 +248,6 @@
       "cli-v3-agent": "Kiro CLI V3 agent mode.",
       "cli-2x-agent": "Kiro CLI 2.x agent mode."
     },
-    "notShipped": [
-      {
-        "path": "core/harnesses/shared/hooks/hooks.json",
-        "reason": "Legacy shared hook configuration is not shipped by a harness template.",
-        "decision": "DEC-014"
-      },
-      {
-        "path": "core/.antigravity-plugin/hooks.json",
-        "reason": "Plugin packaging file routes to .gemini/hooks scripts that the Antigravity projection does not use.",
-        "decision": "DEC-014"
-      },
-      {
-        "path": "core/harnesses/shared/hooks/adapters/gemini.js",
-        "reason": "Gemini is wired directly through its hooks template, not this adapter.",
-        "decision": "DEC-014"
-      }
-    ],
     "rows": [
       {
         "policy": "pre-implementation-gate",

@@ -651,7 +651,6 @@ function validateCoverage(value: any, lifecycle: any[], harnessIds: Set<string>,
   if (typeof value.rowsDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value.rowsDigest)) issue(errors, `${at}.rowsDigest`, 'must be sha256 followed by 64 lowercase hex characters');
   if (!object(value.refresh) || typeof value.refresh.trigger !== 'string' || !value.refresh.trigger.trim() || typeof value.refresh.owner !== 'string' || !value.refresh.owner.trim()) issue(errors, `${at}.refresh`, 'requires non-empty trigger and owner');
   if (!object(value.profiles) || [...COVERAGE_PROFILES].some((profile) => typeof value.profiles?.[profile] !== 'string' || !value.profiles[profile].trim())) issue(errors, `${at}.profiles`, 'must define every supported profile with a non-empty meaning');
-  if (!Array.isArray(value.notShipped) || value.notShipped.some((item: any) => !object(item) || typeof item.path !== 'string' || !item.path || typeof item.reason !== 'string' || !item.reason || item.decision !== 'DEC-014')) issue(errors, `${at}.notShipped`, 'must contain paths, reasons and decision DEC-014');
   if (!Array.isArray(value.rows)) { issue(errors, `${at}.rows`, 'must be an array'); return; }
   const keys = new Set<string>();
   for (const [index, row] of value.rows.entries()) {

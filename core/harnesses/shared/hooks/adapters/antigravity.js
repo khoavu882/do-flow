@@ -19,12 +19,7 @@
  *                vocabulary than PreToolUse's allow/deny/ask/force_ask, not an oversight.
  *
  * SessionStart and PostToolUse have no dedicated Antigravity-native shim in
- * src/adapters/antigravity/index.js's live projection; core/.antigravity-plugin/hooks.json (a
- * separate, read-only-to-this-task artifact) documents both routed directly to the *Gemini*
- * session-start.sh / post-edit-lint.sh scripts, which read the Claude/Gemini-style
- * session_id/cwd/tool_name/tool_input field names, not the toolCall envelope above — this
- * adapter honors that evidence for those two events rather than guessing at a toolCall shape
- * with no corroborating source. No Phase A canonical policy owns PostToolUse today (only
+ * src/adapters/antigravity/index.js's live projection. No Phase A canonical policy owns PostToolUse today (only
  * session-context, pre-implementation-gate, mcp-tool-guard, stop-check, pre-bash-guard exist),
  * so its native shape is an ack passthrough either way.
  */

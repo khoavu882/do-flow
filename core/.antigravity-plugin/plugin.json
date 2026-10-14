@@ -26,6 +26,5 @@
   "agents": [
     "../../core/shared/agent-specs/"
   ],
-  "hooks": "./hooks.json",
   "mcp": "./mcp_config.json"
 }
