@@ -140,6 +140,7 @@ function enumerateHookSurfaces({
 
     const hooksDir = path.join(repoRoot, 'core', 'harnesses', harnessId, 'hooks');
     if (!fs.existsSync(hooksDir) || !fs.statSync(hooksDir).isDirectory()) {
+      if (harnessId === 'pi') continue;
       const id = `hook.${harnessId}`;
       surfaces.push({
         id,
@@ -151,11 +152,12 @@ function enumerateHookSurfaces({
       });
       unmeasuredRows.push({
         surfaceId: id,
-        unmeasured: 'hooks projected through a native plugin with no shell entry point',
+        unmeasured: 'no hooks are projected',
       });
       continue;
     }
 
+    if (harnessId === 'antigravity') continue;
     const entries = fs.readdirSync(hooksDir);
     for (const file of entries) {
       if (!file.endsWith('.sh') || file === 'lib.sh' || file.endsWith('.impl.sh')) continue;
@@ -163,20 +165,39 @@ function enumerateHookSurfaces({
       const surfaceId = `hook.${harnessId}.${stem}`;
       const fixtureRel = path.join('bench', 'perf', 'fixtures', harnessId, `${stem}.json`);
       const fixtureAbs = path.join(repoRoot, fixtureRel);
-      const hasFixture = fs.existsSync(fixtureAbs);
+      const corpusRel = path.join('test', 'fixtures', 'hooks', harnessId, stem, 'perf.json');
+      const corpusAbs = path.join(repoRoot, corpusRel);
+      const hasFixture = fs.existsSync(fixtureAbs) || fs.existsSync(corpusAbs);
 
       const surface = {
         id: surfaceId,
         kind: 'hook',
-        argv: ['bash', path.join('core', 'harnesses', harnessId, 'hooks', file)],
+        argv: ['bash', `{mirror}/.${harnessId}/hooks/${file}`],
         harness: harnessId,
         intentClass: 'hook',
         enforced: false,
+        setup: { kind: 'hook-install-mirror', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true },
       };
       if (hasFixture) {
-        surface.stdinFixture = fixtureRel;
+        if (fs.existsSync(fixtureAbs)) {
+          surface.stdinFixture = fixtureRel;
+        } else {
+          surface.stdinFixture = corpusRel;
+          surface.stdinField = 'native';
+        }
       }
       surfaces.push(surface);
+
+      // Kiro exposes the same front door from two config sources; keep both observable.
+      const agentFixtureRel = path.join('test', 'fixtures', 'hooks', harnessId, stem, 'agent-perf.json');
+      if (harnessId === 'kiro' && fs.existsSync(path.join(repoRoot, agentFixtureRel))) {
+        surfaces.push({
+          ...surface,
+          id: `${surfaceId}.agent-config`,
+          stdinFixture: agentFixtureRel,
+          stdinField: 'native',
+        });
+      }
 
       if (!hasFixture) {
         unmeasuredRows.push({
@@ -184,6 +205,47 @@ function enumerateHookSurfaces({
           unmeasured: 'no fixture',
         });
       }
+    }
+  }
+
+  // Antigravity's bridge front door is the stream runner, not a shell hook file.
+  const antigravityRunner = path.join(repoRoot, 'core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js');
+  if (fs.existsSync(antigravityRunner)) {
+    for (const [stem, fixtureStem, event] of [['pre-implementation-gate', 'pre-implement-gate', 'PreToolUse'], ['stop-check', 'stop-check', 'Stop']]) {
+      const fixtureRel = path.join('test', 'fixtures', 'hooks', 'antigravity', fixtureStem, 'allow-perf.json');
+      const id = `hook.antigravity.${stem}`;
+      surfaces.push({
+        id,
+        kind: 'hook',
+        argv: ['node', path.join('core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js'), event],
+        harness: 'antigravity',
+        intentClass: 'hook',
+        enforced: false,
+        stdinFixture: fixtureRel,
+        stdinField: 'native',
+        setup: { kind: 'copy-fixture-project', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true, branch: 'feat/perf', cwdProject: true },
+      });
+    }
+  }
+
+  // Pi has no shell front door; measure the shared bridge policy entry points directly.
+  const piExtension = path.join(repoRoot, 'core', 'harnesses', 'pi', 'extensions', 'doflow-guard.js');
+  const piFixtureDir = path.join(repoRoot, 'test', 'fixtures', 'hooks', 'pi', 'tool_call');
+  if (fs.existsSync(piExtension)) {
+    for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+      const id = `hook.pi.tool-call-${policy}`;
+      surfaces.push({
+        id,
+        kind: 'hook',
+        argv: ['bash', path.join('core', 'harnesses', 'shared', 'hooks', 'bridge', 'bridge.sh'), 'pi', 'tool_call', policy],
+        harness: 'pi',
+        intentClass: 'hook',
+        enforced: false,
+        stdinFixture: path.join('test', 'fixtures', 'hooks', 'pi', 'tool_call', `${policy === 'pre-implementation-gate' ? 'perf-edit' : policy === 'pre-bash-guard' ? 'perf-bash' : 'perf-mcp'}.json`),
+        stdinField: 'native',
+        setup: { kind: 'copy-fixture-project', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true, branch: 'feat/perf', cwdProject: true },
+      });
+      if (!fs.existsSync(piFixtureDir)) unmeasuredRows.push({ surfaceId: id, unmeasured: 'no fixture' });
     }
   }
 
@@ -257,8 +319,24 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
   if (argv.length === 0) return 0;
 
   let tempProjectDir = null;
+  let tempMirrorDir = null;
   try {
-    if (surface.setup && surface.setup.kind === 'copy-fixture-project') {
+    if (surface.setup && surface.setup.kind === 'hook-install-mirror') {
+      tempMirrorDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-mirror-'));
+      const buildMirror = spawnSync('bash', [path.join(repoRoot, 'test', 'hooks', 'build-install-mirror.sh'), tempMirrorDir], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      });
+      if (buildMirror.status !== 0) throw new Error(`install mirror failed: ${buildMirror.stderr || buildMirror.error?.message || buildMirror.status}`);
+      tempProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-project-'));
+      const fixtureSrc = path.isAbsolute(surface.setup.fixture)
+        ? surface.setup.fixture
+        : path.join(repoRoot, surface.setup.fixture);
+      if (!fs.existsSync(fixtureSrc)) throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
+      fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
+      const gitInit = spawnSync('git', ['init', '-q', '-b', 'feat/perf'], { cwd: tempProjectDir, encoding: 'utf8' });
+      if (gitInit.status !== 0) throw new Error(`fixture git init failed: ${gitInit.stderr || gitInit.error?.message || gitInit.status}`);
+    } else if (surface.setup && surface.setup.kind === 'copy-fixture-project') {
       tempProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-fixture-'));
       const fixtureSrc = path.isAbsolute(surface.setup.fixture)
         ? surface.setup.fixture
@@ -289,7 +367,9 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
         }
       }
       if (surface.setup.git !== false) {
-        spawnSync('git', ['init', '-q'], { cwd: tempProjectDir });
+        const gitArgs = ['init', '-q'];
+        if (surface.setup.branch) gitArgs.push('-b', surface.setup.branch);
+        spawnSync('git', gitArgs, { cwd: tempProjectDir });
         spawnSync('git', ['add', '-A'], { cwd: tempProjectDir });
         spawnSync(
           'git',
@@ -310,8 +390,14 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
       }
     }
 
-    const effectiveArgv = tempProjectDir
-      ? argv.map((a) => (typeof a === 'string' ? a.replace(/\{project\}/g, tempProjectDir) : a))
+    const effectiveArgv = (tempProjectDir || tempMirrorDir)
+      ? argv.map((a) => {
+        if (typeof a !== 'string') return a;
+        const substituted = a.replace(/\{project\}/g, tempProjectDir || '').replace(/\{mirror\}/g, tempMirrorDir || '');
+        return tempProjectDir && substituted.startsWith(`core${path.sep}harnesses${path.sep}`)
+          ? path.join(repoRoot, substituted)
+          : substituted;
+      })
       : argv;
 
     let [cmd, ...args] = effectiveArgv;
@@ -326,7 +412,9 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
       ? surface.timeoutMs
       : (surface.timeout != null ? surface.timeout : 30000);
     const spawnOpts = {
-      cwd: repoRoot,
+      cwd: tempProjectDir && (surface.setup?.kind === 'hook-install-mirror' || surface.setup?.cwdProject)
+        ? tempProjectDir
+        : repoRoot,
       env,
       encoding: 'utf8',
       timeout: timeoutMs,
@@ -338,7 +426,18 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
       if (!fs.existsSync(fixturePath)) {
         throw new Error(`missing stdin fixture: ${surface.stdinFixture}`);
       }
-      spawnOpts.input = fs.readFileSync(fixturePath, 'utf8');
+      const fixtureText = fs.readFileSync(fixturePath, 'utf8');
+      if (surface.stdinField) {
+        const fixture = JSON.parse(fixtureText);
+        if (!Object.hasOwn(fixture, surface.stdinField)) {
+          throw new Error(`missing ${surface.stdinField} in stdin fixture: ${surface.stdinFixture}`);
+        }
+        let payload = JSON.stringify(fixture[surface.stdinField]);
+        if (tempProjectDir) payload = payload.replace(/<project>/g, tempProjectDir);
+        spawnOpts.input = payload;
+      } else {
+        spawnOpts.input = fixtureText;
+      }
     }
     const start = process.hrtime.bigint();
     const res = spawnSync(cmd, args, spawnOpts);
@@ -360,6 +459,9 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
       } catch {
         // ignored
       }
+    }
+    if (tempMirrorDir) {
+      try { fs.rmSync(tempMirrorDir, { recursive: true, force: true }); } catch { /* ignored */ }
     }
   }
 }

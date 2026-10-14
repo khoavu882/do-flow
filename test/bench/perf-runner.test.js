@@ -263,8 +263,57 @@ test('enumerateHookSurfaces identifies uninstalled, missing hooks and unmeasured
 
   const unmeasured = new Map(res.unmeasuredRows.map((r) => [r.surfaceId, r.unmeasured]));
   assert.equal(unmeasured.get('hook.uninstalled_tool'), 'harness not installed');
-  assert.equal(unmeasured.get('hook.opencode'), 'hooks projected through a native plugin with no shell entry point');
+  assert.equal(unmeasured.get('hook.opencode'), 'no hooks are projected');
   assert.equal(unmeasured.get('hook.claude.test-hook'), 'no fixture');
+});
+
+test('perf hook surfaces use corpus native payloads and include Kiro config sources and Pi policies', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-corpus-');
+  fs.mkdirSync(path.join(dir, 'core', 'registry'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'core', 'registry', 'harnesses.json'), JSON.stringify({ harnesses: [{ id: 'claude' }, { id: 'kiro' }, { id: 'pi' }] }));
+  for (const harness of ['claude', 'kiro']) {
+    fs.mkdirSync(path.join(dir, 'core', 'harnesses', harness, 'hooks'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'core', 'harnesses', harness, 'hooks', 'pre-implement-gate.sh'), '#!/bin/bash\n');
+    fs.mkdirSync(path.join(dir, 'test', 'fixtures', 'hooks', harness, 'pre-implement-gate'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'test', 'fixtures', 'hooks', harness, 'pre-implement-gate', 'perf.json'), JSON.stringify({ native: { hook_event_name: 'PreToolUse' } }));
+  }
+  fs.mkdirSync(path.join(dir, 'test', 'fixtures', 'hooks', 'kiro', 'pre-implement-gate'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'test', 'fixtures', 'hooks', 'kiro', 'pre-implement-gate', 'agent-perf.json'), JSON.stringify({ native: { hook_event_name: 'preToolUse' } }));
+  fs.mkdirSync(path.join(dir, 'core', 'harnesses', 'pi', 'extensions'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'core', 'harnesses', 'pi', 'extensions', 'doflow-guard.js'), '');
+  fs.mkdirSync(path.join(dir, 'core', 'harnesses', 'shared', 'hooks'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js'), '');
+  fs.mkdirSync(path.join(dir, 'test', 'fixtures', 'hooks', 'pi', 'tool_call'), { recursive: true });
+
+  const result = runner.enumerateHookSurfaces({ repoRoot: dir, isToolInstalledFn: () => true });
+  const byId = new Map(result.surfaces.map((surface) => [surface.id, surface]));
+  assert.equal(byId.get('hook.claude.pre-implement-gate').stdinField, 'native');
+  assert.match(byId.get('hook.claude.pre-implement-gate').argv[1], /\{mirror\}/);
+  assert.equal(byId.get('hook.kiro.pre-implement-gate.agent-config').stdinFixture, path.join('test', 'fixtures', 'hooks', 'kiro', 'pre-implement-gate', 'agent-perf.json'));
+  assert.equal(result.surfaces.filter((surface) => surface.id === 'hook.antigravity.pre-implementation-gate').length, 1);
+  for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+    const surface = byId.get(`hook.pi.tool-call-${policy}`);
+    assert.ok(surface, `missing Pi surface for ${policy}`);
+    assert.deepEqual(surface.argv.slice(-3), ['pi', 'tool_call', policy]);
+    assert.equal(surface.stdinField, 'native');
+  }
+});
+
+test('perf runner executes front doors in an install mirror and fixture project on a feat branch', () => {
+  const { surfaces } = runner.enumerateHookSurfaces({ repoRoot: REPO_ROOT, isToolInstalledFn: () => true });
+  const surface = surfaces.find((candidate) => candidate.id === 'hook.claude.pre-implement-gate');
+  assert.ok(surface);
+  assert.equal(surface.setup.kind, 'hook-install-mirror');
+  assert.equal(typeof runner.runSurfaceProcess(surface, REPO_ROOT), 'number');
+});
+
+test('perf runner executes Antigravity and Pi surfaces using their corpus payloads', () => {
+  const { surfaces } = runner.enumerateHookSurfaces({ repoRoot: REPO_ROOT, isToolInstalledFn: () => true });
+  const selected = surfaces.filter((surface) => surface.id.startsWith('hook.antigravity.') || surface.id.startsWith('hook.pi.tool-call-'));
+  assert.equal(selected.length, 5);
+  for (const surface of selected) {
+    assert.equal(typeof runner.runSurfaceProcess(surface, REPO_ROOT), 'number', surface.id);
+  }
 });
 
 test('bench runner forwards perf command to bench/perf/runner.js', () => {
