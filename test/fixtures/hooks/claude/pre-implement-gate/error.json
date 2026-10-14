@@ -16,7 +16,7 @@
     "exit": 0,
     "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"PreToolUse\",\n    \"permissionDecision\": \"deny\",\n    \"permissionDecisionReason\": \"[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list\"\n  }\n}\n",
     "stderrIncludes": null,
-    "modelVisibleBytesMax": 338,
+    "modelVisibleBytesMax": 217,
     "decision": {
       "outcome": "error",
       "code": "exit-1",

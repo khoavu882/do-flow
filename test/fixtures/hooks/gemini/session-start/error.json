@@ -1,1 +1,31 @@
-{"native":{"hook_event_name":"SessionStart","session_id":"gemini-session-error","source":"startup","cwd":"/tmp/project"},"state":"none","fault":"crash-exit-1","expect":{"exit":1,"stdout":null,"stderrIncludes":null,"decision":{"outcome":"error","effect":"proceed"},"envelope":{"version":1,"harness":"gemini","event":"SessionStart","operation":"session-start","identity":{"session":"gemini-session-error"}},"failurePoint":"eval-error:exit-1","taskStateUnchanged":true}}
+{
+  "native": {
+    "hook_event_name": "SessionStart",
+    "session_id": "gemini-session-error",
+    "source": "startup",
+    "cwd": "/tmp/project"
+  },
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "error",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "gemini",
+      "event": "SessionStart",
+      "operation": "session-start",
+      "identity": {
+        "session": "gemini-session-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 0
+  }
+}

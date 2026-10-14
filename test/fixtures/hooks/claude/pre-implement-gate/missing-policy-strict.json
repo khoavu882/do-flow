@@ -1,15 +1,42 @@
 {
-  "native": { "hook_event_name": "PreToolUse", "session_id": "c1-gate-missing-strict", "tool_name": "Edit", "tool_input": { "file_path": "src/a.js" } },
-  "env": { "DOFLOW_FAULT_PROFILE": "strict-1", "DOFLOW_FAILURE_CAPTURE": "on" },
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "c1-gate-missing-strict",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "src/a.js"
+    }
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "strict-1",
+    "DOFLOW_FAILURE_CAPTURE": "on"
+  },
   "state": "none",
   "fault": "missing-policy",
   "expect": {
     "exit": 0,
     "stdout": null,
     "stderrIncludes": null,
-    "decision": { "outcome": "error", "code": "bridge-spawn", "effect": "block" },
-    "envelope": { "version": 1, "harness": "claude", "event": "PreToolUse", "operation": "edit", "tool": "Edit", "paths": ["src/a.js"], "identity": { "session": "c1-gate-missing-strict" } },
+    "decision": {
+      "outcome": "error",
+      "code": "bridge-spawn",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "claude",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "Edit",
+      "paths": [
+        "src/a.js"
+      ],
+      "identity": {
+        "session": "c1-gate-missing-strict"
+      }
+    },
     "failurePoint": "bridge-spawn",
-    "taskStateUnchanged": true
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 217
   }
 }

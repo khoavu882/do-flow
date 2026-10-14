@@ -1,8 +1,34 @@
 {
-  "native": { "type": "tool_call", "toolName": "read", "toolCallId": "read-1", "input": { "path": "README.md" } },
+  "native": {
+    "type": "tool_call",
+    "toolName": "read",
+    "toolCallId": "read-1",
+    "input": {
+      "path": "README.md"
+    }
+  },
   "policy": null,
   "state": "none",
-  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
   "fault": "none",
-  "expect": { "result": null, "decision": null, "spawn": false, "modelVisibleBytesMax": 0 }
+  "expect": {
+    "result": null,
+    "decision": null,
+    "spawn": false,
+    "modelVisibleBytesMax": 0,
+    "exit": 0,
+    "failurePoint": null,
+    "envelope": {
+      "version": 1,
+      "harness": "pi",
+      "event": "tool_call",
+      "operation": "tool",
+      "tool": "read",
+      "correlation": {
+        "toolCallId": "read-1"
+      }
+    }
+  }
 }

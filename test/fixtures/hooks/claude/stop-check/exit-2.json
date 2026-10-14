@@ -1,14 +1,31 @@
 {
-  "native": { "hook_event_name": "Stop", "session_id": "c1-stop-exit-2", "stop_hook_active": true },
+  "native": {
+    "hook_event_name": "Stop",
+    "session_id": "c1-stop-exit-2",
+    "stop_hook_active": true
+  },
   "state": "none",
   "fault": "stop-exit-2",
   "expect": {
     "exit": 2,
     "stdout": "",
     "stderrIncludes": "[stop-check] DoFlow policy error; details: doflow-run failure list\n",
-    "decision": { "outcome": "error", "code": "exit-2-unmarked", "effect": "block" },
-    "envelope": { "version": 1, "harness": "claude", "event": "Stop", "operation": "stop", "identity": { "session": "c1-stop-exit-2" } },
+    "decision": {
+      "outcome": "error",
+      "code": "exit-2-unmarked",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "claude",
+      "event": "Stop",
+      "operation": "stop",
+      "identity": {
+        "session": "c1-stop-exit-2"
+      }
+    },
     "failurePoint": "eval-error:exit-2-unmarked",
-    "taskStateUnchanged": true
+    "taskStateUnchanged": true,
+    "modelVisibleBytesMax": 67
   }
 }

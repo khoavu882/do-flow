@@ -1,8 +1,37 @@
 {
-  "native": { "type": "tool_call", "toolName": "mcp__github__list_issues", "toolCallId": "perf-mcp", "input": { "state": "open" } },
+  "native": {
+    "type": "tool_call",
+    "toolName": "mcp__github__list_issues",
+    "toolCallId": "perf-mcp",
+    "input": {
+      "state": "open"
+    }
+  },
   "policy": "mcp-tool-guard",
   "state": "none",
-  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
   "fault": "none",
-  "expect": { "result": null, "decision": { "outcome": "allow", "code": "allow", "effect": "proceed" }, "modelVisibleBytesMax": 0 }
+  "expect": {
+    "result": null,
+    "decision": {
+      "outcome": "allow",
+      "code": "allow",
+      "effect": "proceed"
+    },
+    "modelVisibleBytesMax": 0,
+    "exit": 0,
+    "failurePoint": null,
+    "envelope": {
+      "version": 1,
+      "harness": "pi",
+      "event": "tool_call",
+      "operation": "mcp",
+      "tool": "mcp__github__list_issues",
+      "correlation": {
+        "toolCallId": "perf-mcp"
+      }
+    }
+  }
 }
