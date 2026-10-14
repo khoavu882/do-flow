@@ -315,7 +315,7 @@ function parseFlags(args, allowed) {
   return { flags: out, rest };
 }
 
-function runSurfaceProcess(surface, repoRoot, tempHome) {
+function runSurfaceProcess(surface, repoRoot, tempHome, spawnSyncFn = spawnSync) {
   const argv = surface.argv || [];
   if (argv.length === 0) return 0;
 
@@ -446,9 +446,10 @@ function runSurfaceProcess(surface, repoRoot, tempHome) {
       }
     }
     const start = process.hrtime.bigint();
-    const res = spawnSync(cmd, args, spawnOpts);
+    const res = spawnSyncFn(cmd, args, spawnOpts);
     const end = process.hrtime.bigint();
-    if (res.error) {
+    // A surface may exit before spawnSync finishes writing its stdin payload.
+    if (res.error && res.error.code !== 'EPIPE') {
       if (res.error.code === 'ETIMEDOUT') {
         throw new Error(`timed out after ${spawnOpts.timeout / 1000}s`);
       }
