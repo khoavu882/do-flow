@@ -231,7 +231,7 @@
   "coverage": {
     "schemaVersion": 1,
     "revision": 1,
-    "rowsDigest": "sha256:f1984d4530a0ff5679aaf9f0661060d1e0f949811221aa5b9f0268608c3955e5",
+    "rowsDigest": "sha256:79da602e7a82250cc24f63d02af3227921b0fb2c404b0444666a5c2b3f906cb6",
     "refresh": {
       "trigger": "a harness bridge, template or installed harness version changes",
       "owner": "the feature that changes it"
@@ -359,7 +359,7 @@
       {
         "policy": "pre-implementation-gate",
         "harness": "opencode",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -371,7 +371,9 @@
         "verification": "unverified",
         "prerequisites": [],
         "covers": [],
-        "doesNotCover": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
         "caveats": [],
         "provenance": [
           {
@@ -384,7 +386,7 @@
       {
         "policy": "pre-implementation-gate",
         "harness": "pi",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -425,7 +427,9 @@
         "verification": "unverified",
         "prerequisites": [],
         "covers": [],
-        "doesNotCover": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
         "caveats": [
           "fixture-pending"
         ],
@@ -440,7 +444,7 @@
       {
         "policy": "pre-implementation-gate",
         "harness": "copilot",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -452,7 +456,9 @@
         "verification": "unverified",
         "prerequisites": [],
         "covers": [],
-        "doesNotCover": [],
+        "doesNotCover": [
+          "writes via shell commands"
+        ],
         "caveats": [],
         "provenance": [
           {
@@ -606,7 +612,7 @@
       {
         "policy": "pre-bash-guard",
         "harness": "opencode",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -631,7 +637,7 @@
       {
         "policy": "pre-bash-guard",
         "harness": "pi",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -658,7 +664,7 @@
       {
         "policy": "pre-bash-guard",
         "harness": "copilot",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -710,7 +716,7 @@
       {
         "policy": "pre-bash-guard",
         "harness": "antigravity",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -820,7 +826,7 @@
       {
         "policy": "session-context",
         "harness": "opencode",
-        "event": "unavailable",
+        "event": "*",
         "timing": "session",
         "profile": "any",
         "wired": false,
@@ -845,7 +851,7 @@
       {
         "policy": "session-context",
         "harness": "pi",
-        "event": "unavailable",
+        "event": "*",
         "timing": "session",
         "profile": "any",
         "wired": false,
@@ -1007,7 +1013,7 @@
       {
         "policy": "session-context",
         "harness": "copilot",
-        "event": "unavailable",
+        "event": "*",
         "timing": "session",
         "profile": "any",
         "wired": false,
@@ -1086,7 +1092,7 @@
       {
         "policy": "session-context",
         "harness": "antigravity",
-        "event": "unavailable",
+        "event": "*",
         "timing": "session",
         "profile": "any",
         "wired": false,
@@ -1196,7 +1202,7 @@
       {
         "policy": "mcp-tool-guard",
         "harness": "opencode",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -1221,7 +1227,7 @@
       {
         "policy": "mcp-tool-guard",
         "harness": "pi",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -1329,7 +1335,7 @@
       {
         "policy": "mcp-tool-guard",
         "harness": "copilot",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -1381,7 +1387,7 @@
       {
         "policy": "mcp-tool-guard",
         "harness": "antigravity",
-        "event": "unavailable",
+        "event": "*",
         "timing": "pre-tool",
         "profile": "any",
         "wired": false,
@@ -1466,7 +1472,7 @@
       {
         "policy": "stop-check",
         "harness": "gemini",
-        "event": "unavailable",
+        "event": "*",
         "timing": "stop",
         "profile": "any",
         "wired": false,
@@ -1493,7 +1499,7 @@
       {
         "policy": "stop-check",
         "harness": "opencode",
-        "event": "unavailable",
+        "event": "*",
         "timing": "stop",
         "profile": "any",
         "wired": false,
@@ -1518,7 +1524,7 @@
       {
         "policy": "stop-check",
         "harness": "pi",
-        "event": "unavailable",
+        "event": "*",
         "timing": "stop",
         "profile": "any",
         "wired": false,
@@ -1572,7 +1578,7 @@
       {
         "policy": "stop-check",
         "harness": "copilot",
-        "event": "unavailable",
+        "event": "*",
         "timing": "stop",
         "profile": "any",
         "wired": false,

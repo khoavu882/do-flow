@@ -62,7 +62,7 @@ test('matrix rendering sorts policy, harness, event and profile independent of r
   ]);
 });
 
-test('shipped coverage digest matches its rows and contains explicit unavailable policy rows', () => {
+test('shipped coverage digest and every-row IC-022 caveats are correct', () => {
   const lifecycle = require('../../core/registry/lifecycle.json');
   assert.equal(lifecycle.coverage.rowsDigest, rowsDigest(lifecycle.coverage.rows));
   for (const harness of ['copilot', 'opencode']) {
@@ -70,7 +70,14 @@ test('shipped coverage digest matches its rows and contains explicit unavailable
       assert.ok(lifecycle.coverage.rows.some(item => item.harness === harness && item.policy === policy && item.class === 'unsupported'));
     }
   }
-  assert.ok(lifecycle.coverage.rows.every(item => item.policy !== '*' && item.event !== '*'));
+  for (const item of lifecycle.coverage.rows) {
+    if (item.policy === 'pre-implementation-gate') {
+      assert.ok(item.doesNotCover.includes('writes via shell commands'), `${item.harness}/${item.event} gate row must disclose shell-command writes`);
+    }
+    if (item.class === 'unsupported') {
+      assert.equal(item.event, '*', `${item.harness}/${item.policy} unsupported row must use the unavailable event wildcard`);
+    }
+  }
 });
 
 test('enforcement CLI returns exit 0 for an enforced synthetic registry answer', async () => {
