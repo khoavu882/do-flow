@@ -38,15 +38,36 @@
 
 set -uo pipefail
 
-command -v jq >/dev/null 2>&1 || exit 0          # no jq -> cannot evaluate -> allow
-
 INPUT=$(cat)
+if [ -f "$(dirname "$0")/contract.sh" ]; then
+  . "$(dirname "$0")/contract.sh"
+else
+  doflow_decision_init() { :; }
+  doflow_decide() { :; }
+  doflow_read_envelope() { DF_ENV_CLASS=invalid; }
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard contract-missing ) >/dev/null 2>&1 || true
+fi
+doflow_decision_init pre-bash-guard 1
+command -v jq >/dev/null 2>&1 || { doflow_decide error dependency-missing:jq; exit 0; }
+DF_ENV_CLASS=invalid
+doflow_read_envelope || true
 
 TOOL_NAME=""
-for field in '.tool_name' '.tool' '.toolName' '.name'; do
-  TOOL_NAME=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
-  [ -n "$TOOL_NAME" ] && break
-done
+COMMAND=""
+if [ "$DF_ENV_CLASS" = v1 ]; then
+  [ "$DF_ENV_OP" = command ] || exit 0
+  TOOL_NAME=$DF_ENV_TOOL
+  COMMAND=$DF_ENV_COMMAND
+elif [ "$DF_ENV_CLASS" = unsupported ]; then
+  doflow_decide unsupported envelope-version
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard unsupported:envelope-version ) >/dev/null 2>&1 || true
+  exit 0
+else
+  for field in '.tool_name' '.tool' '.toolName' '.name'; do
+    TOOL_NAME=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
+    [ -n "$TOOL_NAME" ] && break
+  done
+fi
 
 # Fast exit for non-shell-command tool events (union of every known
 # shell-command tool name across harnesses, case-insensitive).
@@ -55,7 +76,7 @@ case "$TOOL_NAME" in
   *) exit 0 ;;
 esac
 
-COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+[ "$DF_ENV_CLASS" = v1 ] || COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
 # Nothing to check if command is empty
 [ -z "$COMMAND" ] && exit 0
@@ -269,16 +290,20 @@ if [ ! -f "$PATTERNS_FILE" ]; then
   # machine (feature 046, IC-018) and go on exactly as before. Subshell, output discarded: nothing
   # the helper does can reach this policy's options, variables, output or exit status.
   ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard patterns-missing ) >/dev/null 2>&1 || true
+  doflow_decide error patterns-missing
   if _floor_rm_hits '/+\*{0,2}'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the root directory (/)" >&2
+    doflow_decide deny catastrophic-rm-root
     exit 2
   fi
   if _floor_rm_hits '(~[A-Za-z_][A-Za-z0-9_.-]*|~|\$HOME|\$\{HOME\})(/\*{0,2})?'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the home directory" >&2
+    doflow_decide deny catastrophic-rm-home
     exit 2
   fi
   if _floor_rm_hits '/(Users|home|etc|usr|bin|sbin|var|opt|System|Library|Applications|Volumes|private|root|boot|lib|dev|proc)(/\*{0,2})?'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of a system directory" >&2
+    doflow_decide deny catastrophic-rm-system
     exit 2
   fi
   # No patterns file beyond the hardcoded floor — allow everything else
@@ -320,6 +345,7 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
 
   if [ "$matched" = "true" ]; then
     echo "[pre-bash-guard] ${reason:-Command blocked by pre-bash-guard}" >&2
+    doflow_decide deny blocked-pattern
     exit 2
   fi
 done < "$PATTERNS_FILE"

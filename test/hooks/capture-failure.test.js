@@ -307,11 +307,18 @@ describe('what the guard policies must not do (DEC-018, DEC-032)', () => {
   const read = (name) => fs.readFileSync(path.join(POLICIES, name), 'utf8');
   const code = (text) => text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
 
-  for (const policy of ['pre-bash-guard.sh', 'mcp-tool-guard.sh']) {
-    test(`${policy} calls the helper only as a discarded subshell, and does not source lib.sh, set -e or trap`, () => {
+  const capturePoints = {
+    'pre-bash-guard.sh': ['contract-missing', 'unsupported:envelope-version', 'patterns-missing'],
+    'mcp-tool-guard.sh': ['contract-missing', 'unsupported:envelope-version', 'policy-file-missing'],
+    'pre-implementation-gate.sh': ['contract-missing', 'edit-without-target', 'unsupported:envelope-version'],
+  };
+  for (const [policy, expectedPoints] of Object.entries(capturePoints)) {
+    test(`${policy} names every capture point and calls the helper only as discarded subshells`, () => {
       const text = code(read(policy));
-      assert.equal((text.match(/capture-failure\.sh/g) || []).length, 1);
-      assert.match(text, /\( \. "\$\(dirname "\$0"\)\/capture-failure\.sh"; doflow_capture_failure [a-z-]+ [a-z-]+ \) >\/dev\/null 2>&1 \|\| true/);
+      const points = [...text.matchAll(/doflow_capture_failure [a-z-]+ ([A-Za-z0-9:._-]+)/g)].map((match) => match[1]);
+      assert.deepEqual(points, expectedPoints, `${policy} capture points`);
+      assert.equal((text.match(/capture-failure\.sh/g) || []).length, expectedPoints.length);
+      assert.equal((text.match(/\( \. "\$\(dirname "\$0"\)\/capture-failure\.sh"; doflow_capture_failure/g) || []).length, expectedPoints.length);
       assert.ok(!/lib\.sh/.test(text), 'sources lib.sh');
       assert.ok(!/^\s*set\s+-[a-zA-Z]*e/m.test(text), 'sets -e');
       assert.ok(!/\btrap\b/.test(text), 'installs a trap');
