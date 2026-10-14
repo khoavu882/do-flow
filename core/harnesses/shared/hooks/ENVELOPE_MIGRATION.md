@@ -25,7 +25,7 @@ tool's official docs (cross-checked against tool source where docs were incomple
 | Gemini CLI | `BeforeTool` | also offers `BeforeToolSelection` (pre-selection restriction), which the gate does not use |
 | GitHub Copilot | `preToolUse` | camelCase event names; `permissionRequest` is CLI-only, not fired in the cloud agent |
 | OpenCode | `tool.execute.before` | a pluggable hook method, not a sub-event of the generic `event` hook |
-| Pi | `tool_call` | The extension is wired to evaluate matching calls before execution; whether it blocks in live use remains unverified pending the V.3 probe. Coverage rows remain `unknown` until then; `tool_execution_start` is observation-only |
+| Pi | `tool_call` | The live-observed `cli-extension` pre-implementation gate row blocks. Project-interactive and user-interactive rows remain unknown; interactive loading and project-trust behavior were not observed. `tool_execution_start` is observation-only |
 | Antigravity | `PreToolUse` | 5-event surface, `hooks.json` + stdin/stdout JSON contract |
 
 Pi 1.1.0 declares 41 `on()` overloads in its shipped extension types. `tool_call` is the enforcement event; `tool_execution_start` is not a gate.
@@ -41,8 +41,15 @@ them through), but sending nothing for a non-edit tool is equally correct and ch
   -t <harness>`; Stop and context policies exit silently, except the prompt hook emits its `{}`
   no-op. Other envelope versions are unsupported and policies evaluate nothing.
 - If a door cannot load `bridge/bridge.sh`, it renders its fixed native out-of-step response. The
-  Pi extension blocks with the same reason; a present bridge that fails to spawn or answer follows
+  Pi extension blocks with the fixed native out-of-step reason; a present bridge that fails to spawn or answer follows
   the configured bridge-fault behavior.
+
+Other current bridge behavior: Codex Stop crash stderr is suppressed (DEC-037). Stop-check
+enforcement is answered from Stop coverage rows (DEC-038). Strict-1 never fault-blocks Stop, though
+a real Stop deny still blocks (DEC-039). Bridge capture uses no temporary file, so an unwritable
+`TMPDIR` does not turn a gate deny into an allow; background jobs do not hold Stop or SessionStart
+open; strict-1 renders native denies without `jq`. `doflow update -t codex -f` re-merges edited
+Codex `hooks.json` while keeping user entries (DEC-040).
 - Root resolution: `DOFLOW_PROJECT_DIR` beats the envelope's `projectRoot` beats git discovery.
 - The pre-implementation gate checks required artifacts and reads run and readiness records; it
   does not consult evidence state.
