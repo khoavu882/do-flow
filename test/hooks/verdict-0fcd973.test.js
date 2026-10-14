@@ -105,25 +105,28 @@ function legacyNative(baseline, harness, event, native, env) {
 
 function archiveBaseline(t) {
   const root = tempDir(t, 'doflow-verdict-0fcd973-');
-  const result = spawnSync('git', ['-C', REPO, 'archive', '--format=tar', '0fcd973', 'core/harnesses/shared/hooks'], {
+  const result = spawnSync('git', ['-C', REPO, 'archive', '--format=tar', '0fcd973', 'core/harnesses'], {
     encoding: 'buffer', maxBuffer: 32 * 1024 * 1024,
   });
   assert.equal(result.status, 0, `required baseline 0fcd973 is unavailable: ${String(result.stderr)}`);
   const unpacked = spawnSync('tar', ['-x', '-C', root], { input: result.stdout, encoding: 'utf8' });
   assert.equal(unpacked.status, 0, `could not extract 0fcd973 policy archive: ${unpacked.stderr}`);
-  return path.join(root, 'core/harnesses/shared/hooks/policies');
+  return { root: path.join(root, 'core/harnesses'), policies: path.join(root, 'core/harnesses/shared/hooks/policies') };
 }
 
 test('each canonical corpus v1 policy verdict matches its 0fcd973 native verdict (IC-031 rows 1 and 8)', (t) => {
-  const baseline = archiveBaseline(t);
+  const baselineArchive = archiveBaseline(t);
+  const baseline = baselineArchive.policies;
   const scratch = { path: (...parts) => path.join(tempDirRoot, ...parts) };
   const tempDirRoot = tempDir(t, 'doflow-verdict-projects-');
   const current = path.join(tempDirRoot, 'current-policies');
   fs.cpSync(path.join(REPO, 'core/harnesses/shared/hooks/policies'), current, { recursive: true });
   const cases = corpusCases();
   assert.ok(cases.length > 0, 'canonical corpus includes envelope cases');
-  // IC-031 rows 1 and 8 compare pre-077 doors; Pi had no 0fcd973 front door.
-  const excludedHarnesses = [...new Set(cases.map(({ harness }) => harness).filter((harness) => harness === 'pi'))].sort();
+  // IC-031 rows 1 and 8 compare pre-077 doors; derive exclusions from the archived baseline tree.
+  const excludedHarnesses = [...new Set(cases.map(({ harness }) => harness))]
+    .filter((harness) => !fs.existsSync(path.join(baselineArchive.root, harness, 'hooks')))
+    .sort();
   assert.deepEqual(excludedHarnesses, ['pi'], 'only Pi lacks a 0fcd973 front door');
 
   cases.filter(({ harness }) => !excludedHarnesses.includes(harness)).forEach(({ file, fixture, harness, event, policy }, index) => {
@@ -157,7 +160,7 @@ test('each canonical corpus v1 policy verdict matches its 0fcd973 native verdict
 });
 
 test('negative control: changing the current gate deny exit breaks the legacy verdict comparison', (t) => {
-  const baseline = archiveBaseline(t);
+  const baseline = archiveBaseline(t).policies;
   const root = tempDir(t, 'doflow-verdict-negative-control-');
   const policyDir = path.join(root, 'policies');
   fs.cpSync(path.join(REPO, 'core/harnesses/shared/hooks/policies'), policyDir, { recursive: true });

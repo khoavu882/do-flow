@@ -489,9 +489,14 @@ test('real Pi extension blocks a missing bridge as an out-of-step install', asyn
   });
   assert.equal(spawnResult, undefined, 'Pi compat-1 proceeds when the present bridge exits unsuccessfully');
   const spawnLog = path.join(spawnXdg, 'doflow/failures/events.jsonl');
-  for (let attempt = 0; attempt < 100 && !fs.existsSync(spawnLog); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(fs.existsSync(spawnLog), 'present bridge spawn fault capture file is created');
-  assert.deepEqual(fs.readFileSync(spawnLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line).kind), ['bridge-spawn'], 'present-but-failing bridge is captured once as bridge-spawn');
+  let spawnCapture = '';
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (fs.existsSync(spawnLog)) spawnCapture = fs.readFileSync(spawnLog, 'utf8');
+    if (spawnCapture.endsWith('\n') && spawnCapture.trim().split('\n').length === 1) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(spawnCapture.endsWith('\n'), 'present bridge spawn fault capture has a complete line');
+  assert.deepEqual(spawnCapture.trim().split('\n').map((line) => JSON.parse(line).kind), ['bridge-spawn'], 'present-but-failing bridge is captured once as bridge-spawn');
   process.env.XDG_CONFIG_HOME = piXdg;
 
   const slowBridge = path.join(path.dirname(absentBridge), 'slow-bridge.sh');

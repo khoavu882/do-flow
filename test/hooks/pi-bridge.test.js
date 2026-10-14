@@ -265,8 +265,14 @@ test('spawn errors and timeout proceed and request detached failure capture', as
   const handler = await loadExtension(t, missing);
   assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'spawn', input: { command: 'true' } }, context('/tmp')), undefined);
   assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'sync-spawn', input: { command: 'true' } }, context(42)), undefined);
-  for (let attempt = 0; attempt < 100 && !fs.existsSync(captureLog); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.match(fs.readFileSync(captureLog, 'utf8'), /pre-bash-guard bridge-spawn/);
+  let captureContents = '';
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (fs.existsSync(captureLog)) captureContents = fs.readFileSync(captureLog, 'utf8');
+    if (captureContents.endsWith('\n') && captureContents.includes('pre-bash-guard bridge-spawn')) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(captureContents.endsWith('\n'), 'spawn capture is a complete line');
+  assert.match(captureContents, /pre-bash-guard bridge-spawn/);
 
   const slow = bridgeShim(t, { delay: 10, root: bridgeDir });
   const timeoutHandler = await loadExtension(t, slow);
@@ -333,9 +339,14 @@ test('an abort signal kills the active child process', async (t) => {
   const handler = await loadExtension(t, shim);
   const controller = new AbortController();
   const running = handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'abort', input: { command: 'true' } }, context('/tmp', controller.signal));
-  for (let attempt = 0; attempt < 100 && !fs.existsSync(pidFile); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(fs.existsSync(pidFile), 'bridge child started');
-  const childPid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+  let pidContents = '';
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (fs.existsSync(pidFile)) pidContents = fs.readFileSync(pidFile, 'utf8');
+    if (pidContents.trim()) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(pidContents.trim(), 'bridge child PID is written');
+  const childPid = Number(pidContents.trim());
   setTimeout(() => controller.abort(), 30);
   assert.equal(await running, undefined);
   let reaped = false;
