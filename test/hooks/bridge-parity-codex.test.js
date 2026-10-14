@@ -17,6 +17,16 @@ function write(file, value) {
   fs.writeFileSync(file, value);
 }
 
+function noJqPath() {
+  const bin = path.join(scratch.dir, 'no-jq-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  for (const command of ['bash', 'cat', 'dirname', 'date', 'mkdir', 'mktemp', 'rm', 'tr', 'sed', 'grep', 'awk', 'git', 'head', 'tail', 'wc', 'sort', 'cut', 'basename', 'env', 'uname', 'find', 'xargs', 'readlink', 'realpath', 'id', 'hostname', 'sleep', 'cp', 'mv', 'touch', 'chmod', 'tee', 'expr', 'test', 'true', 'false', 'od', 'shasum', 'md5', 'python3', 'perl', 'ps', 'stat', 'whoami']) {
+    const executable = spawnSync('which', [command], { encoding: 'utf8' }).stdout.trim();
+    if (executable && !fs.existsSync(path.join(bin, command))) fs.symlinkSync(executable, path.join(bin, command));
+  }
+  return bin;
+}
+
 function snapshotTaskState(root) {
   const target = path.join(root, '.doflow/state');
   if (!fs.existsSync(target)) return null;
@@ -75,10 +85,11 @@ function run(row, index) {
     DOFLOW_AGENT: 'codex', DOFLOW_BRIDGE_TRACE: trace, GIT_CONFIG_GLOBAL: '/dev/null',
     ...(row.fixture.env || {}),
   };
+  if (row.fixture.fault === 'jq-missing') env.PATH = noJqPath();
   if (row.fixture.policyConfig) write(path.join(mirror, '.doflow/shared/hooks/policies', row.fixture.policyConfig.file), row.fixture.policyConfig.contents);
   const policyPath = path.join(mirror, '.doflow/shared/hooks/policies', `${row.fixture.policy}.sh`);
   let policyBackup;
-  if (row.fixture.fault === 'crash-exit-1') {
+  if (['crash-exit-1', 'context-crash-exit-1'].includes(row.fixture.fault)) {
     policyBackup = fs.readFileSync(policyPath);
     write(policyPath, "#!/usr/bin/env bash\ncat >/dev/null\nprintf 'private policy stderr' >&2\nexit 1\n");
     fs.chmodSync(policyPath, 0o755);
@@ -89,6 +100,15 @@ function run(row, index) {
   assert.equal(result.status, row.fixture.expect.exit, `${row.fixturePath}: exit`);
   if (row.fixture.expect.stdout !== null) assert.equal(result.stdout || '', row.fixture.expect.stdout, `${row.fixturePath}: stdout`);
   if (row.fixture.expect.stderrIncludes !== null) assert.ok((result.stderr || '').includes(row.fixture.expect.stderrIncludes), `${row.fixturePath}: stderr`);
+  if (['crash-exit-1', 'context-crash-exit-1'].includes(row.fixture.fault)) {
+    assert.ok(!result.stdout.includes('private policy stderr'), `${row.fixturePath}: raw policy stderr is hidden`);
+    if (row.fixture.expect.decision.effect === 'block') {
+      const body = JSON.parse(result.stdout);
+      assert.equal(body.hookSpecificOutput.permissionDecisionReason, `[${row.fixture.policy}] DoFlow policy error; details: doflow-run failure list`, `${row.fixturePath}: fixed error reason`);
+    } else {
+      assert.equal(result.stdout, '', `${row.fixturePath}: context fault emits no model-visible text`);
+    }
+  }
   if (row.fixture.expect.modelVisibleBytesMax !== undefined) {
     const visible = native.hook_event_name === 'Stop' ? result.stderr || '' : result.stdout || '';
     assert.ok(Buffer.byteLength(visible) <= row.fixture.expect.modelVisibleBytesMax, `${row.fixturePath}: model-visible bytes`);
@@ -98,11 +118,22 @@ function run(row, index) {
     assert.equal(fs.existsSync(trace), false, `${row.fixturePath}: fixture-only event has no bridge decision`);
     return;
   }
+  if (row.fixture.fault === 'jq-missing') {
+    assert.equal(fs.readFileSync(trace, 'utf8').trim(), '', `${row.fixturePath}: jq absence cannot serialize a bridge trace`);
+    const failures = path.join(xdg, 'doflow/failures/events.jsonl');
+    assert.match(fs.readFileSync(failures, 'utf8'), /"kind":"dependency-missing:jq"/, `${row.fixturePath}: missing jq is captured`);
+    return;
+  }
   const decision = JSON.parse(fs.readFileSync(trace, 'utf8').trim());
   assert.equal(decision.harness, 'codex', `${row.fixturePath}: harness`);
   assert.equal(decision.event, native.hook_event_name, `${row.fixturePath}: event`);
   assert.equal(decision.policy, row.fixture.policy, `${row.fixturePath}: policy`);
   for (const [key, value] of Object.entries(row.fixture.expect.decision || {})) assert.equal(decision[key], value, `${row.fixturePath}: decision.${key}`);
+  const failures = path.join(xdg, 'doflow/failures/events.jsonl');
+  const failurePoints = fs.existsSync(failures)
+    ? fs.readFileSync(failures, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line).kind)
+    : [];
+  assert.deepEqual(failurePoints, row.fixture.expect.failurePoint ? [row.fixture.expect.failurePoint] : [], `${row.fixturePath}: failure point`);
 }
 
 const rows = readFixtures();

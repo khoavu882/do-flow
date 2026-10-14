@@ -1,0 +1,32 @@
+{
+  "native": {
+    "hook_event_name": "SubagentStart",
+    "session_id": "codex-subagent-no-jq",
+    "agent_id": "a1",
+    "agent_type": "general"
+  },
+  "policy": "subagent-audit",
+  "state": "none",
+  "fault": "jq-missing",
+  "expect": {
+    "exit": 0,
+    "stdout": "{}\n",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 3,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "SubagentStart",
+      "operation": "subagent-start",
+      "identity": {
+        "session": "codex-subagent-no-jq"
+      }
+    },
+    "failurePoint": "dependency-missing:jq",
+    "taskStateUnchanged": true
+  }
+}

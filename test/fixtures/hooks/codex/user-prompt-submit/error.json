@@ -1,0 +1,32 @@
+{
+  "native": {
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "codex-prompt-error",
+    "prompt": "hello"
+  },
+  "policy": "user-prompt-submit",
+  "state": "none",
+  "fault": "context-crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": "",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 0,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "UserPromptSubmit",
+      "operation": "prompt",
+      "identity": {
+        "session": "codex-prompt-error"
+      }
+    },
+    "failurePoint": "eval-error:exit-1",
+    "taskStateUnchanged": true
+  }
+}
