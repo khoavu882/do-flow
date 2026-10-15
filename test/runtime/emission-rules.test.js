@@ -164,7 +164,9 @@ test('IC-003 a lookup sets DF_ACTION in the calling shell, with no subshell', ()
     "doflow_emission_rule 'prompt.git' '*'; echo \"$DF_ACTION\"",
     'doflow_emission_rule no.such vector; echo "$?:$DF_ACTION"',
   ].join('\n');
-  const result = spawnSync(BASH, ['-c', script], { encoding: 'utf8', env: { PATH: process.env.PATH } });
+  // HOME is passed because the macOS runner image (from 2026-10-15) prints "$HOME must be set to
+  // run brew." on stderr for a child started without it; the table itself runs no command.
+  const result = spawnSync(BASH, ['-c', script], { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME } });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.stdout.trim().split('\n'), ['include', 'skip', 'whole', 'skip', '0:skip']);
   assert.equal(result.stderr, '');
