@@ -176,6 +176,56 @@ test('a path under the git-ignored .doflow/state is not listed', (t) => {
   assert.equal(compare(before, after).status, 'clean');
 });
 
+test('DEC-061 with no .gitignore, ledger.json and an undeclared name under .doflow/state are reported', (t) => {
+  const { exec } = setup(t);
+  const state = path.join(exec, '.doflow', 'state');
+  const before = snapshot(exec);
+  fs.mkdirSync(state, { recursive: true });
+  fs.writeFileSync(path.join(state, 'ledger.json'), '{}\n');
+  fs.writeFileSync(path.join(state, 'evil.sh'), 'echo\n');
+  const result = compare(before, snapshot(exec));
+  assert.equal(result.status, 'violated');
+  assert.deepEqual(result.changes, [
+    { path: '.doflow/state/evil.sh', change: 'added' },
+    { path: '.doflow/state/ledger.json', change: 'added' },
+  ]);
+});
+
+test('DEC-061 declared stores are excluded: delivery, .gitignore, a lock; ledger.json is still reported under the real ignore file', (t) => {
+  const { exec } = setup(t);
+  const state = path.join(exec, '.doflow', 'state');
+  const before = snapshot(exec);
+  fs.mkdirSync(path.join(state, 'delivery'), { recursive: true });
+  fs.writeFileSync(path.join(state, 'delivery', 'x.json'), '{}\n');
+  fs.writeFileSync(path.join(state, 'A.1.lock'), '');
+  // Not `*`: an ignore file whose content git does not apply to itself, so the store rule alone keeps it out.
+  fs.writeFileSync(path.join(state, '.gitignore'), '# not yet written by DoFlow\n');
+  assert.equal(compare(before, snapshot(exec)).status, 'clean');
+
+  // DoFlow's own ignore file un-ignores ledger.json, so a worker write there is committable.
+  fs.writeFileSync(path.join(state, '.gitignore'), '*\n!/ledger.json\n');
+  fs.writeFileSync(path.join(state, 'ledger.json'), '{}\n');
+  const result = compare(before, snapshot(exec));
+  assert.equal(result.status, 'violated');
+  assert.deepEqual(result.changes, [{ path: '.doflow/state/ledger.json', change: 'added' }]);
+});
+
+test('DEC-061 a lock-store match is a top-level name only; a directory named like a lock is reported', (t) => {
+  const { exec } = setup(t);
+  const before = snapshot(exec);
+  fs.mkdirSync(path.join(exec, '.doflow', 'state', 'x.lock'), { recursive: true });
+  fs.writeFileSync(path.join(exec, '.doflow', 'state', 'x.lock', 'evil.sh'), 'echo\n');
+  const result = compare(before, snapshot(exec));
+  assert.deepEqual(result.changes, [{ path: '.doflow/state/x.lock/evil.sh', change: 'added' }]);
+});
+
+test('DEC-061 an unreadable storage registry makes the snapshot unverifiable', (t) => {
+  const { exec } = setup(t);
+  const snap = snapshot(exec, { storageFile: path.join(exec, 'no-such-storage.json') });
+  assert.equal(snap.incomplete, true);
+  assert.equal(snap.reason, 'storage-registry-unreadable');
+});
+
 test('DEC-053 .doflow/state is outside the check with no .gitignore; another .doflow path is not', (t) => {
   const { exec } = setup(t);
   const state = path.join(exec, '.doflow', 'state', 'delivery');

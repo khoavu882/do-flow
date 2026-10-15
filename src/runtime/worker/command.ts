@@ -73,6 +73,19 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   reason: { flag: '--reason', actions: ['cancel'] },
 });
 
+/** DEC-063: the execArgv entries the supervisor spawn forwards; every other entry is dropped. */
+const EXEC_ARGV_ALLOWED = new Set(['--experimental-strip-types', '--experimental-transform-types', '--no-experimental-strip-types', '--no-warnings']);
+const DISABLE_WARNING = /^--disable-warning=.+$/;
+
+/**
+ * The type-stripping and warning flags of `execArgv`, element by element. A caller's `-e`, `-p`,
+ * `--inspect`, `--watch` or `--test` would otherwise strand the detached supervisor (DEC-063); a
+ * two-element `--disable-warning <x>` is dropped whole, so its value is never read as the script.
+ */
+function allowedExecArgv(execArgv: string[]): string[] {
+  return execArgv.filter((arg) => EXEC_ARGV_ALLOWED.has(arg) || DISABLE_WARNING.test(arg));
+}
+
 /** A caller or environment failure: exit 2 with `{ ok: false, error }`. */
 class WorkerCommandError extends Error {
   declare code: string;
@@ -175,10 +188,10 @@ function attemptFor(ledger: any, task: string, token: number) {
 }
 
 /** IC-011 step 11: discover for the harness, then IC-008 on its effective facts. Writes nothing. */
-function evaluate({ reg, worker, harness, needs, coverage, env, cwd, nowMs, platform }: any) {
+function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs, platform }: any) {
   const found = readiness.discover({ descriptors: { [harness]: worker }, registry: reg, env, cwd, now: nowMs, platform }).harnesses[0];
   const facts = readiness.effectiveFacts(
-    readiness.readProbeRecord(cwd, harness),
+    readiness.readProbeRecord(root, harness),
     { ...found, descriptorDigest: readiness.descriptorDigest(worker) },
     nowMs,
   );
@@ -188,7 +201,7 @@ function evaluate({ reg, worker, harness, needs, coverage, env, cwd, nowMs, plat
 
 /** IC-011 steps 0 to 12, then the supervisor spawn and the start poll. */
 async function runAction(o: any) {
-  const { env, cwd, platform, clock, sleep, slug, harness, task, token, needs, timeoutSeconds, prompt, worker, reg, coverage } = o;
+  const { env, cwd, root, platform, clock, sleep, slug, harness, task, token, needs, timeoutSeconds, prompt, worker, reg, coverage } = o;
   const nowMs = () => clock().getTime();
 
   // Step 1: the caller's identity, so a run is never started whose 080 cancel would be refused.
@@ -197,7 +210,6 @@ async function runAction(o: any) {
   if (who) return refused(who.reason, { runKey: key.runKey });
 
   // Steps 2 to 7: the 080 ledger, read only.
-  const root = lifecycleProjectRoot(cwd);
   const ledger = ledgerOf(root, slug);
   const active = Array.isArray(ledger?.tasks?.[task]?.attempts) ? ledger.tasks[task].attempts.find((a: any) => a.state === 'active') : null;
   if (!active) return refused('no-active-attempt', { task });
@@ -223,7 +235,7 @@ async function runAction(o: any) {
   if (real(top) === real(key.top)) return refused('exec-worktree-shared', { task, token, execWorktree });
 
   // Step 11: the harness is eligible on effective facts.
-  const evaluated = evaluate({ reg, worker, harness, needs, coverage, env, cwd, nowMs, platform });
+  const evaluated = evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs, platform });
   if (!evaluated.eligible) return refused('harness-ineligible', { task, token, harness, gaps: evaluated.gaps });
 
   // Step 12: insert inside the run store's lock; one run per (task, token).
@@ -245,7 +257,7 @@ async function runAction(o: any) {
   if (!inserted.applied) return refused('run-exists', { task, token, runId: inserted.runId, phase: inserted.phase });
 
   // The supervisor, detached, with the caller's environment and cwd (IC-014, DEC-022, DEC-038).
-  const child = spawn(process.execPath, [...(process as any).execArgv, SUPERVISOR_FILE, file, runId], {
+  const child = spawn(process.execPath, [...allowedExecArgv((process as any).execArgv), SUPERVISOR_FILE, file, runId], {
     detached: true, stdio: 'ignore', cwd, env,
   });
   // A spawn error leaves the run `starting` with no live supervisor, which status reads as lost.
@@ -385,17 +397,20 @@ async function executeWorkerCommand({
     const reg = registryOf(registry);
     const cov = coverage === undefined ? reg.coverage : coverage;
     if (needs.length) readiness.validateNeeds(needs, cov);
+    // IC-005: one lifecycle project root per invocation; probe records are written and read there.
+    const root = lifecycleProjectRoot(cwd);
     const common = { descriptors, registry: reg, env, cwd, now: nowMs, platform };
+    const atRoot = { ...common, root };
 
     let body: any;
     switch (action) {
       case 'discover': body = readiness.discover(common); break;
-      case 'probe': body = await readiness.probe({ ...common, harness: given(harness) ? String(harness) : undefined, modelCheck: given(modelCheck) ? String(modelCheck) : undefined, budgetTokens: digits(budgetTokens, '--budget-tokens', 1) }); break;
+      case 'probe': body = await readiness.probe({ ...atRoot, coverage: cov, needs, harness: given(harness) ? String(harness) : undefined, modelCheck: given(modelCheck) ? String(modelCheck) : undefined, budgetTokens: digits(budgetTokens, '--budget-tokens', 1) }); break;
       case 'describe':
         if (!given(harness)) throw usage('--action describe needs --harness');
-        body = readiness.describe({ ...common, coverage: cov, harness: String(harness), needs });
+        body = readiness.describe({ ...atRoot, coverage: cov, harness: String(harness), needs });
         break;
-      case 'select': body = readiness.select({ ...common, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs }); break;
+      case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs }); break;
       case 'run': {
         const feature = featureOf(slug, resolveSlug, cwd);
         if (!given(harness)) throw usage('--action run needs --harness');
@@ -405,7 +420,7 @@ async function executeWorkerCommand({
         const seconds = digits(timeoutSeconds, '--timeout-seconds', 1, TIMEOUT_MAX_SECONDS) ?? TIMEOUT_DEFAULT_SECONDS;
         const prompt = readPrompt(promptFile, cwd, worker);
         body = await runAction({
-          env, cwd, platform, clock, sleep, slug: feature, harness: String(harness), task: String(task), token: Number(token),
+          env, cwd, root, platform, clock, sleep, slug: feature, harness: String(harness), task: String(task), token: Number(token),
           needs, timeoutSeconds: seconds, prompt, worker, reg, coverage: cov, wait: Boolean(wait),
         });
         break;
@@ -413,7 +428,6 @@ async function executeWorkerCommand({
       case 'status': {
         const feature = featureOf(slug, resolveSlug, cwd);
         const selector = runSelector(workerRun, task, token, 'status');
-        const root = lifecycleProjectRoot(cwd);
         const run = findRun(storeFileFor(root, feature), selector);
         if (run) body = statusView(run, ledgerOf(root, feature), { platform, nowMs: nowMs() });
         else if (selector.workerRun) body = refused('unknown-run', { runId: selector.workerRun });
@@ -425,7 +439,7 @@ async function executeWorkerCommand({
         const selector = runSelector(workerRun, task, token, 'cancel');
         if (!given(by) || !SAFE_NAME.test(String(by))) throw usage('--by is required: the name of the agent or person cancelling the run');
         if (typeof reason !== 'string' || !reason.trim()) throw usage('--reason is required: why the run is being cancelled');
-        const file = storeFileFor(lifecycleProjectRoot(cwd), feature);
+        const file = storeFileFor(root, feature);
         const run = findRun(file, selector);
         if (!run) {
           // IC-021 step 1 order: the caller's identity before the run's existence.
@@ -462,4 +476,4 @@ async function handleWorkerCommand(options: any = {}): Promise<number> {
   return finishRuntime(exit);
 }
 
-module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, ACTIONS, FLAG_ACTIONS, WorkerCommandError };
+module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, allowedExecArgv, ACTIONS, FLAG_ACTIONS, WorkerCommandError };

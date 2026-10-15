@@ -284,6 +284,19 @@ test('freshness: 24 hours effective, 24 hours plus 1 ms or a changed version or 
   for (const value of Object.values(effectiveFacts(null, current, atMs))) assert.deepEqual(value, { state: 'unknown', reason: 'not-probed', at: null });
 });
 
+test('freshness: a fact dated in the future (clock skew) is probe-stale, not fresh', () => {
+  const at = '2026-10-15T01:00:00.000Z';
+  const digest = descriptorDigest(FIXTURE.claude);
+  const facts = Object.fromEntries(FACTS.map((name) => [name, { state: 'yes', reason: 'exit 0', at, basis: 'free' }]));
+  const record = { harness: 'claude', at, binaryPath: '/bin/fake-claude', version: 'fake 1.0', descriptorDigest: digest, facts };
+  const current = { path: '/bin/fake-claude', version: 'fake 1.0', descriptorDigest: digest };
+  const hourEarlier = Date.parse(at) - 3600000;
+  for (const [name, value] of Object.entries(effectiveFacts(record, current, hourEarlier))) {
+    assert.deepEqual(value, { state: 'unknown', reason: 'probe-stale', at }, name);
+  }
+  assert.equal(effectiveFacts(record, current, Date.parse(at)).runnable.state, 'yes', 'age 0 is fresh');
+});
+
 test('NFR-005: eight fake harnesses probe within eight times PROBE_TIMEOUT_MS with no run or model check', POSIX_ONLY, async (t) => {
   const descriptors = eightDescriptors();
   const names = Object.values(descriptors).map((worker) => worker.cli.binary);

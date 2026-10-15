@@ -117,9 +117,10 @@ test('IC-003 argvShape writes the prompt element as its sha256 and byte count', 
   assert.ok(!argvShape(recipeOf('claude'), prompt).includes(prompt));
 });
 
-test('IC-003 a prompt of 131073 bytes in argv mode is prompt-too-large; 131072 is accepted', () => {
-  assert.equal(PROMPT_LIMITS.argv, 131072);
-  assert.equal(assembleArgv(recipeOf('claude'), 'a'.repeat(131072)).at(-1).length, 131072);
+test('IC-003 DEC-062 a prompt of 131072 bytes in argv mode is prompt-too-large (MAX_ARG_STRLEN counts the NUL); 131071 is accepted', () => {
+  assert.equal(PROMPT_LIMITS.argv, 131071);
+  assert.equal(assembleArgv(recipeOf('claude'), 'a'.repeat(131071)).at(-1).length, 131071);
+  assert.throws(() => assembleArgv(recipeOf('claude'), 'a'.repeat(131072)), (error) => error.code === 'prompt-too-large' && error.reason === 'prompt-too-large');
   assert.throws(() => assembleArgv(recipeOf('claude'), 'a'.repeat(131073)), (error) => error.code === 'prompt-too-large' && error.reason === 'prompt-too-large');
   // stdin mode allows up to 1048576 bytes.
   assert.doesNotThrow(() => assembleArgv(recipeOf('codex'), 'a'.repeat(131073)));

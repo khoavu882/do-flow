@@ -491,6 +491,10 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (!Object.hasOwn(entry, field)) continue;
       const problem = workerArgvProblem(entry[field]);
       if (problem) fail(key, problem.replace(/^argv/, field));
+      // DEC-066: only oneShot.argv carries the prompt; a second placeholder would duplicate it.
+      else if (!(key === 'oneShot' && field === 'argv') && entry[field].includes('{prompt}')) {
+        fail(key, `${field} must not contain '{prompt}' outside oneShot.argv`);
+      }
     }
     if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
     if (Object.hasOwn(entry, 'marker') && (typeof entry.marker !== 'string' || entry.marker.length < 1 || entry.marker.length > 200)) {
@@ -520,6 +524,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     else seen.add(check.id);
     const problem = workerArgvProblem(check.argv);
     if (problem) fail(key, problem);
+    else if (check.argv.includes('{prompt}')) fail(key, "argv must not contain '{prompt}' outside oneShot.argv");
     if (!Array.isArray(check.establishes) || check.establishes.length === 0 || check.establishes.some((fact: any) => !WORKER_FACTS.has(fact))) {
       fail(key, `establishes must be a non-empty subset of ${[...WORKER_FACTS].join(', ')}`);
     }

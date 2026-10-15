@@ -112,6 +112,11 @@ const cases = [
   ['{prompt} twice with promptVia argv', (w) => { w.oneShot = supported({ argv: ['{prompt}', '{prompt}'], promptVia: 'argv' }); }, /worker 'oneShot': argv must contain the element '\{prompt\}' exactly once/],
   ['{prompt} absent with promptVia argv', (w) => { w.oneShot = supported({ argv: ['-p'], promptVia: 'argv' }); }, /worker 'oneShot': argv must contain the element '\{prompt\}' exactly once/],
   ['{prompt} present with promptVia stdin', (w) => { w.oneShot = supported({ argv: ['{prompt}'], promptVia: 'stdin' }); }, /worker 'oneShot': argv must not contain '\{prompt\}' when promptVia is stdin/],
+  ['{prompt} in readOnly argv', (w) => { w.readOnly = supported({ argv: ['--read-only', '{prompt}'] }); }, /worker 'readOnly': argv must not contain '\{prompt\}' outside oneShot\.argv/],
+  ['{prompt} in spawnDenial argv', (w) => { w.spawnDenial = supported({ argv: ['{prompt}'] }); }, /worker 'spawnDenial': argv must not contain '\{prompt\}' outside oneShot\.argv/],
+  ['{prompt} in structuredOutput argv', (w) => { w.structuredOutput = supported({ argv: ['{prompt}'], parser: 'doflow-jsonl-v1' }); }, /worker 'structuredOutput': argv must not contain '\{prompt\}' outside oneShot\.argv/],
+  ['{prompt} in cli versionArgv', (w) => { w.cli.versionArgv = ['{prompt}']; }, /worker 'cli': versionArgv must not contain '\{prompt\}' outside oneShot\.argv/],
+  ['{prompt} in a model check argv', (w) => { w.modelChecks = [{ id: 'x', argv: ['{prompt}'], establishes: ['login'], estimateTokens: 1, timeoutSeconds: 1 }]; }, /worker 'modelChecks\[0\]': argv must not contain '\{prompt\}' outside oneShot\.argv/],
   ['an unknown profile', (w) => { w.profile = 'headless-ish'; }, /worker 'profile': must be a lifecycle coverage profile or null/],
   ['a bad model-check id', (w) => { w.modelChecks = [{ id: 'Bad_Id', argv: [], establishes: ['login'], estimateTokens: 1, timeoutSeconds: 1 }]; }, /worker 'modelChecks\[0\]': id must be a lowercase identifier/],
   ['a duplicate model-check id', (w) => {

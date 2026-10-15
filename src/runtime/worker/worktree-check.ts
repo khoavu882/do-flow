@@ -18,6 +18,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { loadStorageRegistry } = require('../storage/registry.ts');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const GIT_TIMEOUT_MS = 2000;
 const MAX_PATHS = 2000;
@@ -95,14 +97,54 @@ function parseStatus(text: string): Record<string, string> {
   return entries;
 }
 
-/** DoFlow's own runtime state, written by every hook a worker fires (DEC-053). Git prints POSIX separators. */
+/** DoFlow's own runtime state, under the storage registry's `project-state` root. Git prints POSIX separators. */
 const RUNTIME_STATE_PREFIX = '.doflow/state/';
+/** Never excluded: DoFlow's ignore file un-ignores it (`!/ledger.json`), so a write there is committable (DEC-061). */
+const NEVER_EXCLUDED = new Set(['install-ledger-project-state']);
 
-/** The entries with every path under `.doflow/state/` dropped, whatever any .gitignore says (DEC-053). */
-function withoutRuntimeState(entries: Record<string, string>): Record<string, string> {
+interface StoreRules {
+  /** First path segments of the declared project-state stores. */
+  segments: Set<string>;
+  /** `match` of the declared project-state stores whose `path` is empty (the lock stores). */
+  topLevel: RegExp[];
+}
+
+/**
+ * DEC-061: the declared `project-state` stores of `storage.json`, read at check time so a store a
+ * later feature adds is excluded with no edit here. Null when the registry cannot be loaded.
+ */
+function storeRules(storageFile?: string): StoreRules | null {
+  let registry: any;
+  try {
+    registry = loadStorageRegistry({ repoRoot: REPO_ROOT, file: storageFile });
+  } catch {
+    return null;
+  }
+  const rules: StoreRules = { segments: new Set(), topLevel: [] };
+  for (const store of registry.stores) {
+    if (store.root !== 'project-state' || NEVER_EXCLUDED.has(store.id)) continue;
+    if (store.path) rules.segments.add(store.path.split('/')[0]);
+    else rules.topLevel.push(new RegExp(store.match));
+  }
+  return rules;
+}
+
+/**
+ * The entries with each `.doflow/state/<R>` path dropped only when `R`'s first segment is a declared
+ * store's first segment, or `R` is one top-level name matching an empty-path store (DEC-061).
+ * `ledger.json` and undeclared names stay listed. Residual blind spot: a write inside a declared
+ * store directory (IC-015).
+ */
+function withoutDeclaredStores(entries: Record<string, string>, rules: StoreRules): Record<string, string> {
   const kept: Record<string, string> = {};
   for (const [rel, code] of Object.entries(entries)) {
-    if (!rel.startsWith(RUNTIME_STATE_PREFIX)) kept[rel] = code;
+    if (rel.startsWith(RUNTIME_STATE_PREFIX)) {
+      const inner = rel.slice(RUNTIME_STATE_PREFIX.length);
+      const slash = inner.indexOf('/');
+      if (rules.segments.has(slash === -1 ? inner : inner.slice(0, slash))) continue;
+      if (slash === -1 && rules.topLevel.some((match) => match.test(inner))) continue;
+    }
+    kept[rel] = code;
   }
   return kept;
 }
@@ -121,7 +163,7 @@ function pathState(worktree: string, rel: string): PathState {
   return `sha256:${crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex')}`;
 }
 
-function snapshot(worktree: string): Snapshot {
+function snapshot(worktree: string, { storageFile }: { storageFile?: string } = {}): Snapshot {
   const result: Snapshot = {
     worktree,
     head: { ref: '', object: null },
@@ -159,7 +201,9 @@ function snapshot(worktree: string): Snapshot {
 
   const status = git(worktree, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all']);
   if (status === null) return fail('status-failed');
-  const entries = withoutRuntimeState(parseStatus(status));
+  const rules = storeRules(storageFile);
+  if (rules === null) return fail('storage-registry-unreadable');
+  const entries = withoutDeclaredStores(parseStatus(status), rules);
   const listed = Object.keys(entries);
   if (listed.length > MAX_PATHS) return fail('too-many-paths');
   result.entries = entries;

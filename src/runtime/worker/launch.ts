@@ -29,8 +29,8 @@ type Env = Record<string, string | undefined>;
 /** IC-012: the five variables a launch sets, in the order the run record lists them. */
 const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE']);
 const PROMPT_ELEMENT = '{prompt}';
-/** IC-003 prompt limits in bytes. */
-const PROMPT_LIMITS = Object.freeze({ argv: 131072, stdin: 1048576 });
+/** IC-003 prompt limits in bytes. argv is one under Linux MAX_ARG_STRLEN, which counts the NUL (DEC-062). */
+const PROMPT_LIMITS = Object.freeze({ argv: 131071, stdin: 1048576 });
 const DEFAULT_RUN = 'local';
 const RUN_ID = /^w-[0-9a-f]{12}$/;
 /** IC-003 order of the run recipe's argv. */
