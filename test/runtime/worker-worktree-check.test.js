@@ -176,6 +176,23 @@ test('a path under the git-ignored .doflow/state is not listed', (t) => {
   assert.equal(compare(before, after).status, 'clean');
 });
 
+test('DEC-053 .doflow/state is outside the check with no .gitignore; another .doflow path is not', (t) => {
+  const { exec } = setup(t);
+  const state = path.join(exec, '.doflow', 'state', 'delivery');
+  fs.mkdirSync(state, { recursive: true });
+  const before = snapshot(exec);
+  fs.writeFileSync(path.join(state, 'x.json'), '{}\n');
+  const mid = snapshot(exec);
+  assert.ok(!fs.existsSync(path.join(exec, '.doflow', 'state', '.gitignore')));
+  assert.ok(!Object.keys(mid.paths).some((p) => p.startsWith('.doflow/state/')));
+  assert.equal(compare(before, mid).status, 'clean');
+
+  fs.writeFileSync(path.join(exec, '.doflow', 'other.txt'), 'x\n');
+  const result = compare(mid, snapshot(exec));
+  assert.equal(result.status, 'violated');
+  assert.deepEqual(result.changes, [{ path: '.doflow/other.txt', change: 'added' }]);
+});
+
 test('taking a snapshot leaves the index mtime unchanged', (t) => {
   const { exec } = setup(t);
   const index = path.resolve(exec, git(exec, 'rev-parse', '--git-path', 'index'));

@@ -253,11 +253,9 @@ test('IC-024 FR-004: a grant above DOFLOW_CONTEXT_MAX_BYTES is refused at the re
   forwarded(r.forwarding);
 });
 
-// The stand-in's launch() returns the refused emission's text, and the 078 case asserts that text
-// carries the pack and the pointer. launchWorker prepends the text only when the reason is `emit`
-// (IC-012 step 4), so on a refusal the worker gets the brief alone. Kept as a todo: it reports the
-// difference on every run without failing the suite until IC-012 or the 078 assertion is settled.
-test('IC-024 FR-004: the refused launch delivers the pack and the pointer to the worker (078 stand-in assertion)', { ...POSIX_ONLY, todo: 'IC-012 step 4 drops a refused emission text; reported in B.4' }, async (t) => {
+// DEC-052: the stand-in's launch() returns the refused emission's text, and the 078 case asserts that
+// text carries the pack and the pointer. launchWorker delivers any returned text, a refusal's included.
+test('IC-024 FR-004: the refused launch delivers the pack and the pointer to the worker (078 stand-in assertion)', POSIX_ONLY, async (t) => {
   const w = world(t);
   const { max, body, made } = overBudget(w);
   const r = await launchVia(w, { env: { ...w.env, DOFLOW_CONTEXT_MAX_BYTES: max }, run: 'r4', lineage: 'w4', grant: GRANT(w) });
