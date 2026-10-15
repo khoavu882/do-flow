@@ -226,6 +226,19 @@ function planWithUncheckedTask(cache: any, taskId: string, shouldStop?: () => bo
   return { found: false, unreadable: false };
 }
 
+/** IC-028: why a task-attempts ledger is open work, or null when it holds neither an active or
+ * cancelled attempt nor a run whose control is other than `running`. */
+function openLedgerReason(ledger: any): string | null {
+  const tasks = ledger && typeof ledger.tasks === 'object' && ledger.tasks ? Object.values<any>(ledger.tasks) : [];
+  for (const entry of tasks) {
+    const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
+    if (attempts.some((a: any) => a && (a.state === 'active' || a.state === 'cancelled'))) return 'attempt-open';
+  }
+  const runs = ledger && typeof ledger.runs === 'object' && ledger.runs ? Object.values<any>(ledger.runs) : [];
+  if (runs.some((run: any) => !run || run.control !== 'running')) return 'run-control-open';
+  return null;
+}
+
 function answer(state: string, reason: string, run: any, feature: any, since: number | null = null): any {
   return { state, since, reason, run, feature };
 }
@@ -282,6 +295,13 @@ function workStatus({
   // W4: old timestamps never close a live or gate-paused run.
   if (run && RUN_OPEN_STATES.includes(run.state)) {
     return answer('open', 'run-open', resolvedRun.id, null);
+  }
+
+  // IC-028: a task-attempts ledger stays open while any attempt is active or cancelled or any run
+  // is not `running`, so a paused or cancelled run whose boxes are all ticked is never pruned.
+  if (store === 'task-attempts') {
+    const ledgerOpen = openLedgerReason(record.value);
+    if (ledgerOpen) return answer('open', ledgerOpen, resolvedRun.id, null);
   }
 
   // W5: feature metadata is ordered; folder-name inference is the final fallback.

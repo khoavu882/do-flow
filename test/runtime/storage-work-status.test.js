@@ -320,3 +320,44 @@ test('work-status has no process, network, or HTTP imports', () => {
     assert.equal(source.includes(prohibited), false, prohibited);
   }
 });
+
+function ledger({ attempts = [], runs } = {}) {
+  return { version: 1, revision: 1, planPath: null, tasks: { 'A.1': { nextToken: attempts.length + 1, attempts } },
+    ...(runs ? { runs } : {}) };
+}
+
+function ledgerStatus(projectRoot, value) {
+  writePlan(projectRoot, '080-ledger', '- [x] A.1 done\n');
+  writeRecord(projectRoot, { store: 'task-attempts', taskId: '080-ledger', value, mtimeMs: 5 });
+  return workStatus({ projectRoot, store: 'task-attempts', taskId: '080-ledger', mtimeMs: 5 });
+}
+
+test('IC-028 a paused run keeps its ledger open with every plan box ticked', (t) => {
+  const projectRoot = setup(t);
+  const value = ledger({ attempts: [{ token: 1, state: 'finished', runKey: 'k' }], runs: { k: { control: 'paused' } } });
+  assert.deepEqual(ledgerStatus(projectRoot, value), {
+    state: 'open', since: null, reason: 'run-control-open', run: null, feature: null,
+  });
+});
+
+test('IC-028 a cancelled attempt keeps its ledger open with every plan box ticked', (t) => {
+  const projectRoot = setup(t);
+  const value = ledger({ attempts: [{ token: 1, state: 'cancelled', runKey: 'k' }], runs: { k: { control: 'running' } } });
+  assert.deepEqual(ledgerStatus(projectRoot, value), {
+    state: 'open', since: null, reason: 'attempt-open', run: null, feature: null,
+  });
+});
+
+test('IC-028 a running run with an active attempt keeps its ledger open', (t) => {
+  const projectRoot = setup(t);
+  const value = ledger({ attempts: [{ token: 1, state: 'active', runKey: 'k' }], runs: { k: { control: 'running' } } });
+  assert.equal(ledgerStatus(projectRoot, value).state, 'open');
+});
+
+test('IC-028 a running run with no active attempt and every box ticked keeps today\'s answer', (t) => {
+  const projectRoot = setup(t);
+  const value = ledger({ attempts: [{ token: 1, state: 'finished', runKey: 'k' }], runs: { k: { control: 'running' } } });
+  assert.deepEqual(ledgerStatus(projectRoot, value), {
+    state: 'finished', since: 5, reason: 'no-run', run: null, feature: '080-ledger',
+  });
+});
