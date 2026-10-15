@@ -3,9 +3,11 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
 /**
- * Worker readiness, first half (feature 081 B.1): discover (IC-004), probe facts and the probe
- * record (IC-005), model-backed checks (IC-006), freshness (IC-007) and the identity-forwarding
- * observation (IC-023). DEC-003, DEC-004, DEC-018, DEC-019, DEC-031.
+ * Worker readiness (feature 081 B.1 and B.2): discover (IC-004), probe facts and the probe
+ * record (IC-005), model-backed checks (IC-006), freshness (IC-007), the identity-forwarding
+ * observation (IC-023), and the needs vocabulary, eligibility, describe and select (IC-008,
+ * IC-009, IC-010). DEC-002, DEC-003, DEC-004, DEC-006, DEC-009, DEC-018, DEC-019, DEC-020,
+ * DEC-031, DEC-044. Describe and select write nothing.
  *
  * Nothing here reads a credential: login is learned from a probe's exit status only, probe stdout
  * is read up to 64 KiB and never stored, and the only paths read under the home directory are the
@@ -33,7 +35,8 @@ const { stateDir } = require('../context/identity.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { spawnBounded } = require('./process-tree.ts');
-const { parserFor } = require('./parsers.ts');
+const { parserFor, PARSERS } = require('./parsers.ts');
+const { enforcementFor, UnknownEnforcementTarget } = require('../../lifecycle/coverage.ts');
 
 /** A recorded fact is effective for 24 hours against a matching discover (DEC-019). */
 const PROBE_MAX_AGE_MS = 86400000;
@@ -459,6 +462,182 @@ async function probe({
   return { disposition: 'probed', harnesses: results };
 }
 
+/** IC-008: requirements every task carries, in report order. */
+const BASELINE = Object.freeze(['installed', 'runnable', 'one-shot', 'structured-output', 'read-only', 'spawn-denial']);
+/** IC-008: requirements a task adds with `--need`, besides `blocking-hook:<policy>`. */
+const NEED_IDS = Object.freeze(['hooks-loaded', 'identity-forwarding', 'guidance-loaded', 'login']);
+const BLOCKING_HOOK = 'blocking-hook:';
+/** IC-001's capability keys, in declaration order (IC-009 `declared`). */
+const CAPABILITIES = Object.freeze([
+  'cli', 'oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe',
+  'persistentSession', 'resume', 'steering',
+]);
+const FACT_REQUIREMENTS: Record<string, string> = Object.freeze({
+  installed: 'installed', runnable: 'runnable', 'hooks-loaded': 'hooksLoaded',
+  'identity-forwarding': 'identityForwarded', 'guidance-loaded': 'guidanceLoaded', login: 'login',
+});
+const CAPABILITY_REQUIREMENTS: Record<string, string> = Object.freeze({
+  'one-shot': 'oneShot', 'structured-output': 'structuredOutput', 'read-only': 'readOnly', 'spawn-denial': 'spawnDenial',
+});
+const FACT_RESULT: Record<string, string> = Object.freeze({ yes: 'met', no: 'failed', unknown: 'unknown' });
+
+/**
+ * DEC-044: the `blocking-hook` policies, built from the coverage rows because coverage's
+ * `POLICY_ORDER` is not exported and `src/lifecycle/coverage.ts` does not change (IC-032).
+ */
+function policyVocabulary(coverage: any): Set<string> {
+  const policies = new Set<string>((coverage?.rows || []).map((row: any) => row.policy));
+  policies.delete('*');
+  return policies;
+}
+
+/** The need ids as given, deduplicated; an unknown id or policy is a `usage` error listing the valid ones. */
+function validateNeeds(needs: any, coverage: any): string[] {
+  const list = needs === undefined || needs === null ? [] : (Array.isArray(needs) ? needs : [needs]);
+  const policies = policyVocabulary(coverage);
+  for (const need of list) {
+    if (typeof need === 'string' && need.startsWith(BLOCKING_HOOK)) {
+      const policy = need.slice(BLOCKING_HOOK.length);
+      if (!policies.has(policy)) {
+        throw new ReadinessError('usage', `unknown policy '${policy}' in --need '${need}'; valid policies: ${[...policies].join(', ') || '(none)'}`);
+      }
+    } else if (!NEED_IDS.includes(need)) {
+      throw new ReadinessError('usage', `unknown need '${need}'; valid needs: ${[...NEED_IDS, `${BLOCKING_HOOK}<policy>`].join(', ')}; policies: ${[...policies].join(', ') || '(none)'}`);
+    }
+  }
+  return [...new Set<string>(list)];
+}
+
+function factRequirement(requirement: string, value: any) {
+  const state = value?.state ?? 'unknown';
+  return { requirement, result: FACT_RESULT[state] ?? 'unknown', reason: value?.reason ?? 'not-probed', at: value?.at ?? null };
+}
+
+function capabilityRequirement(requirement: string, entry: any) {
+  if (!entry || typeof entry !== 'object') return { requirement, result: 'unknown', reason: 'not-declared' };
+  if (entry.status === 'supported') {
+    if (requirement === 'structured-output' && !Object.hasOwn(PARSERS, entry.parser)) {
+      return { requirement, result: 'failed', reason: `parser-unknown ${entry.parser}` };
+    }
+    return { requirement, result: 'met', reason: 'supported' };
+  }
+  if (entry.status === 'unsupported') return { requirement, result: 'failed', reason: entry.reason || 'unsupported' };
+  return { requirement, result: 'unknown', reason: entry.reason || 'unknown' };
+}
+
+/**
+ * `blocking-hook:<policy>`: a known profile, an enforced coverage answer and loaded hooks. An
+ * `UnknownEnforcementTarget` is a `failed` requirement carrying its `code`, never raised (DEC-044).
+ */
+function blockingHookRequirement(requirement: string, harness: string, worker: any, facts: any, coverage: any) {
+  if (worker?.profile === null || worker?.profile === undefined) return { requirement, result: 'failed', reason: 'profile-unknown' };
+  let answer: any;
+  try {
+    answer = enforcementFor(coverage, { harness, policy: requirement.slice(BLOCKING_HOOK.length), profile: worker.profile });
+  } catch (error: any) {
+    if (error instanceof UnknownEnforcementTarget) return { requirement, result: 'failed', reason: error.code };
+    throw error;
+  }
+  if (!answer.enforced) return { requirement, result: 'failed', reason: answer.reason };
+  const hooks = factRequirement(requirement, facts?.hooksLoaded);
+  if (hooks.result !== 'met') return { ...hooks, reason: `hooksLoaded ${hooks.reason}` };
+  return { requirement, result: 'met', reason: answer.reason, at: hooks.at };
+}
+
+/**
+ * IC-008: the baseline and `needs` evaluated for one harness to `met`, `failed` or `unknown`, each
+ * with a reason; fact-backed requirements also carry the fact's `at`. `descriptor` is a
+ * `workerDescriptors` entry `{ harness, worker }`; `facts` are IC-007 effective facts.
+ */
+function requirementsFor(descriptor: any, facts: any, needs: any, coverage: any) {
+  const { harness, worker } = descriptor;
+  return [...BASELINE, ...validateNeeds(needs, coverage)].map((requirement) => {
+    if (Object.hasOwn(FACT_REQUIREMENTS, requirement)) return factRequirement(requirement, facts?.[FACT_REQUIREMENTS[requirement]]);
+    if (Object.hasOwn(CAPABILITY_REQUIREMENTS, requirement)) return capabilityRequirement(requirement, worker?.[CAPABILITY_REQUIREMENTS[requirement]]);
+    return blockingHookRequirement(requirement, harness, worker, facts, coverage);
+  });
+}
+
+/** Eligible when every applicable requirement is `met` (DEC-009, DEC-020); the others are gaps. */
+function eligibility(requirements: any[]) {
+  const gaps = requirements.filter((item) => item.result !== 'met').map(({ requirement, result, reason }) => ({ requirement, result, reason }));
+  return { eligible: gaps.length === 0, gaps };
+}
+
+/** Registry, coverage and descriptors for one describe or select call. */
+function readinessContext({ descriptors, registry, coverage }: any) {
+  const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
+  return { entries: workerDescriptors({ descriptors, registry: reg }), coverage: coverage === undefined ? reg.coverage : coverage };
+}
+
+/** Discover, then the IC-007 effective facts and IC-008 evaluation of one harness. Writes nothing. */
+function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd, now, platform }: any) {
+  const found = discoverOne(entry, { env, cwd, now, platform });
+  const record = readProbeRecord(cwd, entry.harness);
+  const facts = effectiveFacts(record, { ...found, descriptorDigest: descriptorDigest(entry.worker) }, now);
+  const requirements = requirementsFor(entry, facts, needs, coverage);
+  return { harness: entry.harness, facts, recordedAt: record?.at ?? null, requirements, ...eligibility(requirements) };
+}
+
+/**
+ * IC-009: what one harness declares, its effective probe facts with a `stale` flag, and IC-008's
+ * requirements for the baseline and `needs`. Read-only.
+ */
+function describe({
+  descriptors, registry, coverage, harness, needs,
+  env = process.env, cwd = process.cwd(), now = Date.now, platform = process.platform,
+}: any = {}) {
+  const context = readinessContext({ descriptors, registry, coverage });
+  const entry = context.entries.find((item) => item.harness === harness);
+  if (!entry) throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.entries.map((item) => item.harness).join(', ')}`);
+  const valid = validateNeeds(needs, context.coverage);
+  const evaluated = evaluateHarness(entry, valid, context.coverage, { env, cwd, now: clock(now), platform });
+  const declared: any = { profile: entry.worker?.profile ?? null, modelChecks: (entry.worker?.modelChecks || []).map((check: any) => check.id) };
+  for (const key of CAPABILITIES) {
+    const value = entry.worker?.[key];
+    declared[key] = value
+      ? { status: value.status, verifiedOn: value.verifiedOn, ...(value.reason ? { reason: value.reason } : {}) }
+      : { status: 'unknown', verifiedOn: null, reason: 'not-declared' };
+  }
+  const probeFacts: any = {};
+  for (const name of FACTS) probeFacts[name] = { ...evaluated.facts[name], stale: evaluated.facts[name].reason === 'probe-stale' };
+  return { disposition: 'described', harness, declared, probe: probeFacts, requirements: evaluated.requirements, eligible: evaluated.eligible };
+}
+
+/**
+ * IC-010: the first eligible harness in registry order, or `none-eligible` with each gap and the
+ * fallback modes. Claims nothing and writes nothing (DEC-002).
+ */
+function select({
+  descriptors, registry, coverage, harness, needs,
+  env = process.env, cwd = process.cwd(), now = Date.now, platform = process.platform,
+}: any = {}) {
+  const context = readinessContext({ descriptors, registry, coverage });
+  const entries = harness ? context.entries.filter((item) => item.harness === harness) : context.entries;
+  if (harness && entries.length === 0) {
+    throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.entries.map((item) => item.harness).join(', ')}`);
+  }
+  const valid = validateNeeds(needs, context.coverage);
+  const tick = clock(now);
+  const evaluated = entries.map((entry) => evaluateHarness(entry, valid, context.coverage, { env, cwd, now: tick, platform }));
+  const candidates = evaluated.map(({ harness: id, eligible, gaps }) => ({ harness: id, eligible, gaps }));
+  const chosen = evaluated.find((item) => item.eligible);
+  if (!chosen) {
+    return {
+      disposition: 'none-eligible',
+      candidates,
+      fallback: { modes: ['sequential', 'manual'], rule: 'claim with --mode sequential or manual; a subagent claim is run only by worker --action run' },
+    };
+  }
+  const met = chosen.requirements.map((item: any) => item.requirement).join(', ');
+  return {
+    disposition: 'selected',
+    harness: chosen.harness,
+    reason: `first eligible harness in registry order; met: ${met}; probed at ${chosen.recordedAt}`,
+    candidates,
+  };
+}
+
 module.exports = {
   PROBE_TIMEOUT_MS,
   PROBE_MAX_AGE_MS,
@@ -476,4 +655,12 @@ module.exports = {
   effectiveFacts,
   readProbeRecord,
   probeFile,
+  BASELINE,
+  NEED_IDS,
+  policyVocabulary,
+  validateNeeds,
+  requirementsFor,
+  eligibility,
+  describe,
+  select,
 };
