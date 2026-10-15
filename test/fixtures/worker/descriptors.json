@@ -1,0 +1,539 @@
+{
+  "claude": {
+    "profile": null,
+    "cli": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → version"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for version.",
+      "verifiedOn": "2026-10-15",
+      "binary": "fake-claude",
+      "versionArgv": [
+        "--version"
+      ]
+    },
+    "oneShot": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "run",
+        "{prompt}"
+      ],
+      "promptVia": "argv"
+    },
+    "structuredOutput": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--jsonl"
+      ],
+      "parser": "doflow-jsonl-v1"
+    },
+    "readOnly": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--read-only"
+      ]
+    },
+    "spawnDenial": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--no-spawn"
+      ]
+    },
+    "runnableProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → runnable"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for runnable.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "runnable"
+      ]
+    },
+    "hooksProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → hooks"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for hooks.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "hooks"
+      ]
+    },
+    "guidanceProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → guidance"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for guidance.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "guidance"
+      ],
+      "marker": "DOFLOW-FAKE-GUIDANCE"
+    },
+    "loginProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → login"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for login.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "login"
+      ]
+    },
+    "persistentSession": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "steering": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "modelChecks": []
+  },
+  "codex": {
+    "profile": null,
+    "cli": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → version"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for version.",
+      "verifiedOn": "2026-10-15",
+      "binary": "fake-codex",
+      "versionArgv": [
+        "--version"
+      ]
+    },
+    "oneShot": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "run"
+      ],
+      "promptVia": "stdin"
+    },
+    "structuredOutput": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--jsonl"
+      ],
+      "parser": "doflow-jsonl-v1"
+    },
+    "readOnly": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--read-only"
+      ]
+    },
+    "spawnDenial": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--no-spawn"
+      ]
+    },
+    "runnableProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → runnable"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for runnable.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "runnable"
+      ]
+    },
+    "hooksProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → hooks"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for hooks.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "hooks",
+        "--skip-front-doors"
+      ]
+    },
+    "guidanceProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → guidance"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for guidance.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "guidance"
+      ],
+      "marker": "DOFLOW-FAKE-GUIDANCE"
+    },
+    "loginProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → login"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for login.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "login"
+      ]
+    },
+    "persistentSession": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "steering": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "modelChecks": []
+  },
+  "gemini": {
+    "profile": null,
+    "cli": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → version"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for version.",
+      "verifiedOn": "2026-10-15",
+      "binary": "fake-gemini",
+      "versionArgv": [
+        "--version"
+      ]
+    },
+    "oneShot": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "run",
+        "{prompt}"
+      ],
+      "promptVia": "argv"
+    },
+    "structuredOutput": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--jsonl"
+      ],
+      "parser": "doflow-jsonl-v1"
+    },
+    "readOnly": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "the fake descriptor declares no read-only flag"
+    },
+    "spawnDenial": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--no-spawn"
+      ]
+    },
+    "runnableProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → runnable"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for runnable.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "runnable"
+      ]
+    },
+    "hooksProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → hooks"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for hooks.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "hooks"
+      ]
+    },
+    "guidanceProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → guidance"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for guidance.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "guidance"
+      ],
+      "marker": "DOFLOW-FAKE-GUIDANCE"
+    },
+    "loginProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → login"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for login.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "login"
+      ]
+    },
+    "persistentSession": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "steering": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "modelChecks": []
+  },
+  "opencode": {
+    "profile": null,
+    "cli": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → version"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for version.",
+      "verifiedOn": "2026-10-15",
+      "binary": "fake-opencode",
+      "versionArgv": [
+        "--version"
+      ]
+    },
+    "oneShot": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "run",
+        "{prompt}"
+      ],
+      "promptVia": "argv"
+    },
+    "structuredOutput": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--jsonl"
+      ],
+      "parser": "doflow-jsonl-v1"
+    },
+    "readOnly": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--read-only"
+      ]
+    },
+    "spawnDenial": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → run"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "--no-spawn"
+      ]
+    },
+    "runnableProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → runnable"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for runnable.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "runnable"
+      ]
+    },
+    "hooksProbe": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "no free hooks probe; the model check establishes the facts"
+    },
+    "guidanceProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → guidance"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for guidance.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "guidance"
+      ],
+      "marker": "DOFLOW-FAKE-GUIDANCE"
+    },
+    "loginProbe": {
+      "status": "supported",
+      "evidence": [
+        "test/helper/fake-harness-cli.js → login"
+      ],
+      "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for login.",
+      "verifiedOn": "2026-10-15",
+      "argv": [
+        "probe",
+        "login"
+      ]
+    },
+    "persistentSession": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "steering": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
+      "verifiedOn": "2026-10-15",
+      "reason": "declared, not implemented in 081"
+    },
+    "modelChecks": [
+      {
+        "id": "hooks-roundtrip",
+        "argv": [
+          "model-check",
+          "hooks-roundtrip"
+        ],
+        "establishes": [
+          "hooksLoaded",
+          "identityForwarded"
+        ],
+        "estimateTokens": 500,
+        "timeoutSeconds": 30
+      }
+    ]
+  }
+}
