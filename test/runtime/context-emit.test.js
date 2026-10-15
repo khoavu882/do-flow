@@ -12,7 +12,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { emitContext } = require('../../src/runtime/context-pack.ts');
-const { grantSummary, writeSummary } = require('../../src/runtime/context/summary-store.ts');
+const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
+const { writeSummary } = require('../helper/summary-fixture');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = path.join(REPO, 'core/harnesses/shared/hooks/policies');
@@ -258,4 +259,136 @@ test('DEC-034 a launch where everything fits is unchanged: the pack, a blank lin
   assert.equal(r.text, `${pack}\n\n[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nSmall granted body`);
   assert.ok(Buffer.byteLength(r.text, 'utf8') <= 16384);
   assert.deepEqual(grantsLeft(w), []);
+});
+
+// ── Review batch B (DEC-038, DEC-039, DEC-041, DEC-042, DEC-043) ────────────────────────────────
+
+const store = require('../../src/runtime/context/summary-store.ts');
+const { cwdHash } = require('../../src/runtime/context/identity.ts');
+
+/** A default-main session's environment: no launcher variables. */
+function mainEnv(w) {
+  return { ...w.env, DOFLOW_RUN_ID: '', DOFLOW_LINEAGE_ID: '', DOFLOW_ATTEMPT: '', DOFLOW_SESSION_ROLE: '' };
+}
+
+/** A grant record placed directly, as a pre-DEC-039 grantSummary could address it. */
+function placeGrant(w, run, lineage, id, body) {
+  const dir = path.join(w.store, 'grants', run, lineage);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${id}.md`), `---\nsummary_id: ${id}\nfrom_lineage: main\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\n---\n\n${body}\n`);
+  return dir;
+}
+
+function bootstrapped(w, unit) {
+  fs.mkdirSync(path.join(w.store, 'sessions', unit), { recursive: true });
+  fs.writeFileSync(path.join(w.store, 'sessions', unit, 'injected'), '');
+}
+
+test('DEC-039 a default-main prompt never reads a grant under local/main; a launched unit still gets its own', (t) => {
+  const w = world(t);
+  const env = mainEnv(w);
+  placeGrant(w, 'local', 'main', 's-20261014T100000Z-AAAAAA', 'stray grant body');
+  bootstrapped(w, 'sess-m');
+  const r = emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: 'sess-m' });
+  assert.equal(r.decision.reason, 'silent:already-bootstrapped');
+  assert.equal(r.text, null);
+  assert.ok(fs.existsSync(path.join(w.store, 'grants/local/main/s-20261014T100000Z-AAAAAA.md')), 'the grant is not consumed');
+
+  // Negative control: the launched worker (r1, w1) receives a grant addressed to it.
+  placeGrant(w, 'r1', 'w1', 's-20261014T100000Z-BBBBBB', 'launched grant body');
+  bootstrapped(w, 'L.r1.w1.1');
+  const launched = emitContext({ event: 'prompt', cwd: w.cwd, env: w.env, sessionId: 'sess-w' });
+  assert.equal(launched.decision.reason, 'emit');
+  assert.ok(launched.text.includes('launched grant body'));
+});
+
+test('L1-05 a grant swapped between peek and claim is not delivered, and the other grant is untouched', (t) => {
+  const w = world(t);
+  const dir = placeGrant(w, 'r1', 'w1', 's-20261014T100000Z-EEEEEE', 'peeked body');
+  const realPeek = store.peekGrant;
+  store.peekGrant = (...args) => {
+    const peeked = realPeek(...args);
+    fs.rmSync(path.join(dir, 's-20261014T100000Z-EEEEEE.md'));
+    placeGrant(w, 'r1', 'w1', 's-20261014T090000Z-AAAAAA', 'older body that arrived later');
+    return peeked;
+  };
+  let r;
+  try {
+    r = emitContext({ event: 'prompt', cwd: w.cwd, env: w.env, sessionId: 'sess-w' });
+  } finally {
+    store.peekGrant = realPeek;
+  }
+  assert.equal(r.text, null, 'nothing renders: the fitted grant vanished');
+  assert.deepEqual(grantsLeft(w), ['s-20261014T090000Z-AAAAAA.md'], 'the newcomer stays for a later event');
+  assert.deepEqual(ledger(w), []);
+});
+
+/** A pending default-main summary larger than a 100-byte budget; returns its id. */
+function bigSummary(w) {
+  return writeSummary({ worktree: w.cwd, run: 'local', lineage: 'main', compactedAt: '2026-10-14T10:00:00Z', sessionId: 'owner', branch: 'topic', body: 's'.repeat(500), env: mainEnv(w) }).summaryId;
+}
+
+test('DEC-041 a summary the budget drops writes one optional-dropped line keyed by its id', (t) => {
+  const w = world(t);
+  const env = { ...mainEnv(w), DOFLOW_CONTEXT_MAX_BYTES: '100' };
+  const id = bigSummary(w);
+  const r = emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: 'sess-m' });
+  assert.equal(r.decision.reason, 'emit');
+  assert.equal(r.text, 'Git context unavailable for this session.');
+  const lines = ledger({ unit: path.join(w.store, 'sessions', 'sess-m') });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], LEDGER_LINE);
+  assert.deepEqual(lines[0].split('\t').slice(1), ['optional-dropped', id, 'over-budget', 'launcher']);
+  emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: 'sess-m' });
+  assert.equal(ledger({ unit: path.join(w.store, 'sessions', 'sess-m') }).length, 1, 'a repeat writes none');
+});
+
+test('DEC-038 a ledger write that throws after the claim gives the summary and the slot back', (t) => {
+  const w = world(t);
+  const env = { ...mainEnv(w), DOFLOW_CONTEXT_MAX_BYTES: '100' };
+  bigSummary(w);
+  const scope = store.summaryScope(w.cwd, 'local', 'main', env);
+  const realAppend = fs.appendFileSync;
+  fs.appendFileSync = () => {
+    const error = new Error('ENOSPC: no space left on device');
+    error.code = 'ENOSPC';
+    throw error;
+  };
+  try {
+    assert.throws(() => emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: 'sess-m' }), /ENOSPC/);
+  } finally {
+    fs.appendFileSync = realAppend;
+  }
+  assert.deepEqual(fs.readdirSync(scope), ['summary.md'], 'the summary is back, no claimed file left');
+  assert.equal(fs.existsSync(path.join(w.store, 'sessions/sess-m/injected')), false, 'the slot is released');
+  assert.equal(store.peekSummary(w.cwd, 'local', 'main', 'sess-m', env).own, 'pending');
+});
+
+test('DEC-043 a legacy summary is adopted on the first default-main prompt and emitted; peek renders it in place', (t) => {
+  const w = world(t);
+  const env = mainEnv(w);
+  const dir = path.join(w.store, 'projects', cwdHash(w.cwd));
+  fs.mkdirSync(dir, { recursive: true });
+  const legacy = path.join(dir, 'last-compact-summary.md');
+  fs.writeFileSync(legacy, '---\ncompacted_at: 2026-10-01T09:00:00Z\nsession_id: old\ntrigger: auto\nbranch: topic\n---\n\ncarried-over body\n');
+
+  const peeked = emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: 'sess-m', peek: true });
+  assert.ok(peeked.text.includes('carried-over body'));
+  assert.ok(fs.existsSync(legacy), 'peek adopts nothing');
+
+  const r = emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: 'sess-m' });
+  assert.equal(r.decision.reason, 'emit');
+  assert.equal(r.text, peeked.text);
+  assert.ok(r.text.includes('[Prior session summary, compacted 2026-10-01T09:00:00Z on branch topic]\ncarried-over body'));
+  assert.deepEqual(fs.readdirSync(dir), [], 'the legacy file and its .adopting name are gone');
+  assert.deepEqual(fs.readdirSync(store.summaryScope(w.cwd, 'local', 'main', env)), [], 'adopted, then claimed');
+});
+
+test('DEC-042 an unsafe session id is silent for every lineage kind and touches nothing', (t) => {
+  const w = world(t);
+  for (const env of [mainEnv(w), w.env]) {
+    const r = emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: '../x' });
+    assert.deepEqual({ reason: r.decision.reason, text: r.text, committed: r.committed }, { reason: 'fault:unit', text: null, committed: false });
+  }
+  assert.equal(fs.existsSync(path.join(w.store, 'sessions')), false);
 });

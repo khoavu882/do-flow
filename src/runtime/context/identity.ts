@@ -98,13 +98,16 @@ function readWorktree(raw: string | undefined, cwd: string): string {
 
 /**
  * Create `sessions/<unitId>/bound` exclusively, holding the session id. True when this session owns
- * the unit (just bound, or bound earlier by the same session); false when another session bound it.
+ * the unit (just bound, or bound earlier by the same session); false when another session bound it,
+ * and false when it cannot be decided (the store is unwritable, `bound` is a symlink, which is never
+ * followed, or `bound` is still empty after one retry). Never throws: the caller treats false as an
+ * inherited session (L1-04).
  */
 function bindUnit(env: Env, unitId: string, sessionId: string): boolean {
   const dir = path.join(stateDir(env), 'sessions', unitId);
   const file = path.join(dir, 'bound');
-  fs.mkdirSync(dir, { recursive: true });
   try {
+    fs.mkdirSync(dir, { recursive: true });
     const fd = fs.openSync(file, 'wx');
     try {
       fs.writeSync(fd, `${sessionId}\n`);
@@ -113,9 +116,21 @@ function bindUnit(env: Env, unitId: string, sessionId: string): boolean {
     }
     return true;
   } catch (error: any) {
-    if (error?.code !== 'EEXIST') throw error;
+    if (error?.code !== 'EEXIST') return false;
   }
-  return fs.readFileSync(file, 'utf8').replace(/\n$/, '') === sessionId;
+  // `IFS= read -r bound` of a regular file, not a symlink: its first line. An empty first line may
+  // be a concurrent binder between its create and its write, so it is read once more.
+  for (let tries = 0; tries < 2; tries++) {
+    let bound: string;
+    try {
+      if (!fs.lstatSync(file).isFile()) return false;
+      bound = fs.readFileSync(file, 'utf8').split('\n')[0];
+    } catch {
+      return false;
+    }
+    if (bound !== '') return bound === sessionId;
+  }
+  return false;
 }
 
 /** IC-007: the session identity from the environment and the payload's session id and cwd. */
@@ -153,11 +168,16 @@ function resolveIdentity(env: Env, options: ResolveOptions): SessionIdentity {
   else if (run === DEFAULT_RUN && lineage === 'main') lineageKind = 'default-main';
 
   let unitId = lineageKind === 'launched' ? `L.${run}.${lineage}.${attempt}` : sessionId;
-  if (lineageKind === 'launched' && bind && sessionId !== '' && !bindUnit(env, unitId, sessionId)) {
-    diagnostics.add('identity-inherited');
-    lineageKind = 'solo';
-    lineage = 'solo';
-    unitId = sessionId;
+  if (lineageKind === 'launched' && bind) {
+    // An empty session id cannot bind: solo with an empty unit and no capture, as identity.sh.
+    // Any other failure to bind is an inherited session (DEC-044).
+    const mine = sessionId !== '' && bindUnit(env, unitId, sessionId);
+    if (!mine) {
+      if (sessionId !== '') diagnostics.add('identity-inherited');
+      lineageKind = 'solo';
+      lineage = 'solo';
+      unitId = sessionId;
+    }
   }
 
   return {

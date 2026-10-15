@@ -1,5 +1,5 @@
 {
-  "//": "078 IC-007 parity corpus (G38.6). policies/identity.sh (doflow_identity) and src/runtime/context/identity.ts (resolveIdentity) must both produce every expect block. Placeholders in env values, cwd and expect are substituted by the runner: $CWD an existing canonical directory used as payload cwd, $WT a second existing canonical directory, $WT_LINK a symlink to $WT, $FILE an existing regular file. Expect fields map to DF_ID_RUN, DF_ID_ATTEMPT, DF_ID_LINEAGE, DF_ID_ROLE, DF_ID_WORKTREE, DF_ID_KIND, DF_ID_UNIT; an empty string is an empty variable. diagnostics is the sorted set of codes raised: role-unknown (the one stderr line), identity-invalid and identity-inherited (doflow_capture_failure codes). Variables absent from env are unset; a variable present with an empty string is set but empty, which the contract treats as unset. Binding sequences run every event in order against one fresh store root (XDG_CONFIG_HOME set to a temp dir), binding enabled; an event's env merges over its sequence's env. An event's bound is the content, without its trailing newline, of sessions/L.<run>.<lineage>.<attempt>/bound for the launched unit the event's env names; null means no bound file exists anywhere under sessions/. Cases follow IC-007 literally where it reads two ways: an explicit DOFLOW_RUN_ID=local is invalid (the valid value is an id that is not local), so lineage becomes solo; default-main means run local with lineage main, whether main was defaulted or set; attempt is canonical 1 to 9999 with no leading zero, so the unit id has one spelling; an inherited session keeps run and attempt, takes lineage solo and its own session id as unit.",
+  "//": "078 IC-007 parity corpus (G38.6). policies/identity.sh (doflow_identity) and src/runtime/context/identity.ts (resolveIdentity) must both produce every expect block. Placeholders in env values, cwd and expect are substituted by the runner: $CWD an existing canonical directory used as payload cwd, $WT a second existing canonical directory, $WT_LINK a symlink to $WT, $FILE an existing regular file. Expect fields map to DF_ID_RUN, DF_ID_ATTEMPT, DF_ID_LINEAGE, DF_ID_ROLE, DF_ID_WORKTREE, DF_ID_KIND, DF_ID_UNIT; an empty string is an empty variable. diagnostics is the sorted set of codes raised: role-unknown (the one stderr line), identity-invalid and identity-inherited (doflow_capture_failure codes). Variables absent from env are unset; a variable present with an empty string is set but empty, which the contract treats as unset. Binding sequences run every event in order against one fresh store root (XDG_CONFIG_HOME set to a temp dir), binding enabled; an event's env merges over its sequence's env. An event's bound is the content, without its trailing newline, of sessions/L.<run>.<lineage>.<attempt>/bound for the launched unit the event's env names; null means no bound file exists anywhere under sessions/. Cases follow IC-007 literally where it reads two ways: an explicit DOFLOW_RUN_ID=local is invalid (the valid value is an id that is not local), so lineage becomes solo; default-main means run local with lineage main, whether main was defaulted or set; attempt is canonical 1 to 9999 with no leading zero, so the unit id has one spelling; an inherited session keeps run and attempt, takes lineage solo and its own session id as unit. A binding event may name a setup the runner applies to the store just before it (DEC-044): store-unwritable makes sessions/ a regular file, so no unit directory can be created; bound-symlink makes the event unit's bound a symlink to a regular file holding the event's session id, which must not be followed; bound-empty makes it an empty regular file, read twice and then treated as another session's. For bound-symlink the expected bound is the content read through the link, unchanged.",
   "version": 1,
   "idPattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$",
   "cwdHash": [
@@ -255,6 +255,38 @@
           "expect": { "run": "run-3", "attempt": "1", "lineage": "lin_a", "role": "worker", "worktree": "$CWD", "kind": "launched", "unit": "L.run-3.lin_a.1", "diagnostics": [] } },
         { "env": { "DOFLOW_ATTEMPT": "2" }, "cwd": "$CWD", "sessionId": "s-b", "bound": "s-b",
           "expect": { "run": "run-3", "attempt": "2", "lineage": "lin_a", "role": "worker", "worktree": "$CWD", "kind": "launched", "unit": "L.run-3.lin_a.2", "diagnostics": [] } }
+      ]
+    },
+    {
+      "name": "edge: an empty session id cannot bind: solo, empty unit, no capture",
+      "env": { "DOFLOW_RUN_ID": "run-e", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_e", "DOFLOW_SESSION_ROLE": "worker" },
+      "events": [
+        { "cwd": "$CWD", "sessionId": "", "bound": null,
+          "expect": { "run": "run-e", "attempt": "1", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "", "diagnostics": [] } }
+      ]
+    },
+    {
+      "name": "edge: an unwritable store cannot bind: solo, inherited",
+      "env": { "DOFLOW_RUN_ID": "run-e", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_e", "DOFLOW_SESSION_ROLE": "worker" },
+      "events": [
+        { "setup": "store-unwritable", "cwd": "$CWD", "sessionId": "s-a", "bound": null,
+          "expect": { "run": "run-e", "attempt": "1", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-a", "diagnostics": ["identity-inherited"] } }
+      ]
+    },
+    {
+      "name": "edge: a symlinked bound is never followed: solo, inherited",
+      "env": { "DOFLOW_RUN_ID": "run-e", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_e", "DOFLOW_SESSION_ROLE": "worker" },
+      "events": [
+        { "setup": "bound-symlink", "cwd": "$CWD", "sessionId": "s-a", "bound": "s-a",
+          "expect": { "run": "run-e", "attempt": "1", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-a", "diagnostics": ["identity-inherited"] } }
+      ]
+    },
+    {
+      "name": "edge: a bound still empty after one retry: solo, inherited",
+      "env": { "DOFLOW_RUN_ID": "run-e", "DOFLOW_ATTEMPT": "1", "DOFLOW_LINEAGE_ID": "lin_e", "DOFLOW_SESSION_ROLE": "worker" },
+      "events": [
+        { "setup": "bound-empty", "cwd": "$CWD", "sessionId": "s-a", "bound": "",
+          "expect": { "run": "run-e", "attempt": "1", "lineage": "solo", "role": "worker", "worktree": "$CWD", "kind": "solo", "unit": "s-a", "diagnostics": ["identity-inherited"] } }
       ]
     },
     {

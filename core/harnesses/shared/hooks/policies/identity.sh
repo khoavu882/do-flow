@@ -64,7 +64,7 @@ doflow_identity() {
   local session_id="${1:-}" cwd="${2:-}" LC_ALL=C
   local run="${DOFLOW_RUN_ID:-}" attempt="${DOFLOW_ATTEMPT:-}" lineage="${DOFLOW_LINEAGE_ID:-}"
   local worktree="${DOFLOW_WORKTREE:-}" invalid=0 run_ok=0 lineage_ok=0 attempt_ok=0
-  local sessions dir bound="" had_c=0 mine=0
+  local sessions dir bound="" had_c=0 mine=0 tries
 
   _doflow_role_resolve
   DF_ID_ROLE=$_DF_ROLE
@@ -126,9 +126,11 @@ doflow_identity() {
     DF_ID_UNIT=$session_id
   fi
 
-  # Binding (DEC-008): the first session to present a launched unit creates `bound` exclusively;
-  # a session whose id differs from the bound one is inherited and gets its own solo unit. A unit
-  # that cannot be bound at all (no session id, no store) is solo too, without the inherited capture.
+  # Binding (DEC-008, DEC-044): the first session to present a launched unit creates `bound`
+  # exclusively; a session whose id differs from the bound one is inherited and gets its own solo
+  # unit. A unit that cannot be bound with a session id (store unwritable, `bound` a symlink, which is
+  # never followed, or `bound` still empty after one retry) is inherited too. With no session id the
+  # unit is solo with an empty unit id and no capture.
   if [ "$DF_ID_KIND" = launched ]; then
     sessions="${SESSION_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/doflow/session-env/sessions}"
     dir="$sessions/$DF_ID_UNIT"
@@ -137,16 +139,21 @@ doflow_identity() {
       set -C
       { printf '%s\n' "$session_id" >"$dir/bound"; } 2>/dev/null && mine=1
       [ "$had_c" = 1 ] || set +C
-      if [ "$mine" = 0 ] && [ -f "$dir/bound" ] && [ ! -L "$dir/bound" ]; then
-        IFS= read -r bound <"$dir/bound" 2>/dev/null || true
-        [ "$bound" != "$session_id" ] || mine=1
+      if [ "$mine" = 0 ]; then
+        # An empty first line may be a concurrent binder between its create and its write.
+        for tries in 1 2; do
+          [ -f "$dir/bound" ] && [ ! -L "$dir/bound" ] || break
+          IFS= read -r bound 2>/dev/null <"$dir/bound" || true
+          [ -z "$bound" ] || break
+        done
+        [ -z "$bound" ] || [ "$bound" != "$session_id" ] || mine=1
       fi
     fi
     if [ "$mine" = 0 ]; then
       DF_ID_KIND=solo
       DF_ID_LINEAGE=solo
       DF_ID_UNIT=$session_id
-      if [ -n "$bound" ] && [ -z "${_DF_ID_INHERITED_CAPTURED:-}" ]; then
+      if [ -n "$session_id" ] && [ -z "${_DF_ID_INHERITED_CAPTURED:-}" ]; then
         _doflow_identity_capture identity-inherited
         _DF_ID_INHERITED_CAPTURED=1
       fi

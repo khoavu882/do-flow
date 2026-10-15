@@ -15,7 +15,8 @@ const { buildInstallMirror } = require('../helper/hook-fixtures');
 const { createScratch } = require('../helper/scratch-env');
 const { launch, launchEnv, firstPrompt } = require('../helper/launcher-stand-in');
 const { emitContext } = require('../../src/runtime/context-pack.ts');
-const { grantSummary, writeSummary } = require('../../src/runtime/context/summary-store.ts');
+const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
+const { writeSummary } = require('../helper/summary-fixture');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

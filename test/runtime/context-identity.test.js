@@ -51,6 +51,32 @@ function asFields(id) {
 
 const quiet = () => {};
 
+/** The DEC-044 store setups a binding event may name (see the cases.json comment). */
+function applySetup(setup, sessions, unit, sessionId, root) {
+  if (setup === undefined) return;
+  const bound = path.join(sessions, unit, 'bound');
+  if (setup === 'store-unwritable') {
+    fs.mkdirSync(path.dirname(sessions), { recursive: true });
+    fs.writeFileSync(sessions, '');
+  } else if (setup === 'bound-symlink') {
+    const target = path.join(root, `bound-target-${unit}`);
+    fs.writeFileSync(target, `${sessionId}\n`);
+    fs.mkdirSync(path.dirname(bound), { recursive: true });
+    fs.symlinkSync(target, bound);
+  } else if (setup === 'bound-empty') {
+    fs.mkdirSync(path.dirname(bound), { recursive: true });
+    fs.writeFileSync(bound, '');
+  } else {
+    throw new Error(`unknown binding setup ${setup}`);
+  }
+}
+
+/** Every bound file under sessions/, when sessions/ is a directory at all. */
+function boundFiles(sessions) {
+  if (!fs.existsSync(sessions) || !fs.statSync(sessions).isDirectory()) return [];
+  return fs.readdirSync(sessions, { recursive: true }).filter((f) => path.basename(f) === 'bound');
+}
+
 test('identity cases: the corpus covers every IC-007 row, inheritance and each invalid value', () => {
   assert.equal(CASES.idPattern, ID_PATTERN.source);
   const names = CASES.identity.map((c) => c.name).join('\n');
@@ -65,6 +91,11 @@ test('identity cases: the corpus covers every IC-007 row, inheritance and each i
   for (const kind of ['launched', 'default-main', 'solo']) {
     assert.ok(CASES.identity.some((c) => c.expect.kind === kind), `no case expects kind ${kind}`);
   }
+  const events = CASES.binding.flatMap((s) => s.events);
+  for (const setup of ['store-unwritable', 'bound-symlink', 'bound-empty']) {
+    assert.ok(events.some((e) => e.setup === setup), `no binding event pins ${setup}`);
+  }
+  assert.ok(events.some((e) => e.sessionId === ''), 'no binding event pins an empty session id');
 });
 
 for (const c of CASES.identity) {
@@ -84,14 +115,13 @@ for (const s of CASES.binding) {
     const sessions = path.join(stateDir({ XDG_CONFIG_HOME: config }), 'sessions');
     for (const [i, e] of s.events.entries()) {
       const env = { XDG_CONFIG_HOME: config, ...subAll(s.env, places), ...subAll(e.env || {}, places) };
+      const unit = `L.${env.DOFLOW_RUN_ID}.${env.DOFLOW_LINEAGE_ID}.${env.DOFLOW_ATTEMPT}`;
+      applySetup(e.setup, sessions, unit, e.sessionId, root);
       const id = resolveIdentity(env, { cwd: sub(e.cwd, places), sessionId: e.sessionId, bind: true, warn: quiet });
       assert.deepEqual(asFields(id), subAll(e.expect, places), `event ${i}`);
       if (e.bound === null) {
-        const found = fs.existsSync(sessions)
-          ? fs.readdirSync(sessions, { recursive: true }).filter((f) => path.basename(f) === 'bound') : [];
-        assert.deepEqual(found, [], `event ${i}: no bound file expected`);
+        assert.deepEqual(boundFiles(sessions), [], `event ${i}: no bound file expected`);
       } else {
-        const unit = `L.${env.DOFLOW_RUN_ID}.${env.DOFLOW_LINEAGE_ID}.${env.DOFLOW_ATTEMPT}`;
         const text = fs.readFileSync(path.join(sessions, unit, 'bound'), 'utf8');
         assert.equal(text.replace(/\n$/, ''), e.bound, `event ${i}`);
       }
