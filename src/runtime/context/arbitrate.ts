@@ -12,7 +12,9 @@
 // The IC-007 reader whose SessionIdentity a request carries. In-process callers (emitContext(),
 // the launcher) resolve identity with it before they arbitrate; arbitrate() itself only reads the
 // resolved `role` and `lineageKind`.
-const { resolveIdentity } = require('./identity.ts');
+const fs = require('node:fs');
+const path = require('node:path');
+const { cwdHash, resolveIdentity, stateDir } = require('./identity.ts');
 
 type EmissionEvent = 'launch' | 'prompt' | 'delta' | 'legacy-adopt' | 'compact-store' | 'compact-meta' | 'compact-instructions';
 type Segment = 'slot' | 'git' | 'summary' | 'warning' | 'grant' | 'nudge' | 'legacy' | 'pack' | 'meta' | 'instructions';
@@ -398,10 +400,286 @@ function renderEmission(request: RenderRequest): RenderResult {
   };
 }
 
+// ── emitContext() (IC-001 emit half, IC-012 TypeScript claim, IC-015) ─────────────────────────
+//
+// The launcher-side caller of arbitrate(). It gathers the state bits from the store exactly as
+// policies/emission.sh does, decides, takes the one-shot tokens (the `injected` slot with an
+// exclusive create, then the summary and grant renames through summary-store.ts), renders, and
+// appends the IC-015 ledger line with caller `launcher`. The store modules and the context pack
+// are required inside the function: arbitrate.ts is also loaded alone by the rule compiler.
+
+type Env = Record<string, string | undefined>;
+
+interface EmitOptions {
+  event: 'launch' | 'prompt' | 'delta';
+  /** Default: resolveIdentity(env, { cwd, sessionId }). */
+  identity?: any;
+  cwd: string;
+  sessionId?: string;
+  harness?: string;
+  /** Default 'none': a launcher never sees prompt text. */
+  nudge?: 'nudge' | 'suppress' | 'none';
+  maxBytes?: number;
+  taskId?: string;
+  slug?: string;
+  /** Decide and render; take no claim and write no ledger line. */
+  peek?: boolean;
+  /** Default process.env: identity, budget and the store root are read from it. */
+  env?: Env;
+}
+
+interface EmitResult {
+  decision: EmissionDecision;
+  /** null when silent. */
+  text: string | null;
+  /** launch and delta only. */
+  pack: { packDigest: string; form: string; deltaRefused: string | null } | null;
+  /** True when this call took a token or wrote a ledger line. */
+  committed: boolean;
+}
+
+const UNIT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const MAX_BYTES_PATTERN = /^[1-9][0-9]{0,9}$/;
+const PACK_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
+/** emission-rules.sh DF_RULES_MAX_BYTES_DEFAULT. */
+const DEFAULT_MAX_BYTES = 16384;
+const EMIT_EVENTS = ['launch', 'prompt', 'delta'];
+
+function usageError(message: string): Error {
+  const error: any = new Error(message);
+  error.code = 'USAGE_ERROR';
+  return error;
+}
+
+/** IC-001 budget: the flag, else DOFLOW_CONTEXT_MAX_BYTES, else the hook's default, as emission.sh. */
+function emitBudget(maxBytes: number | undefined, env: Env): EmissionRequest['budget'] {
+  if (maxBytes !== undefined) {
+    if (!Number.isInteger(maxBytes) || maxBytes <= 0) throw usageError('emitContext: maxBytes must be a positive integer');
+    return { maxBytes, source: 'flag' };
+  }
+  const raw = env.DOFLOW_CONTEXT_MAX_BYTES || '';
+  if (MAX_BYTES_PATTERN.test(raw)) return { maxBytes: Number(raw), source: 'env' };
+  return { maxBytes: DEFAULT_MAX_BYTES, source: 'default' };
+}
+
+function present(file: string): boolean {
+  try {
+    fs.lstatSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `[ -f file ]`: a regular file, following a symlink. */
+function isFile(file: string): boolean {
+  try {
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function readText(file: string | null): string | null {
+  if (file === null) return null;
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** The IC-015 ledger as [ts, kind, key, outcome, caller] rows; an absent file is empty. */
+function readLedger(file: string): string[][] {
+  const raw = readText(file);
+  if (raw === null) return [];
+  return raw.split('\n').filter((line: string) => line !== '').map((line: string) => line.split('\t'));
+}
+
+function ledgerSeen(rows: string[][], kind: string, key: string, outcome: string): boolean {
+  return rows.some((row) => row[1] === kind && row[2] === key && row[3] === outcome);
+}
+
+/** The unit's last delivered pack digest, from a line either caller wrote. */
+function lastPackKey(rows: string[][]): string | null {
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    if (rows[i][1] === 'pack' && rows[i][3] === 'emitted' && PACK_DIGEST_PATTERN.test(rows[i][2] ?? '')) return rows[i][2];
+  }
+  return null;
+}
+
+/** `_doflow_em_ledger_add` with caller `launcher`: one line per (kind, key, outcome). True when written. */
+function ledgerAdd(dir: string, kind: string, key: string, outcome: string): boolean {
+  const file = path.join(dir, 'emitted');
+  if (ledgerSeen(readLedger(file), kind, key, outcome)) return false;
+  fs.mkdirSync(dir, { recursive: true });
+  const at = new Date().toISOString().replace(/\.[0-9]{3}Z$/, 'Z');
+  fs.appendFileSync(file, `${at}\t${kind}\t${key}\t${outcome}\tlauncher\n`);
+  return true;
+}
+
+/**
+ * IC-001: one emission for a launch, a prompt or a delta. Throws a USAGE_ERROR for an unknown
+ * event, a missing cwd, a unit with no id, or a `launch` without a launched identity (IC-007).
+ */
+function emitContext(options: EmitOptions): EmitResult {
+  const store = require('./summary-store.ts');
+  const env = options.env ?? process.env;
+  const { event, cwd } = options;
+  if (!EMIT_EVENTS.includes(event)) throw usageError(`emitContext: event must be one of ${EMIT_EVENTS.join(', ')}`);
+  if (typeof cwd !== 'string' || cwd === '') throw usageError('emitContext: cwd is required');
+  const sessionId = options.sessionId ?? '';
+  const identity = options.identity ?? resolveIdentity(env, { cwd, sessionId });
+  if (event === 'launch' && identity.lineageKind !== 'launched') {
+    throw usageError('emitContext: launch requires a launched identity (DOFLOW_RUN_ID, DOFLOW_LINEAGE_ID and DOFLOW_ATTEMPT)');
+  }
+  const unit: string = identity.unitId;
+  if (typeof unit !== 'string' || !UNIT_PATTERN.test(unit)) throw usageError('emitContext: the unit has no id (no launched identity and no session id)');
+  const peek = options.peek === true;
+  const budget = emitBudget(options.maxBytes, env);
+  const max = budget.maxBytes;
+  const root = stateDir(env);
+  const dir = path.join(root, 'sessions', unit);
+  const slot = path.join(dir, 'injected');
+  const ledger = readLedger(path.join(dir, 'emitted'));
+  const { run, lineage, worktree } = identity;
+
+  // emission.sh step 3. The warning and the owner summary only matter before the bootstrap. The
+  // legacy bit stays false: adoption is the hook's (IC-014), on a default main prompt, which a
+  // launched identity never is.
+  let bootstrapped = present(slot);
+  const warnFile = path.join(root, 'projects', cwdHash(cwd), 'uncommitted-warning.txt');
+  let warning = false;
+  let own: EmissionState['ownSummary'] = 'none';
+  if (!bootstrapped) {
+    warning = isFile(warnFile);
+    own = store.peekSummary(worktree, run, lineage, sessionId, env).own;
+  }
+  const grant = store.peekGrant(run, lineage, max, env);
+  const refusedSeen = grant.grant === 'over' && grant.id !== null && ledgerSeen(ledger, 'grant', grant.id, REFUSED);
+  const decide = (b: boolean): EmissionDecision => arbitrate({
+    event, identity, budget,
+    state: { bootstrapped: b, subagent: false, ownSummary: own, legacy: false, grant: grant.grant, refusedSeen, warning, nudge: options.nudge ?? 'none' },
+  });
+  let decision = decide(bootstrapped);
+
+  // Step 6, the slot first: EEXIST means another caller bootstrapped this unit.
+  let tookSlot = false;
+  if (decision.actions.slot === 'claim' && !peek) {
+    fs.mkdirSync(dir, { recursive: true });
+    try {
+      fs.closeSync(fs.openSync(slot, 'wx'));
+      tookSlot = true;
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') throw error;
+      bootstrapped = true;
+      decision = decide(true);
+    }
+  }
+
+  // The pack, before any other claim: a mandatory overflow refuses the whole event and gives back
+  // the slot this call took, so the next caller can still bootstrap the unit.
+  let pack: EmitResult['pack'] = null;
+  let packText: string | null = null;
+  if (decision.actions.pack === 'include') {
+    const { packForEmission } = require('../context-pack.ts');
+    const since = lastPackKey(ledger);
+    const compiled = packForEmission({ root: cwd, taskId: options.taskId, slug: options.slug, harness: options.harness ?? null, maxBytes: max, since, noRecord: peek, env });
+    const digest: string = compiled.pack.delivery.packDigest;
+    pack = { packDigest: digest, form: 'markdown', deltaRefused: compiled.pack.delivery.deltaRefused ?? null };
+    if (compiled.pack.status === 'OVERFLOW') {
+      if (tookSlot) fs.rmSync(slot, { force: true });
+      return {
+        decision: { ...decision, emit: false, reason: REFUSED },
+        text: compiled.pack.overflowAction?.message ?? null,
+        pack,
+        committed: false,
+      };
+    }
+    const delta = compiled.pack.delta;
+    const unchanged = since !== null && (digest === since
+      || (delta !== null && delta !== undefined && delta.added.length === 0 && delta.changed.length === 0 && delta.removed.length === 0));
+    if (!unchanged) packText = compiled.output;
+  }
+
+  // The remaining claims in IC-004 order (summary, grant, warning); peek reads in place.
+  const inputs: RenderInputs = {};
+  const claimed: string[] = [];
+  let tookClaim = false;
+  try {
+    if (decision.actions.summary === 'truncate') {
+      if (peek) {
+        const file = store.peekSummary(worktree, run, lineage, sessionId, env).file;
+        if (file !== null) {
+          const raw = fs.readFileSync(file);
+          inputs.summary = raw.subarray(0, SUMMARY_READ).toString('utf8');
+          inputs.summaryBytes = raw.length;
+        }
+      } else {
+        const c = store.claimSummary(worktree, run, lineage, unit, sessionId, env);
+        if (c.claimed !== null) {
+          tookClaim = true;
+          claimed.push(c.claimed);
+          inputs.summary = readText(c.claimed);
+          inputs.summaryBytes = c.bytes;
+        }
+      }
+    }
+    if (decision.actions.grant === 'whole') {
+      if (peek) inputs.grant = readText(grant.file);
+      else {
+        const c = store.claimGrant(run, lineage, unit, max, env);
+        if (c.claimed !== null) {
+          tookClaim = true;
+          claimed.push(c.claimed);
+          inputs.grant = readText(c.claimed);
+        }
+      }
+    } else if (decision.actions.grant === 'pointer') {
+      // An over-budget grant is never claimed: it renders as its pointer from where it lies.
+      inputs.grant = readText(grant.file);
+    }
+    if (decision.actions.warning === 'include') {
+      inputs.warning = readText(warnFile);
+      if (!peek && inputs.warning !== null) {
+        fs.rmSync(warnFile, { force: true });
+        tookClaim = true;
+      }
+    }
+    if (decision.actions.git === 'include') inputs.git = readText(path.join(root, 'sessions', sessionId, 'git-context.json'));
+
+    const rendered = renderEmission({ actions: decision.actions, maxBytes: max, inputs });
+    const text = [packText, rendered.text].filter((piece) => piece !== null && piece !== '').join('\n\n') || null;
+
+    // Step 8: the ledger lines (pack delivered; grant refused, keyed by its summary id).
+    let wrote = false;
+    if (!peek) {
+      if (packText !== null && pack !== null) wrote = ledgerAdd(dir, 'pack', pack.packDigest, 'emitted') || wrote;
+      if (decision.actions.grant === 'pointer' && grant.id !== null) wrote = ledgerAdd(dir, 'grant', grant.id, REFUSED) || wrote;
+    }
+
+    let reason: string;
+    if (rendered.refused || decision.reason === REFUSED) reason = REFUSED;
+    else if (text !== null) reason = 'emit';
+    else if (bootstrapped && event !== 'delta') reason = 'silent:already-bootstrapped';
+    else reason = 'silent:unchanged';
+    const hint = decision.ledger && decision.ledger.key === '@grant' && grant.id !== null ? { ...decision.ledger, key: grant.id } : decision.ledger;
+    return {
+      decision: { ...decision, emit: text !== null, reason, ledger: hint },
+      text,
+      pack,
+      committed: !peek && (tookSlot || tookClaim || wrote),
+    };
+  } finally {
+    for (const file of claimed) fs.rmSync(file, { force: true });
+  }
+}
+
 module.exports = {
   EMISSION_RULES,
   INPUT_DOMAINS,
   arbitrate,
+  emitContext,
   renderEmission,
   resolveIdentity,
   ruleAction,
