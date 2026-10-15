@@ -304,3 +304,43 @@ test('Stop, turn-end and session-end fixtures plus Pi tool_call leave task state
   await executePi(piRow, piProject, piMirror, 'pi-state-unchanged');
   assert.deepEqual(stateSnapshot(piProject), piBefore, 'pi/tool_call/allow: state remains byte-identical');
 });
+
+// Feature 078, IC-022: the prompt emission is one policy behind every front door, so an equal
+// canonical prompt event over an equal store gives Claude and Codex an equal additionalContext.
+const SUMMARY_RECORD = '---\ncompacted_at: 2026-10-14T10:00:00Z\nsession_id: WRITER\ntrigger: auto\nbranch: topic\nrole: main\n'
+  + 'summary_id: s-20261014T100000Z-Ab12Cd\nrun: local\nlineage: main\nattempt:\nworktree: <worktree>\n---\n\nPARITY-SUMMARY\n';
+const GRANT_RECORD = '---\nsummary_id: s-20261014T100000Z-Ab12Cd\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: <worktree>\n'
+  + 'from_run: local\nfrom_lineage: main\nto_run: r1\nto_lineage: w1\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 14\n---\n\nPARITY-GRANTED\n';
+
+test('IC-022: equal canonical prompt event and store state give Claude and Codex equal additionalContext', () => {
+  const project = fs.realpathSync(createScratchGitRepo(scratch, 'emission-parity').root);
+  const lib = path.join(REPO, 'core/harnesses/shared/hooks/policies/lib.sh');
+  const hash = call('bash', ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, project], { env: { ...process.env, HOME: scratch.dir } }).stdout.trim();
+  assert.match(hash, /^[0-9a-f]{16}$/);
+  const states = [
+    { name: 'main session, pending summary', env: {}, file: `summaries/${hash}/local/main/summary.md`, record: SUMMARY_RECORD, expect: /PARITY-SUMMARY/ },
+    { name: 'launched worker, pending grant', env: { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'w1', DOFLOW_ATTEMPT: '1' },
+      file: 'grants/r1/w1/s-20261014T100000Z-Ab12Cd.md', record: GRANT_RECORD, expect: /PARITY-GRANTED/ },
+  ];
+  for (const [index, state] of states.entries()) {
+    const contexts = {};
+    for (const harness of ['claude', 'codex']) {
+      const mirror = prepareMirror(harness, `emission-${harness}-${index}`);
+      const home = path.join(scratch.dir, `emission-home-${harness}-${index}`);
+      const xdg = path.join(scratch.dir, `emission-xdg-${harness}-${index}`);
+      fs.mkdirSync(home, { recursive: true });
+      write(path.join(xdg, 'doflow/session-env', state.file), state.record.replace('<worktree>', project));
+      const result = call('bash', [path.join(mirror, `.${harness}/hooks/user-prompt-submit.sh`)], {
+        cwd: project,
+        input: `${JSON.stringify({ session_id: 'parity-prompt', cwd: project, hook_event_name: 'UserPromptSubmit', prompt: 'continue' })}\n`,
+        env: { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, GIT_CONFIG_GLOBAL: '/dev/null', DOFLOW_FAILURE_CAPTURE: 'off', ...state.env },
+      });
+      assert.equal(result.status, 0, `${harness}/${state.name}: ${result.stderr}`);
+      const response = JSON.parse(result.stdout || '{}');
+      contexts[harness] = response.additionalContext ?? response.hookSpecificOutput?.additionalContext ?? '';
+      assert.match(contexts[harness], state.expect, `${harness}/${state.name}: the stored record is emitted`);
+      assert.equal(fs.existsSync(path.join(xdg, 'doflow/session-env', state.file)), false, `${harness}/${state.name}: the record is claimed`);
+    }
+    assert.equal(contexts.codex, contexts.claude, `${state.name}: Claude and Codex emit the same additionalContext`);
+  }
+});
