@@ -68,6 +68,8 @@ function parseArgs(argv: string[]): any {
       // task-attempt --action cancel (run): a switch, so it cannot go through parseRuntimeFlag,
       // which reads only flags that take a value (IC-017).
       case '--adopt-unowned': o.adoptUnowned = true; break;
+      // worker --action run: wait for the run to end. A switch, like --adopt-unowned (081 IC-026).
+      case '--wait': o.wait = true; break;
       case '-g': case '--global': o.global = true; break;
       case '--no-backup': o.noBackup = true; break;
       case '--permissions': o.permissions = true; break;
@@ -331,6 +333,12 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--budget-tokens', 'budgetTokens'], // start: the run's token limit
   ['--by', 'by'],                      // start|pause|cancel|reopen|resume: who acts on the run
   ['--ack', 'ack'],                    // resume: the digest the unacknowledged resume reported
+  // 081 worker (IC-025, IC-026). Read as text and validated in handleWorkerCommand.
+  // `--need`, `--harness`, `--budget-tokens`, `--task`, `--token`, `--by` and `--reason` are shared.
+  ['--prompt-file', 'promptFile'],     // worker run: the brief the worker receives
+  ['--timeout-seconds', 'timeoutSeconds'], // worker run: 1 to 14400
+  ['--worker-run', 'workerRun'],       // worker status|cancel: a w-<12 hex> run id
+  ['--model-check', 'modelCheck'],     // worker probe: a declared model-check id
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -441,6 +449,7 @@ Commands:
   orchestrate          Start or resume a run: complete stages, decide gates (--action)
   research-request     Open, list or resolve a feature-stage research question (--task-id)
   task-attempt         Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts (--action, --slug)
+  worker               Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task (--action)
   retrieve             BM25 search over the installed guidance tree (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
   advise               Route decision questions to the configured local model (--action)
@@ -498,6 +507,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
+                       worker: discover|probe|describe|select|run|status|cancel
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
@@ -574,6 +584,16 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --tag, --confirm, --feature,
       --exclude (repeatable), --reason      lifecycle (release, merged)
       --fp, --as, --reason, --set, --all    failure (list, settle, capture)
+      --harness, --need (repeatable),
+      --model-check, --budget-tokens,
+      --task, --token, --prompt-file,
+      --timeout-seconds, --wait,
+      --worker-run, --by, --reason          worker (probe: [--model-check <id> --budget-tokens <n>];
+                                            describe: --harness; run: --harness --task --token
+                                            --prompt-file [--timeout-seconds 1-14400] [--wait];
+                                            status, cancel: --worker-run or --task --token;
+                                            cancel also --by --reason. Exit 0 done; 1 refused or
+                                            none-eligible, the disposition in the JSON; 2 usage)
       --error, --failed-check,
       --iteration, --agent                  recover
       --json           Machine-readable output (status)

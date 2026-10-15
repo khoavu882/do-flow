@@ -78,6 +78,7 @@ const ALLOWLIST = new Map([
     'brief-tools',
     'called by do-task-brief.sh, never by a skill',
   ],
+  ['worker', '081 builds the adapter; its caller is the 082 dispatcher, so no skill invokes it yet'],
   ['context-emit', 'launcher entry for 081; no skill invokes it'],
   ['context-grant', 'launcher entry for 081; no skill invokes it'],
   [

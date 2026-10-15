@@ -42,6 +42,7 @@ const { handleWorkflowCommand } = require('../runtime/workflow-engine.ts');
 const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator.ts');
 const { handleResearchRequestCommand } = require('../runtime/research-request.ts');
 const { handleTaskAttemptCommand } = require('../runtime/task-attempts.ts');
+const { handleWorkerCommand } = require('../runtime/worker/command.ts');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval.ts');
 const { handleModelRoleCommand } = require('../runtime/model-router.ts');
 const { handleRouteCommand } = require('../runtime/capability-router.ts');
@@ -190,7 +191,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   try {
     if (['trace', 'stats', 'discover'].includes(o.cmd)) {
       moment.projectRoot = path.dirname(resolveRunsLocation({ start: evidenceRoot(o), global: o.global }).configDir);
-    } else if (['followup', 'lifecycle', 'goal', 'task-attempt'].includes(o.cmd)) {
+    } else if (['followup', 'lifecycle', 'goal', 'task-attempt', 'worker'].includes(o.cmd)) {
       moment.projectRoot = lifecycleProjectRoot(evidenceRoot(o));
     } else {
       moment.projectRoot = storeRoot;
@@ -269,6 +270,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // The store is shared by every linked worktree of the clone (lifecycle's main-worktree root); the
     // feature is `--slug`, else the branch's, resolved the way decision and scaffold resolve it.
     case 'task-attempt': return handleTaskAttemptCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, task: o.task, owner: o.owner, mode: o.mode, token: o.token, result: o.result, evidenceId: o.evidenceId, reason: o.reason, ownerOverride: o.ownerOverride, epoch: o.epoch, reserveTokens: o.reserveTokens, execWorktree: o.execWorktree, tokens: o.tokens, tokensBasis: o.tokensBasis, budgetAttempts: o.budgetAttempts, budgetTokens: o.budgetTokens, by: o.by, ack: o.ack, adoptUnowned: Boolean(o.adoptUnowned), json: o.json, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
+    // 081 IC-026: the worker adapter reads and writes the same main-worktree store as task-attempt.
+    case 'worker': return handleWorkerCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, harness: o.harness, need: o.need, modelCheck: o.modelCheck, budgetTokens: o.budgetTokens, task: o.task, token: o.token, promptFile: o.promptFile, timeoutSeconds: o.timeoutSeconds, wait: Boolean(o.wait), workerRun: o.workerRun, by: o.by, reason: o.reason, json: o.json, env: process.env, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });
