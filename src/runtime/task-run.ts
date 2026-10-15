@@ -15,7 +15,7 @@
 const { cwdHash, resolveIdentity } = require('./context/identity.ts');
 const { findWorkTreeTop } = require('./source-version.ts');
 const crypto = require('node:crypto');
-const { taskAttemptLimit, graphDigest, graphTuples, deriveTasks, isGraphPlan } = require('./task-graph.ts');
+const { taskAttemptLimit, graphDigest, graphTuples, deriveTasks, isGraphPlan, overlaps } = require('./task-graph.ts');
 const { measureSources, compareSources } = require('./task-sources.ts');
 
 type Env = Record<string, string | undefined>;
@@ -584,9 +584,114 @@ function resumeRun(
   });
 }
 
+// ── inspect (IC-016, IC-009 `totalsMismatch`; critic B m2, m4, m6) ────────────────────────────
+//
+// Pure over a store the caller read with `readTaskState` (no lock, no write, no git process).
+
+/** IC-009: the stored totals equal the recomputed ones. Key order is not compared. */
+function sameTotals(stored: any, computed: RunTotals) {
+  return canonicalJson(stored === undefined ? null : stored) === canonicalJson(computed);
+}
+
+/**
+ * Critic B m6: tasks per phase and `[P]` fan-out (the `[P]` tasks of a phase, which may run
+ * together). Advisory only: no threshold, never a refusal.
+ */
+function decompositionAdvisory(graph: any) {
+  const phases = graph.phases.map((phase: string) => {
+    const tasks = graph.tasks.filter((t: any) => t.phase === phase);
+    return { phase, tasks: tasks.length, parallel: tasks.filter((t: any) => t.parallel).length };
+  });
+  return {
+    advisoryOnly: true as const,
+    phases,
+    maxTasksPerPhase: phases.reduce((m: number, p: any) => Math.max(m, p.tasks), 0),
+    maxParallelFanOut: phases.reduce((m: number, p: any) => Math.max(m, p.parallel), 0),
+  };
+}
+
+/**
+ * IC-016: the inspect view of the caller's run. `store` is a plain read (`readTaskState`);
+ * `graph`, `hashes` and `warnings` come from `loadPlan`; `key` from `runKeyFor`. Pure: nothing is
+ * written, no lock is taken and no process runs. `totals` is recomputed from the attempt list and
+ * `totalsMismatch` says whether the stored copy differs (IC-009); the stored copy is returned as
+ * `storedTotals` only then. `defaults` lists every budget limit that is a default rather than
+ * declared (critic B m2), so a caller sees nominal limits without reading each row.
+ */
+function inspectRun(store: any, { slug, key, graph, hashes = null, warnings = [] }: { slug: string; key: RunKey; graph: any; hashes?: any; warnings?: any[] }) {
+  const run = ownRun(store, key.runKey);
+  const tasks = deriveTasks(graph, store, { hashes, clearedCancels: clearedCancels(store) });
+  const limits = effectiveLimits(run, graph);
+  const totals = computeTotals(store, key.runKey);
+  const totalsMismatch = Boolean(run) && !sameTotals(run.totals, totals);
+  const runView: any = {
+    runKey: key.runKey,
+    exists: Boolean(run),
+    control: run ? run.control : 'none',
+    epoch: run ? run.epoch : null,
+    budget: { attempts: limits.attempts, tokens: limits.tokens, source: normalizeBudget(run && run.budget).attempts === null ? 'default' : 'run' },
+    totals,
+    totalsMismatch,
+    history: run && Array.isArray(run.history) ? run.history : [],
+  };
+  if (totalsMismatch) runView.storedTotals = run.totals === undefined ? null : run.totals;
+  return {
+    slug,
+    revision: Number.isInteger(store.revision) ? store.revision : 0,
+    graph: {
+      digest: graphDigest(graph),
+      graphPlan: isGraphPlan(graph),
+      warnings,
+      tasks: graph.tasks.map((t: any) => ({
+        id: t.id, phase: t.phase, owner: t.owner ?? null, taskDeps: t.taskDeps, parallel: t.parallel,
+        acceptance: t.acceptance, files: t.files || [],
+      })),
+      overlaps: overlaps(graph),
+    },
+    tasks,
+    run: runView,
+    defaults: {
+      runAttempts: runView.budget.source === 'default',
+      tasks: tasks.filter((r: any) => r.budget.source === 'default').map((r: any) => r.id),
+    },
+    advisory: { decomposition: decompositionAdvisory(graph) },
+  };
+}
+
+/**
+ * IC-016 text: one line per task (`id state reason budget used/limit`, `(default)` on a default
+ * limit), then control, epoch, limits with their source and totals with each token figure
+ * labelled by basis. Measured and estimated are never summed.
+ */
+function formatInspect(view: any): string[] {
+  const lines: string[] = [];
+  const r = view.run;
+  if (view.defaults.runAttempts || view.defaults.tasks.length) {
+    const what = [
+      ...(view.defaults.runAttempts ? ['run attempt limit'] : []),
+      ...(view.defaults.tasks.length ? [`task limits of ${view.defaults.tasks.join(', ')}`] : []),
+    ];
+    lines.push(`DEFAULT BUDGETS: ${what.join('; ')} are defaults, not declared limits`);
+  }
+  lines.push(`Task attempts for ${view.slug} (revision ${view.revision}, ${view.graph.graphPlan ? 'graph plan' : 'legacy plan'})`);
+  for (const t of view.tasks) {
+    lines.push(`  ${t.id} ${t.state} ${t.reason} budget ${t.budget.used}/${t.budget.limit}${t.budget.source === 'default' ? ' (default)' : ''}`);
+  }
+  lines.push(`Run ${r.runKey}: control ${r.control}, epoch ${r.epoch === null ? 'none' : r.epoch}`);
+  lines.push(`  limits: attempts ${r.budget.attempts} (${r.budget.source}), tokens ${r.budget.tokens === null ? 'none' : `${r.budget.tokens} (run)`}`);
+  const tk = r.totals.tokens;
+  lines.push(`  totals: attempts ${r.totals.attempts}; tokens measured ${tk.measured}, estimated ${tk.estimated}, reserved ${tk.reserved}; unreported ${r.totals.unreported}`);
+  if (r.totalsMismatch) lines.push('  totals mismatch: the stored totals differ from the attempt list; the figures above are recomputed');
+  for (const w of view.graph.warnings) lines.push(`Warning: ${w.kind} ${w.ids.join(' ')}${w.value !== undefined ? ` '${w.value}'` : ''}`);
+  for (const o of view.graph.overlaps) lines.push(`Overlap: ${o.a} and ${o.b} both declare ${o.files.join(', ')}`);
+  const d = view.advisory.decomposition;
+  lines.push(`Advisory (decomposition): ${d.phases.map((p: any) => `${p.phase} ${p.tasks} task${p.tasks === 1 ? '' : 's'}, ${p.parallel} [P]`).join('; ')}`);
+  return lines;
+}
+
 module.exports = {
   runKeyFor, refuseSolo, refuseWorker, createRun, computeTotals, effectiveLimits,
   aggregateRefusal, controlRefusal, epochRefusal, nextEpoch,
   GRAPH_TASKS_LIMIT, refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
-  clearedCancels, buildResumeReport, resumeDigest, resumeRun,
+  clearedCancels, buildResumeReport, resumeDigest, resumeRun, inspectRun, formatInspect,
 };

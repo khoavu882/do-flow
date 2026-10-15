@@ -28,7 +28,7 @@ const { buildGraph, deriveTasks, isGraphPlan } = require('./task-graph.ts');
 const {
   runKeyFor, refuseWorker, computeTotals, aggregateRefusal, controlRefusal, epochRefusal,
   refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
-  clearedCancels, resumeRun,
+  clearedCancels, resumeRun, inspectRun,
 } = require('./task-run.ts');
 const { measureSources } = require('./task-sources.ts');
 const { findWorkTreeTop } = require('./source-version.ts');
@@ -647,6 +647,18 @@ function resume({ file, fsImpl, roots, slug, ack, by, reason, env = process.env,
   );
 }
 
+/**
+ * IC-016 `inspect`: the plan's graph, every task's derived state, budgets with their source, and
+ * the caller's run with recomputed totals and `totalsMismatch`. Read-only: the store is read with
+ * `readStore` (`readTaskState`), no lock is taken, nothing is written and no git process runs.
+ */
+function inspect({ file, fsImpl, roots, slug, env = process.env, cwd = process.cwd() }: any) {
+  const plan = loadPlan({ roots, slug, fsImpl });
+  const key = runKeyFor(env, cwd);
+  const store = readStore(file, fsImpl);
+  return inspectRun(store, { slug, key, graph: plan.graph, hashes: planHashes(plan), warnings: plan.warnings });
+}
+
 /** Completion read from the ledger and the plan, never from checkboxes (FR-005). Each task keeps
  * the pre-080 fields and adds IC-005's `state`, `reason`, `claimable`, `budget` and, where
  * present, `held`, `unmet` and `doneStale`. */
@@ -759,7 +771,7 @@ function handleTaskAttemptCommand({
 }
 
 module.exports = {
-  handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, start, pause, cancel, reopen, resume,
+  handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, start, pause, cancel, reopen, resume, inspect,
   loadPlan, taskLineHash,
   storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS, USAGE_BASES, RUN_CONTROLS, activeAttempt,
 };
