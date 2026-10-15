@@ -62,11 +62,12 @@ function assertSlug(slug: any) {
 // ── plan.md ────────────────────────────────────────────────────────────────────────────────────
 
 /** The hash a claim records and `finish` compares: everything about the task's plan line except
- * its checkbox, so ticking the box after a finish is not an edit of the task. */
+ * its checkbox, so ticking the box after a finish is not an edit of the task. A line with neither
+ * `acceptance:` nor `budget:` hashes exactly as before IC-002; `parallel` is never hashed. */
 function taskLineHash(task: any) {
-  const material = JSON.stringify([
-    task.id, task.description, task.stories, task.owner, task.files, task.dependsOn, task.externalContract,
-  ]);
+  const legacy = [task.id, task.description, task.stories, task.owner, task.files, task.dependsOn, task.externalContract];
+  const extended = (task.acceptance && task.acceptance.length) || task.budget ? [...legacy, task.acceptance, task.budget] : legacy;
+  const material = JSON.stringify(extended);
   return `sha256:${crypto.createHash('sha256').update(material).digest('hex')}`;
 }
 
