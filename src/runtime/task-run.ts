@@ -97,7 +97,8 @@ function reported(a: any) {
  * IC-009: totals over every attempt carrying `runKey`, recomputed from the attempt list (never
  * from the stored copy). Reported usage adds to its basis, including a reported 0; an active
  * attempt's reservation is `reserved`; a cancelled attempt cannot report, so its reservation is
- * `estimated`; a finished or released attempt with no usage is `unreported`.
+ * `estimated`; a finished, released or superseded attempt with no usage is `unreported`
+ * (DEC-017 superseded-unreported: a reopen does not launder an unreported attempt out of DEC-011).
  */
 function computeTotals(store: any, runKey: string): RunTotals {
   const totals = emptyTotals();
@@ -113,7 +114,7 @@ function computeTotals(store: any, runKey: string): RunTotals {
         else totals.tokens.estimated += a.usage.tokens;
       } else if (a.state === 'active') totals.tokens.reserved += reserve;
       else if (a.state === 'cancelled') totals.tokens.estimated += reserve;
-      else if (a.state === 'finished' || a.state === 'released') totals.unreported += 1;
+      else if (a.state === 'finished' || a.state === 'released' || a.state === 'superseded') totals.unreported += 1;
     }
   }
   return totals;
@@ -164,9 +165,11 @@ function controlRefusal(run: any, runKey: string) {
 }
 
 /** IC-025 / DEC-007, IC-006 step 8 (graph plans only): the run must exist and `epoch` must equal
- * its epoch. Absent, old or future epochs are all `resume-required`, naming the current one. */
+ * its epoch. Absent, old or future epochs are all `resume-required`, naming the current one.
+ * DEC-019 epoch-zero-never-matches: an epoch-0 run (created by a legacy claim or a control) has
+ * never been started or resumed, so it matches no epoch. */
 function epochRefusal(run: any, runKey: string, epoch?: number | null) {
-  if (run && Number.isInteger(epoch) && epoch === run.epoch) return null;
+  if (run && Number.isInteger(run.epoch) && run.epoch >= 1 && Number.isInteger(epoch) && epoch === run.epoch) return null;
   return { reason: 'resume-required', runKey, epoch: run ? run.epoch : null };
 }
 

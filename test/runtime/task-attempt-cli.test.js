@@ -149,6 +149,29 @@ test('IC-017 exit 2 JSON: usage, store-unreadable, plan-unreadable and plan-malf
   usage(p.ta('inspect'), 'plan-malformed');
 });
 
+test('DEC-018 report-usage: exit 0 with JSON usage-recorded; a missing --tokens-basis is exit 2 usage', (t) => {
+  const p = project(t);
+  startRun(p, ['--budget-tokens', '1000']);
+  const claimed = claimA1(p, ['--reserve-tokens', '10']);
+  ok(p.ta('finish', ['--task', 'A.1', '--token', String(claimed.token), '--result', 'BLOCKED']), 'applied');
+  const before = fs.readFileSync(p.store);
+  usage(p.ta('report-usage', ['--task', 'A.1', '--token', String(claimed.token), '--tokens', '40']));
+  usage(p.ta('report-usage', ['--task', 'A.1', '--token', String(claimed.token), '--tokens', '40', '--tokens-basis', 'measured', '--reason', 'x']));
+  assert.deepEqual(fs.readFileSync(p.store), before, 'a usage error writes nothing');
+  const recorded = ok(p.ta('report-usage', ['--task', 'A.1', '--token', String(claimed.token), '--tokens', '40', '--tokens-basis', 'measured']), 'usage-recorded');
+  assert.deepEqual([recorded.taskId, recorded.token], ['A.1', claimed.token]);
+  exit1(p.ta('report-usage', ['--task', 'A.1', '--token', String(claimed.token), '--tokens', '1', '--tokens-basis', 'estimated']), 'refused', 'usage-present');
+});
+
+test('DEC-023 exec-worktree-directory: --exec-worktree naming an existing file is exit 2 usage and writes nothing', (t) => {
+  const p = project(t);
+  startRun(p);
+  const before = fs.readFileSync(p.store);
+  fs.writeFileSync(path.join(p.dir, 'not-a-dir.txt'), 'x\n');
+  usage(p.ta('claim', ['--task', 'A.1', '--owner', 'core-implementer', '--mode', 'subagent', '--epoch', '1', '--exec-worktree', 'not-a-dir.txt']));
+  assert.deepEqual(fs.readFileSync(p.store), before);
+});
+
 test('IC-017 / DEC-015 exit 1 without JSON: a parser usage error runs nothing', (t) => {
   const p = project(t);
   // `--reason` last, so nothing follows it to be read as its value.

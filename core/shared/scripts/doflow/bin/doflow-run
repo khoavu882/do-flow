@@ -358,7 +358,7 @@ Workflow and evidence:
   workflow         resolve stages, dependencies and gates for a class
   orchestrate      start/resume a run: complete stages, skip optional ones, decide gates
   research-request  open, list or resolve a feature-stage research question
-  task-attempt     claim, finish, release, start, pause, cancel, resume, inspect or reopen a plan's task attempts
+  task-attempt     claim, finish, release, start, pause, cancel, resume, inspect, reopen or report-usage on a plan's task attempts
   retrieve         BM25 search over the installed guidance tree (auto-refreshing index)
   model-role       resolve an abstract model role to ranked, availability-annotated providers
   route            resolve an information need to a healthy provider

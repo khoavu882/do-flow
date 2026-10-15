@@ -154,6 +154,11 @@ function parseDesign(text: string): any {
  */
 const TASK_KEYS = ['owner', 'files', 'depends-on', 'external-contract', 'acceptance', 'budget'];
 
+/** DEC-021: the keys that open the metadata wherever they follow whitespace or a dash (8ce5ad7). */
+const LEGACY_KEY_PATTERN = /(?:^|[\s—-])(owner|files|depends-on|external-contract):\s/;
+/** DEC-021: the 080 keys open the metadata only after the em-dash separator. */
+const NEW_KEY_PATTERN = /—\s*(acceptance|budget):\s/;
+
 /** A `depends-on:` value naming another task of the same plan (IC-001). */
 const TASK_ID = /^[A-Za-z]+\.\d+$/;
 
@@ -201,8 +206,13 @@ function parsePlan(text: string): any {
     if (!match) continue;
     const [, mark, id, rest] = match;
 
-    const keyPattern = new RegExp(`(?:^|[\\s—-])(${TASK_KEYS.join('|')}):\\s`);
-    const keyAt = rest.search(keyPattern);
+    // DEC-021 new-keys-open-after-separator: the four pre-080 keys open the metadata as on 8ce5ad7;
+    // `acceptance:` and `budget:` open it only after the ` — ` separator, so prose such as
+    // "Record the acceptance: criteria" in a description keeps its 8ce5ad7 parse and line hash.
+    // Once the metadata has started, every `;` chunk parses all six keys.
+    const legacyAt = rest.search(LEGACY_KEY_PATTERN);
+    const newAt = rest.search(NEW_KEY_PATTERN);
+    const keyAt = legacyAt === -1 ? newAt : newAt === -1 ? legacyAt : Math.min(legacyAt, newAt);
     const head = (keyAt === -1 ? rest : rest.slice(0, keyAt)).replace(/[\s—-]+$/, '').trim();
     const meta = keyAt === -1 ? '' : rest.slice(keyAt).replace(/^[\s—-]+/, '');
 
