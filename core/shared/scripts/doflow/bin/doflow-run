@@ -14,8 +14,12 @@
 #
 # Usage: doflow-run <verb> [args...]
 #   enforcement --harness <id> --policy <id> [--profile <id>] [--json]
+#   context-emit --event launch|prompt|delta --cwd <dir> [--session <id>] [--harness <id>]
+#     [--nudge nudge|suppress|none] [--max-bytes <n>] [--task-id <id>] [--slug <slug>] [--peek] [--json]
+#   context-grant --summary <summaryId|pending> --to-run <id> --to-lineage <id>
+#     [--from-worktree <dir>] [--from-run <id>] [--from-lineage <id>] [--max-bytes <n>] [--json]
 #   Every verb accepts --json. Exit 0 = success, 1 = an actionable finding, 2 = usage or
-#   resolution error, 3 = context-pack overflow. Arguments, stdin and exit status pass through the
+#   resolution error, 3 = context-pack overflow or context-emit refusal. Arguments, stdin and exit status pass through the
 #   dispatcher unmodified —
 #   `sync-context` reads its block body from stdin, so anything that buffered or consumed it here
 #   would break that verb rather than merely inconvenience it.
@@ -114,14 +118,14 @@ capture_failure() {
 
 # After a verb ran: a status outside {0, 1, 2} is a crash worth recording (a signal, a runtime that
 # died), minus what is not DoFlow's fault (DEC-031): 127 (command not found), 130, 141 and 143
-# (interrupted, broken pipe, terminated), task-not-found status 3 of `task-brief`, and overflow
-# status 3 of `context-pack`. A Node crash exits 1 and is recorded by the CLI itself, so it is
+# (interrupted, broken pipe, terminated), task-not-found status 3 of `task-brief`, overflow
+# status 3 of `context-pack`, and refused status 3 of `context-emit`. A Node crash exits 1 and is recorded by the CLI itself, so it is
 # never counted twice.
 capture_exit_status() {
   local verb="${1:-}" status="${2:-0}"
   case "$status" in
     0|1|2|127|130|141|143) return 0 ;;
-    3) case "$verb" in task-brief|context-pack) return 0 ;; esac ;;
+    3) case "$verb" in task-brief|context-pack|context-emit) return 0 ;; esac ;;
   esac
   capture_failure "$verb" "exit-$status" "$status"
   return 0
@@ -361,6 +365,8 @@ Workflow and evidence:
   claim            record or update a claim and its support state
   readiness        evaluate readiness; return state and missing items
   context-pack     emit the compiled context pack for a stage
+  context-emit     decide and render one launch, prompt or delta emission (launcher entry)
+  context-grant    grant one compacted summary to a launched run and lineage
   retrieval-plan   declare the needs a stage will resolve, attempt each need, then report every declared item
   outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
@@ -481,7 +487,7 @@ shell_helper_for() {
 # command list; an unbuilt verb is dispatched and the CLI answers for itself.
 is_node_verb() {
   case "$1" in
-    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
+    classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
 trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|orchestrate|research-request|task-attempt|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
     *) return 1 ;;
   esac
