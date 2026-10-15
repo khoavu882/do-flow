@@ -212,10 +212,11 @@ test('a worker compaction leaves the pending main summary and meta.json byte-ide
   compact('A', cwd, 'MAIN-SUMMARY');
   const dir = projectDirFor(cwd);
   fs.writeFileSync(path.join(dir, 'meta.json'), '{"compacted_at":"2020-01-01T00:00:00Z"}\n');
-  const summaryBefore = fs.readFileSync(path.join(dir, 'last-compact-summary.md'));
+  const summary = path.join(SCOPE_DIR, path.basename(dir), 'local', 'main', 'summary.md');
+  const summaryBefore = fs.readFileSync(summary);
   const metaBefore = fs.readFileSync(path.join(dir, 'meta.json'));
   compact('W', cwd, 'WORKER-SUMMARY', WORKER);
-  assert.deepEqual(fs.readFileSync(path.join(dir, 'last-compact-summary.md')), summaryBefore);
+  assert.deepEqual(fs.readFileSync(summary), summaryBefore);
   assert.deepEqual(fs.readFileSync(path.join(dir, 'meta.json')), metaBefore);
 });
 
@@ -301,6 +302,20 @@ test('a native subagent payload does not claim the summary or the warning but st
   assert.doesNotMatch(ctx, /MAIN-SUMMARY|MAIN-WARNING/);
   assert.ok(summaryFileFor(cwd));
   assert.ok(fs.existsSync(warning));
+});
+
+test('with no git capture the first prompt still delivers the pending summary and warning (DEC-033)', () => {
+  const cwd = project('topic');
+  compact('A', cwd, 'SUMMARY-NOGIT');
+  const warning = path.join(projectDirFor(cwd), 'uncommitted-warning.txt');
+  fs.writeFileSync(warning, 'MAIN-WARNING');
+  const ctx = prompt('claude', 'NG', cwd, { first: false });
+  assert.ok(ctx.startsWith('Git context unavailable for this session.'), ctx);
+  assert.match(ctx, /^\[Prior session summary, compacted [^\]]+ on branch topic\]$/m);
+  assert.match(ctx, /SUMMARY-NOGIT/);
+  assert.match(ctx, /^\[Prior session warning: MAIN-WARNING\]$/m);
+  assert.equal(summaryFileFor(cwd), undefined);
+  assert.equal(fs.existsSync(warning), false);
 });
 
 test('a main compaction records role: main in the frontmatter, with or without the variable', () => {
