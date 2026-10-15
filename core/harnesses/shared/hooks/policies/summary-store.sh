@@ -292,13 +292,15 @@ doflow_grant_claim() {
   return 0
 }
 
-# doflow_summary_adopt_legacy <cwd> <worktree>
+# doflow_summary_adopt_legacy <cwd> <worktree> [check]
 # IC-014, on action `adopt` only: the pre-078 project summary under projects/<cwd_hash cwd>/, a
 # regular file and not a symlink, moves once into summaries/<worktreeKey>/local/main/summary.md
 # with its frontmatter kept. When a summary is already pending there it is newer by construction
 # and the old file is removed instead. The move is a hard link that refuses to replace, then an
 # unlink, so a summary written meanwhile is never overwritten. Nothing writes the old path. Returns
-# 0 when a legacy file was adopted or retired.
+# 0 when a legacy file was adopted or retired. With a third argument `check` it only tests that the
+# legacy file exists and changes nothing (doflow_summary_legacy_present). This function is the one
+# place that names the legacy file (G38.4).
 doflow_summary_adopt_legacy() {
   local cwd="${1:-}" worktree="${2:-}" projects old new
   [ -n "$cwd" ] || return 1
@@ -308,6 +310,7 @@ doflow_summary_adopt_legacy() {
   projects="${PROJECTS_DIR:-$_DF_SS_ROOT/projects}"
   old="$projects/$_DF_SS_KEY/last-compact-summary.md"
   [ -f "$old" ] && [ ! -L "$old" ] || return 1
+  [ "${3:-}" != check ] || return 0
   doflow_summary_scope "$worktree" local main || return 1
   new="$DF_SUMMARY_SCOPE/summary.md"
   mkdir -p "$DF_SUMMARY_SCOPE" 2>/dev/null || return 1
@@ -319,4 +322,13 @@ doflow_summary_adopt_legacy() {
   [ -e "$new" ] || [ -L "$new" ] || mv "$old" "$new" 2>/dev/null || return 1
   rm -f "$old" 2>/dev/null || true
   return 0
+}
+
+# doflow_summary_legacy_present <cwd>
+# Returns 0 when the pre-078 project summary under projects/<cwd_hash cwd>/ exists as a regular file
+# and not a symlink, and 1 otherwise. Runs adopt_legacy's check mode in a subshell, so it sets no
+# variable, prints nothing and changes nothing.
+doflow_summary_legacy_present() {
+  [ -n "${1:-}" ] || return 1
+  (doflow_summary_adopt_legacy "$1" "" check)
 }

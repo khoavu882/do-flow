@@ -110,7 +110,7 @@ doflow_emit_prompt() {
   [ -z "${4:-}" ] || subagent=true
   [ -z "$nudge" ] || nudge_state=nudge
   if ! declare -F doflow_identity doflow_emission_rule doflow_summary_peek doflow_summary_claim \
-    doflow_grant_peek doflow_grant_claim doflow_summary_adopt_legacy ensure_project_dir >/dev/null 2>&1; then
+    doflow_grant_peek doflow_grant_claim doflow_summary_adopt_legacy doflow_summary_legacy_present ensure_project_dir >/dev/null 2>&1; then
     _doflow_em_silent deps
     return 0
   fi
@@ -141,7 +141,7 @@ doflow_emit_prompt() {
   if [ "$bootstrapped" = false ]; then
     if [ -n "$cwd" ]; then project=$(ensure_project_dir "$cwd" 2>/dev/null) || project=""; fi
     if [ -n "$project" ]; then
-      if [ -f "$project/last-compact-summary.md" ] && [ ! -L "$project/last-compact-summary.md" ]; then legacy=true; fi
+      if doflow_summary_legacy_present "$cwd"; then legacy=true; fi
       warnfile="$project/uncommitted-warning.txt"
       if [ -f "$warnfile" ]; then warning=true; fi
     fi
