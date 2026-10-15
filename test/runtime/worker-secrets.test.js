@@ -175,8 +175,10 @@ function asPath(value) {
 /** The innermost frame of this repository's `src/` in the current stack, as a repo-relative file. */
 function srcFrame() {
   for (const line of new Error().stack.split('\n').slice(1)) {
-    const match = /\(?((?:\/|[A-Za-z]:\\)[^()]*?):\d+:\d+\)?\s*$/.exec(line);
-    if (match && match[1].startsWith(SRC_ROOT)) return path.relative(REPO, match[1]);
+    const match = /\(?(file:\/\/[^()]*?|(?:\/|[A-Za-z]:\\)[^()]*?):\d+:\d+\)?\s*$/.exec(line);
+    if (!match) continue;
+    const file = match[1].startsWith('file:') ? fileURLToPath(match[1]) : match[1];
+    if (file.startsWith(SRC_ROOT)) return path.relative(REPO, file);
   }
   return null;
 }
