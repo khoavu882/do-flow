@@ -195,6 +195,134 @@ function taskAttemptLimit(task: any) {
   return attempts === null ? { limit: DEFAULT_TASK_ATTEMPTS, source: 'default' } : { limit: attempts, source: 'plan' };
 }
 
+// ── derivation (IC-005, IC-008 `used`, IC-024 done-stale) ─────────────────────────────────────
+
+/** IC-005 `state` → the pre-080 `derived` vocabulary, which legacy flows keep reading. */
+const DERIVED: Record<string, string> = {
+  SUCCEEDED: 'done', RUNNING: 'running', BLOCKED: 'blocked', CANCELLED: 'cancelled',
+  FAILED: 'failed', PLANNED: 'pending', READY: 'ready',
+};
+
+/** A dependency in one of these states holds its dependents (IC-005 rows 7 and 9, `held`). */
+const HOLDING = new Set(['BLOCKED', 'FAILED', 'CANCELLED']);
+
+/** IC-005 "latest ended": the highest-token attempt that is `finished`, `cancelled` or
+ * `superseded`. `released` is skipped, as the pre-080 `latestFinished` skips it (design debate
+ * A-M2): counting it would turn a legacy BLOCKED-then-released task from `blocked` into `ready`. */
+function latestEnded(attempts: any[]) {
+  let latest: any = null;
+  for (const a of attempts) {
+    if (a.state !== 'finished' && a.state !== 'cancelled' && a.state !== 'superseded') continue;
+    if (!latest || a.token > latest.token) latest = a;
+  }
+  return latest;
+}
+
+/** IC-008: attempts carrying a `runKey`, in any state, plus every `superseded` attempt. */
+function attemptsUsed(attempts: any[]) {
+  return attempts.filter((a: any) => Boolean(a.runKey) || a.state === 'superseded').length;
+}
+
+/** The current line hash of `task`: from `hashes` (a Map or a plain object keyed by task id), else
+ * the `hash` a `loadPlan` task carries. */
+function currentHash(task: any, hashes: any) {
+  if (hashes instanceof Map) { if (hashes.has(task.id)) return hashes.get(task.id); }
+  else if (hashes && typeof hashes === 'object' && Object.prototype.hasOwnProperty.call(hashes, task.id)) return hashes[task.id];
+  return task.hash;
+}
+
+/**
+ * IC-005 rows 7 to 9 for one task, against the states already derived for its direct
+ * dependencies: the explicit `taskDeps`, or every task of an earlier phase when there are none.
+ * `held` is direct; a dependency that is PLANNED for its own reason is named in `unmet`.
+ */
+function readinessOf(task: any, tasks: any[], states: Map<string, string>) {
+  if (task.taskDeps.length) {
+    const deps = [...new Set<string>(task.taskDeps)];
+    const held = deps.filter((id) => HOLDING.has(states.get(id)!)).map((id) => ({ id, state: states.get(id) }));
+    if (held.length) return { reason: 'dependency-held', held };
+    const unmet = deps.filter((id) => states.get(id) !== 'SUCCEEDED');
+    if (unmet.length) return { reason: 'unmet-dependency', unmet };
+    return { reason: 'ready' };
+  }
+  const earlier = tasks.filter((o: any) => o.phaseIndex < task.phaseIndex);
+  const unmet = earlier.filter((o: any) => states.get(o.id) !== 'SUCCEEDED').map((o: any) => o.id);
+  if (!unmet.length) return { reason: 'ready' };
+  const held = earlier.filter((o: any) => HOLDING.has(states.get(o.id)!)).map((o: any) => ({ id: o.id, state: states.get(o.id) }));
+  return { reason: 'unmet-phase', unmet, held };
+}
+
+/**
+ * IC-005: one record per task, in plan order, evaluated in `graph.order` (dependencies first) so
+ * each task reads its dependencies' final states. Pure: the store is read, never changed, and the
+ * cleared cancels (a later `resume` of the cancelling run, IC-015) are computed by the caller.
+ *
+ * @param graph `buildGraph(...).graph`
+ * @param store the task-attempt ledger object (`{ tasks: { <id>: { attempts } } }`)
+ * @param options.clearedCancels iterable of `{ taskId, token }` naming cancelled attempts a resume
+ *   has cleared (IC-005 row 4)
+ * @param options.hashes current line hash per task id (Map or object); defaults to each graph
+ *   task's own `hash`. Read only in a graph plan, for a task with a done attempt (IC-024).
+ */
+function deriveTasks(graph: any, store: any, { clearedCancels = [], hashes = null }: { clearedCancels?: Iterable<{ taskId: string, token: number }>, hashes?: any } = {}) {
+  const graphPlan = isGraphPlan(graph);
+  const cleared = new Set<string>();
+  for (const c of clearedCancels || []) cleared.add(`${c.taskId}#${c.token}`);
+  const byId = new Map<string, any>(graph.tasks.map((t: any) => [t.id, t]));
+  const states = new Map<string, string>();
+  const records = new Map<string, any>();
+
+  for (const id of graph.order) {
+    const task = byId.get(id);
+    const entry = store && store.tasks ? store.tasks[id] : null;
+    const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
+    const active = attempts.find((a: any) => a.state === 'active') || null;
+    let done = attempts.find((a: any) => a.state === 'finished' && a.result === 'COMPLETED') || null;
+    let doneStale: any = null;
+    if (done && graphPlan) {
+      const hash = currentHash(task, hashes);
+      if (typeof hash !== 'string') throw new TypeError(`deriveTasks: no current line hash for task '${id}'; pass options.hashes or loadPlan tasks`);
+      if (hash !== done.taskLineHash) { doneStale = { token: done.token }; done = null; }
+    }
+    const last = latestEnded(attempts);
+    const { limit, source } = taskAttemptLimit(task);
+    const budget = { limit, used: attemptsUsed(attempts), source };
+
+    let state: string, reason: string, claimable = false;
+    let readiness: any = null;
+    const extra: any = {};
+    if (done) { state = 'SUCCEEDED'; reason = 'completed'; }
+    else if (active) { state = 'RUNNING'; reason = 'active-attempt'; }
+    else if (budget.used >= budget.limit) { state = 'BLOCKED'; reason = 'budget'; }
+    else if (last && last.state === 'cancelled' && !cleared.has(`${id}#${last.token}`)) { state = 'CANCELLED'; reason = 'cancelled'; }
+    else {
+      readiness = readinessOf(task, graph.tasks, states);
+      const ready = readiness.reason === 'ready';
+      if (last && last.state === 'finished' && last.result === 'FAILED') { state = 'FAILED'; reason = 'failed'; claimable = ready; }
+      else if (last && last.state === 'finished' && last.result === 'BLOCKED') { state = 'BLOCKED'; reason = 'result-blocked'; claimable = ready; }
+      else if (!ready) {
+        state = 'PLANNED'; reason = readiness.reason;
+        if (readiness.held) extra.held = readiness.held;
+        if (readiness.unmet) extra.unmet = readiness.unmet;
+      } else {
+        state = 'READY'; claimable = true;
+        reason = doneStale ? 'plan-changed-after-done' : last && last.state === 'superseded' ? 'reopened' : 'ready';
+      }
+    }
+    if (doneStale) extra.doneStale = doneStale;
+    states.set(id, state);
+    records.set(id, {
+      id, phase: task.phase, derived: DERIVED[state], state, reason, claimable, budget, ...extra,
+      activeToken: active ? active.token : null,
+      doneToken: done ? done.token : null,
+      active: active ? { owner: active.owner, mode: active.mode, startedAt: active.startedAt } : null,
+      readiness,
+    });
+  }
+  return graph.tasks.map((t: any) => records.get(t.id));
+}
+
 module.exports = {
   DEFAULT_TASK_ATTEMPTS, buildGraph, isGraphPlan, graphTuples, graphDigest, overlaps, taskAttemptLimit,
+  deriveTasks,
 };
