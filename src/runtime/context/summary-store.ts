@@ -499,6 +499,132 @@ function publishNoReplace(tmp: string, target: string, summaryId: string, toRun:
   fs.renameSync(tmp, target);
 }
 
+// ── 080 IC-014: the run scope's persisted context, read only (DEC-010) ──────────────────────────
+
+interface ScopePending {
+  path: string;
+  summaryId: string | null;
+  branch: string | null;
+  commit: string | null;
+  worktree: string | null;
+  compactedAt: string | null;
+}
+interface ScopeClaimed { path: string; unitId: string }
+interface ScopeGrant {
+  path: string;
+  summaryId: string;
+  branch: string | null;
+  commit: string | null;
+  fromWorktree: string | null;
+  compactedAt: string | null;
+}
+interface ScopeContext { pending: ScopePending | null; claimed: ScopeClaimed[]; grants: ScopeGrant[] }
+
+/** A recorded header value as UTF-8, or null when absent, empty or `unknown` (emission.jq's `known`). */
+function recorded(value: string | undefined): string | null {
+  const v = known(value);
+  return v ? utf8(v) : null;
+}
+
+function listNames(dir: string): string[] {
+  try {
+    if (!fs.lstatSync(dir).isDirectory()) return [];
+    return fs.readdirSync(dir).sort((a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * IC-014: the pending summary, leftover `.claimed.<unitId>` copies of the summary scope, and the
+ * grants addressed to (run, lineage), each with what its header records. Headers are read with the
+ * bounded readHead(); nothing is renamed, removed or written. Empty when summaryScope() is null.
+ * 078 headers record no commit today, so `commit` is null unless a header carries a `commit` field.
+ */
+function scopeContext(worktree: string, run: string, lineage: string, env: Env = process.env): ScopeContext {
+  const empty: ScopeContext = { pending: null, claimed: [], grants: [] };
+  const scope = summaryScope(worktree, run, lineage, env);
+  if (scope === null) return empty;
+
+  let pending: ScopePending | null = null;
+  const claimed: ScopeClaimed[] = [];
+  for (const name of listNames(scope)) {
+    const file = path.join(scope, name);
+    if (name === 'summary.md') {
+      if (!regularFile(file)) continue;
+      const head = readHead(file);
+      const id = head.summary_id;
+      pending = {
+        path: file,
+        summaryId: id !== undefined && SUMMARY_ID_PATTERN.test(id) ? id : null,
+        branch: recorded(head.branch),
+        commit: recorded(head.commit),
+        worktree: recorded(head.worktree),
+        compactedAt: recorded(head.compacted_at),
+      };
+    } else if (name.startsWith('.claimed.')) {
+      const unitId = name.slice('.claimed.'.length);
+      if (UNIT_PATTERN.test(unitId) && regularFile(file)) claimed.push({ path: file, unitId });
+    }
+  }
+
+  const grants: ScopeGrant[] = [];
+  const dir = path.join(stateDir(env), 'grants', run, lineage);
+  for (const name of listNames(dir)) {
+    if (!name.endsWith('.md')) continue;
+    const summaryId = name.slice(0, -3);
+    const file = path.join(dir, name);
+    if (!SUMMARY_ID_PATTERN.test(summaryId) || !regularFile(file)) continue;
+    const head = readHead(file);
+    grants.push({
+      path: file,
+      summaryId,
+      branch: recorded(head.branch),
+      commit: recorded(head.commit),
+      fromWorktree: recorded(head.from_worktree),
+      compactedAt: recorded(head.compacted_at),
+    });
+  }
+  return { pending, claimed, grants };
+}
+
+type StaleReason = 'branch-differs' | 'commit-differs' | 'worktree-differs' | 'branch-unknown' | 'claimed-not-consumed';
+interface StaleItem { kind: 'summary' | 'claimed-summary' | 'grant'; path: string; reasons: StaleReason[] }
+
+/**
+ * IC-014's comparison, pure: the caller probes the current branch (null when HEAD is detached or
+ * unreadable) and commit outside any lock. Both branches known: compare them. Both sides detached,
+ * with a recorded and a current commit: compare commits (critic A m9). Otherwise `branch-unknown`.
+ * A recorded worktree that is not the current one adds `worktree-differs`. Leftover claimed copies
+ * are always `claimed-not-consumed`. Returns every stale item, pending first, then claimed, then grants.
+ */
+function compareScopeContext(context: ScopeContext, current: { worktree: string; branch: string | null; commit: string | null }): StaleItem[] {
+  const reasonsFor = (branch: string | null, commit: string | null, worktree: string | null): StaleReason[] => {
+    const reasons: StaleReason[] = [];
+    if (branch !== null && current.branch) {
+      if (branch !== current.branch) reasons.push('branch-differs');
+    } else if (branch === null && !current.branch && commit !== null && current.commit) {
+      if (commit !== current.commit) reasons.push('commit-differs');
+    } else {
+      reasons.push('branch-unknown');
+    }
+    if (worktree !== null && worktree !== current.worktree) reasons.push('worktree-differs');
+    return reasons;
+  };
+  const stale: StaleItem[] = [];
+  const p = context.pending;
+  if (p !== null) {
+    const reasons = reasonsFor(p.branch, p.commit, p.worktree);
+    if (reasons.length) stale.push({ kind: 'summary', path: p.path, reasons });
+  }
+  for (const c of context.claimed) stale.push({ kind: 'claimed-summary', path: c.path, reasons: ['claimed-not-consumed'] });
+  for (const g of context.grants) {
+    const reasons = reasonsFor(g.branch, g.commit, g.fromWorktree);
+    if (reasons.length) stale.push({ kind: 'grant', path: g.path, reasons });
+  }
+  return stale;
+}
+
 module.exports = {
   DEFAULT_GRANT_MAX_BYTES,
   GRANT_EXIT,
@@ -507,10 +633,12 @@ module.exports = {
   adoptLegacy,
   claimGrant,
   claimSummary,
+  compareScopeContext,
   grantSummary,
   legacySummary,
   peekGrant,
   peekSummary,
   releaseClaim,
+  scopeContext,
   summaryScope,
 };
