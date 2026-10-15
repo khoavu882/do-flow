@@ -119,13 +119,14 @@ capture_failure() {
 # After a verb ran: a status outside {0, 1, 2} is a crash worth recording (a signal, a runtime that
 # died), minus what is not DoFlow's fault (DEC-031): 127 (command not found), 130, 141 and 143
 # (interrupted, broken pipe, terminated), task-not-found status 3 of `task-brief`, overflow
-# status 3 of `context-pack`, and refused status 3 of `context-emit`. A Node crash exits 1 and is recorded by the CLI itself, so it is
+# status 3 of `context-pack`, refused status 3 of `context-emit`, and over-budget status 3 of
+# `context-grant`. A Node crash exits 1 and is recorded by the CLI itself, so it is
 # never counted twice.
 capture_exit_status() {
   local verb="${1:-}" status="${2:-0}"
   case "$status" in
     0|1|2|127|130|141|143) return 0 ;;
-    3) case "$verb" in task-brief|context-pack|context-emit) return 0 ;; esac ;;
+    3) case "$verb" in task-brief|context-pack|context-emit|context-grant) return 0 ;; esac ;;
   esac
   capture_failure "$verb" "exit-$status" "$status"
   return 0
