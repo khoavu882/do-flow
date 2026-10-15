@@ -478,12 +478,15 @@ function finish({ file, fsImpl, roots, slug, task, token, result, evidenceId, re
       active.finishedAt = now.toISOString();
       active.finishedBy = { role: identity.role, lineage: identity.lineage, worktree: identity.worktree };
       active.usage = reported ? { ...reported, reporter: `${identity.role}:${identity.lineage}` } : null;
+      // IC-009: every locked write stores totals recomputed from the attempt list.
+      const run = active.runKey ? runOf(store, active.runKey) : null;
+      if (run) refreshRun(store, run, plan.graph);
       return { write: true, result: { disposition: 'applied', taskId: task, token, result, revision: store.revision } };
     },
   });
 }
 
-function release({ file, fsImpl, task, token, reason, tokens, basis, env = process.env, cwd = process.cwd(), now = new Date() }: any) {
+function release({ file, fsImpl, roots, slug, task, token, reason, tokens, basis, env = process.env, cwd = process.cwd(), now = new Date() }: any) {
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!Number.isInteger(token) || token < 1) throw new TaskAttemptError('usage', '--token is required: the token claim returned');
   if (!reason || !String(reason).trim()) throw new TaskAttemptError('usage', '--reason is required: why the attempt is being released');
@@ -500,6 +503,9 @@ function release({ file, fsImpl, task, token, reason, tokens, basis, env = proce
       active.reason = String(reason).trim();
       active.endedAt = now.toISOString();
       active.usage = reported ? { ...reported, reporter: `${identity.role}:${identity.lineage}` } : null;
+      // IC-009: every locked write stores totals recomputed from the attempt list.
+      const run = active.runKey ? runOf(store, active.runKey) : null;
+      if (run) refreshRun(store, run, loadPlan({ roots, slug, fsImpl }).graph);
       return { write: true, result: { disposition: 'released', taskId: task, token, revision: store.revision } };
     },
   });
