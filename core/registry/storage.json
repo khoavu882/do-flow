@@ -203,6 +203,62 @@
       ]
     },
     {
+      "id": "worker-runs",
+      "root": "project-state",
+      "path": "worker-runs",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.ts"
+      ]
+    },
+    {
+      "id": "worker-probes",
+      "root": "project-state",
+      "path": "worker-probes",
+      "entry": "file",
+      "match": "^[a-z][a-z0-9-]*\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 16,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.ts"
+      ]
+    },
+    {
+      "id": "worker-output",
+      "root": "project-state",
+      "path": "worker-output",
+      "entry": "file",
+      "match": "^w-[0-9a-f]{12}\\.(out|err)\\.log$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 200,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/worker/supervisor.ts"
+      ]
+    },
+    {
       "id": "task-orchestration",
       "root": "project-state",
       "path": "orchestration",
