@@ -1,0 +1,50 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "codex-bash-identity",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "printf safe"
+    }
+  },
+  "policy": "pre-bash-guard",
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1",
+    "DOFLOW_TASK_ID": "078-codex-identity",
+    "DOFLOW_RUN_ID": "run-codex-1",
+    "DOFLOW_ATTEMPT": "2",
+    "DOFLOW_LINEAGE_ID": "lineage-codex-1",
+    "DOFLOW_SESSION_ROLE": "worker",
+    "DOFLOW_WORKTREE": "/tmp/doflow-worktree-codex"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "codex",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "printf safe",
+      "taskId": "078-codex-identity",
+      "identity": {
+        "session": "codex-bash-identity",
+        "run": "run-codex-1",
+        "attempt": 2,
+        "lineage": "lineage-codex-1",
+        "role": "worker",
+        "worktree": "/tmp/doflow-worktree-codex"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

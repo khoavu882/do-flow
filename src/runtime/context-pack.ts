@@ -52,6 +52,7 @@ const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegistere
 const { createDeliveryEntry, readDeliveryEntry, recordDelivery, makeTokenRecord } = require('./context/delivery-store.ts');
 const { boundedAcquire } = require('./task-state.ts');
 const pointerTools = require('./context/pointer.ts');
+const { arbitrate, emitContext } = require('./context/arbitrate.ts');
 const { updateTaskState } = require('./task-state.ts');
 const { taskStoreDir } = require('./task-scope.ts');
 
@@ -936,8 +937,6 @@ function handleContextPackCommand({
 
   const feature = resolveFeature({ projectRoot: root, slug: slug || null });
 
-  let sinceEntry: any = null;
-  let deltaRefused: string | null = null;
   let deltaExpansions: any[] = [];
   if (parsedMaxBytes !== undefined) {
     if (!baseBudget) {
@@ -947,17 +946,9 @@ function handleContextPackCommand({
       deltaExpansions.push({ at: new Date().toISOString(), kind: 'cap-raised', target: null, reason, bytesAdded: null });
     }
   }
-  let retention = profileRetention(budget.harness?.id || null, profiles);
-  if (since && !expand) {
-    sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
-    if (!sinceEntry) deltaRefused = 'since-unknown';
-    else if (sourcesChanged(root, sinceEntry.sources || {})) deltaRefused = 'sources-changed';
-    else if (!budget.harness?.id) deltaRefused = 'harness-unstated';
-    else if (retention?.value !== 'supported') deltaRefused = 'retention-unproven';
-    if (deltaRefused) {
-      deltaExpansions.push({ at: new Date().toISOString(), kind: 'delta-widened', target: null, reason: deltaRefused, bytesAdded: null });
-    }
-  }
+  const basis = resolveDeltaBasis({ root, taskId, slug, since: expand ? null : since, budget, profiles });
+  const { sinceEntry, deltaRefused, retention } = basis;
+  if (basis.expansion) deltaExpansions.push(basis.expansion);
 
   if (expand) {
     const prior = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
@@ -1018,55 +1009,7 @@ function handleContextPackCommand({
     return finishRuntime(EXIT.OK);
   }
 
-  let reqText: string | null = null;
-  let reqPath = 'requirement.md';
-  if (!feature.error && feature.featureDir) {
-    reqPath = feature.paths?.requirement
-      ? path.resolve(feature.repoRoot || root, feature.paths.requirement)
-      : path.join(feature.featureDir, 'intention', 'requirement.md');
-    try {
-      if (fs.existsSync(reqPath)) {
-        reqText = fs.readFileSync(reqPath, 'utf8');
-      }
-    } catch {
-      reqText = null;
-    }
-  }
-
-  let taskStories: string[] = [];
-  if (!feature.error && feature.featureDir && taskId) {
-    let planPath: string | null = null;
-    if (feature.paths?.plan) {
-      planPath = path.resolve(feature.repoRoot || root, feature.paths.plan);
-    } else {
-      const nestedPlan = path.join(feature.featureDir, 'plan', 'plan.md');
-      const flatPlan = path.join(feature.featureDir, 'plan.md');
-      if (fs.existsSync(nestedPlan)) planPath = nestedPlan;
-      else if (fs.existsSync(flatPlan)) planPath = flatPlan;
-    }
-    if (planPath && fs.existsSync(planPath)) {
-      try {
-        const planText = fs.readFileSync(planPath, 'utf8');
-        const { parsePlan } = require('./scaffold/artifacts.ts');
-        const parsedPlan = parsePlan(planText);
-        const matchedTask = (parsedPlan.tasks || []).find(
-          (t: any) => t.id === taskId || t.id.toLowerCase() === taskId.toLowerCase()
-        );
-        if (matchedTask && Array.isArray(matchedTask.stories)) {
-          taskStories = matchedTask.stories;
-        }
-      } catch {
-        taskStories = [];
-      }
-    }
-  }
-
-  let mandatory = extractMandatory({
-    text: reqText,
-    path: reqPath,
-    featureError: feature.error ? (feature.message || feature.error) : null,
-    taskStories,
-  });
+  let mandatory = gatherMandatory({ root, taskId, feature });
 
   if (mandatoryFile) {
     try {
@@ -1088,6 +1031,27 @@ function handleContextPackCommand({
     }
   }
 
+  const { pack, output } = deliverPack({
+    root, taskId, slug, effectiveTaskClass, objective, mandatory, budget, harness, parsedMaxBytes, bare, noRecord,
+    json, reason, since, sinceEntry, deltaRefused, deltaExpansions, expand, retention, feature,
+  });
+  if (console.log !== nativeConsoleLog) {
+    console.log(output);
+  } else {
+    process.stdout.write(output);
+  }
+  return finishRuntime(pack.exitCode);
+}
+
+/**
+ * The context-pack verb's compile, fit, render and delivery-record steps for a full or delta pack,
+ * with no output: `handleContextPackCommand()` prints the result and `packForEmission()` hands it
+ * to `emitContext()`. Returns the final pack and its rendered text in the requested form.
+ */
+function deliverPack({
+  root, taskId, slug, effectiveTaskClass, objective, mandatory, budget, harness, parsedMaxBytes, bare, noRecord,
+  json, reason, since, sinceEntry, deltaRefused, deltaExpansions, expand, retention, feature,
+}: any): { pack: any; output: string } {
   const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug });
@@ -1260,18 +1224,106 @@ function handleContextPackCommand({
     pack.packEnd.bytes = emittedBytes;
     pack.size.totalBytes = emittedBytes;
   }
-  if (console.log !== nativeConsoleLog) {
-    console.log(output);
-  } else {
-    process.stdout.write(output);
+  return { pack, output };
+}
+
+/** The delta basis of a `since` digest: its delivery entry, or why a delta was refused (widened to full). */
+function resolveDeltaBasis({ root, taskId, slug, since, budget, profiles }: any) {
+  const retention = profileRetention(budget.harness?.id || null, profiles);
+  let sinceEntry: any = null;
+  let deltaRefused: string | null = null;
+  let expansion: any = null;
+  if (since) {
+    sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
+    if (!sinceEntry) deltaRefused = 'since-unknown';
+    else if (sourcesChanged(root, sinceEntry.sources || {})) deltaRefused = 'sources-changed';
+    else if (!budget.harness?.id) deltaRefused = 'harness-unstated';
+    else if (retention?.value !== 'supported') deltaRefused = 'retention-unproven';
+    if (deltaRefused) {
+      expansion = { at: new Date().toISOString(), kind: 'delta-widened', target: null, reason: deltaRefused, bytesAdded: null };
+    }
   }
-  return finishRuntime(pack.exitCode);
+  return { sinceEntry, deltaRefused, retention, expansion };
+}
+
+/** The mandatory fields of a task from its feature's requirement.md and the task's plan stories. */
+function gatherMandatory({ root, taskId, feature }: any) {
+  let reqText: string | null = null;
+  let reqPath = 'requirement.md';
+  if (!feature.error && feature.featureDir) {
+    reqPath = feature.paths?.requirement
+      ? path.resolve(feature.repoRoot || root, feature.paths.requirement)
+      : path.join(feature.featureDir, 'intention', 'requirement.md');
+    try {
+      if (fs.existsSync(reqPath)) {
+        reqText = fs.readFileSync(reqPath, 'utf8');
+      }
+    } catch {
+      reqText = null;
+    }
+  }
+
+  let taskStories: string[] = [];
+  if (!feature.error && feature.featureDir && taskId) {
+    let planPath: string | null = null;
+    if (feature.paths?.plan) {
+      planPath = path.resolve(feature.repoRoot || root, feature.paths.plan);
+    } else {
+      const nestedPlan = path.join(feature.featureDir, 'plan', 'plan.md');
+      const flatPlan = path.join(feature.featureDir, 'plan.md');
+      if (fs.existsSync(nestedPlan)) planPath = nestedPlan;
+      else if (fs.existsSync(flatPlan)) planPath = flatPlan;
+    }
+    if (planPath && fs.existsSync(planPath)) {
+      try {
+        const planText = fs.readFileSync(planPath, 'utf8');
+        const { parsePlan } = require('./scaffold/artifacts.ts');
+        const parsedPlan = parsePlan(planText);
+        const matchedTask = (parsedPlan.tasks || []).find(
+          (t: any) => t.id === taskId || t.id.toLowerCase() === taskId.toLowerCase()
+        );
+        if (matchedTask && Array.isArray(matchedTask.stories)) {
+          taskStories = matchedTask.stories;
+        }
+      } catch {
+        taskStories = [];
+      }
+    }
+  }
+
+  return extractMandatory({
+    text: reqText,
+    path: reqPath,
+    featureError: feature.error ? (feature.message || feature.error) : null,
+    taskStories,
+  });
+}
+
+/**
+ * 078 IC-001: the context pack `emitContext()` delivers on `launch` and `delta`, compiled by
+ * compileContextPack() through the verb's own steps, with `maxBytes` as the budget and `since` the
+ * unit's last delivered pack digest (a delta when its entry qualifies, else widened to full).
+ * `noRecord` (peek) leaves the delivery store untouched. Rendered as markdown.
+ */
+function packForEmission({ root, taskId = 'default', taskClass = 'feature', slug = null, harness = null, maxBytes, since = null, noRecord = false, env = process.env }: any): { pack: any; output: string } {
+  const budget = resolveBudget({ taskClass, maxBytes, harnessFlag: harness, env });
+  const feature = resolveFeature({ projectRoot: root, slug: slug || null });
+  const basis = resolveDeltaBasis({ root, taskId, slug, since, budget, profiles: null });
+  return deliverPack({
+    root, taskId, slug, effectiveTaskClass: taskClass, objective: undefined, mandatory: gatherMandatory({ root, taskId, feature }),
+    budget, harness, parsedMaxBytes: maxBytes, bare: false, noRecord, json: false, reason: null, since,
+    sinceEntry: basis.sinceEntry, deltaRefused: basis.deltaRefused, deltaExpansions: basis.expansion ? [basis.expansion] : [],
+    expand: null, retention: basis.retention, feature,
+  });
 }
 
 module.exports = {
   ContextPackCompiler,
+  arbitrate,
+  emitContext,
   TASK_CLASS_BUDGETS,
   handleContextPackCommand,
   loadLiveDecisions,
+  packForEmission,
   getCorrectiveTrimFallbackCount,
 };

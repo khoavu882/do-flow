@@ -396,11 +396,14 @@
         "core/harnesses/gemini/hooks/lib.sh",
         "core/harnesses/gemini/hooks/post-edit-lint.sh",
         "core/harnesses/kiro/hooks/lib.sh",
+        "core/harnesses/shared/hooks/policies/emission.sh",
+        "core/harnesses/shared/hooks/policies/identity.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",
         "core/harnesses/shared/hooks/policies/session-context.sh",
         "core/harnesses/shared/hooks/policies/stop-check.sh",
         "core/harnesses/shared/hooks/policies/subagent-audit.sh",
-        "core/harnesses/shared/hooks/policies/user-prompt-submit.sh"
+        "src/runtime/context/arbitrate.ts",
+        "src/runtime/context/identity.ts"
       ]
     },
     {
@@ -429,7 +432,47 @@
         "core/harnesses/kiro/hooks/lib.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",
         "core/harnesses/shared/hooks/policies/session-context.sh",
-        "core/harnesses/shared/hooks/policies/user-prompt-submit.sh"
+        "src/runtime/context/arbitrate.ts"
+      ]
+    },
+    {
+      "id": "summary-scopes",
+      "root": "config-home",
+      "path": "session-env/summaries",
+      "entry": "dir",
+      "match": "^[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 90
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/policies/summary-store.sh",
+        "src/runtime/context/summary-store.ts"
+      ]
+    },
+    {
+      "id": "summary-grants",
+      "root": "config-home",
+      "path": "session-env/grants",
+      "entry": "dir",
+      "match": "^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 90
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/policies/summary-store.sh",
+        "src/runtime/context/summary-store.ts"
       ]
     },
     {
@@ -1063,6 +1106,10 @@
     {
       "file": "src/release/build-package.ts",
       "reason": "maintainer release tool: writes the staged npm package directory (no DoFlow root)"
+    },
+    {
+      "file": "src/runtime/context/emission-rules.ts",
+      "reason": "maintainer generator: --write rewrites the repo emission table core/harnesses/shared/hooks/policies/emission-rules.sh (no DoFlow root)"
     },
     {
       "file": "src/runtime/decision-register.ts",

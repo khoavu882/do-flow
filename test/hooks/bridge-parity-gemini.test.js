@@ -122,7 +122,7 @@ function runFixture({ stem, filename, fixture }, index) {
     assert.deepEqual(decision[key], value, `${label}: decision.${key}`);
   }
 
-  const envelope = JSON.parse(encodeEnvelope('gemini', event, policy, `${JSON.stringify(fixture.native)}\n`)).doflow_event;
+  const envelope = JSON.parse(encodeEnvelope('gemini', event, policy, `${JSON.stringify(fixture.native)}\n`, fixture.env || {})).doflow_event;
   for (const [key, value] of Object.entries(fixture.expect.envelope)) {
     assert.deepEqual(envelope[key], value, `${label}: envelope.${key}`);
   }

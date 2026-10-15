@@ -428,10 +428,84 @@ function handleEvidenceCommand({ taskId = 'default', action = 'list', item = nul
   return finish(0);
 }
 
+const EMIT_NUDGES = ['nudge', 'suppress', 'none'];
+const EMIT_MAX_BYTES = /^[1-9][0-9]{0,9}$/;
+
+/**
+ * 078 IC-005: `doflow-run context-emit`, a thin wrapper over emitContext(). Identity is read from
+ * the environment alone (IC-007); no flag sets it. Exits 0 emitted or silent, 2 usage (including a
+ * launch without a launched identity, or an invalid identity value), 3 refused.
+ */
+function handleContextEmitCommand({ event, cwd, session, harness, nudge, maxBytes, taskId, slug, peek = false, json = false, env = process.env }: any = {}) {
+  // Required on use: context-pack.ts loads the whole pack compiler, which no other verb here needs.
+  const { emitContext } = require('./context-pack.ts');
+  const { resolveIdentity } = require('./context/identity.ts');
+  if (typeof cwd !== 'string' || cwd === '') return usageError('context-emit', '--cwd <dir> is required', json);
+  const dir = path.resolve(cwd);
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return usageError('context-emit', `--cwd '${cwd}' is not a directory`, json);
+  if (nudge !== undefined && !EMIT_NUDGES.includes(nudge)) return usageError('context-emit', `--nudge must be one of ${EMIT_NUDGES.join(', ')}`, json);
+  if (maxBytes !== undefined && !EMIT_MAX_BYTES.test(String(maxBytes))) return usageError('context-emit', '--max-bytes must be a positive integer', json);
+  const sessionId = typeof session === 'string' ? session : '';
+  const identity = resolveIdentity(env, { cwd: dir, sessionId });
+  if (identity.diagnostics.includes('identity-invalid')) {
+    return usageError('context-emit', 'DOFLOW_RUN_ID or DOFLOW_LINEAGE_ID holds an invalid value', json);
+  }
+  let result: any;
+  try {
+    result = emitContext({
+      event, identity, cwd: dir, sessionId, env, peek: peek === true,
+      ...(harness ? { harness } : {}),
+      ...(nudge ? { nudge } : {}),
+      ...(maxBytes !== undefined ? { maxBytes: Number(maxBytes) } : {}),
+      ...(taskId ? { taskId } : {}),
+      ...(slug ? { slug } : {}),
+    });
+  } catch (error: any) {
+    if (error?.code === 'USAGE_ERROR') return usageError('context-emit', error.message.replace(/^emitContext: /, ''), json);
+    throw error;
+  }
+  if (json) {
+    console.log(JSON.stringify({ v: 1, event, identity, decision: result.decision, text: result.text, pack: result.pack, committed: result.committed }));
+  } else if (result.text !== null) {
+    process.stdout.write(result.text.endsWith('\n') ? result.text : `${result.text}\n`);
+  }
+  return finish(result.decision.reason === 'refused:mandatory-over-budget' ? 3 : 0);
+}
+
+/**
+ * 078 IC-013: `doflow-run context-grant`, a thin wrapper over grantSummary(). The source scope
+ * defaults to the caller's identity. Exits 0 created, 1 not found or already granted, 2 usage,
+ * 3 over budget (refused before any write).
+ */
+function handleContextGrantCommand({ summary, toRun, toLineage, fromWorktree, fromRun, fromLineage, maxBytes, json = false, env = process.env }: any = {}) {
+  const { grantSummary } = require('./context/summary-store.ts');
+  let granted: any;
+  try {
+    granted = grantSummary({
+      summary, toRun, toLineage, env,
+      ...(fromWorktree ? { fromWorktree: path.resolve(fromWorktree) } : {}),
+      ...(fromRun ? { fromRun } : {}),
+      ...(fromLineage ? { fromLineage } : {}),
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
+    });
+  } catch (error: any) {
+    if (error?.name !== 'SummaryStoreError') throw error;
+    if (error.exitCode === 2) return usageError('context-grant', error.message, json);
+    if (json) console.log(JSON.stringify({ v: 1, ok: false, error: error.code, summary: error.message }));
+    else console.error(`doflow context-grant: ${error.message}`);
+    return finish(error.exitCode);
+  }
+  if (json) console.log(JSON.stringify({ v: 1, ok: true, ...granted }));
+  else console.log(`granted ${granted.summaryId} (${granted.bytes} B) -> ${granted.path}`);
+  return finish(0);
+}
+
 module.exports = {
   handleCapabilitiesCommand,
   handleReadinessCommand,
   handleEvidenceCommand,
+  handleContextEmitCommand,
+  handleContextGrantCommand,
   // Exported for bin/doflow.js, which refuses the same names as command-line flags, and for the
   // tests that pin the write boundary.
   EVIDENCE_SCORE_FIELDS,

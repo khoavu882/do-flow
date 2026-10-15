@@ -1,0 +1,49 @@
+{
+  "native": {
+    "hook_event_name": "BeforeTool",
+    "session_id": "gemini-bash-identity",
+    "tool_name": "run_shell_command",
+    "tool_input": {
+      "command": "printf safe"
+    }
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1",
+    "DOFLOW_TASK_ID": "078-gemini-identity",
+    "DOFLOW_RUN_ID": "run-gemini-1",
+    "DOFLOW_ATTEMPT": "2",
+    "DOFLOW_LINEAGE_ID": "lineage-gemini-1",
+    "DOFLOW_SESSION_ROLE": "worker",
+    "DOFLOW_WORKTREE": "/tmp/doflow-worktree-gemini"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "gemini",
+      "event": "BeforeTool",
+      "operation": "command",
+      "tool": "run_shell_command",
+      "command": "printf safe",
+      "taskId": "078-gemini-identity",
+      "identity": {
+        "session": "gemini-bash-identity",
+        "run": "run-gemini-1",
+        "attempt": 2,
+        "lineage": "lineage-gemini-1",
+        "role": "worker",
+        "worktree": "/tmp/doflow-worktree-gemini"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

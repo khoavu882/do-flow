@@ -72,6 +72,8 @@ function parseArgs(argv: string[]): any {
       case '--json': o.json = true; break;
       case '--bare': o.bare = true; break;
       case '--no-record': o.noRecord = true; break;
+      // context-emit: decide and render without taking a claim or writing a ledger line.
+      case '--peek': o.peek = true; break;
       case '--check': o.check = true; break;
       // decision --action list: every decision by id, not just the live ones.
       case '--all': o.all = true; break;
@@ -264,6 +266,18 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--mandatory-file', 'mandatoryFile'], // context-pack: caller-supplied mandatory fields
   ['--max-bytes', 'maxBytes'],         // context-pack: per-call cap in bytes
   ['--expand', 'expand'],              // context-pack: pointer id to expand
+  // 078 context-emit (IC-005). Identity is read from the environment only; no flag sets it.
+  ['--event', 'event'],                // context-emit: launch | prompt | delta
+  ['--cwd', 'cwd'],                    // context-emit: the working directory the emission is for
+  ['--session', 'session'],            // context-emit: the harness session id
+  ['--nudge', 'nudge'],                // context-emit: nudge | suppress | none
+  // 078 context-grant (IC-013). `--max-bytes` above is shared.
+  ['--summary', 'summary'],            // context-grant: a summary id, or pending
+  ['--to-run', 'toRun'],               // context-grant: the recipient run id
+  ['--to-lineage', 'toLineage'],       // context-grant: the recipient lineage id
+  ['--from-worktree', 'fromWorktree'], // context-grant: source scope worktree (default DOFLOW_WORKTREE or cwd)
+  ['--from-run', 'fromRun'],           // context-grant: source scope run (default DOFLOW_RUN_ID or local)
+  ['--from-lineage', 'fromLineage'],   // context-grant: source scope lineage (default DOFLOW_LINEAGE_ID or main)
   ['--stage-id', 'stageId'],           // research-request: active feature stage
   ['--question', 'question'],           // research-request: external question
   ['--blocking', 'blocking'],           // research-request: true | false
@@ -403,6 +417,8 @@ Commands:
   evidence             Record a stage's evidence batch, or inspect what is recorded (--task-id)
   claim                Record a claim, link evidence to it, or list them (--task-id, --action)
   context-pack         Compile a task's evidence and claims into a context block (--task-id)
+  context-emit         Decide and render one launch, prompt or delta emission (--event, --cwd)
+  context-grant        Grant one compacted summary to a launched run and lineage (--summary, --to-run, --to-lineage)
   retrieval-plan       Declare a stage's information needs, attempt retrieval, then report every declared item
   outcome              Record a task's terminal state with its basis, or show it (--task-id)
   classify             Validate a proposed task class and return its workflow (--task-class)
@@ -491,6 +507,12 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --user-decision-pending               readiness: inputs the caller states rather than
                                             evidence establishes; reported back as such
       --objective                           context-pack
+      --event, --cwd, --session, --harness,
+      --nudge, --max-bytes, --task-id,
+      --slug, --peek                        context-emit (identity comes from the environment only)
+      --summary, --to-run, --to-lineage,
+      --from-worktree, --from-run,
+      --from-lineage, --max-bytes           context-grant
       --need <intent[,intent]>,
       --stage, --status                     retrieval-plan (--need is repeatable), outcome
       --mcp-outcome <server>=<outcome>      orchestrate --action handoff, repeatable: used | nothing-usable |

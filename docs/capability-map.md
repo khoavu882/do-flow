@@ -147,7 +147,7 @@ the other four documented events as the Different statuses recorded in the regis
 <!-- END GENERATED:hook-event-matrix -->
 
 <!-- BEGIN GENERATED:enforcement-matrix -->
-Schema 1; revision 2; sha256:199bb689b2034157ecb3ade2b47b70470a00e567fa27134fc0cf5ef467369768
+Schema 1; revision 3; sha256:199bb689b2034157ecb3ade2b47b70470a00e567fa27134fc0cf5ef467369768
 | Policy | Harness | Native event | Profile | Class | Verification | Prerequisites | Does not cover |
 |---|---|---|---|---|---|---|---|
 | pre-implementation-gate | claude | PreToolUse | any | blocking | verified |  | writes via shell commands |
@@ -233,6 +233,60 @@ Schema 1; revision 2; sha256:199bb689b2034157ecb3ade2b47b70470a00e567fa27134fc0c
 | stop-check | kiro | Stop | ide | unknown | unverified |  |  |
 | stop-check | antigravity | Stop | any | blocking | verified |  |  |
 <!-- END GENERATED:enforcement-matrix -->
+
+<!-- BEGIN GENERATED:context-behaviour-matrix -->
+Schema 1; revision 3
+| Behaviour | Harness | Status | Limitation or tests |
+|---|---|---|---|
+| context-authority | claude | enforced | test/hooks/context-authority.test.js |
+| context-authority | codex | enforced | test/hooks/context-authority.test.js |
+| context-authority | gemini | limitation | no prompt hook wired; only PreCompress instructions, through the table |
+| context-authority | opencode | limitation | no DoFlow hook bridge |
+| context-authority | pi | limitation | extension handles tool_call only |
+| context-authority | copilot | limitation | no DoFlow hook bridge |
+| context-authority | kiro | limitation | no prompt hook wired; SessionStart emits no context |
+| context-authority | antigravity | limitation | only PreToolUse and Stop wired |
+| default-silence | claude | enforced | test/hooks/context-authority.test.js, test/hooks/emission-adapter.test.js |
+| default-silence | codex | enforced | test/hooks/context-authority.test.js, test/hooks/emission-adapter.test.js |
+| default-silence | gemini | limitation | no prompt-time emission |
+| default-silence | opencode | limitation | no DoFlow hook bridge |
+| default-silence | pi | limitation | no prompt-time emission |
+| default-silence | copilot | limitation | no DoFlow hook bridge |
+| default-silence | kiro | limitation | no prompt-time emission |
+| default-silence | antigravity | limitation | no prompt-time emission |
+| summary-scope | claude | enforced | test/hooks/summary-scope.test.js, test/hooks/cross-harness-parity.test.js |
+| summary-scope | codex | limitation | PreCompact carries no summary text |
+| summary-scope | gemini | limitation | PreCompress carries no summary text |
+| summary-scope | opencode | limitation | no DoFlow hook bridge |
+| summary-scope | pi | limitation | no compaction hook wired |
+| summary-scope | copilot | limitation | no DoFlow hook bridge |
+| summary-scope | kiro | limitation | no compaction hook wired |
+| summary-scope | antigravity | limitation | no compaction hook wired |
+| summary-grant | claude | enforced | test/hooks/summary-scope.test.js, test/hooks/cross-harness-parity.test.js |
+| summary-grant | codex | enforced | test/hooks/cross-harness-parity.test.js |
+| summary-grant | gemini | limitation | no prompt hook to deliver |
+| summary-grant | opencode | limitation | no DoFlow hook bridge |
+| summary-grant | pi | limitation | no prompt hook to deliver |
+| summary-grant | copilot | limitation | no DoFlow hook bridge |
+| summary-grant | kiro | limitation | no prompt hook to deliver |
+| summary-grant | antigravity | limitation | no prompt hook to deliver |
+| identity | claude | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | codex | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | gemini | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | opencode | limitation | no DoFlow hook bridge |
+| identity | pi | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | copilot | limitation | no DoFlow hook bridge |
+| identity | kiro | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | antigravity | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| check-freshness | claude | enforced | test/hooks/check-freshness.test.js |
+| check-freshness | codex | enforced | test/hooks/check-freshness.test.js |
+| check-freshness | gemini | enforced | test/hooks/check-freshness.test.js |
+| check-freshness | opencode | limitation | no pre-edit or pre-command gate |
+| check-freshness | pi | enforced | test/hooks/check-freshness.test.js |
+| check-freshness | copilot | limitation | no pre-edit or pre-command gate |
+| check-freshness | kiro | enforced | test/hooks/check-freshness.test.js |
+| check-freshness | antigravity | enforced | test/hooks/check-freshness.test.js |
+<!-- END GENERATED:context-behaviour-matrix -->
 
 ## Native verification and prerequisites
 

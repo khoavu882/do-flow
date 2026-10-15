@@ -230,7 +230,7 @@
   ],
   "coverage": {
     "schemaVersion": 1,
-    "revision": 2,
+    "revision": 3,
     "refresh": {
       "trigger": "a harness bridge, template or installed harness version changes",
       "owner": "the feature that changes it"
@@ -2842,6 +2842,422 @@
             "locator": "https://kiro.dev/docs/hooks/types/",
             "date": "2026-10-12"
           }
+        ]
+      }
+    ],
+    "endOfTurn": [
+      {
+        "harness": "claude",
+        "events": [
+          "Stop"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://code.claude.com/docs/en/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "harness": "codex",
+        "events": [
+          "Stop"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://learn.chatgpt.com/docs/hooks",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "harness": "gemini",
+        "events": [],
+        "none": "no end-of-turn event is wired; SessionEnd and PreCompress are not end of turn",
+        "provenance": []
+      },
+      {
+        "harness": "opencode",
+        "events": [],
+        "none": "no DoFlow hook bridge",
+        "provenance": []
+      },
+      {
+        "harness": "pi",
+        "events": [],
+        "none": "the extension handles tool_call only",
+        "provenance": []
+      },
+      {
+        "harness": "copilot",
+        "events": [
+          "Stop"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/contracts.json: Copilot documented event inventory",
+            "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference",
+            "date": "2026-10-15"
+          }
+        ]
+      },
+      {
+        "harness": "kiro",
+        "events": [
+          "Stop",
+          "stop"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://kiro.dev/docs/hooks/types/",
+            "date": "2026-10-12"
+          },
+          {
+            "kind": "doc",
+            "locator": "https://kiro.dev/docs/hooks/types/",
+            "date": "2026-10-14"
+          }
+        ]
+      },
+      {
+        "harness": "antigravity",
+        "events": [
+          "Stop"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://antigravity.google/docs/hooks/",
+            "date": "2026-10-12"
+          }
+        ]
+      }
+    ],
+    "behaviours": [
+      {
+        "behaviour": "context-authority",
+        "harness": "claude",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/context-authority.test.js"
+        ]
+      },
+      {
+        "behaviour": "context-authority",
+        "harness": "codex",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/context-authority.test.js"
+        ]
+      },
+      {
+        "behaviour": "context-authority",
+        "harness": "gemini",
+        "status": "limitation",
+        "limitation": "no prompt hook wired; only PreCompress instructions, through the table"
+      },
+      {
+        "behaviour": "context-authority",
+        "harness": "opencode",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "context-authority",
+        "harness": "pi",
+        "status": "limitation",
+        "limitation": "extension handles tool_call only"
+      },
+      {
+        "behaviour": "context-authority",
+        "harness": "copilot",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "context-authority",
+        "harness": "kiro",
+        "status": "limitation",
+        "limitation": "no prompt hook wired; SessionStart emits no context"
+      },
+      {
+        "behaviour": "context-authority",
+        "harness": "antigravity",
+        "status": "limitation",
+        "limitation": "only PreToolUse and Stop wired"
+      },
+      {
+        "behaviour": "default-silence",
+        "harness": "claude",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/context-authority.test.js",
+          "test/hooks/emission-adapter.test.js"
+        ]
+      },
+      {
+        "behaviour": "default-silence",
+        "harness": "codex",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/context-authority.test.js",
+          "test/hooks/emission-adapter.test.js"
+        ]
+      },
+      {
+        "behaviour": "default-silence",
+        "harness": "gemini",
+        "status": "limitation",
+        "limitation": "no prompt-time emission"
+      },
+      {
+        "behaviour": "default-silence",
+        "harness": "opencode",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "default-silence",
+        "harness": "pi",
+        "status": "limitation",
+        "limitation": "no prompt-time emission"
+      },
+      {
+        "behaviour": "default-silence",
+        "harness": "copilot",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "default-silence",
+        "harness": "kiro",
+        "status": "limitation",
+        "limitation": "no prompt-time emission"
+      },
+      {
+        "behaviour": "default-silence",
+        "harness": "antigravity",
+        "status": "limitation",
+        "limitation": "no prompt-time emission"
+      },
+      {
+        "behaviour": "summary-scope",
+        "harness": "claude",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/summary-scope.test.js",
+          "test/hooks/cross-harness-parity.test.js"
+        ]
+      },
+      {
+        "behaviour": "summary-scope",
+        "harness": "codex",
+        "status": "limitation",
+        "limitation": "PreCompact carries no summary text"
+      },
+      {
+        "behaviour": "summary-scope",
+        "harness": "gemini",
+        "status": "limitation",
+        "limitation": "PreCompress carries no summary text"
+      },
+      {
+        "behaviour": "summary-scope",
+        "harness": "opencode",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "summary-scope",
+        "harness": "pi",
+        "status": "limitation",
+        "limitation": "no compaction hook wired"
+      },
+      {
+        "behaviour": "summary-scope",
+        "harness": "copilot",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "summary-scope",
+        "harness": "kiro",
+        "status": "limitation",
+        "limitation": "no compaction hook wired"
+      },
+      {
+        "behaviour": "summary-scope",
+        "harness": "antigravity",
+        "status": "limitation",
+        "limitation": "no compaction hook wired"
+      },
+      {
+        "behaviour": "summary-grant",
+        "harness": "claude",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/summary-scope.test.js",
+          "test/hooks/cross-harness-parity.test.js"
+        ]
+      },
+      {
+        "behaviour": "summary-grant",
+        "harness": "codex",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/cross-harness-parity.test.js"
+        ]
+      },
+      {
+        "behaviour": "summary-grant",
+        "harness": "gemini",
+        "status": "limitation",
+        "limitation": "no prompt hook to deliver"
+      },
+      {
+        "behaviour": "summary-grant",
+        "harness": "opencode",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "summary-grant",
+        "harness": "pi",
+        "status": "limitation",
+        "limitation": "no prompt hook to deliver"
+      },
+      {
+        "behaviour": "summary-grant",
+        "harness": "copilot",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "summary-grant",
+        "harness": "kiro",
+        "status": "limitation",
+        "limitation": "no prompt hook to deliver"
+      },
+      {
+        "behaviour": "summary-grant",
+        "harness": "antigravity",
+        "status": "limitation",
+        "limitation": "no prompt hook to deliver"
+      },
+      {
+        "behaviour": "identity",
+        "harness": "claude",
+        "status": "limitation",
+        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+      },
+      {
+        "behaviour": "identity",
+        "harness": "codex",
+        "status": "limitation",
+        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+      },
+      {
+        "behaviour": "identity",
+        "harness": "gemini",
+        "status": "limitation",
+        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+      },
+      {
+        "behaviour": "identity",
+        "harness": "opencode",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "identity",
+        "harness": "pi",
+        "status": "limitation",
+        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+      },
+      {
+        "behaviour": "identity",
+        "harness": "copilot",
+        "status": "limitation",
+        "limitation": "no DoFlow hook bridge"
+      },
+      {
+        "behaviour": "identity",
+        "harness": "kiro",
+        "status": "limitation",
+        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+      },
+      {
+        "behaviour": "identity",
+        "harness": "antigravity",
+        "status": "limitation",
+        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+      },
+      {
+        "behaviour": "check-freshness",
+        "harness": "claude",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/check-freshness.test.js"
+        ]
+      },
+      {
+        "behaviour": "check-freshness",
+        "harness": "codex",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/check-freshness.test.js"
+        ]
+      },
+      {
+        "behaviour": "check-freshness",
+        "harness": "gemini",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/check-freshness.test.js"
+        ]
+      },
+      {
+        "behaviour": "check-freshness",
+        "harness": "opencode",
+        "status": "limitation",
+        "limitation": "no pre-edit or pre-command gate"
+      },
+      {
+        "behaviour": "check-freshness",
+        "harness": "pi",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/check-freshness.test.js"
+        ]
+      },
+      {
+        "behaviour": "check-freshness",
+        "harness": "copilot",
+        "status": "limitation",
+        "limitation": "no pre-edit or pre-command gate"
+      },
+      {
+        "behaviour": "check-freshness",
+        "harness": "kiro",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/check-freshness.test.js"
+        ]
+      },
+      {
+        "behaviour": "check-freshness",
+        "harness": "antigravity",
+        "status": "enforced",
+        "tests": [
+          "test/hooks/check-freshness.test.js"
         ]
       }
     ],

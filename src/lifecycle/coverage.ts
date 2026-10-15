@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const CLASS_ORDER = Object.freeze(['unknown', 'unsupported', 'observation', 'advisory', 'blocking']);
 const POLICY_ORDER = Object.freeze(['pre-implementation-gate', 'pre-bash-guard', 'session-context', 'mcp-tool-guard', 'stop-check']);
 const HARNESS_ORDER = Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+const BEHAVIOUR_ORDER = Object.freeze(['context-authority', 'default-silence', 'summary-scope', 'summary-grant', 'identity', 'check-freshness']);
 const NEVER_BLOCKING_EVENTS = new Set([
   'pi\u0000tool_execution_start', 'antigravity\u0000PostToolUse', 'antigravity\u0000PreInvocation',
   'antigravity\u0000PostInvocation', 'gemini\u0000AfterTool', 'claude\u0000PostToolUse', 'codex\u0000PostToolUse',
@@ -54,4 +55,20 @@ function renderEnforcementMatrix(coverage: any): string {
   for (const row of rows) lines.push(`| ${row.policy} | ${row.harness} | ${row.event} | ${row.profile} | ${row.class} | ${row.verification} | ${(row.prerequisites || []).join(', ')} | ${(row.doesNotCover || []).join(', ')} |`);
   return lines.join('\n');
 }
-module.exports = { enforcementFor, renderEnforcementMatrix, rowsDigest, UnknownEnforcementTarget, NEVER_BLOCKING_EVENTS };
+// IC-019: one row per behaviour x harness, ordered by IC-018's behaviour list, then HARNESS_ORDER.
+function renderBehaviourMatrix(coverage: any): string {
+  const order = (items: readonly string[], value: string) => {
+    const index = items.indexOf(value);
+    return index < 0 ? items.length : index;
+  };
+  const entries = [...(coverage.behaviours || [])].sort((a: any, b: any) => order(BEHAVIOUR_ORDER, a.behaviour) - order(BEHAVIOUR_ORDER, b.behaviour)
+    || order(HARNESS_ORDER, a.harness) - order(HARNESS_ORDER, b.harness)
+    || a.behaviour.localeCompare(b.behaviour) || a.harness.localeCompare(b.harness));
+  const lines = [`Schema ${coverage.schemaVersion}; revision ${coverage.revision}`, '| Behaviour | Harness | Status | Limitation or tests |', '|---|---|---|---|'];
+  for (const entry of entries) {
+    const detail = entry.status === 'enforced' ? (entry.tests || []).join(', ') : (entry.limitation || '');
+    lines.push(`| ${entry.behaviour} | ${entry.harness} | ${entry.status} | ${detail} |`);
+  }
+  return lines.join('\n');
+}
+module.exports = { enforcementFor, renderEnforcementMatrix, renderBehaviourMatrix, BEHAVIOUR_ORDER, HARNESS_ORDER, rowsDigest, UnknownEnforcementTarget, NEVER_BLOCKING_EVENTS };

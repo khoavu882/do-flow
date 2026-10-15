@@ -5,14 +5,13 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # 022-hooks-remaining-duplication: claude and codex's UserPromptSubmit policies share the same
 # context-gathering behavior. Gemini has no UserPromptSubmit-equivalent event in its native hook set.
 #
-# On the FIRST prompt of a session: injects lightweight git context into the harness's LLM
-# context. Claude and Codex receive one nested envelope,
+# Emission (078 IC-004): this policy reads the payload, records its decisions and runs the nudge
+# classifier; doflow_emit_prompt (emission.sh) decides and renders the response. On the first
+# prompt of a bootstrap unit that is git context, the scoped prior summary and the prior warning
+# in one nested envelope,
 #   {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":...}}
-# because Claude Code ignores a top-level additionalContext. Claude's object also carries
-# sessionTitle for window identification, unless the payload's session_title shows the user
-# already titled the session; Codex rejects unknown fields, so its object never does.
-#
-# On subsequent prompts: prints {} (clean, no token waste), unless the nudge below is earned.
+# with sessionTitle on every harness but Codex unless the payload already carries session_title
+# (DEC-030). Later prompts print {} unless the nudge below is earned.
 #
 # Once per session, the first prompt that reads as a plain code-change request (decided by
 # prompt-nudge.jq against the rules in the workflow registry's `promptNudge` key) also carries a
@@ -22,7 +21,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # opt-out file, a subagent prompt, a /do-flow already in progress) resolves to silence; see the
 # once-per-session marker in lib.sh. The nudge starts no node or doflow-run process.
 #
-# Multi-session safe: uses session_id-scoped `injected` flag — no shared state.
+# Multi-session safe: the adapter's one-shot slot is per bootstrap unit (DEC-007).
 # Must complete in <100ms. Must NEVER output "decision: block".
 
 set -euo pipefail
@@ -46,6 +45,16 @@ if ! command -v jq >/dev/null 2>&1; then
   ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit dependency-missing:jq ) >/dev/null 2>&1 || true
 fi
 require_jq
+# The emission authority (feature 078): the scoped summary store, the compiled rule table and the
+# adapter. A missing file leaves its functions
+# undefined, which the adapter (or the check below) answers with the silent response and an
+# emission-deps capture.
+# shellcheck source=summary-store.sh
+[ ! -f "$_DOFLOW_POLDIR/summary-store.sh" ] || . "$_DOFLOW_POLDIR/summary-store.sh"
+# shellcheck source=emission-rules.sh
+[ ! -f "$_DOFLOW_POLDIR/emission-rules.sh" ] || . "$_DOFLOW_POLDIR/emission-rules.sh"
+# shellcheck source=emission.sh
+[ ! -f "$_DOFLOW_POLDIR/emission.sh" ] || . "$_DOFLOW_POLDIR/emission.sh"
 # One jq pass over the payload for every field this hook reads (each pass costs about 8 ms on a
 # 20 KB prompt, and the budget is 100 ms), NUL-separated: session_id, cwd and session_title, null
 # and false read as empty as json_field does, with any NUL inside a value dropped so no field can
@@ -77,7 +86,6 @@ fi
 [[ -z "$SESSION_ID" ]] && exit 0
 
 SESSION_PATH="$SESSION_DIR/$SESSION_ID"
-INJECTED_FLAG="$SESSION_PATH/injected"
 
 # ── Prompt nudge (IC-004 N1-N8) ───────────────────────────────────────────────
 
@@ -86,13 +94,22 @@ INJECTED_FLAG="$SESSION_PATH/injected"
 # here can change the exit status or the first-prompt output. The prompt only ever travels to jq
 # on stdin, with stderr discarded, and is never copied out of INPUT.
 nudge_message() {
-  local root policy_dir here registry decision message
+  local root policy_dir here registry decision message role
   [[ "${DOFLOW_AGENT:-}" == "claude" || "${DOFLOW_AGENT:-}" == "codex" ]] || return 0   # N1
-  [[ "$(doflow_session_role 2>/dev/null || echo main)" != "worker" ]] || return 0      # a worker is never nudged
+  # The role gate is the rule table's: a role whose prompt.nudge action is skip (a worker) is never
+  # nudged, and returning here keeps the classifier from running or marking it (L2-15).
+  role=$(doflow_session_role 2>/dev/null) || role=main
+  DF_ACTION=skip
+  declare -F doflow_emission_rule >/dev/null 2>&1 && doflow_emission_rule prompt.nudge "$role:nudge" 2>/dev/null || DF_ACTION=skip
+  [[ "$DF_ACTION" != "skip" ]] || return 0
   nudge_safe_id "$SESSION_ID" || return 0                                               # N2
   root=$(nudge_repo_root "$CWD") || return 0
   [[ "$(nudge_setting "$root")" == "on" ]] || return 0                                  # N3
   [[ ! -e "$STATE_DIR/nudge/$SESSION_ID" ]] || return 0                                 # N4 (IC-008's path, no process)
+  # The marker is written after the render (DEC-041), so a folder it cannot be written to would
+  # nudge every prompt: an unwritable marker folder (or state folder, before it exists) is silent.
+  if [[ -e "$STATE_DIR/nudge" ]]; then [[ -d "$STATE_DIR/nudge" && -w "$STATE_DIR/nudge" ]] || return 0
+  elif [[ -e "$STATE_DIR" ]]; then [[ -w "$STATE_DIR" ]] || return 0; fi
   # N5: a subagent prompt carries agent_id or agent_type (read with the other fields above).
   [[ -z "$SUBAGENT" ]] || return 0
   # N6: the policy script's physical directory, found with built-ins (a subshell costs about 4 ms).
@@ -112,157 +129,26 @@ nudge_message() {
     nudge_mark "$SESSION_ID" suppressed || true
     return 0
   fi
-  # N8: the message is read and checked before the marker is created, so a registry without a
-  # usable message leaves no marker; a failed create (unwritable folder, a racing prompt) is silent.
+  # N8: a registry without a usable message leaves no marker. The `nudged` marker is written by
+  # doflow_emit_prompt once the nudge rendered, so a nudge the budget dropped stays unmarked (DEC-041).
   message=$(jq -r '.promptNudge.message | strings' "$registry" 2>/dev/null) || return 0
   [[ -n "$message" ]] || return 0
-  nudge_mark "$SESSION_ID" nudged || return 0
   printf '%s' "$message"
   return 0
 }
 
-# One nested envelope for both harnesses (IC-002): $1 is the additionalContext; $2 the session
-# title, omitted when empty.
-emit_envelope() {
-  jq -n --arg ctx "$1" --arg title "$2" \
-    '{"hookSpecificOutput": ({"hookEventName": "UserPromptSubmit", "additionalContext": $ctx}
-      + (if $title != "" then {"sessionTitle": $title} else {} end))}'
-}
+# ── Emission: every prompt, handed to the authority (IC-004) ──────────────────
+# The classifier runs first, where its gates allow, and returns the message unmarked.
+# doflow_emit_prompt decides everything else (the bootstrap slot, git context, the
+# scoped summary, the warning, a grant, the nudge's place in the budget), prints the response and
+# marks the session nudged and records `advisory prompt-nudge` itself when the nudge was rendered.
 
-# ── Subsequent prompts: no injection, unless the nudge is earned ──────────────
-
-if [[ -f "$INJECTED_FLAG" ]]; then
-  NUDGE=$(nudge_message 2>/dev/null) || NUDGE=""
-  if [[ -n "$NUDGE" ]]; then
-    doflow_decide advisory prompt-nudge
-    emit_envelope "$NUDGE" ""
-  else
-    echo "{}"
-  fi
-  exit 0
-fi
-
-# ── Worker session: no bootstrap, nothing claimed ─────────────────────────────
-# A worker never receives the git context, the prior compact summary or the prior warning, and
-# leaves both files for the main session. It is marked injected so later prompts stay silent.
-
-if [[ "$(doflow_session_role || echo main)" == "worker" ]]; then
-  ensure_session_dir "$SESSION_ID" >/dev/null || true
-  touch "$INJECTED_FLAG" 2>/dev/null || true
-  echo "{}"
-  exit 0
-fi
-
-# ── First prompt: build context ───────────────────────────────────────────────
-
-GIT_CONTEXT_FILE="$SESSION_PATH/git-context.json"
-
-# Fallback if session-start.sh didn't run or failed
-if [[ ! -f "$GIT_CONTEXT_FILE" ]]; then
-  ensure_session_dir "$SESSION_ID" >/dev/null
-  touch "$INJECTED_FLAG"
-  CONTEXT="Git context unavailable for this session."
-  SESSION_TITLE=""
-else
-  GIT_JSON=$(cat "$GIT_CONTEXT_FILE")
-  IS_GIT=$(json_field "$GIT_JSON" ".is_git_repo")
-
-  if [[ "$IS_GIT" == "true" ]]; then
-    BRANCH=$(json_field "$GIT_JSON" ".branch")
-    SHA=$(json_field "$GIT_JSON" ".sha")
-    UNCOMMITTED=$(json_field "$GIT_JSON" ".uncommitted_count")
-    STASH=$(json_field "$GIT_JSON" ".stash_count")
-
-    # Build commit list as a single line (· separated)
-    COMMITS=$(echo "$GIT_JSON" | jq -r '.commits[]? // empty' | head -5 | paste -sd ' · ' -)
-
-    CONTEXT="Git context — branch: ${BRANCH:-unknown} | ${SHA:-unknown}"$'\n'
-    CONTEXT+="Last commits: ${COMMITS:-none}"$'\n'
-    CONTEXT+="Uncommitted files: ${UNCOMMITTED:-0}"
-    [[ "${STASH:-0}" -gt 0 ]] && CONTEXT+=" | Stashed: ${STASH}"
-
-    SESSION_TITLE="${BRANCH:-unknown} — ${SHA:-unknown}"
-  else
-    CONTEXT="Not a git repository."
-    SESSION_TITLE="no-git"
-  fi
-
-  # ── Prior compact summary: injected once into the next session, then consumed ─
-  # post-compact.sh writes this file for the session that follows a compaction. The session
-  # that compacted already holds the summary, so it skips the file and leaves it in place.
-  # Any other session claims the file with an atomic rename first (a summary written meanwhile
-  # is a new file and survives), reads a bounded prefix of the claimed copy and removes it. No
-  # step here may fail the hook: on any error the summary is simply not injected.
-
-  PROJECT_DIR=$(ensure_project_dir "$CWD")
-  COMPACT_FILE="$PROJECT_DIR/last-compact-summary.md"
-  COMPACT_CLAIM="$PROJECT_DIR/.last-compact-summary.claimed.$SESSION_ID"
-  COMPACT_CAP=4000
-  COMPACT_READ=65536   # bytes: enough for the cap even at four bytes per character
-  compact_field() {
-    printf '%s\n' "$COMPACT_HEAD" | awk -v k="$1:" '/^---$/{n++; if (n == 2) exit; next} n == 1 && index($0, k) == 1 {sub(/^[^:]*:[ ]*/, ""); print; exit}' || true
-  }
-  # A native subagent payload (agent_id or agent_type) never claims the summary or the warning.
-  if [[ -z "$SUBAGENT" && -f "$COMPACT_FILE" && ! -L "$COMPACT_FILE" ]]; then
-    COMPACT_HEAD=$(head -c "$COMPACT_READ" "$COMPACT_FILE" 2>/dev/null | tr -d '\r') || COMPACT_HEAD=''
-    if [[ "$(compact_field session_id)" != "$SESSION_ID" ]] && mv "$COMPACT_FILE" "$COMPACT_CLAIM" 2>/dev/null; then
-      COMPACT_SIZE=$(wc -c < "$COMPACT_CLAIM" 2>/dev/null) || COMPACT_SIZE=0
-      COMPACT_HEAD=$(head -c "$COMPACT_READ" "$COMPACT_CLAIM" 2>/dev/null | tr -d '\r') || COMPACT_HEAD=''
-      rm -f "$COMPACT_CLAIM"
-      # Strip the YAML frontmatter (between the first two `---` lines) and the blank line after it;
-      # keep the summary body only.
-      COMPACT_BODY=$(printf '%s\n' "$COMPACT_HEAD" | awk '/^---$/ && n < 2 {n++; next} n >= 2 && (started || $0 != "") {started = 1; print}') || COMPACT_BODY=''
-      COMPACT_LEN=''
-      if [[ -n "$COMPACT_BODY" ]]; then
-        # --rawfile, not stdin or --arg: jq 1.7's raw stdin reader miscounts multibyte text across
-        # buffer boundaries, and --arg would hit the per-argument size limit on a large summary.
-        COMPACT_LEN=$(jq -n --rawfile b <(printf '%s' "$COMPACT_BODY") '$b | length' 2>/dev/null) || COMPACT_BODY=''
-      fi
-      if [[ -n "$COMPACT_BODY" && "$COMPACT_LEN" -gt "$COMPACT_CAP" ]]; then
-        COMPACT_BODY=$(jq -nr --rawfile b <(printf '%s' "$COMPACT_BODY") "\$b[0:$COMPACT_CAP]" 2>/dev/null) || COMPACT_BODY=''
-        COMPACT_MORE=''
-        [[ "$COMPACT_SIZE" -gt "$COMPACT_READ" ]] && COMPACT_MORE='at least '
-        [[ -n "$COMPACT_BODY" ]] && COMPACT_BODY+=$'\n'"[summary truncated: first ${COMPACT_CAP} of ${COMPACT_MORE}${COMPACT_LEN} characters]"
-      fi
-      if [[ -n "$COMPACT_BODY" ]]; then
-        COMPACT_AT=$(compact_field compacted_at); COMPACT_AT=${COMPACT_AT//]/}
-        COMPACT_BRANCH=$(compact_field branch); COMPACT_BRANCH=${COMPACT_BRANCH//]/}
-        COMPACT_HEADER="Prior session summary"
-        [[ -n "$COMPACT_AT" && "$COMPACT_AT" != "unknown" ]] && COMPACT_HEADER+=", compacted ${COMPACT_AT}"
-        [[ -n "$COMPACT_BRANCH" && "$COMPACT_BRANCH" != "unknown" ]] && COMPACT_HEADER+=" on branch ${COMPACT_BRANCH}"
-        CONTEXT+=$'\n\n'"[${COMPACT_HEADER}]"$'\n'"$COMPACT_BODY"
-      fi
-    fi
-  fi
-
-  # Check for uncommitted warning from prior session (one-time: delete after read —
-  # nothing else in the framework reassigns this cleanup, so it happens here)
-  if [[ -z "$SUBAGENT" && -f "$PROJECT_DIR/uncommitted-warning.txt" ]]; then
-    WARNING=$(cat "$PROJECT_DIR/uncommitted-warning.txt")
-    CONTEXT+=$'\n'"[Prior session warning: ${WARNING}]"
-    rm -f "$PROJECT_DIR/uncommitted-warning.txt"
-  fi
-fi
-
-# ── Write injected flag ────────────────────────────────────────────────────────
-
-touch "$INJECTED_FLAG"
-
-# ── Output JSON ───────────────────────────────────────────────────────────────
-
-# The nudge, when earned, follows the context after a blank line.
 NUDGE=$(nudge_message 2>/dev/null) || NUDGE=""
-if [[ -n "$NUDGE" ]]; then
-  doflow_decide advisory prompt-nudge
-  CONTEXT+=$'\n\n'"$NUDGE"
+if ! declare -F doflow_emit_prompt >/dev/null 2>&1; then
+  ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit emission-deps ) >/dev/null 2>&1 || true
+  printf '{}\n'
+  exit 0
 fi
-
-# sessionTitle: not on Codex, only when a title was built, and only when the user has not already
-# titled the session.
-TITLE_ARG=""
-if [[ "${DOFLOW_AGENT:-}" != "codex" && -n "${SESSION_TITLE:-}" && -z "$PAYLOAD_TITLE" ]]; then
-  TITLE_ARG="$SESSION_TITLE"
-fi
-emit_envelope "$CONTEXT" "$TITLE_ARG"
+doflow_emit_prompt "$SESSION_ID" "$CWD" "$PAYLOAD_TITLE" "$SUBAGENT" "$NUDGE"
 
 exit 0

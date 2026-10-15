@@ -1412,6 +1412,54 @@
       "intentClass": "hook",
       "stdinFixture": "bench/perf/fixtures/shared/subagent-audit.json",
       "enforced": false
+    },
+    {
+      "id": "hook.shared.emission",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/emission.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/emission.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.emission-rules",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/emission-rules.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/emission-rules.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.identity",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/identity.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/identity.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.summary-store",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/summary-store.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/summary-store.json",
+      "enforced": false
     }
   ],
   "rows": [
@@ -3290,6 +3338,86 @@
       "ceilingMs": 44,
       "status": "approved",
       "approvedOn": "2026-10-14"
+    },
+    {
+      "surfaceId": "hook.shared.emission",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-15",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.66,
+      "p95Ms": 3.36,
+      "maxMs": 3.47,
+      "madMs": 0.19,
+      "controlP50Ms": 24.77,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.emission-rules",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-15",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.35,
+      "p95Ms": 3.38,
+      "maxMs": 3.4,
+      "madMs": 0.21,
+      "controlP50Ms": 24.77,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.identity",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-15",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.49,
+      "p95Ms": 3.11,
+      "maxMs": 3.21,
+      "madMs": 0.15,
+      "controlP50Ms": 24.77,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.summary-store",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-15",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.83,
+      "p95Ms": 3.41,
+      "maxMs": 4.04,
+      "madMs": 0.19,
+      "controlP50Ms": 24.77,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
     }
   ],
   "startupContext": [
