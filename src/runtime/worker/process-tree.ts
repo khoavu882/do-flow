@@ -253,6 +253,11 @@ function signal(kill: any, target: number, name: string) {
  * `KILL_FINAL_MS`. Returns `{ status, reason, survivors, zombies }`: `verified` with no survivors,
  * `survivors` with them, `unknown` when `ps` failed or on win32. A group id that now names another
  * leader is never signalled.
+ *
+ * No-snapshot rule (DEC-060): when the first snapshot's `ps` fails, or the recorded leader start is
+ * null, no group is signalled. The recorded pid is signalled only while `alive(proc)` is `true`, and
+ * the result is `unknown` with reason `ps-failed` or `no-leader-start`; a pid still confirmed alive
+ * after SIGKILL is listed in `survivors`.
  */
 async function escalate({
   proc,
@@ -268,12 +273,34 @@ async function escalate({
     signal(kill, proc.pid, 'SIGTERM');
     return { status: 'unknown', reason: 'win32', survivors: [], zombies: [] };
   }
-  const snapshot = snapshotTree(proc, { run });
-  const groupOwned = !snapshot?.foreignLeader;
-  const tracked = (snapshot?.members || []).map((row: any) => ({ pid: row.pid, start: row.start, pgid: row.pgid }));
+  const leaderStart = normaliseStart(proc.start);
+  const snapshot = leaderStart == null ? null : snapshotTree(proc, { run });
+  if (snapshot == null) {
+    const isAlive = () => alive(proc, { run, kill, platform }) === true;
+    const waitGone = async (budgetMs: number) => {
+      const until = now() + budgetMs;
+      let live = isAlive();
+      while (live && now() < until) {
+        await sleep(POLL_MS);
+        live = isAlive();
+      }
+      return live;
+    };
+    let live = isAlive();
+    if (live) {
+      signal(kill, proc.pid, 'SIGTERM');
+      live = await waitGone(graceMs);
+      if (live) {
+        signal(kill, proc.pid, 'SIGKILL');
+        live = await waitGone(finalMs);
+      }
+    }
+    return { status: 'unknown', reason: leaderStart == null ? 'no-leader-start' : 'ps-failed', survivors: live ? [proc.pid] : [], zombies: [] };
+  }
+  const groupOwned = !snapshot.foreignLeader;
+  const tracked = snapshot.members.map((row: any) => ({ pid: row.pid, start: row.start, pgid: row.pgid }));
   // A snapshot lists the recorded pid only when its start still matches; a pid now naming another
-  // process is never signalled. Without a snapshot the recorded process is the one thing known.
-  if (snapshot == null) tracked.push({ pid: proc.pid, start: normaliseStart(proc.start), pgid: proc.pgid });
+  // process is never signalled.
 
   const wait = async (budgetMs: number) => {
     const until = now() + budgetMs;

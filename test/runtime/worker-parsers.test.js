@@ -112,3 +112,38 @@ test('parserFor falls back to unparsed for a null or unknown id', () => {
     });
   }
 });
+
+// S-2 (DEC-057): a line over the 4 MiB buffer reaches the parser as one oversize event.
+test('a JSON-looking oversize line then a success result is unparsed, reason oversize-line', () => {
+  const parser = PARSERS[ID].create();
+  parser.oversize(true);
+  parser.line(JSON.stringify({ type: 'result', status: 'success', summary: 'done' }));
+  const report = parser.end();
+  assert.equal(report.status, 'unparsed');
+  assert.equal(report.reason, 'oversize-line');
+  assert.equal(report.ignoredLines, 1);
+});
+
+test('a denial wins over a JSON-looking oversize line, before or after it', () => {
+  for (const order of ['denial-first', 'oversize-first']) {
+    const parser = PARSERS[ID].create();
+    const denial = JSON.stringify({ type: 'permission-denied', action: 'write', detail: 'a.js' });
+    if (order === 'denial-first') parser.line(denial);
+    parser.oversize(true);
+    if (order === 'oversize-first') parser.line(denial);
+    parser.line(JSON.stringify({ type: 'result', status: 'success', summary: 'done' }));
+    assert.equal(parser.end().status, 'denied', order);
+  }
+});
+
+test('an oversize line that does not look like JSON is ignored, and the unparsed fallback accepts oversize', () => {
+  const parser = PARSERS[ID].create();
+  parser.oversize(false);
+  parser.line(JSON.stringify({ type: 'result', status: 'success', summary: 'done' }));
+  const report = parser.end();
+  assert.equal(report.status, 'success');
+  assert.equal(report.ignoredLines, 1);
+  const fallback = parserFor(null).create();
+  fallback.oversize(true);
+  assert.equal(fallback.end().ignoredLines, 1);
+});

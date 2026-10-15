@@ -172,6 +172,32 @@ test('a failed ps reports cleanup unknown', async () => {
   assert.equal(outcome.reason, 'ps-failed');
 });
 
+test('no snapshot or no leader start: no group is signalled, the pid only once alive() is true (S-10, DEC-060)', async () => {
+  const start = 'Mon Oct 12 10:00:00 2026';
+  const base = { platform: 'linux', sleep: async () => {}, graceMs: 0, finalMs: 0 };
+
+  // Every ps fails: alive() is unknown, so nothing at all is signalled.
+  const blind = [];
+  const failed = await tree.escalate({ ...base, proc: { pid: 700, pgid: 700, start }, run: () => null, kill: (pid, name) => blind.push([pid, name]) });
+  assert.deepEqual(blind.filter(([, name]) => name !== 0), [], 'no signal without a live identity');
+  assert.deepEqual([failed.status, failed.reason], ['unknown', 'ps-failed']);
+
+  // The listing fails but `ps -p` confirms the recorded start: only the pid is signalled.
+  const confirmed = [];
+  const pOnly = (args) => (args.includes('-A') ? null : `S ${start}\n`);
+  const outcome = await tree.escalate({ ...base, proc: { pid: 701, pgid: 701, start }, run: pOnly, kill: (pid, name) => confirmed.push([pid, name]) });
+  const sent = confirmed.filter(([, name]) => name !== 0);
+  assert.ok(sent.length > 0 && sent.every(([pid]) => pid === 701), JSON.stringify(sent));
+  assert.equal(outcome.status, 'unknown');
+
+  // A null leader start with a working listing: no group signal and no pid signal.
+  const nullStart = [];
+  const listing = fakePs([[702, 1, 702, 'S', start], [703, 702, 702, 'S', start]]);
+  const unstarted = await tree.escalate({ ...base, proc: { pid: 702, pgid: 702, start: null }, run: listing, kill: (pid, name) => nullStart.push([pid, name]) });
+  assert.deepEqual(nullStart.filter(([, name]) => name !== 0), []);
+  assert.deepEqual([unstarted.status, unstarted.reason], ['unknown', 'no-leader-start']);
+});
+
 // ── Real trees ───────────────────────────────────────────────────────────────────────────────────
 
 test('a group with a grandchild ends with no survivors', REAL, async (t) => {

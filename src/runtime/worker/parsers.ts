@@ -11,6 +11,9 @@
  *     in `ignoredLines`.
  *   - Any `permission-denied` event makes the report `denied`, whatever the `result` line says and
  *     whatever the exit status.
+ *   - A line over the supervisor's 4 MiB line buffer arrives as one `oversize(looksJson)` event; a
+ *     JSON-looking one makes the report `unparsed`, reason `oversize-line`, unless a denial was seen
+ *     (DEC-057).
  *   - `unparsed` is the fallback for a null or unknown id, and always reports `status: 'unparsed'`.
  *
  * Every free-text field is masked before it is kept: `summary` with the body profile, `action` and
@@ -67,8 +70,14 @@ function createJsonlV1() {
   let deniedCount = 0;
   let usage: { tokens: number } | null = null;
   let ignoredLines = 0;
+  let oversizeJson = false;
 
   return {
+    /** IC-016 (DEC-057): a stdout line over `OUTPUT_MAX_BYTES`, never a line with no denial. */
+    oversize(looksJson: boolean): void {
+      ignoredLines++;
+      if (looksJson) oversizeJson = true;
+    },
     line(text: string): void {
       const event = eventOf(String(text ?? '').replace(/\r$/, ''));
       if (event && event.type === 'result' && RESULT_STATUSES.has(event.status) && typeof event.summary === 'string') {
@@ -90,6 +99,7 @@ function createJsonlV1() {
       let status: Report['status'];
       let reason: string | null = null;
       if (deniedCount > 0) status = 'denied';
+      else if (oversizeJson) { status = 'unparsed'; reason = 'oversize-line'; }
       else if (result) status = result.status;
       else { status = 'unparsed'; reason = 'no-result-line'; }
       return { parser: JSONL_V1, status, reason, summary, denials: denials.slice(), deniedCount, usage, ignoredLines };
@@ -105,6 +115,7 @@ function unparsedParser(reason: 'no-structured-output-declared' | 'parser-unknow
       let ignoredLines = 0;
       return {
         line(): void { ignoredLines++; },
+        oversize(): void { ignoredLines++; },
         end(): Report {
           return { parser: UNPARSED, status: 'unparsed', reason, summary: null, denials: [], deniedCount: 0, usage: null, ignoredLines };
         },
@@ -113,7 +124,7 @@ function unparsedParser(reason: 'no-structured-output-declared' | 'parser-unknow
   };
 }
 
-const PARSERS: Record<string, { id: string; create(): { line(text: string): void; end(): Report } }> = Object.freeze({
+const PARSERS: Record<string, { id: string; create(): { line(text: string): void; oversize(looksJson: boolean): void; end(): Report } }> = Object.freeze({
   [JSONL_V1]: Object.freeze({ id: JSONL_V1, create: createJsonlV1 }),
 });
 

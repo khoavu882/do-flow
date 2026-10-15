@@ -22,7 +22,8 @@ const { linkBin, writeScenario } = require('../helper/fake-harness-cli.js');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
-const { SUPERVISOR_FILE, OUTPUT_MAX_BYTES, superviseRun, createOutputSink, resultOfRun } = require(path.join(SRC, 'worker', 'supervisor.ts'));
+const { SUPERVISOR_FILE, OUTPUT_MAX_BYTES, MASK_TAIL, superviseRun, createOutputSink, resultOfRun } = require(path.join(SRC, 'worker', 'supervisor.ts'));
+const { cancelRun } = require(path.join(SRC, 'worker', 'cancel.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const { launchEnv, launchRecord, launchWorker } = require(path.join(SRC, 'worker', 'launch.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
@@ -236,6 +237,72 @@ test('a 1-second timeout ends timed-out with the tree gone', POSIX, async (t) =>
   assert.equal(p.attempt().state, 'cancelled');
   assert.equal(p.attempt().cancel.reason, 'timeout after 1s');
   assert.equal(resultOfRun(run).resultOffered, false);
+  // S-1 (DEC-056): the step-6 fields are added to the ended run, and the end stays the canceller's.
+  assert.equal(run.process && run.process.kind, 'exited', JSON.stringify(run.process));
+  assert.equal(run.output && run.output.stdout.path, `worker-output/${runId}.out.log`);
+  assert.ok(run.report, 'report recorded');
+  assert.ok(run.readOnly, 'readOnly recorded');
+  assert.ok(run.launchObserved, 'launchObserved recorded');
+});
+
+test('a user cancel of a running supervised worker keeps the step-6 fields (S-1, DEC-056)', POSIX, async (t) => {
+  const p = project(t, { run: [{ print: 'working' }, { sleep: 30000 }] });
+  const { runId } = p.seed();
+  const supervised = p.supervise(runId);
+  const until = Date.now() + 10000;
+  while (p.run(runId).phase !== 'running') {
+    assert.ok(Date.now() < until, 'the run reached running');
+    await sleep(20);
+  }
+  p.killAfter(p.run(runId));
+  const answer = await cancelRun({ file: p.store, runId, by: 'main', reason: 'stop', env: p.env, cwd: p.dir });
+  assert.equal(answer.disposition, 'cancelled');
+  const run = await supervised;
+  assert.equal(run.phase, 'ended');
+  assert.equal(run.end.state, 'cancelled');
+  assert.equal(run.process && run.process.kind, 'exited', JSON.stringify(run.process));
+  assert.equal(run.output && run.output.stdout.path, `worker-output/${runId}.out.log`);
+  assert.ok(run.report && run.readOnly && run.launchObserved, 'report, readOnly and launchObserved recorded');
+  assert.equal(run.cleanup.status, 'verified');
+});
+
+test('a permission-denied event over 64 KiB still makes the report denied (S-2, DEC-057)', POSIX, async (t) => {
+  const denial = { type: 'permission-denied', action: 'write', detail: 'd'.repeat(70000) };
+  const p = project(t, { run: [{ emit: [denial, SUCCESS] }] });
+  const { runId } = p.seed();
+  const run = await p.supervise(runId);
+  assert.equal(run.report.status, 'denied');
+  assert.equal(run.report.deniedCount, 1);
+  assert.ok(resultOfRun(run).withheld.includes('report-denied'));
+});
+
+test('a same-group child left after a clean exit is ended and recorded as process.leftover (S-4, DEC-058)', POSIX, async (t) => {
+  const pidFile = path.join(tempDir(t, 'doflow-worker-sup-pid-'), 'child.pid');
+  const p = project(t, { run: [{ spawnChild: { pidFile } }, { emit: SUCCESS }] });
+  t.after(() => { try { process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* ended */ } });
+  const { runId } = p.seed();
+  const run = await p.supervise(runId);
+  const child = Number(fs.readFileSync(pidFile, 'utf8'));
+  assert.equal(run.end.state, 'exited');
+  assert.ok(run.process.leftover, 'process.leftover recorded');
+  assert.equal(run.process.leftover.status, 'verified');
+  assert.throws(() => process.kill(child, 0), { code: 'ESRCH' }, 'the leftover child was ended');
+  assert.equal(tree.groupAlive(run.worker.pgid, run.worker.start), false);
+  assert.deepEqual(resultOfRun(run), { resultOffered: true, withheld: [] });
+});
+
+test('a leftover the escalation cannot end withholds the result as group-survived (S-4, DEC-058)', POSIX, async (t) => {
+  const pidFile = path.join(tempDir(t, 'doflow-worker-sup-pid-'), 'child.pid');
+  const p = project(t, { run: [{ spawnChild: { pidFile } }, { emit: SUCCESS }] });
+  t.after(() => { try { process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* ended */ } });
+  const { runId } = p.seed();
+  const unkillable = (options) => tree.escalate({ ...options, kill: () => {}, graceMs: 0, finalMs: 0 });
+  const run = await p.supervise(runId, { escalate: unkillable });
+  const child = Number(fs.readFileSync(pidFile, 'utf8'));
+  assert.equal(run.process.leftover && run.process.leftover.status, 'survivors');
+  assert.deepEqual(run.process.leftover.survivors, [child]);
+  assert.ok(resultOfRun(run).withheld.includes('group-survived'), JSON.stringify(resultOfRun(run)));
+  assert.equal(resultOfRun(run).resultOffered, false);
 });
 
 test('output over 4 MiB is truncated with counted bytes and every line masked', POSIX, async (t) => {
@@ -261,17 +328,69 @@ test('output over 4 MiB is truncated with counted bytes and every line masked', 
   assert.deepEqual(run.output.stderr, { path: `worker-output/${runId}.err.log`, bytes: 0, written: 0, truncated: false });
 });
 
-test('createOutputSink splits a line over 65536 bytes and masks each piece', async (t) => {
+test('createOutputSink hands a line over 65536 bytes whole to the parser and the masker (S-2, S-3, DEC-057)', async (t) => {
   const stateRoot = tempDir(t, 'doflow-worker-sink-');
   const runId = 'w-00000000000a';
   const lines = [];
   const sink = createOutputSink({ stateRoot, runId, stream: 'stderr', onLine: (text) => lines.push(text) });
   sink.write(`${'a '.repeat(40000)}\ntoken=abc123secret\n`);
   const summary = await sink.end();
-  assert.deepEqual(lines.map((l) => l.length), [65536, 80000 - 65536, 'token=abc123secret'.length]);
+  assert.deepEqual(lines.map((l) => l.length), [80000, 'token=abc123secret'.length]);
   const text = fs.readFileSync(path.join(stateRoot, summary.path), 'utf8');
   assert.equal(text.includes('abc123secret'), false);
   assert.equal(summary.truncated, false);
+});
+
+test('a secret straddling the 64 KiB mark is masked in the file (S-3, DEC-057)', async (t) => {
+  const stateRoot = tempDir(t, 'doflow-worker-sink-');
+  const sink = createOutputSink({ stateRoot, runId: 'w-00000000000b', stream: 'stdout', onLine: () => {} });
+  const token = `ghp_${'Z9'.repeat(18)}`;
+  const line = `${'a'.repeat(65526)} ${token}\n`;
+  for (let i = 0; i < line.length; i += 4096) sink.write(line.slice(i, i + 4096));
+  const summary = await sink.end();
+  const text = fs.readFileSync(path.join(stateRoot, summary.path), 'utf8');
+  assert.equal(text.includes('ghp_'), false, 'no part of the token is written');
+  assert.ok(text.includes('<masked>'));
+});
+
+test('a line over 4 MiB is one oversize event, masked and cut by MASK_TAIL before writing (S-2, S-3, DEC-057)', async (t) => {
+  assert.ok(Number.isInteger(MASK_TAIL) && MASK_TAIL >= 1024);
+  const stateRoot = tempDir(t, 'doflow-worker-sink-');
+  const lines = [];
+  const oversize = [];
+  const sink = createOutputSink({
+    stateRoot, runId: 'w-00000000000c', stream: 'stdout',
+    onLine: (text) => lines.push(text), onOversize: (looksJson) => oversize.push(looksJson),
+  });
+  // The token starts 10 bytes before the 4 MiB cut, so the buffered prefix ends in an unmaskable piece of it.
+  const filler = ` ${'b '.repeat((OUTPUT_MAX_BYTES - 12) / 2)}`;
+  const big = `{${filler}ghp_${'A'.repeat(36)}${' tail'.repeat(1000)}\nafter\n`;
+  assert.equal(Buffer.byteLength(`{${filler}`), OUTPUT_MAX_BYTES - 10);
+  for (let i = 0; i < big.length; i += 65536) sink.write(big.slice(i, i + 65536));
+  const summary = await sink.end();
+  assert.deepEqual(oversize, [true]);
+  assert.deepEqual(lines, ['after'], 'the oversize line never reaches onLine');
+  const text = fs.readFileSync(path.join(stateRoot, summary.path), 'utf8');
+  assert.equal(text.includes('ghp_'), false, 'the cut-off token prefix is dropped');
+  assert.ok(text.endsWith('\nafter\n'));
+  assert.ok(summary.written <= OUTPUT_MAX_BYTES);
+  assert.equal(summary.truncated, true);
+});
+
+test('an output file write error marks the sink failed and end() still resolves (S-12, DEC-065)', POSIX, async (t) => {
+  const stateRoot = tempDir(t, 'doflow-worker-sink-');
+  const dir = path.join(stateRoot, 'worker-output');
+  fs.mkdirSync(dir);
+  fs.chmodSync(dir, 0o500); // tempDir's cleanup restores owner write before removing it
+  const lines = [];
+  const sink = createOutputSink({ stateRoot, runId: 'w-00000000000d', stream: 'stdout', onLine: (text) => lines.push(text) });
+  sink.write('one\n');
+  await sleep(50);
+  sink.write('two\n');
+  const summary = await sink.end();
+  assert.equal(summary.failed, 'EACCES');
+  assert.equal(summary.truncated, true);
+  assert.deepEqual(lines, ['one', 'two'], 'the parser is still fed');
 });
 
 test('a refused transition after spawn kills the worker and records supervisorCleanup', POSIX, async (t) => {
