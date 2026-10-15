@@ -154,6 +154,19 @@ test('IC-012 the launch emission text precedes the brief when the reason is emit
   assert.equal(again.lines[1].argv[4], brief);
 });
 
+test('IC-012 DEC-052 a refused launch emission that returns text is still delivered before the brief', POSIX_ONLY, async (t) => {
+  const w = world(t);
+  w.env.DOFLOW_CONTEXT_MAX_BYTES = '64';
+  const brief = 'BRIEF: summarise the plan';
+  const { result, end, lines } = await launchOnce(w, 'claude', brief);
+  assert.deepEqual(end, { code: 0, signal: null });
+  assert.equal(result.launched.reason, 'refused:mandatory-over-budget');
+  assert.ok(result.launched.bytes > 0, 'the refused emission carries text');
+  const prompt = lines[0].argv[4];
+  assert.ok(prompt.endsWith(`\n\n${brief}`), 'the refused text, a blank line, then the brief');
+  assert.equal(Buffer.byteLength(prompt), result.launched.bytes + 2 + Buffer.byteLength(brief), 'bytes counts the text delivered');
+});
+
 test('IC-012 the worker runs detached in its own process group with no shell', POSIX_ONLY, async (t) => {
   const w = world(t, { run: [{ sleep: 200 }] });
   const { identity } = launchEnv({ env: w.env, runKey: 'abcdef0123456789/r1/w1', token: 1, execWorktree: w.worktree, runId: RUN_ID });

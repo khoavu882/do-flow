@@ -149,8 +149,10 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     if (grant) grantSummary({ ...grant, toRun: identity.run, toLineage: identity.lineage, env });
     const emitted = emitContext({ event: 'launch', cwd: execWorktree, env: workerEnv, ...(taskId ? { taskId } : {}) });
     const reason: string = emitted.decision.reason;
-    const text = reason === 'emit' && typeof emitted.text === 'string' ? `${emitted.text}\n\n${prompt}` : prompt;
-    const launched = { reason, bytes: reason === 'emit' && typeof emitted.text === 'string' ? utf8Bytes(emitted.text) : 0 };
+    // DEC-052: any returned text is delivered, a refused emission's included (it carries the pack and the pointer).
+    const delivered = typeof emitted.text === 'string' ? emitted.text : null;
+    const text = delivered !== null ? `${delivered}\n\n${prompt}` : prompt;
+    const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
     const argv = assembleArgv(recipe, text);
     const viaStdin = promptVia(recipe) === 'stdin';
     const child = spawn(recipe.cli.binary, argv, {

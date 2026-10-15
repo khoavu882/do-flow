@@ -95,6 +95,18 @@ function parseStatus(text: string): Record<string, string> {
   return entries;
 }
 
+/** DoFlow's own runtime state, written by every hook a worker fires (DEC-053). Git prints POSIX separators. */
+const RUNTIME_STATE_PREFIX = '.doflow/state/';
+
+/** The entries with every path under `.doflow/state/` dropped, whatever any .gitignore says (DEC-053). */
+function withoutRuntimeState(entries: Record<string, string>): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const [rel, code] of Object.entries(entries)) {
+    if (!rel.startsWith(RUNTIME_STATE_PREFIX)) kept[rel] = code;
+  }
+  return kept;
+}
+
 function pathState(worktree: string, rel: string): PathState {
   const abs = path.join(worktree, rel);
   let stat;
@@ -147,7 +159,7 @@ function snapshot(worktree: string): Snapshot {
 
   const status = git(worktree, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all']);
   if (status === null) return fail('status-failed');
-  const entries = parseStatus(status);
+  const entries = withoutRuntimeState(parseStatus(status));
   const listed = Object.keys(entries);
   if (listed.length > MAX_PATHS) return fail('too-many-paths');
   result.entries = entries;
