@@ -223,6 +223,99 @@
           "verifiedOn": "2026-10-12"
         }
       },
+      "worker": {
+        "profile": null,
+        "cli": {
+          "status": "supported",
+          "evidence": [
+            "bench/inventory/coverage.json → claude --version → 2.1.287 (Claude Code)"
+          ],
+          "verification": "Run `claude --version` and compare the output with bench/inventory/coverage.json.",
+          "verifiedOn": "2026-10-12",
+          "binary": "claude",
+          "versionArgv": [
+            "--version"
+          ]
+        },
+        "oneShot": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "structuredOutput": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "readOnly": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "spawnDenial": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "runnableProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "hooksProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "guidanceProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "loginProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "persistentSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "steering": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
+        "modelChecks": []
+      },
       "contextProfile": {
         "capacityTokens": {
           "unverified": "values belong to 085 (A-19)",
@@ -524,6 +617,99 @@
           "reason": "https://learn.chatgpt.com/docs/agent-configuration/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
         }
       },
+      "worker": {
+        "profile": null,
+        "cli": {
+          "status": "supported",
+          "evidence": [
+            "bench/inventory/coverage.json → codex --version → codex-cli 0.162.1"
+          ],
+          "verification": "Run `codex --version` and compare the output with bench/inventory/coverage.json.",
+          "verifiedOn": "2026-10-12",
+          "binary": "codex",
+          "versionArgv": [
+            "--version"
+          ]
+        },
+        "oneShot": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "structuredOutput": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "readOnly": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "spawnDenial": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "runnableProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "hooksProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "guidanceProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "loginProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "persistentSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "steering": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
+        "modelChecks": []
+      },
       "contextProfile": {
         "capacityTokens": {
           "unverified": "values belong to 085 (A-19)",
@@ -778,6 +964,99 @@
           "fallback": "manual",
           "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
         }
+      },
+      "worker": {
+        "profile": null,
+        "cli": {
+          "status": "supported",
+          "evidence": [
+            "bench/inventory/coverage.json → gemini --version → 0.55.1"
+          ],
+          "verification": "Run `gemini --version` and compare the output with bench/inventory/coverage.json.",
+          "verifiedOn": "2026-10-12",
+          "binary": "gemini",
+          "versionArgv": [
+            "--version"
+          ]
+        },
+        "oneShot": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "structuredOutput": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "readOnly": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "spawnDenial": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "runnableProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "hooksProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "guidanceProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "loginProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "persistentSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "steering": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "modelChecks": []
       },
       "contextProfile": {
         "capacityTokens": {
@@ -1081,6 +1360,99 @@
           "reason": "https://opencode.ai/docs/agents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
         }
       },
+      "worker": {
+        "profile": null,
+        "cli": {
+          "status": "supported",
+          "evidence": [
+            "bench/inventory/coverage.json → opencode --version → 1.18.30"
+          ],
+          "verification": "Run `opencode --version` and compare the output with bench/inventory/coverage.json.",
+          "verifiedOn": "2026-10-12",
+          "binary": "opencode",
+          "versionArgv": [
+            "--version"
+          ]
+        },
+        "oneShot": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "structuredOutput": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "readOnly": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "spawnDenial": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "runnableProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "hooksProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "guidanceProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "loginProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "persistentSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "steering": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
+        "modelChecks": []
+      },
       "contextProfile": {
         "capacityTokens": {
           "unverified": "values belong to 085 (A-19)",
@@ -1372,6 +1744,99 @@
           "fallback": "manual",
           "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no resume operation; https://pi.dev/docs/latest/extensions states no subagent operation. Nothing is inferred."
         }
+      },
+      "worker": {
+        "profile": null,
+        "cli": {
+          "status": "supported",
+          "evidence": [
+            "bench/inventory/coverage.json → pi --version → 1.1.0"
+          ],
+          "verification": "Run `pi --version` and compare the output with bench/inventory/coverage.json.",
+          "verifiedOn": "2026-10-12",
+          "binary": "pi",
+          "versionArgv": [
+            "--version"
+          ]
+        },
+        "oneShot": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "structuredOutput": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "readOnly": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "spawnDenial": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "runnableProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "hooksProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "guidanceProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "loginProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "persistentSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "steering": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "modelChecks": []
       },
       "contextProfile": {
         "capacityTokens": {
@@ -1670,6 +2135,99 @@
           "reason": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference offers steering of a running subagent from its session view but states no resume of a finished subagent; nothing is inferred."
         }
       },
+      "worker": {
+        "profile": null,
+        "cli": {
+          "status": "supported",
+          "evidence": [
+            "bench/inventory/coverage.json → copilot --version → GitHub Copilot CLI 1.0.78."
+          ],
+          "verification": "Run `copilot --version` and compare the output with bench/inventory/coverage.json.",
+          "verifiedOn": "2026-10-12",
+          "binary": "copilot",
+          "versionArgv": [
+            "--version"
+          ]
+        },
+        "oneShot": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "structuredOutput": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "readOnly": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "spawnDenial": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "runnableProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "hooksProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "guidanceProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "loginProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "persistentSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "steering": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
+        "modelChecks": []
+      },
       "contextProfile": {
         "capacityTokens": {
           "unverified": "values belong to 085 (A-19)",
@@ -1904,6 +2462,99 @@
           "fallback": "manual",
           "reason": "https://kiro.dev/docs/custom-agents/subagents/ was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
         }
+      },
+      "worker": {
+        "profile": null,
+        "cli": {
+          "status": "supported",
+          "evidence": [
+            "bench/inventory/coverage.json → kiro-cli --version → kiro-cli 2.29.1"
+          ],
+          "verification": "Run `kiro-cli --version` and compare the output with bench/inventory/coverage.json.",
+          "verifiedOn": "2026-10-12",
+          "binary": "kiro-cli",
+          "versionArgv": [
+            "--version"
+          ]
+        },
+        "oneShot": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "structuredOutput": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "readOnly": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "spawnDenial": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "runnableProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "hooksProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "guidanceProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "loginProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "persistentSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "steering": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "modelChecks": []
       },
       "contextProfile": {
         "capacityTokens": {
@@ -2209,6 +2860,99 @@
           "verification": "Message an Idle subagent and confirm it returns to Running.",
           "verifiedOn": "2026-10-12"
         }
+      },
+      "worker": {
+        "profile": null,
+        "cli": {
+          "status": "supported",
+          "evidence": [
+            "bench/inventory/coverage.json → agy --version → 1.3.3"
+          ],
+          "verification": "Run `agy --version` and compare the output with bench/inventory/coverage.json.",
+          "verifiedOn": "2026-10-12",
+          "binary": "agy",
+          "versionArgv": [
+            "--version"
+          ]
+        },
+        "oneShot": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "structuredOutput": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "readOnly": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "spawnDenial": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "runnableProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "hooksProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "guidanceProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "loginProbe": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "persistentSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "resume": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "steering": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "modelChecks": []
       },
       "contextProfile": {
         "capacityTokens": {

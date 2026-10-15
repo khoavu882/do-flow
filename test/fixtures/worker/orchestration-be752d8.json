@@ -1,0 +1,342 @@
+{
+  "claude": {
+    "spawn": {
+      "status": "supported",
+      "evidence": [
+        "https://code.claude.com/docs/en/tools-reference → Agent: \"Spawns a subagent with its own context window to handle a task.\""
+      ],
+      "verification": "Ask Claude Code to delegate a task to an installed subagent and confirm a subagent runs.",
+      "verifiedOn": "2026-10-12"
+    },
+    "wait": {
+      "status": "supported",
+      "evidence": [
+        "https://code.claude.com/docs/en/sub-agents → \"Foreground subagents block the main conversation until complete.\"",
+        "https://code.claude.com/docs/en/sub-agents → \"A background subagent's results reach Claude as a completion notification in a later turn.\""
+      ],
+      "verification": "Run a foreground subagent and confirm the main conversation resumes with its result.",
+      "verifiedOn": "2026-10-12"
+    },
+    "status": {
+      "status": "supported",
+      "evidence": [
+        "https://code.claude.com/docs/en/sub-agents → \"To check which model a subagent is running on, run /tasks.\""
+      ],
+      "verification": "Run /tasks while a background subagent is active.",
+      "verifiedOn": "2026-10-12"
+    },
+    "cancel": {
+      "status": "supported",
+      "evidence": [
+        "https://code.claude.com/docs/en/tools-reference → TaskStop: \"Stops a running background task by ID. It also accepts an agent-team teammate or a named background agent by agent ID or name.\""
+      ],
+      "verification": "Start a background subagent and stop it with TaskStop.",
+      "verifiedOn": "2026-10-12"
+    },
+    "resume": {
+      "status": "supported",
+      "evidence": [
+        "https://code.claude.com/docs/en/sub-agents → \"Claude uses the SendMessage tool with the agent's ID or name as the to field to resume it.\""
+      ],
+      "verification": "Complete a subagent, then send it a follow-up through SendMessage and confirm it keeps its history.",
+      "verifiedOn": "2026-10-12"
+    }
+  },
+  "codex": {
+    "spawn": {
+      "status": "supported",
+      "evidence": [
+        "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Ask for subagents or parallel agent work directly.\""
+      ],
+      "verification": "Ask Codex to spawn two agents and confirm both appear under Subagents.",
+      "verifiedOn": "2026-10-12"
+    },
+    "wait": {
+      "status": "supported",
+      "evidence": [
+        "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"When many agents are running, Codex waits until all requested results are available, then returns a consolidated response.\""
+      ],
+      "verification": "Spawn two agents and confirm one consolidated response arrives after both finish.",
+      "verifiedOn": "2026-10-12"
+    },
+    "status": {
+      "status": "supported",
+      "evidence": [
+        "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Open Subagents to see read-only Active and Done lists.\" and \"Use /agent in the CLI to switch between active agent threads and inspect the ongoing thread.\""
+      ],
+      "verification": "Open Subagents or run /agent while a subagent is active.",
+      "verifiedOn": "2026-10-12"
+    },
+    "cancel": {
+      "status": "supported",
+      "evidence": [
+        "https://learn.chatgpt.com/docs/agent-configuration/subagents → \"Ask Codex directly to steer a running subagent, stop it, or close completed agent threads.\""
+      ],
+      "verification": "Ask Codex to stop a running subagent and confirm the thread ends.",
+      "verifiedOn": "2026-10-12"
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://learn.chatgpt.com/docs/agent-configuration/subagents; `codex resume` resumes a session (observed in `codex --help`, codex-cli 0.162.1) and is not recorded as a subagent resume.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "manual",
+      "reason": "https://learn.chatgpt.com/docs/agent-configuration/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+    }
+  },
+  "gemini": {
+    "spawn": {
+      "status": "supported",
+      "evidence": [
+        "https://geminicli.com/docs/core/subagents → \"When the main agent calls the tool, it delegates the task to the subagent.\"",
+        "https://geminicli.com/docs/core/subagents → \"You can explicitly direct a task to a specific subagent by using the @ symbol followed by the subagent's name at the beginning of your prompt.\""
+      ],
+      "verification": "Prompt with @<subagent> and confirm the subagent runs.",
+      "verifiedOn": "2026-10-12"
+    },
+    "wait": {
+      "status": "supported",
+      "evidence": [
+        "https://geminicli.com/docs/core/subagents → \"Once the subagent completes its task, it reports back to the main agent with its findings.\""
+      ],
+      "verification": "Delegate a task and confirm the main agent continues from the subagent report.",
+      "verifiedOn": "2026-10-12"
+    },
+    "status": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://geminicli.com/docs/core/subagents and the Gemini CLI changelog for a status operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a status operation; nothing is inferred from another harness or a model name."
+    },
+    "cancel": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://geminicli.com/docs/core/subagents for a stop operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a cancel operation; nothing is inferred from another harness or a model name."
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://geminicli.com/docs/core/subagents for a resume operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "manual",
+      "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+    }
+  },
+  "opencode": {
+    "spawn": {
+      "status": "supported",
+      "evidence": [
+        "https://opencode.ai/docs/agents → \"Control which subagents an agent can invoke via the Task tool with permission.task.\"",
+        "https://opencode.ai/docs/agents → \"Subagents can be invoked: Automatically by primary agents for specialized tasks based on their descriptions. Manually by @ mentioning a subagent in your message.\""
+      ],
+      "verification": "Mention a subagent with @ or let a primary agent call the Task tool and confirm a child session starts.",
+      "verifiedOn": "2026-10-12"
+    },
+    "wait": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://opencode.ai/docs/agents and https://opencode.ai/docs/tools for a wait operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://opencode.ai/docs/agents was read on 2026-10-12 and does not state a wait operation; nothing is inferred from another harness or a model name."
+    },
+    "status": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://opencode.ai/docs/agents for a status operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://opencode.ai/docs/agents describes keybinds to enter and leave child sessions but states no status operation; nothing is inferred."
+    },
+    "cancel": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://opencode.ai/docs/agents for a stop operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://opencode.ai/docs/agents was read on 2026-10-12 and does not state a cancel operation; nothing is inferred from another harness or a model name."
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://opencode.ai/docs/agents for a resume operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "manual",
+      "reason": "https://opencode.ai/docs/agents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+    }
+  },
+  "pi": {
+    "spawn": {
+      "status": "unsupported",
+      "evidence": [
+        "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md → \"Pi ships with powerful defaults but skips features like sub-agents and plan mode.\""
+      ],
+      "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md and https://pi.dev/docs/latest/extensions; an extension may add subagents, which is not recorded as a Pi capability.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential"
+    },
+    "wait": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a wait operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no wait operation; https://pi.dev/docs/latest/extensions was read on 2026-10-12 and states no subagent operation. Nothing is inferred."
+    },
+    "status": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a status operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no status operation; https://pi.dev/docs/latest/extensions states no subagent operation. Nothing is inferred."
+    },
+    "cancel": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a cancel operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no cancel operation; https://pi.dev/docs/latest/extensions states no subagent operation. Nothing is inferred."
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a resume operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "manual",
+      "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no resume operation; https://pi.dev/docs/latest/extensions states no subagent operation. Nothing is inferred."
+    }
+  },
+  "copilot": {
+    "spawn": {
+      "status": "supported",
+      "evidence": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli → \"Work performed by a custom agent is carried out using a subagent, which is a temporary agent spun up to complete the task.\""
+      ],
+      "verification": "Run a custom agent task and confirm a subagent appears in /tasks.",
+      "verifiedOn": "2026-10-12"
+    },
+    "wait": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference for a wait operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli and https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference was read on 2026-10-12 and does not state a wait operation; nothing is inferred from another harness or a model name."
+    },
+    "status": {
+      "status": "supported",
+      "evidence": [
+        "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference → tasks dialog (/tasks): \"Enter - View task details, or teleport into the selected subagent's own session view\"; subagents that spawn nested subagents \"appear as an indented tree\"."
+      ],
+      "verification": "Open /tasks while a subagent is active.",
+      "verifiedOn": "2026-10-12"
+    },
+    "cancel": {
+      "status": "supported",
+      "evidence": [
+        "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference → tasks dialog (/tasks): \"X - Kill the selected active task\"; the dialog lists subagents and shells (\"Toggle showing finished subagents and shells\")."
+      ],
+      "verification": "Open /tasks, select an active subagent and press X.",
+      "verifiedOn": "2026-10-12"
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference for a resume operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "manual",
+      "reason": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference offers steering of a running subagent from its session view but states no resume of a finished subagent; nothing is inferred."
+    }
+  },
+  "kiro": {
+    "spawn": {
+      "status": "supported",
+      "evidence": [
+        "https://kiro.dev/docs/custom-agents/subagents/ → \"Use the code-reviewer agent to analyze src/auth/ for security issues\" (invocation example for a sub-agent)."
+      ],
+      "verification": "Prompt the main agent to use a custom agent and confirm a sub-agent runs.",
+      "verifiedOn": "2026-10-12"
+    },
+    "wait": {
+      "status": "supported",
+      "evidence": [
+        "https://kiro.dev/docs/custom-agents/subagents/ → \"When finished, the sub-agent returns findings to the main agent\"."
+      ],
+      "verification": "Delegate a task and confirm the main agent continues from the returned findings.",
+      "verifiedOn": "2026-10-12"
+    },
+    "status": {
+      "status": "supported",
+      "evidence": [
+        "https://kiro.dev/docs/custom-agents/subagents/ → \"In CLI, use Ctrl+G to check on long-running sub-agents\"."
+      ],
+      "verification": "Press Ctrl+G in the Kiro CLI while a sub-agent is running.",
+      "verifiedOn": "2026-10-12"
+    },
+    "cancel": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://kiro.dev/docs/custom-agents/subagents/ for a stop operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://kiro.dev/docs/custom-agents/subagents/ was read on 2026-10-12 and does not state a cancel operation; nothing is inferred from another harness or a model name."
+    },
+    "resume": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://kiro.dev/docs/custom-agents/subagents/ for a resume operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "manual",
+      "reason": "https://kiro.dev/docs/custom-agents/subagents/ was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+    }
+  },
+  "antigravity": {
+    "spawn": {
+      "status": "supported",
+      "evidence": [
+        "https://antigravity.google/docs/subagents?tab=cli → \"The parent agent calls the invoke_subagent tool to spawn a new concurrent session with a dedicated role and initial prompt\"."
+      ],
+      "verification": "Ask the agent to delegate and confirm a subagent appears in the subagent panel.",
+      "verifiedOn": "2026-10-12"
+    },
+    "wait": {
+      "status": "unknown",
+      "evidence": [],
+      "verification": "Re-read https://antigravity.google/docs/subagents?tab=cli for a wait operation.",
+      "verifiedOn": "2026-10-12",
+      "fallback": "sequential",
+      "reason": "https://antigravity.google/docs/subagents?tab=cli describes asynchronous execution (\"the primary agent delegates these operations to parallel subagents or background tasks\") but states no wait operation; nothing is inferred."
+    },
+    "status": {
+      "status": "supported",
+      "evidence": [
+        "https://antigravity.google/docs/subagents?tab=cli → \"You can directly monitor the progress of any subagent by clicking into its conversation in the subagent panel or pressing Alt+J\"."
+      ],
+      "verification": "Open the subagent panel while a subagent is running.",
+      "verifiedOn": "2026-10-12"
+    },
+    "cancel": {
+      "status": "supported",
+      "evidence": [
+        "https://antigravity.google/docs/subagents?tab=cli → \"You can cancel a running subagent by clicking Stop Subagent in the subagent panel (or pressing k in the CLI).\""
+      ],
+      "verification": "Press k on a running subagent in the CLI and confirm it is Killed.",
+      "verifiedOn": "2026-10-12"
+    },
+    "resume": {
+      "status": "supported",
+      "evidence": [
+        "https://antigravity.google/docs/subagents?tab=cli → \"An idle agent automatically re-awakens to the Running state upon receiving a message from another agent.\""
+      ],
+      "verification": "Message an Idle subagent and confirm it returns to Running.",
+      "verifiedOn": "2026-10-12"
+    }
+  }
+}

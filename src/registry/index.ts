@@ -412,6 +412,122 @@ function validateOrchestration(value: any, location: string, errors: string[]): 
   }
 }
 
+/** Keys of a harness's `worker` block (081 IC-001) and the recipe fields each capability entry may
+ * carry when, and only when, its status is `supported`. `required` lists the fields a `supported`
+ * entry must carry. The last three are declared, not implemented, so they take no recipe field. */
+const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
+  cli: { allowed: ['binary', 'versionArgv'], required: ['binary', 'versionArgv'] },
+  oneShot: { allowed: ['argv', 'promptVia'], required: ['argv', 'promptVia'] },
+  structuredOutput: { allowed: ['argv', 'parser'], required: ['parser'] },
+  readOnly: { allowed: ['argv'], required: ['argv'] },
+  spawnDenial: { allowed: ['argv'], required: ['argv'] },
+  runnableProbe: { allowed: ['argv'], required: ['argv'] },
+  hooksProbe: { allowed: ['argv'], required: ['argv'] },
+  guidanceProbe: { allowed: ['argv', 'marker'], required: ['argv'] },
+  loginProbe: { allowed: ['argv'], required: ['argv'] },
+  persistentSession: { allowed: [], required: [] },
+  resume: { allowed: [], required: [] },
+  steering: { allowed: [], required: [] },
+});
+const WORKER_KEYS = Object.freeze(['profile', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
+const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
+const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker']);
+const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
+const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
+const WORKER_ARGV_MAX = 32;
+const WORKER_ARG_MAX_CHARS = 200;
+
+/** A worker argv: an array of 0 to 32 strings, each at most 200 characters and free of NUL. */
+function workerArgvProblem(value: any): string | null {
+  if (!Array.isArray(value) || value.some((item: any) => typeof item !== 'string')) return 'argv must be an array of strings';
+  if (value.length > WORKER_ARGV_MAX) return `argv must have at most ${WORKER_ARGV_MAX} elements`;
+  if (value.some((item: string) => item.length > WORKER_ARG_MAX_CHARS)) return `argv elements must be at most ${WORKER_ARG_MAX_CHARS} characters`;
+  if (value.some((item: string) => item.includes('\0'))) return 'argv elements must not contain NUL';
+  return null;
+}
+
+/** Validates one harness's `worker` block (081 IC-001): the external-worker capabilities and launch
+ * recipe beside `orchestration`. Every message reads `harness '<id>' worker '<key>': ...` and never
+ * contains ` orchestration`, so G33.15's orchestration filter reads none of them. Membership of
+ * `structuredOutput.parser` in the parser table is checked where that table lives (G41.3, IC-008),
+ * not here, so the registry does not require a runtime module. */
+function validateWorker(value: any, location: string, errors: string[]): void {
+  const fail = (key: string, message: string) => issue(errors, `${location} worker '${key}'`, message);
+  if (!object(value)) { fail('*', 'worker block is required and must be an object'); return; }
+  for (const key of WORKER_KEYS) if (!Object.hasOwn(value, key)) fail(key, 'is missing');
+  for (const key of Object.keys(value)) if (!WORKER_KEYS.includes(key)) fail(key, 'is not a worker key');
+
+  if (Object.hasOwn(value, 'profile') && value.profile !== null && !COVERAGE_PROFILES.has(value.profile)) {
+    fail('profile', 'must be a lifecycle coverage profile or null');
+  }
+
+  for (const [key, rule] of Object.entries(WORKER_CAPABILITIES)) {
+    if (!Object.hasOwn(value, key)) continue;
+    const entry = value[key];
+    if (!object(entry)) { fail(key, 'must be a capability entry object'); continue; }
+    if (!ORCHESTRATION_STATUS.has(entry.status)) fail(key, 'status must be supported, unsupported, or unknown');
+    if (!Array.isArray(entry.evidence) || entry.evidence.some((item: any) => typeof item !== 'string')) {
+      fail(key, 'evidence must be an array of strings');
+    } else if (entry.evidence.length === 0 && (entry.status === 'supported' || entry.status === 'unsupported')) {
+      fail(key, `evidence must not be empty when status is ${entry.status}`);
+    }
+    if (typeof entry.verification !== 'string' || !entry.verification.trim()) fail(key, 'requires a verification instruction');
+    if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) fail(key, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
+    if (entry.status === 'unknown' && (typeof entry.reason !== 'string' || !entry.reason.trim())) fail(key, 'requires a reason when status is unknown');
+    if (Object.hasOwn(entry, 'reason') && entry.status !== 'unknown' && (typeof entry.reason !== 'string' || !entry.reason.trim())) fail(key, 'reason must be a non-empty string');
+
+    for (const field of Object.keys(entry)) {
+      if (WORKER_ENTRY_FIELDS.has(field)) continue;
+      if (!WORKER_RECIPE_FIELDS.has(field) || !rule.allowed.includes(field)) { fail(key, `has unknown field '${field}'`); continue; }
+      if (entry.status !== 'supported') fail(key, `recipe field '${field}' is allowed only when status is supported`);
+    }
+    if (entry.status !== 'supported') continue;
+    for (const field of rule.required) if (!Object.hasOwn(entry, field)) fail(key, `requires recipe field '${field}' when status is supported`);
+
+    if (Object.hasOwn(entry, 'binary') && (typeof entry.binary !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.binary))) {
+      fail(key, 'binary must be a bare command name');
+    }
+    for (const field of ['versionArgv', 'argv']) {
+      if (!Object.hasOwn(entry, field)) continue;
+      const problem = workerArgvProblem(entry[field]);
+      if (problem) fail(key, problem.replace(/^argv/, field));
+    }
+    if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
+    if (Object.hasOwn(entry, 'marker') && (typeof entry.marker !== 'string' || entry.marker.length < 1 || entry.marker.length > 200)) {
+      fail(key, 'marker must be 1 to 200 characters');
+    }
+    if (key === 'oneShot' && Object.hasOwn(entry, 'promptVia')) {
+      const count = Array.isArray(entry.argv) ? entry.argv.filter((item: any) => item === '{prompt}').length : 0;
+      if (entry.promptVia === 'argv') {
+        if (count !== 1) fail(key, "argv must contain the element '{prompt}' exactly once when promptVia is argv");
+      } else if (entry.promptVia === 'stdin') {
+        if (count !== 0) fail(key, "argv must not contain '{prompt}' when promptVia is stdin");
+      } else {
+        fail(key, 'promptVia must be argv or stdin');
+      }
+    }
+  }
+
+  if (!Object.hasOwn(value, 'modelChecks')) return;
+  if (!Array.isArray(value.modelChecks)) { fail('modelChecks', 'must be an array'); return; }
+  const seen = new Set<string>();
+  value.modelChecks.forEach((check: any, index: number) => {
+    const key = `modelChecks[${index}]`;
+    if (!object(check)) { fail(key, 'must be an object'); return; }
+    for (const field of Object.keys(check)) if (!WORKER_MODEL_CHECK_FIELDS.has(field)) fail(key, `has unknown field '${field}'`);
+    if (typeof check.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(check.id)) fail(key, 'id must be a lowercase identifier');
+    else if (seen.has(check.id)) fail(key, `duplicate id '${check.id}'`);
+    else seen.add(check.id);
+    const problem = workerArgvProblem(check.argv);
+    if (problem) fail(key, problem);
+    if (!Array.isArray(check.establishes) || check.establishes.length === 0 || check.establishes.some((fact: any) => !WORKER_FACTS.has(fact))) {
+      fail(key, `establishes must be a non-empty subset of ${[...WORKER_FACTS].join(', ')}`);
+    }
+    if (!Number.isInteger(check.estimateTokens) || check.estimateTokens < 1) fail(key, 'estimateTokens must be an integer of at least 1');
+    if (!Number.isInteger(check.timeoutSeconds) || check.timeoutSeconds < 1 || check.timeoutSeconds > 600) fail(key, 'timeoutSeconds must be an integer from 1 to 600');
+  });
+}
+
 const CONTEXT_PROFILE_FIELDS = Object.freeze([
   'capacityTokens',
   'reserveTokens',
@@ -539,6 +655,7 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
       validateCapability(declaration, `${at} capability '${capability}'`, errors);
     }
     validateOrchestration(harness.orchestration, at, errors);
+    validateWorker(harness.worker, at, errors);
     validateContextProfile(harness.contextProfile, at, errors);
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl }, errors);
   }
@@ -786,7 +903,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
+  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, WORKER_KEYS, WORKER_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry,
   harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };
