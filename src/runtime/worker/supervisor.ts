@@ -36,10 +36,18 @@ const { maskBody } = require('../mask.ts');
 
 /** This module's own file, which the run command spawns (G16). */
 const SUPERVISOR_FILE = __filename;
-/** IC-018: the most bytes one stream's output file holds. */
+/** IC-018: the most bytes one stream's output file holds, and the most one buffered line holds. */
 const OUTPUT_MAX_BYTES = 4194304;
-/** IC-018: a line longer than this is split here. */
+/** The former split point; since DEC-057 no longer a parse or mask boundary. */
 const LINE_MAX_BYTES = 65536;
+/**
+ * IC-018 (DEC-057): bytes dropped from the masked prefix of an oversize line, so a token cut at the
+ * buffer edge is never written unmasked. `mask.ts` exports no longest-match length (its token shapes
+ * are open-ended), so this is a constant above the bounded shapes: a key name of at most about 130
+ * characters plus its value, a 40-character key, a JWT or a `gh*_` token of ordinary length.
+ * Known ceiling: a single token longer than this that straddles the 4 MiB cut leaves its head.
+ */
+const MASK_TAIL = 4096;
 /** IC-011 step 0's default, for a record that carries none. */
 const DEFAULT_TIMEOUT_SECONDS = 1800;
 /** How long the streams may stay open after the worker's exit (a grandchild may hold them). */
@@ -56,42 +64,69 @@ function rootsFor(file: string) {
   return { root, stateRoot, slug, ledger: attempts.storeFile(root, slug) };
 }
 
-/** Splits a byte stream into lines; a line over `LINE_MAX_BYTES` is split there. */
-function lineSplitter(onLine: (line: Buffer, newline: boolean) => void) {
-  let pending: Buffer = Buffer.alloc(0);
+/**
+ * Splits a byte stream into logical lines, each buffered whole up to `OUTPUT_MAX_BYTES` (DEC-057).
+ * A line over that is handed to `onOversize` once with its first `OUTPUT_MAX_BYTES` bytes; the rest
+ * of it is dropped up to its newline, which `onOversizeEnd` reports.
+ */
+function lineSplitter({ onLine, onOversize, onOversizeEnd }: {
+  onLine: (line: Buffer, newline: boolean) => void; onOversize: (prefix: Buffer) => void; onOversizeEnd: (newline: boolean) => void;
+}) {
+  let parts: Buffer[] = [];
+  let size = 0;
+  let skipping = false;
+  const take = () => {
+    const line = parts.length === 1 ? parts[0] : Buffer.concat(parts, size);
+    parts = [];
+    size = 0;
+    return line;
+  };
   return {
     push(chunk: Buffer) {
-      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
       let start = 0;
-      for (;;) {
-        const nl = pending.indexOf(0x0a, start);
-        if (nl !== -1 && nl - start <= LINE_MAX_BYTES) {
-          onLine(pending.subarray(start, nl), true);
-          start = nl + 1;
-        } else if (pending.length - start > LINE_MAX_BYTES) {
-          onLine(pending.subarray(start, start + LINE_MAX_BYTES), false);
-          start += LINE_MAX_BYTES;
-        } else {
-          break;
+      while (start < chunk.length) {
+        const nl = chunk.indexOf(0x0a, start);
+        const piece = chunk.subarray(start, nl === -1 ? chunk.length : nl);
+        if (!skipping && size + piece.length > OUTPUT_MAX_BYTES) {
+          parts.push(piece.subarray(0, OUTPUT_MAX_BYTES - size));
+          size = OUTPUT_MAX_BYTES;
+          onOversize(take());
+          skipping = true;
+        } else if (!skipping && piece.length) {
+          parts.push(piece);
+          size += piece.length;
         }
+        if (nl === -1) break;
+        if (skipping) onOversizeEnd(true);
+        else onLine(take(), true);
+        skipping = false;
+        start = nl + 1;
       }
-      pending = Buffer.from(pending.subarray(start));
     },
     end() {
-      if (pending.length) onLine(pending, false);
-      pending = Buffer.alloc(0);
+      if (skipping) onOversizeEnd(false);
+      else if (size) onLine(take(), false);
+      parts = [];
+      size = 0;
+      skipping = false;
     },
   };
 }
 
 /**
  * IC-018: the masked, bounded output file of one stream, `worker-output/<runId>.<out|err>.log` under
- * `stateRoot` (the project's `.doflow/state`). Each line is masked with `maskBody` and written until
- * the file reaches `OUTPUT_MAX_BYTES`; later bytes are counted and dropped. `onLine`, when given,
- * receives every line's unmasked text, those past the cap included, for the parser.
- * `end()` resolves `{ path, bytes, written, truncated }`, `path` relative to `stateRoot`.
+ * `stateRoot` (the project's `.doflow/state`). Each whole line is masked with `maskBody` and written
+ * until the file reaches `OUTPUT_MAX_BYTES`, the cut made after masking; later bytes are counted and
+ * dropped. `onLine`, when given, receives every line's unmasked text, those past the cap included,
+ * for the parser; a line over `OUTPUT_MAX_BYTES` goes to `onOversize(looksJson)` instead, and its
+ * masked prefix is written less its last `MASK_TAIL` bytes (DEC-057). A write stream `'error'` marks
+ * the sink `{ truncated: true, failed: <code> }` and stops writing; lines still reach `onLine`
+ * (DEC-065). `end()` resolves `{ path, bytes, written, truncated, failed? }`, `path` relative to
+ * `stateRoot`.
  */
-function createOutputSink({ stateRoot, runId, stream, onLine }: { stateRoot: string; runId: string; stream: 'stdout' | 'stderr'; onLine?: (text: string) => void }) {
+function createOutputSink({ stateRoot, runId, stream, onLine, onOversize }: {
+  stateRoot: string; runId: string; stream: 'stdout' | 'stderr'; onLine?: (text: string) => void; onOversize?: (looksJson: boolean) => void;
+}) {
   if (typeof runId !== 'string' || !RUN_ID.test(runId)) throw new TypeError(`createOutputSink: run id '${runId}' is not 'w-' plus 12 hex characters`);
   if (!Object.hasOwn(STREAMS, stream)) throw new TypeError(`createOutputSink: stream must be stdout or stderr: ${stream}`);
   const rel = `worker-output/${runId}.${STREAMS[stream]}.log`;
@@ -101,21 +136,49 @@ function createOutputSink({ stateRoot, runId, stream, onLine }: { stateRoot: str
   let bytes = 0;
   let written = 0;
   let truncated = false;
-  const splitter = lineSplitter((line, newline) => {
-    const text = line.toString('utf8');
-    if (onLine) onLine(text);
-    if (truncated) return;
-    let out = Buffer.from(maskBody(text).text + (newline ? '\n' : ''), 'utf8');
+  let full = false;
+  let failed: string | null = null;
+  let closed = false;
+  file.on('error', (error: any) => {
+    failed = typeof error?.code === 'string' && error.code ? error.code : 'write-failed';
+    truncated = true;
+  });
+  file.on('close', () => { closed = true; });
+  /** Writes `out` up to the file cap. */
+  const emit = (out: Buffer) => {
+    if (failed || full || !out.length) return;
     const room = OUTPUT_MAX_BYTES - written;
-    if (out.length > room) {
+    if (out.length >= room) {
+      if (out.length > room) truncated = true;
+      full = true;
       out = out.subarray(0, room);
-      truncated = true;
     }
     if (out.length) {
       file.write(out);
       written += out.length;
     }
+  };
+  const splitter = lineSplitter({
+    onLine(line, newline) {
+      const text = line.toString('utf8');
+      if (onLine) onLine(text);
+      if (full) {
+        truncated = true;
+        return;
+      }
+      emit(Buffer.from(maskBody(text).text + (newline ? '\n' : ''), 'utf8'));
+    },
+    onOversize(prefix) {
+      if (onOversize) onOversize(prefix[0] === 0x7b);
+      truncated = true;
+      const masked = Buffer.from(maskBody(prefix.toString('utf8')).text, 'utf8');
+      emit(masked.subarray(0, Math.max(0, masked.length - MASK_TAIL)));
+    },
+    onOversizeEnd(newline) {
+      if (newline) emit(Buffer.from('\n'));
+    },
   });
+  const summary = () => ({ path: rel, bytes, written, truncated, ...(failed ? { failed } : {}) });
   let ended: Promise<any> | null = null;
   return {
     path: rel,
@@ -124,10 +187,17 @@ function createOutputSink({ stateRoot, runId, stream, onLine }: { stateRoot: str
       bytes += data.length;
       splitter.push(data);
     },
-    end(): Promise<{ path: string; bytes: number; written: number; truncated: boolean }> {
+    end(): Promise<{ path: string; bytes: number; written: number; truncated: boolean; failed?: string }> {
       if (!ended) {
         splitter.end();
-        ended = new Promise((resolve) => file.end(() => resolve({ path: rel, bytes, written, truncated })));
+        ended = new Promise((resolve) => {
+          if (closed) {
+            resolve(summary());
+            return;
+          }
+          file.once('close', () => resolve(summary()));
+          if (!failed) file.end();
+        });
       }
       return ended;
     },
@@ -136,7 +206,8 @@ function createOutputSink({ stateRoot, runId, stream, onLine }: { stateRoot: str
 
 /**
  * IC-017, computed from a record, never stored: `resultOffered` is true only for a run that ended
- * `exited` with `process.kind: 'exited'`, a `clean` read-only check and a `success` report.
+ * `exited` with `process.kind: 'exited'`, a `clean` read-only check and a `success` report, and
+ * whose group left no survivors after the exit (`group-survived`, DEC-058).
  */
 function resultOfRun(run: any): { resultOffered: boolean; withheld: string[] } {
   const withheld: string[] = [];
@@ -148,6 +219,7 @@ function resultOfRun(run: any): { resultOffered: boolean; withheld: string[] } {
   if (report === 'denied') withheld.push('report-denied');
   else if (report === 'failure') withheld.push('report-failure');
   else if (report !== 'success') withheld.push('report-unparsed');
+  if (run?.process?.leftover?.status === 'survivors') withheld.push('group-survived');
   return { resultOffered: withheld.length === 0, withheld };
 }
 
@@ -268,7 +340,10 @@ async function superviseRun({
     child.stderr?.resume();
     const outcome = await escalate({ proc: worker, platform });
     transition(file, runId, ['cancelling', 'ended'], (r: any) => {
-      r.supervisorCleanup = { at: iso(clock), worker, survivors: outcome.survivors ?? [], zombies: outcome.zombies ?? [] };
+      r.supervisorCleanup = {
+        at: iso(clock), worker, status: outcome.status ?? 'unknown', reason: outcome.reason ?? null,
+        survivors: outcome.survivors ?? [], zombies: outcome.zombies ?? [],
+      };
       if (r.cleanup) r.cleanup = mergeCleanup(r.cleanup, r.supervisorCleanup);
     });
     child.stdout?.destroy();
@@ -278,7 +353,9 @@ async function superviseRun({
 
   // Step 5: the parser, the output files and the one timer.
   const parser = parserFor(run.descriptor?.structuredOutput?.parser ?? run.recipe?.parser ?? null).create();
-  const out = createOutputSink({ stateRoot, runId, stream: 'stdout', onLine: (text) => parser.line(text) });
+  const out = createOutputSink({
+    stateRoot, runId, stream: 'stdout', onLine: (text) => parser.line(text), onOversize: (looksJson) => parser.oversize(looksJson),
+  });
   const err = createOutputSink({ stateRoot, runId, stream: 'stderr' });
   child.stdout?.on('data', (chunk: Buffer) => out.write(chunk));
   child.stderr?.on('data', (chunk: Buffer) => err.write(chunk));
@@ -296,12 +373,23 @@ async function superviseRun({
       .catch((error: any) => ({ disposition: 'error', reason: error?.code ?? 'cancel-threw' }));
   }, Math.max(0, deadline.getTime() - clock().getTime()));
 
-  // Step 6: the exit and the recorded outcomes.
+  // Step 6: the exit and the recorded outcomes. These writes also reach a run a timeout or a cancel
+  // already ended, where each field is added only when absent and the end is never touched (DEC-056).
+  const STEP6 = ['running', 'cancelling', 'ended'];
+  const put = (r: any, key: string, value: any) => {
+    if (r.phase !== 'ended' || r[key] === undefined) r[key] = value;
+  };
   const { code, signal } = await exited;
   clearTimeout(timer);
-  transition(file, runId, ['running', 'cancelling'], (r: any) => {
-    r.process = { kind: 'exited', code, signal, at: iso(clock) };
-  });
+  transition(file, runId, STEP6, (r: any) => put(r, 'process', { kind: 'exited', code, signal, at: iso(clock) }));
+  // The group may outlive its leader: end what remains before the after snapshot (DEC-058).
+  if (platform !== 'win32' && processTree.groupAlive(worker.pgid, worker.start) === true) {
+    const outcome = await escalate({ proc: worker, platform });
+    const leftover = { status: outcome.status ?? 'unknown', reason: outcome.reason ?? null, survivors: outcome.survivors ?? [], zombies: outcome.zombies ?? [] };
+    transition(file, runId, STEP6, (r: any) => {
+      if (r.process?.kind === 'exited' && r.process.leftover === undefined) r.process.leftover = leftover;
+    });
+  }
   await boundedWait(streamsDone, DRAIN_MS);
   child.stdout?.destroy();
   child.stderr?.destroy();
@@ -315,11 +403,11 @@ async function superviseRun({
   const report = parser.end();
   const unit = `L.${run.identity?.run}.${run.identity?.lineage}.${run.token}`;
   const launchObserved = run.identity ? (bindingObserved(launched.env ?? env, unit) ? 'yes' : 'no') : 'unknown';
-  transition(file, runId, ['running', 'cancelling'], (r: any) => {
-    r.readOnly = readOnly;
-    r.report = report;
-    r.launchObserved = launchObserved;
-    r.output = output;
+  transition(file, runId, STEP6, (r: any) => {
+    put(r, 'readOnly', readOnly);
+    put(r, 'report', report);
+    put(r, 'launchObserved', launchObserved);
+    put(r, 'output', output);
     if (r.phase === 'running') {
       r.end = { state: 'exited', at: iso(clock) };
       r.phase = 'ended';
@@ -331,7 +419,7 @@ async function superviseRun({
   return current();
 }
 
-module.exports = { SUPERVISOR_FILE, OUTPUT_MAX_BYTES, LINE_MAX_BYTES, superviseRun, createOutputSink, resultOfRun };
+module.exports = { SUPERVISOR_FILE, OUTPUT_MAX_BYTES, LINE_MAX_BYTES, MASK_TAIL, superviseRun, createOutputSink, resultOfRun };
 
 if (require.main === module) {
   const [file, runId] = process.argv.slice(2);
