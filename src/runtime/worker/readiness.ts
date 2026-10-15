@@ -417,8 +417,8 @@ function checkModelRequest(entries: any[], harness: any, modelCheck: any, budget
  * @returns {Promise<{ disposition: 'probed', harnesses: Object[] } | { disposition: 'refused', reason: string }>}
  */
 async function probe({
-  descriptors, registry, harness, modelCheck, budgetTokens,
-  env = process.env, cwd = process.cwd(), now = Date.now, platform = process.platform,
+  descriptors, registry, coverage, harness, needs, modelCheck, budgetTokens,
+  env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
   probeIdentity = newProbeIdentity,
 }: any = {}) {
   const tick = clock(now);
@@ -427,13 +427,16 @@ async function probe({
   if (harness && entries.length === 0) {
     throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${all.map((entry) => entry.harness).join(', ')}`);
   }
+  const cov = coverage === undefined ? registry?.coverage : coverage;
+  const valid = validateNeeds(needs, cov);
   const refusal = checkModelRequest(entries, harness, modelCheck, budgetTokens);
   if (refusal) return refusal;
 
-  const root = cwd;
+  // `root` is the lifecycle project root (IC-005): probe processes run there and the record lives
+  // there; discover resolves PATH from the caller's `cwd`, as describe, select and run do.
   const results: any[] = [];
   for (const entry of entries) {
-    const found = discoverOne(entry, { env, cwd: root, now: tick, platform });
+    const found = discoverOne(entry, { env, cwd, now: tick, platform });
     const facts = await freeFacts(entry.worker, found, { env, root, now: tick, probeIdentity });
     const modelChecks: any = {};
     let ran: any;
@@ -458,7 +461,10 @@ async function probe({
       facts,
       modelChecks,
     }, atMs);
-    results.push({ harness: entry.harness, facts: record.facts, recordedAt: record.at, ...(ran ? { modelCheck: ran } : {}) });
+    // FR-003: task-eligible, IC-008 over the effective facts of the record just written; never stored.
+    const effective = effectiveFacts(record, { path: found.path, version: found.version, descriptorDigest: record.descriptorDigest }, atMs);
+    const taskEligible = eligibility(requirementsFor(entry, effective, valid, cov));
+    results.push({ harness: entry.harness, facts: record.facts, taskEligible, recordedAt: record.at, ...(ran ? { modelCheck: ran } : {}) });
   }
   return { disposition: 'probed', harnesses: results };
 }
@@ -572,9 +578,9 @@ function readinessContext({ descriptors, registry, coverage }: any) {
 }
 
 /** Discover, then the IC-007 effective facts and IC-008 evaluation of one harness. Writes nothing. */
-function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd, now, platform }: any) {
+function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd, root, now, platform }: any) {
   const found = discoverOne(entry, { env, cwd, now, platform });
-  const record = readProbeRecord(cwd, entry.harness);
+  const record = readProbeRecord(root, entry.harness);
   const facts = effectiveFacts(record, { ...found, descriptorDigest: descriptorDigest(entry.worker) }, now);
   const requirements = requirementsFor(entry, facts, needs, coverage);
   return { harness: entry.harness, facts, recordedAt: record?.at ?? null, requirements, ...eligibility(requirements) };
@@ -586,13 +592,13 @@ function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd,
  */
 function describe({
   descriptors, registry, coverage, harness, needs,
-  env = process.env, cwd = process.cwd(), now = Date.now, platform = process.platform,
+  env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
   const context = readinessContext({ descriptors, registry, coverage });
   const entry = context.entries.find((item) => item.harness === harness);
   if (!entry) throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.entries.map((item) => item.harness).join(', ')}`);
   const valid = validateNeeds(needs, context.coverage);
-  const evaluated = evaluateHarness(entry, valid, context.coverage, { env, cwd, now: clock(now), platform });
+  const evaluated = evaluateHarness(entry, valid, context.coverage, { env, cwd, root, now: clock(now), platform });
   const declared: any = { profile: entry.worker?.profile ?? null, modelChecks: (entry.worker?.modelChecks || []).map((check: any) => check.id) };
   for (const key of CAPABILITIES) {
     const value = entry.worker?.[key];
@@ -611,7 +617,7 @@ function describe({
  */
 function select({
   descriptors, registry, coverage, harness, needs,
-  env = process.env, cwd = process.cwd(), now = Date.now, platform = process.platform,
+  env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
   const context = readinessContext({ descriptors, registry, coverage });
   const entries = harness ? context.entries.filter((item) => item.harness === harness) : context.entries;
@@ -620,7 +626,7 @@ function select({
   }
   const valid = validateNeeds(needs, context.coverage);
   const tick = clock(now);
-  const evaluated = entries.map((entry) => evaluateHarness(entry, valid, context.coverage, { env, cwd, now: tick, platform }));
+  const evaluated = entries.map((entry) => evaluateHarness(entry, valid, context.coverage, { env, cwd, root, now: tick, platform }));
   const candidates = evaluated.map(({ harness: id, eligible, gaps }) => ({ harness: id, eligible, gaps }));
   const chosen = evaluated.find((item) => item.eligible);
   if (!chosen) {

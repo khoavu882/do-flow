@@ -244,7 +244,7 @@ test('readiness facts kept apart: installed and runnable yes, quota and login un
     scenario: { version: [{ print: 'fake 1.0' }], runnable: [{ exit: 0 }], byBinary: { 'fake-codex': { runnable: [{ sleep: 20000 }] } } },
   });
   const started = Date.now();
-  const body = await p.probe();
+  const body = await p.probe({ need: 'login' });
   t.diagnostic(`probe with one hanging runnable probe took ${Date.now() - started} ms`);
   const facts = Object.fromEntries(body.harnesses.map((entry) => [entry.harness, entry.facts]));
   assert.deepEqual([facts.claude.installed.state, facts.claude.installed.reason], ['yes', 'version-answered']);
@@ -255,6 +255,26 @@ test('readiness facts kept apart: installed and runnable yes, quota and login un
   assert.deepEqual([facts.codex.runnable.state, facts.codex.runnable.reason], ['unknown', 'timeout']);
   assert.equal(facts.codex.installed.state, 'yes', 'a hanging runnable probe leaves installed apart');
   assert.equal(p.kinds().includes('run'), false);
+  // FR-003 / IC-005: task-eligible is the third fact, against the baseline and --need.
+  const eligible = Object.fromEntries(body.harnesses.map((entry) => [entry.harness, entry.taskEligible]));
+  assert.deepEqual(eligible.claude, { eligible: false, gaps: [{ requirement: 'login', result: 'unknown', reason: 'no-free-probe-declared' }] },
+    'the baseline is met; the --need the fake cannot meet is the one gap');
+  assert.equal(eligible.codex.eligible, false);
+  assert.deepEqual(eligible.codex.gaps.map((gap) => gap.requirement), ['runnable', 'login']);
+});
+
+// ── IC-005 probe records live under the lifecycle project root (CF-3) ─────────────────────────
+
+test('a probe from a subdirectory records under the project root; select from the root reads it probed', POSIX, async (t) => {
+  const p = project(t, { claim: null, scenario: { version: [{ print: 'fake 1.0' }] } });
+  const sub = path.join(p.repo, 'sub', 'dir');
+  fs.mkdirSync(sub, { recursive: true });
+  await p.probe({ cwd: sub });
+  assert.equal(fs.existsSync(path.join(sub, '.doflow')), false, 'no store under the caller subdirectory');
+  assert.ok(readiness.readProbeRecord(p.repo, 'claude'), 'the record is under the project root');
+  const { exit, body } = await p.worker({ action: 'select' });
+  assert.equal(exit, 0, JSON.stringify(body));
+  assert.deepEqual([body.disposition, body.harness], ['selected', 'claude']);
 });
 
 // ── Scenario: Model check needs a request and a budget (US2, FR-005) ──────────────────────────
