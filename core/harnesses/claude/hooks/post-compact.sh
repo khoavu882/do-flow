@@ -5,8 +5,8 @@
 # that produced it: summaries/<worktreeKey>/<run>/<lineage>/summary.md, through
 # doflow_summary_write. Rule compact-store.summary decides whether this session records at all (a
 # `solo` lineage records nothing, DEC-013); rule compact-meta.meta decides whether meta.json's
-# compacted_at is updated (the default main lineage only). The retired project-level
-# last-compact-summary.md is never written.
+# compacted_at is updated (the default main lineage only). The retired project-level summary file
+# is never written.
 #
 # Atomic write: the store writes a .summary.XXXXXX temp file in the scope, then renames it.
 # Must complete in <200ms. Must never exit non-zero or block.
