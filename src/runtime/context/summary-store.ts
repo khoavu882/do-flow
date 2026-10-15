@@ -366,10 +366,8 @@ function adoptLegacy(cwd: string, worktree: string, env: Env = process.env): boo
         fs.renameSync(adopting, target);
         return true;
       } catch {
-        // Neither a link nor a rename: give the legacy file back for a later prompt.
-        if (!present(old)) {
-          try { fs.renameSync(adopting, old); } catch { /* left under its .adopting name */ }
-        }
+        // Neither a link nor a rename: the file is left under its .adopting name for a later
+        // cleanup; the retired legacy path is never written again (G38.4).
         return false;
       }
     }
