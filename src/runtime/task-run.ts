@@ -5,15 +5,18 @@
 // Task run records (feature 080, design C4): the run key, who may act on a run, the run record,
 // its totals, the aggregate budget check and the resume epoch.
 //
-// `runKeyFor` is the one probe here: it reads the environment and walks up to `.git`, so it runs
-// before the ledger lock. Every other function is pure over the parsed ledger object and is called
+// `runKeyFor` is one probe here: it reads the environment and walks up to `.git`, so it runs
+// before the ledger lock. `resumeRun` runs the resume probes (source re-measure, scopeContext, git
+// branch) before its lock. Every other function is pure over the parsed ledger object and is called
 // inside `mutate()`'s `apply`: none reads a file, starts a process or reads the clock (`now` is
 // passed in). A refusal is returned as `{ reason, ...fields }` or `null`; the caller wraps it in
 // its own `{ write: false, result: { disposition: 'refused', ... } }`.
 
 const { cwdHash, resolveIdentity } = require('./context/identity.ts');
 const { findWorkTreeTop } = require('./source-version.ts');
-const { taskAttemptLimit, graphDigest, graphTuples } = require('./task-graph.ts');
+const crypto = require('node:crypto');
+const { taskAttemptLimit, graphDigest, graphTuples, deriveTasks, isGraphPlan } = require('./task-graph.ts');
+const { measureSources, compareSources } = require('./task-sources.ts');
 
 type Env = Record<string, string | undefined>;
 
@@ -323,8 +326,267 @@ function cancelAttempt(store: any, { key, graph, task, token, by, reason, now }:
   };
 }
 
+// ── resume (IC-015, IC-025; DEC-004, DEC-007, DEC-010) ────────────────────────────────────────
+//
+// The probes (IC-013 re-measure, IC-014 scopeContext and the git branch) run before any lock in
+// `resumeRun`; everything else here is pure over the parsed store, so the locked `apply` can
+// rebuild the ledger-derived half of the report and recompute the digest against what is on disk.
+
+/**
+ * IC-005 row 4: the cancelled attempts a resume has cleared. A cancel is cleared when the run its
+ * attempt's `runKey` names has a `resume` history entry that lists it in `cleared`, or that is
+ * later than `cancel.at`. Pure; an empty list for a store with no cancelled attempt (every
+ * `8ce5ad7` store).
+ */
+function clearedCancels(store: any): Array<{ taskId: string; token: number }> {
+  const out: Array<{ taskId: string; token: number }> = [];
+  const runs = store && store.runs && typeof store.runs === 'object' ? store.runs : null;
+  if (!runs) return out;
+  for (const [taskId, entry] of Object.entries<any>(store.tasks || {})) {
+    const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
+    for (const a of attempts) {
+      if (a.state !== 'cancelled' || !a.runKey) continue;
+      const run = ownRun(store, a.runKey);
+      const history: any[] = run && Array.isArray(run.history) ? run.history : [];
+      const at = a.cancel && typeof a.cancel.at === 'string' ? a.cancel.at : null;
+      const cleared = history.some((h: any) => h && h.action === 'resume' && (
+        (Array.isArray(h.cleared) && h.cleared.some((c: any) => c && c.taskId === taskId && c.token === a.token))
+        || (at !== null && typeof h.at === 'string' && h.at > at)));
+      if (cleared) out.push({ taskId, token: a.token });
+    }
+  }
+  return out;
+}
+
+/** Ids in plan order, then any ledger-only ids sorted, so a report's order never depends on the
+ * order keys were written. */
+function taskOrder(store: any, graph: any): string[] {
+  const planned = graph.tasks.map((t: any) => t.id);
+  const extra = Object.keys(store.tasks || {}).filter((id) => !planned.includes(id)).sort();
+  return [...planned, ...extra];
+}
+
+/**
+ * IC-013 at resume: the attempt each task's source comparison reads. A SUCCEEDED task compares
+ * its done attempt (listed under `doneChanged`); any other task its highest-token attempt. A task
+ * with no attempt, or whose attempt recorded no sources and whose plan line declares no files,
+ * has nothing to compare. `measure` is false when the comparison is unverifiable without a disk
+ * access (no `sources`, or `sourcesTruncated`).
+ */
+function resumeTargets(store: any, graph: any, derived: any[]) {
+  const targets: Array<{ taskId: string; token: number; done: boolean; attempt: any; measure: boolean; declared: number }> = [];
+  for (const record of derived) {
+    const entry = store.tasks && store.tasks[record.id];
+    const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
+    if (!attempts.length) continue;
+    const done = record.state === 'SUCCEEDED';
+    const attempt = done
+      ? attempts.find((a: any) => a.token === record.doneToken)
+      : attempts.reduce((a: any, b: any) => (b.token > a.token ? b : a));
+    if (!attempt) continue;
+    const task = graph.tasks.find((t: any) => t.id === record.id);
+    const declared = task && Array.isArray(task.files) ? task.files.length : 0;
+    const recorded = Array.isArray(attempt.sources);
+    if (!recorded && declared === 0) continue;
+    targets.push({ taskId: record.id, token: attempt.token, done, attempt, measure: recorded && !attempt.sourcesTruncated, declared });
+  }
+  return targets;
+}
+
+const targetKey = (taskId: string, token: number) => `${taskId}#${token}`;
+
+/** The resume probes' source half (IC-013): one re-measure per target that can be compared, of
+ * the entries its attempt recorded, under its own `execWorktree` and then the plan roots. Reads
+ * the filesystem; runs before any lock. */
+function probeSources(targets: any[], roots: string[]) {
+  const probes = new Map<string, any>();
+  for (const t of targets) {
+    if (!t.measure) continue;
+    const files = t.attempt.sources.map((s: any) => s.file);
+    probes.set(targetKey(t.taskId, t.token), measureSources({ files }, t.attempt.execWorktree ?? null, roots));
+  }
+  return probes;
+}
+
+/** `{ taskId, token, count }` for an unverifiable task: `count` is the entries that could not be
+ * compared, every recorded (or declared) entry when the cause is the whole task. */
+function unverifiableCount(target: any, after: any) {
+  const recorded: any[] = Array.isArray(target.attempt.sources) ? target.attempt.sources : [];
+  const whole = recorded.length || target.declared;
+  if (!target.measure || !after || after.execWorktreeMissing || after.sourcesTruncated) return whole;
+  const now = new Map<string, any>(after.sources.map((s: any) => [s.file, s]));
+  const opaque = (s: any) => !s || s.kind === 'unhashable' || s.kind === 'unverifiable';
+  const missing = recorded.some((s: any) => !now.has(s.file));
+  if (missing) return whole;
+  return recorded.filter((s: any) => opaque(s) || opaque(now.get(s.file))).length;
+}
+
+/** IC-004 at resume: the recorded digest against the current one and, when the run stored its
+ * tuple list, the ids added, removed and changed. */
+function graphComparison(run: any, graph: any) {
+  const current = graphDigest(graph);
+  const recorded = run && typeof run.graphDigest === 'string' ? run.graphDigest : null;
+  const truncated = Boolean(run && run.graphTruncated);
+  const out = { recorded, current, changed: recorded !== null && recorded !== current, added: [] as string[], removed: [] as string[], changedIds: [] as string[], truncated };
+  if (!run || !Array.isArray(run.graphTasks)) return out;
+  const before = new Map<string, string>(run.graphTasks.map((tuple: any) => [String(tuple[0]), JSON.stringify(tuple)]));
+  const after = new Map<string, string>(graphTuples(graph).map((tuple: any) => [String(tuple[0]), JSON.stringify(tuple)]));
+  for (const [id, tuple] of after) {
+    if (!before.has(id)) out.added.push(id);
+    else if (before.get(id) !== tuple) out.changedIds.push(id);
+  }
+  for (const id of before.keys()) if (!after.has(id)) out.removed.push(id);
+  return out;
+}
+
+/**
+ * IC-015: the resume report from the store (the ledger-derived half) and the probe results
+ * (`probes` from `probeSources`, `staleContext` from `compareScopeContext`). Pure: called once
+ * outside the lock for the report, and again inside it to recompute the digest. A target with no
+ * probe (an attempt claimed after the probes ran) is unverifiable, so the digest moves.
+ */
+function buildResumeReport(store: any, { key, graph, hashes = null, probes, staleContext, now }: any) {
+  const run = ownRun(store, key.runKey);
+  const derived = deriveTasks(graph, store, { hashes, clearedCancels: clearedCancels(store) });
+  const activeAttempts: any[] = [];
+  for (const taskId of taskOrder(store, graph)) {
+    const entry = store.tasks[taskId];
+    const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
+    for (const a of attempts.filter((x: any) => x.state === 'active').sort((x: any, y: any) => x.token - y.token)) {
+      const started = Date.parse(a.startedAt);
+      activeAttempts.push({
+        taskId, token: a.token, owner: a.owner, mode: a.mode, startedAt: a.startedAt,
+        ageSeconds: Number.isFinite(started) ? Math.max(0, Math.floor((now.getTime() - started) / 1000)) : 0,
+        runKey: a.runKey || null, execWorktree: a.execWorktree || null,
+      });
+    }
+  }
+  const changedSources: any[] = [];
+  const doneChanged: any[] = [];
+  const unverifiable: any[] = [];
+  for (const target of resumeTargets(store, graph, derived)) {
+    const after = probes.get(targetKey(target.taskId, target.token)) || null;
+    const compared = target.measure && after ? compareSources(target.attempt, after) : { unverifiable: true, files: [] };
+    if (compared.unverifiable) {
+      unverifiable.push({ taskId: target.taskId, token: target.token, count: unverifiableCount(target, after) });
+      continue;
+    }
+    const into = target.done ? doneChanged : changedSources;
+    for (const f of compared.files) {
+      if (f.change !== 'unchanged') into.push({ taskId: target.taskId, token: target.token, file: f.file, change: f.change });
+    }
+  }
+  return {
+    runKey: key.runKey,
+    control: run ? run.control : 'none',
+    epoch: run ? run.epoch : null,
+    activeAttempts,
+    changedSources,
+    doneChanged,
+    unverifiable,
+    staleContext: staleContext.map((s: any) => ({ kind: s.kind, path: s.path, reasons: [...s.reasons] })),
+    graph: graphComparison(run, graph),
+  };
+}
+
+/** JSON with object keys sorted at every level. */
+function canonicalJson(value: any): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value === undefined ? null : value);
+}
+
+/** IC-015: `sha256:` over the report's canonical JSON with every `ageSeconds` removed, so an
+ * acknowledgement a few seconds later still matches. */
+function resumeDigest(report: any): string {
+  const stable = { ...report, activeAttempts: report.activeAttempts.map(({ ageSeconds, ...rest }: any) => rest) };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(stable)).digest('hex')}`;
+}
+
+/** The current branch of `worktree` (`git symbolic-ref --short -q HEAD`), and, when HEAD is
+ * detached or unreadable, its commit (`git rev-parse HEAD`). 2 s per call; a failure is null. */
+function probeGit(worktree: string, gitRunner: any) {
+  const run = gitRunner || ((args: string[], cwd: string) => {
+    const { execFileSync } = require('node:child_process');
+    try {
+      return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      return null;
+    }
+  });
+  const clean = (out: any) => (typeof out === 'string' && out.trim() ? out.trim() : null);
+  const branch = clean(run(['symbolic-ref', '--short', '-q', 'HEAD'], worktree));
+  const commit = branch ? null : clean(run(['rev-parse', 'HEAD'], worktree));
+  return { branch, commit };
+}
+
+/**
+ * IC-015 / IC-025: the resume. `io.read()` returns the store without a lock (`readTaskState`);
+ * `io.mutate(apply)` runs `apply(store)` inside the ledger lock and returns its result. The
+ * caller has loaded the plan (`graph`, `hashes`) and resolved `key` (`runKeyFor`) and checked the
+ * flags.
+ *
+ * Order: identity refusals (`identity-solo`; `worker-session` in a graph plan); then every probe,
+ * before any lock: the store is read, each target's sources re-measured, `scopeContext` called
+ * with the raw identity worktree and compared with the branch and commit probed in the run's
+ * worktree. Without `ack`: `ack-required` with the report and digest, nothing written. With
+ * `ack`: one `mutate()` that rebuilds the ledger-derived half against the disk, recomputes the
+ * digest and either refuses `report-changed` (nothing written) or sets `control: 'running'`,
+ * issues `nextEpoch`, lists the run's cancelled attempts in the history entry's `cleared` and
+ * appends history `resume`. `summary-store.ts` and the git process are loaded here only (IC-022).
+ */
+function resumeRun(
+  io: { read: () => any; mutate: (apply: (store: any) => any) => any },
+  { key, graph, hashes = null, roots = [], ack = null, by = null, reason = null, now, env = process.env, gitRunner = null }:
+  { key: RunKey; graph: any; hashes?: any; roots?: string[]; ack?: string | null; by?: string | null; reason?: string | null; now: Date; env?: Env; gitRunner?: any },
+) {
+  const refusal = refuseSolo(key.identity) || (isGraphPlan(graph) ? refuseWorker(key.identity) : null);
+  if (refusal) return { disposition: 'refused', reason: refusal.reason, runKey: key.runKey };
+
+  // Probes, before any lock.
+  const seen = io.read();
+  const targets = resumeTargets(seen, graph, deriveTasks(graph, seen, { hashes, clearedCancels: clearedCancels(seen) }));
+  const probes = probeSources(targets, roots);
+  const { scopeContext, compareScopeContext } = require('./context/summary-store.ts');
+  const context = scopeContext(key.identity.worktree, key.identity.run, key.identity.lineage, env);
+  const seenRun = ownRun(seen, key.runKey);
+  const { branch, commit } = probeGit(seenRun && seenRun.worktree ? seenRun.worktree : key.top, gitRunner);
+  const staleContext = compareScopeContext(context, { worktree: key.identity.worktree, branch, commit });
+  const inputs = { key, graph, hashes, probes, staleContext, now };
+
+  if (!ack) {
+    const report = buildResumeReport(seen, inputs);
+    return { disposition: 'ack-required', report, digest: resumeDigest(report) };
+  }
+
+  return io.mutate((store: any) => {
+    const report = buildResumeReport(store, inputs);
+    const digest = resumeDigest(report);
+    if (digest !== ack) return { write: false, result: { disposition: 'refused', reason: 'report-changed', report, digest } };
+    if (!store.runs) store.runs = {};
+    let run = ownRun(store, key.runKey);
+    const epoch = nextEpoch(run);
+    if (!run) {
+      run = createRun(key, null, now, { epoch });
+      store.runs[key.runKey] = run;
+    }
+    run.control = 'running';
+    run.epoch = epoch;
+    const cleared: Array<{ taskId: string; token: number }> = [];
+    for (const [taskId, entry] of Object.entries<any>(store.tasks || {})) {
+      for (const a of entry.attempts) if (a.state === 'cancelled' && a.runKey === key.runKey) cleared.push({ taskId, token: a.token });
+    }
+    run.history.push({ at: now.toISOString(), action: 'resume', by, reason: reason ?? null, digest, epoch, cleared });
+    refreshRun(store, run, graph);
+    return { write: true, result: { disposition: 'resumed', report, digest, epoch, revision: store.revision } };
+  });
+}
+
 module.exports = {
   runKeyFor, refuseSolo, refuseWorker, createRun, computeTotals, effectiveLimits,
   aggregateRefusal, controlRefusal, epochRefusal, nextEpoch,
   GRAPH_TASKS_LIMIT, refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
+  clearedCancels, buildResumeReport, resumeDigest, resumeRun,
 };

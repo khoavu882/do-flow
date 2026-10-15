@@ -28,7 +28,9 @@ const { buildGraph, deriveTasks, isGraphPlan } = require('./task-graph.ts');
 const {
   runKeyFor, refuseWorker, computeTotals, aggregateRefusal, controlRefusal, epochRefusal,
   refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
+  clearedCancels, resumeRun,
 } = require('./task-run.ts');
+const { measureSources } = require('./task-sources.ts');
 const { findWorkTreeTop } = require('./source-version.ts');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
@@ -198,11 +200,15 @@ function entryFor(store: any, taskId: any) {
 const activeAttempt = (entry: any) => (entry ? entry.attempts.find((a: any) => a.state === 'active') || null : null);
 const doneAttempt = (entry: any) => (entry ? entry.attempts.find((a: any) => a.state === 'finished' && a.result === 'COMPLETED') || null : null);
 
-/** IC-005 over the store, with each task's current line hash from `loadPlan` (done-stale, IC-024).
- * Pure, so it may run inside the lock. Cleared cancels are not computed yet (resume, IC-015). */
+function planHashes(plan: any) {
+  return Object.fromEntries(plan.tasks.map((t: any) => [t.id, t.hash]));
+}
+
+/** IC-005 over the store, with each task's current line hash from `loadPlan` (done-stale, IC-024)
+ * and the cancels an acknowledged resume cleared (row 4, IC-015). Pure, so it may run inside the
+ * lock. A store with no cancelled attempt (every `8ce5ad7` store) clears nothing. */
 function derivePlan(plan: any, store: any) {
-  const hashes = Object.fromEntries(plan.tasks.map((t: any) => [t.id, t.hash]));
-  return deriveTasks(plan.graph, store, { hashes });
+  return deriveTasks(plan.graph, store, { hashes: planHashes(plan), clearedCancels: clearedCancels(store) });
 }
 
 // ── evidence ───────────────────────────────────────────────────────────────────────────────────
@@ -351,12 +357,19 @@ function claimWrite(store: any, c: any, ok: any) {
     runKey: key.runKey, epoch: run.epoch, execWorktree: execWorktree ?? run.worktree,
   };
   if (reserveTokens !== null) attempt.reserve = { tokens: reserveTokens };
+  attempt.sources = c.measured.sources;
+  attempt.sourcesTruncated = c.measured.sourcesTruncated;
   entry.attempts.push(attempt);
   store.planPath = plan.planPath;
   refreshRun(store, run, plan.graph);
   const claimed: any = { disposition: 'claimed', taskId: task, token, revision: store.revision };
   // A legacy plan's result keeps the 8ce5ad7 shape (FR-015); the run fields are on the attempt.
-  if (graphPlan) Object.assign(claimed, { runKey: key.runKey, epoch: attempt.epoch, execWorktree: attempt.execWorktree });
+  // IC-013: the unhashable or unverifiable entries are listed once, only when there are any, so a
+  // claim whose files all hash keeps C.2's result shape.
+  if (graphPlan) {
+    Object.assign(claimed, { runKey: key.runKey, epoch: attempt.epoch, execWorktree: attempt.execWorktree });
+    if (c.measured.sourcesUnverifiable.length) claimed.sourcesUnverifiable = c.measured.sourcesUnverifiable;
+  }
   return claimed;
 }
 
@@ -383,9 +396,14 @@ function claim({
   const override = graphPlan && given(ownerOverride) ? String(ownerOverride).trim() : null;
   if (override === '') throw new TaskAttemptError('usage', '--owner-override needs a reason: why the declared owner is not taking the task');
   const key = runKeyFor(env, cwd);
+  const exec = resolveExecWorktree(execWorktree, cwd, fsImpl);
+  // IC-013 / IC-006 step 2: hash the declared files before the lock, under the execution worktree
+  // the attempt will record (the flag, else the run's worktree, which is the key's top).
+  const declared = plan.graph.tasks.find((t: any) => t.id === task);
+  const measured = measureSources({ files: declared ? declared.files : [] }, exec ?? key.top, roots);
   const c = {
     plan, graphPlan, task, owner, mode, override, key, epoch: epochGiven, reserveTokens: reserve,
-    execWorktree: resolveExecWorktree(execWorktree, cwd, fsImpl), now,
+    execWorktree: exec, measured, now,
   };
   if (checkOutsideLock) {
     const checked: any = claimChecks(readStore(file, fsImpl), c);
@@ -607,6 +625,28 @@ function reopen({ file, fsImpl, roots, slug, task, token, by, reason, env = proc
   });
 }
 
+const ACK = /^sha256:[0-9a-f]{64}$/;
+
+/**
+ * IC-015 `resume`: the report and its digest, and with `ack` the acknowledged resume. Flags and
+ * the plan are checked first; `resumeRun` refuses on identity, runs the probes before any lock,
+ * and with `ack` makes one `mutate()`. Without `ack` the store is read with `readTaskState` and
+ * nothing is written (DEC-004). `by` is required with `ack`; `reason` is optional, non-empty when
+ * given. `gitRunner(args, cwd) => stdout | null` replaces the git process (tests).
+ */
+function resume({ file, fsImpl, roots, slug, ack, by, reason, env = process.env, cwd = process.cwd(), now = new Date(), gitRunner = null }: any) {
+  const acknowledged = given(ack) ? String(ack) : null;
+  if (acknowledged !== null && !ACK.test(acknowledged)) throw new TaskAttemptError('usage', `--ack expects the digest resume reported (sha256:<64 hex>), got '${ack}'`);
+  const who = acknowledged !== null ? requireBy(by) : (given(by) ? requireBy(by) : null);
+  const why = given(reason) ? requireReason(reason, 'why the run is being resumed') : null;
+  const plan = loadPlan({ roots, slug, fsImpl });
+  const key = runKeyFor(env, cwd);
+  return resumeRun(
+    { read: () => readStore(file, fsImpl), mutate: (apply: any) => mutate({ file, fsImpl, apply }) },
+    { key, graph: plan.graph, hashes: planHashes(plan), roots, ack: acknowledged, by: who, reason: why, now, env, gitRunner },
+  );
+}
+
 /** Completion read from the ledger and the plan, never from checkboxes (FR-005). Each task keeps
  * the pre-080 fields and adds IC-005's `state`, `reason`, `claimable`, `budget` and, where
  * present, `held`, `unmet` and `doneStale`. */
@@ -719,7 +759,7 @@ function handleTaskAttemptCommand({
 }
 
 module.exports = {
-  handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, start, pause, cancel, reopen,
+  handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, start, pause, cancel, reopen, resume,
   loadPlan, taskLineHash,
   storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS, USAGE_BASES, RUN_CONTROLS, activeAttempt,
 };
