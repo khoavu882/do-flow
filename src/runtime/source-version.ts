@@ -283,6 +283,7 @@ function sourceVersionFor(root: string, locator: any, state: TreeState): SourceV
 }
 
 module.exports = {
+  findWorkTreeTop,
   measureTreeState,
   sourceVersionFor,
   clearTreeStateCache,
