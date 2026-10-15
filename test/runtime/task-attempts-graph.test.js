@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { claim, status, checkCompletion, loadPlan, TaskAttemptError } = require('../../src/runtime/task-attempts.ts');
+const { runKeyFor, createRun } = require('../../src/runtime/task-run.ts');
 
 const SLUG = 'feat-g';
 const STARTED = '2026-01-01T00:00:00.000Z';
@@ -41,8 +42,27 @@ function graphPlan(header = [HEADER]) {
   ].join('\n');
 }
 
+/** An explicit identity, so the developer's shell never decides a run key (C.2, IC-025). */
+function identityEnv(worktree) {
+  return {
+    DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'main', DOFLOW_SESSION_ROLE: 'main', DOFLOW_ROLE: 'main',
+    DOFLOW_WORKTREE: worktree, HOME: worktree,
+  };
+}
+
 function project(t, plan) {
   const dir = tempDir(t, 'doflow-task-graph-claim-');
+  // A graph-plan claim needs a started run at epoch 1 for the caller's key (DEC-007, IC-025).
+  const graph = plan.includes(HEADER);
+  let runSetup = {};
+  let runs = null;
+  if (graph) {
+    fs.mkdirSync(path.join(dir, '.git'));
+    const env = identityEnv(dir);
+    const key = runKeyFor(env, dir);
+    runSetup = { env, cwd: dir };
+    runs = { [key.runKey]: createRun(key, null, NOW, { epoch: 1 }) };
+  }
   const planFile = path.join(dir, 'agent-docs', 'doflow', SLUG, 'plan.md');
   fs.mkdirSync(path.dirname(planFile), { recursive: true });
   fs.writeFileSync(planFile, plan);
@@ -57,11 +77,12 @@ function project(t, plan) {
   /** `spec` is `{ id: [attempt, ...] }`. */
   const seed = (spec) => {
     const tasks = Object.fromEntries(Object.entries(spec).map(([id, a]) => [id, { nextToken: a.length + 1, attempts: a }]));
-    fs.writeFileSync(file, JSON.stringify({ version: 1, revision: 1, planPath: null, tasks }, null, 2));
+    fs.writeFileSync(file, JSON.stringify({ version: 1, revision: 1, planPath: null, tasks, ...(runs ? { runs } : {}) }, null, 2));
   };
   const read = () => JSON.parse(fs.readFileSync(file, 'utf8'));
-  const common = { file, fsImpl: fs, roots, slug: SLUG, now: NOW };
-  const take = (task, owner = 'core-implementer', extra = {}) => claim({ ...common, task, owner, mode: 'subagent', ...extra });
+  const common = { file, fsImpl: fs, roots, slug: SLUG, now: NOW, ...runSetup };
+  const take = (task, owner = 'core-implementer', extra = {}) =>
+    claim({ ...common, task, owner, mode: 'subagent', ...(graph ? { epoch: 1 } : {}), ...extra });
   const byId = () => Object.fromEntries(status(common).tasks.map((r) => [r.id, r]));
   return { dir, file, attempt, seed, read, common, take, byId };
 }

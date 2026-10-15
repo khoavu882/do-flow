@@ -131,7 +131,8 @@ test('a store with a well-formed runs map loads, keeps version 1 and keeps runs 
   assert.equal(claimed.disposition, 'claimed');
   const after = p.read();
   assert.equal(after.version, 1);
-  assert.deepEqual(after.runs, runs);
+  assert.deepEqual(after.runs['h/r1/main'], runs['h/r1/main']);
+  assert.deepEqual(Object.keys(after.runs).sort(), ['h/r1/main', after.tasks['A.1'].attempts[0].runKey].sort());
 });
 
 test('a legacy store without runs and with pre-080 attempts loads as it is', (t) => {
