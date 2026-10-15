@@ -152,19 +152,46 @@ function parseDesign(text: string): any {
  * repo to scan — a vendor API, a SaaS integration, a service in another org — whose contract exists
  * only as a document. The doc is an *input* to the scaffold, never part of it.
  */
-const TASK_KEYS = ['owner', 'files', 'depends-on', 'external-contract'];
+const TASK_KEYS = ['owner', 'files', 'depends-on', 'external-contract', 'acceptance', 'budget'];
+
+/** A `depends-on:` value naming another task of the same plan (IC-001). */
+const TASK_ID = /^[A-Za-z]+\.\d+$/;
+
+/**
+ * The `**Task graph:**` header before the first `## ` section (IC-001, DEC-008): `'v1'` opts the
+ * plan into the graph rules, absence is `null`, and any other value is kept as `{ invalid }` for
+ * IC-003's `bad-header`.
+ */
+function parseGraphHeader(text: string): 'v1' | null | { invalid: string } {
+  for (const line of text.split(/\r?\n/)) {
+    if (/^##\s/.test(line)) break;
+    const match = line.match(/^\*\*Task graph:\*\*\s*(.*)$/);
+    if (match) return match[1].trim() === 'v1' ? 'v1' : { invalid: match[1].trim() };
+  }
+  return null;
+}
+
+/** `budget: attempts=<n>`, n in 1..999; anything else is kept verbatim as `{ invalid }`. */
+function parseBudget(value: string | undefined): { attempts: number } | null | { invalid: string } {
+  if (value === undefined) return null;
+  const raw = value.replace(/`/g, '').trim();
+  const match = raw.match(/^attempts=([0-9]+)$/);
+  const attempts = match ? Number(match[1]) : NaN;
+  return attempts >= 1 && attempts <= 999 ? { attempts } : { invalid: raw };
+}
 
 /** `plan.md` → the task list, which is where the intended file layout actually comes from. */
 function parsePlan(text: string): any {
   const gaps: any[] = [];
   const tasks: any[] = [];
+  const graphHeader = parseGraphHeader(text);
 
   // Anchored on the whole heading: `### Task Summary` is orientation, not the task list, and a
   // loose match would read the summary table's rows as tasks.
   const body = section(text, /^##\s+(?:\d+\.\s*)?Tasks\s*$/i);
   if (body === null) {
     gaps.push({ artifact: 'plan.md', what: 'task list', why: 'no "Tasks" section' });
-    return { tasks, gaps };
+    return { tasks, gaps, graphHeader };
   }
 
   for (const line of joinWrapped(body)) {
@@ -190,6 +217,9 @@ function parsePlan(text: string): any {
     }
 
     const list = (value: string | undefined) => (value ? value.split(',').map((v) => v.replace(/`/g, '').trim()).filter(Boolean) : []);
+    const dependsOn = list(fields['depends-on']);
+    // A near-miss starts with a task id but carries more text (`A.1 (after review)`).
+    const nearMiss = (value: string) => !TASK_ID.test(value) && TASK_ID.test(value.split(/[\s(]/)[0]);
 
     tasks.push({
       id,
@@ -199,15 +229,20 @@ function parsePlan(text: string): any {
       stories,
       owner: fields.owner || null,
       files: list(fields.files),
-      dependsOn: list(fields['depends-on']),
+      dependsOn,
       externalContract: fields['external-contract'] || null,
+      parallel: /\[P\]/.test(head),
+      taskDeps: dependsOn.filter((value) => TASK_ID.test(value)),
+      nearMissDeps: dependsOn.filter(nearMiss),
+      acceptance: list(fields.acceptance),
+      budget: parseBudget(fields.budget),
     });
   }
 
   if (tasks.length === 0) {
     gaps.push({ artifact: 'plan.md', what: 'task list', why: 'the Tasks section holds no `- [ ] <phase>.<n> …` items — there is no intended file layout to mirror' });
   }
-  return { tasks, gaps };
+  return { tasks, gaps, graphHeader };
 }
 
 module.exports = {
