@@ -41,7 +41,7 @@ const MODES = Object.freeze(['manual', 'sequential', 'subagent']);
 const RESULTS = Object.freeze(['COMPLETED', 'BLOCKED', 'ABANDONED', 'INCONCLUSIVE', 'FAILED']);
 const USAGE_BASES = Object.freeze(['measured', 'estimated']);
 const RUN_CONTROLS = Object.freeze(['running', 'paused', 'cancelled']);
-const ACTIONS = Object.freeze(['claim', 'finish', 'release', 'status']);
+const ACTIONS = Object.freeze(['claim', 'finish', 'release', 'status', 'start', 'pause', 'cancel', 'resume', 'inspect', 'reopen']);
 const TASK_ID = /^[A-Za-z]+\.\d+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 
@@ -718,23 +718,89 @@ function describe(result: any) {
   if (result.taskId) parts.push(`task ${result.taskId}`);
   if (result.token !== undefined) parts.push(`token ${result.token}`);
   if (result.reason) parts.push(`(${result.reason})`);
+  if (result.disposition === 'ack-required' || result.disposition === 'resumed' || result.reason === 'report-changed') {
+    if (result.digest) parts.push(`digest ${result.digest}`);
+  }
+  if (['started', 'resumed'].includes(result.disposition) && given(result.epoch)) parts.push(`epoch ${result.epoch}`);
   return parts.join(' ');
 }
 
+/** IC-017: the dispositions that exit 0. `status` and `inspect` are reads and always exit 0. */
+const APPLIED = Object.freeze(['claimed', 'applied', 'released', 'started', 'paused', 'cancelled', 'resumed', 'reopened']);
+
 /**
- * `doflow task-attempt --action claim|finish|release|status --slug <slug>`. Exit 0 applied, 1 refused
- * or stale, 2 malformed input or an unreadable store.
+ * IC-017: the actions each flag may be given to. The 080 flags are refused on every other action;
+ * the pre-080 flags are refused only on the 080 actions, so every existing invocation keeps its
+ * exit code (NFR-001).
+ */
+const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = {
+  ownerOverride: { flag: '--owner-override', actions: ['claim'] },
+  epoch: { flag: '--epoch', actions: ['claim'] },
+  execWorktree: { flag: '--exec-worktree', actions: ['claim'] },
+  reserveTokens: { flag: '--reserve-tokens', actions: ['claim'] },
+  tokens: { flag: '--tokens', actions: ['finish', 'release'] },
+  tokensBasis: { flag: '--tokens-basis', actions: ['finish', 'release'] },
+  by: { flag: '--by', actions: ['start', 'pause', 'cancel', 'reopen', 'resume'] },
+  budgetAttempts: { flag: '--budget-attempts', actions: ['start'] },
+  budgetTokens: { flag: '--budget-tokens', actions: ['start'] },
+  ack: { flag: '--ack', actions: ['resume'] },
+  adoptUnowned: { flag: '--adopt-unowned', actions: ['cancel'] },
+};
+const PRE_080_ACTIONS = Object.freeze(['claim', 'finish', 'release', 'status']);
+const PRE_080_FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = {
+  task: { flag: '--task', actions: ['cancel', 'reopen'] },
+  token: { flag: '--token', actions: ['cancel', 'reopen'] },
+  reason: { flag: '--reason', actions: ['pause', 'cancel', 'reopen', 'resume'] },
+  owner: { flag: '--owner', actions: [] },
+  mode: { flag: '--mode', actions: [] },
+  result: { flag: '--result', actions: [] },
+  evidenceId: { flag: '--evidence-id', actions: [] },
+};
+
+function refuseMisplacedFlags(action: string, flags: any) {
+  const check = (table: Record<string, { flag: string; actions: string[] }>) => {
+    for (const [key, { flag, actions }] of Object.entries(table)) {
+      if (given(flags[key]) && flags[key] !== false && !actions.includes(action)) {
+        throw new TaskAttemptError('usage', `${flag} does not apply to --action ${action}`);
+      }
+    }
+  };
+  check(FLAG_ACTIONS);
+  if (!PRE_080_ACTIONS.includes(action)) check(PRE_080_FLAG_ACTIONS);
+}
+
+/** IC-017: a CLI integer is digits only, so `5abc`, `1.5` and `-1` are usage rather than whatever
+ * `parseInt` would make of them. A number passed in-process is checked as its decimal form. */
+function digits(value: any, flag: string, min: number) {
+  if (!given(value)) return undefined;
+  const text = String(value);
+  if (!/^[0-9]+$/.test(text) || Number(text) > Number.MAX_SAFE_INTEGER || Number(text) < min) {
+    throw new TaskAttemptError('usage', `${flag} expects a whole number of at least ${min}, got '${value}'`);
+  }
+  return Number(text);
+}
+
+/**
+ * `doflow task-attempt --action <action> --slug <slug>` (IC-017). Exit 0 for the applied
+ * dispositions and every `status` or `inspect` read; 1 refused, stale or ack-required, with the
+ * disposition in the JSON; 2 malformed input or an unreadable store or plan.
  * @param {Object} options
  * @param {string} options.cwd the invoking checkout
  * @param {(cwd: string) => string|null} [options.resolveSlug] fallback when `slug` is not given
  */
 function handleTaskAttemptCommand({
   action = 'status', slug = null, task, owner, mode, token, result, evidenceId, reason, json = false,
+  ownerOverride, epoch, reserveTokens, execWorktree, tokens, tokensBasis, budgetAttempts, budgetTokens, by, ack,
+  adoptUnowned = false, env = process.env,
   cwd = process.cwd(), resolveSlug = null, fsImpl = fs, now = new Date(),
 }: any = {}) {
   const { finishRuntime } = require('./cli-result.ts');
   try {
     if (!ACTIONS.includes(action)) throw new TaskAttemptError('usage', `unknown action '${action}'; valid: ${ACTIONS.join(' | ')}`);
+    refuseMisplacedFlags(action, {
+      ownerOverride, epoch, reserveTokens, execWorktree, tokens, tokensBasis, budgetAttempts, budgetTokens, by, ack, adoptUnowned,
+      task, token, reason, owner, mode, result, evidenceId,
+    });
     const feature = slug || (resolveSlug ? resolveSlug(cwd) : null);
     if (!feature) throw new TaskAttemptError('usage', '--slug is required: no feature could be resolved from the current branch');
     assertSlug(feature);
@@ -743,25 +809,42 @@ function handleTaskAttemptCommand({
       if (!/^[0-9]+$/.test(String(token))) throw new TaskAttemptError('usage', `--token expects the whole number claim returned, got '${token}'`);
       tokenNumber = Number(token);
     }
+    const epochNumber = digits(epoch, '--epoch', 1);
+    const reserveNumber = digits(reserveTokens, '--reserve-tokens', 0);
+    const tokensNumber = digits(tokens, '--tokens', 0);
+    const attemptsLimit = digits(budgetAttempts, '--budget-attempts', 1);
+    const tokensLimit = digits(budgetTokens, '--budget-tokens', 1);
+    if (given(ownerOverride) && !String(ownerOverride).trim()) throw new TaskAttemptError('usage', '--owner-override needs a reason: why the declared owner is not taking the task');
     const lifecycleRoot = lifecycleProjectRoot(cwd);
     const file = storeFile(lifecycleRoot, feature);
     const roots = rootsFor({ cwd, lifecycleRoot });
-    const common = { file, fsImpl, roots, slug: feature };
+    const common = { file, fsImpl, roots, slug: feature, env, cwd, now };
+    const usage = { tokens: tokensNumber, basis: tokensBasis };
 
     let answer;
     switch (action) {
-      case 'claim': answer = claim({ ...common, task, owner, mode, cwd, now }); break;
-      case 'finish': answer = finish({ ...common, task, token: tokenNumber, result, evidenceId, reason, cwd, now }); break;
-      case 'release': answer = release({ ...common, task, token: tokenNumber, reason, cwd, now }); break;
+      case 'claim': answer = claim({ ...common, task, owner, mode, ownerOverride, epoch: epochNumber, reserveTokens: reserveNumber, execWorktree }); break;
+      case 'finish': answer = finish({ ...common, task, token: tokenNumber, result, evidenceId, reason, ...usage }); break;
+      case 'release': answer = release({ ...common, task, token: tokenNumber, reason, ...usage }); break;
+      case 'start': answer = start({ ...common, by, budgetAttempts: attemptsLimit, budgetTokens: tokensLimit }); break;
+      case 'pause': answer = pause({ ...common, by, reason }); break;
+      case 'cancel': answer = cancel({ ...common, task, token: tokenNumber, by, reason, adoptUnowned: Boolean(adoptUnowned) }); break;
+      case 'reopen': answer = reopen({ ...common, task, token: tokenNumber, by, reason }); break;
+      case 'resume': answer = resume({ ...common, ack, by, reason }); break;
+      case 'inspect': answer = inspect(common); break;
       default: answer = status(common);
     }
 
-    const ok = action === 'status' || ['claimed', 'applied', 'released'].includes(answer.disposition);
+    const read = action === 'status' || action === 'inspect';
+    const ok = read || APPLIED.includes(answer.disposition);
     if (json) console.log(JSON.stringify(answer, null, 2));
     else if (action === 'status') {
       console.log(`Task attempts for ${feature}: ${answer.complete ? 'complete' : 'incomplete'}`);
       for (const t of answer.tasks) console.log(`  ${t.id}  ${t.derived}${t.activeToken ? ` (token ${t.activeToken}, ${t.active.owner} since ${t.active.startedAt})` : ''}`);
       if (answer.unclaimedChecked.length) console.log(`Checked in plan.md with no COMPLETED attempt: ${answer.unclaimedChecked.join(', ')}`);
+    } else if (action === 'inspect') {
+      const { formatInspect } = require('./task-run.ts');
+      for (const line of formatInspect(answer)) console.log(line);
     } else (ok ? console.log : console.error)(describe(answer));
     return finishRuntime(ok ? 0 : 1);
   } catch (error: any) {
