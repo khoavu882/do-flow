@@ -33,9 +33,9 @@ jobs:
         # spam issues; neither may fail the job outright — upstream flakiness is not our regression.
         run: |
           set +e
-          # -s: without it npm prints its "> pkg script" banner to stdout, ahead of the JSON, and the
-          # jq step below fails with a parse error (every run since the tracking issue opened).
-          npm run -s drift -- --json > drift-report.json
+          # Run the script directly: `npm run` prints its "> pkg script" banner to stdout ahead of
+          # the JSON, and the jq step below then fails with a parse error (every run since #58).
+          node scripts/check-format-drift.js --json > drift-report.json
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           exit 0
