@@ -529,6 +529,11 @@ function emitContext(options: EmitOptions): EmitResult {
   if (!EMIT_EVENTS.includes(event)) throw usageError(`emitContext: event must be one of ${EMIT_EVENTS.join(', ')}`);
   if (typeof cwd !== 'string' || cwd === '') throw usageError('emitContext: cwd is required');
   const sessionId = options.sessionId ?? '';
+  // DEC-032, DEC-042: a session id names store paths (the unit, the git capture), so one that is not
+  // a single safe path segment gets the silent answer for every lineage kind, before any read.
+  if (sessionId !== '' && !UNIT_PATTERN.test(sessionId)) {
+    return { decision: { emit: false, reason: 'fault:unit', actions: {}, claims: [], ledger: null }, text: null, pack: null, committed: false };
+  }
   const identity = options.identity ?? resolveIdentity(env, { cwd, sessionId });
   if (event === 'launch' && identity.lineageKind !== 'launched') {
     throw usageError('emitContext: launch requires a launched identity (DOFLOW_RUN_ID, DOFLOW_LINEAGE_ID and DOFLOW_ATTEMPT)');
@@ -544,23 +549,39 @@ function emitContext(options: EmitOptions): EmitResult {
   const ledger = readLedger(path.join(dir, 'emitted'));
   const { run, lineage, worktree } = identity;
 
-  // emission.sh step 3. The warning and the owner summary only matter before the bootstrap. The
-  // legacy bit stays false: adoption is the hook's (IC-014), on a default main prompt, which a
-  // launched identity never is.
+  // emission.sh step 3. The warning, the legacy file and the owner summary only matter before the
+  // bootstrap. Grants are read only by launched identities (DEC-039).
   let bootstrapped = present(slot);
   const warnFile = path.join(root, 'projects', cwdHash(cwd), 'uncommitted-warning.txt');
   let warning = false;
+  let legacy = false;
   let own: EmissionState['ownSummary'] = 'none';
   if (!bootstrapped) {
     warning = isFile(warnFile);
+    legacy = store.legacySummary(cwd, env) !== null;
     own = store.peekSummary(worktree, run, lineage, sessionId, env).own;
   }
-  const grant = store.peekGrant(run, lineage, max, env);
+  const grant = identity.lineageKind === 'launched'
+    ? store.peekGrant(run, lineage, max, env)
+    : { grant: 'none', file: null, id: null, bytes: null };
   const refusedSeen = grant.grant === 'over' && grant.id !== null && ledgerSeen(ledger, 'grant', grant.id, REFUSED);
-  const decide = (b: boolean): EmissionDecision => arbitrate({
-    event, identity, budget,
-    state: { bootstrapped: b, subagent: false, ownSummary: own, legacy: false, grant: grant.grant, refusedSeen, warning, nudge: options.nudge ?? 'none' },
-  });
+  const state = (b: boolean): EmissionState => ({ bootstrapped: b, subagent: false, ownSummary: own, legacy, grant: grant.grant, refusedSeen, warning, nudge: options.nudge ?? 'none' });
+
+  // Step 4 (IC-014, DEC-043): the legacy adoption, then the owner summary bit again. A peek takes
+  // nothing, so it reads the legacy file where it lies as the summary the prompt would adopt.
+  let legacyFile: string | null = null;
+  if (event === 'prompt' && arbitrate({ event: 'legacy-adopt', identity, budget, state: state(bootstrapped) }).actions.legacy === 'adopt') {
+    if (peek) {
+      if (own === 'none') {
+        legacyFile = store.legacySummary(cwd, env);
+        if (legacyFile !== null) own = 'pending';
+      }
+    } else {
+      store.adoptLegacy(cwd, worktree, env);
+      own = store.peekSummary(worktree, run, lineage, sessionId, env).own;
+    }
+  }
+  const decide = (b: boolean): EmissionDecision => arbitrate({ event, identity, budget, state: state(b) });
   let decision = decide(bootstrapped);
 
   // Step 6, the slot first: EEXIST means another caller bootstrapped this unit.
@@ -576,64 +597,73 @@ function emitContext(options: EmitOptions): EmitResult {
       decision = decide(true);
     }
   }
+  const releaseSlot = (): void => {
+    if (tookSlot) fs.rmSync(slot, { force: true });
+  };
 
-  // The pack, before any other claim: a mandatory overflow refuses the whole event and gives back
-  // the slot this call took, so the next caller can still bootstrap the unit.
-  let pack: EmitResult['pack'] = null;
-  let packText: string | null = null;
-  if (decision.actions.pack === 'include') {
-    const { packForEmission } = require('../context-pack.ts');
-    const since = lastPackKey(ledger);
-    const compiled = packForEmission({ root: cwd, taskId: options.taskId, slug: options.slug, harness: options.harness ?? null, maxBytes: max, since, noRecord: peek, env });
-    const digest: string = compiled.pack.delivery.packDigest;
-    pack = { packDigest: digest, form: 'markdown', deltaRefused: compiled.pack.delivery.deltaRefused ?? null };
-    if (compiled.pack.status === 'OVERFLOW') {
-      if (tookSlot) fs.rmSync(slot, { force: true });
-      return {
-        decision: { ...decision, emit: false, reason: REFUSED },
-        text: compiled.pack.overflowAction?.message ?? null,
-        pack,
-        committed: false,
-      };
-    }
-    const delta = compiled.pack.delta;
-    const unchanged = since !== null && (digest === since
-      || (delta !== null && delta !== undefined && delta.added.length === 0 && delta.changed.length === 0 && delta.removed.length === 0));
-    if (!unchanged) packText = compiled.output;
-  }
-
-  // DEC-034: one byte budget per emission. The pack is measured first; the prompt segments get what
-  // is left after it and the blank line that joins them. The grant is fitted to that remainder
-  // before it is claimed, so a grant that no longer fits becomes its pointer and is never consumed.
-  const room = packText === null ? max : max - utf8Bytes(packText) - 2;
-  if ((decision.actions.grant === 'whole' || decision.actions.grant === 'pointer') && grant.file !== null) {
-    const raw = readText(grant.file);
-    if (raw !== null) {
-      const record = parseRecord(raw);
-      if (decision.actions.grant === 'whole' && utf8Bytes(renderGrant(record)) > room) {
-        decision = { ...decision, actions: { ...decision.actions, grant: 'pointer' }, ledger: { kind: 'grant', key: '@grant', outcome: REFUSED } };
-      }
-      if (decision.actions.grant === 'pointer' && (room < 1 || utf8Bytes(renderPointer(record, room)) > room)) {
-        // Not even the pointer fits: the event is refused, as a pack overflow is, and the slot goes back.
-        if (tookSlot) fs.rmSync(slot, { force: true });
+  // Every claimed summary or grant, with the name it came from: removed only once the text is
+  // returned, and given back (with the slot) when anything after the claim throws (DEC-038).
+  const claimed: Array<{ file: string; origin: string }> = [];
+  try {
+    // The pack, before any other claim: a mandatory overflow refuses the whole event and gives back
+    // the slot this call took, so the next caller can still bootstrap the unit.
+    let pack: EmitResult['pack'] = null;
+    let packText: string | null = null;
+    if (decision.actions.pack === 'include') {
+      const { packForEmission } = require('../context-pack.ts');
+      const since = lastPackKey(ledger);
+      const compiled = packForEmission({ root: cwd, taskId: options.taskId, slug: options.slug, harness: options.harness ?? null, maxBytes: max, since, noRecord: peek, env });
+      const digest: string = compiled.pack.delivery.packDigest;
+      pack = { packDigest: digest, form: 'markdown', deltaRefused: compiled.pack.delivery.deltaRefused ?? null };
+      if (compiled.pack.status === 'OVERFLOW') {
+        releaseSlot();
         return {
           decision: { ...decision, emit: false, reason: REFUSED },
-          text: renderPointer(record, max),
+          text: compiled.pack.overflowAction?.message ?? null,
           pack,
           committed: false,
         };
       }
+      const delta = compiled.pack.delta;
+      const unchanged = since !== null && (digest === since
+        || (delta !== null && delta !== undefined && delta.added.length === 0 && delta.changed.length === 0 && delta.removed.length === 0));
+      if (!unchanged) packText = compiled.output;
     }
-  }
 
-  // The remaining claims in IC-004 order (summary, grant, warning); peek reads in place.
-  const inputs: RenderInputs = {};
-  const claimed: string[] = [];
-  let tookClaim = false;
-  try {
+    // DEC-034: one byte budget per emission. The pack is measured first; the prompt segments get
+    // what is left after it and the blank line that joins them. The grant is fitted to that
+    // remainder before it is claimed, so a grant that no longer fits becomes its pointer and is
+    // never consumed; the claim then takes exactly the grant that was fitted (L1-05).
+    const room = packText === null ? max : max - utf8Bytes(packText) - 2;
+    if ((decision.actions.grant === 'whole' || decision.actions.grant === 'pointer') && grant.file !== null) {
+      const raw = readText(grant.file);
+      if (raw !== null) {
+        const record = parseRecord(raw);
+        if (decision.actions.grant === 'whole' && utf8Bytes(renderGrant(record)) > room) {
+          decision = { ...decision, actions: { ...decision.actions, grant: 'pointer' }, ledger: { kind: 'grant', key: '@grant', outcome: REFUSED } };
+        }
+        if (decision.actions.grant === 'pointer' && (room < 1 || utf8Bytes(renderPointer(record, room)) > room)) {
+          // Not even the pointer fits: the event is refused, as a pack overflow is, and the slot goes back.
+          releaseSlot();
+          return {
+            decision: { ...decision, emit: false, reason: REFUSED },
+            text: renderPointer(record, max),
+            pack,
+            committed: false,
+          };
+        }
+      }
+    }
+
+    // The remaining claims in IC-004 order (summary, grant, warning); peek reads in place.
+    const inputs: RenderInputs = {};
+    let tookClaim = false;
+    let grantKey: string | null = grant.id;
+    let summaryKey: string | null = null;
+    let removeWarning = false;
     if (decision.actions.summary === 'truncate') {
       if (peek) {
-        const file = store.peekSummary(worktree, run, lineage, sessionId, env).file;
+        const file = legacyFile ?? store.peekSummary(worktree, run, lineage, sessionId, env).file;
         if (file !== null) {
           const raw = fs.readFileSync(file);
           inputs.summary = raw.subarray(0, SUMMARY_READ).toString('utf8');
@@ -643,19 +673,24 @@ function emitContext(options: EmitOptions): EmitResult {
         const c = store.claimSummary(worktree, run, lineage, unit, sessionId, env);
         if (c.claimed !== null) {
           tookClaim = true;
-          claimed.push(c.claimed);
+          claimed.push({ file: c.claimed, origin: c.origin });
           inputs.summary = readText(c.claimed);
           inputs.summaryBytes = c.bytes;
         }
       }
+      if (typeof inputs.summary === 'string') {
+        const id = parseRecord(inputs.summary).fields.summary_id;
+        if (id !== undefined && store.SUMMARY_ID_PATTERN.test(id)) summaryKey = id;
+      }
     }
     if (decision.actions.grant === 'whole') {
       if (peek) inputs.grant = readText(grant.file);
-      else {
-        const c = store.claimGrant(run, lineage, unit, max, env);
+      else if (grant.id !== null) {
+        const c = store.claimGrant(run, lineage, unit, grant.id, env);
         if (c.claimed !== null) {
           tookClaim = true;
-          claimed.push(c.claimed);
+          claimed.push({ file: c.claimed, origin: c.origin });
+          grantKey = c.id;
           inputs.grant = readText(c.claimed);
         }
       }
@@ -665,23 +700,25 @@ function emitContext(options: EmitOptions): EmitResult {
     }
     if (decision.actions.warning === 'include') {
       inputs.warning = readText(warnFile);
-      if (!peek && inputs.warning !== null) {
-        fs.rmSync(warnFile, { force: true });
-        tookClaim = true;
-      }
+      removeWarning = !peek && inputs.warning !== null;
     }
-    if (decision.actions.git === 'include') inputs.git = readText(path.join(root, 'sessions', sessionId, 'git-context.json'));
+    if (decision.actions.git === 'include' && sessionId !== '') inputs.git = readText(path.join(root, 'sessions', sessionId, 'git-context.json'));
 
     const rendered: RenderResult = room >= 1
       ? renderEmission({ actions: decision.actions, maxBytes: room, inputs })
       : { text: null, bytes: 0, refused: false, dropped: [], segments: [] };
     const text = [packText, rendered.text].filter((piece) => piece !== null && piece !== '').join('\n\n') || null;
 
-    // Step 8: the ledger lines (pack delivered; grant refused, keyed by its summary id).
+    // Step 8: the ledger lines (pack delivered; grant refused, keyed by its summary id; each optional
+    // segment the budget dropped, keyed by its summary or grant id, else its name; DEC-041).
     let wrote = false;
     if (!peek) {
       if (packText !== null && pack !== null) wrote = ledgerAdd(dir, 'pack', pack.packDigest, 'emitted') || wrote;
       if (decision.actions.grant === 'pointer' && grant.id !== null) wrote = ledgerAdd(dir, 'grant', grant.id, REFUSED) || wrote;
+      for (const segment of rendered.dropped) {
+        const key = (segment === 'summary' ? summaryKey : segment === 'grant' ? grantKey : null) ?? segment;
+        wrote = ledgerAdd(dir, 'optional-dropped', key, 'over-budget') || wrote;
+      }
     }
 
     let reason: string;
@@ -690,14 +727,25 @@ function emitContext(options: EmitOptions): EmitResult {
     else if (bootstrapped && event !== 'delta') reason = 'silent:already-bootstrapped';
     else reason = 'silent:unchanged';
     const hint = decision.ledger && decision.ledger.key === '@grant' && grant.id !== null ? { ...decision.ledger, key: grant.id } : decision.ledger;
-    return {
+    const result: EmitResult = {
       decision: { ...decision, emit: text !== null, reason, ledger: hint },
       text,
       pack,
-      committed: !peek && (tookSlot || tookClaim || wrote),
+      committed: !peek && (tookSlot || tookClaim || removeWarning || wrote),
     };
-  } finally {
-    for (const file of claimed) fs.rmSync(file, { force: true });
+
+    // The text is ready: only now are the claimed files and the delivered warning consumed.
+    for (const c of claimed.splice(0)) fs.rmSync(c.file, { force: true });
+    if (removeWarning) fs.rmSync(warnFile, { force: true });
+    return result;
+  } catch (error) {
+    for (const c of claimed) store.releaseClaim(c.file, c.origin);
+    try {
+      releaseSlot();
+    } catch {
+      // The original error is the one to report.
+    }
+    throw error;
   }
 }
 

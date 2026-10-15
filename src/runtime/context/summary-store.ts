@@ -25,8 +25,6 @@ type Env = Record<string, string | undefined>;
 const SUMMARY_ID_PATTERN = /^s-[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$/;
 /** A unit id (L.<run>.<lineage>.<attempt> or a harness session id) is one path segment. */
 const UNIT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const AT_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
-const ATTEMPT_PATTERN = /^[1-9][0-9]{0,3}$/;
 const MAX_BYTES_PATTERN = /^[1-9][0-9]{0,9}$/;
 const READ_BOUND = 65536;
 const DEFAULT_GRANT_MAX_BYTES = 16384;
@@ -184,69 +182,6 @@ function summaryScope(worktree: string, run: string, lineage: string, env: Env =
   return path.join(stateDir(env), 'summaries', cwdHash(worktree), run, lineage);
 }
 
-interface WriteSummaryOptions {
-  worktree: string;
-  run: string;
-  lineage: string;
-  attempt?: string;
-  compactedAt: string;
-  sessionId?: string;
-  trigger?: string;
-  branch?: string;
-  role?: string;
-  body: string;
-  env?: Env;
-}
-
-/**
- * `doflow_summary_write` (IC-011 step 3): create the scope, write the IC-010 record to a
- * `.summary.XXXXXX` temporary, rename it to summary.md (a newer compaction replaces the pending one).
- * Returns { summaryId, path }, or null with nothing left behind on an invalid argument, an empty
- * body or a failed step.
- */
-function writeSummary(options: WriteSummaryOptions): { summaryId: string; path: string } | null {
-  const { run, lineage, compactedAt, body, env = process.env } = options;
-  const attempt = options.attempt ?? '';
-  if (!body) return null;
-  if (!AT_PATTERN.test(compactedAt)) return null;
-  if (attempt !== '' && !ATTEMPT_PATTERN.test(attempt)) return null;
-  const scope = summaryScope(options.worktree, run, lineage, env);
-  if (scope === null) return null;
-  const session = oneLine(options.sessionId ?? '');
-  const trigger = oneLine(options.trigger ?? '');
-  const branch = oneLine(options.branch ?? '');
-  const role = oneLine(options.role ?? '');
-  const worktree = oneLine(options.worktree);
-  let tmp = '';
-  try {
-    fs.mkdirSync(scope, { recursive: true });
-    const made = makeTemp(scope, '.summary.');
-    tmp = made.file;
-    const summaryId = `s-${compactedAt.replace(/[-:]/g, '')}-${made.suffix}`;
-    if (!SUMMARY_ID_PATTERN.test(summaryId)) throw new Error('summary id');
-    const record = '---\n'
-      + `compacted_at: ${compactedAt}\n`
-      + `session_id: ${session || 'unknown'}\n`
-      + `trigger: ${trigger || 'unknown'}\n`
-      + `branch: ${branch || 'unknown'}\n`
-      + `role: ${role || 'main'}\n`
-      + `summary_id: ${summaryId}\n`
-      + `run: ${run}\n`
-      + `lineage: ${lineage}\n`
-      + `attempt:${attempt ? ` ${attempt}` : ''}\n`
-      + `worktree: ${worktree}\n`
-      + '---\n\n'
-      + `${body}\n`;
-    fs.writeFileSync(tmp, record);
-    const target = path.join(scope, 'summary.md');
-    fs.renameSync(tmp, target);
-    return { summaryId, path: target };
-  } catch {
-    if (tmp) removeQuietly(tmp);
-    return null;
-  }
-}
-
 type OwnSummary = 'none' | 'pending' | 'own-write';
 
 /**
@@ -268,9 +203,10 @@ function peekSummary(worktree: string, run: string, lineage: string, sessionId: 
  * `doflow_summary_claim` (IC-012 owner steps 1 to 3): peek, then rename summary.md to
  * `.claimed.<unitId>`; a summary written after the rename is a new summary.md and survives. The
  * claimed copy is cut to its first 65536 bytes. claimed is set only when this caller claimed it;
- * bytes is the claimed file's full size before the cut. The caller removes the claimed file.
+ * bytes is the claimed file's full size before the cut; origin is the summary.md it came from. The
+ * caller removes the claimed file, or gives it back with releaseClaim().
  */
-function claimSummary(worktree: string, run: string, lineage: string, unitId: string, sessionId: string, env: Env = process.env): { own: OwnSummary; claimed: string | null; bytes: number } {
+function claimSummary(worktree: string, run: string, lineage: string, unitId: string, sessionId: string, env: Env = process.env): { own: OwnSummary; claimed: string | null; bytes: number; origin?: string } {
   const peek = peekSummary(worktree, run, lineage, sessionId, env);
   if (peek.own !== 'pending' || peek.file === null || peek.scope === null) return { own: peek.own, claimed: null, bytes: 0 };
   if (!UNIT_PATTERN.test(unitId)) return { own: peek.own, claimed: null, bytes: 0 };
@@ -289,7 +225,7 @@ function claimSummary(worktree: string, run: string, lineage: string, unitId: st
       return { own: peek.own, claimed: null, bytes };
     }
   }
-  return { own: peek.own, claimed, bytes };
+  return { own: peek.own, claimed, bytes, origin: peek.file };
 }
 
 type GrantState = 'none' | 'fits' | 'over';
@@ -346,20 +282,109 @@ function peekGrant(run: string, lineage: string, maxBytes: number | string, env:
 }
 
 /**
- * `doflow_grant_claim` (IC-012 grant step 3): peek; when the oldest grant fits, rename it to
- * `.claimed.<unitId>.<summaryId>`. An `over` grant stays in place. One grant per call; claimed is
- * set only when this caller claimed it, and the caller removes it after rendering.
+ * `doflow_grant_claim` (IC-012 grant step 3) for one grant the caller already peeked and fitted
+ * (DEC-034): rename exactly grants/<run>/<lineage>/<summaryId>.md to
+ * `.claimed.<unitId>.<summaryId>`. A grant that vanished, is no longer a regular file, or a bad id
+ * is `none` with claimed null; no other grant is ever taken in its place. The caller removes the
+ * claimed file after rendering, or puts it back with releaseClaim().
  */
-function claimGrant(run: string, lineage: string, unitId: string, maxBytes: number | string, env: Env = process.env): GrantPeek & { claimed: string | null } {
-  const peek = peekGrant(run, lineage, maxBytes, env);
-  if (peek.grant !== 'fits' || peek.file === null || !UNIT_PATTERN.test(unitId)) return { ...peek, claimed: null };
-  const claimed = path.join(path.dirname(peek.file), `.claimed.${unitId}.${peek.id}`);
+function claimGrant(run: string, lineage: string, unitId: string, summaryId: string, env: Env = process.env): { grant: GrantState; id: string | null; claimed: string | null; origin: string | null } {
+  const none = { grant: 'none' as GrantState, id: null, claimed: null, origin: null };
+  if (!idOk(run) || !idOk(lineage) || !UNIT_PATTERN.test(unitId) || !SUMMARY_ID_PATTERN.test(summaryId)) return none;
+  const origin = path.join(stateDir(env), 'grants', run, lineage, `${summaryId}.md`);
+  if (!regularFile(origin)) return none;
+  const claimed = path.join(path.dirname(origin), `.claimed.${unitId}.${summaryId}`);
   try {
-    fs.renameSync(peek.file, claimed);
+    fs.renameSync(origin, claimed);
   } catch {
-    return { ...peek, grant: 'none', claimed: null };
+    return none;
   }
-  return { ...peek, claimed };
+  return { grant: 'fits', id: summaryId, claimed, origin };
+}
+
+/**
+ * Give a claimed summary or grant back to the name it was claimed from (DEC-038), never replacing
+ * a file that appeared there since: a hard link that refuses to replace, then an unlink of the
+ * claimed name. True when the content is back under `origin`. Without hard links, or when a newer
+ * file holds the name, the claimed file is left where it is.
+ */
+function releaseClaim(claimed: string, origin: string): boolean {
+  try {
+    fs.linkSync(claimed, origin);
+  } catch {
+    return false;
+  }
+  removeQuietly(claimed);
+  return true;
+}
+
+// ── IC-014: the pre-078 project summary (DEC-043) ───────────────────────────────────────────────
+
+/**
+ * The pre-078 project summary under projects/<cwdHash cwd>/ when it exists as a regular file and
+ * not a symlink, else null. This and adoptLegacy() are the TypeScript side's only use of the name.
+ */
+function legacySummary(cwd: string, env: Env = process.env): string | null {
+  if (!cwd) return null;
+  const old = path.join(stateDir(env), 'projects', cwdHash(cwd), 'last-compact-summary.md');
+  return regularFile(old) ? old : null;
+}
+
+/**
+ * `doflow_summary_adopt_legacy` (IC-014, action `adopt` only): move the legacy summary once into
+ * summaries/<worktreeKey>/local/main/summary.md, frontmatter kept. The legacy file is first claimed
+ * by a rename to `.adopting.<pid>`, so of two concurrent adopters exactly one proceeds; the loser
+ * returns false and changes nothing. The claimed file is then hard-linked to summary.md, which
+ * refuses to replace: a summary already pending there is newer by construction and the legacy copy
+ * is retired instead. Only when the link fails with summary.md absent (no hard links on this
+ * filesystem) is it renamed into place after a re-check; that fallback is check-then-rename and so
+ * can replace a summary written in the same instant (the ceiling it accepts). The `.adopting` name
+ * is unlinked last. True when this call adopted or retired the legacy file.
+ */
+function adoptLegacy(cwd: string, worktree: string, env: Env = process.env): boolean {
+  const old = legacySummary(cwd, env);
+  if (old === null) return false;
+  const scope = summaryScope(worktree || cwd, 'local', 'main', env);
+  if (scope === null) return false;
+  try {
+    fs.mkdirSync(scope, { recursive: true });
+  } catch {
+    return false;
+  }
+  const adopting = `${old}.adopting.${process.pid}`;
+  try {
+    fs.renameSync(old, adopting);
+  } catch {
+    return false;
+  }
+  const target = path.join(scope, 'summary.md');
+  try {
+    fs.linkSync(adopting, target);
+  } catch {
+    if (!present(target)) {
+      try {
+        fs.renameSync(adopting, target);
+        return true;
+      } catch {
+        // Neither a link nor a rename: give the legacy file back for a later prompt.
+        if (!present(old)) {
+          try { fs.renameSync(adopting, old); } catch { /* left under its .adopting name */ }
+        }
+        return false;
+      }
+    }
+  }
+  removeQuietly(adopting);
+  return true;
+}
+
+function present(file: string): boolean {
+  try {
+    fs.lstatSync(file);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface GrantOptions {
@@ -396,6 +421,12 @@ function grantSummary(options: GrantOptions): { summaryId: string; path: string;
     throw new SummaryStoreError('usage', '--summary must be `pending` or a summary id');
   }
   if (!idOk(options.toRun) || !idOk(options.toLineage)) throw new SummaryStoreError('usage', '--to-run and --to-lineage must be ids');
+  // DEC-039: grants are read only by launched identities, so a recipient no launched unit can be
+  // (lineage solo, or the default main scope local/main) would reach unrelated sessions instead.
+  if (options.toLineage === 'solo') throw new SummaryStoreError('usage', '--to-lineage solo is not a launched recipient');
+  if (options.toRun === 'local' && options.toLineage === 'main') {
+    throw new SummaryStoreError('usage', '--to-run local --to-lineage main is the default main scope, not a launched recipient');
+  }
   if (!MAX_BYTES_PATTERN.test(max)) throw new SummaryStoreError('usage', '--max-bytes must be a positive integer');
   const scope = summaryScope(fromWorktree, fromRun, fromLineage, env);
   if (scope === null) throw new SummaryStoreError('usage', 'the source scope needs a worktree, a run id and a non-solo lineage id');
@@ -475,11 +506,13 @@ module.exports = {
   GRANT_EXIT,
   SUMMARY_ID_PATTERN,
   SummaryStoreError,
+  adoptLegacy,
   claimGrant,
   claimSummary,
   grantSummary,
+  legacySummary,
   peekGrant,
   peekSummary,
+  releaseClaim,
   summaryScope,
-  writeSummary,
 };

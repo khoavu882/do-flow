@@ -180,6 +180,26 @@ function corpusLayout() {
   return { places, config };
 }
 const subst = (v, places) => (typeof v === 'string' ? v.replace(/\$(CWD|WT_LINK|WT|FILE)/g, (m) => places[m]) : v);
+
+/** The DEC-044 store setups a binding event may name (see the cases.json comment). */
+function applySetup(setup, sessions, unit, sessionId) {
+  if (setup === undefined) return;
+  const bound = path.join(sessions, unit, 'bound');
+  if (setup === 'store-unwritable') {
+    fs.mkdirSync(path.dirname(sessions), { recursive: true });
+    fs.writeFileSync(sessions, '');
+  } else if (setup === 'bound-symlink') {
+    const target = path.join(dir('bound-target'), 'bound');
+    fs.writeFileSync(target, `${sessionId}\n`);
+    fs.mkdirSync(path.dirname(bound), { recursive: true });
+    fs.symlinkSync(target, bound);
+  } else if (setup === 'bound-empty') {
+    fs.mkdirSync(path.dirname(bound), { recursive: true });
+    fs.writeFileSync(bound, '');
+  } else {
+    throw new Error(`unknown binding setup ${setup}`);
+  }
+}
 const substAll = (o, places) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.isArray(v) ? v : subst(v, places)]));
 
 /** One doflow_identity call in its own process, as one hook event; diagnostics as cases.json names them. */
@@ -208,12 +228,14 @@ for (const s of CASES.binding) {
     const sessions = path.join(config, 'doflow', 'session-env', 'sessions');
     for (const [i, e] of s.events.entries()) {
       const env = { ...substAll(s.env, places), ...substAll(e.env || {}, places) };
+      const unit = `L.${env.DOFLOW_RUN_ID}.${env.DOFLOW_LINEAGE_ID}.${env.DOFLOW_ATTEMPT}`;
+      applySetup(e.setup, sessions, unit, e.sessionId);
       assert.deepEqual(corpusEvent(config, env, e.sessionId, subst(e.cwd, places)), substAll(e.expect, places), `event ${i}`);
       if (e.bound === null) {
-        const found = fs.existsSync(sessions) ? fs.readdirSync(sessions, { recursive: true }).filter((f) => path.basename(f) === 'bound') : [];
+        const isDir = fs.existsSync(sessions) && fs.statSync(sessions).isDirectory();
+        const found = isDir ? fs.readdirSync(sessions, { recursive: true }).filter((f) => path.basename(f) === 'bound') : [];
         assert.deepEqual(found, [], `event ${i}: no bound file expected`);
       } else {
-        const unit = `L.${env.DOFLOW_RUN_ID}.${env.DOFLOW_LINEAGE_ID}.${env.DOFLOW_ATTEMPT}`;
         assert.equal(fs.readFileSync(path.join(sessions, unit, 'bound'), 'utf8').replace(/\n$/, ''), e.bound, `event ${i}`);
       }
     }
@@ -236,6 +258,21 @@ test('the binding session stays launched; a different session is inherited solo,
   assert.equal(failures('identity-inherited').length, 1);
   assert.equal(fs.readFileSync(path.join(SESSIONS, 'L.runE.linE.1', 'bound'), 'utf8'), 'first\n', 'bound is never rewritten');
   assert.ok(!sessionEntries().includes('second'), 'identity creates no directory for an inherited session');
+});
+
+test('L1-12 an unreadable bound file is inherited without a word on stderr', { skip: process.getuid?.() === 0 && 'root reads mode 000' }, () => {
+  const cwd = dir('p');
+  const env = { DOFLOW_RUN_ID: 'runU', DOFLOW_LINEAGE_ID: 'linU', DOFLOW_ATTEMPT: '1' };
+  const unit = path.join(SESSIONS, 'L.runU.linU.1');
+  fs.mkdirSync(unit, { recursive: true });
+  fs.writeFileSync(path.join(unit, 'bound'), 'other\n', { mode: 0o000 });
+  try {
+    const r = identity('mine', cwd, env);
+    assert.equal(r.stderr, '');
+    assert.equal(r.id.kind, 'solo');
+  } finally {
+    fs.chmodSync(path.join(unit, 'bound'), 0o600);
+  }
 });
 
 test('binding leaves the caller\'s noclobber setting as it found it', () => {

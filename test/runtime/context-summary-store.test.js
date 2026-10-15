@@ -12,8 +12,9 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const {
   DEFAULT_GRANT_MAX_BYTES, SUMMARY_ID_PATTERN, SummaryStoreError,
-  claimGrant, claimSummary, grantSummary, peekGrant, peekSummary, summaryScope, writeSummary,
+  adoptLegacy, claimGrant, claimSummary, grantSummary, legacySummary, peekGrant, peekSummary, releaseClaim, summaryScope,
 } = require('../../src/runtime/context/summary-store.ts');
+const { writeSummary } = require('../helper/summary-fixture');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -169,7 +170,7 @@ test('a legacy record without summary_id cannot be granted', () => {
   assert.equal(fs.existsSync(path.join(ROOT, 'grants', to.toRun)), false);
 });
 
-test('peekGrant and claimGrant: oldest valid name first, symlinks and bad names ignored, over stays', () => {
+test('peekGrant and claimGrant: oldest valid name first, symlinks and bad names ignored; the claim takes exactly the named grant', () => {
   const to = recipient();
   const dir = path.join(ROOT, 'grants', to.toRun, to.toLineage);
   fs.mkdirSync(dir, { recursive: true });
@@ -184,9 +185,11 @@ test('peekGrant and claimGrant: oldest valid name first, symlinks and bad names 
   const peek = peekGrant(to.toRun, to.toLineage, header.length + 1 + 5, ENV);
   assert.deepEqual({ grant: peek.grant, id: peek.id, bytes: peek.bytes }, { grant: 'fits', id: 's-20260102T000000Z-BBBBBB', bytes: 5 });
   assert.equal(peekGrant(to.toRun, to.toLineage, header.length + 5, ENV).grant, 'over', 'a body that fits under a header that does not is over');
-  assert.equal(claimGrant(to.toRun, to.toLineage, 'L.r.w.1', header.length + 5, ENV).claimed, null);
-  const claimed = claimGrant(to.toRun, to.toLineage, 'L.r.w.1', 16384, ENV);
+  assert.equal(claimGrant(to.toRun, to.toLineage, 'L.r.w.1', 's-20260101T000000Z-AAAAAA', ENV).claimed, null, 'a symlinked grant is never claimed');
+  assert.equal(claimGrant(to.toRun, to.toLineage, 'L.r.w.1', 's-20260109T000000Z-ZZZZZZ', ENV).claimed, null, 'an absent grant is none');
+  const claimed = claimGrant(to.toRun, to.toLineage, 'L.r.w.1', 's-20260102T000000Z-BBBBBB', ENV);
   assert.equal(path.basename(claimed.claimed), '.claimed.L.r.w.1.s-20260102T000000Z-BBBBBB');
+  assert.equal(claimed.id, 's-20260102T000000Z-BBBBBB');
   assert.equal(peekGrant(to.toRun, to.toLineage, 16384, ENV).id, 's-20260103T000000Z-CCCCCC');
 });
 
@@ -231,4 +234,106 @@ test('parity: a TypeScript grant is claimed by bash doflow_grant_claim, fitting 
   const out = bash(`rc=0; doflow_grant_claim "$@" || rc=$?\n${PRINT}`, [to.toRun, to.toLineage, 'L.r.w.1', String(exact)]);
   assert.deepEqual({ rc: out.rc, grant: out.grant, id: out.id, bytes: out.bytes }, { rc: '0', grant: 'fits', id: result.summaryId, bytes: String(result.bytes) });
   assert.match(fs.readFileSync(out.claimed, 'utf8'), /\n\ngrant body — ü\n$/);
+});
+
+// ── Batch B (DEC-038, DEC-039, DEC-043) ───────────────────────────────────────────────────────────
+
+test('DEC-039 grantSummary refuses recipients no launched unit can be: local/solo, local/main, <run>/solo', () => {
+  const wt = worktree();
+  write(wt);
+  for (const to of [{ toRun: 'local', toLineage: 'solo' }, { toRun: 'local', toLineage: 'main' }, { toRun: 'r-solo', toLineage: 'solo' }]) {
+    refusal(() => grant(wt, to), 'usage', 2);
+    assert.equal(fs.existsSync(path.join(ROOT, 'grants', to.toRun, to.toLineage)), false, `${to.toRun}/${to.toLineage}: nothing written`);
+  }
+  // Negative control: a local run with a launched lineage is a legal recipient.
+  assert.match(grant(wt, { toRun: 'local', toLineage: 'w1' }).summaryId, SUMMARY_ID_PATTERN);
+});
+
+test('L1-05 claimGrant never takes an older grant that appeared after the peek', () => {
+  const to = recipient();
+  const dir = path.join(ROOT, 'grants', to.toRun, to.toLineage);
+  fs.mkdirSync(dir, { recursive: true });
+  const rec = (body) => `---\nsummary_id: x\nfrom_lineage: main\ncompacted_at: ${AT}\nbranch: unknown\n---\n\n${body}\n`;
+  fs.writeFileSync(path.join(dir, 's-20260105T000000Z-EEEEEE.md'), rec('peeked'));
+  const peek = peekGrant(to.toRun, to.toLineage, 16384, ENV);
+  fs.writeFileSync(path.join(dir, 's-20260101T000000Z-AAAAAA.md'), rec('older, arrived later'));
+  const c = claimGrant(to.toRun, to.toLineage, 'L.r.w.1', peek.id, ENV);
+  assert.equal(c.id, 's-20260105T000000Z-EEEEEE');
+  assert.match(fs.readFileSync(c.claimed, 'utf8'), /peeked/);
+  assert.ok(fs.existsSync(path.join(dir, 's-20260101T000000Z-AAAAAA.md')), 'the other grant is untouched');
+});
+
+test('DEC-038 releaseClaim gives a claim back without replacing a newer file', () => {
+  const wt = worktree();
+  write(wt);
+  const c = claimSummary(wt, 'local', 'main', 'sess-r', 'sess-r', ENV);
+  assert.equal(releaseClaim(c.claimed, c.origin), true);
+  assert.equal(fs.existsSync(c.claimed), false);
+  assert.equal(peekSummary(wt, 'local', 'main', 'sess-r', ENV).own, 'pending');
+  const again = claimSummary(wt, 'local', 'main', 'sess-r', 'sess-r', ENV);
+  const newer = write(wt, { body: 'newer' });
+  assert.equal(releaseClaim(again.claimed, again.origin), false, 'a newer summary keeps the name');
+  assert.match(fs.readFileSync(newer.path, 'utf8'), /\n\nnewer\n$/);
+});
+
+/** The pre-078 project summary for cwd, as a pre-078 install left it. */
+function legacyFile(cwd, body = 'legacy body') {
+  const dir = path.join(ROOT, 'projects', cwdHash(cwd));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'last-compact-summary.md');
+  fs.writeFileSync(file, `---\ncompacted_at: ${AT}\nsession_id: old\ntrigger: auto\nbranch: topic\n---\n\n${body}\n`);
+  return file;
+}
+
+test('DEC-043 adoptLegacy moves the legacy summary into local/main once, frontmatter kept', () => {
+  const wt = worktree();
+  const old = legacyFile(wt);
+  assert.equal(legacySummary(wt, ENV), old);
+  assert.equal(adoptLegacy(wt, wt, ENV), true);
+  assert.equal(legacySummary(wt, ENV), null);
+  assert.deepEqual(fs.readdirSync(path.dirname(old)), [], 'no .adopting file left');
+  const target = path.join(summaryScope(wt, 'local', 'main', ENV), 'summary.md');
+  assert.match(fs.readFileSync(target, 'utf8'), /^---\ncompacted_at: [^]*\n\nlegacy body\n$/);
+  assert.equal(adoptLegacy(wt, wt, ENV), false, 'a second adoption finds nothing');
+});
+
+test('DEC-043 adoptLegacy retires the legacy file when a newer summary is pending, and never adopts a symlink', () => {
+  const wt = worktree();
+  const newer = write(wt, { body: 'newer' });
+  const old = legacyFile(wt);
+  assert.equal(adoptLegacy(wt, wt, ENV), true);
+  assert.equal(fs.existsSync(old), false);
+  assert.match(fs.readFileSync(newer.path, 'utf8'), /\n\nnewer\n$/, 'the pending summary is never replaced');
+
+  const wt2 = worktree();
+  const real = path.join(scratch.dir, `legacy-target-${seq}.md`);
+  fs.writeFileSync(real, 'x\n');
+  const dir = path.join(ROOT, 'projects', cwdHash(wt2));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.symlinkSync(real, path.join(dir, 'last-compact-summary.md'));
+  assert.equal(adoptLegacy(wt2, wt2, ENV), false);
+  assert.equal(fs.existsSync(path.join(summaryScope(wt2, 'local', 'main', ENV), 'summary.md')), false);
+});
+
+test('DEC-043 adoptLegacy claims by rename first: a second adopter mid-adoption finds nothing to adopt', () => {
+  const wt = worktree();
+  legacyFile(wt);
+  const target = path.join(summaryScope(wt, 'local', 'main', ENV), 'summary.md');
+  const realLink = fs.linkSync;
+  let nested = null;
+  // Between the first adopter's claim and its link, the owner claims nothing yet and a second
+  // adopter runs: with the legacy file already renamed away it must find nothing.
+  fs.linkSync = (from, to) => {
+    if (to === target && nested === null) {
+      nested = { adopted: adoptLegacy(wt, wt, ENV), legacy: legacySummary(wt, ENV) };
+    }
+    return realLink(from, to);
+  };
+  try {
+    assert.equal(adoptLegacy(wt, wt, ENV), true);
+  } finally {
+    fs.linkSync = realLink;
+  }
+  assert.deepEqual(nested, { adopted: false, legacy: null });
+  assert.match(fs.readFileSync(target, 'utf8'), /\n\nlegacy body\n$/);
 });
