@@ -147,7 +147,7 @@ the other four documented events as the Different statuses recorded in the regis
 <!-- END GENERATED:hook-event-matrix -->
 
 <!-- BEGIN GENERATED:enforcement-matrix -->
-Schema 1; revision 2; sha256:199bb689b2034157ecb3ade2b47b70470a00e567fa27134fc0cf5ef467369768
+Schema 1; revision 3; sha256:199bb689b2034157ecb3ade2b47b70470a00e567fa27134fc0cf5ef467369768
 | Policy | Harness | Native event | Profile | Class | Verification | Prerequisites | Does not cover |
 |---|---|---|---|---|---|---|---|
 | pre-implementation-gate | claude | PreToolUse | any | blocking | verified |  | writes via shell commands |
