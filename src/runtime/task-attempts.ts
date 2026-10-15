@@ -31,7 +31,9 @@ const { isSafeSlug } = require('./task-scope.ts');
 
 const SCHEMA_VERSION = 1;
 const MODES = Object.freeze(['manual', 'sequential', 'subagent']);
-const RESULTS = Object.freeze(['COMPLETED', 'BLOCKED', 'ABANDONED', 'INCONCLUSIVE']);
+const RESULTS = Object.freeze(['COMPLETED', 'BLOCKED', 'ABANDONED', 'INCONCLUSIVE', 'FAILED']);
+const USAGE_BASES = Object.freeze(['measured', 'estimated']);
+const RUN_CONTROLS = Object.freeze(['running', 'paused', 'cancelled']);
 const ACTIONS = Object.freeze(['claim', 'finish', 'release', 'status']);
 const TASK_ID = /^[A-Za-z]+\.\d+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
@@ -135,6 +137,17 @@ function normalizeStore(data: any, file: any) {
   for (const [id, entry] of (Object.entries(data.tasks) as [string, any][])) {
     if (!entry || !Number.isInteger(entry.nextToken) || !Array.isArray(entry.attempts)) {
       throw unreadable(file, `Task '${id}' has no readable attempt list.`);
+    }
+  }
+  // IC-010: `runs` is optional and additive; the store stays version 1.
+  if (data.runs !== undefined) {
+    if (typeof data.runs !== 'object' || data.runs === null || Array.isArray(data.runs)) {
+      throw unreadable(file, "Its 'runs' is not an object.");
+    }
+    for (const [key, run] of (Object.entries(data.runs) as [string, any][])) {
+      if (!run || typeof run !== 'object' || Array.isArray(run)) throw unreadable(file, `Run '${key}' is not an object.`);
+      if (!RUN_CONTROLS.includes(run.control)) throw unreadable(file, `Run '${key}' has control '${run.control}', not one of ${RUN_CONTROLS.join(', ')}.`);
+      if (!Number.isInteger(run.epoch) || run.epoch < 0) throw unreadable(file, `Run '${key}' has epoch '${run.epoch}', not a non-negative integer.`);
     }
   }
   return data;
@@ -271,13 +284,40 @@ function stale(taskId: any, token: any, reason: any) {
   return { write: false, result: { disposition: 'stale', taskId, token, reason } };
 }
 
-function finish({ file, fsImpl, roots, slug, task, token, result, evidenceId }: any) {
+const given = (value: any) => value !== undefined && value !== null;
+
+/** IC-007: `tokens` and `basis` together or not at all (DEC-003: caller-reported, never metered). */
+function readUsage(tokens: any, basis: any) {
+  if (!given(tokens) && !given(basis)) return null;
+  if (given(tokens) !== given(basis)) throw new TaskAttemptError('usage', '--tokens and --tokens-basis are given together or not at all');
+  if (!Number.isInteger(tokens) || tokens < 0) throw new TaskAttemptError('usage', `--tokens expects a whole number of at least 0, got '${tokens}'`);
+  if (!USAGE_BASES.includes(basis)) throw new TaskAttemptError('usage', `--tokens-basis expects one of ${USAGE_BASES.join(', ')}, got '${basis}'`);
+  return { tokens, basis };
+}
+
+/** The finisher's identity, read from the environment before the lock (IC-026). */
+function callerIdentity(env: any, cwd: any) {
+  const { resolveIdentity } = require('./context/identity.ts');
+  return resolveIdentity(env, { cwd, sessionId: '' });
+}
+
+/** IC-007 step 1: the attempt holding `token` was cancelled. Runs before every other check. */
+function cancelledAttempt(entry: any, token: any) {
+  return entry ? entry.attempts.find((a: any) => a.token === token && a.state === 'cancelled') || null : null;
+}
+
+function finish({ file, fsImpl, roots, slug, task, token, result, evidenceId, reason, tokens, basis, env = process.env, cwd = process.cwd(), now = new Date() }: any) {
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!Number.isInteger(token) || token < 1) throw new TaskAttemptError('usage', '--token is required: the token claim returned');
   if (!RESULTS.includes(result)) throw new TaskAttemptError('usage', `--result is required: one of ${RESULTS.join(', ')}`);
+  const why = given(reason) ? String(reason).trim() : '';
+  if (result === 'FAILED' && !why) throw new TaskAttemptError('usage', '--reason is required with --result FAILED: what failed');
+  const reported = readUsage(tokens, basis);
+  const identity = callerIdentity(env, cwd);
   return mutate({
     file, fsImpl,
     apply: (store: any) => {
+      if (cancelledAttempt(store.tasks[task], token)) return stale(task, token, 'attempt-cancelled');
       const active = activeAttempt(store.tasks[task]);
       if (!active) return stale(task, token, 'no-active-attempt');
       if (active.token !== token) return stale(task, token, 'token-mismatch');
@@ -287,29 +327,38 @@ function finish({ file, fsImpl, roots, slug, task, token, result, evidenceId }: 
       if (!line) return refuse('unknown-task');
       if (line.hash !== active.taskLineHash) return refuse('plan-changed');
       if (result === 'COMPLETED') {
-        const why = evidenceRefusal({ evidenceId, slug, taskId: task, startedAt: active.startedAt, roots, fsImpl });
-        if (why) return refuse(why);
+        const refusal = evidenceRefusal({ evidenceId, slug, taskId: task, startedAt: active.startedAt, roots, fsImpl });
+        if (refusal) return refuse(refusal);
       }
       active.state = 'finished';
       active.result = result;
       active.evidenceId = evidenceId || null;
+      if (why) active.reason = why;
+      active.finishedAt = now.toISOString();
+      active.finishedBy = { role: identity.role, lineage: identity.lineage, worktree: identity.worktree };
+      active.usage = reported ? { ...reported, reporter: `${identity.role}:${identity.lineage}` } : null;
       return { write: true, result: { disposition: 'applied', taskId: task, token, result, revision: store.revision } };
     },
   });
 }
 
-function release({ file, fsImpl, task, token, reason }: any) {
+function release({ file, fsImpl, task, token, reason, tokens, basis, env = process.env, cwd = process.cwd(), now = new Date() }: any) {
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!Number.isInteger(token) || token < 1) throw new TaskAttemptError('usage', '--token is required: the token claim returned');
   if (!reason || !String(reason).trim()) throw new TaskAttemptError('usage', '--reason is required: why the attempt is being released');
+  const reported = readUsage(tokens, basis);
+  const identity = reported ? callerIdentity(env, cwd) : null;
   return mutate({
     file, fsImpl,
     apply: (store: any) => {
+      if (cancelledAttempt(store.tasks[task], token)) return stale(task, token, 'attempt-cancelled');
       const active = activeAttempt(store.tasks[task]);
       if (!active) return stale(task, token, 'no-active-attempt');
       if (active.token !== token) return stale(task, token, 'token-mismatch');
       active.state = 'released';
       active.reason = String(reason).trim();
+      active.endedAt = now.toISOString();
+      active.usage = reported ? { ...reported, reporter: `${identity.role}:${identity.lineage}` } : null;
       return { write: true, result: { disposition: 'released', taskId: task, token, revision: store.revision } };
     },
   });
@@ -408,8 +457,8 @@ function handleTaskAttemptCommand({
     let answer;
     switch (action) {
       case 'claim': answer = claim({ ...common, task, owner, mode, now }); break;
-      case 'finish': answer = finish({ ...common, task, token: tokenNumber, result, evidenceId }); break;
-      case 'release': answer = release({ ...common, task, token: tokenNumber, reason }); break;
+      case 'finish': answer = finish({ ...common, task, token: tokenNumber, result, evidenceId, reason, cwd, now }); break;
+      case 'release': answer = release({ ...common, task, token: tokenNumber, reason, cwd, now }); break;
       default: answer = status(common);
     }
 
@@ -429,5 +478,5 @@ function handleTaskAttemptCommand({
 
 module.exports = {
   handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, loadPlan, taskLineHash,
-  storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS, activeAttempt,
+  storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS, USAGE_BASES, RUN_CONTROLS, activeAttempt,
 };
