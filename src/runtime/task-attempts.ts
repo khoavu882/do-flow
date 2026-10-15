@@ -24,6 +24,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
+const { buildGraph } = require('./task-graph.ts');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { isSafeSlug } = require('./task-scope.ts');
@@ -38,6 +39,7 @@ const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 /** A failure that is the caller's or the environment's, not a finding: exit 2. */
 class TaskAttemptError extends Error {
   declare code: any;
+  declare problems?: any[];
   constructor(code: any, message: any) {
     super(message);
     this.name = 'TaskAttemptError';
@@ -87,18 +89,33 @@ function loadPlan({ roots, slug, fsImpl = fs }: any) {
   if (parsed.tasks.length === 0) {
     throw new TaskAttemptError('plan-malformed', `${found} holds no \`- [ ] <phase>.<n>\` tasks: ${parsed.gaps.map((g: any) => g.why).join('; ') || 'nothing to track'}`);
   }
-  const seen = new Set();
-  for (const task of parsed.tasks) {
-    if (seen.has(task.id)) throw new TaskAttemptError('plan-malformed', `plan task id '${task.id}' appears more than once in ${found}`);
-    seen.add(task.id);
-  }
+  const built = buildGraph(parsed);
+  if (!built.ok) throw malformedGraph(found, built.problems);
   const phases = uniq(parsed.tasks.map((t: any) => t.phase));
   return {
     planPath: relative.split(path.sep).join('/'),
     tasks: parsed.tasks.map((t: any) => ({
       id: t.id, phase: t.phase, phaseIndex: phases.indexOf(t.phase), checked: t.done, hash: taskLineHash(t),
     })),
+    graph: built.graph,
+    warnings: built.warnings,
   };
+}
+
+/** IC-003: `plan-malformed` carrying every problem. A lone `duplicate-id` keeps the pre-080 text. */
+function malformedGraph(found: any, problems: any[]) {
+  const only = problems.length === 1 ? problems[0] : null;
+  const message = only && only.kind === 'duplicate-id'
+    ? `plan task id '${only.ids[0]}' appears more than once in ${found}`
+    : `${found} has ${problems.length} task-graph problem${problems.length === 1 ? '' : 's'}: ${problems.map(describeProblem).join('; ')}`;
+  const error = new TaskAttemptError('plan-malformed', message);
+  error.problems = problems;
+  return error;
+}
+
+function describeProblem(problem: any) {
+  const detail = problem.via ? ` via ${problem.via.join(', ')}` : problem.value !== undefined ? ` '${problem.value}'` : '';
+  return `${problem.kind}${problem.ids.length ? ` ${problem.ids.join(' ')}` : ''}${detail}`;
 }
 
 // ── store ──────────────────────────────────────────────────────────────────────────────────────
@@ -346,9 +363,9 @@ function checkCompletion({ slug, cwd, fsImpl = fs }: any) {
 
 // ── CLI ────────────────────────────────────────────────────────────────────────────────────────
 
-function failure(code: any, message: any, json: any) {
+function failure(code: any, message: any, json: any, problems?: any[]) {
   const { finishRuntime } = require('./cli-result.ts');
-  if (json) console.log(JSON.stringify({ ok: false, error: code, message }, null, 2));
+  if (json) console.log(JSON.stringify(problems ? { ok: false, error: code, message, problems } : { ok: false, error: code, message }, null, 2));
   else console.error(`doflow task-attempt: ${message}`);
   return finishRuntime(2);
 }
@@ -405,7 +422,7 @@ function handleTaskAttemptCommand({
     } else (ok ? console.log : console.error)(describe(answer));
     return finishRuntime(ok ? 0 : 1);
   } catch (error: any) {
-    if (error instanceof TaskAttemptError) return failure(error.code, error.message, json);
+    if (error instanceof TaskAttemptError) return failure(error.code, error.message, json, error.problems);
     throw error;
   }
 }
