@@ -221,3 +221,41 @@ test('IC-001 launch without a launched identity is a usage error; overflow refus
   assert.equal(fs.existsSync(path.join(w.unit, 'injected')), false, 'the slot is released');
   assert.deepEqual(ledger(w), []);
 });
+
+// DEC-034: a launch has one byte budget, shared by the pack and the prompt segments.
+function packBytes(w, maxBytes) {
+  const alone = w.emit({ peek: true, maxBytes });
+  assert.equal(alone.decision.reason, 'emit');
+  assert.ok(alone.text.includes(PACK_END));
+  return Buffer.byteLength(alone.text, 'utf8');
+}
+
+test('DEC-034 a launch whose pack plus grant exceed the budget stays within it, the grant as its pointer', (t) => {
+  const w = world(t);
+  const maxBytes = 8192;
+  const pack = packBytes(w, maxBytes);
+  const size = maxBytes - pack + 200;
+  const id = grant(w, '2026-10-14T10:00:00Z', 'g'.repeat(size));
+  assert.ok(size + 200 < maxBytes, 'the grant alone fits the budget');
+
+  const r = w.emit({ maxBytes });
+  assert.equal(r.decision.reason, REFUSAL);
+  assert.ok(Buffer.byteLength(r.text, 'utf8') <= maxBytes, `${Buffer.byteLength(r.text, 'utf8')} > ${maxBytes}`);
+  assert.ok(r.text.includes(PACK_END), 'the pack is delivered');
+  assert.ok(r.text.includes(`[Granted summary ${id} withheld:`), 'the grant renders as its pointer');
+  assert.equal(r.text.includes('g'.repeat(size)), false, 'not the whole grant');
+  assert.deepEqual(grantsLeft(w), [`${id}.md`], 'a withheld grant is not consumed');
+  assert.ok(ledger(w).some((l) => l.split('\t').slice(1).join('\t') === `grant\t${id}\t${REFUSAL}\tlauncher`));
+});
+
+test('DEC-034 a launch where everything fits is unchanged: the pack, a blank line, the whole grant', (t) => {
+  const w = world(t);
+  const pack = w.emit({ peek: true }).text;
+  grant(w, '2026-10-14T10:00:00Z', 'Small granted body');
+
+  const r = w.emit();
+  assert.equal(r.decision.reason, 'emit');
+  assert.equal(r.text, `${pack}\n\n[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nSmall granted body`);
+  assert.ok(Buffer.byteLength(r.text, 'utf8') <= 16384);
+  assert.deepEqual(grantsLeft(w), []);
+});

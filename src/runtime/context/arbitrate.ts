@@ -602,6 +602,30 @@ function emitContext(options: EmitOptions): EmitResult {
     if (!unchanged) packText = compiled.output;
   }
 
+  // DEC-034: one byte budget per emission. The pack is measured first; the prompt segments get what
+  // is left after it and the blank line that joins them. The grant is fitted to that remainder
+  // before it is claimed, so a grant that no longer fits becomes its pointer and is never consumed.
+  const room = packText === null ? max : max - utf8Bytes(packText) - 2;
+  if ((decision.actions.grant === 'whole' || decision.actions.grant === 'pointer') && grant.file !== null) {
+    const raw = readText(grant.file);
+    if (raw !== null) {
+      const record = parseRecord(raw);
+      if (decision.actions.grant === 'whole' && utf8Bytes(renderGrant(record)) > room) {
+        decision = { ...decision, actions: { ...decision.actions, grant: 'pointer' }, ledger: { kind: 'grant', key: '@grant', outcome: REFUSED } };
+      }
+      if (decision.actions.grant === 'pointer' && (room < 1 || utf8Bytes(renderPointer(record, room)) > room)) {
+        // Not even the pointer fits: the event is refused, as a pack overflow is, and the slot goes back.
+        if (tookSlot) fs.rmSync(slot, { force: true });
+        return {
+          decision: { ...decision, emit: false, reason: REFUSED },
+          text: renderPointer(record, max),
+          pack,
+          committed: false,
+        };
+      }
+    }
+  }
+
   // The remaining claims in IC-004 order (summary, grant, warning); peek reads in place.
   const inputs: RenderInputs = {};
   const claimed: string[] = [];
@@ -648,7 +672,9 @@ function emitContext(options: EmitOptions): EmitResult {
     }
     if (decision.actions.git === 'include') inputs.git = readText(path.join(root, 'sessions', sessionId, 'git-context.json'));
 
-    const rendered = renderEmission({ actions: decision.actions, maxBytes: max, inputs });
+    const rendered: RenderResult = room >= 1
+      ? renderEmission({ actions: decision.actions, maxBytes: room, inputs })
+      : { text: null, bytes: 0, refused: false, dropped: [], segments: [] };
     const text = [packText, rendered.text].filter((piece) => piece !== null && piece !== '').join('\n\n') || null;
 
     // Step 8: the ledger lines (pack delivered; grant refused, keyed by its summary id).
