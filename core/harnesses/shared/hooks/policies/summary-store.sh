@@ -94,7 +94,7 @@ _doflow_ss_head() {
       fi
       line=""
     done
-  } <"$1" 2>/dev/null || true
+  } 2>/dev/null <"$1" || true
   return 0
 }
 
@@ -120,13 +120,13 @@ _doflow_ss_body_bytes() {
       fi
       line=""
     done
-  } <"$1" 2>/dev/null || true
+  } 2>/dev/null <"$1" || true
   return 0
 }
 
 # _doflow_ss_size <file>: _DF_SS_SIZE = the file's size in bytes, or empty.
 _doflow_ss_size() {
-  _DF_SS_SIZE=$(wc -c <"$1" 2>/dev/null) || _DF_SS_SIZE=""
+  _DF_SS_SIZE=$(wc -c 2>/dev/null <"$1") || _DF_SS_SIZE=""
   _DF_SS_SIZE=${_DF_SS_SIZE//[!0-9]/}
   return 0
 }
@@ -171,16 +171,19 @@ doflow_summary_write() {
 # doflow_summary_peek <worktree> <run> <lineage> <session_id>
 # IC-012 owner steps 1 and 2, for the state vector: DF_SUMMARY_OWN is `none` (no regular,
 # non-symlink summary.md in the scope), `own-write` (its frontmatter session_id is this session's)
-# or `pending`; DF_SUMMARY_FILE is its path when not `none`. Always returns 0.
+# or `pending`; DF_SUMMARY_FILE is its path and DF_SUMMARY_SID its frontmatter summary_id (possibly
+# empty) when not `none`. Always returns 0.
 doflow_summary_peek() {
   local f
   DF_SUMMARY_OWN=none
   DF_SUMMARY_FILE=""
+  DF_SUMMARY_SID=""
   doflow_summary_scope "${1:-}" "${2:-}" "${3:-}" || return 0
   f="$DF_SUMMARY_SCOPE/summary.md"
   [ -f "$f" ] && [ ! -L "$f" ] || return 0
   _doflow_ss_head "$f"
   DF_SUMMARY_FILE=$f
+  DF_SUMMARY_SID=$_DF_SS_SID
   if [ -n "${4:-}" ] && [ "$_DF_SS_SESSION" = "$4" ]; then DF_SUMMARY_OWN=own-write; else DF_SUMMARY_OWN=pending; fi
   return 0
 }
@@ -206,7 +209,8 @@ doflow_summary_claim() {
   _doflow_ss_size "$claimed"
   DF_SUMMARY_BYTES=${_DF_SS_SIZE:-0}
   if [ "$DF_SUMMARY_BYTES" -gt 65536 ]; then
-    if ! { head -c 65536 "$claimed" >"$claimed.read" 2>/dev/null && mv -f "$claimed.read" "$claimed" 2>/dev/null; }; then
+    # The cut copy is private to this user, as the record it replaces (L1-11).
+    if ! { (umask 077; head -c 65536 "$claimed" >"$claimed.read") 2>/dev/null && mv -f "$claimed.read" "$claimed" 2>/dev/null; }; then
       rm -f "$claimed" "$claimed.read" 2>/dev/null || true
       return 1
     fi
@@ -296,13 +300,16 @@ doflow_grant_claim() {
 # IC-014, on action `adopt` only: the pre-078 project summary under projects/<cwd_hash cwd>/, a
 # regular file and not a symlink, moves once into summaries/<worktreeKey>/local/main/summary.md
 # with its frontmatter kept. When a summary is already pending there it is newer by construction
-# and the old file is removed instead. The move is a hard link that refuses to replace, then an
-# unlink, so a summary written meanwhile is never overwritten. Nothing writes the old path. Returns
-# 0 when a legacy file was adopted or retired. With a third argument `check` it only tests that the
+# and the old file is removed instead. The legacy file is first renamed to <old>.adopting.<pid>, so
+# only one adopter proceeds (a lost rename means another adopter won and returns 0, DEC-043); then
+# a hard link that refuses to replace, and the .adopting file is unlinked last, so a summary written
+# meanwhile is never overwritten. Without hard links, `mv -n` is the fallback, taken only when the
+# target is absent and verified afterwards. Nothing writes the old path. Returns 0 when a legacy
+# file was adopted or retired, or another adopter took it. With a third argument `check` it only tests that the
 # legacy file exists and changes nothing (doflow_summary_legacy_present). This function is the one
 # place that names the legacy file (G38.4).
 doflow_summary_adopt_legacy() {
-  local cwd="${1:-}" worktree="${2:-}" projects old new
+  local cwd="${1:-}" worktree="${2:-}" projects old new taken
   [ -n "$cwd" ] || return 1
   [ -n "$worktree" ] || worktree=$cwd
   _doflow_ss_key "$cwd" || return 1
@@ -314,13 +321,17 @@ doflow_summary_adopt_legacy() {
   doflow_summary_scope "$worktree" local main || return 1
   new="$DF_SUMMARY_SCOPE/summary.md"
   mkdir -p "$DF_SUMMARY_SCOPE" 2>/dev/null || return 1
-  if [ -e "$new" ] || [ -L "$new" ] || ln "$old" "$new" 2>/dev/null; then
-    rm -f "$old" 2>/dev/null || return 1
-    return 0
+  taken="$old.adopting.$$"
+  mv "$old" "$taken" 2>/dev/null || return 0
+  # A link that refuses to replace; it fails when a summary is pending, which retires the legacy one.
+  if ! ln "$taken" "$new" 2>/dev/null && [ ! -e "$new" ] && [ ! -L "$new" ]; then
+    # No hard links on this filesystem: a rename that refuses to replace, then a check that $new is
+    # the adopted file (mv -n leaves the source in place when the target appeared meanwhile).
+    # The old path is never written again, so a failed rename leaves the .adopting file in place.
+    mv -n "$taken" "$new" 2>/dev/null || true
+    if [ -e "$taken" ] && [ ! -e "$new" ] && [ ! -L "$new" ]; then return 1; fi
   fi
-  # No hard links on this filesystem: re-check, then rename.
-  [ -e "$new" ] || [ -L "$new" ] || mv "$old" "$new" 2>/dev/null || return 1
-  rm -f "$old" 2>/dev/null || true
+  rm -f "$taken" 2>/dev/null || true
   return 0
 }
 

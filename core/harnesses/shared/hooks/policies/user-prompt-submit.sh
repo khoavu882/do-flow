@@ -94,13 +94,22 @@ SESSION_PATH="$SESSION_DIR/$SESSION_ID"
 # here can change the exit status or the first-prompt output. The prompt only ever travels to jq
 # on stdin, with stderr discarded, and is never copied out of INPUT.
 nudge_message() {
-  local root policy_dir here registry decision message
+  local root policy_dir here registry decision message role
   [[ "${DOFLOW_AGENT:-}" == "claude" || "${DOFLOW_AGENT:-}" == "codex" ]] || return 0   # N1
-  [[ "$(doflow_session_role 2>/dev/null || echo main)" != "worker" ]] || return 0      # a worker is never nudged
+  # The role gate is the rule table's: a role whose prompt.nudge action is skip (a worker) is never
+  # nudged, and returning here keeps the classifier from running or marking it (L2-15).
+  role=$(doflow_session_role 2>/dev/null) || role=main
+  DF_ACTION=skip
+  declare -F doflow_emission_rule >/dev/null 2>&1 && doflow_emission_rule prompt.nudge "$role:nudge" 2>/dev/null || DF_ACTION=skip
+  [[ "$DF_ACTION" != "skip" ]] || return 0
   nudge_safe_id "$SESSION_ID" || return 0                                               # N2
   root=$(nudge_repo_root "$CWD") || return 0
   [[ "$(nudge_setting "$root")" == "on" ]] || return 0                                  # N3
   [[ ! -e "$STATE_DIR/nudge/$SESSION_ID" ]] || return 0                                 # N4 (IC-008's path, no process)
+  # The marker is written after the render (DEC-041), so a folder it cannot be written to would
+  # nudge every prompt: an unwritable marker folder (or state folder, before it exists) is silent.
+  if [[ -e "$STATE_DIR/nudge" ]]; then [[ -d "$STATE_DIR/nudge" && -w "$STATE_DIR/nudge" ]] || return 0
+  elif [[ -e "$STATE_DIR" ]]; then [[ -w "$STATE_DIR" ]] || return 0; fi
   # N5: a subagent prompt carries agent_id or agent_type (read with the other fields above).
   [[ -z "$SUBAGENT" ]] || return 0
   # N6: the policy script's physical directory, found with built-ins (a subshell costs about 4 ms).
@@ -120,20 +129,19 @@ nudge_message() {
     nudge_mark "$SESSION_ID" suppressed || true
     return 0
   fi
-  # N8: the message is read and checked before the marker is created, so a registry without a
-  # usable message leaves no marker; a failed create (unwritable folder, a racing prompt) is silent.
+  # N8: a registry without a usable message leaves no marker. The `nudged` marker is written by
+  # doflow_emit_prompt once the nudge rendered, so a nudge the budget dropped stays unmarked (DEC-041).
   message=$(jq -r '.promptNudge.message | strings' "$registry" 2>/dev/null) || return 0
   [[ -n "$message" ]] || return 0
-  nudge_mark "$SESSION_ID" nudged || return 0
   printf '%s' "$message"
   return 0
 }
 
 # ── Emission: every prompt, handed to the authority (IC-004) ──────────────────
-# The classifier runs first, where its gates allow, and has marked the session when it returns a
-# message. doflow_emit_prompt decides everything else (the bootstrap slot, git context, the
+# The classifier runs first, where its gates allow, and returns the message unmarked.
+# doflow_emit_prompt decides everything else (the bootstrap slot, git context, the
 # scoped summary, the warning, a grant, the nudge's place in the budget), prints the response and
-# records `advisory prompt-nudge` itself when the nudge was rendered.
+# marks the session nudged and records `advisory prompt-nudge` itself when the nudge was rendered.
 
 NUDGE=$(nudge_message 2>/dev/null) || NUDGE=""
 if ! declare -F doflow_emit_prompt >/dev/null 2>&1; then

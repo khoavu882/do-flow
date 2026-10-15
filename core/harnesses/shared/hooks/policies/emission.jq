@@ -4,12 +4,12 @@
 # byte (IC-022, RK7).
 #
 # Invocation (IC-004 step 7), one process:
-#   jq -n -f emission.jq --argjson plan "$PLAN" \
+#   jq -n -r -f emission.jq --argjson plan "$PLAN" \
 #     --rawfile git <git-context.json> --rawfile summary <claimed summary> \
-#     --rawfile grant <claimed grant> --rawfile warning <warning text> --arg nudge "$NUDGE"
+#     --rawfile grant <claimed grant> --arg warning "$WARNING" --arg nudge "$NUDGE"
 #
 # All four names are always bound (jq refuses an undefined $name); emission.sh binds $warning with
-# --arg, because the warning claim reads the file and removes it before the render. A file that does not
+# --arg, because the warning claim renames the file and reads it before the render. A file that does not
 # exist is passed as /dev/null and its name listed in plan.absent; an empty existing file is not
 # absent (an empty warning still renders, an empty git capture is "Not a git repository.").
 #
@@ -23,7 +23,9 @@
 #   summaryBytes  the claimed summary file's full size, which can exceed the bounded read; it
 #                 defaults to the UTF-8 size of $summary
 #   mode          "response" (default) prints the hook response; "render" prints
-#                 {text, bytes, refused, dropped, segments}, the renderEmission() result, for parity
+#                 {text, bytes, refused, dropped, segments}, the renderEmission() result, for parity;
+#                 "hook" (emission.sh, run with -r) prints one first line holding the dropped
+#                 segment names joined with tabs (possibly empty), then the hook response
 #
 # Response bytes (jq's default pretty print): emission is
 #   {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ...}}
@@ -179,4 +181,7 @@ def response($plan; $in; $result):
 
 {git: $git, summary: $summary, grant: $grant, warning: $warning, nudge: $nudge} as $in
 | render($plan; $in) as $result
-| if ($plan.mode // "response") == "render" then $result else response($plan; $in; $result) end
+| ($plan.mode // "response") as $mode
+| if $mode == "render" then $result
+  elif $mode == "hook" then ($result.dropped | join("\t")), response($plan; $in; $result)
+  else response($plan; $in; $result) end

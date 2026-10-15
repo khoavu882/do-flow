@@ -46,7 +46,7 @@ const SETUP = {
   // Logs, at each claim, whether the slot is taken and the warning is still in place.
   logClaims: 'eval "_em_real_sclaim() $(declare -f doflow_summary_claim | sed 1d)"\n'
     + 'eval "_em_real_gclaim() $(declare -f doflow_grant_claim | sed 1d)"\n'
-    + '_em_log() { p=$(ensure_project_dir "$EM_CWD"); i=n; w=n; [ ! -e "$SESSION_DIR/$EM_SID/injected" ] || i=y; [ ! -f "$p/uncommitted-warning.txt" ] || w=y; echo "$1 slot=$i warning=$w" >>"$EM_ROOT/order"; }\n'
+    + '_em_log() { p=$(ensure_project_dir "$EM_CWD"); i=n; w=n; [ ! -e "$SESSION_DIR/${EM_UNIT:-$EM_SID}/injected" ] || i=y; [ ! -f "$p/uncommitted-warning.txt" ] || w=y; echo "$1 slot=$i warning=$w" >>"$EM_ROOT/order"; }\n'
     + 'doflow_summary_claim() { _em_log summary; _em_real_sclaim "$@"; }\n'
     + 'doflow_grant_claim() { _em_log grant; _em_real_gclaim "$@"; }\n',
   failGrantClaim: 'doflow_grant_claim() { return 1; }\n',
@@ -136,6 +136,7 @@ const captures = (w) => {
 };
 
 const WORKER = { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'l1', DOFLOW_ATTEMPT: '1' };
+const LAUNCHED_MAIN = { DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'l1', DOFLOW_ATTEMPT: '1' };
 
 test('the PATH shim records a node or doflow-run call (positive control for the no-process checks)', (t) => {
   const w = world(t);
@@ -201,8 +202,9 @@ test('IC-004: EEXIST on the slot makes every bootstrap-only segment skip', (t) =
 test('IC-004: claims run in the order slot, summary, grant, warning', (t) => {
   const w = world(t);
   writeGit(w, 'sess-1');
-  writeGrant(w, 'local', 'main', 'Granted body');
-  const r = run(w, 'sess-1', { EM_SETUP: SETUP.summary() + SETUP.warning + SETUP.logClaims });
+  // DEC-039: grants reach launched units only, so this is a launched main unit.
+  writeGrant(w, 'r1', 'l1', 'Granted body');
+  const r = run(w, 'sess-1', { ...LAUNCHED_MAIN, EM_UNIT: 'L.r1.l1.1', EM_SETUP: SETUP.summary('r1', 'l1') + SETUP.warning + SETUP.logClaims });
   assert.deepEqual(fs.readFileSync(path.join(w.root, 'order'), 'utf8').split('\n').filter(Boolean),
     ['summary slot=y warning=y', 'grant slot=y warning=y']);
   assert.equal(warningFiles(w).length, 0, 'the warning is claimed last');
@@ -218,8 +220,8 @@ test('IC-004: claims run in the order slot, summary, grant, warning', (t) => {
 test('IC-004: a failed claim stops the claims with the silent response and a capture', (t) => {
   const w = world(t);
   writeGit(w, 'sess-1');
-  writeGrant(w, 'local', 'main', 'Granted body');
-  const r = run(w, 'sess-1', { EM_SETUP: SETUP.summary() + SETUP.warning + SETUP.failGrantClaim });
+  writeGrant(w, 'r1', 'l1', 'Granted body');
+  const r = run(w, 'sess-1', { ...LAUNCHED_MAIN, EM_SETUP: SETUP.summary('r1', 'l1') + SETUP.warning + SETUP.failGrantClaim });
   assert.equal(r.out, '{}\n');
   assert.equal(r.reason, 'fault:grant');
   assert.equal(warningFiles(w).length, 1, 'no claim after the failed one');
