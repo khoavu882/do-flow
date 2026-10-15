@@ -24,7 +24,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
-const { buildGraph } = require('./task-graph.ts');
+const { buildGraph, deriveTasks, isGraphPlan } = require('./task-graph.ts');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { isSafeSlug } = require('./task-scope.ts');
@@ -193,9 +193,11 @@ function entryFor(store: any, taskId: any) {
 const activeAttempt = (entry: any) => (entry ? entry.attempts.find((a: any) => a.state === 'active') || null : null);
 const doneAttempt = (entry: any) => (entry ? entry.attempts.find((a: any) => a.state === 'finished' && a.result === 'COMPLETED') || null : null);
 
-function latestFinished(entry: any) {
-  const finished = entry ? entry.attempts.filter((a: any) => a.state === 'finished') : [];
-  return finished.length ? finished.reduce((a: any, b: any) => (b.token > a.token ? b : a)) : null;
+/** IC-005 over the store, with each task's current line hash from `loadPlan` (done-stale, IC-024).
+ * Pure, so it may run inside the lock. Cleared cancels are not computed yet (resume, IC-015). */
+function derivePlan(plan: any, store: any) {
+  const hashes = Object.fromEntries(plan.tasks.map((t: any) => [t.id, t.hash]));
+  return deriveTasks(plan.graph, store, { hashes });
 }
 
 // ── evidence ───────────────────────────────────────────────────────────────────────────────────
@@ -251,28 +253,53 @@ function rootsFor({ cwd, lifecycleRoot }: any) {
   return uniq([path.resolve(cwd), lifecycleRoot]);
 }
 
-function claim({ file, fsImpl, roots, slug, task, owner, mode, now = new Date() }: any) {
+/**
+ * IC-006 steps 3, 4, 5, 9, 10, 11 and the readiness half of 12, inside the lock against the store
+ * on disk. Every refusal writes nothing. For a plan without the header (DEC-008) the owner is not
+ * checked and steps 3, 4, 5 and 12 answer exactly as before 080.
+ */
+function claim({ file, fsImpl, roots, slug, task, owner, mode, ownerOverride, now = new Date() }: any) {
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!owner || !SAFE_NAME.test(owner)) throw new TaskAttemptError('usage', '--owner is required: the name of the agent or person taking the task');
   if (!MODES.includes(mode)) throw new TaskAttemptError('usage', `--mode is required: one of ${MODES.join(', ')}`);
   const plan = loadPlan({ roots, slug, fsImpl });
+  const graphPlan = isGraphPlan(plan.graph);
+  const override = graphPlan && given(ownerOverride) ? String(ownerOverride).trim() : null;
+  if (override === '') throw new TaskAttemptError('usage', '--owner-override needs a reason: why the declared owner is not taking the task');
   return mutate({
     file, fsImpl,
     apply: (store: any) => {
       const refuse = (reason: any, extra: any = {}) => ({ write: false, result: { disposition: 'refused', taskId: task, reason, ...extra } });
       const target = plan.tasks.find((t: any) => t.id === task);
       if (!target) return refuse('unknown-task');
-      if (doneAttempt(store.tasks[task])) return refuse('already-done');
+      const record = derivePlan(plan, store).find((r: any) => r.id === task);
+      if (record.state === 'SUCCEEDED') return refuse('already-done');
       const active = activeAttempt(store.tasks[task]);
       if (active) return refuse('active-attempt', { activeToken: active.token, owner: active.owner, startedAt: active.startedAt });
-      const unmet = plan.tasks.filter((t: any) => t.phaseIndex < target.phaseIndex && !doneAttempt(store.tasks[t.id])).map((t: any) => t.id);
-      if (unmet.length) return refuse('unmet-phase', { unmet });
+      const declared = plan.graph.tasks.find((t: any) => t.id === task).owner;
+      let ownerOverrideRecord = null;
+      if (graphPlan && declared && owner !== declared) {
+        if (!override) return refuse('owner-mismatch', { declared });
+        ownerOverrideRecord = { declared, reason: override };
+      }
+      const { limit, used } = record.budget;
+      if (used >= limit) return refuse('budget-exhausted', { scope: 'task', limit, used });
+      if (record.state === 'CANCELLED') {
+        const cancelled = store.tasks[task].attempts.filter((a: any) => a.state === 'cancelled')
+          .reduce((a: any, b: any) => (b.token > a.token ? b : a));
+        return refuse('cancelled', { cancelledToken: cancelled.token, clear: 'resume' });
+      }
+      const readiness = record.readiness;
+      if (readiness.reason === 'dependency-held') return refuse('dependency-held', { held: readiness.held });
+      if (readiness.reason === 'unmet-dependency') return refuse('unmet-dependency', { unmet: readiness.unmet });
+      if (readiness.reason === 'unmet-phase') return refuse('unmet-phase', graphPlan ? { unmet: readiness.unmet, held: readiness.held } : { unmet: readiness.unmet });
       const entry = entryFor(store, task);
       const token = entry.nextToken;
       entry.nextToken += 1;
       entry.attempts.push({
         token, owner, mode, startedAt: now.toISOString(), taskLineHash: target.hash,
         state: 'active', result: null, evidenceId: null, reason: null,
+        ...(ownerOverrideRecord ? { ownerOverride: ownerOverrideRecord } : {}),
       });
       store.planPath = plan.planPath;
       return { write: true, result: { disposition: 'claimed', taskId: task, token, revision: store.revision } };
@@ -364,27 +391,20 @@ function release({ file, fsImpl, task, token, reason, tokens, basis, env = proce
   });
 }
 
-/** Completion read from the ledger and the plan, never from checkboxes (FR-005). */
+/** Completion read from the ledger and the plan, never from checkboxes (FR-005). Each task keeps
+ * the pre-080 fields and adds IC-005's `state`, `reason`, `claimable`, `budget` and, where
+ * present, `held`, `unmet` and `doneStale`. */
 function status({ file, fsImpl, roots, slug }: any) {
   const plan = loadPlan({ roots, slug, fsImpl });
   const store = readStore(file, fsImpl);
-  const tasks = plan.tasks.map((t: any) => {
-    const entry = store.tasks[t.id];
-    const active = activeAttempt(entry);
-    const done = doneAttempt(entry);
-    const last = latestFinished(entry);
-    let derived;
-    if (done) derived = 'done';
-    else if (active) derived = 'running';
-    else if (last && last.result === 'BLOCKED') derived = 'blocked';
-    else if (plan.tasks.every((o: any) => o.phaseIndex >= t.phaseIndex || doneAttempt(store.tasks[o.id]))) derived = 'ready';
-    else derived = 'pending';
-    return {
-      id: t.id, phase: t.phase, derived,
-      activeToken: active ? active.token : null,
-      doneToken: done ? done.token : null,
-      active: active ? { owner: active.owner, mode: active.mode, startedAt: active.startedAt } : null,
+  const tasks = derivePlan(plan, store).map((r: any) => {
+    const out: any = {
+      id: r.id, phase: r.phase, derived: r.derived,
+      activeToken: r.activeToken, doneToken: r.doneToken, active: r.active,
+      state: r.state, reason: r.reason, claimable: r.claimable, budget: r.budget,
     };
+    for (const key of ['held', 'unmet', 'doneStale']) if (r[key] !== undefined) out[key] = r[key];
+    return out;
   });
   return {
     complete: tasks.length > 0 && tasks.every((t: any) => t.derived === 'done'),
@@ -407,6 +427,12 @@ function checkCompletion({ slug, cwd, fsImpl = fs }: any) {
   if (!fsImpl.existsSync(file)) return { state: 'none', slug, incomplete: [] };
   const answer = status({ file, fsImpl, roots: rootsFor({ cwd, lifecycleRoot }), slug });
   const incomplete = answer.tasks.filter((t: any) => t.derived !== 'done').map((t: any) => t.id);
+  // IC-024: only a graph plan has done-stale tasks (DEC-009); a legacy answer keeps its shape.
+  const stale = answer.tasks.filter((t: any) => t.doneStale);
+  if (stale.length) {
+    const reasons = Object.fromEntries(stale.map((t: any) => [t.id, 'plan-changed-after-done']));
+    return { state: 'incomplete', slug, incomplete, reasons };
+  }
   return { state: answer.complete ? 'complete' : 'incomplete', slug, incomplete };
 }
 
