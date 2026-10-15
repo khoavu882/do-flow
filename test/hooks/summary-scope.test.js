@@ -164,3 +164,63 @@ test('IC-014: a pre-078 project summary is adopted once, removed, and never writ
   assert.doesNotMatch(prompt('R', dir).ctx, /SUMMARY-PRE-078/);
   assert.equal(fs.existsSync(old), false);
 });
+
+// ── L1-10: identities a grant must never reach (DEC-039) ────────────────────────────────────────
+
+test('IC-012: a worker without DOFLOW_LINEAGE_ID is solo: it gets {} and the main summary stays pending', () => {
+  const dir = worktree();
+  compact('A', dir, 'MAIN-SUMMARY-NO-LINEAGE');
+  const before = fs.readFileSync(scopeFile(dir));
+  const { out, ctx } = prompt('W', dir, { env: { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_RUN_ID: 'r3', DOFLOW_ATTEMPT: '1' } });
+  assert.deepEqual(out, {});
+  assert.doesNotMatch(ctx, /MAIN-SUMMARY-NO-LINEAGE/);
+  assert.deepEqual(fs.readFileSync(scopeFile(dir)), before, 'the main summary is untouched');
+  assert.match(prompt('M', dir).ctx, /MAIN-SUMMARY-NO-LINEAGE/, 'the next main session still receives it');
+});
+
+/** A local/main grant on disk; main sessions in two repositories prompt and must not receive it. */
+function localMainGrantScenario(root) {
+  const [one, two] = [worktree('repo'), worktree('repo')];
+  // grantSummary refuses this recipient (DEC-039), so the file stands for one left by an older writer.
+  const grant = path.join(STORE, 'grants', 'local', 'main', 's-20260101T000000Z-abc123.md');
+  fs.mkdirSync(path.dirname(grant), { recursive: true });
+  const text = '---\nsummary_id: s-20260101T000000Z-abc123\nfrom_lineage: main\ncompacted_at: 2026-01-01T00:00:00Z\nbranch: main\n---\n\nGRANT-LOCAL-MAIN\n';
+  fs.writeFileSync(grant, text);
+  try {
+    for (const dir of [two, one]) {
+      const { ctx } = prompt(`M-${path.basename(dir)}`, dir, { root });
+      assert.doesNotMatch(ctx, /GRANT-LOCAL-MAIN|\[Granted summary/, 'a main session receives no grant');
+    }
+    assert.equal(fs.readFileSync(grant, 'utf8'), text, 'the grant is neither claimed nor changed');
+  } finally {
+    fs.rmSync(path.dirname(grant), { recursive: true, force: true });
+  }
+}
+
+test('IC-012: a local/main grant on disk reaches no main session, in its own repository or a second one', () => {
+  localMainGrantScenario(mirror);
+});
+
+test('negative control: an emitter that peeks grants for every lineage kind fails the local/main test', () => {
+  const sabotaged = path.join(scratch.dir, 'mirror-any-kind-grant');
+  buildInstallMirror(sabotaged);
+  const file = path.join(sabotaged, '.doflow', 'shared', 'hooks', 'policies', 'emission.sh');
+  const text = fs.readFileSync(file, 'utf8');
+  const anchor = 'if [ "$kind" = launched ]; then\n    doflow_grant_peek';
+  assert.ok(text.includes(anchor), 'control anchor present');
+  fs.writeFileSync(file, text.replace(anchor, 'if true; then\n    doflow_grant_peek'));
+  assert.throws(() => localMainGrantScenario(sabotaged), { name: 'AssertionError', message: 'a main session receives no grant' });
+});
+
+test('IC-013: a grant to local/solo is refused in-process and through doflow-run, and writes nothing', () => {
+  const dir = worktree();
+  compact('A', dir, 'MAIN-SUMMARY-SOLO-GRANT');
+  const options = { summary: 'pending', toRun: 'local', toLineage: 'solo', fromWorktree: dir, fromRun: 'local', fromLineage: 'main', env: scratch.env() };
+  assert.throws(() => grantSummary(options), (error) => error.code === 'usage' || /solo is not a launched recipient/.test(error.message));
+  const dispatcher = path.join(REPO, 'core/shared/scripts/doflow/bin/doflow-run');
+  const r = spawnSync('/bin/bash', [dispatcher, 'context-grant', '--summary', 'pending', '--to-run', 'local', '--to-lineage', 'solo',
+    '--from-worktree', dir, '--from-run', 'local', '--from-lineage', 'main', '--json'], { cwd: dir, env: scratch.env({ DOFLOW_FAILURE_CAPTURE: 'off' }), encoding: 'utf8' });
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.equal(fs.existsSync(path.join(STORE, 'grants', 'local', 'solo')), false, 'no grant directory for local/solo');
+  assert.match(fs.readFileSync(scopeFile(dir), 'utf8'), /MAIN-SUMMARY-SOLO-GRANT/, 'the source summary is untouched');
+});

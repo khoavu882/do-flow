@@ -8,7 +8,8 @@
 //   G38.2 emission-rules.sh is the generator's output; emission.jq templates are IC-002's
 //   G38.3 context-entering output (additionalContext, systemMessage, custom_instructions) only
 //         from emission.jq, emission.sh and the three pre-compact hooks, which look the rule up
-//   G38.4 last-compact-summary.md appears only in policies/summary-store.sh, which never writes it
+//   G38.4 last-compact-summary.md appears only in doflow_summary_adopt_legacy (policies/summary-store.sh)
+//         and legacySummary (summary-store.ts, DEC-043), and neither side ever writes it
 //   G38.5 IC-016's check files reference no emission state and source no emission or summary file
 //   G38.6 identity.sh and identity.ts agree on every case of test/fixtures/identity/cases.json
 //
@@ -23,6 +24,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 const { tempDir } = require('../helper/tmp');
+const { buildInstallMirror } = require('../helper/hook-fixtures');
 
 const POLICIES = 'core/harnesses/shared/hooks/policies';
 const BRIDGE = 'core/harnesses/shared/hooks/bridge';
@@ -136,7 +138,10 @@ function executedLines(file, text) {
 
 // ── G38.1: no retrieval, model, full verification or index building on the hook path ───────────
 
-const G38_1_VERBS = ['retrieve', 'retrieval-plan', 'advise', 'model-role', 'verify', 'recover', 'context-pack'];
+// L2-06: the emission authority and the workflow/decision verbs never run from a hook either; the
+// hook path renders through emission.sh, and P1A-W9's last sentence bans the rest.
+const G38_1_VERBS = ['retrieve', 'retrieval-plan', 'advise', 'model-role', 'verify', 'recover', 'context-pack',
+  'context-emit', 'context-grant', 'orchestrate', 'outcome', 'task-attempt', 'decision', 'decide-gate'];
 const BOUNDARY = '(?:^|[\\s;&|(`])';
 const END = '(?![\\w-])';
 const RUNNER = '(?:\\S*doflow-run|\\$\\{?[A-Za-z_]*(?:DOFLOW|doflow)[A-Za-z_]*\\}?)';
@@ -326,10 +331,37 @@ function checkG38_3({ files }) {
   return findings;
 }
 
+// L2-10: Kiro's agentSpawn front door enters context through stdout if it prints anything at all,
+// so it is run, from an install mirror, against its fault-free fixture, and must print nothing.
+const KIRO_DOOR = '.kiro/hooks/session-start.sh';
+const KIRO_FIXTURE = 'test/fixtures/hooks/kiro/session-start/agent-perf.json';
+
+/** stdout and status of the mirrored Kiro session-start door fed the fixture's native payload. */
+function kiroDoorRun(root) {
+  const { native } = JSON.parse(fs.readFileSync(path.join(REPO, KIRO_FIXTURE), 'utf8'));
+  const r = spawnSync(BASH, [path.join(root, KIRO_DOOR)], {
+    cwd: root, input: JSON.stringify(native), encoding: 'utf8',
+    env: { ...process.env, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: path.join(root, 'xdg'), DOFLOW_PROJECT_DIR: root,
+      DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_AGENT: '', DOFLOW_RUN_ID: '', DOFLOW_LINEAGE_ID: '', DOFLOW_ATTEMPT: '', DOFLOW_SESSION_ROLE: '' },
+  });
+  return { status: r.status, stdout: r.stdout };
+}
+
+function checkG38_3Kiro({ status, stdout }) {
+  if (status !== 0) return [`G38.3 core/harnesses/kiro/hooks/session-start.sh: agentSpawn fixture exited ${status}`];
+  if (stdout !== '') return [`G38.3 core/harnesses/kiro/hooks/session-start.sh: agentSpawn wrote ${Buffer.byteLength(stdout)} byte(s) to stdout`];
+  return [];
+}
+
 // ── G38.4: the legacy summary name ──────────────────────────────────────────────────────────────
 
 const LEGACY = 'last-compact-summary.md';
 const STORE = `${POLICIES}/summary-store.sh`;
+/** DEC-043's TypeScript port: the name may appear in legacySummary() only, and nothing there writes it. */
+const TS_STORE = 'src/runtime/context/summary-store.ts';
+const TS_HOLDER_FN = 'legacySummary';
+/** JavaScript write calls and the argument that names their destination. */
+const JS_WRITES = { writeFileSync: 0, appendFileSync: 0, writeFile: 0, appendFile: 0, renameSync: 1, linkSync: 1, copyFileSync: 1, symlinkSync: 1 };
 
 function functionRange(lines, name) {
   const start = lines.findIndex((line) => new RegExp(`^${name}\\(\\)\\s*\\{`).test(line));
@@ -338,14 +370,77 @@ function functionRange(lines, name) {
   return [start, end === -1 ? lines.length - 1 : end];
 }
 
+/** A top-level `function <name>(` in JavaScript or TypeScript, to the next column-0 `}`. */
+function jsFunctionRange(lines, name) {
+  const start = lines.findIndex((line) => new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(`).test(line));
+  if (start === -1) return null;
+  const end = lines.findIndex((line, index) => index > start && line === '}');
+  return [start, end === -1 ? lines.length - 1 : end];
+}
+
+/** Each write call in comment-free JavaScript, with its destination argument's source text. */
+function jsWriteCalls(code) {
+  const out = [];
+  const call = new RegExp(`\\b(${Object.keys(JS_WRITES).join('|')})\\s*\\(`, 'g');
+  let match;
+  while ((match = call.exec(code))) {
+    const args = [];
+    let depth = 1;
+    let current = '';
+    let i = match.index + match[0].length;
+    for (; i < code.length && depth > 0; i += 1) {
+      const ch = code[i];
+      if (ch === "'" || ch === '"' || ch === '`') {
+        let j = i + 1;
+        while (j < code.length && code[j] !== ch) j += code[j] === '\\' ? 2 : 1;
+        current += code.slice(i, j + 1);
+        i = j;
+        continue;
+      }
+      if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+      else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+      if (depth === 0) break;
+      if (ch === ',' && depth === 1) { args.push(current.trim()); current = ''; } else current += ch;
+    }
+    args.push(current.trim());
+    out.push({ line: lineOf(code, match.index), fn: match[1], dest: args[JS_WRITES[match[1]]] ?? '' });
+  }
+  return out;
+}
+
+function checkG38_4TS(files) {
+  const findings = [];
+  const text = files.get(TS_STORE);
+  if (text === undefined) return findings;
+  const code = jsCode(text);
+  const lines = code.split('\n');
+  const range = jsFunctionRange(lines, TS_HOLDER_FN);
+  const holders = new Set();
+  lines.forEach((line, index) => {
+    const names = line.includes(LEGACY);
+    if (names && (!range || index < range[0] || index > range[1])) {
+      findings.push(`G38.4 ${TS_STORE}:${index + 1} names ${LEGACY} outside ${TS_HOLDER_FN}`);
+    }
+    // A variable holding the legacy path: assigned on a line that names it, or from legacySummary().
+    const assigned = line.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=/);
+    if (assigned && (names || new RegExp(`\\b${TS_HOLDER_FN}\\s*\\(`).test(line))) holders.add(assigned[1]);
+  });
+  const isLegacy = (dest) => dest.includes(LEGACY) || holders.has(dest);
+  for (const { line, fn, dest } of jsWriteCalls(code)) {
+    if (isLegacy(dest)) findings.push(`G38.4 ${TS_STORE}:${line} writes ${LEGACY} (${fn} to \`${dest}\`)`);
+  }
+  return findings;
+}
+
 function checkG38_4({ files }) {
   const findings = [];
   for (const [file, text] of files) {
-    if (file === STORE || !text.includes(LEGACY)) continue;
+    if (file === STORE || file === TS_STORE || !text.includes(LEGACY)) continue;
     text.split('\n').forEach((line, index) => {
-      if (line.includes(LEGACY)) findings.push(`G38.4 ${file}:${index + 1} names ${LEGACY} outside ${STORE}`);
+      if (line.includes(LEGACY)) findings.push(`G38.4 ${file}:${index + 1} names ${LEGACY} outside ${STORE} and ${TS_STORE}`);
     });
   }
+  findings.push(...checkG38_4TS(files));
   const store = files.get(STORE);
   if (store === undefined) return findings;
   const lines = store.split('\n');
@@ -454,16 +549,43 @@ function identityLayout(root) {
 const subst = (value, places) => (typeof value === 'string' ? value.replace(/\$(CWD|WT_LINK|WT|FILE)/g, (m) => places[m]) : value);
 const substEnv = (env, places) => Object.fromEntries(Object.entries(env || {}).map(([k, v]) => [k, subst(v, places)]));
 
-/** Every bound file under the store's sessions/, by unit, trailing newline dropped. */
+/** Every bound file under the store's sessions/, by unit, trailing newline dropped; read through a link. */
 function boundFiles(config) {
   const sessions = path.join(config, 'doflow', 'session-env', 'sessions');
   if (!fs.existsSync(sessions)) return {};
+  if (!fs.statSync(sessions).isDirectory()) return { '(sessions)': 'not a directory' };
   const out = {};
   for (const unit of fs.readdirSync(sessions).sort()) {
     const file = path.join(sessions, unit, 'bound');
     if (fs.existsSync(file)) out[unit] = fs.readFileSync(file, 'utf8').replace(/\n$/, '');
   }
   return out;
+}
+
+/**
+ * The DEC-044 store setups a binding event may name, as test/hooks/identity-bash.test.js and
+ * test/runtime/context-identity.test.js apply them: `store-unwritable` makes sessions/ a regular
+ * file, `bound-symlink` makes the event unit's bound a link to a file holding the event's session
+ * id, `bound-empty` makes it an empty regular file. `root` holds the link target, outside the store.
+ */
+function applySetup(setup, config, root, unit, sessionId) {
+  if (setup === undefined) return;
+  const sessions = path.join(config, 'doflow', 'session-env', 'sessions');
+  const bound = path.join(sessions, unit, 'bound');
+  if (setup === 'store-unwritable') {
+    fs.mkdirSync(path.dirname(sessions), { recursive: true });
+    fs.writeFileSync(sessions, '');
+  } else if (setup === 'bound-symlink') {
+    const target = path.join(root, `bound-target-${unit}`);
+    fs.writeFileSync(target, `${sessionId}\n`);
+    fs.mkdirSync(path.dirname(bound), { recursive: true });
+    fs.symlinkSync(target, bound);
+  } else if (setup === 'bound-empty') {
+    fs.mkdirSync(path.dirname(bound), { recursive: true });
+    fs.writeFileSync(bound, '');
+  } else {
+    throw new Error(`unknown binding setup ${setup}`);
+  }
 }
 
 function bashEvent(config, home, env, sessionId, cwd) {
@@ -496,8 +618,12 @@ function tsEvent(resolveIdentity, config, home, env, sessionId, cwd) {
   };
 }
 
-/** Runs both implementations over cases.json; each sequence (or case) gets one fresh store per side. */
-function identityResults(root) {
+/**
+ * Runs both implementations over cases.json; each sequence (or case) gets one fresh store per side,
+ * and an event's `setup` is applied to that side's store just before the event. `skipSetup` names a
+ * side whose setups are left out, for the control that shows G38.6 reaches those states.
+ */
+function identityResults(root, { skipSetup = null } = {}) {
   const { resolveIdentity } = require('../../src/runtime/context/identity.ts');
   const places = identityLayout(root);
   const keys = [];
@@ -510,17 +636,22 @@ function identityResults(root) {
   ];
   for (const s of sequences) {
     const stores = ['bash', 'ts'].map((side) => {
-      const config = path.join(root, `${side}-${n}`, 'config');
-      const home = path.join(root, `${side}-${n}`, 'home');
+      const base = path.join(root, `${side}-${n}`);
+      const config = path.join(base, 'config');
+      const home = path.join(base, 'home');
       fs.mkdirSync(config, { recursive: true });
       fs.mkdirSync(home);
-      return { config, home };
+      return { side, base, config, home };
     });
     n += 1;
     s.events.forEach((e, i) => {
       const key = s.single ? s.name : `${s.name} #${i}`;
       const env = { ...substEnv(s.env, places), ...substEnv(e.env, places) };
       const cwd = subst(e.cwd, places);
+      const unit = `L.${env.DOFLOW_RUN_ID}.${env.DOFLOW_LINEAGE_ID}.${env.DOFLOW_ATTEMPT}`;
+      for (const store of stores) {
+        if (!s.single && store.side !== skipSetup) applySetup(e.setup, store.config, store.base, unit, e.sessionId);
+      }
       keys.push(key);
       bash.set(key, bashEvent(stores[0].config, stores[0].home, env, e.sessionId, cwd));
       ts.set(key, tsEvent(resolveIdentity, stores[1].config, stores[1].home, env, e.sessionId, cwd));
@@ -561,6 +692,14 @@ test('G38.1 control: an index builder in the edit linter is one finding; the lin
 test('G38.1 control: model and test invocations from JavaScript and inline bash scripts are named', () => {
   one(checkG38_1({ files: withFile(RUNNER_JS, `${shipped.get(RUNNER_JS)}\nspawnSync('npm', ['test']);\n`) }), 'full test run `npm test`');
   one(checkG38_1({ files: withFile('core/harnesses/demo/hooks/x.sh', "bash -c 'claude -p \"summarise\"'\n") }), 'model CLI `claude -p`');
+});
+test('G38.1 control (L2-06): the emission authority and workflow verbs on a hook line are one finding each', () => {
+  const file = 'core/harnesses/demo/hooks/x.sh';
+  one(checkG38_1({ files: withFile(file, '"$DOFLOW" context-emit --event prompt\n') }), `${file}:1 hook path invokes doflow-run verb \`context-emit\``);
+  one(checkG38_1({ files: withFile(file, 'doflow-run orchestrate --action handoff\n') }), `${file}:1 hook path invokes doflow-run verb \`orchestrate\``);
+  for (const verb of ['context-grant', 'outcome', 'task-attempt', 'decision', 'decide-gate']) {
+    one(checkG38_1({ files: withFile(file, `"$DOFLOW_RUN" ${verb} --json >/dev/null\n`) }), `verb \`${verb}\``);
+  }
 });
 test('G38.1 control: verbs named inside messages, comments and quoted words with spaces do not count', () => {
   const text = [
@@ -615,17 +754,66 @@ test('G38.3 control (RK6): comment-only mentions pass, including codex/hooks/pre
   assert.deepEqual(checkG38_3({ files: seeded }), []);
 });
 
-test('G38.4: last-compact-summary.md appears only in summary-store.sh, which never writes it', () => {
+test('G38.3 (L2-10): Kiro agentSpawn front door, and what it sources, writes nothing to stdout', (t) => {
+  const root = buildInstallMirror(tempDir(t, 'doflow-g38-kiro-'));
+  assert.deepEqual(checkG38_3Kiro(kiroDoorRun(root)), []);
+});
+test('G38.3 control (L2-10): a mirrored Kiro door that prints one byte is one finding', (t) => {
+  const root = buildInstallMirror(tempDir(t, 'doflow-g38-kiro-print-'));
+  const door = path.join(root, KIRO_DOOR);
+  fs.appendFileSync(door, 'printf x\n');
+  one(checkG38_3Kiro(kiroDoorRun(root)), 'agentSpawn wrote 1 byte(s) to stdout');
+});
+test('G38.3 control (L2-10): a print in the sourced lib.sh is one finding too', (t) => {
+  const root = buildInstallMirror(tempDir(t, 'doflow-g38-kiro-lib-'));
+  fs.appendFileSync(path.join(root, '.kiro/hooks/lib.sh'), '\nprintf x\n');
+  one(checkG38_3Kiro(kiroDoorRun(root)), 'agentSpawn wrote 1 byte(s) to stdout');
+});
+
+test('G38.4: last-compact-summary.md is named only by the two adoption functions, and neither writes it', () => {
   assert.deepEqual(checkG38_4({ files: shipped }), []);
 });
+// The controls count findings the seed adds to the shipped tree's own, so each still reads as one
+// finding while a shipped finding is open (each seed keeps the line numbers of the file it edits
+// or edits a file other than the shipped finding's).
+const fresh4 = (files) => {
+  const base = new Set(checkG38_4({ files: shipped }));
+  return checkG38_4({ files }).filter((f) => !base.has(f));
+};
 test('G38.4 control: a write to the legacy path is one finding', () => {
   const seeded = edit(STORE, '  [ -f "$old" ] && [ ! -L "$old" ] || return 1\n', '  [ -f "$old" ] && [ ! -L "$old" ] || return 1\n  : > "$old"\n');
-  one(checkG38_4({ files: seeded }), `${STORE}:`);
-  assert.ok(checkG38_4({ files: seeded })[0].includes(`writes ${'last-compact-summary.md'}`));
+  one(fresh4(seeded), `${STORE}:`);
+  assert.ok(fresh4(seeded)[0].includes(`writes ${'last-compact-summary.md'}`));
 });
 test('G38.4 control: the name in another shipped file is one finding', () => {
   const seeded = withFile('src/runtime/context/demo.ts', "const legacy = 'last-compact-summary.md';\n");
-  one(checkG38_4({ files: seeded }), 'src/runtime/context/demo.ts:1 names last-compact-summary.md');
+  one(fresh4(seeded), 'src/runtime/context/demo.ts:1 names last-compact-summary.md');
+});
+test('G38.4 control: a TypeScript write to the legacy path is one finding naming the call', () => {
+  const anchor = '  return regularFile(old) ? old : null;';
+  const seeded = edit(TS_STORE, anchor, `  fs.writeFileSync(old, ''); ${anchor.trim()}`);
+  const line = seeded.get(TS_STORE).split('\n').findIndex((l) => l.includes("fs.writeFileSync(old, '')")) + 1;
+  one(fresh4(seeded), `${TS_STORE}:${line} writes last-compact-summary.md (writeFileSync to \`old\`)`);
+});
+test('G38.4 control: the name in summary-store.ts outside legacySummary is one finding', () => {
+  const anchor = '  if (old === null) return false;';
+  const seeded = edit(TS_STORE, anchor, "  if (old === null || !old.endsWith('last-compact-summary.md')) return false;");
+  const line = seeded.get(TS_STORE).split('\n').findIndex((l) => l.includes("endsWith('last-compact")) + 1;
+  one(fresh4(seeded), `${TS_STORE}:${line} names last-compact-summary.md outside legacySummary`);
+});
+test('G38.4 control: renameSync and linkSync onto the legacy path are findings; reading or renaming from it is not', () => {
+  const text = [
+    "const old = path.join(dir, 'last-compact-summary.md');",
+    'fs.renameSync(old, other);',
+    'fs.readFileSync(old);',
+    'fs.renameSync(path.join(a, b), old);',
+    "fs.linkSync(src, path.join(dir, 'last-compact-summary.md'));",
+  ].join('\n');
+  const files = new Map([[TS_STORE, `function legacySummary() {\n${text}\n}\n`]]);
+  assert.deepEqual(checkG38_4({ files }).map((f) => f.replace(/ \(.*$/, '')), [
+    `G38.4 ${TS_STORE}:5 writes last-compact-summary.md`,
+    `G38.4 ${TS_STORE}:6 writes last-compact-summary.md`,
+  ]);
 });
 
 test('G38.5: IC-016 check files reference no emission state and source no emission or summary file', () => {
@@ -652,6 +840,13 @@ test('G38.6 control: one disagreeing field is one finding naming the case', () =
   const a = new Map([[key, { kind: 'default-main' }], ['other', { kind: 'solo' }]]);
   const b = new Map([[key, { kind: 'solo' }], ['other', { kind: 'solo' }]]);
   one(checkG38_6({ keys: [key, 'other'], bash: a, ts: b }), `"${key}" identity.sh`);
+});
+test('G38.6 control: a store setup applied on one side only is a finding for each DEC-044 setup case', (t) => {
+  const setupKeys = CASES.binding.flatMap((s) => s.events.map((e, i) => (e.setup ? `${s.name} #${i}` : null))).filter(Boolean);
+  assert.equal(setupKeys.length, 3, 'cases.json pins store-unwritable, bound-symlink and bound-empty');
+  const { keys, bash, ts } = identityResults(tempDir(t, 'doflow-g38-identity-skew-'), { skipSetup: 'ts' });
+  const findings = checkG38_6({ keys, bash, ts });
+  assert.deepEqual(findings.map((f) => f.match(/: "(.*)" identity\.sh/)[1]), setupKeys, findings.join('\n'));
 });
 
 module.exports = { checkG38_1, checkG38_2, checkG38_3, checkG38_4, checkG38_5, checkG38_6 };
