@@ -104,6 +104,10 @@ IC-026 of feature 074 and validated by
 from another harness or a model name, and an unsupported primitive falls back to sequential or
 manual execution that is reported as such.
 
+External worker capabilities, meaning which harness can run a one-shot worker for a claimed task and
+how, are declared per harness in the `worker` block of `core/registry/harnesses.json`, defined by
+IC-001 of feature 081. This document restates no value from that block either.
+
 ## Refresh
 
 - Trigger: a change to the task states derived in `src/runtime/task-graph.ts#deriveTasks`, to the
