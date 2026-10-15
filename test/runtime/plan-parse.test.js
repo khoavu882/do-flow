@@ -83,13 +83,41 @@ test('acceptance: tokens are kept raw, valid or not', () => {
 });
 
 test('budget: attempts=<n> in 1..999 parses; anything else is { invalid }', () => {
-  assert.deepEqual(task('- [ ] A.7 x; budget: attempts=3').budget, { attempts: 3 });
-  assert.deepEqual(task('- [ ] A.7 x; budget: attempts=999').budget, { attempts: 999 });
-  assert.deepEqual(task('- [ ] A.7 x; budget: attempts=0').budget, { invalid: 'attempts=0' });
-  assert.deepEqual(task('- [ ] A.7 x; budget: attempts=x').budget, { invalid: 'attempts=x' });
-  assert.deepEqual(task('- [ ] A.7 x; budget: attempts=1000').budget, { invalid: 'attempts=1000' });
-  assert.deepEqual(task('- [ ] A.7 x; budget: attempts=-1').budget, { invalid: 'attempts=-1' });
-  assert.deepEqual(task('- [ ] A.7 x; budget: 3').budget, { invalid: '3' });
+  // DEC-021: `budget:` opens the metadata after the em-dash (S-7); these inputs used `;` before it.
+  assert.deepEqual(task('- [ ] A.7 x — budget: attempts=3').budget, { attempts: 3 });
+  assert.deepEqual(task('- [ ] A.7 x — budget: attempts=999').budget, { attempts: 999 });
+  assert.deepEqual(task('- [ ] A.7 x — budget: attempts=0').budget, { invalid: 'attempts=0' });
+  assert.deepEqual(task('- [ ] A.7 x — budget: attempts=x').budget, { invalid: 'attempts=x' });
+  assert.deepEqual(task('- [ ] A.7 x — budget: attempts=1000').budget, { invalid: 'attempts=1000' });
+  assert.deepEqual(task('- [ ] A.7 x — budget: attempts=-1').budget, { invalid: 'attempts=-1' });
+  assert.deepEqual(task('- [ ] A.7 x — budget: 3').budget, { invalid: '3' });
+  // With neither the separator nor an earlier key, `; budget:` is description text, as on 8ce5ad7.
+  const prose = task('- [ ] A.7 x; budget: attempts=3');
+  assert.deepEqual([prose.budget, prose.description], [null, 'x; budget: attempts=3']);
+});
+
+test('DEC-021 new-keys-open-after-separator: prose acceptance: or budget: before the metadata keeps the 8ce5ad7 parse and hash', () => {
+  // Hashes computed once by the 8ce5ad7 tree (`git archive 8ce5ad7 src`), never by the code under test.
+  const PROSE = {
+    '- [ ] A.1 Record the acceptance: criteria per story — owner: core-implementer; files: a.js':
+      { description: 'Record the acceptance: criteria per story', owner: 'core-implementer', files: ['a.js'], hash: 'sha256:8a4f45b066c19b361a2d976aef45e399756af98647e9121363629f6c7a282891' },
+    '- [ ] A.2 Track the budget: tokens per run; files: b.js':
+      { description: 'Track the budget: tokens per run;', owner: null, files: ['b.js'], hash: 'sha256:6e585722617490a8f9337ae9726be2cf6d1458261eeff4f60807d65a68a92998' },
+  };
+  for (const header of [[], ['**Task graph:** v1']]) {
+    const parsed = parsePlan(plan(Object.keys(PROSE), header));
+    for (const [i, want] of Object.values(PROSE).entries()) {
+      const t = parsed.tasks[i];
+      assert.deepEqual([t.description, t.owner, t.files, t.acceptance, t.budget], [want.description, want.owner, want.files, [], null], t.id);
+      assert.equal(taskLineHash(t), want.hash, `${t.id} with header ${JSON.stringify(header)}`);
+    }
+    const { buildGraph } = require('../../src/runtime/task-graph.ts');
+    assert.equal(buildGraph(parsed).ok, true, 'no bad-acceptance or bad-budget');
+  }
+  // After the em-dash, and anywhere once the metadata has started, both keys still parse.
+  assert.deepEqual(task('- [ ] A.6 x — acceptance: FR-001').acceptance, ['FR-001']);
+  assert.deepEqual(task('- [ ] A.6 x — owner: y; budget: attempts=3').budget, { attempts: 3 });
+  assert.deepEqual(task('- [ ] A.6 x; owner: y; budget: attempts=3').budget, { attempts: 3 });
 });
 
 test('a line with neither new key hashes exactly as on 8ce5ad7', () => {
