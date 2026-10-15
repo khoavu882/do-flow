@@ -218,6 +218,17 @@ function latestEnded(attempts: any[]) {
   return latest;
 }
 
+/** DEC-016 done-attempt-selection (IC-005 Terms): the done attempt is the highest-token `finished`
+ * attempt with result COMPLETED. A store holding one (every legacy and `8ce5ad7` store) is
+ * unchanged; a redo of a stale-done task wins over the stale attempt. */
+function doneOf(attempts: any[]) {
+  let done: any = null;
+  for (const a of attempts) {
+    if (a.state === 'finished' && a.result === 'COMPLETED' && (!done || a.token > done.token)) done = a;
+  }
+  return done;
+}
+
 /** IC-008: attempts carrying a `runKey`, in any state, plus every `superseded` attempt. */
 function attemptsUsed(attempts: any[]) {
   return attempts.filter((a: any) => Boolean(a.runKey) || a.state === 'superseded').length;
@@ -277,7 +288,7 @@ function deriveTasks(graph: any, store: any, { clearedCancels = [], hashes = nul
     const entry = store && store.tasks ? store.tasks[id] : null;
     const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
     const active = attempts.find((a: any) => a.state === 'active') || null;
-    let done = attempts.find((a: any) => a.state === 'finished' && a.result === 'COMPLETED') || null;
+    let done = doneOf(attempts);
     let doneStale: any = null;
     if (done && graphPlan) {
       const hash = currentHash(task, hashes);
@@ -324,5 +335,5 @@ function deriveTasks(graph: any, store: any, { clearedCancels = [], hashes = nul
 
 module.exports = {
   DEFAULT_TASK_ATTEMPTS, buildGraph, isGraphPlan, graphTuples, graphDigest, overlaps, taskAttemptLimit,
-  deriveTasks,
+  deriveTasks, doneOf,
 };

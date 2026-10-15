@@ -288,6 +288,29 @@ test('Scenario: Reopen and plan change after done (FR-016)', (t) => {
 
 // ── US3 ──────────────────────────────────────────────────────────────────────────────────────────
 
+test('Scenario: A redo of a stale-done task succeeds (FR-016, DEC-016 done-attempt-selection)', (t) => {
+  const { checkCompletion } = require('../../src/runtime/task-attempts.ts');
+  const lines = ['### Phase A', '', '- [ ] A.1 first; owner: core-implementer; files: a.js'];
+  const reworded = ['### Phase A', '', '- [ ] A.1 first, reworded; owner: core-implementer; files: a.js'];
+  const p = project(t, { lines });
+  start(p);
+  const first = ok(claim(p, 'A.1'), 'claimed');
+  complete(p, 'A.1', first.token);
+  p.setPlan(reworded);
+  assert.equal(taskOf(ok(p.ta('status')), 'A.1').reason, 'plan-changed-after-done');
+  const redo = ok(claim(p, 'A.1'), 'claimed');
+  assert.equal(redo.token, 2);
+  complete(p, 'A.1', redo.token);
+
+  const view = ok(p.ta('status'));
+  assert.deepEqual([taskOf(view, 'A.1').state, taskOf(view, 'A.1').doneToken], ['SUCCEEDED', 2]);
+  assert.equal(view.complete, true);
+  assert.equal(checkCompletion({ slug: SLUG, cwd: p.repo }).state, 'complete');
+  exit1(claim(p, 'A.1'), 'refused', 'already-done');
+  const refused = exit1(p.ta('reopen', ['--task', 'A.1', '--token', '1', '--by', 'lead', '--reason', 'old token']), 'refused', 'token-mismatch');
+  assert.equal(refused.doneToken, 2);
+});
+
 test('Scenario: Attempt budget blocks (FR-009)', (t) => {
   const p = project(t, { lines: [
     '### Phase A', '',

@@ -24,7 +24,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
-const { buildGraph, deriveTasks, isGraphPlan } = require('./task-graph.ts');
+const { buildGraph, deriveTasks, isGraphPlan, doneOf } = require('./task-graph.ts');
 const {
   runKeyFor, refuseWorker, computeTotals, aggregateRefusal, controlRefusal, epochRefusal,
   refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
@@ -198,7 +198,8 @@ function entryFor(store: any, taskId: any) {
 }
 
 const activeAttempt = (entry: any) => (entry ? entry.attempts.find((a: any) => a.state === 'active') || null : null);
-const doneAttempt = (entry: any) => (entry ? entry.attempts.find((a: any) => a.state === 'finished' && a.result === 'COMPLETED') || null : null);
+// DEC-016 done-attempt-selection: the highest-token finished COMPLETED attempt, as deriveTasks reads it.
+const doneAttempt = (entry: any) => (entry ? doneOf(entry.attempts) : null);
 
 function planHashes(plan: any) {
   return Object.fromEntries(plan.tasks.map((t: any) => [t.id, t.hash]));

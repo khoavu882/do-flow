@@ -223,6 +223,16 @@ test('a reworded done task is plan-changed-after-done in a graph plan and still 
   }
 });
 
+test('DEC-016 done-attempt-selection: a redo after a stale done is SUCCEEDED by the highest-token COMPLETED attempt', () => {
+  const old = setup(['- [ ] A.1 original wording'], GRAPH);
+  const now = setup(['- [ ] A.1 reworded'], GRAPH);
+  const stale = attempt(1, 'finished', 'COMPLETED', { taskLineHash: old.hashes['A.1'] });
+  const current = attempt(2, 'finished', 'COMPLETED', { taskLineHash: now.hashes['A.1'] });
+  const [r] = deriveTasks(now.graph, store({ 'A.1': [stale, current] }), { hashes: now.hashes });
+  assert.deepEqual(pick(r), { state: 'SUCCEEDED', derived: 'done', reason: 'completed', claimable: false });
+  assert.equal(r.doneToken, 2);
+});
+
 test('the current hash comes from loadPlan tasks; a graph-plan done task with no hash is a caller error', (t) => {
   const root = tempDir(t, 'doflow-derive-');
   const slug = '080-x';
