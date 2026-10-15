@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "revision": 13,
+  "planPath": "agent-docs/doflow/076-evidence-attempts/plan.md",
+  "tasks": {
+    "A.1": {
+      "nextToken": 2,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "subagent",
+          "startedAt": "2026-10-15T08:05:18.688Z",
+          "taskLineHash": "sha256:2fc141cdaa89650f0b7baf543d5afb22f6d68af5b8546c5beecc3e64e07a9917",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev_mv997dio_978da3a8_1",
+          "reason": null
+        }
+      ]
+    },
+    "A.2": {
+      "nextToken": 2,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-15T08:05:19.045Z",
+          "taskLineHash": "sha256:1bb2cdf030dab7c278f29bcdc27666ec1bc08b28480b1a14323a6fb3a09f9533",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev_mv997dr1_95719cdb_1",
+          "reason": null
+        }
+      ]
+    },
+    "A.3": {
+      "nextToken": 2,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "subagent",
+          "startedAt": "2026-10-15T08:05:19.298Z",
+          "taskLineHash": "sha256:9ef1d11f4729ba1ef097ec8f73959f898ea38c0b948d4f5c9fd16b56d8a6f926",
+          "state": "active",
+          "result": null,
+          "evidenceId": null,
+          "reason": null
+        }
+      ]
+    },
+    "A.4": {
+      "nextToken": 2,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "manual",
+          "startedAt": "2026-10-15T08:05:19.404Z",
+          "taskLineHash": "sha256:0e851670d1366d7c2dc6e22c73dd46aff42ab7fb1089b25d0e1980028206a953",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "handed back"
+        }
+      ]
+    }
+  }
+}
