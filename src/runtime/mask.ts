@@ -36,7 +36,9 @@ const TOKEN_SHAPES = [
   /xox[abprs]-[A-Za-z0-9-]{10,}/g,
   /npm_[A-Za-z0-9]{24,}/g,
   /AIza[0-9A-Za-z_-]{35}/g,
-  /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+  // Left-anchored (DEC-069): without it every `eyJ` inside a long dotless run starts a scan to the
+  // run's end, which makes masking one line quadratic in its length.
+  /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
 ];
 
 const PEM = /-----BEGIN [^\n-]*-----(?:[\s\S]*?-----END [^\n-]*-----|[\s\S]*$)/g;

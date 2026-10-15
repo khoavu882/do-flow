@@ -46,7 +46,7 @@ verify it, or untick it.
 
 **Claim before dispatch**, from the main session; a worker never claims. `--owner` is the task's
 declared role; `--mode` (`subagent`, `sequential`, `manual`) must be the executor that will run. A
-graph plan passes `--epoch`, a worker run `--exec-worktree <path>` (its dispatch worktree), and a
+graph plan passes `--epoch`, a worker run `--exec-worktree <path>` (never the main session's), and a
 run with a token limit `--reserve-tokens <n>` on every claim:
 
 ```bash

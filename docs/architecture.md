@@ -99,7 +99,7 @@ Hook enforcement has three separate responsibilities:
 |---|---|---|
 | Install adapter | Projects, verifies and removes harness files with ledger ownership (`src/adapters/<harness>/` and `core/registry/assets.json`) | Decide a policy outcome |
 | Lifecycle bridge | Decodes one native hook input into envelope v1, calls one canonical policy and encodes its decision as the native response (`core/harnesses/shared/hooks/bridge/`, shell front doors, Antigravity runner delegation and Pi extension) | Hold policy rules, replan, spawn an agent or inject context beyond what hooks inject today |
-| Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it | 077 assigns it no implementation obligation |
+| Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it: `src/runtime/worker/` and `doflow-run worker` (discover, probe, describe, select, run, status, cancel) of a one-shot read-only worker on an 080 claim | 077 assigns it no implementation obligation; claim, finish or count budget on an attempt, or read credentials |
 
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 
@@ -466,11 +466,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-forty-seven test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-forty entries across thirty-six test files and carries thirty-eight distinct G-numbers.
+forty-eight test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+forty-one entries across thirty-seven test files and carries thirty-nine distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G40 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G41 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -715,6 +715,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   or `module.exports` key (G40.1); the Manual / assisted cells of Pause, Cancel, Resume and Inspect
   are `implemented` (G40.2); and no locator is a bare `path:line`, which goes stale on the next edit
   (G40.3).
+- **G41** (`worker-descriptors.test.js`) - every harness in `core/registry/harnesses.json` carries a
+  `worker` block and the registry validator reports no worker error (G41.1); every `supported`
+  worker entry has evidence naming an existing repository path or an `https://` URL (G41.2); and
+  every declared `structuredOutput.parser` is a key of `PARSERS` in `src/runtime/worker/parsers.ts`
+  (G41.3).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
