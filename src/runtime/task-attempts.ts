@@ -24,7 +24,11 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
-const { buildGraph, deriveTasks, isGraphPlan } = require('./task-graph.ts');
+const { buildGraph, deriveTasks, isGraphPlan, graphDigest, graphTuples } = require('./task-graph.ts');
+const {
+  runKeyFor, refuseWorker, createRun, computeTotals, aggregateRefusal, controlRefusal, epochRefusal,
+} = require('./task-run.ts');
+const { findWorkTreeTop } = require('./source-version.ts');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { isSafeSlug } = require('./task-scope.ts');
@@ -253,56 +257,163 @@ function rootsFor({ cwd, lifecycleRoot }: any) {
   return uniq([path.resolve(cwd), lifecycleRoot]);
 }
 
+/** IC-004: above this many tasks a run stores `graphTasks: null` and `graphTruncated: true`. */
+const GRAPH_TASKS_LIMIT = 500;
+
+/** The caller's run record, or null. Own keys only, so a run key never reaches the prototype. */
+function runOf(store: any, runKey: string) {
+  return store.runs && Object.prototype.hasOwnProperty.call(store.runs, runKey) ? store.runs[runKey] : null;
+}
+
+/** IC-026: `--exec-worktree` made absolute against `cwd`, then lifted to its worktree top. A path
+ * that does not exist is exit 2 `usage`. Runs before the lock. */
+function resolveExecWorktree(execWorktree: any, cwd: string, fsImpl: any) {
+  if (!given(execWorktree)) return null;
+  const absolute = path.resolve(cwd, String(execWorktree));
+  if (String(execWorktree).trim() === '' || !fsImpl.existsSync(absolute)) {
+    throw new TaskAttemptError('usage', `--exec-worktree '${execWorktree}' does not exist`);
+  }
+  return findWorkTreeTop(absolute).top ?? absolute;
+}
+
+function wholeNumber(value: any, flag: string) {
+  if (!given(value)) return null;
+  if (!Number.isInteger(value) || value < 0) throw new TaskAttemptError('usage', `${flag} expects a whole number of at least 0, got '${value}'`);
+  return value;
+}
+
+/** Synchronous wait for the IC-021 test-only seam; never reached from the CLI. */
+function sleepSync(ms: number) {
+  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
- * IC-006 steps 3, 4, 5, 9, 10, 11 and the readiness half of 12, inside the lock against the store
- * on disk. Every refusal writes nothing. For a plan without the header (DEC-008) the owner is not
- * checked and steps 3, 4, 5 and 12 answer exactly as before 080.
+ * IC-006 steps 3 to 12 against `store`, in the contract's order. Reads only: returns a refusal
+ * result, or `{ ok }` carrying what the write needs. For a plan without the header (DEC-008) steps
+ * 6, 8 and 9 do not apply and steps 3, 4, 5 and 12 answer exactly as before 080.
  */
-function claim({ file, fsImpl, roots, slug, task, owner, mode, ownerOverride, now = new Date() }: any) {
+function claimChecks(store: any, c: any) {
+  const { plan, graphPlan, task, owner, override, key, epoch, reserveTokens } = c;
+  const refuse = (reason: any, extra: any = {}) => ({ refused: { disposition: 'refused', taskId: task, reason, ...extra } });
+  const target = plan.tasks.find((t: any) => t.id === task);
+  if (!target) return refuse('unknown-task');
+  const record = derivePlan(plan, store).find((r: any) => r.id === task);
+  if (record.state === 'SUCCEEDED') return refuse('already-done');
+  const active = activeAttempt(store.tasks[task]);
+  if (active) return refuse('active-attempt', { activeToken: active.token, owner: active.owner, startedAt: active.startedAt });
+  if (graphPlan) {
+    const worker = refuseWorker(key.identity);
+    if (worker) return refuse(worker.reason);
+  }
+  const run = runOf(store, key.runKey);
+  const control = controlRefusal(run, key.runKey);
+  if (control) { const { reason, ...extra } = control; return refuse(reason, extra); }
+  if (graphPlan) {
+    const stale = epochRefusal(run, key.runKey, epoch);
+    if (stale) { const { reason, ...extra } = stale; return refuse(reason, extra); }
+  }
+  const declared = plan.graph.tasks.find((t: any) => t.id === task).owner;
+  let ownerOverrideRecord = null;
+  if (graphPlan && declared && owner !== declared) {
+    if (!override) return refuse('owner-mismatch', { declared });
+    ownerOverrideRecord = { declared, reason: override };
+  }
+  const { limit, used } = record.budget;
+  if (used >= limit) return refuse('budget-exhausted', { scope: 'task', limit, used });
+  if (record.state === 'CANCELLED') {
+    const cancelled = store.tasks[task].attempts.filter((a: any) => a.state === 'cancelled')
+      .reduce((a: any, b: any) => (b.token > a.token ? b : a));
+    return refuse('cancelled', { cancelledToken: cancelled.token, clear: 'resume' });
+  }
+  const readiness = record.readiness;
+  if (readiness.reason === 'dependency-held') return refuse('dependency-held', { held: readiness.held });
+  if (readiness.reason === 'unmet-dependency') return refuse('unmet-dependency', { unmet: readiness.unmet });
+  if (readiness.reason === 'unmet-phase') return refuse('unmet-phase', graphPlan ? { unmet: readiness.unmet, held: readiness.held } : { unmet: readiness.unmet });
+  const aggregate = aggregateRefusal(run, computeTotals(store, key.runKey), plan.graph, reserveTokens);
+  if (aggregate) { const { reason, ...extra } = aggregate; return refuse(reason, extra); }
+  return { ok: { target, ownerOverrideRecord } };
+}
+
+/**
+ * The claim's write (IC-006 "on success"): the attempt with IC-010's run fields, a legacy-plan run
+ * record created if absent (a graph plan's run exists, step 8), and the run's recorded graph
+ * (IC-004) and totals (IC-009) refreshed from the attempt list. A legacy-created run gets epoch 0:
+ * only start and an acknowledged resume issue an epoch (DEC-007).
+ */
+function claimWrite(store: any, c: any, ok: any) {
+  const { plan, graphPlan, task, owner, mode, key, execWorktree, reserveTokens, now } = c;
+  if (!store.runs) store.runs = {};
+  let run = runOf(store, key.runKey);
+  if (!run) {
+    run = createRun(key, null, now, { epoch: 0 });
+    store.runs[key.runKey] = run;
+  }
+  const entry = entryFor(store, task);
+  const token = entry.nextToken;
+  entry.nextToken += 1;
+  const attempt: any = {
+    token, owner, mode, startedAt: now.toISOString(), taskLineHash: ok.target.hash,
+    state: 'active', result: null, evidenceId: null, reason: null,
+    ...(ok.ownerOverrideRecord ? { ownerOverride: ok.ownerOverrideRecord } : {}),
+    runKey: key.runKey, epoch: run.epoch, execWorktree: execWorktree ?? run.worktree,
+  };
+  if (reserveTokens !== null) attempt.reserve = { tokens: reserveTokens };
+  entry.attempts.push(attempt);
+  store.planPath = plan.planPath;
+  run.graphDigest = graphDigest(plan.graph);
+  if (plan.graph.tasks.length > GRAPH_TASKS_LIMIT) {
+    run.graphTasks = null;
+    run.graphTruncated = true;
+  } else {
+    run.graphTasks = graphTuples(plan.graph);
+    delete run.graphTruncated;
+  }
+  run.totals = computeTotals(store, key.runKey);
+  const claimed: any = { disposition: 'claimed', taskId: task, token, revision: store.revision };
+  // A legacy plan's result keeps the 8ce5ad7 shape (FR-015); the run fields are on the attempt.
+  if (graphPlan) Object.assign(claimed, { runKey: key.runKey, epoch: attempt.epoch, execWorktree: attempt.execWorktree });
+  return claimed;
+}
+
+/**
+ * IC-006. Steps 0 to 2 before the lock (flags, graph, run key, execution worktree); steps 3 to 12
+ * and the write inside one `mutate()` against the store on disk, so every refusal writes nothing.
+ *
+ * `checkOutsideLock` and `delayAfterCheckMs` are the IC-021 test-only seam: the checks run against
+ * a plain read before the lock, then the claim waits, then writes without re-checking. It exists
+ * only so the race suite can prove it detects a missing lock; `handleTaskAttemptCommand` never
+ * passes it.
+ */
+function claim({
+  file, fsImpl, roots, slug, task, owner, mode, ownerOverride, epoch, reserveTokens, execWorktree,
+  env = process.env, cwd = process.cwd(), now = new Date(), checkOutsideLock = false, delayAfterCheckMs = 0,
+}: any) {
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!owner || !SAFE_NAME.test(owner)) throw new TaskAttemptError('usage', '--owner is required: the name of the agent or person taking the task');
   if (!MODES.includes(mode)) throw new TaskAttemptError('usage', `--mode is required: one of ${MODES.join(', ')}`);
+  const epochGiven = wholeNumber(epoch, '--epoch');
+  const reserve = wholeNumber(reserveTokens, '--reserve-tokens');
   const plan = loadPlan({ roots, slug, fsImpl });
   const graphPlan = isGraphPlan(plan.graph);
   const override = graphPlan && given(ownerOverride) ? String(ownerOverride).trim() : null;
   if (override === '') throw new TaskAttemptError('usage', '--owner-override needs a reason: why the declared owner is not taking the task');
+  const key = runKeyFor(env, cwd);
+  const c = {
+    plan, graphPlan, task, owner, mode, override, key, epoch: epochGiven, reserveTokens: reserve,
+    execWorktree: resolveExecWorktree(execWorktree, cwd, fsImpl), now,
+  };
+  if (checkOutsideLock) {
+    const checked: any = claimChecks(readStore(file, fsImpl), c);
+    if (checked.refused) return checked.refused;
+    sleepSync(delayAfterCheckMs);
+    return mutate({ file, fsImpl, apply: (store: any) => ({ write: true, result: claimWrite(store, c, checked.ok) }) });
+  }
   return mutate({
     file, fsImpl,
     apply: (store: any) => {
-      const refuse = (reason: any, extra: any = {}) => ({ write: false, result: { disposition: 'refused', taskId: task, reason, ...extra } });
-      const target = plan.tasks.find((t: any) => t.id === task);
-      if (!target) return refuse('unknown-task');
-      const record = derivePlan(plan, store).find((r: any) => r.id === task);
-      if (record.state === 'SUCCEEDED') return refuse('already-done');
-      const active = activeAttempt(store.tasks[task]);
-      if (active) return refuse('active-attempt', { activeToken: active.token, owner: active.owner, startedAt: active.startedAt });
-      const declared = plan.graph.tasks.find((t: any) => t.id === task).owner;
-      let ownerOverrideRecord = null;
-      if (graphPlan && declared && owner !== declared) {
-        if (!override) return refuse('owner-mismatch', { declared });
-        ownerOverrideRecord = { declared, reason: override };
-      }
-      const { limit, used } = record.budget;
-      if (used >= limit) return refuse('budget-exhausted', { scope: 'task', limit, used });
-      if (record.state === 'CANCELLED') {
-        const cancelled = store.tasks[task].attempts.filter((a: any) => a.state === 'cancelled')
-          .reduce((a: any, b: any) => (b.token > a.token ? b : a));
-        return refuse('cancelled', { cancelledToken: cancelled.token, clear: 'resume' });
-      }
-      const readiness = record.readiness;
-      if (readiness.reason === 'dependency-held') return refuse('dependency-held', { held: readiness.held });
-      if (readiness.reason === 'unmet-dependency') return refuse('unmet-dependency', { unmet: readiness.unmet });
-      if (readiness.reason === 'unmet-phase') return refuse('unmet-phase', graphPlan ? { unmet: readiness.unmet, held: readiness.held } : { unmet: readiness.unmet });
-      const entry = entryFor(store, task);
-      const token = entry.nextToken;
-      entry.nextToken += 1;
-      entry.attempts.push({
-        token, owner, mode, startedAt: now.toISOString(), taskLineHash: target.hash,
-        state: 'active', result: null, evidenceId: null, reason: null,
-        ...(ownerOverrideRecord ? { ownerOverride: ownerOverrideRecord } : {}),
-      });
-      store.planPath = plan.planPath;
-      return { write: true, result: { disposition: 'claimed', taskId: task, token, revision: store.revision } };
+      const checked: any = claimChecks(store, c);
+      if (checked.refused) return { write: false, result: checked.refused };
+      return { write: true, result: claimWrite(store, c, checked.ok) };
     },
   });
 }
@@ -482,7 +593,7 @@ function handleTaskAttemptCommand({
 
     let answer;
     switch (action) {
-      case 'claim': answer = claim({ ...common, task, owner, mode, now }); break;
+      case 'claim': answer = claim({ ...common, task, owner, mode, cwd, now }); break;
       case 'finish': answer = finish({ ...common, task, token: tokenNumber, result, evidenceId, reason, cwd, now }); break;
       case 'release': answer = release({ ...common, task, token: tokenNumber, reason, cwd, now }); break;
       default: answer = status(common);
