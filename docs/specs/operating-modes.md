@@ -20,8 +20,8 @@ mandatory information, insufficient authorization or an exhausted budget produce
 incomplete outcome; the system does not expand scope to report success.
 
 The attempt ledger already records which way a task was run: its `MODES` are `manual`,
-`sequential` and `subagent` (`src/runtime/task-attempts.ts:32`). The autonomous workflow of the
-table above is `target`; no code reads an objective and coordinates subagents today.
+`sequential` and `subagent` (`src/runtime/task-attempts.ts#MODES`). The autonomous workflow of
+the table above is `target`; no code reads an objective and coordinates subagents today.
 
 ## Ownership
 
@@ -39,21 +39,22 @@ stay sequential.
 ## Task states
 
 The runtime derives a task's state on every `status` call from the attempt ledger and plan.md
-(`status`, `src/runtime/task-attempts.ts:301`); `src/runtime/task-state.ts` is the locked, versioned
-store both ledgers persist through and holds no state names.
+(`src/runtime/task-attempts.ts#status`, which reads `src/runtime/task-graph.ts#deriveTasks`);
+`src/runtime/task-state.ts` is the locked, versioned store both ledgers persist through and holds
+no state names.
 
 | State | Meaning | Implemented | Locator |
 |---|---|---|---|
-| PLANNED | The task exists in the plan and is not yet startable | implemented | derived `pending`, `src/runtime/task-attempts.ts:314` |
-| READY | Every dependency is satisfied, so the task may be dispatched | implemented | derived `ready`, `src/runtime/task-attempts.ts:313` |
-| RUNNING | One active attempt holds the task | implemented | derived `running`, `src/runtime/task-attempts.ts:311` |
-| SUCCEEDED | A COMPLETED attempt backed by a passing, fresh, task-bound test result | implemented | derived `done`, `src/runtime/task-attempts.ts:310`; the evidence check in `finish`, `src/runtime/task-attempts.ts:256` |
-| FAILED | An attempt ended in failure and the parent must replan or retry | target | `RESULTS` holds ABANDONED and INCONCLUSIVE but no failure result (`src/runtime/task-attempts.ts:33`), and `status` derives no failed state |
-| BLOCKED | Mandatory input, authorization or budget is missing | implemented | derived `blocked`, `src/runtime/task-attempts.ts:312`, from a BLOCKED result |
-| CANCELLED | The attempt was revoked and its result must not be accepted | target | `release` marks an attempt `released` with a reason (`src/runtime/task-attempts.ts:283-295`), and `status` derives no cancelled state |
+| PLANNED | The task exists in the plan and is not yet startable | implemented | derived `pending`, `src/runtime/task-graph.ts#deriveTasks`, with the unmet or held dependencies named |
+| READY | Every dependency is satisfied, so the task may be dispatched | implemented | derived `ready`, `src/runtime/task-graph.ts#deriveTasks` |
+| RUNNING | One active attempt holds the task | implemented | derived `running`, `src/runtime/task-graph.ts#deriveTasks` |
+| SUCCEEDED | A COMPLETED attempt backed by a passing, fresh, task-bound test result | implemented | derived `done`, `src/runtime/task-graph.ts#deriveTasks`; the evidence check in `src/runtime/task-attempts.ts#finish` |
+| FAILED | An attempt ended in failure and the parent must replan or retry | implemented | derived `failed`, `src/runtime/task-graph.ts#deriveTasks`, from a FAILED result, which `src/runtime/task-attempts.ts#finish` accepts only with a reason |
+| BLOCKED | Mandatory input, authorization or budget is missing | implemented | derived `blocked`, `src/runtime/task-graph.ts#deriveTasks`, from a BLOCKED result or an exhausted task attempt budget |
+| CANCELLED | The attempt was revoked and its result must not be accepted | implemented | derived `cancelled`, `src/runtime/task-graph.ts#deriveTasks`, from an attempt `src/runtime/task-run.ts#cancelRun` or `src/runtime/task-run.ts#cancelAttempt` cancelled and no resume has cleared |
 
 Mapping from today's derived states: `pending` to PLANNED, `ready` to READY, `running` to RUNNING,
-`done` to SUCCEEDED, `blocked` to BLOCKED. FAILED and CANCELLED have no derived counterpart.
+`done` to SUCCEEDED, `failed` to FAILED, `blocked` to BLOCKED, `cancelled` to CANCELLED.
 
 ## Rules
 
@@ -63,28 +64,36 @@ Mapping from today's derived states: `pending` to PLANNED, `ready` to READY, `ru
 - A sequential main-session run is never reported as a subagent run.
 - BLOCKED means missing mandatory input, missing authorization or exhausted budget. It is never a
   reason to widen scope.
-- A stale or cancelled attempt cannot overwrite current work: the fencing token and plan-line hash
-  in `finish` already refuse a stale token and a changed plan line (`src/runtime/task-attempts.ts:256-275`).
+- A stale or cancelled attempt cannot overwrite current work. `src/runtime/task-attempts.ts#finish`
+  refuses a cancelled token first (`attempt-cancelled`, through
+  `src/runtime/task-attempts.ts#cancelledAttempt`), then a stale token and a changed plan line;
+  `src/runtime/task-attempts.ts#release` refuses a cancelled token the same way.
 
 ## User controls
 
 A user can pause, inspect, redirect, cancel, take over and resume an autonomous run, and resume
 must use current state and versions rather than restart blindly.
 
-| Control | Manual / assisted | Autonomous |
-|---|---|---|
-| Pause | target | target |
-| Inspect | implemented | target |
-| Redirect | target | target |
-| Cancel | target | target |
-| Take over | target | target |
-| Resume | target | target |
+| Control | Manual / assisted | Autonomous | Locator |
+|---|---|---|---|
+| Pause | implemented | target | `src/runtime/task-run.ts#pauseRun` |
+| Inspect | implemented | target | `src/runtime/task-run.ts#inspectRun` |
+| Redirect | target | target | none |
+| Cancel | implemented | target | `src/runtime/task-run.ts#cancelRun`, `src/runtime/task-run.ts#cancelAttempt` |
+| Take over | target | target | none |
+| Resume | implemented | target | `src/runtime/task-run.ts#resumeRun` |
 
-Basis for the single `implemented` cell: the user inspects a feature's task states with the
-`status` action of the attempt ledger (`src/runtime/task-attempts.ts:301`). `release` drops an
-active attempt with a reason (`src/runtime/task-attempts.ts:283`) but is not a run-level cancel, so
-Cancel stays `target`. No pause, redirect, take-over or run-resume operation was found in
-`src/runtime/task-attempts.ts` or `src/runtime/task-state.ts`.
+Basis for the `implemented` cells: a user starts a run with `src/runtime/task-run.ts#startRun`,
+pauses it with `src/runtime/task-run.ts#pauseRun`, cancels the run or one attempt with
+`src/runtime/task-run.ts#cancelRun` and `src/runtime/task-run.ts#cancelAttempt`, resumes it from
+current state with the digest-acknowledged `src/runtime/task-run.ts#resumeRun`, and inspects the
+graph, task states and run totals read-only with `src/runtime/task-run.ts#inspectRun`. A done task
+is reopened with `src/runtime/task-attempts.ts#reopen`. No redirect or take-over operation exists,
+so both stay `target`. The Autonomous column stays `target` because no autonomous caller wires
+these controls yet; feature 082 does (DEC-005).
+
+A linked worktree on a pre-080 runtime ignores pause, cancel, budgets, the epoch and done-stale,
+and still refuses a cancelled token (DEC-013).
 
 ## Harness primitives
 
@@ -97,7 +106,7 @@ manual execution that is reported as such.
 
 ## Refresh
 
-- Trigger: a change to the task states derived in `src/runtime/task-attempts.ts`, to the `MODES`
-  of the attempt ledger, or to the ADR sections 3.0 to 3.0.4 this document follows.
+- Trigger: a change to the task states derived in `src/runtime/task-graph.ts#deriveTasks`, to the
+  run controls in `src/runtime/task-run.ts`, to the `MODES` of the attempt ledger, or to the ADR sections 3.0 to 3.0.4 this document follows.
 - Owner: the author of the feature that changes the lifecycle (features 080 to 082 for the
   autonomous workflow), reviewed at that feature's design gate.
