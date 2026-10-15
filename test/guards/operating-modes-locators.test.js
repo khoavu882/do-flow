@@ -161,39 +161,39 @@ function assertOneFinding(doc, pattern) {
   assert.match(got[0], pattern);
 }
 
-test('G40: operating-modes locators resolve and the manual control cells are implemented', () => {
+test('G40 (G40.1, G40.2, G40.3): operating-modes locators resolve and the manual control cells are implemented', () => {
   const doc = liveDoc();
   assert.ok([...doc.matchAll(SYMBOL_LOCATOR)].length > 0, 'the document must cite path#symbol locators');
   assert.deepEqual(g40Problems(doc), []);
 });
 
-test('G40 control: a renamed symbol is reported as undeclared', () => {
+test('G40.1b control: a renamed symbol is reported as undeclared', () => {
   const doc = seedRow(liveDoc(), 'Resume', 'task-run.ts#resumeRun', 'task-run.ts#resumeRunX');
   assertOneFinding(doc, /^locator src\/runtime\/task-run\.ts#resumeRunX: .* does not declare resumeRunX$/);
 });
 
-test('G40 control: a missing path is reported', () => {
+test('G40.1b control: a missing path is reported', () => {
   const doc = seedRow(liveDoc(), 'Inspect', 'src/runtime/task-run.ts#inspectRun', 'src/runtime/task-runs.ts#inspectRun');
   assertOneFinding(doc, /^locator src\/runtime\/task-runs\.ts#inspectRun: path src\/runtime\/task-runs\.ts does not exist$/);
 });
 
-test('G40 control: an implemented row without a locator is reported', () => {
+test('G40.1a control: an implemented row without a locator is reported', () => {
   const doc = seedRow(liveDoc(), 'Redirect', '| target | target | none |', '| implemented | target | none |');
   assertOneFinding(doc, /^User controls: implemented row Redirect has no path#symbol locator$/);
 });
 
-test('G40 control: a line-number locator is reported', () => {
+test('G40.3 control: a line-number locator is reported', () => {
   const doc = seedRow(liveDoc(), 'Pause', '`src/runtime/task-run.ts#pauseRun`',
     '`src/runtime/task-run.ts#pauseRun`, `src/runtime/task-run.ts:242`');
   assertOneFinding(doc, /^line-number locator src\/runtime\/task-run\.ts:242; cite path#symbol$/);
 });
 
-test('G40 control: a manual control cell reverted to target is reported', () => {
+test('G40.2 control: a manual control cell reverted to target is reported', () => {
   const doc = seedRow(liveDoc(), 'Cancel', '| Cancel | implemented |', '| Cancel | target |');
   assertOneFinding(doc, /^User controls: Manual \/ assisted Cancel is 'target', not implemented$/);
 });
 
-test('G40 control: a renamed symbol and a manual cell set to target are both reported', () => {
+test('G40.1b + G40.2 control: a renamed symbol and a manual cell set to target are both reported', () => {
   let doc = seedRow(liveDoc(), 'RUNNING', 'task-graph.ts#deriveTasks', 'task-graph.ts#deriveTask');
   doc = seedRow(doc, 'Pause', '| Pause | implemented |', '| Pause | target |');
   const got = g40Problems(doc);
@@ -202,7 +202,7 @@ test('G40 control: a renamed symbol and a manual cell set to target are both rep
   assert.match(got.join('\n'), /Manual \/ assisted Pause is 'target', not implemented/);
 });
 
-test('G40 control: the declaration check reads functions, consts, classes and export keys only', () => {
+test('G40.1b control: the declaration check reads functions, consts, classes and export keys only', () => {
   const src = [
     'function alpha() {}', 'export async function beta() {}', 'const GAMMA = 1;', 'class Delta {}',
     'module.exports = {', '  epsilon, zeta: alpha,', '};', 'export { eta as theta };',
