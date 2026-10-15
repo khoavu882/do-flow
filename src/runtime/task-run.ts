@@ -13,7 +13,7 @@
 
 const { cwdHash, resolveIdentity } = require('./context/identity.ts');
 const { findWorkTreeTop } = require('./source-version.ts');
-const { taskAttemptLimit } = require('./task-graph.ts');
+const { taskAttemptLimit, graphDigest, graphTuples } = require('./task-graph.ts');
 
 type Env = Record<string, string | undefined>;
 
@@ -172,7 +172,159 @@ function nextEpoch(run: any) {
   return run && Number.isInteger(run.epoch) ? run.epoch + 1 : 1;
 }
 
+// ── run controls (IC-012, IC-026; DEC-005) ────────────────────────────────────────────────────
+//
+// Each is an `apply` for `mutate()`: it takes the parsed store and the inputs resolved before the
+// lock, and returns `{ write, result }`. A refusal returns `write: false`, so it changes nothing.
+// None kills a process: ending a worker is 081's.
+
+/** IC-004: above this many tasks a run stores `graphTasks: null` and `graphTruncated: true`. */
+const GRAPH_TASKS_LIMIT = 500;
+
+/** IC-004 and IC-009: every run write stores the recorded graph and totals recomputed from the
+ * attempt list. */
+function refreshRun(store: any, run: any, graph: any) {
+  run.graphDigest = graphDigest(graph);
+  if (graph.tasks.length > GRAPH_TASKS_LIMIT) {
+    run.graphTasks = null;
+    run.graphTruncated = true;
+  } else {
+    run.graphTasks = graphTuples(graph);
+    delete run.graphTruncated;
+  }
+  run.totals = computeTotals(store, run.runKey);
+}
+
+function ownRun(store: any, runKey: string) {
+  return store.runs && Object.prototype.hasOwnProperty.call(store.runs, runKey) ? store.runs[runKey] : null;
+}
+
+/** The caller's run, created when absent. Only start and an acknowledged resume issue an epoch
+ * (DEC-007), so a run another control creates has epoch 0, like a legacy claim's (C.2). */
+function ensureRun(store: any, key: RunKey, now: Date) {
+  if (!store.runs) store.runs = {};
+  let run = ownRun(store, key.runKey);
+  if (!run) {
+    run = createRun(key, null, now, { epoch: 0 });
+    store.runs[key.runKey] = run;
+  }
+  return run;
+}
+
+/** IC-011, IC-026: a solo lineage or a worker session may not act on a run. */
+function identityRefusal(identity: any) {
+  return refuseSolo(identity) || refuseWorker(identity);
+}
+
+function refusedControl(reason: string, runKey: string, extra: any = {}) {
+  return { write: false, result: { disposition: 'refused', reason, runKey, ...extra } };
+}
+
+/** IC-012 `start`: creates the caller's run with `epoch: 1` and history `start`. `budget` is
+ * `{ attempts, tokens }`, each a whole number or null. */
+function startRun(store: any, { key, graph, by, budget, now }: { key: RunKey; graph: any; by: string; budget: any; now: Date }) {
+  const who = identityRefusal(key.identity);
+  if (who) return refusedControl(who.reason, key.runKey);
+  if (ownRun(store, key.runKey)) return refusedControl('run-exists', key.runKey);
+  if (!store.runs) store.runs = {};
+  const run = createRun(key, budget, now, { epoch: 1 });
+  store.runs[key.runKey] = run;
+  run.history.push({ at: now.toISOString(), action: 'start', by, reason: null, epoch: 1 });
+  refreshRun(store, run, graph);
+  return { write: true, result: { disposition: 'started', runKey: key.runKey, epoch: 1, budget: run.budget, revision: store.revision } };
+}
+
+/** IC-012 `pause`: the run, created if absent, becomes `paused`; active attempts are untouched and
+ * may still finish (IC-007). */
+function pauseRun(store: any, { key, graph, by, reason, now }: { key: RunKey; graph: any; by: string; reason: string; now: Date }) {
+  const who = identityRefusal(key.identity);
+  if (who) return refusedControl(who.reason, key.runKey);
+  const existing = ownRun(store, key.runKey);
+  if (existing && existing.control === 'paused') return refusedControl('control-unchanged', key.runKey, { control: 'paused' });
+  if (existing && existing.control === 'cancelled') return refusedControl('run-cancelled', key.runKey);
+  const run = ensureRun(store, key, now);
+  run.control = 'paused';
+  run.history.push({ at: now.toISOString(), action: 'pause', by, reason });
+  refreshRun(store, run, graph);
+  return { write: true, result: { disposition: 'paused', runKey: key.runKey, revision: store.revision } };
+}
+
+function activeAttempts(store: any) {
+  const out: Array<{ taskId: string; attempt: any }> = [];
+  for (const [taskId, entry] of Object.entries<any>(store.tasks || {})) {
+    for (const attempt of entry.attempts) if (attempt.state === 'active') out.push({ taskId, attempt });
+  }
+  return out;
+}
+
+/**
+ * IC-012 run `cancel`: every active attempt carrying this run key becomes `cancelled`. With
+ * `adoptUnowned`, an active attempt with no run key is first given this one and cancelled with
+ * `adopted: true` (critic A m7). Active attempts of other runs, and runKey-less ones without
+ * `adoptUnowned`, are listed in `notCancelled` and left alone. `cancelled` names every attempt
+ * this call cancelled, adopted ones included; `adopted` is that subset.
+ */
+function cancelRun(store: any, { key, graph, by, reason, adoptUnowned = false, now }: { key: RunKey; graph: any; by: string; reason: string; adoptUnowned?: boolean; now: Date }) {
+  const who = identityRefusal(key.identity);
+  if (who) return refusedControl(who.reason, key.runKey);
+  const existing = ownRun(store, key.runKey);
+  if (existing && existing.control === 'cancelled') return refusedControl('control-unchanged', key.runKey, { control: 'cancelled' });
+  const run = ensureRun(store, key, now);
+  const at = now.toISOString();
+  const cancelled: Array<{ taskId: string; token: number }> = [];
+  const adopted: Array<{ taskId: string; token: number }> = [];
+  const notCancelled: Array<{ taskId: string; token: number; runKey: string | null }> = [];
+  for (const { taskId, attempt } of activeAttempts(store)) {
+    const owned = attempt.runKey === key.runKey;
+    const adopt = !attempt.runKey && adoptUnowned;
+    if (!owned && !adopt) {
+      notCancelled.push({ taskId, token: attempt.token, runKey: attempt.runKey || null });
+      continue;
+    }
+    if (adopt) {
+      attempt.runKey = key.runKey;
+      adopted.push({ taskId, token: attempt.token });
+    }
+    attempt.state = 'cancelled';
+    attempt.cancel = adopt ? { at, by, reason, adopted: true } : { at, by, reason };
+    cancelled.push({ taskId, token: attempt.token });
+  }
+  run.control = 'cancelled';
+  run.history.push({ at, action: 'cancel', by, reason, cancelled });
+  refreshRun(store, run, graph);
+  return {
+    write: true,
+    result: { disposition: 'cancelled', runKey: key.runKey, cancelled, adopted, notCancelled, revision: store.revision },
+  };
+}
+
+/** IC-012 attempt `cancel`: the task's active attempt holding `token`, which must carry this run
+ * key, becomes `cancelled`; the run's control is unchanged. */
+function cancelAttempt(store: any, { key, graph, task, token, by, reason, now }: { key: RunKey; graph: any; task: string; token: number; by: string; reason: string; now: Date }) {
+  const who = identityRefusal(key.identity);
+  if (who) return refusedControl(who.reason, key.runKey, { taskId: task, token });
+  const entry = store.tasks && store.tasks[task];
+  const active = entry ? entry.attempts.find((a: any) => a.state === 'active') || null : null;
+  if (!active) return refusedControl('no-active-attempt', key.runKey, { taskId: task, token });
+  if (active.token !== token) return refusedControl('token-mismatch', key.runKey, { taskId: task, token, activeToken: active.token });
+  if (active.runKey !== key.runKey) {
+    return { write: false, result: { disposition: 'refused', reason: 'foreign-run', taskId: task, token, runKey: active.runKey || null } };
+  }
+  const run = ensureRun(store, key, now);
+  const at = now.toISOString();
+  active.state = 'cancelled';
+  active.cancel = { at, by, reason };
+  const cancelled = [{ taskId: task, token }];
+  run.history.push({ at, action: 'cancel', by, reason, cancelled });
+  refreshRun(store, run, graph);
+  return {
+    write: true,
+    result: { disposition: 'cancelled', runKey: key.runKey, taskId: task, token, control: run.control, cancelled, revision: store.revision },
+  };
+}
+
 module.exports = {
   runKeyFor, refuseSolo, refuseWorker, createRun, computeTotals, effectiveLimits,
   aggregateRefusal, controlRefusal, epochRefusal, nextEpoch,
+  GRAPH_TASKS_LIMIT, refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
 };

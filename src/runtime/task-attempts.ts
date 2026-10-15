@@ -24,9 +24,10 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
-const { buildGraph, deriveTasks, isGraphPlan, graphDigest, graphTuples } = require('./task-graph.ts');
+const { buildGraph, deriveTasks, isGraphPlan } = require('./task-graph.ts');
 const {
-  runKeyFor, refuseWorker, createRun, computeTotals, aggregateRefusal, controlRefusal, epochRefusal,
+  runKeyFor, refuseWorker, computeTotals, aggregateRefusal, controlRefusal, epochRefusal,
+  refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
 } = require('./task-run.ts');
 const { findWorkTreeTop } = require('./source-version.ts');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
@@ -257,9 +258,6 @@ function rootsFor({ cwd, lifecycleRoot }: any) {
   return uniq([path.resolve(cwd), lifecycleRoot]);
 }
 
-/** IC-004: above this many tasks a run stores `graphTasks: null` and `graphTruncated: true`. */
-const GRAPH_TASKS_LIMIT = 500;
-
 /** The caller's run record, or null. Own keys only, so a run key never reaches the prototype. */
 function runOf(store: any, runKey: string) {
   return store.runs && Object.prototype.hasOwnProperty.call(store.runs, runKey) ? store.runs[runKey] : null;
@@ -342,12 +340,7 @@ function claimChecks(store: any, c: any) {
  */
 function claimWrite(store: any, c: any, ok: any) {
   const { plan, graphPlan, task, owner, mode, key, execWorktree, reserveTokens, now } = c;
-  if (!store.runs) store.runs = {};
-  let run = runOf(store, key.runKey);
-  if (!run) {
-    run = createRun(key, null, now, { epoch: 0 });
-    store.runs[key.runKey] = run;
-  }
+  const run = ensureRun(store, key, now);
   const entry = entryFor(store, task);
   const token = entry.nextToken;
   entry.nextToken += 1;
@@ -360,15 +353,7 @@ function claimWrite(store: any, c: any, ok: any) {
   if (reserveTokens !== null) attempt.reserve = { tokens: reserveTokens };
   entry.attempts.push(attempt);
   store.planPath = plan.planPath;
-  run.graphDigest = graphDigest(plan.graph);
-  if (plan.graph.tasks.length > GRAPH_TASKS_LIMIT) {
-    run.graphTasks = null;
-    run.graphTruncated = true;
-  } else {
-    run.graphTasks = graphTuples(plan.graph);
-    delete run.graphTruncated;
-  }
-  run.totals = computeTotals(store, key.runKey);
+  refreshRun(store, run, plan.graph);
   const claimed: any = { disposition: 'claimed', taskId: task, token, revision: store.revision };
   // A legacy plan's result keeps the 8ce5ad7 shape (FR-015); the run fields are on the attempt.
   if (graphPlan) Object.assign(claimed, { runKey: key.runKey, epoch: attempt.epoch, execWorktree: attempt.execWorktree });
@@ -502,6 +487,126 @@ function release({ file, fsImpl, task, token, reason, tokens, basis, env = proce
   });
 }
 
+// ── run controls and reopen (IC-012, IC-024, IC-026; DEC-005, DEC-009) ──────────────────────────
+//
+// Flags, the plan and the run key are resolved before the lock; the decision and the write are one
+// `mutate()`. Each identity, control and token refusal returns `write: false`.
+
+function requireBy(by: any) {
+  if (!by || !SAFE_NAME.test(String(by))) throw new TaskAttemptError('usage', '--by is required: the name of the agent or person acting on the run');
+  return String(by);
+}
+
+function requireReason(reason: any, what: string) {
+  const why = given(reason) ? String(reason).trim() : '';
+  if (!why) throw new TaskAttemptError('usage', `--reason is required: ${what}`);
+  return why;
+}
+
+function requireTaskToken(task: any, token: any) {
+  if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
+  if (!Number.isInteger(token) || token < 1) throw new TaskAttemptError('usage', '--token is required: the attempt token');
+}
+
+function budgetLimit(value: any, flag: string) {
+  if (!given(value)) return null;
+  if (!Number.isInteger(value) || value < 1) throw new TaskAttemptError('usage', `${flag} expects a whole number of at least 1, got '${value}'`);
+  return value;
+}
+
+/** IC-012 `start`: the caller's run with `epoch: 1`, or `run-exists`. */
+function start({ file, fsImpl, roots, slug, by, budgetAttempts, budgetTokens, env = process.env, cwd = process.cwd(), now = new Date() }: any) {
+  const who = requireBy(by);
+  const budget = { attempts: budgetLimit(budgetAttempts, '--budget-attempts'), tokens: budgetLimit(budgetTokens, '--budget-tokens') };
+  const plan = loadPlan({ roots, slug, fsImpl });
+  const key = runKeyFor(env, cwd);
+  return mutate({ file, fsImpl, apply: (store: any) => startRun(store, { key, graph: plan.graph, by: who, budget, now }) });
+}
+
+/** IC-012 `pause`: claims refuse until an acknowledged resume; active attempts still finish. */
+function pause({ file, fsImpl, roots, slug, by, reason, env = process.env, cwd = process.cwd(), now = new Date() }: any) {
+  const who = requireBy(by);
+  const why = requireReason(reason, 'why the run is being paused');
+  const plan = loadPlan({ roots, slug, fsImpl });
+  const key = runKeyFor(env, cwd);
+  return mutate({ file, fsImpl, apply: (store: any) => pauseRun(store, { key, graph: plan.graph, by: who, reason: why, now }) });
+}
+
+/** IC-012 `cancel`: one attempt when `task` or `token` is given, else the whole run. Marks
+ * attempts only; ending a worker process is 081's. */
+function cancel({ file, fsImpl, roots, slug, task, token, by, reason, adoptUnowned = false, env = process.env, cwd = process.cwd(), now = new Date() }: any) {
+  const who = requireBy(by);
+  const why = requireReason(reason, 'why the run or attempt is being cancelled');
+  const single = given(task) || given(token);
+  if (single) {
+    requireTaskToken(task, token);
+    if (adoptUnowned) throw new TaskAttemptError('usage', '--adopt-unowned applies to a run cancel, not to one attempt');
+  }
+  const plan = loadPlan({ roots, slug, fsImpl });
+  const key = runKeyFor(env, cwd);
+  return mutate({
+    file, fsImpl,
+    apply: (store: any) => (single
+      ? cancelAttempt(store, { key, graph: plan.graph, task, token, by: who, reason: why, now })
+      : cancelRun(store, { key, graph: plan.graph, by: who, reason: why, adoptUnowned: Boolean(adoptUnowned), now })),
+  });
+}
+
+/** Task ids that depend on `taskId`, directly or through another dependent: an explicit
+ * `depends-on:` naming it, or no `depends-on:` and a later phase. */
+function dependentsOf(graph: any, taskId: string) {
+  const found = new Set<string>();
+  const queue = [taskId];
+  while (queue.length) {
+    const id = queue.shift() as string;
+    const of = graph.tasks.find((t: any) => t.id === id);
+    for (const t of graph.tasks) {
+      if (found.has(t.id) || t.id === taskId) continue;
+      const waits = t.taskDeps.length ? t.taskDeps.includes(id) : t.phaseIndex > of.phaseIndex;
+      if (waits) { found.add(t.id); queue.push(t.id); }
+    }
+  }
+  return graph.tasks.filter((t: any) => found.has(t.id)).map((t: any) => t.id);
+}
+
+/**
+ * IC-024 / DEC-009: the task's done attempt (stale or not) becomes `superseded`, so the task is no
+ * longer done and the attempt counts toward the task budget (IC-008). Available in every plan.
+ * `dependentsActive` names active attempts of dependent tasks; the caller decides about them.
+ */
+function reopen({ file, fsImpl, roots, slug, task, token, by, reason, env = process.env, cwd = process.cwd(), now = new Date() }: any) {
+  requireTaskToken(task, token);
+  const who = requireBy(by);
+  const why = requireReason(reason, 'why the done task is being reopened');
+  const plan = loadPlan({ roots, slug, fsImpl });
+  const key = runKeyFor(env, cwd);
+  return mutate({
+    file, fsImpl,
+    apply: (store: any) => {
+      const refuse = (reasonCode: string, extra: any = {}) => ({ write: false, result: { disposition: 'refused', taskId: task, token, reason: reasonCode, ...extra } });
+      const identity = identityRefusal(key.identity);
+      if (identity) return refuse(identity.reason);
+      if (!plan.tasks.some((t: any) => t.id === task)) return refuse('unknown-task');
+      const done = doneAttempt(store.tasks[task]);
+      if (!done) return refuse('not-done');
+      if (done.token !== token) return refuse('token-mismatch', { doneToken: done.token });
+      const existing = runOf(store, key.runKey);
+      if (existing && existing.control === 'cancelled') return refuse('run-cancelled', { runKey: key.runKey });
+      const run = ensureRun(store, key, now);
+      const at = now.toISOString();
+      done.state = 'superseded';
+      done.reopen = { at, by: who, reason: why, runKey: key.runKey };
+      run.history.push({ at, action: 'reopen', by: who, reason: why, taskId: task, token });
+      refreshRun(store, run, plan.graph);
+      const dependentsActive = dependentsOf(plan.graph, task)
+        .map((id: string) => ({ id, active: activeAttempt(store.tasks[id]) }))
+        .filter((d: any) => d.active)
+        .map((d: any) => ({ taskId: d.id, token: d.active.token }));
+      return { write: true, result: { disposition: 'reopened', taskId: task, token, dependentsActive } };
+    },
+  });
+}
+
 /** Completion read from the ledger and the plan, never from checkboxes (FR-005). Each task keeps
  * the pre-080 fields and adds IC-005's `state`, `reason`, `claimable`, `budget` and, where
  * present, `held`, `unmet` and `doneStale`. */
@@ -614,6 +719,7 @@ function handleTaskAttemptCommand({
 }
 
 module.exports = {
-  handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, loadPlan, taskLineHash,
+  handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, start, pause, cancel, reopen,
+  loadPlan, taskLineHash,
   storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS, USAGE_BASES, RUN_CONTROLS, activeAttempt,
 };
