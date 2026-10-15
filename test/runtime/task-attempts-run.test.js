@@ -15,7 +15,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { claim, TaskAttemptError } = require('../../src/runtime/task-attempts.ts');
-const { runKeyFor, createRun } = require('../../src/runtime/task-run.ts');
+const { runKeyFor, createRun, epochRefusal } = require('../../src/runtime/task-run.ts');
 const { graphDigest, graphTuples, buildGraph } = require('../../src/runtime/task-graph.ts');
 const { parsePlan } = require('../../src/runtime/scaffold/artifacts.ts');
 
@@ -102,6 +102,18 @@ test('a graph-plan claim with no run, no epoch or an old epoch is resume-require
   });
   assert.equal(p.read().tasks['A.1'].attempts[0].epoch, 2);
   assert.throws(() => p.take('A.2', { epoch: -1 }), (e) => e instanceof TaskAttemptError && e.code === 'usage');
+});
+
+test('DEC-019 epoch-zero-never-matches: an epoch-0 run (as reopen or pause creates it) refuses claim({ epoch: 0 })', (t) => {
+  const p = project(t, planText());
+  p.seed({ runs: { [p.key.runKey]: p.runRecord({ epoch: 0 }) } });
+  const before = fs.readFileSync(p.file);
+  assert.throws(() => p.take('A.1', { epoch: 0 }), (e) => e instanceof TaskAttemptError && e.code === 'usage');
+  assert.deepEqual(unchanged(p, () => p.take('A.1', { epoch: 1 })),
+    { disposition: 'refused', taskId: 'A.1', reason: 'resume-required', runKey: p.key.runKey, epoch: 0 });
+  assert.deepEqual(fs.readFileSync(p.file), before);
+  const run0 = p.read().runs[p.key.runKey];
+  assert.deepEqual(epochRefusal(run0, p.key.runKey, 0), { reason: 'resume-required', runKey: p.key.runKey, epoch: 0 });
 });
 
 test('a legacy plan accepts any --epoch, keeps the 8ce5ad7 result and creates its run record', (t) => {

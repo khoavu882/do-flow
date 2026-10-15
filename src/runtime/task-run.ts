@@ -165,9 +165,11 @@ function controlRefusal(run: any, runKey: string) {
 }
 
 /** IC-025 / DEC-007, IC-006 step 8 (graph plans only): the run must exist and `epoch` must equal
- * its epoch. Absent, old or future epochs are all `resume-required`, naming the current one. */
+ * its epoch. Absent, old or future epochs are all `resume-required`, naming the current one.
+ * DEC-019 epoch-zero-never-matches: an epoch-0 run (created by a legacy claim or a control) has
+ * never been started or resumed, so it matches no epoch. */
 function epochRefusal(run: any, runKey: string, epoch?: number | null) {
-  if (run && Number.isInteger(epoch) && epoch === run.epoch) return null;
+  if (run && Number.isInteger(run.epoch) && run.epoch >= 1 && Number.isInteger(epoch) && epoch === run.epoch) return null;
   return { reason: 'resume-required', runKey, epoch: run ? run.epoch : null };
 }
 

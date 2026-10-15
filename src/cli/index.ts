@@ -325,8 +325,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--epoch', 'epoch'],                // claim: the run epoch the caller was handed
   ['--reserve-tokens', 'reserveTokens'], // claim: tokens held against the run's budget while active
   ['--exec-worktree', 'execWorktree'], // claim: the worktree the attempt executes in
-  ['--tokens', 'tokens'],              // finish|release: tokens the attempt used, as reported
-  ['--tokens-basis', 'tokensBasis'],   // finish|release: measured | estimated
+  ['--tokens', 'tokens'],              // finish|release|report-usage: tokens the attempt used, as reported
+  ['--tokens-basis', 'tokensBasis'],   // finish|release|report-usage: measured | estimated
   ['--budget-attempts', 'budgetAttempts'], // start: the run's attempt limit
   ['--budget-tokens', 'budgetTokens'], // start: the run's token limit
   ['--by', 'by'],                      // start|pause|cancel|reopen|resume: who acts on the run
@@ -440,7 +440,7 @@ Commands:
   workflow             Resolve a task class to its stages, gates and readiness templates
   orchestrate          Start or resume a run: complete stages, decide gates (--action)
   research-request     Open, list or resolve a feature-stage research question (--task-id)
-  task-attempt         Claim, finish, release, run controls, resume, inspect or reopen a plan's task attempts (--action, --slug)
+  task-attempt         Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts (--action, --slug)
   retrieve             BM25 search over the installed guidance tree (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
   advise               Route decision questions to the configured local model (--action)
@@ -497,7 +497,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        verify: report|contract · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
                        followup: add|list|take|settle|promote|report
-                       task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen
+                       task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
@@ -513,6 +513,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             pause: --by --reason; cancel: --by --reason, one attempt with
                                             --task --token, else the run [--adopt-unowned];
                                             reopen: --task --token --by --reason;
+                                            report-usage: --task --token --tokens <n> --tokens-basis
+                                            measured|estimated, once on an ended attempt with no usage;
                                             resume: report and digest, then --ack sha256:<hex> --by [--reason];
                                             inspect: graph, task states, budgets and run totals.
                                             Exit 0 applied or read; 1 refused, stale or ack-required, the

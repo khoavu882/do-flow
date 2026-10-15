@@ -41,7 +41,7 @@ const MODES = Object.freeze(['manual', 'sequential', 'subagent']);
 const RESULTS = Object.freeze(['COMPLETED', 'BLOCKED', 'ABANDONED', 'INCONCLUSIVE', 'FAILED']);
 const USAGE_BASES = Object.freeze(['measured', 'estimated']);
 const RUN_CONTROLS = Object.freeze(['running', 'paused', 'cancelled']);
-const ACTIONS = Object.freeze(['claim', 'finish', 'release', 'status', 'start', 'pause', 'cancel', 'resume', 'inspect', 'reopen']);
+const ACTIONS = Object.freeze(['claim', 'finish', 'release', 'status', 'start', 'pause', 'cancel', 'resume', 'inspect', 'reopen', 'report-usage']);
 const TASK_ID = /^[A-Za-z]+\.\d+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 
@@ -271,19 +271,23 @@ function runOf(store: any, runKey: string) {
 }
 
 /** IC-026: `--exec-worktree` made absolute against `cwd`, then lifted to its worktree top. A path
- * that does not exist is exit 2 `usage`. Runs before the lock. */
+ * that is not an existing directory is exit 2 `usage` (DEC-023 exec-worktree-directory). Runs
+ * before the lock. */
 function resolveExecWorktree(execWorktree: any, cwd: string, fsImpl: any) {
   if (!given(execWorktree)) return null;
   const absolute = path.resolve(cwd, String(execWorktree));
   if (String(execWorktree).trim() === '' || !fsImpl.existsSync(absolute)) {
     throw new TaskAttemptError('usage', `--exec-worktree '${execWorktree}' does not exist`);
   }
+  if (!fsImpl.statSync(absolute).isDirectory()) {
+    throw new TaskAttemptError('usage', `--exec-worktree '${execWorktree}' is not a directory`);
+  }
   return findWorkTreeTop(absolute).top ?? absolute;
 }
 
-function wholeNumber(value: any, flag: string) {
+function wholeNumber(value: any, flag: string, min = 0) {
   if (!given(value)) return null;
-  if (!Number.isInteger(value) || value < 0) throw new TaskAttemptError('usage', `${flag} expects a whole number of at least 0, got '${value}'`);
+  if (!Number.isInteger(value) || value < min) throw new TaskAttemptError('usage', `${flag} expects a whole number of at least ${min}, got '${value}'`);
   return value;
 }
 
@@ -390,7 +394,8 @@ function claim({
   if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
   if (!owner || !SAFE_NAME.test(owner)) throw new TaskAttemptError('usage', '--owner is required: the name of the agent or person taking the task');
   if (!MODES.includes(mode)) throw new TaskAttemptError('usage', `--mode is required: one of ${MODES.join(', ')}`);
-  const epochGiven = wholeNumber(epoch, '--epoch');
+  // DEC-019: --epoch is at least 1 in-process, as on the CLI; no run ever holds epoch 0 to match.
+  const epochGiven = wholeNumber(epoch, '--epoch', 1);
   const reserve = wholeNumber(reserveTokens, '--reserve-tokens');
   const plan = loadPlan({ roots, slug, fsImpl });
   const graphPlan = isGraphPlan(plan.graph);
@@ -493,6 +498,8 @@ function release({ file, fsImpl, roots, slug, task, token, reason, tokens, basis
   if (!reason || !String(reason).trim()) throw new TaskAttemptError('usage', '--reason is required: why the attempt is being released');
   const reported = readUsage(tokens, basis);
   const identity = reported ? callerIdentity(env, cwd) : null;
+  // DEC-020 release-without-plan: never a precondition; read before the lock, null when unloadable.
+  const plan = planOrNull({ roots, slug, fsImpl });
   return mutate({
     file, fsImpl,
     apply: (store: any) => {
@@ -504,10 +511,61 @@ function release({ file, fsImpl, roots, slug, task, token, reason, tokens, basis
       active.reason = String(reason).trim();
       active.endedAt = now.toISOString();
       active.usage = reported ? { ...reported, reporter: `${identity.role}:${identity.lineage}` } : null;
-      // IC-009: every locked write stores totals recomputed from the attempt list.
+      // IC-009: every locked write stores totals recomputed from the attempt list. DEC-020: with an
+      // unloadable plan only the totals are refreshed; the recorded graph is kept.
       const run = active.runKey ? runOf(store, active.runKey) : null;
-      if (run) refreshRun(store, run, loadPlan({ roots, slug, fsImpl }).graph);
+      if (run) refreshRunOrTotals(store, run, plan);
       return { write: true, result: { disposition: 'released', taskId: task, token, revision: store.revision } };
+    },
+  });
+}
+
+/** DEC-020 release-without-plan: the plan when it loads, else null for a malformed or unreadable
+ * one. Other failures (a store problem, a bug) still throw. */
+function planOrNull(args: any) {
+  try { return loadPlan(args); } catch (error: any) {
+    if (error instanceof TaskAttemptError && (error.code === 'plan-malformed' || error.code === 'plan-unreadable')) return null;
+    throw error;
+  }
+}
+
+/** IC-004 / IC-009 refresh with a loaded plan; with none (DEC-020), the totals only. */
+function refreshRunOrTotals(store: any, run: any, plan: any) {
+  if (plan) refreshRun(store, run, plan.graph);
+  else run.totals = computeTotals(store, run.runKey);
+}
+
+/**
+ * DEC-018 unreported-usage-recovery: `report-usage` writes caller-reported usage onto an ended
+ * attempt that has none, so a run under a token limit that DEC-011 refuses as
+ * `aggregate-unaccounted` can recover. Any plan; fenced by the token alone (like finish, IC-026),
+ * so a worker may report. Never overwrites. The owning run's totals are refreshed in the same
+ * locked write; like release (DEC-020) an unloadable plan refreshes totals only.
+ */
+function reportUsage({ file, fsImpl, roots, slug, task, token, tokens, basis, env = process.env, cwd = process.cwd() }: any) {
+  if (!TASK_ID.test(task || '')) throw new TaskAttemptError('usage', '--task is required: a plan task id such as A.1');
+  if (!Number.isInteger(token) || token < 1) throw new TaskAttemptError('usage', '--token is required: the token of the ended attempt');
+  if (!given(tokens) || !given(basis)) throw new TaskAttemptError('usage', '--tokens and --tokens-basis are required: the usage to record');
+  const reported = readUsage(tokens, basis);
+  const identity = callerIdentity(env, cwd);
+  const plan = planOrNull({ roots, slug, fsImpl });
+  return mutate({
+    file, fsImpl,
+    apply: (store: any) => {
+      const refuse = (reasonCode: string) => ({ write: false, result: { disposition: 'refused', taskId: task, token, reason: reasonCode } });
+      const entry = Object.prototype.hasOwnProperty.call(store.tasks, task) ? store.tasks[task] : null;
+      // A task the plan no longer lists may still hold an unreported attempt, so the ledger counts too.
+      const known = plan ? plan.tasks.some((t: any) => t.id === task) : false;
+      if (!known && !entry) return refuse('unknown-task');
+      const attempt = entry ? entry.attempts.find((a: any) => a.token === token) || null : null;
+      if (!attempt) return stale(task, token, 'no-attempt');
+      if (attempt.state === 'active') return refuse('active-attempt');
+      if (attempt.state === 'cancelled') return stale(task, token, 'attempt-cancelled');
+      if (attempt.usage) return refuse('usage-present');
+      attempt.usage = { ...reported, reporter: `${identity.role}:${identity.lineage}` };
+      const run = attempt.runKey ? runOf(store, attempt.runKey) : null;
+      if (run) refreshRunOrTotals(store, run, plan);
+      return { write: true, result: { disposition: 'usage-recorded', taskId: task, token, revision: store.revision } };
     },
   });
 }
@@ -733,7 +791,7 @@ function describe(result: any) {
 }
 
 /** IC-017: the dispositions that exit 0. `status` and `inspect` are reads and always exit 0. */
-const APPLIED = Object.freeze(['claimed', 'applied', 'released', 'started', 'paused', 'cancelled', 'resumed', 'reopened']);
+const APPLIED = Object.freeze(['claimed', 'applied', 'released', 'started', 'paused', 'cancelled', 'resumed', 'reopened', 'usage-recorded']);
 
 /**
  * IC-017: the actions each flag may be given to. The 080 flags are refused on every other action;
@@ -745,8 +803,8 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = {
   epoch: { flag: '--epoch', actions: ['claim'] },
   execWorktree: { flag: '--exec-worktree', actions: ['claim'] },
   reserveTokens: { flag: '--reserve-tokens', actions: ['claim'] },
-  tokens: { flag: '--tokens', actions: ['finish', 'release'] },
-  tokensBasis: { flag: '--tokens-basis', actions: ['finish', 'release'] },
+  tokens: { flag: '--tokens', actions: ['finish', 'release', 'report-usage'] },
+  tokensBasis: { flag: '--tokens-basis', actions: ['finish', 'release', 'report-usage'] },
   by: { flag: '--by', actions: ['start', 'pause', 'cancel', 'reopen', 'resume'] },
   budgetAttempts: { flag: '--budget-attempts', actions: ['start'] },
   budgetTokens: { flag: '--budget-tokens', actions: ['start'] },
@@ -755,8 +813,8 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = {
 };
 const PRE_080_ACTIONS = Object.freeze(['claim', 'finish', 'release', 'status']);
 const PRE_080_FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = {
-  task: { flag: '--task', actions: ['cancel', 'reopen'] },
-  token: { flag: '--token', actions: ['cancel', 'reopen'] },
+  task: { flag: '--task', actions: ['cancel', 'reopen', 'report-usage'] },
+  token: { flag: '--token', actions: ['cancel', 'reopen', 'report-usage'] },
   reason: { flag: '--reason', actions: ['pause', 'cancel', 'reopen', 'resume'] },
   owner: { flag: '--owner', actions: [] },
   mode: { flag: '--mode', actions: [] },
@@ -837,6 +895,7 @@ function handleTaskAttemptCommand({
       case 'pause': answer = pause({ ...common, by, reason }); break;
       case 'cancel': answer = cancel({ ...common, task, token: tokenNumber, by, reason, adoptUnowned: Boolean(adoptUnowned) }); break;
       case 'reopen': answer = reopen({ ...common, task, token: tokenNumber, by, reason }); break;
+      case 'report-usage': answer = reportUsage({ ...common, task, token: tokenNumber, ...usage }); break;
       case 'resume': answer = resume({ ...common, ack, by, reason }); break;
       case 'inspect': answer = inspect(common); break;
       default: answer = status(common);
@@ -861,7 +920,7 @@ function handleTaskAttemptCommand({
 }
 
 module.exports = {
-  handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, start, pause, cancel, reopen, resume, inspect,
+  handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, start, pause, cancel, reopen, resume, inspect, reportUsage,
   loadPlan, taskLineHash,
   storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS, USAGE_BASES, RUN_CONTROLS, activeAttempt,
 };

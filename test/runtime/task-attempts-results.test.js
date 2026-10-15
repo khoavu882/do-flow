@@ -135,6 +135,24 @@ test('a store with a well-formed runs map loads, keeps version 1 and keeps runs 
   assert.deepEqual(Object.keys(after.runs).sort(), ['h/r1/main', after.tasks['A.1'].attempts[0].runKey].sort());
 });
 
+test('DEC-020 release-without-plan: release with a malformed plan is released, refreshes totals and keeps the recorded graph', (t) => {
+  const p = project(t);
+  const claimed = claim({ ...p.common, task: 'A.1', owner: 'core-implementer', mode: 'subagent' });
+  assert.equal(claimed.disposition, 'claimed');
+  const runKey = Object.keys(p.read().runs)[0];
+  const before = p.read().runs[runKey];
+  fs.writeFileSync(path.join(p.dir, 'agent-docs', 'doflow', SLUG, 'plan.md'),
+    PLAN.replace('- [ ] A.2 second task; owner: core-implementer; files: b.js', '- [ ] A.2 second task; owner: core-implementer; files: b.js; depends-on: Z.9'));
+  assert.throws(() => loadPlan({ roots: p.common.roots, slug: SLUG }), (e) => e.code === 'plan-malformed');
+  const freed = release({ ...p.common, task: 'A.1', token: claimed.token, reason: 'plan is broken', tokens: 3, basis: 'estimated' });
+  assert.equal(freed.disposition, 'released');
+  const after = p.read().runs[runKey];
+  assert.equal(after.graphDigest, before.graphDigest);
+  assert.deepEqual(after.graphTasks, before.graphTasks);
+  assert.equal(after.totals.tokens.estimated, 3);
+  assert.equal(p.read().tasks['A.1'].attempts[0].state, 'released');
+});
+
 test('a legacy store without runs and with pre-080 attempts loads as it is', (t) => {
   const p = project(t);
   p.seed({ tasks: { 'A.1': { nextToken: 2, attempts: [p.attempt(1, 'finished', { result: 'BLOCKED' })] } } });
