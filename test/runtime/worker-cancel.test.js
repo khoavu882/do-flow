@@ -19,7 +19,7 @@ const { tempDir } = require('../helper/tmp.js');
 const { linkBin, writeScenario, IDENTITY_VARS } = require('../helper/fake-harness-cli.js');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
-const { cancelRun, mergeCleanup } = require(path.join(SRC, 'worker', 'cancel.ts'));
+const { cancelRun, mergeCleanup, LAUNCH_WAIT_MS } = require(path.join(SRC, 'worker', 'cancel.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
@@ -238,12 +238,36 @@ test('a recorded supervisorCleanup resolves the starting verdict at the end', as
   const p = project(t);
   const runId = p.seed({
     phase: 'starting', launchingAt: new Date().toISOString(),
-    supervisorCleanup: { at: new Date().toISOString(), worker: { pid: 1, pgid: 1, start: null }, survivors: [], zombies: [] },
+    supervisorCleanup: { at: new Date().toISOString(), worker: { pid: 1, pgid: 1, start: null }, status: 'verified', reason: null, survivors: [], zombies: [] },
   });
   const answer = await p.cancel(runId, { escalate: spies().escalate });
   assert.equal(answer.cleanup.status, 'verified');
   assert.deepEqual(mergeCleanup({ status: 'verified', reason: null, survivors: [], zombies: [] }, { survivors: [7], zombies: [] }).survivors, [7]);
   assert.equal(mergeCleanup({ status: 'verified', reason: null, survivors: [], zombies: [] }, { survivors: [7], zombies: [] }).status, 'survivors');
+});
+
+test('an unknown supervisorCleanup never promotes an unknown cleanup to verified (S-9, DEC-059)', async (t) => {
+  const unknown = { status: 'unknown', reason: 'worker-unrecorded', survivors: [], zombies: [] };
+  for (const reason of ['ps-failed', 'win32', 'no-leader-start']) {
+    const merged = mergeCleanup(unknown, { status: 'unknown', reason, survivors: [], zombies: [] });
+    assert.equal(merged.status, 'unknown', reason);
+    assert.equal(merged.reason, 'worker-unrecorded');
+  }
+  assert.equal(mergeCleanup({ status: 'unknown', survivors: [] }, { status: 'unknown', reason: 'ps-failed', survivors: [] }).status, 'unknown');
+  assert.equal(mergeCleanup(unknown, { status: 'verified', reason: null, survivors: [], zombies: [] }).status, 'verified');
+  assert.equal(mergeCleanup(unknown, { status: 'unknown', reason: 'ps-failed', survivors: [9], zombies: [] }).status, 'survivors');
+
+  const p = project(t);
+  const runId = p.seed({
+    phase: 'starting', launchingAt: new Date().toISOString(),
+    supervisorCleanup: { at: new Date().toISOString(), worker: { pid: 1, pgid: 1, start: null }, status: 'unknown', reason: 'ps-failed', survivors: [], zombies: [] },
+  });
+  const answer = await p.cancel(runId, { escalate: spies().escalate });
+  assert.equal(answer.cleanup.status, 'unknown');
+});
+
+test('LAUNCH_WAIT_MS covers the grace, the final wait and two ps bounds (S-11, DEC-064)', () => {
+  assert.ok(LAUNCH_WAIT_MS >= tree.KILL_GRACE_MS + tree.KILL_FINAL_MS + 2 * tree.PS_TIMEOUT_MS, `LAUNCH_WAIT_MS is ${LAUNCH_WAIT_MS}`);
 });
 
 test('a foreign run key, a solo lineage and a worker role are refused with nothing signalled or written', async (t) => {

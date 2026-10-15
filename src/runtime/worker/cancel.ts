@@ -23,8 +23,9 @@ const attempts = require('../task-attempts.ts');
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 /** A `cancelling` run whose request is younger than this belongs to the canceller that holds it. */
 const CANCEL_TAKEOVER_MS = 30000;
-/** How long a cancel of a launching run waits for its supervisor (IC-021 step 3, DEC-040). */
-const LAUNCH_WAIT_MS = processTree.KILL_GRACE_MS + 1000;
+/** How long a cancel of a launching run waits for its supervisor: its own escalation of a
+ * SIGTERM-ignoring worker, both waits and both `ps` bounds (IC-021 step 3, DEC-040, DEC-064). */
+const LAUNCH_WAIT_MS = processTree.KILL_GRACE_MS + processTree.KILL_FINAL_MS + 2 * processTree.PS_TIMEOUT_MS;
 const SOURCES = Object.freeze(['user', 'timeout']);
 
 /** Thrown inside a locked transition to abandon it with a refusal and no write. */
@@ -69,16 +70,21 @@ function union(a: any[] = [], b: any[] = []) {
 }
 
 /**
- * IC-014's add-only rule: a recorded `supervisorCleanup` may only add to `cleanup`. An `unknown`
- * status becomes `verified` with no survivors or `survivors` with them; a `verified` one becomes
- * `survivors` when the supervisor found any; the survivor and zombie lists are unions.
+ * IC-014's add-only rule (DEC-059): a recorded `supervisorCleanup` may only add to `cleanup`. An
+ * `unknown` status becomes `verified` only when `supervisorCleanup.status` is `verified`, becomes
+ * `survivors` when the supervisor found any, and otherwise stays `unknown` with its own reason; a
+ * `verified` one becomes `survivors` when the supervisor found any; the lists are unions.
  */
 function mergeCleanup(cleanup: any, supervisorCleanup: any) {
   if (!supervisorCleanup) return cleanup;
   const survivors = union(cleanup?.survivors, supervisorCleanup.survivors);
   const zombies = union(cleanup?.zombies, supervisorCleanup.zombies);
-  const status = survivors.length ? 'survivors' : (cleanup?.status === 'survivors' ? 'survivors' : 'verified');
-  return { status, reason: status === 'verified' || status === 'survivors' ? null : cleanup?.reason ?? null, survivors, zombies };
+  let status: string;
+  if (survivors.length || cleanup?.status === 'survivors') status = 'survivors';
+  else if (cleanup?.status === 'verified' || supervisorCleanup.status === 'verified') status = 'verified';
+  else status = 'unknown';
+  const reason = status === 'unknown' ? cleanup?.reason ?? supervisorCleanup.reason ?? null : null;
+  return { status, reason, survivors, zombies };
 }
 
 /** Polls the store until the supervisor has exited or recorded `supervisorCleanup`, up to `budgetMs`. */
