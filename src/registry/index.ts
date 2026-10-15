@@ -650,6 +650,8 @@ function validateCoverage(value: any, lifecycle: any[], harnessIds: Set<string>,
   if (typeof value.rowsDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value.rowsDigest)) issue(errors, `${at}.rowsDigest`, 'must be sha256 followed by 64 lowercase hex characters');
   if (!object(value.refresh) || typeof value.refresh.trigger !== 'string' || !value.refresh.trigger.trim() || typeof value.refresh.owner !== 'string' || !value.refresh.owner.trim()) issue(errors, `${at}.refresh`, 'requires non-empty trigger and owner');
   if (!object(value.profiles) || [...COVERAGE_PROFILES].some((profile) => typeof value.profiles?.[profile] !== 'string' || !value.profiles[profile].trim())) issue(errors, `${at}.profiles`, 'must define every supported profile with a non-empty meaning');
+  if (value.endOfTurn !== undefined) validateEndOfTurn(value.endOfTurn, `${at}.endOfTurn`, harnessIds, errors);
+  if (value.behaviours !== undefined) validateBehaviours(value.behaviours, `${at}.behaviours`, harnessIds, errors);
   if (!Array.isArray(value.rows)) { issue(errors, `${at}.rows`, 'must be an array'); return; }
   const keys = new Set<string>();
   for (const [index, row] of value.rows.entries()) {
@@ -672,6 +674,56 @@ function validateCoverage(value: any, lifecycle: any[], harnessIds: Set<string>,
     if (keys.has(key)) issue(errors, rowAt, 'duplicates a policy/harness/event/profile tuple');
     keys.add(key);
   }
+}
+
+const nonEmptyString = (item: any): boolean => typeof item === 'string' && item.trim() !== '';
+const provenanceItemOk = (item: any): boolean => object(item) && COVERAGE_KINDS.has(item.kind) && nonEmptyString(item.locator)
+  && (!['doc', 'types', 'live'].includes(item.kind) || (typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date)));
+
+/** Each registry harness appears exactly once under `key`; reports missing, unknown and duplicate entries. */
+function oncePerHarness(entries: any[], at: string, harnessIds: Set<string>, key: (entry: any) => string, label: (entry: any) => string, groups: string[], errors: string[]): void {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!object(entry)) continue;
+    const id = key(entry);
+    if (seen.has(id)) issue(errors, at, `duplicates ${label(entry)}`);
+    seen.add(id);
+  }
+  for (const group of groups) for (const harness of harnessIds) if (!seen.has(JSON.stringify([group, harness]))) issue(errors, at, `missing an entry for ${group ? `${group} × ` : ''}harness '${harness}'`);
+}
+
+/** IC-017: one end-of-turn entry per harness; `none` when no event, provenance when any. */
+function validateEndOfTurn(value: any, at: string, harnessIds: Set<string>, errors: string[]): void {
+  if (!Array.isArray(value)) { issue(errors, at, 'must be an array'); return; }
+  for (const [index, entry] of value.entries()) {
+    const entryAt = `${at}[${index}]`;
+    if (!object(entry)) { issue(errors, entryAt, 'must be an object'); continue; }
+    if (!harnessIds.has(entry.harness)) issue(errors, `${entryAt}.harness`, 'must name a registry harness');
+    if (!Array.isArray(entry.events) || !entry.events.every(nonEmptyString)) { issue(errors, `${entryAt}.events`, 'must be an array of event names'); continue; }
+    if (!Array.isArray(entry.provenance) || !entry.provenance.every(provenanceItemOk)) issue(errors, `${entryAt}.provenance`, 'must be an array of well-formed provenance items');
+    if (entry.events.length === 0 && !nonEmptyString(entry.none)) issue(errors, `${entryAt}.none`, 'is required, non-empty, when events is empty');
+    if (entry.events.length > 0 && !(Array.isArray(entry.provenance) && entry.provenance.some((item: any) => object(item) && ['doc', 'types'].includes(item.kind)))) issue(errors, `${entryAt}.provenance`, 'needs a doc or types item when events is non-empty');
+  }
+  oncePerHarness(value, at, harnessIds, (entry) => JSON.stringify(['', entry.harness]), (entry) => `harness '${entry.harness}'`, [''], errors);
+}
+
+const COVERAGE_BEHAVIOURS = Object.freeze(['context-authority', 'default-silence', 'summary-scope', 'summary-grant', 'identity', 'check-freshness']);
+
+/** IC-018: one entry per behaviour × harness; `enforced` names tests, `limitation` states its reason. */
+function validateBehaviours(value: any, at: string, harnessIds: Set<string>, errors: string[]): void {
+  if (!Array.isArray(value)) { issue(errors, at, 'must be an array'); return; }
+  for (const [index, entry] of value.entries()) {
+    const entryAt = `${at}[${index}]`;
+    if (!object(entry)) { issue(errors, entryAt, 'must be an object'); continue; }
+    if (!COVERAGE_BEHAVIOURS.includes(entry.behaviour)) issue(errors, `${entryAt}.behaviour`, `must be one of ${COVERAGE_BEHAVIOURS.join(', ')}`);
+    if (!harnessIds.has(entry.harness)) issue(errors, `${entryAt}.harness`, 'must name a registry harness');
+    if (entry.status === 'enforced') {
+      if (!Array.isArray(entry.tests) || entry.tests.length === 0 || !entry.tests.every(nonEmptyString)) issue(errors, `${entryAt}.tests`, 'must be a non-empty array of test paths when enforced');
+    } else if (entry.status === 'limitation') {
+      if (!nonEmptyString(entry.limitation)) issue(errors, `${entryAt}.limitation`, 'must be non-empty when status is limitation');
+    } else issue(errors, `${entryAt}.status`, 'must be enforced or limitation');
+  }
+  oncePerHarness(value, at, harnessIds, (entry) => JSON.stringify([entry.behaviour, entry.harness]), (entry) => `behaviour '${entry.behaviour}' × harness '${entry.harness}'`, [...COVERAGE_BEHAVIOURS], errors);
 }
 
 function harnessFor(registry: any, id: string): any {
