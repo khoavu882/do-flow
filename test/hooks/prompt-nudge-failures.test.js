@@ -73,13 +73,14 @@ describe('per-session', () => {
       });
     });
 
-    CASE('an unsafe session id gets no nudge and the context path still runs', () => {
+    CASE('an unsafe session id gets no nudge and the silent response (DEC-032)', () => {
       const { dir } = repo();
       for (const [i, id] of ['a b', '../ps-escape', 'x'.repeat(129)].entries()) {
-        const o = out(prompt('claude', id, dir, { start: false, extra: { prompt: request() } }));
-        assert.strictEqual(o.additionalContext, 'Git context unavailable for this session.', `case ${i}`);
+        assert.deepStrictEqual(JSON.parse(prompt('claude', id, dir, { start: false, extra: { prompt: request() } })), {}, `case ${i}`);
+        assert.strictEqual(markerText(id), null, `case ${i}`);
+        assert.strictEqual(fs.existsSync(sessionFolder(id)), false, `case ${i}`);
       }
-      // No marker for these ids anywhere: inside nudge/ or where `../` would lead.
+      // No marker or session dir for these ids anywhere: inside nudge/ or where `../` would lead.
       const markers = [];
       walk(path.join(scratch.xdg, 'doflow', 'session-env'), (file) => {
         const base = path.basename(file);

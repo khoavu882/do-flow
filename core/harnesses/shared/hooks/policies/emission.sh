@@ -101,7 +101,7 @@ doflow_emit_prompt() {
   local session="${1:-}" cwd="${2:-}" payload_title="${3:-}" nudge="${5:-}"
   local subagent=false nudge_state=none role kind bootstrapped=false own=none grant=none refused=false
   local warning=false legacy=false a_slot a_git a_summary a_warning a_grant a_nudge
-  local sessions dir unit max harness here project="" warnfile="" warntext="" had_c=0 made=0
+  local sessions dir unit max harness here renderer project="" warnfile="" warntext="" had_c=0 made=0
   local gitfile sumfile=/dev/null grantfile=/dev/null claimed_grant="" absent="" plan out esc
   local refusal=refused:mandatory-over-budget title=false
   DF_EMIT_REASON=""
@@ -115,6 +115,9 @@ doflow_emit_prompt() {
     return 0
   fi
   case ${BASH_SOURCE[0]} in */*) here=${BASH_SOURCE[0]%/*} ;; *) here=. ;; esac
+  # The renderer beside the entry policy when it set _DOFLOW_POLDIR, else beside this file.
+  renderer=$here/emission.jq
+  [ -z "${_DOFLOW_POLDIR:-}" ] || [ ! -f "$_DOFLOW_POLDIR/emission.jq" ] || renderer=$_DOFLOW_POLDIR/emission.jq
 
   # Step 2: identity, and the unit whose slot and ledger this event uses.
   doflow_identity "$session" "$cwd"
@@ -231,7 +234,7 @@ doflow_emit_prompt() {
   plan="{\"actions\":{\"git\":\"$a_git\",\"summary\":\"$a_summary\",\"warning\":\"$a_warning\",\"grant\":\"$a_grant\",\"nudge\":\"$a_nudge\"},\"maxBytes\":$max,\"harness\":\"$harness\",\"title\":$title,\"absent\":[$absent]"
   [ "$sumfile" = /dev/null ] || plan="$plan,\"summaryBytes\":${DF_SUMMARY_BYTES:-0}"
   plan="$plan}"
-  out=$(jq -n -f "$here/emission.jq" --argjson plan "$plan" --rawfile git "$gitfile" \
+  out=$(jq -n -f "$renderer" --argjson plan "$plan" --rawfile git "$gitfile" \
     --rawfile summary "$sumfile" --rawfile grant "$grantfile" --arg warning "$warntext" \
     --arg nudge "$nudge" 2>/dev/null) || out=""
   [ "$sumfile" = /dev/null ] || rm -f "$sumfile" 2>/dev/null || true
