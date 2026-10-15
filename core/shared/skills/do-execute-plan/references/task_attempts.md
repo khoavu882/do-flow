@@ -4,10 +4,10 @@ A task is done when the ledger says so, never from a `[x]` box or a `state.md` r
 `--slug "<slug>"` (step 1's `feature_slug`) and `--json`; `<task id>` is the plan id (`A.1`).
 
 **Read the JSON, not the exit code.** Exit 0: `claimed`, `applied`, `released`, `started`, `paused`,
-`cancelled`, `resumed`, `reopened`, or a `status`/`inspect` read. Exit 1: `disposition` `refused`,
-`stale` or `ack-required`, with a `reason`. Exit 2: `{ ok: false, error }`. No parseable JSON means
-the runtime is too old: treat it as `unsupported`, do not dispatch or record a refusal, report the
-runtime version.
+`cancelled`, `resumed`, `reopened`, `usage-recorded`, or a `status`/`inspect` read. Exit 1:
+`disposition` `refused`, `stale` or `ack-required`, with a `reason`. Exit 2: `{ ok: false, error }`.
+No parseable JSON means the runtime is too old: treat it as `unsupported`, do not dispatch or record
+a refusal, report the runtime version.
 
 **Which flow.** A plan headed `**Task graph:** v1` follows every section below. Any other plan keeps
 the legacy flow: skip resume and claim without `--epoch`.
@@ -27,7 +27,7 @@ since a claim or COMPLETED; `unverifiable`, `staleContext`, `graph.changed`), ac
 ```
 
 `resumed` returns the new `epoch`; `report-changed` means state moved, so read the new report and
-ack its digest. Keep the epoch in session memory only, never in `state.md` or any file.
+ack its digest. Keep the epoch in session memory, never in `state.md` or any file.
 
 **Autonomous runs** with no run (`control: 'none'`) start one with an explicit budget instead of
 acking; `started` returns `epoch: 1`:
@@ -58,7 +58,8 @@ run with a token limit `--reserve-tokens <n>` on every claim:
 `held` list them), `unknown-task`, `resume-required` (resume first), `run-paused`, `run-cancelled`,
 `owner-mismatch` (`declared` names the role; `--owner-override "<reason>"` only when deliberate),
 `worker-session`, `budget-exhausted`, `cancelled` (resume clears it), `reservation-required`,
-`aggregate-unaccounted` (report usage on earlier attempts) or `aggregate-exhausted`.
+`aggregate-unaccounted` (on each ended attempt left unreported, `--action report-usage --task <id>
+--token <n> --tokens <n> --tokens-basis …`) or `aggregate-exhausted`.
 
 **After the agent returns**, verify in the parent run, record evidence after the claim (`--kind
 test-result --observed-command "<cmd>" --observed-exit <n>`; schema in `references/EVIDENCE_LEDGER.md`),
@@ -84,7 +85,8 @@ release or cancel clears a crashed claimer.
 - `--action pause --reason "<why>"`: claims refuse `run-paused`; active attempts may still finish.
 - `--action cancel --reason "<why>"`: marks every active attempt of the run cancelled (`--adopt-unowned` adds attempts with no run; `--task <id> --token <n>` limits it to one). It stops no process.
 - An acknowledged resume sets a paused or cancelled run running and clears its cancels.
-- `--action reopen --task <id> --token <done token> --reason "<why>"`: the done attempt stops counting, the task is `ready` with `reason: reopened`; `dependentsActive` names running dependents to decide about.
+- `--action reopen --task <id> --token <done token> --reason "<why>"`: the done attempt stops counting, the task is `ready` with `reason: reopened`; `dependentsActive` lists running dependents.
+- Refusals: `run-exists` resume it; `identity-solo` or `worker-session` act from the main session; `control-unchanged` already so; `foreign-run` cancel from that run; `no-active-attempt`/`token-mismatch` (attempt cancel) or `not-done`/`token-mismatch` (reopen) read `status` for the token; `run-cancelled` resume first.
 
 **Before step 10**, read `status`: `complete: true` means every task has a COMPLETED attempt (in a
 graph plan, with its plan line unchanged; else `plan-changed-after-done`). `orchestrate` refuses to
