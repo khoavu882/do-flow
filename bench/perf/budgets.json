@@ -430,6 +430,48 @@
       ]
     },
     {
+      "id": "verb.task-attempt-status",
+      "kind": "cli",
+      "intentClass": "verb",
+      "enforced": false,
+      "status": "proposed",
+      "note": "IC-022, NFR-004: status on the 30-task graph plan (three files per task, depends-on edges) against a ledger of two attempts per task.",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/task-graph-project",
+        "git": true
+      },
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "task-attempt",
+        "{project}",
+        "--slug",
+        "080-perf",
+        "--action",
+        "status",
+        "--json"
+      ]
+    },
+    {
+      "id": "verb.task-attempt-claim",
+      "kind": "cli",
+      "intentClass": "verb",
+      "enforced": false,
+      "status": "proposed",
+      "note": "IC-022, NFR-004, plan RK1: measures the read and refusal path only. The header-less copy of the same 30-task plan is put in place of plan.md, and claim targets D.2, whose dependency C.2 holds an active attempt, so the claim runs steps 0 to 12 (including file hashing) and is refused unmet-dependency at step 12, writing nothing. A refused claim exits 1 and the runner accepts only exit 0, so the sample runs under sh, which also copies the plan; the sample passes only when that refusal is printed. The successful locked write is not measured.",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/task-graph-project",
+        "git": true
+      },
+      "argv": [
+        "sh",
+        "-c",
+        "cp {project}/agent-docs/doflow/080-perf/plan-legacy.md {project}/agent-docs/doflow/080-perf/plan.md && node bin/doflow.js task-attempt {project} --slug 080-perf --action claim --task D.2 --owner core-implementer --mode sequential --json | grep -q '\"reason\": \"unmet-dependency\"'"
+      ]
+    },
+    {
       "id": "diag.doctor",
       "kind": "cli",
       "argv": [
