@@ -330,9 +330,10 @@ function readProbeRecord(root: string, harness: string): any {
 const sameBinding = (a: any, b: any) => Boolean(a) && Boolean(b)
   && a.binaryPath === b.binaryPath && a.version === b.version && a.descriptorDigest === b.descriptorDigest;
 
+/** Fresh when `at` is at most 24 hours old and not in the future: a skewed clock never extends it. */
 const freshAt = (at: any, nowMs: number) => {
   const ms = Date.parse(at);
-  return Number.isFinite(ms) && nowMs - ms <= PROBE_MAX_AGE_MS;
+  return Number.isFinite(ms) && nowMs - ms >= 0 && nowMs - ms <= PROBE_MAX_AGE_MS;
 };
 
 /**
