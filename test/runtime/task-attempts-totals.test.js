@@ -8,8 +8,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { claim, finish, release, start } = require('../../src/runtime/task-attempts.ts');
+const { claim, finish, release, start, reopen, inspect } = require('../../src/runtime/task-attempts.ts');
 const { runKeyFor, computeTotals } = require('../../src/runtime/task-run.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 
 const SLUG = 'feat-t';
 const NOW = new Date('2026-01-02T00:00:00.000Z');
@@ -41,6 +42,51 @@ function assertStoredTotals(p, label) {
   const store = p.read();
   assert.deepEqual(store.runs[p.key.runKey].totals, computeTotals(store, p.key.runKey), label);
 }
+
+/** A passing test-result for `taskId` where finish looks, recorded after the claim (wall clock). */
+function evidence(dir, taskId) {
+  const ledger = new EvidenceLedger({ repoRoot: dir, slug: SLUG });
+  const id = ledger.addEvidence({
+    taskId, kind: 'test-result', provenance: 'extracted', source: { provider: 'shell', capability: 'test' },
+    locator: { file: 'a.test.js' }, content: 'ran', observation: { command: 'node --test', exitCode: 0 },
+  });
+  ledger.save(taskId);
+  return id;
+}
+
+/** Same project, another run id: a different run key over the same ledger. */
+function asRun(p, run) {
+  const env = { ...p.common.env, DOFLOW_RUN_ID: run };
+  return { ...p, common: { ...p.common, env }, key: runKeyFor(env, p.common.cwd) };
+}
+
+test('DEC-017 superseded-unreported: reopening an unreported attempt keeps it unreported (aggregate-unaccounted)', (t) => {
+  const p = project(t);
+  const live = { ...p.common, now: new Date() };
+  assert.equal(start({ ...live, by: 'main', budgetTokens: 1000 }).disposition, 'started');
+  const one = claim({ ...live, task: 'A.1', owner: 'core-implementer', mode: 'subagent', epoch: 1, reserveTokens: 100 });
+  assert.equal(one.disposition, 'claimed');
+  const done = finish({ ...live, now: new Date(), task: 'A.1', token: one.token, result: 'COMPLETED', evidenceId: evidence(p.common.cwd, 'A.1') });
+  assert.equal(done.disposition, 'applied', JSON.stringify(done));
+  assert.equal(reopen({ ...live, task: 'A.1', token: one.token, by: 'main', reason: 'redo' }).disposition, 'reopened');
+  const refused = claim({ ...live, task: 'A.2', owner: 'core-implementer', mode: 'subagent', epoch: 1, reserveTokens: 100 });
+  assert.deepEqual([refused.disposition, refused.reason, refused.unreported], ['refused', 'aggregate-unaccounted', 1]);
+  assertStoredTotals(p, 'after reopen');
+});
+
+test('DEC-017 superseded-unreported (S-5): another run reopening r1\'s attempt leaves r1\'s totals matching', (t) => {
+  const p = project(t);
+  const live = { ...p.common, now: new Date() };
+  start({ ...live, by: 'main' });
+  const one = claim({ ...live, task: 'A.1', owner: 'core-implementer', mode: 'subagent', epoch: 1 });
+  assert.equal(one.disposition, 'claimed');
+  assert.equal(finish({ ...live, now: new Date(), task: 'A.1', token: one.token, result: 'COMPLETED', evidenceId: evidence(p.common.cwd, 'A.1') }).disposition, 'applied');
+  const r2 = asRun(p, 'r2');
+  assert.equal(reopen({ ...r2.common, now: new Date(), task: 'A.1', token: one.token, by: 'main', reason: 'redo' }).disposition, 'reopened');
+  const view = inspect(p.common);
+  assert.equal(view.run.totalsMismatch, false, JSON.stringify(view.run));
+  assert.equal(view.run.totals.unreported, 1);
+});
 
 test('finish and release store totals equal to computeTotals', (t) => {
   const p = project(t);

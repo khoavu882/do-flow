@@ -97,7 +97,8 @@ function reported(a: any) {
  * IC-009: totals over every attempt carrying `runKey`, recomputed from the attempt list (never
  * from the stored copy). Reported usage adds to its basis, including a reported 0; an active
  * attempt's reservation is `reserved`; a cancelled attempt cannot report, so its reservation is
- * `estimated`; a finished or released attempt with no usage is `unreported`.
+ * `estimated`; a finished, released or superseded attempt with no usage is `unreported`
+ * (DEC-017 superseded-unreported: a reopen does not launder an unreported attempt out of DEC-011).
  */
 function computeTotals(store: any, runKey: string): RunTotals {
   const totals = emptyTotals();
@@ -113,7 +114,7 @@ function computeTotals(store: any, runKey: string): RunTotals {
         else totals.tokens.estimated += a.usage.tokens;
       } else if (a.state === 'active') totals.tokens.reserved += reserve;
       else if (a.state === 'cancelled') totals.tokens.estimated += reserve;
-      else if (a.state === 'finished' || a.state === 'released') totals.unreported += 1;
+      else if (a.state === 'finished' || a.state === 'released' || a.state === 'superseded') totals.unreported += 1;
     }
   }
   return totals;
