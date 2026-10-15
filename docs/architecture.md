@@ -466,17 +466,18 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-forty test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-thirty-three entries across thirty-two test files and carries thirty-one distinct G-numbers.
+forty-six test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+thirty-nine entries across thirty-five test files and carries thirty-seven distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G33 is the highest number in use, so a new guard takes the next
-one above it instead of adding a fourth collision. The list is not the whole directory. The eight
+historical rather than a convention; G39 is the highest number in use, so a new guard takes the next
+one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
 of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
-`harness-paths.test.js`, `cli-boundary.test.js`, `frozen-behaviour.test.js` and
-`provider-source-mode.test.js`.
+`harness-paths.test.js`, `cli-boundary.test.js`, `frozen-behaviour.test.js`,
+`provider-source-mode.test.js`, `context-docs.test.js`, `context-profile.test.js` and
+`context-silence.test.js`.
 
 - **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
 - **G2** (`paths.test.js`) — path reachability from `MCP_INDEX.md`-style generalizations.
@@ -698,6 +699,15 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   0fcd973 output without the decision fd and begin records with provisional allow (G35.3); exit-2
   faults block with a fixed reason (G35.4), every policy deny has a record (G35.5), and migration
   guidance anchors Pi on `tool_call` and envelope version 1 (G35.6).
+- **G38** (`context-authority.test.js`) - hook paths run no retrieval, model or index work, and no
+  full test run; the compiled emission table equals its rules; context output goes only through the
+  emission adapter; the retired `last-compact-summary.md` name is confined to the summary-store
+  adopter; check policies read no emission state; and bash and TypeScript identity agree
+  (G38.1 to G38.6).
+- **G39** (`coverage-semantics.test.js`) - end-of-turn events agree with stop rows, fixtures, the
+  inventory and external provenance; every behaviour and harness pair is stated once, with real tests
+  or a limitation, and identity is enforced only with live provenance; and the rendered behaviour
+  block equals its renderer (G39.1 to G39.3).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
