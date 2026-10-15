@@ -466,11 +466,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-forty-six test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-thirty-nine entries across thirty-five test files and carries thirty-seven distinct G-numbers.
+forty-seven test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+forty entries across thirty-six test files and carries thirty-eight distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G39 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G40 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -708,6 +708,13 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   inventory and external provenance; every behaviour and harness pair is stated once, with real tests
   or a limitation, and identity is enforced only with live provenance; and the rendered behaviour
   block equals its renderer (G39.1 to G39.3).
+- **G40** (`operating-modes-locators.test.js`) - the `implemented` claims in
+  `docs/specs/operating-modes.md` point at code that exists: every `implemented` row of the Task
+  states and User controls tables carries a `path#symbol` locator, and every such locator names an
+  existing file that declares the symbol as a function, `const`/`let`/`var`, class, `export { }` name
+  or `module.exports` key (G40.1); the Manual / assisted cells of Pause, Cancel, Resume and Inspect
+  are `implemented` (G40.2); and no locator is a bare `path:line`, which goes stale on the next edit
+  (G40.3).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

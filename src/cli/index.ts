@@ -65,6 +65,9 @@ function parseArgs(argv: string[]): any {
       case '-n': case '--dry-run': o.dryRun = true; break;
       case '-f': case '--force': o.force = true; break;
       case '--adopt': o.adopt = true; break;
+      // task-attempt --action cancel (run): a switch, so it cannot go through parseRuntimeFlag,
+      // which reads only flags that take a value (IC-017).
+      case '--adopt-unowned': o.adoptUnowned = true; break;
       case '-g': case '--global': o.global = true; break;
       case '--no-backup': o.noBackup = true; break;
       case '--permissions': o.permissions = true; break;
@@ -316,6 +319,18 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--agent', 'agent'],                // recover: which agent produced the failure
   ['--task', 'task'],                  // task-attempt: the plan task id, e.g. A.1
   ['--token', 'token'],                // task-attempt finish|release: the fencing token claim returned
+  // 080 task-attempt (IC-017). Read as text and validated in handleTaskAttemptCommand, so an
+  // integer is digits only (`5abc` and `-1` are usage) rather than what parseInt makes of it.
+  ['--owner-override', 'ownerOverride'], // claim: why someone other than the declared owner takes the task
+  ['--epoch', 'epoch'],                // claim: the run epoch the caller was handed
+  ['--reserve-tokens', 'reserveTokens'], // claim: tokens held against the run's budget while active
+  ['--exec-worktree', 'execWorktree'], // claim: the worktree the attempt executes in
+  ['--tokens', 'tokens'],              // finish|release|report-usage: tokens the attempt used, as reported
+  ['--tokens-basis', 'tokensBasis'],   // finish|release|report-usage: measured | estimated
+  ['--budget-attempts', 'budgetAttempts'], // start: the run's attempt limit
+  ['--budget-tokens', 'budgetTokens'], // start: the run's token limit
+  ['--by', 'by'],                      // start|pause|cancel|reopen|resume: who acts on the run
+  ['--ack', 'ack'],                    // resume: the digest the unacknowledged resume reported
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -425,7 +440,7 @@ Commands:
   workflow             Resolve a task class to its stages, gates and readiness templates
   orchestrate          Start or resume a run: complete stages, decide gates (--action)
   research-request     Open, list or resolve a feature-stage research question (--task-id)
-  task-attempt         Claim, finish, release or read the attempts on a plan's tasks (--action, --slug)
+  task-attempt         Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts (--action, --slug)
   retrieve             BM25 search over the installed guidance tree (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
   advise               Route decision questions to the configured local model (--action)
@@ -482,14 +497,28 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        verify: report|contract · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
                        followup: add|list|take|settle|promote|report
-                       task-attempt: claim|finish|release|status
+                       task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
       --task, --token, --owner, --mode,
-      --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent;
-                                            finish: --task --token --result COMPLETED|BLOCKED|ABANDONED|INCONCLUSIVE
-                                            [--evidence-id]; release: --task --token --reason)
+      --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
+                                            [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
+                                            [--exec-worktree <path>];
+                                            finish: --task --token --result COMPLETED|BLOCKED|ABANDONED|INCONCLUSIVE|FAILED
+                                            [--evidence-id] [--reason, required with FAILED];
+                                            release: --task --token --reason; finish and release also
+                                            [--tokens <n> --tokens-basis measured|estimated];
+                                            start: --by [--budget-attempts <n>=1+] [--budget-tokens <n>=1+];
+                                            pause: --by --reason; cancel: --by --reason, one attempt with
+                                            --task --token, else the run [--adopt-unowned];
+                                            reopen: --task --token --by --reason;
+                                            report-usage: --task --token --tokens <n> --tokens-basis
+                                            measured|estimated, once on an ended attempt with no usage;
+                                            resume: report and digest, then --ack sha256:<hex> --by [--reason];
+                                            inspect: graph, task states, budgets and run totals.
+                                            Exit 0 applied or read; 1 refused, stale or ack-required, the
+                                            disposition in the JSON; 2 usage or an unreadable store or plan)
       --rationale, --proposed-by, --calling-skill    classify
       --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
       --intent, --query, --check            route

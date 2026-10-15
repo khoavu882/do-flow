@@ -34,6 +34,7 @@ ide/
 # User-specific project memories & plans
 projects/
 plans/
+!test/fixtures/plans/
 
 # Plugins (installed separately per machine)
 plugins/

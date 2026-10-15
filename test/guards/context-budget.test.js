@@ -179,7 +179,7 @@ test('G13: controls — a harness no condition matches is refused', () => {
 // supports per-call model selection — stated so a tier is never claimed applied that the host could
 // not set, and kept in the reference (not the capped skill) so it costs the skill window nothing.
 const TASK_CONTEXT_RAILS = new Map([
-  ['feature', 226300], // 046 raise is new prose; 2026-10-12 raises are the archetype dispatch-tier table and the model-tier enforceability note
+  ['feature', 230000], // 046 raise is new prose; 2026-10-12 raises are the archetype dispatch-tier table and the model-tier enforceability note; 080 raise is the task-graph claim/resume flow; 080 review adds report-usage and control refusals (DEC-024)
   ['dependency-change', 85000],
   ['bug', 71000],
   ['refactor', 71000],
