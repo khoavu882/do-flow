@@ -136,7 +136,11 @@ test('a jq without --rawfile support does not fail the hook and does not wedge t
   const cwd = project();
   compact('A', cwd, 'SUMMARY-NORAW');
   assert.doesNotMatch(prompt('claude', 'J', cwd, { env: fakeJq(REJECT_RAWFILE) }), /SUMMARY-NORAW/);
-  assert.equal(prompt('claude', 'J', cwd, { first: false }), '');
+  // DEC-038: the render fault released the slot, so the next prompt bootstraps (the claimed summary
+  // is not restored).
+  const again = prompt('claude', 'J', cwd, { first: false });
+  assert.doesNotMatch(again, /SUMMARY-NORAW/);
+  assert.equal(again, 'Not a git repository.');
   assert.ok(prompt('claude', 'K', cwd), 'a later session still gets its context');
 });
 
@@ -145,7 +149,8 @@ test('an unreadable summary file does not fail the hook', { skip: process.getuid
   compact('A', cwd, 'SUMMARY-LOCKED');
   fs.chmodSync(summaryFileFor(cwd), 0o000);
   assert.doesNotMatch(prompt('claude', 'L', cwd), /SUMMARY-LOCKED/);
-  assert.equal(prompt('claude', 'L', cwd, { first: false }), '');
+  // DEC-038: the render fault released the slot, so the next prompt bootstraps without the summary.
+  assert.equal(prompt('claude', 'L', cwd, { first: false }), 'Not a git repository.');
 });
 
 test('a symlinked summary file is not followed', () => {
