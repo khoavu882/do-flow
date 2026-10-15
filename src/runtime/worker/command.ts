@@ -73,6 +73,19 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   reason: { flag: '--reason', actions: ['cancel'] },
 });
 
+/** DEC-063: the execArgv entries the supervisor spawn forwards; every other entry is dropped. */
+const EXEC_ARGV_ALLOWED = new Set(['--experimental-strip-types', '--experimental-transform-types', '--no-experimental-strip-types', '--no-warnings']);
+const DISABLE_WARNING = /^--disable-warning=.+$/;
+
+/**
+ * The type-stripping and warning flags of `execArgv`, element by element. A caller's `-e`, `-p`,
+ * `--inspect`, `--watch` or `--test` would otherwise strand the detached supervisor (DEC-063); a
+ * two-element `--disable-warning <x>` is dropped whole, so its value is never read as the script.
+ */
+function allowedExecArgv(execArgv: string[]): string[] {
+  return execArgv.filter((arg) => EXEC_ARGV_ALLOWED.has(arg) || DISABLE_WARNING.test(arg));
+}
+
 /** A caller or environment failure: exit 2 with `{ ok: false, error }`. */
 class WorkerCommandError extends Error {
   declare code: string;
@@ -245,7 +258,7 @@ async function runAction(o: any) {
   if (!inserted.applied) return refused('run-exists', { task, token, runId: inserted.runId, phase: inserted.phase });
 
   // The supervisor, detached, with the caller's environment and cwd (IC-014, DEC-022, DEC-038).
-  const child = spawn(process.execPath, [...(process as any).execArgv, SUPERVISOR_FILE, file, runId], {
+  const child = spawn(process.execPath, [...allowedExecArgv((process as any).execArgv), SUPERVISOR_FILE, file, runId], {
     detached: true, stdio: 'ignore', cwd, env,
   });
   // A spawn error leaves the run `starting` with no live supervisor, which status reads as lost.
@@ -462,4 +475,4 @@ async function handleWorkerCommand(options: any = {}): Promise<number> {
   return finishRuntime(exit);
 }
 
-module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, ACTIONS, FLAG_ACTIONS, WorkerCommandError };
+module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, allowedExecArgv, ACTIONS, FLAG_ACTIONS, WorkerCommandError };

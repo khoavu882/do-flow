@@ -418,3 +418,14 @@ test('cancel of an unknown run refuses the caller identity first, then unknown-r
   assert.deepEqual([none.exit, none.body.reason], [1, 'unknown-run']);
   assert.equal(fs.existsSync(p.store), false);
 });
+
+test('DEC-063 the supervisor spawn forwards only allowlisted execArgv entries', () => {
+  const { allowedExecArgv } = require(path.join(SRC, 'worker', 'command.ts'));
+  assert.deepEqual(allowedExecArgv(['-e', 'code', '--inspect', '--experimental-strip-types']), ['--experimental-strip-types']);
+  assert.deepEqual(allowedExecArgv([
+    '-p', 'x', '--eval=y', '--print', '--watch', '--watch-path=src', '--inspect-brk=9229', '--test', '--test-only', '--require', 'r.js',
+    '--experimental-transform-types', '--no-experimental-strip-types', '--no-warnings', '--disable-warning=ExperimentalWarning',
+  ]), ['--experimental-transform-types', '--no-experimental-strip-types', '--no-warnings', '--disable-warning=ExperimentalWarning']);
+  // `--disable-warning <x>` in two elements is dropped whole: the value would otherwise be read as the script.
+  assert.deepEqual(allowedExecArgv(['--disable-warning', 'ExperimentalWarning', '--disable-warning=']), []);
+});
