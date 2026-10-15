@@ -2900,6 +2900,11 @@
             "kind": "doc",
             "locator": "core/registry/contracts.json: Copilot documented event inventory",
             "date": "2026-10-14"
+          },
+          {
+            "kind": "doc",
+            "locator": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference",
+            "date": "2026-10-15"
           }
         ]
       },
