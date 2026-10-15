@@ -341,6 +341,33 @@ test('createOutputSink hands a line over 65536 bytes whole to the parser and the
   assert.equal(summary.truncated, false);
 });
 
+// In a worker thread so a regression (quadratic masking of the line) is terminated at the deadline
+// instead of blocking the test process for minutes.
+test('a 1 MiB dotless eyJ line is masked and end() resolves within 5 s (RR-1, DEC-069)', { timeout: 15000 }, async (t) => {
+  const { Worker } = require('node:worker_threads');
+  const stateRoot = tempDir(t, 'doflow-worker-sink-');
+  const source = `
+    const { parentPort, workerData } = require('node:worker_threads');
+    const { createOutputSink } = require(${JSON.stringify(path.join(SRC, 'worker', 'supervisor.ts'))});
+    const sink = createOutputSink({ stateRoot: workerData.stateRoot, runId: 'w-00000000000e', stream: 'stdout', onLine: () => {} });
+    const start = performance.now();
+    sink.write('eyJ'.repeat(350000));
+    sink.write('\\n');
+    sink.end().then((summary) => parentPort.postMessage({ ms: performance.now() - start, summary }));`;
+  const worker = new Worker(source, { eval: true, workerData: { stateRoot } });
+  let timer;
+  const result = await Promise.race([
+    new Promise((resolve, reject) => { worker.once('message', resolve); worker.once('error', reject); }),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(null), 12000); }),
+  ]);
+  clearTimeout(timer);
+  await worker.terminate();
+  assert.ok(result, 'end() did not resolve within 12000 ms');
+  assert.ok(result.ms < 5000, `end() resolved after ${Math.round(result.ms)} ms`);
+  assert.equal(result.summary.truncated, false);
+  assert.equal(result.summary.written, 350000 * 3 + 1);
+});
+
 test('a secret straddling the 64 KiB mark is masked in the file (S-3, DEC-057)', async (t) => {
   const stateRoot = tempDir(t, 'doflow-worker-sink-');
   const sink = createOutputSink({ stateRoot, runId: 'w-00000000000b', stream: 'stdout', onLine: () => {} });

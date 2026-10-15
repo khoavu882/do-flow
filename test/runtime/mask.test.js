@@ -191,3 +191,36 @@ test('the home prefix needs a left boundary: it starts the text or follows white
     'at ~/y "~" \'~\' k=~ (~) [~] p:~');
   assert.equal(maskLine('/var/folders/x/y', home).text, '~/y');
 });
+
+test('a JWT after a space, =, : or at a line start is still masked (RR-1, DEC-069)', () => {
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc_DEF-123';
+  assert.equal(maskLine(`a ${jwt}`, opts).text, 'a <masked>');
+  assert.equal(maskLine(`a=${jwt}`, opts).text, 'a=<masked>');
+  assert.equal(maskLine(`a:${jwt}`, opts).text, 'a:<masked>');
+  assert.equal(maskLine(jwt, opts).text, '<masked>');
+  assert.equal(maskBody(`a\n${jwt}\nb`, opts).text, 'a\n<masked>\nb');
+});
+
+// Runs in a worker thread so a regression (quadratic masking) is terminated at the deadline instead
+// of blocking the test process for minutes.
+test('maskBody on a 1 MiB run of eyJ with no dots finishes in under 2000 ms (RR-1, DEC-069)', { timeout: 10000 }, async () => {
+  const { Worker } = require('node:worker_threads');
+  const source = `
+    const { parentPort } = require('node:worker_threads');
+    const { maskBody } = require(${JSON.stringify(require.resolve('../../src/runtime/mask.ts'))});
+    const input = 'eyJ'.repeat(350000);
+    const start = performance.now();
+    const out = maskBody(input).text;
+    parentPort.postMessage({ ms: performance.now() - start, unchanged: out === input });`;
+  const worker = new Worker(source, { eval: true });
+  let timer;
+  const result = await Promise.race([
+    new Promise((resolve, reject) => { worker.once('message', resolve); worker.once('error', reject); }),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(null), 8000); }),
+  ]);
+  clearTimeout(timer);
+  await worker.terminate();
+  assert.ok(result, 'maskBody did not finish within 8000 ms');
+  assert.ok(result.ms < 2000, `maskBody took ${Math.round(result.ms)} ms`);
+  assert.equal(result.unchanged, true, 'a dotless run of letters is not a secret');
+});
