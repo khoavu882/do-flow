@@ -17,16 +17,26 @@
 // usage (DEC-005). Status is IC-019 and writes nothing (DEC-025); cancel is C.1's `cancelRun` with
 // this process's own `env` and `cwd` (DEC-038).
 //
+// 082 amends run in two ways. `--edit` (IC-014, DEC-020, DEC-021, DEC-048): after step 8 the
+// execution worktree must be a dispatch attempt worktree on its `doflow-attempt/<slug>/<d-id>`
+// branch whose `.doflow-worktree-base` is an ancestor of its HEAD; step 11 uses the edit baseline;
+// the record gains `edit: { base, branch, callerTop }`; the supervisor launches the edit recipe and
+// records `isolation`. `--child-of <w-id>` (IC-015, DEC-028, DEC-041, DEC-062): a read-only child
+// of a live granter run on the same `(task, token)`, in its own `<granter d-id>.c<n>` worktree,
+// always run-scoped, unique on `(task, token, childOf, request)`; status and cancel by
+// `--task --token` keep naming the granter, and cancelling a child never cancels the 080 attempt.
+//
 // This module makes no fs write call: the run store is written through `insertRun` and
 // `transition`, the probe record by readiness, the ledger only by 080's cancel (G26 (b), IC-027).
 
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID } = require('./run-store.ts');
 const { launchEnv, launchRecord, PROMPT_LIMITS } = require('./launch.ts');
+const { BASE_FILE } = require('../worktree.ts');
 const { SUPERVISOR_FILE, resultOfRun } = require('./supervisor.ts');
 const { cancelRun } = require('./cancel.ts');
 const processTree = require('./process-tree.ts');
@@ -55,11 +65,22 @@ const START_WAIT_MS = 10000;
 const START_POLL_MS = 100;
 const WAIT_POLL_MS = 500;
 const WAIT_GRACE_MS = 10000;
+/** 082 IC-014 / IC-015: where dispatch worktrees live, an attempt's name and a spawn request id. */
+const DISPATCH_WORKTREES = path.join('.doflow', 'state', 'dispatch-worktrees');
+const ATTEMPT_NAME = /^d-[0-9a-f]{12}$/;
+const CHILD_NAME = /^(d-[0-9a-f]{12})\.c([1-9][0-9]*)$/;
+const SHA = /^[0-9a-f]{40,64}$/;
+const GIT_READ_TIMEOUT_MS = 10000;
+const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']);
 
 /** IC-025: the actions each flag may be given to; any other action is exit 2 `usage`. */
 const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object.freeze({
   slug: { flag: '--slug', actions: ['run', 'status', 'cancel'] },
   harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run'] },
+  edit: { flag: '--edit', actions: ['describe', 'select', 'run'] },
+  childOf: { flag: '--child-of', actions: ['run'] },
+  request: { flag: '--request', actions: ['run'] },
+  execWorktree: { flag: '--exec-worktree', actions: ['run'] },
   need: { flag: '--need', actions: ['probe', 'describe', 'select', 'run'] },
   modelCheck: { flag: '--model-check', actions: ['probe'] },
   budgetTokens: { flag: '--budget-tokens', actions: ['probe'] },
@@ -187,21 +208,64 @@ function attemptFor(ledger: any, task: string, token: number) {
   return Array.isArray(list) ? list.find((a: any) => a.token === token) ?? null : null;
 }
 
-/** IC-011 step 11: discover for the harness, then IC-008 on its effective facts. Writes nothing. */
-function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs, platform }: any) {
+/** One bounded, read-only git call in `cwd` with the repository variables dropped. */
+function gitRead(cwd: string, args: string[], env: any): { status: number | null; stdout: string } {
+  const clean: any = { ...env, GIT_OPTIONAL_LOCKS: '0' };
+  for (const k of REPO_ENV) delete clean[k];
+  const r = spawnSync('git', ['-C', cwd, ...args], { env: clean, timeout: GIT_READ_TIMEOUT_MS, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  return { status: r.error ? null : r.status, stdout: r.stdout || '' };
+}
+
+/**
+ * 082 IC-014 after step 8: `execWorktree` is `<root>/.doflow/state/dispatch-worktrees/d-<12 hex>`
+ * on `refs/heads/doflow-attempt/<slug>/<d-id>`, and its base file names an ancestor of HEAD.
+ * Returns `{ reason }` for a refusal, else `{ base, branch }`.
+ */
+function attemptWorktree(root: string, slug: string, execWorktree: string, env: any): any {
+  const dir = real(execWorktree);
+  const id = path.basename(dir);
+  if (path.dirname(dir) !== path.join(real(root), DISPATCH_WORKTREES) || !ATTEMPT_NAME.test(id)) return { reason: 'exec-worktree-not-attempt' };
+  const branch = `refs/heads/doflow-attempt/${slug}/${id}`;
+  const ref = gitRead(dir, ['symbolic-ref', '-q', 'HEAD'], env);
+  if (ref.status !== 0 || ref.stdout.trim() !== branch) return { reason: 'exec-worktree-not-attempt' };
+  let base = '';
+  try { base = fs.readFileSync(path.join(dir, BASE_FILE), 'utf8').trim(); } catch { base = ''; }
+  if (!SHA.test(base) || gitRead(dir, ['merge-base', '--is-ancestor', base, 'HEAD'], env).status !== 0) return { reason: 'attempt-base-unreadable' };
+  return { base, branch };
+}
+
+/** 082 IC-015 step 8: `execWorktree` is `<root>/.doflow/state/dispatch-worktrees/<granter d-id>.c<n>`. */
+function childWorktreeOk(root: string, granter: any, execWorktree: string): boolean {
+  const home = path.join(real(root), DISPATCH_WORKTREES);
+  const dir = real(execWorktree);
+  const granterDir = typeof granter.execWorktree === 'string' ? real(granter.execWorktree) : '';
+  const match = CHILD_NAME.exec(path.basename(dir));
+  return Boolean(match) && path.dirname(dir) === home && path.dirname(granterDir) === home
+    && ATTEMPT_NAME.test(path.basename(granterDir)) && match![1] === path.basename(granterDir) && dir !== granterDir;
+}
+
+function isDirectory(target: any): boolean {
+  try { return typeof target === 'string' && fs.statSync(target).isDirectory(); } catch { return false; }
+}
+
+/** IC-011 step 11: discover for the harness, then IC-008 on its effective facts. Writes nothing.
+ * `edit` swaps in the edit baseline (082 IC-013). */
+function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs, platform, edit = false }: any) {
   const found = readiness.discover({ descriptors: { [harness]: worker }, registry: reg, env, cwd, now: nowMs, platform }).harnesses[0];
   const facts = readiness.effectiveFacts(
     readiness.readProbeRecord(root, harness),
     { ...found, descriptorDigest: readiness.descriptorDigest(worker) },
     nowMs,
   );
-  const requirements = readiness.requirementsFor({ harness, worker }, facts, needs, coverage);
+  const requirements = readiness.requirementsFor({ harness, worker }, facts, needs, coverage, edit);
   return { requirements, ...readiness.eligibility(requirements) };
 }
 
 /** IC-011 steps 0 to 12, then the supervisor spawn and the start poll. */
 async function runAction(o: any) {
   const { env, cwd, root, platform, clock, sleep, slug, harness, task, token, needs, timeoutSeconds, prompt, worker, reg, coverage } = o;
+  const edit = o.edit === true;
+  const childOf: string | null = o.childOf ?? null;
   const nowMs = () => clock().getTime();
 
   // Step 1: the caller's identity, so a run is never started whose 080 cancel would be refused.
@@ -218,11 +282,29 @@ async function runAction(o: any) {
   if (token > TOKEN_MAX) return refused('token-out-of-range', { task, token });
   if (active.mode !== 'subagent') return refused('mode-mismatch', { task, token, mode: active.mode ?? null });
 
-  // Step 8: the execution worktree exists.
-  const execWorktree = active.execWorktree;
-  let isDir = false;
-  try { isDir = typeof execWorktree === 'string' && fs.statSync(execWorktree).isDirectory(); } catch { isDir = false; }
-  if (!isDir) return refused('exec-worktree-missing', { task, token, execWorktree: execWorktree ?? null });
+  // 082 IC-015 after step 7: a live, top-level granter on the same (task, token).
+  const file = storeFileFor(root, slug);
+  let granter: any = null;
+  if (childOf) {
+    granter = readRuns(file)[childOf] ?? null;
+    if (granter && (granter.childOf ?? null) !== null) return refused('depth-exceeded', { task, token, childOf });
+    if (!granter || granter.phase === 'ended' || granter.end || granter.task !== task || granter.token !== token) {
+      return refused('granter-mismatch', { task, token, childOf });
+    }
+  }
+
+  // Step 8: the execution worktree exists; a child's is `--exec-worktree` (082 IC-015).
+  const execWorktree = childOf ? path.resolve(cwd, String(o.execWorktree)) : active.execWorktree;
+  if (!isDirectory(execWorktree)) return refused('exec-worktree-missing', { task, token, execWorktree: execWorktree ?? null });
+  if (childOf && !childWorktreeOk(root, granter, execWorktree)) return refused('exec-worktree-not-child', { task, token, execWorktree });
+
+  // 082 IC-014 after step 8: an edit run's worktree is a dispatch attempt worktree.
+  let editRecord: any = null;
+  if (edit) {
+    const attempt = attemptWorktree(root, slug, execWorktree, env);
+    if (attempt.reason) return refused(attempt.reason, { task, token, execWorktree });
+    editRecord = { base: attempt.base, branch: attempt.branch, callerTop: key.top };
+  }
 
   // Step 9: the caller is not the unit this worker will be.
   if (key.identity.lineageKind === 'launched' && key.identity.attempt === String(token)) {
@@ -235,20 +317,20 @@ async function runAction(o: any) {
   if (real(top) === real(key.top)) return refused('exec-worktree-shared', { task, token, execWorktree });
 
   // Step 11: the harness is eligible on effective facts.
-  const evaluated = evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs, platform });
+  const evaluated = evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs, platform, edit });
   if (!evaluated.eligible) return refused('harness-ineligible', { task, token, harness, gaps: evaluated.gaps });
 
-  // Step 12: insert inside the run store's lock; one run per (task, token).
-  const file = storeFileFor(root, slug);
+  // Step 12: insert inside the run store's lock; one run per (task, token, childOf, request).
   const runId = newRunId();
-  const { identity } = launchEnv({ env, runKey: active.runKey, token, execWorktree, runId });
+  const { identity } = launchEnv({ env, runKey: active.runKey, token, execWorktree, runId, runScoped: Boolean(childOf) });
   const record = {
     runId, task, token, harness, phase: 'starting', execWorktree, createdAt: clock().toISOString(), timeoutSeconds,
     caller: {
       cwd: path.resolve(cwd), runKey: key.runKey, run: key.identity.run, lineage: key.identity.lineage,
       attempt: key.identity.attempt || null, role: key.identity.role, lineageKind: key.identity.lineageKind,
     },
-    ...launchRecord(worker, identity, prompt.bytes.toString('utf8')),
+    edit: editRecord, childOf, request: childOf ? o.request : null,
+    ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit),
     descriptor: worker,
     prompt: { path: prompt.path, sha256: prompt.sha256, bytes: prompt.bytes.length },
     needs: evaluated.requirements.map((item: any) => ({ requirement: item.requirement, at: item.at ?? null })),
@@ -286,6 +368,20 @@ async function runAction(o: any) {
     run = readRuns(file)[runId];
   }
   return { ...statusView(run, ledgerOf(root, slug), { platform, nowMs: nowMs() }), disposition: 'started' };
+}
+
+/** 082 IC-014 / IC-015's flag rules for run: exit 2 `usage` on a misuse. */
+function runFlagRules({ edit, childOf, request, execWorktree }: any) {
+  if (given(childOf)) {
+    if (!RUN_ID.test(String(childOf))) throw usage(`--child-of expects 'w-' plus 12 lowercase hex characters, got '${childOf}'`);
+    if (given(edit)) throw usage('--edit does not apply with --child-of: a child run is read-only');
+    if (!given(request)) throw usage('--child-of needs --request <d-id>.c<n>');
+    if (!CHILD_NAME.test(String(request))) throw usage(`--request expects '<d-id>.c<n>', got '${request}'`);
+    if (!given(execWorktree)) throw usage('--child-of needs --exec-worktree');
+  } else {
+    if (given(request)) throw usage('--request applies only with --child-of');
+    if (given(execWorktree)) throw usage('--exec-worktree applies only with --child-of');
+  }
 }
 
 /**
@@ -327,17 +423,19 @@ function statusView(run: any, ledger: any, { platform, nowMs }: any) {
     state, reason, ...extra,
     startedAt: run.startedAt ?? null, endedAt: run.end?.at ?? null, deadline: run.deadline ?? null,
     process: run.process ?? null, report: run.report ?? null, readOnly: run.readOnly ?? null,
+    edit: run.edit ?? null, isolation: run.isolation ?? null, childOf: run.childOf ?? null, request: run.request ?? null,
     verified, attemptActive, resultOffered, withheld,
     cleanup: run.cleanup ?? null, supervisorCleanup: run.supervisorCleanup ?? null, attemptCancel: run.attemptCancel ?? null,
     output: run.output ?? null, launchObserved: run.launchObserved ?? null,
   };
 }
 
-/** The run named by `--worker-run`, or the one on `(task, token)`, or null. */
+/** The run named by `--worker-run`, or the top-level run on `(task, token)` (`childOf` null, 082
+ * IC-015, so a granter is named and never one of its children), or null. */
 function findRun(file: string, { workerRun, task, token }: any) {
   const runs = readRuns(file);
   if (workerRun) return runs[workerRun] ?? null;
-  return (Object.values(runs) as any[]).find((run) => run.task === task && run.token === token) ?? null;
+  return (Object.values(runs) as any[]).find((run) => run.task === task && run.token === token && (run.childOf ?? null) === null) ?? null;
 }
 
 /** `--worker-run`, or `--task` with `--token`, exactly one of the two. */
@@ -380,14 +478,14 @@ function summaryLines(body: any): string[] {
  */
 async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
-  workerRun, by, reason,
+  workerRun, by, reason, edit = false, childOf, request, execWorktree,
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
   descriptors, registry, coverage, sleep = defaultSleep,
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
     if (!given(action)) throw usage(`--action is required; valid: ${ACTIONS.join(' | ')}`);
     if (!ACTIONS.includes(action)) throw usage(`unknown action '${action}'; valid: ${ACTIONS.join(' | ')}`);
-    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, by, reason });
+    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, by, reason, edit, childOf, request, execWorktree });
     if (given(task) && !TASK_ID.test(String(task))) throw usage(`--task expects a plan task id such as A.1, got '${task}'`);
     if (given(token)) digits(token, '--token', 1);
     if (given(budgetTokens) && !given(modelCheck)) throw usage('--budget-tokens applies only with --model-check');
@@ -408,20 +506,23 @@ async function executeWorkerCommand({
       case 'probe': body = await readiness.probe({ ...atRoot, coverage: cov, needs, harness: given(harness) ? String(harness) : undefined, modelCheck: given(modelCheck) ? String(modelCheck) : undefined, budgetTokens: digits(budgetTokens, '--budget-tokens', 1) }); break;
       case 'describe':
         if (!given(harness)) throw usage('--action describe needs --harness');
-        body = readiness.describe({ ...atRoot, coverage: cov, harness: String(harness), needs });
+        body = readiness.describe({ ...atRoot, coverage: cov, harness: String(harness), needs, edit: given(edit) });
         break;
-      case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs }); break;
+      case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit) }); break;
       case 'run': {
         const feature = featureOf(slug, resolveSlug, cwd);
         if (!given(harness)) throw usage('--action run needs --harness');
         if (!given(task) || !given(token)) throw usage('--action run needs --task and --token');
         if (!given(promptFile)) throw usage('--action run needs --prompt-file');
+        runFlagRules({ edit, childOf, request, execWorktree });
         const worker = workerBlock(reg, descriptors, String(harness));
         const seconds = digits(timeoutSeconds, '--timeout-seconds', 1, TIMEOUT_MAX_SECONDS) ?? TIMEOUT_DEFAULT_SECONDS;
         const prompt = readPrompt(promptFile, cwd, worker);
         body = await runAction({
           env, cwd, root, platform, clock, sleep, slug: feature, harness: String(harness), task: String(task), token: Number(token),
           needs, timeoutSeconds: seconds, prompt, worker, reg, coverage: cov, wait: Boolean(wait),
+          edit: given(edit), childOf: given(childOf) ? String(childOf) : null, request: given(request) ? String(request) : null,
+          execWorktree: given(execWorktree) ? String(execWorktree) : null,
         });
         break;
       }
@@ -476,4 +577,4 @@ async function handleWorkerCommand(options: any = {}): Promise<number> {
   return finishRuntime(exit);
 }
 
-module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, allowedExecArgv, ACTIONS, FLAG_ACTIONS, WorkerCommandError };
+module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, findRun, allowedExecArgv, ACTIONS, FLAG_ACTIONS, WorkerCommandError };

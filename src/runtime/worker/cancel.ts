@@ -8,6 +8,9 @@
 // cancel, in process, with the caller's own `env` and `cwd` and no rebuilt identity, a refusal
 // recorded and a throw stored as `disposition: 'error'`; (5) the end, always written once step 2
 // applied. The escalation runs before the 080 cancel, so an 080 failure never leaves the tree alive.
+// A child run (082 IC-015, DEC-028, DEC-041) shares its granter's 080 attempt, so step 4 is skipped
+// for it on the user and timeout paths alike: `attemptCancel: { disposition: 'skipped', reason:
+// 'child-run' }`, and ending a child never cancels its granter's attempt.
 //
 // This module makes no fs write call: every write goes through the run store's `transition`, and
 // the 080 ledger is written only by 080's own `cancel` (G26 (b), IC-027).
@@ -124,6 +127,9 @@ async function endTree({ file, runId, run, platform, sleep, clock, escalate }: a
   return { status: 'unknown', reason: 'worker-unrecorded', survivors, zombies };
 }
 
+/** 082 IC-015: what step 4 records for a child run, which has no 080 attempt of its own. */
+const CHILD_SKIP = Object.freeze({ disposition: 'skipped', reason: 'child-run' });
+
 /** IC-021 step 4: 080's cancel, its refusal recorded and its throw stored (DEC-046). */
 function attemptCancelStep({ file, run, by, reason, env, cwd, clock, cancelImpl }: any) {
   const { root, slug, ledger } = ledgerFor(file);
@@ -190,7 +196,9 @@ async function cancelRun({
   const cleanup = await endTree({ file, runId, run: marked.run, platform, sleep, clock, escalate });
 
   // Step 4, after the tree is ended.
-  const attemptCancel = attemptCancelStep({ file, run: marked.run, by: String(by), reason: why, env, cwd, clock, cancelImpl });
+  const attemptCancel = marked.run.childOf
+    ? { ...CHILD_SKIP }
+    : attemptCancelStep({ file, run: marked.run, by: String(by), reason: why, env, cwd, clock, cancelImpl });
 
   // Step 5: always written.
   const endState = source === 'timeout' ? 'timed-out' : 'cancelled';
