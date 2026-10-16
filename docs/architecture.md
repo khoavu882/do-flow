@@ -93,13 +93,15 @@ how a shared asset projects onto it:
 
 ## Lifecycle bridges
 
-Hook enforcement has three separate responsibilities:
+Hook enforcement has three separate responsibilities, and the dispatch loop that drives the harness
+execution adapter has a fourth:
 
 | Responsibility | Owns | Must not |
 |---|---|---|
 | Install adapter | Projects, verifies and removes harness files with ledger ownership (`src/adapters/<harness>/` and `core/registry/assets.json`) | Decide a policy outcome |
 | Lifecycle bridge | Decodes one native hook input into envelope v1, calls one canonical policy and encodes its decision as the native response (`core/harnesses/shared/hooks/bridge/`, shell front doors, Antigravity runner delegation and Pi extension) | Hold policy rules, replan, spawn an agent or inject context beyond what hooks inject today |
-| Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it: `src/runtime/worker/` and `doflow-run worker` (discover, probe, describe, select, run, status, cancel) of a one-shot read-only worker on an 080 claim | 077 assigns it no implementation obligation; claim, finish or count budget on an attempt, or read credentials |
+| Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it: `src/runtime/worker/` and `doflow-run worker` (discover, probe, describe, select, run, status, cancel) of a one-shot read-only worker on an 080 claim; 082 amends it three ways: an optional `isolatedEdit` worker capability with an `isolated-edit` eligibility requirement (IC-013), `worker run --edit` for an editing run in a leased attempt worktree (IC-014), and `worker run --child-of` for a granted read-only child run (IC-015) | 077 assigns it no implementation obligation; claim, finish or count budget on an attempt, or read credentials |
+| Dispatch and integration loop | Runs a feature's task graph through admission, worker dispatch, verification and integration; 082 defines and builds it: `src/runtime/dispatch/` and `doflow-run dispatch` (start, step, run, submit, spawn, pause, inspect, cancel, takeover, resume) | Write the user's checkout or branches, merge, push, edit `plan.md`, or signal a worker tree except through 081 `cancelRun` |
 
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 
@@ -466,11 +468,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-forty-eight test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-forty-one entries across thirty-seven test files and carries thirty-nine distinct G-numbers.
+forty-nine test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+forty-two entries across thirty-eight test files and carries forty distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G41 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G42 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -720,6 +722,17 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   worker entry has evidence naming an existing repository path or an `https://` URL (G41.2); and
   every declared `structuredOutput.parser` is a key of `PARSERS` in `src/runtime/worker/parsers.ts`
   (G41.3).
+- **G42** (`dispatch-loop.test.js`) - `core/registry/storage.json` declares the `dispatch`,
+  `dispatch-envelopes` and `dispatch-worktrees` stores (G42.1); every harness declares
+  `isolatedEdit`, the registry validator reports no `isolatedEdit` error, and the edit baseline is the
+  read-only baseline with `read-only` replaced by `isolated-edit` (G42.2); the Autonomous cells of
+  Pause, Inspect, Cancel, Take over and Resume in `docs/specs/operating-modes.md` are `implemented`
+  with a `src/runtime/dispatch/controls.ts#` locator, while Take over's Manual / assisted cell and
+  both Redirect cells stay `target` (G42.3); `trace_run` records `run`, `lineage` and `attempt` only
+  from values that pass a pattern test, otherwise `null`, and the run ledger declares the three as
+  tokens (G42.4); no dispatch module calls `process.kill` or `.kill(`, and only `verify-run.ts`
+  references `escalate` (G42.5); and no dispatch module holds the literals `'push'`, `'fetch'`,
+  `'config'`, `'--no-verify'`, `'checkout'` or `'merge'` (G42.6).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
