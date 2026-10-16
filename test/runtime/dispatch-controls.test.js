@@ -556,3 +556,26 @@ test('IC-032 settlement: an admitted slot whose claim landed is adopted and rele
   assert.deepEqual([s.dispatches[claimed.dispatchId].phase, s.dispatches[claimed.dispatchId].workerRunId], ['launched', runId]);
   assert.deepEqual(out.orphans, []);
 });
+
+// RT-2: the lease rule's `block` runs from resume (and cancel) on a run another writer holds. It
+// records the integration-dirty gap and leaves the held state; the acknowledged resume then reads
+// the gap and leaves the run blocked, not running over a stranded lease.
+for (const held of ['resume-required', 'cancelling']) {
+  test(`RT-2: the lease rule blocking a dirty integration leaves a ${held} run ${held}`, POSIX, async (t) => {
+    const { p, d, wt, pick } = await leased(t);
+    pick(['--no-commit']);
+    fs.writeFileSync(path.join(wt, 'notes.txt'), 'someone else\n');
+    store.mutateDispatch(p.file, (s) => { s.run.state = held; if (held === 'resume-required') s.run.resumeReason = 'driver-lost'; return { write: true, result: null }; });
+    const out = await controls.resume(p.ctl());
+    assert.deepEqual(out.lease, { dispatchId: d.dispatchId, action: 'blocked' }, JSON.stringify(out));
+    const s = p.read();
+    assert.equal(s.run.state, held, `the ${held} state is kept`);
+    assert.equal(s.run.integrationGap.kind, 'integration-dirty');
+    assert.equal(s.lease.dispatchId, d.dispatchId, 'the lease is kept');
+    if (held === 'resume-required') {
+      const resumed = await controls.resume(p.ctl({ ack: out.digest }));
+      assert.equal(resumed.disposition, 'resumed', JSON.stringify(resumed));
+      assert.equal(p.read().run.state, 'blocked', 'the recorded gap blocks the resumed run');
+    }
+  });
+}

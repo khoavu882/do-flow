@@ -257,3 +257,44 @@ test('two processes moving one dispatch from admitted to claimed yield one appli
     assert.equal(stored.seq, 1, `repetition ${rep}`);
   }
 });
+
+// RT-2: one run-state setter. A held state (a cancel's, a lost driver's, a completion) is moved only
+// by its owner; every other writer leaves it, returning false.
+test('RT-2: setRunState keeps cancelling, cancelled, completed and resume-required against every writer but their owner', () => {
+  const { setRunState } = require('../../src/runtime/dispatch/store.ts');
+  assert.equal(typeof setRunState, 'function', 'store.ts exports the one run-state setter');
+  const at = (state) => ({ run: { state } });
+  for (const held of ['cancelling', 'cancelled', 'completed', 'resume-required']) {
+    for (const next of ['blocked', 'running', 'completed', 'resume-required']) {
+      if (next === held) continue;
+      const s = at(held);
+      assert.equal(setRunState(s, next), false, `${held} -> ${next}`);
+      assert.equal(s.run.state, held, `${held} is kept against ${next}`);
+    }
+  }
+  // The owners.
+  for (const from of ['running', 'blocked', 'resume-required', 'cancelling']) {
+    const s = at(from);
+    assert.equal(setRunState(s, 'cancelling', 'cancel'), true, from);
+    assert.equal(s.run.state, 'cancelling');
+    assert.equal(setRunState(s, 'cancelled', 'cancel'), true);
+    assert.equal(s.run.state, 'cancelled');
+  }
+  for (const ended of ['completed', 'cancelled']) {
+    const s = at(ended);
+    assert.equal(setRunState(s, 'cancelling', 'cancel'), false, `a cancel never reopens a ${ended} run`);
+    assert.equal(s.run.state, ended);
+  }
+  for (const next of ['running', 'blocked']) {
+    const s = at('resume-required');
+    assert.equal(setRunState(s, next, 'resume'), true);
+    assert.equal(s.run.state, next);
+  }
+  const cancelling = at('cancelling');
+  assert.equal(setRunState(cancelling, 'running', 'resume'), false, 'a resume never clears a cancel');
+  // Unheld states move freely.
+  const s = at('running');
+  assert.equal(setRunState(s, 'blocked'), true);
+  assert.equal(setRunState(s, 'resume-required'), true);
+  assert.equal(s.run.state, 'resume-required');
+});

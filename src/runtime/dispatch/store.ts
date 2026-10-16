@@ -163,6 +163,33 @@ function stampSeq(before: any, after: any, forced: string | null): void {
   }
 }
 
+/** Run states only their owner may move (IC-009, IC-026, IC-030, IC-032): a cancel marks and ends a
+ * run, a resume clears `resume-required`, and `completed` is final. */
+const HELD_RUN_STATES = Object.freeze(['cancelling', 'cancelled', 'completed', 'resume-required']);
+
+/**
+ * The one run-state setter, used inside a locked write by every writer of `run.state`. It moves
+ * `store.run.state` to `next` and returns true, unless the run holds a state another writer owns:
+ * `cancelling`, `cancelled`, `completed` or `resume-required`, which only `writer: 'cancel'` (IC-030
+ * steps 3 and 9: to `cancelling` or `cancelled`, never over `completed` or `cancelled`) or
+ * `writer: 'resume'` (IC-032 step 8: `resume-required` to `running` or `blocked`) may move. A held
+ * state is returned as false with nothing changed, so a pass that read the run before a cancel, a
+ * lost driver or a completion never overwrites it.
+ */
+function setRunState(store: any, next: string, writer: 'cancel' | 'resume' | null = null): boolean {
+  const run = store && store.run;
+  if (!run) return false;
+  const current = run.state;
+  if (current === next) return true;
+  if (HELD_RUN_STATES.includes(current)) {
+    const cancelling = writer === 'cancel' && ['cancelling', 'cancelled'].includes(next) && !['completed', 'cancelled'].includes(current);
+    const resuming = writer === 'resume' && current === 'resume-required' && ['running', 'blocked'].includes(next);
+    if (!cancelling && !resuming) return false;
+  }
+  run.state = next;
+  return true;
+}
+
 /** The whole store, `dispatches` keyed by id; the empty store when the file does not exist. Takes no lock. */
 function readDispatch(file: string, fsImpl: any = fs): any {
   try {
@@ -257,6 +284,8 @@ module.exports = {
   readDispatch,
   mutateDispatch,
   transitionDispatch,
+  setRunState,
+  HELD_RUN_STATES,
   DispatchStoreError,
   PHASES,
   NEXT_PHASES,

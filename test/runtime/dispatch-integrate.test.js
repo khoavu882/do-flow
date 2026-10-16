@@ -315,3 +315,23 @@ test('IC-018: with no collected dispatch nothing happens, and a held lease block
   assert.equal((await p.integrate()).outcome, 'lease-held');
   p.callerUnchanged();
 });
+
+// RT-2: a lost driver (`resume-required`, IC-009) or a cancel (`cancelling`, IC-030 step 3) can land
+// between IC-018 step 1 and the step-2 dirty write. The `afterLease` seam sets that state after the
+// lease is taken, so the order is fixed; the dirty path records its gap and leaves the state.
+for (const held of ['resume-required', 'cancelling']) {
+  test(`RT-2: the integration-dirty path leaves a ${held} run ${held}`, POSIX, async (t) => {
+    const p = project(t);
+    const d = p.dispatchOf('A.1', (wt) => write(wt, 'src/a.js', '// held\n'));
+    write(p.integration.worktree, 'stray.txt', 'stray\n');
+    const afterLease = () => store.mutateDispatch(p.file, (s) => { s.run.state = held; return { write: true, result: null }; });
+    const r = await p.integrate({ afterLease });
+    assert.equal(r.outcome, 'integration-dirty', JSON.stringify(r));
+    const s = p.read();
+    assert.equal(s.run.state, held, `the ${held} state is kept`);
+    assert.equal(s.run.integrationGap.kind, 'integration-dirty', 'the gap is still recorded');
+    assert.equal(s.lease, null);
+    assert.notEqual(s.dispatches[d.id].phase, 'integrating');
+    p.callerUnchanged();
+  });
+}

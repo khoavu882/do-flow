@@ -37,7 +37,7 @@ const { executeWorkerCommand, statusView, settledStatus } = require('../worker/c
 const { cancelRun } = require('../worker/cancel.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
-const { storeFileFor, readDispatch, mutateDispatch, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
+const { storeFileFor, readDispatch, mutateDispatch, setRunState, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
 const { registerDriver, endDriver, admit, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
 const integrate = require('./integrate.ts');
 const { classFor, endAttempt, releaseAttempt, usageFor, SIGNALS } = require('./attempt-end.ts');
@@ -566,7 +566,7 @@ function releaseIntegrationError(p: any, d: any, error: any, parts: any) {
     const cur = s.dispatches[d.dispatchId];
     if (!cur || cur.phase === 'ended') return { write: false, result: null };
     const end = releaseAttempt({ store: s, dispatchId: cur.dispatchId, reason: 'integration-error', usage: parts.usage, ctx: p.ctx() });
-    s.run.state = 'blocked';
+    setRunState(s, 'blocked');
     s.run.integrationGap = { task: cur.task, kind: 'integration-error', cause: 'no-progress', reason: error.reason || 'attempt-commit-failed', exitCode: error.exitCode ?? null, blocks: [] };
     return end;
   });
@@ -965,19 +965,23 @@ function blockedReport(s: any, view: any, gaps: any[]) {
 }
 
 /**
- * Inside a locked write: runs `settle(st)`, which moves the run's state, unless a cancel has marked
- * the run (IC-030 step 3), in which case nothing is moved and the marked state is returned. `decide`
- * read the store outside the lock, so a cancel can land between that read and this write; without
- * this check the pass would overwrite `cancelling` or `cancelled` with `completed` or `blocked`.
+ * Inside a locked write: runs `settle(st)`, which moves the run's state, unless the run holds a
+ * state another writer owns (`cancelling` or `cancelled` from a cancel, IC-030 step 3;
+ * `resume-required` from a lost driver, IC-009; `completed`), in which case nothing is moved and the
+ * held state is returned. `decide` read the store outside the lock, so a cancel or a lost driver can
+ * land between that read and this write; without this check the pass would overwrite it with
+ * `completed` or `blocked`.
  */
 function unlessCancelled(st: any, settle: (st: any) => void): string | null {
-  if (CANCEL_MARKED.includes(st.run.state)) return st.run.state;
+  if (HELD_RUN_STATES.includes(st.run.state)) return st.run.state;
   settle(st);
   return null;
 }
 
-/** The pass outcome for a cancel-marked run, as `decide` reports one (IC-003). */
-const cancelledOutcome = (state: string) => (state === 'cancelled' ? 'cancelled' : 'continue');
+/** The pass outcome for a run in a held state, as `decide` reports one (IC-003). */
+const cancelledOutcome = (state: string) => (state === 'cancelling' ? 'continue' : state);
+/** The decide action's reason token for a held state: `cancelled` for a cancel's, else the state. */
+const heldAction = (state: string) => (CANCEL_MARKED.includes(state) ? 'cancelled' : state);
 
 /**
  * The pass's last locked write: run state and records, durations, peaks and the step record. An
@@ -992,7 +996,7 @@ function finishPass(p: any, outcome: string, apply: ((s: any) => string | null |
     const marked = apply ? apply(s) : null;
     if (typeof marked === 'string') {
       landed = cancelledOutcome(marked);
-      p.act('decide', null, 'cancelled', marked);
+      p.act('decide', null, heldAction(marked), marked);
     }
     if (p.integrationMs.length) {
       const d = s.run.integrationDurations && Number.isInteger(s.run.integrationDurations.count) ? s.run.integrationDurations : emptyDuration();
@@ -1033,7 +1037,7 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
     p.act('decide', null, 'blocked', 'final-verification-failed', Date.now() - decideStarted);
     return finishPass(p, 'blocked', (st: any) => {
       record(st);
-      return unlessCancelled(st, (x: any) => { x.run.state = 'blocked'; x.run.blockedReport = report; });
+      return unlessCancelled(st, (x: any) => { setRunState(x, 'blocked'); x.run.blockedReport = report; });
     }, { blocked: report });
   }
   const completedAt = iso(p.clock());
@@ -1047,11 +1051,11 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
   // A cancel that marked the run during the final verification wins: the run is not completed.
   const marked = mutateDispatch(p.file, (st: any) => {
     record(st);
-    const halted = unlessCancelled(st, (x: any) => Object.assign(x.run, { state: 'completed', completedAt, completion, blockedReport: null }));
+    const halted = unlessCancelled(st, (x: any) => { setRunState(x, 'completed'); Object.assign(x.run, { completedAt, completion, blockedReport: null }); });
     return { write: true, result: halted };
   });
   if (marked) {
-    p.act('decide', null, 'cancelled', marked, Date.now() - decideStarted);
+    p.act('decide', null, heldAction(marked), marked, Date.now() - decideStarted);
     return finishPass(p, cancelledOutcome(marked));
   }
   const after = readDispatch(p.file);
@@ -1114,7 +1118,7 @@ async function decide(p: any) {
   if (!gaps.length) gaps.push({ task: null, kind: 'no-progress', cause: 'no-progress', reason: 'no task can progress', blocks: [] });
   const report = blockedReport(s, view, gaps);
   extra('blocked', report.cause);
-  return finishPass(p, 'blocked', (st: any) => unlessCancelled(st, (x: any) => { x.run.state = 'blocked'; x.run.blockedReport = report; }), { blocked: report });
+  return finishPass(p, 'blocked', (st: any) => unlessCancelled(st, (x: any) => { setRunState(x, 'blocked'); x.run.blockedReport = report; }), { blocked: report });
 }
 
 // ── step and run (IC-003, IC-004) ────────────────────────────────────────────────────────────────
@@ -1123,7 +1127,7 @@ async function decide(p: any) {
 function reopen(p: any) {
   mutateDispatch(p.file, (s: any) => {
     if (!s.run || s.run.state !== 'blocked' || s.run.integrationGap) return { write: false, result: null };
-    s.run.state = 'running';
+    setRunState(s, 'running');
     return { write: true, result: null };
   });
 }

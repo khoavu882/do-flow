@@ -31,7 +31,7 @@ const { readTaskState } = require('../task-state.ts');
 const { procStart, alive } = require('../worker/process-tree.ts');
 const { storeFileFor: runStoreFileFor, readRuns } = require('../worker/run-store.ts');
 const { statusView } = require('../worker/command.ts');
-const { storeFileFor, readDispatch, mutateDispatch, newDispatchId, DispatchStoreError } = require('./store.ts');
+const { storeFileFor, readDispatch, mutateDispatch, newDispatchId, setRunState, DispatchStoreError } = require('./store.ts');
 const { managerFor, createAttemptWorktree } = require('./integrate.ts');
 const { copyGrant } = require('./grants.ts');
 
@@ -99,10 +99,7 @@ function registerDriver({
       lost.push({ pid: stored.pid, start: stored.start ?? null, reason });
     }
     store.drivers.push(driver);
-    if (lost.length && store.run && !['completed', 'cancelled'].includes(store.run.state)) {
-      store.run.state = 'resume-required';
-      store.run.resumeReason = lost[0].reason;
-    }
+    if (lost.length && store.run && setRunState(store, 'resume-required')) store.run.resumeReason = lost[0].reason;
     return { write: true, result: { driver: structuredClone(driver), lost, state: store.run ? store.run.state : null } };
   }, fsImpl);
 }

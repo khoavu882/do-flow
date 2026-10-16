@@ -36,7 +36,7 @@ const { WorktreeManager, BASE_FILE } = require('../worktree.ts');
 const { storeRules, withoutDeclaredStores } = require('../worker/worktree-check.ts');
 const { procStart } = require('../worker/process-tree.ts');
 const { readTaskState } = require('../task-state.ts');
-const { storeFileFor, mutateDispatch, readDispatch, transitionDispatch, DispatchStoreError } = require('./store.ts');
+const { storeFileFor, mutateDispatch, readDispatch, transitionDispatch, setRunState, DispatchStoreError } = require('./store.ts');
 const { REPO_ENV, runVerification } = require('./verify-run.ts');
 const { endAttempt, completeAttempt, releaseAttempt, usageFor } = require('./attempt-end.ts');
 
@@ -279,8 +279,10 @@ function oldestCollected(store: any): any {
   return ready[0] ?? null;
 }
 
+/** Records an integration gap and blocks the run, unless the run holds a state another writer owns
+ * (a cancel's, a lost driver's `resume-required`, IC-009): the gap is still recorded, the state is not moved. */
 function blockRun(store: any, gap: any): void {
-  store.run.state = 'blocked';
+  setRunState(store, 'blocked');
   store.run.integrationGap = { cause: 'no-progress', blocks: [], ...gap };
 }
 
@@ -300,14 +302,15 @@ function endStale(store: any, dispatch: any, reason: string, ctx: any, now: Date
  * `ctx` is B.3's 080 context (`ledgerFile`, `roots`, `slug`, `env`, `cwd`, `fsImpl`, `now`); `env`
  * is the environment git and the verification inherit, less the repository variables. `holder` is
  * the lease holder `{ pid, start }` (this process by default). `beforeUpdateRef` is a test seam
- * called between `commit-tree` and `update-ref`; the loop never passes it.
+ * called between `commit-tree` and `update-ref`, and `afterLease` one called between steps 1 and 2;
+ * the loop passes neither.
  *
  * Resolves `{ outcome, dispatchId, task, token, ... }`, `outcome` one of `none`, `not-running`,
  * `lease-held`, `stale`, `integration-dirty`, `conflict`, `integration-error`, `verification`,
  * `finish-refused`, `completed`, or `lastError` when an 080 call threw or refused.
  */
 async function integrateOnce({
-  root, slug, ctx, env = process.env, holder = null, now = () => new Date(), beforeUpdateRef = null,
+  root, slug, ctx, env = process.env, holder = null, now = () => new Date(), beforeUpdateRef = null, afterLease = null,
   storeFile = null, verify = runVerification,
 }: any) {
   const file = storeFile ?? storeFileFor(root, slug);
@@ -370,6 +373,7 @@ async function integrateOnce({
   };
 
   // Step 2, outside: the integration worktree is on its branch at preHead and clean.
+  if (afterLease) await afterLease({ dispatchId, worktree: integration.worktree, preHead });
   const check = integrationClean({ ...where, preHead });
   if (!check.clean) {
     return settle((store, d) => {

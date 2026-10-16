@@ -33,7 +33,7 @@ const { alive } = require('../worker/process-tree.ts');
 const { cancelRun, CANCEL_TAKEOVER_MS } = require('../worker/cancel.ts');
 const { statusView, settledStatus, findRun } = require('../worker/command.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
-const { storeFileFor, readDispatch, mutateDispatch, transitionDispatch, DispatchStoreError } = require('./store.ts');
+const { storeFileFor, readDispatch, mutateDispatch, transitionDispatch, setRunState, DispatchStoreError } = require('./store.ts');
 const { registerDriver, endDriver, MAIN_SESSION_MODES } = require('./admission.ts');
 const { endAttempt, releaseAttempt, usageFor } = require('./attempt-end.ts');
 const integrate = require('./integrate.ts');
@@ -274,7 +274,7 @@ async function leaseRule(c: any) {
   const base = { dispatchId, verification };
   const block = (reason: string) => {
     mutateDispatch(c.file, (st: any) => {
-      st.run.state = 'blocked';
+      setRunState(st, 'blocked');
       st.run.integrationGap = { task: d ? d.task : null, kind: 'integration-dirty', cause: 'no-progress', reason, blocks: [] };
       return { write: true, result: null };
     });
@@ -502,7 +502,7 @@ async function cancel(options: any = {}) {
     const marked = mutateDispatch(c.file, (s: any) => {
       const busy = cancelRefusal(s.run, at);
       if (busy) return { write: false, result: busy };
-      s.run.state = 'cancelling';
+      setRunState(s, 'cancelling', 'cancel');
       s.run.cancel = { at: iso(at), by, reason };
       return { write: true, result: null };
     });
@@ -559,7 +559,7 @@ async function cancel(options: any = {}) {
 
     // Step 9.
     mutateDispatch(c.file, (st: any) => {
-      st.run.state = 'cancelled';
+      setRunState(st, 'cancelled', 'cancel');
       st.run.endedAt = iso(c.clock());
       return { write: true, result: null };
     });
@@ -863,7 +863,8 @@ async function resume(options: any = {}) {
       const answer = attempts.resume({ ...c.common(), ack, by, reason });
       if (answer.disposition !== 'resumed') return { write: false, result: answer };
       if (st.run.state === 'resume-required') {
-        st.run.state = 'running';
+        // A gap the lease rule recorded while the run was held stays a blocked run (IC-018).
+        setRunState(st, st.run.integrationGap ? 'blocked' : 'running', 'resume');
         st.run.resumeReason = null;
       }
       st.run.resumedAt = iso(c.clock());
