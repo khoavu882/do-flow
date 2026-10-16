@@ -37,7 +37,7 @@ const { executeWorkerCommand, statusView, settledStatus } = require('../worker/c
 const { cancelRun } = require('../worker/cancel.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
-const { storeFileFor, readDispatch, mutateDispatch, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
+const { storeFileFor, readDispatch, mutateDispatch, setRunState, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
 const { registerDriver, endDriver, admit, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
 const integrate = require('./integrate.ts');
 const { classFor, endAttempt, releaseAttempt, usageFor, SIGNALS } = require('./attempt-end.ts');
@@ -308,11 +308,14 @@ function control(ledger: any, runKey: string | null) {
 }
 
 /** One locked move of dispatch `id` from one of `phases`, `apply(dispatch, store)` changing it in
- * place; the peaks are raised in the same write. `{ applied, dispatch, phase }`. */
-function moveDispatch(p: any, id: string, phases: string[], apply: (d: any, s: any) => void) {
+ * place; the peaks are raised in the same write. With `open`, the move is also refused while the run
+ * holds a state no launch may start under (cancel-marked, `resume-required` or `completed`, IC-009,
+ * IC-030), read inside the lock. `{ applied, dispatch, phase }`. */
+function moveDispatch(p: any, id: string, phases: string[], apply: (d: any, s: any) => void, { open = false }: { open?: boolean } = {}) {
   return mutateDispatch(p.file, (s: any) => {
     const d = s.dispatches[id];
     if (!d || !phases.includes(d.phase)) return { write: false, result: { applied: false, phase: d ? d.phase : null } };
+    if (open && (!s.run || HELD_RUN_STATES.includes(s.run.state))) return { write: false, result: { applied: false, phase: `run-${s.run ? s.run.state : 'missing'}` } };
     apply(d, s);
     bumpPeak(s);
     return { write: true, result: { applied: true, dispatch: structuredClone(d) } };
@@ -433,6 +436,21 @@ async function endStale(p: any, d: any, reason: string, workerRun: any) {
   return ended;
 }
 
+/**
+ * DEC-047 / IC-021: the worker cleanup an `exited` 081 run shows, never assumed. `verified` only
+ * from an observed group reading: the supervisor read the group gone (`process.groupAlive: false`)
+ * or its escalation verified the leftover. On win32, with no reading, or with an `unknown` one, it is
+ * `unknown`; leftover survivors are `survivors`.
+ */
+function exitedCleanup(run: any, platform: string) {
+  const proc = (run && run.process) || {};
+  const leftover = proc.leftover || null;
+  if (leftover && leftover.status === 'survivors') return { status: 'survivors', reason: leftover.reason ?? 'group-survived' };
+  if (platform === 'win32') return { status: 'unknown', reason: 'win32' };
+  if (proc.groupAlive === false || (leftover && leftover.status === 'verified')) return { status: 'verified', reason: 'exited' };
+  return { status: 'unknown', reason: proc.groupAlive === undefined ? 'group-unobserved' : 'group-liveness-unknown' };
+}
+
 /** IC-021: deferred removals of ended attempt and child worktrees. */
 async function deferredRemovals(p: any) {
   let s = readDispatch(p.file);
@@ -443,10 +461,11 @@ async function deferredRemovals(p: any) {
     if (d.workerRunId && d.cleanup == null) {
       const run = runs[d.workerRunId];
       const view = run ? statusView(run, ledger, { platform: p.platform, nowMs: p.clock().getTime() }) : null;
+      const exited = view && run.phase === 'ended' && run.end && run.end.state === 'exited' ? exitedCleanup(run, p.platform) : null;
       if (view && run.phase === 'ended' && view.cleanup && view.cleanup.status === 'verified') {
         recordCleanup(p, d.dispatchId, { source: 'status', endState: view.state, cleanup: view.cleanup });
-      } else if (view && run.phase === 'ended' && run.end && run.end.state === 'exited' && !(run.process && run.process.leftover && run.process.leftover.status === 'survivors')) {
-        recordCleanup(p, d.dispatchId, { source: 'status', endState: 'exited', cleanup: { status: 'verified', reason: 'exited' } });
+      } else if (exited && exited.status !== 'survivors') {
+        recordCleanup(p, d.dispatchId, { source: 'status', endState: 'exited', cleanup: exited });
       } else if (view && view.state === 'unknown' && view.reason === 'process-lost') {
         recordCleanup(p, d.dispatchId, { source: 'status', endState: 'unknown', cleanup: { status: 'verified', reason: 'process-lost' } });
       }
@@ -529,14 +548,15 @@ function writeResult(p: any, d: any, run: any, { outcome, staleReason = null, fa
   return { value, written };
 }
 
-/** Ends dispatch `d` by IC-024's class for `signal`; then, outside the lock, `cancelRun` when the
- * class asks for it, and the granter's children. */
-async function failDispatch(p: any, d: any, signal: string, detail: any, run: any, parts: any, envelope: any = null) {
+/** Ends dispatch `d` by IC-024's class for `signal`, only while its phase is one of `phases` (read
+ * inside the lock: a pass-wide snapshot can be older than another driver's lease); then, outside the
+ * lock, `cancelRun` when the class asks for it, and the granter's children. */
+async function failDispatch(p: any, d: any, phases: string[], signal: string, detail: any, run: any, parts: any, envelope: any = null) {
   const started = Date.now();
   const { failureClass, cancelRun: needCancel } = classFor(signal);
   const ended = mutateDispatch(p.file, (s: any) => {
     const cur = s.dispatches[d.dispatchId];
-    if (!cur || cur.phase === 'ended') return { write: false, result: { ended: false, reason: 'phase-not-allowed' } };
+    if (!cur || !phases.includes(cur.phase)) return { write: false, result: { ended: false, reason: 'phase-not-allowed', phase: cur ? cur.phase : null } };
     if (parts) cur.usageParts = parts.parts;
     if (envelope) cur.envelopes = { ...(cur.envelopes || {}), result: envelope.pointer };
     const end = endAttempt({ store: s, dispatchId: cur.dispatchId, failureClass, detail, usage: parts ? parts.usage : undefined, ctx: p.ctx() });
@@ -545,7 +565,8 @@ async function failDispatch(p: any, d: any, signal: string, detail: any, run: an
   });
   p.act('finish', d, ended.ended ? `failed:${failureClass}` : `finish-refused:${failureClass}`, ended.ended ? detail : ended.reason, Date.now() - started);
   if (!ended.ended) {
-    p.errors.add(d.dispatchId);
+    // A phase refusal wrote nothing and is no 080 error (no `lastError`).
+    if (ended.reason !== 'phase-not-allowed') p.errors.add(d.dispatchId);
     return ended;
   }
   if (needCancel && d.workerRunId) {
@@ -566,7 +587,7 @@ function releaseIntegrationError(p: any, d: any, error: any, parts: any) {
     const cur = s.dispatches[d.dispatchId];
     if (!cur || cur.phase === 'ended') return { write: false, result: null };
     const end = releaseAttempt({ store: s, dispatchId: cur.dispatchId, reason: 'integration-error', usage: parts.usage, ctx: p.ctx() });
-    s.run.state = 'blocked';
+    setRunState(s, 'blocked');
     s.run.integrationGap = { task: cur.task, kind: 'integration-error', cause: 'no-progress', reason: error.reason || 'attempt-commit-failed', exitCode: error.exitCode ?? null, blocks: [] };
     return end;
   });
@@ -579,7 +600,7 @@ async function collect(p: any) {
   for (const d of Object.values(current.dispatches) as any[]) {
     // A main-session submit of `failure` fails at its next collection (IC-005).
     if (d.phase === 'collected' && d.outcome === 'failed' && d.report && d.report.performer === 'main') {
-      await failDispatch(p, d, 'submit-failure', 'submit --status failure', null, { usage: usageFor(d, null, []), parts: d.usageParts || { main: usageFor(d, null, []) } });
+      await failDispatch(p, d, ['collected'], 'submit-failure', 'submit --status failure', null, { usage: usageFor(d, null, []), parts: d.usageParts || { main: usageFor(d, null, []) } });
       continue;
     }
     if (d.phase !== 'launched' || d.mode !== 'subagent' || !d.workerRunId) continue;
@@ -590,7 +611,7 @@ async function collect(p: any) {
     if (view && LIVE_WORKER_STATES.includes(view.state)) continue;
     if (!view || view.state === 'unknown') {
       const children = childRunsOf(p, current, d.dispatchId);
-      await failDispatch(p, d, 'status-unknown', view ? view.reason : 'run-missing', run, usageParts(d, run, children));
+      await failDispatch(p, d, ['launched'], 'status-unknown', view ? view.reason : 'run-missing', run, usageParts(d, run, children));
       continue;
     }
     const stale = integrate.staleReason(d, ledger, d.parentRunKey ?? current.run.runKey ?? null);
@@ -607,7 +628,7 @@ async function collect(p: any) {
       const signal = signalFor(withheld[0], run);
       const { failureClass } = classFor(signal);
       const { written } = writeResult(p, d, run, { outcome: 'failed', failureClass, usage: parts.usage, withheld });
-      await failDispatch(p, d, signal, withheld.join(', '), run, parts, written);
+      await failDispatch(p, d, ['launched'], signal, withheld.join(', '), run, parts, written);
       continue;
     }
     let commit: any;
@@ -668,7 +689,7 @@ async function timeouts(p: any) {
     const run = runs[d.workerRunId] ?? null;
     const parts = usageParts(d, run, childRunsOf(p, current, d.dispatchId));
     p.act('timeout', d, 'deadline', `${seconds}s`);
-    await failDispatch(p, d, 'deadline', `${seconds}s`, run, parts);
+    await failDispatch(p, d, ['launched'], 'deadline', `${seconds}s`, run, parts);
   }
 }
 
@@ -722,6 +743,10 @@ async function launchChildren(p: any) {
       const recorded = mutateDispatch(p.file, (s: any) => {
         const r = s.spawnRequests[req.requestId];
         if (!r || r.state !== 'requested') return { write: false, result: false };
+        // Read inside the lock: a cancel or a lost driver since the pass's snapshot, or a granter that
+        // ended, leaves the request and the run just started is cancelled below (IC-030, IC-033).
+        const g = s.dispatches[req.granterDispatchId];
+        if (!s.run || HELD_RUN_STATES.includes(s.run.state) || !g || g.phase !== 'launched') return { write: false, result: false };
         Object.assign(r, { state: 'launched', childRunId: body.runId, identity: record ? record.identity ?? null : null, launchedAt: iso(p.clock()), worktree: wt.worktree });
         bumpPeak(s);
         return { write: true, result: true };
@@ -828,7 +853,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   if (MAIN_SESSION_MODES.includes(d.mode)) {
     const moved = moveDispatch(p, d.dispatchId, ['claimed'], (x: any) => {
       Object.assign(x, { phase: 'launched', launchedAt: iso(p.clock()), deadline: null, workerIdentity: null, envelopes: { handoff: handoff.pointer, result: null } });
-    });
+    }, { open: true });
     p.act('launch', d, moved.applied ? `perform:${d.mode}` : `moved:${moved.phase}`, null, Date.now() - started);
     if (moved.applied && !p.perform) p.perform = performYield(p, moved.dispatch);
     return;
@@ -855,9 +880,10 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
         workerIdentity: run && run.identity ? { ...run.identity } : null,
         envelopes: { handoff: handoff.pointer, result: null },
       });
-    });
+    }, { open: true });
     if (!moved.applied) {
-      // A cancel, take over or resume moved the dispatch first: end the run just started (IC-007).
+      // A cancel, take over or resume moved the dispatch or marked the run first: end the run just
+      // started (IC-007, IC-030).
       const res = await cancelWorker(p, body.runId, 'dispatch-moved');
       recordCleanup(p, d.dispatchId, cancelSummary(res));
     }
@@ -871,7 +897,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
     return { write: true, result: null };
   });
   p.act('launch', d, 'refused', reason, Date.now() - started);
-  await failDispatch(p, d, 'run-refused', reason, null, null);
+  await failDispatch(p, d, ['claimed'], 'run-refused', reason, null, null);
 }
 
 async function admitAndLaunch(p: any) {
@@ -965,19 +991,23 @@ function blockedReport(s: any, view: any, gaps: any[]) {
 }
 
 /**
- * Inside a locked write: runs `settle(st)`, which moves the run's state, unless a cancel has marked
- * the run (IC-030 step 3), in which case nothing is moved and the marked state is returned. `decide`
- * read the store outside the lock, so a cancel can land between that read and this write; without
- * this check the pass would overwrite `cancelling` or `cancelled` with `completed` or `blocked`.
+ * Inside a locked write: runs `settle(st)`, which moves the run's state, unless the run holds a
+ * state another writer owns (`cancelling` or `cancelled` from a cancel, IC-030 step 3;
+ * `resume-required` from a lost driver, IC-009; `completed`), in which case nothing is moved and the
+ * held state is returned. `decide` read the store outside the lock, so a cancel or a lost driver can
+ * land between that read and this write; without this check the pass would overwrite it with
+ * `completed` or `blocked`.
  */
 function unlessCancelled(st: any, settle: (st: any) => void): string | null {
-  if (CANCEL_MARKED.includes(st.run.state)) return st.run.state;
+  if (HELD_RUN_STATES.includes(st.run.state)) return st.run.state;
   settle(st);
   return null;
 }
 
-/** The pass outcome for a cancel-marked run, as `decide` reports one (IC-003). */
-const cancelledOutcome = (state: string) => (state === 'cancelled' ? 'cancelled' : 'continue');
+/** The pass outcome for a run in a held state, as `decide` reports one (IC-003). */
+const cancelledOutcome = (state: string) => (state === 'cancelling' ? 'continue' : state);
+/** The decide action's reason token for a held state: `cancelled` for a cancel's, else the state. */
+const heldAction = (state: string) => (CANCEL_MARKED.includes(state) ? 'cancelled' : state);
 
 /**
  * The pass's last locked write: run state and records, durations, peaks and the step record. An
@@ -992,7 +1022,7 @@ function finishPass(p: any, outcome: string, apply: ((s: any) => string | null |
     const marked = apply ? apply(s) : null;
     if (typeof marked === 'string') {
       landed = cancelledOutcome(marked);
-      p.act('decide', null, 'cancelled', marked);
+      p.act('decide', null, heldAction(marked), marked);
     }
     if (p.integrationMs.length) {
       const d = s.run.integrationDurations && Number.isInteger(s.run.integrationDurations.count) ? s.run.integrationDurations : emptyDuration();
@@ -1033,7 +1063,7 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
     p.act('decide', null, 'blocked', 'final-verification-failed', Date.now() - decideStarted);
     return finishPass(p, 'blocked', (st: any) => {
       record(st);
-      return unlessCancelled(st, (x: any) => { x.run.state = 'blocked'; x.run.blockedReport = report; });
+      return unlessCancelled(st, (x: any) => { setRunState(x, 'blocked'); x.run.blockedReport = report; });
     }, { blocked: report });
   }
   const completedAt = iso(p.clock());
@@ -1047,11 +1077,11 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
   // A cancel that marked the run during the final verification wins: the run is not completed.
   const marked = mutateDispatch(p.file, (st: any) => {
     record(st);
-    const halted = unlessCancelled(st, (x: any) => Object.assign(x.run, { state: 'completed', completedAt, completion, blockedReport: null }));
+    const halted = unlessCancelled(st, (x: any) => { setRunState(x, 'completed'); Object.assign(x.run, { completedAt, completion, blockedReport: null }); });
     return { write: true, result: halted };
   });
   if (marked) {
-    p.act('decide', null, 'cancelled', marked, Date.now() - decideStarted);
+    p.act('decide', null, heldAction(marked), marked, Date.now() - decideStarted);
     return finishPass(p, cancelledOutcome(marked));
   }
   const after = readDispatch(p.file);
@@ -1114,7 +1144,7 @@ async function decide(p: any) {
   if (!gaps.length) gaps.push({ task: null, kind: 'no-progress', cause: 'no-progress', reason: 'no task can progress', blocks: [] });
   const report = blockedReport(s, view, gaps);
   extra('blocked', report.cause);
-  return finishPass(p, 'blocked', (st: any) => unlessCancelled(st, (x: any) => { x.run.state = 'blocked'; x.run.blockedReport = report; }), { blocked: report });
+  return finishPass(p, 'blocked', (st: any) => unlessCancelled(st, (x: any) => { setRunState(x, 'blocked'); x.run.blockedReport = report; }), { blocked: report });
 }
 
 // ── step and run (IC-003, IC-004) ────────────────────────────────────────────────────────────────
@@ -1123,7 +1153,7 @@ async function decide(p: any) {
 function reopen(p: any) {
   mutateDispatch(p.file, (s: any) => {
     if (!s.run || s.run.state !== 'blocked' || s.run.integrationGap) return { write: false, result: null };
-    s.run.state = 'running';
+    setRunState(s, 'running');
     return { write: true, result: null };
   });
 }
@@ -1185,10 +1215,16 @@ async function step(options: any = {}) {
     own = registerDriver({ file: p.file, now: p.clock() });
     p.driver = own.driver;
   }
+  let threw = false;
   try {
     return await runPass(p);
+  } catch (error) {
+    // A pass that threw left claimed or leased state no later pass settles (RT-5): its driver end
+    // records `threw` and makes the run `resume-required` in one write (IC-009, IC-032).
+    threw = true;
+    throw error;
   } finally {
-    if (own) endDriver({ file: p.file, driver: own.driver, now: p.clock() });
+    if (own) endDriver({ file: p.file, driver: own.driver, now: p.clock(), endReason: threw ? 'threw' : null });
   }
 }
 
@@ -1226,6 +1262,7 @@ async function run(options: any = {}) {
   let steps = 0;
   let last: any = null;
   let timeUp = false;
+  let threw = false;
   try {
     for (;;) {
       last = await step({ ...options, driver: reg.driver, shouldStop: () => signal !== null });
@@ -1236,9 +1273,12 @@ async function run(options: any = {}) {
       if (signal) break;
       if (Date.now() - startedMs >= maxSeconds * 1000) { timeUp = true; break; }
     }
+  } catch (error) {
+    threw = true;
+    throw error;
   } finally {
     for (const [name, handler] of Object.entries(handlers)) process.removeListener(name as any, handler);
-    endDriver({ file: p.file, driver: reg.driver, now: p.clock() });
+    endDriver({ file: p.file, driver: reg.driver, now: p.clock(), endReason: threw ? 'threw' : null });
   }
   if (last && last.disposition !== 'stepped') return last;
   const result: any = { disposition: 'ran', dispatchRunId: last.dispatchRunId, steps, outcome: last.outcome, timeUp, elapsedMs: Date.now() - startedMs, last };
@@ -1333,6 +1373,7 @@ module.exports = {
   evaluateHarnesses,
   checkCaller,
   measurement,
+  exitedCleanup,
   OUTCOMES,
   RUN_STOPS,
   IDLE_WAIT_MS,

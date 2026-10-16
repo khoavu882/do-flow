@@ -33,12 +33,12 @@ const { alive } = require('../worker/process-tree.ts');
 const { cancelRun, CANCEL_TAKEOVER_MS } = require('../worker/cancel.ts');
 const { statusView, settledStatus, findRun } = require('../worker/command.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
-const { storeFileFor, readDispatch, mutateDispatch, transitionDispatch, DispatchStoreError } = require('./store.ts');
+const { storeFileFor, readDispatch, mutateDispatch, transitionDispatch, setRunState, DispatchStoreError } = require('./store.ts');
 const { registerDriver, endDriver, MAIN_SESSION_MODES } = require('./admission.ts');
 const { endAttempt, releaseAttempt, usageFor } = require('./attempt-end.ts');
 const integrate = require('./integrate.ts');
 const { endVerification } = require('./verify-run.ts');
-const { checkCaller, measurement, LOOP_BY, ATTEMPT_SECONDS_DEFAULT } = require('./loop.ts');
+const { checkCaller, measurement, exitedCleanup, LOOP_BY, ATTEMPT_SECONDS_DEFAULT } = require('./loop.ts');
 
 /** 080's `SAFE_NAME`, which `--by` must match. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
@@ -198,14 +198,14 @@ function strayTargets(s: any, runs: any, keep: (d: any) => boolean, into: Map<st
   return into;
 }
 
-/** A dispatch's worker cleanup: its recorded one, else what 081 recorded for its ended run. */
-function workerCleanupOf(d: any, runs: any) {
+/** A dispatch's worker cleanup: its recorded one, else what 081 recorded for its ended run, else
+ * what an `exited` run's group reading shows (`exitedCleanup`: verified only when observed). */
+function workerCleanupOf(c: any, d: any, runs: any) {
   if (d.cleanup) return d.cleanup.cleanup ?? d.cleanup;
   const run = d.workerRunId ? runs[d.workerRunId] : null;
   if (!run || run.phase !== 'ended') return null;
   if (run.cleanup) return run.cleanup;
-  const leftover = run.process && run.process.leftover;
-  if (run.end && run.end.state === 'exited' && !(leftover && leftover.status === 'survivors')) return { status: 'verified', reason: 'exited' };
+  if (run.end && run.end.state === 'exited') return exitedCleanup(run, c.platform);
   return null;
 }
 
@@ -274,7 +274,7 @@ async function leaseRule(c: any) {
   const base = { dispatchId, verification };
   const block = (reason: string) => {
     mutateDispatch(c.file, (st: any) => {
-      st.run.state = 'blocked';
+      setRunState(st, 'blocked');
       st.run.integrationGap = { task: d ? d.task : null, kind: 'integration-dirty', cause: 'no-progress', reason, blocks: [] };
       return { write: true, result: null };
     });
@@ -441,7 +441,7 @@ function removeWorktrees(c: any, dropped: string[]) {
   const runs = readRuns(c.runStore);
   for (const d of Object.values(s.dispatches) as any[]) {
     if (d.phase !== 'ended' || !d.attempt || !d.attempt.worktree || (d.removal && d.removal.verified)) continue;
-    const cleanup = workerCleanupOf(d, runs);
+    const cleanup = workerCleanupOf(c, d, runs);
     if (d.workerRunId && !(cleanup && cleanup.status === 'verified')) { kept.push({ path: d.attempt.worktree, reason: 'worker-cleanup-unverified' }); continue; }
     const due = integrate.removalDue({ ...d, cleanup: d.cleanup ?? (cleanup ? { cleanup } : null) }, { state: 'cancelled' });
     if (!due.due) { kept.push({ path: d.attempt.worktree, reason: due.reason }); continue; }
@@ -502,7 +502,7 @@ async function cancel(options: any = {}) {
     const marked = mutateDispatch(c.file, (s: any) => {
       const busy = cancelRefusal(s.run, at);
       if (busy) return { write: false, result: busy };
-      s.run.state = 'cancelling';
+      setRunState(s, 'cancelling', 'cancel');
       s.run.cancel = { at: iso(at), by, reason };
       return { write: true, result: null };
     });
@@ -554,12 +554,21 @@ async function cancel(options: any = {}) {
       return { write: true, result: out };
     });
 
+    // Step 7, second net: a worker or child a launch started after step 4 read the run store, whose
+    // record write the cancel mark then refused, is ended too (IC-030: every worker is cancelled).
+    const late = new Map<string, any>();
+    const after = readDispatch(c.file);
+    childTargets(after, null, late);
+    strayTargets(after, readRuns(c.runStore), () => true, late);
+    for (const id of targets.keys()) late.delete(id);
+    if (late.size) workers.push(...await endWorkers(c, late, by, reason));
+
     // Step 8, outside.
     const worktrees = removeWorktrees(c, dropped);
 
     // Step 9.
     mutateDispatch(c.file, (st: any) => {
-      st.run.state = 'cancelled';
+      setRunState(st, 'cancelled', 'cancel');
       st.run.endedAt = iso(c.clock());
       return { write: true, result: null };
     });
@@ -863,7 +872,8 @@ async function resume(options: any = {}) {
       const answer = attempts.resume({ ...c.common(), ack, by, reason });
       if (answer.disposition !== 'resumed') return { write: false, result: answer };
       if (st.run.state === 'resume-required') {
-        st.run.state = 'running';
+        // A gap the lease rule recorded while the run was held stays a blocked run (IC-018).
+        setRunState(st, st.run.integrationGap ? 'blocked' : 'running', 'resume');
         st.run.resumeReason = null;
       }
       st.run.resumedAt = iso(c.clock());

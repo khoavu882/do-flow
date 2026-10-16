@@ -446,8 +446,16 @@ async function superviseRun({
   const { code, signal } = await exited;
   clearTimeout(timer);
   transition(file, runId, STEP6, (r: any) => put(r, 'process', { kind: 'exited', code, signal, at: iso(clock) }));
-  // The group may outlive its leader: end what remains before the after snapshot (DEC-058).
-  if (platform !== 'win32' && processTree.groupAlive(worker.pgid, worker.start) === true) {
+  // The group may outlive its leader: end what remains before the after snapshot (DEC-058). The
+  // reading is recorded as `process.groupAlive` (false, true or 'unknown'; absent on win32, where no
+  // group is read), so a reader infers a cleaned-up tree only from an observed `false` (DEC-047).
+  const groupAlive = platform === 'win32' ? null : processTree.groupAlive(worker.pgid, worker.start);
+  if (groupAlive !== null) {
+    transition(file, runId, STEP6, (r: any) => {
+      if (r.process?.kind === 'exited' && r.process.groupAlive === undefined) r.process.groupAlive = groupAlive;
+    });
+  }
+  if (groupAlive === true) {
     const outcome = await escalate({ proc: worker, platform });
     const leftover = { status: outcome.status ?? 'unknown', reason: outcome.reason ?? null, survivors: outcome.survivors ?? [], zombies: outcome.zombies ?? [] };
     transition(file, runId, STEP6, (r: any) => {

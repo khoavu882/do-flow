@@ -556,3 +556,69 @@ test('IC-032 settlement: an admitted slot whose claim landed is adopted and rele
   assert.deepEqual([s.dispatches[claimed.dispatchId].phase, s.dispatches[claimed.dispatchId].workerRunId], ['launched', runId]);
   assert.deepEqual(out.orphans, []);
 });
+
+// RT-2: the lease rule's `block` runs from resume (and cancel) on a run another writer holds. It
+// records the integration-dirty gap and leaves the held state; the acknowledged resume then reads
+// the gap and leaves the run blocked, not running over a stranded lease.
+for (const held of ['resume-required', 'cancelling']) {
+  test(`RT-2: the lease rule blocking a dirty integration leaves a ${held} run ${held}`, POSIX, async (t) => {
+    const { p, d, wt, pick } = await leased(t);
+    pick(['--no-commit']);
+    fs.writeFileSync(path.join(wt, 'notes.txt'), 'someone else\n');
+    store.mutateDispatch(p.file, (s) => { s.run.state = held; if (held === 'resume-required') s.run.resumeReason = 'driver-lost'; return { write: true, result: null }; });
+    const out = await controls.resume(p.ctl());
+    assert.deepEqual(out.lease, { dispatchId: d.dispatchId, action: 'blocked' }, JSON.stringify(out));
+    const s = p.read();
+    assert.equal(s.run.state, held, `the ${held} state is kept`);
+    assert.equal(s.run.integrationGap.kind, 'integration-dirty');
+    assert.equal(s.lease.dispatchId, d.dispatchId, 'the lease is kept');
+    if (held === 'resume-required') {
+      const resumed = await controls.resume(p.ctl({ ack: out.digest }));
+      assert.equal(resumed.disposition, 'resumed', JSON.stringify(resumed));
+      assert.equal(p.read().run.state, 'blocked', 'the recorded gap blocks the resumed run');
+    }
+  });
+}
+
+// RT-6 / SF-10 (NFR-005, DEC-047): worker cleanup is inferred `verified` only from an observed group
+// reading. Each case seeds an ended (`released`) subagent dispatch whose 081 run ended `exited`; the
+// injected platform and the seeded `process` record decide what was observed. A step records the
+// cleanup the deferred-removal rule reads, then cancel removes only what was observed verified.
+async function exitedWorker(t, { platform, process: proc }) {
+  const p = await project(t, { plan: 'disjoint', mode: 'auto' });
+  const at = new Date().toISOString();
+  const seeded = [];
+  for (const [task, extra] of [['A.1', proc], ['A.2', { groupAlive: false }]]) {
+    const d = p.seedDispatch({ task, phases: ['claimed', 'launched'] });
+    const runId = p.seedRun({ task, token: d.token, phase: 'ended', end: { state: 'exited', at }, process: { kind: 'exited', code: 0, signal: null, at, ...extra } });
+    store.mutateDispatch(p.file, (s) => {
+      Object.assign(s.dispatches[d.dispatchId], { workerRunId: runId, phase: 'ended', disposition: 'released', endedAt: at, releaseReason: 'test' });
+      return { write: true, result: null };
+    });
+    seeded.push(d);
+  }
+  const [unobserved, observed] = seeded;
+  await p.step({ platform });
+  const d = p.read().dispatches[unobserved.dispatchId];
+  const cleanupOf = (x) => (x.cleanup ? x.cleanup.cleanup ?? x.cleanup : null);
+  assert.equal(cleanupOf(d) && cleanupOf(d).status, 'unknown', `cleanup reads unknown: ${JSON.stringify(d.cleanup)}`);
+  assert.equal(fs.existsSync(unobserved.worktree), true, 'the attempt worktree is kept');
+  const out = await controls.cancel(p.ctl({ platform }));
+  assert.equal(out.disposition, 'cancelled', JSON.stringify(out));
+  assert.equal(out.cleanupVerified, false, JSON.stringify(out));
+  assert.ok(out.worktrees.kept.some((k) => k.path === unobserved.worktree && k.reason === 'worker-cleanup-unverified'), `kept and listed: ${JSON.stringify(out.worktrees)}`);
+  assert.equal(fs.existsSync(unobserved.worktree), true);
+  return { p, observed, platform };
+}
+
+test('RT-6 / SF-10: on win32 an exited worker run with no leftover reads cleanup unknown, cleanupVerified false, its worktree kept and listed', POSIX, async (t) => {
+  const { observed } = await exitedWorker(t, { platform: 'win32', process: {} });
+  assert.equal(fs.existsSync(observed.worktree), true, 'on win32 no group reading is trusted, so every worker worktree is kept');
+});
+
+test('RT-6: on POSIX an exited worker run whose leftover is unknown is never cleanup verified; an observed gone group is', POSIX, async (t) => {
+  const { p, observed } = await exitedWorker(t, { platform: process.platform, process: { groupAlive: true, leftover: { status: 'unknown', reason: 'ps-failed', survivors: [], zombies: [] } } });
+  const cleanup = p.read().dispatches[observed.dispatchId].cleanup;
+  assert.equal(cleanup.cleanup.status, 'verified', JSON.stringify(cleanup));
+  assert.equal(fs.existsSync(observed.worktree), false, 'an observed gone group lets its worktree be removed');
+});

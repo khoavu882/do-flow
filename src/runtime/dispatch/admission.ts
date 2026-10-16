@@ -31,7 +31,7 @@ const { readTaskState } = require('../task-state.ts');
 const { procStart, alive } = require('../worker/process-tree.ts');
 const { storeFileFor: runStoreFileFor, readRuns } = require('../worker/run-store.ts');
 const { statusView } = require('../worker/command.ts');
-const { storeFileFor, readDispatch, mutateDispatch, newDispatchId, DispatchStoreError } = require('./store.ts');
+const { storeFileFor, readDispatch, mutateDispatch, newDispatchId, setRunState, DispatchStoreError } = require('./store.ts');
 const { managerFor, createAttemptWorktree } = require('./integrate.ts');
 const { copyGrant } = require('./grants.ts');
 
@@ -99,21 +99,27 @@ function registerDriver({
       lost.push({ pid: stored.pid, start: stored.start ?? null, reason });
     }
     store.drivers.push(driver);
-    if (lost.length && store.run && !['completed', 'cancelled'].includes(store.run.state)) {
-      store.run.state = 'resume-required';
-      store.run.resumeReason = lost[0].reason;
-    }
+    if (lost.length && store.run && setRunState(store, 'resume-required')) store.run.resumeReason = lost[0].reason;
     return { write: true, result: { driver: structuredClone(driver), lost, state: store.run ? store.run.state : null } };
   }, fsImpl);
 }
 
-/** IC-009: writes `endedAt` on this invocation's driver, add-only. `{ ended }`. */
-function endDriver({ file, driver, now = new Date(), fsImpl = fs }: any) {
+/**
+ * IC-009: writes `endedAt` on this invocation's driver, add-only. With `endReason: 'threw'` (a pass
+ * that threw, RT-5) the same write records the reason and sets the run `resume-required`, reason
+ * `driver-threw`, unless it holds a state another writer owns, so IC-032 settles what the pass left
+ * in flight. `{ ended }`.
+ */
+function endDriver({ file, driver, now = new Date(), endReason = null, fsImpl = fs }: any) {
   if (!driver || !Number.isInteger(driver.pid)) throw usage('endDriver needs the driver registerDriver returned');
   return mutateDispatch(file, (store: any) => {
     const stored = (store.drivers as any[]).find((d) => sameDriver(d, driver));
     if (!stored || stored.endedAt) return { write: false, result: { ended: false } };
     stored.endedAt = now.toISOString();
+    if (endReason === 'threw') {
+      stored.endReason = 'threw';
+      if (store.run && setRunState(store, 'resume-required')) store.run.resumeReason = 'driver-threw';
+    }
     return { write: true, result: { ended: true } };
   }, fsImpl);
 }
