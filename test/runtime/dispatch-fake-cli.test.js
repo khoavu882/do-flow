@@ -11,7 +11,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.js');
 const { IDENTITY_VARS } = require('../helper/fake-harness-cli.js');
 const {
-  makeDispatchSandbox, editDescriptors, PLAN_DIR, PLAN_FIXTURES, FAKE_BINARIES, EDIT_ARGV,
+  makeDispatchSandbox, editDescriptors, PLAN_DIR, PLAN_FIXTURES, FAKE_BINARIES, EDIT_ARGV, HARNESS_BINARIES,
 } = require('../helper/dispatch-sandbox.js');
 const { validateWorker } = require('../../src/registry/index.ts');
 const { loadPlan } = require('../../src/runtime/task-attempts.ts');
@@ -180,6 +180,20 @@ test('sandbox: named system tools only, and a harness name is refused', POSIX_ON
   assert.deepEqual(fs.readdirSync(box.bin).sort(), ['bash', 'fake-claude', 'git', 'node']);
   assert.equal(spawnSync('bash', ['-c', 'exit 0'], { env: box.env }).status, 0);
   for (const name of ['codex', 'claude', 'node', '../bash']) {
+    assert.throws(() => makeDispatchSandbox(t, { systemTools: [name] }), /not a linkable system tool/, name);
+  }
+});
+
+test('sandbox (SF-6): HARNESS_BINARIES is every registry harness id and worker binary, agy included, and each is refused', POSIX_ONLY, (t) => {
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'harnesses.json'), 'utf8'));
+  const expected = new Set();
+  for (const h of registry.harnesses) {
+    expected.add(h.id);
+    if (h.worker?.cli?.binary) expected.add(h.worker.cli.binary);
+  }
+  assert.ok(expected.has('agy'), 'the registry names agy');
+  assert.deepEqual([...HARNESS_BINARIES].sort(), [...expected].sort());
+  for (const name of HARNESS_BINARIES) {
     assert.throws(() => makeDispatchSandbox(t, { systemTools: [name] }), /not a linkable system tool/, name);
   }
 });

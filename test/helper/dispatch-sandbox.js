@@ -34,8 +34,10 @@ const { parsePlan } = require('../../src/runtime/scaffold/artifacts.ts');
 
 const PLAN_DIR = path.join(__dirname, '..', 'fixtures', 'dispatch', 'plans');
 const PLAN_FIXTURES = Object.freeze(['dependent', 'disjoint', 'overlap', 'budget']);
-/** Real harness binary names a sandbox must never link or resolve. */
-const HARNESS_BINARIES = Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'kiro', 'kiro-cli', 'pi', 'copilot', 'antigravity']);
+/** Real harness binary names a sandbox must never link or resolve: every harness id in
+ * core/registry/harnesses.json and every `worker.cli.binary` it declares (agy, kiro-cli). */
+const HARNESS_BINARIES = Object.freeze([...new Set(require('../../core/registry/harnesses.json').harnesses
+  .flatMap((h) => [h.id, h.worker?.cli?.binary].filter((name) => typeof name === 'string' && name)))]);
 const FAKE_BINARIES = Object.freeze(Object.values(DESCRIPTORS).map((block) => block.cli.binary));
 const EDIT_ARGV = Object.freeze(['--edit-in-cwd']);
 
