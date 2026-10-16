@@ -31,7 +31,7 @@ const { projectRoot } = require('../lifecycle/root.ts');
 const { BASE_FILE } = require('../worktree.ts');
 const { alive } = require('../worker/process-tree.ts');
 const { cancelRun, CANCEL_TAKEOVER_MS } = require('../worker/cancel.ts');
-const { statusView, findRun } = require('../worker/command.ts');
+const { statusView, settledStatus, findRun } = require('../worker/command.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
 const { storeFileFor, readDispatch, mutateDispatch, transitionDispatch, DispatchStoreError } = require('./store.ts');
 const { registerDriver, endDriver, MAIN_SESSION_MODES } = require('./admission.ts');
@@ -724,8 +724,7 @@ async function settleOne(c: any, dispatchId: string, mine: any, settled: any[]) 
     return;
   }
   if (MAIN_SESSION_MODES.includes(d.mode) || !d.workerRunId) { record('launched', 'left', 'main-session'); return; }
-  const run = readRuns(c.runStore)[d.workerRunId];
-  const view = run ? statusView(run, c.ledger(), { platform: c.platform, nowMs: c.clock().getTime() }) : null;
+  const { view } = settledStatus(c.runStore, d.workerRunId, c.ledger(), { platform: c.platform, nowMs: c.clock().getTime() });
   if (!view || view.state !== 'unknown') {
     record('launched', 'left', view ? (LIVE_WORKER_STATES.includes(view.state) ? view.state : `ended:${view.state}`) : 'run-missing');
     return;

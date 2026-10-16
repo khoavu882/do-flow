@@ -410,6 +410,39 @@ test('a live supervisor with a dead worker reads running, overdue and supervisor
   assert.deepEqual([body.state, body.supervisorLost, body.overdue, body.cancel], ['running', false, true, null]);
 });
 
+test('settledStatus reads a run ended between its record read and the liveness probe as ended, and a run never ended as lost', POSIX, async (t) => {
+  const { settledStatus } = require(path.join(SRC, 'worker', 'command.ts'));
+  const ledger = (p) => JSON.parse(fs.readFileSync(p.ledger, 'utf8'));
+  const opts = { platform: process.platform, nowMs: Date.now() };
+  const seedLost = (p) => {
+    const dead = deadProc();
+    return seedRun(p, (run) => { Object.assign(run, { phase: 'running', supervisor: dead, worker: dead, deadline: new Date(Date.now() + 60000).toISOString() }); });
+  };
+
+  // The supervisor's end lands after the first read and before the probe, then the supervisor exits.
+  const p = project(t);
+  const runId = seedLost(p);
+  let reads = 0;
+  const racing = (file) => {
+    reads += 1;
+    const runs = readRuns(file);
+    if (reads === 1) {
+      transition(file, runId, ['running'], (r) => { r.end = { state: 'exited', at: new Date().toISOString() }; r.phase = 'ended'; });
+    }
+    return runs;
+  };
+  const settled = settledStatus(p.store, runId, ledger(p), opts, racing);
+  assert.equal(reads, 2, 'a not-ended record whose processes are gone is read again after the probe');
+  assert.deepEqual([settled.run.phase, settled.view.state, settled.view.reason], ['ended', 'exited', null]);
+
+  // A record still not ended after the probe is lost, as before.
+  const q = project(t);
+  const lostId = seedLost(q);
+  const lost = settledStatus(q.store, lostId, ledger(q), opts);
+  assert.deepEqual([lost.run.phase, lost.view.state, lost.view.reason], ['running', 'unknown', 'process-lost']);
+  assert.equal(settledStatus(q.store, 'w-000000000000', ledger(q), opts).view, null, 'a missing run has no view');
+});
+
 test('cancel of an unknown run refuses the caller identity first, then unknown-run', async (t) => {
   const p = project(t);
   const worker = await p.cmd({ action: 'cancel', task: 'A.1', token: p.token, by: 'w', reason: 'x', env: { ...p.env, DOFLOW_SESSION_ROLE: 'worker' } });
