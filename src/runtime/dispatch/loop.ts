@@ -710,6 +710,11 @@ async function launchChildren(p: any) {
     if (!r || r.state !== 'requested') return { write: false, result: false };
     r.state = 'refused';
     r.reason = reason;
+    // A refused request spent nothing: its reserved tokens go back to the granter's grant (RT-16).
+    const g = s.dispatches[r.granterDispatchId];
+    if (g && g.phase !== 'ended' && g.grant && g.grant.used && Number.isInteger(r.reserveTokens)) {
+      g.grant = { ...g.grant, used: { ...g.grant.used, tokens: Math.max(0, g.grant.used.tokens - r.reserveTokens) } };
+    }
     return { write: true, result: true };
   });
   for (const req of requested) {

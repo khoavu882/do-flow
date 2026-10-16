@@ -420,3 +420,30 @@ test('RT-13: a lease taken during the final verification keeps the run from comp
   const s = p.read();
   assert.deepEqual([leased, s.run.state, s.run.completion ?? null, r.outcome], [true, 'running', null, 'continue'], JSON.stringify(r.actions));
 });
+
+// RT-16: a request the launch refuses spent nothing. The granter's worker sleeps; its spawn request
+// is recorded with 20 tokens reserved, and its prompt copy is then removed, so the child's
+// `worker run` is refused at launch. The reserved tokens go back to the grant.
+test('RT-16: a spawn request refused at launch refunds its reserved tokens to the grant', POSIX, async (t) => {
+  const p = await project(t, {
+    mode: 'auto', scenario: SLEEPER, identity: { DOFLOW_ATTEMPT: undefined }, probe: true, reserveTokens: 100,
+    spawnGrant: { depth: 1, children: 1, tokens: 50 },
+  });
+  await p.step();
+  const [granter] = Object.values(p.read().dispatches);
+  assert.equal(granter.phase, 'launched');
+  const prompt = path.join(granter.attempt.worktree, 'child-prompt.md');
+  fs.writeFileSync(prompt, 'look something up');
+  const workerEnv = {
+    ...p.env, DOFLOW_RUN_ID: granter.workerIdentity.run, DOFLOW_LINEAGE_ID: granter.workerIdentity.lineage,
+    DOFLOW_ATTEMPT: granter.workerIdentity.attempt, DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKTREE: granter.attempt.worktree,
+  };
+  const requested = requestSpawn({ slug: SLUG, promptFile: prompt, reserveTokens: 20, env: workerEnv, cwd: granter.attempt.worktree, root: p.root });
+  assert.equal(requested.disposition, 'spawn-requested', JSON.stringify(requested));
+  fs.rmSync(prompt);
+  assert.equal(p.read().dispatches[granter.dispatchId].grant.used.tokens, 20);
+  fs.rmSync(path.join(p.root, '.doflow', 'state', p.read().spawnRequests[requested.requestId].prompt));
+  const stepped = await p.step();
+  const s = p.read();
+  assert.deepEqual([s.spawnRequests[requested.requestId].state, s.dispatches[granter.dispatchId].grant.used.tokens], ['refused', 0], JSON.stringify(stepped.actions));
+});
