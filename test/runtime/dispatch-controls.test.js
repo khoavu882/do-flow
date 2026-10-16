@@ -622,3 +622,18 @@ test('RT-6: on POSIX an exited worker run whose leftover is unknown is never cle
   assert.equal(cleanup.cleanup.status, 'verified', JSON.stringify(cleanup));
   assert.equal(fs.existsSync(observed.worktree), false, 'an observed gone group lets its worktree be removed');
 });
+
+// RT-9: an attempt the ledger shows finished COMPLETED with no pick recorded (an empty change, or a
+// pick equal to preHead's tree) and the integration HEAD still at preHead is adopted completed, not
+// recorded interrupted while 080 shows it SUCCEEDED.
+test('RT-9: the lease rule adopts a COMPLETED attempt with no pickedHead whose integration HEAD is preHead', POSIX, async (t) => {
+  const { p, d, preHead, wt } = await leased(t);
+  const v = await runVerification({ root: p.root, slug: SLUG, taskId: 'A.1', worktree: wt, argv: p.sb.verifyArgv, seconds: 30, env: p.env });
+  const fin = attempts.finish({ ...p.common, task: 'A.1', token: d.token, result: 'COMPLETED', evidenceId: v.evidenceId, tokens: 0, basis: 'estimated' });
+  assert.equal(fin.disposition, 'applied', JSON.stringify(fin));
+  const out = await controls.resume(p.ctl());
+  const s = p.read();
+  const x = s.dispatches[d.dispatchId];
+  assert.deepEqual([out.lease && out.lease.action, x.disposition, x.integratedCommit, s.run.integration.head, s.lease],
+    ['adopted', 'completed', null, preHead, null], JSON.stringify(out));
+});

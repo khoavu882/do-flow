@@ -378,3 +378,22 @@ test('RT-8: removalDue keeps a completed or failed dispatch\'s worktree while it
   assert.deepEqual([removalDue(failed, { state: 'completed' }), removalDue(completed, { state: 'running' }), removalDue(verified, { state: 'cancelled' }).due],
     [{ due: false, reason: 'worker-cleanup-unverified' }, { due: false, reason: 'worker-cleanup-unverified' }, true]);
 });
+
+// RT-9: an 080 release that throws changes nothing else (IC-024). The run's verification is
+// undeclared, so step 5 takes the release-with-error path; the `afterLease` seam arms an fs whose
+// ledger rename fails, so 080's release throws `store-unreadable`. The attempt is still active, so
+// the dispatch keeps `lastError` and goes back to `collected`, never ended `released` beside an
+// active 080 attempt.
+test('RT-9: a release that throws on an active attempt keeps lastError and leaves the dispatch collected', POSIX, async (t) => {
+  const p = project(t);
+  const d = p.dispatchOf('A.1', (wt) => write(wt, 'src/a.js', '// a\n'));
+  store.mutateDispatch(p.file, (s) => { s.run.verify = { argv: null, argvSha256: null, argvCount: 0, timeoutSeconds: 30 }; return { write: true, result: null }; });
+  let armed = false;
+  const fsImpl = { ...fs, renameSync: (from, to) => { if (armed && to === p.ctx.ledgerFile) throw Object.assign(new Error('EIO'), { code: 'EIO' }); return fs.renameSync(from, to); } };
+  const afterLease = () => { armed = true; };
+  const r = await p.integrate({ afterLease, ctx: { ...p.ctx, fsImpl } });
+  armed = false;
+  assert.equal(r.outcome, 'integration-error', JSON.stringify(r));
+  const x = p.read().dispatches[d.id];
+  assert.deepEqual([x.phase, Boolean(x.lastError), p.read().lease, p.attempts('A.1')[0].state], ['collected', true, null, 'active'], JSON.stringify(x));
+});

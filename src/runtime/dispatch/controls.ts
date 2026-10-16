@@ -282,10 +282,12 @@ async function leaseRule(c: any) {
   };
   if (!d) return block('lease-dispatch-missing');
 
-  if (attempt && attempt.state === 'finished' && attempt.result === 'COMPLETED' && pickedHead && head === pickedHead) {
+  if (attempt && attempt.state === 'finished' && attempt.result === 'COMPLETED'
+    && ((pickedHead && head === pickedHead) || (pickedHead === null && head === preHead))) {
+    // An empty change (or empty pick) finished COMPLETED leaves HEAD at preHead (RT-9).
     mutateDispatch(c.file, (st: any) => {
       const x = st.dispatches[dispatchId];
-      st.run.integration.head = pickedHead;
+      st.run.integration.head = pickedHead ?? preHead;
       st.run.integrationGap = null;
       st.lease = null;
       if (x && x.phase !== 'ended') {
@@ -315,7 +317,11 @@ async function leaseRule(c: any) {
     if (!x || x.phase === 'ended') return { write: true, result: null };
     const active = attempt && attempt.state === 'active';
     const end = active ? endAttempt({ store: st, dispatchId, failureClass: 'interrupted', detail: 'lease holder lost', ctx: c.ctx() }) : null;
-    if (x.phase !== 'ended') {
+    // A release 080 threw or refused on a still-active attempt keeps `lastError` and the dispatch
+    // live, back at `collected` with the lease cleared, so the next pass retries (IC-024, RT-9).
+    if (end && !end.result.ended && integrate.activeAttempt(c.ledger(), x.task, x.token)) {
+      if (x.phase === 'integrating') x.phase = 'collected';
+    } else if (x.phase !== 'ended') {
       Object.assign(x, { phase: 'ended', disposition: 'interrupted', failureClass: 'interrupted', endedAt: iso(c.clock()), usage: usageFor(x, null, []) });
     }
     return { write: true, result: end ? end.result : null };

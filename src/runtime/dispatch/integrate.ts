@@ -268,6 +268,12 @@ function readLedger(ctx: any): any {
   return readTaskState(ctx.fsImpl || fs, ctx.ledgerFile) || { tasks: {}, runs: {} };
 }
 
+/** Whether `ledger` holds `(task, token)`'s 080 attempt `active`. */
+function activeAttempt(ledger: any, task: string, token: number): boolean {
+  const entry = ledger && ledger.tasks ? ledger.tasks[task] : null;
+  return Boolean(entry && Array.isArray(entry.attempts) && entry.attempts.some((a: any) => a.token === token && a.state === 'active'));
+}
+
 // ── IC-018 ───────────────────────────────────────────────────────────────────────────────────────
 
 const INTEGRABLE_RUN_STATES = Object.freeze(['running', 'blocked']);
@@ -362,8 +368,11 @@ async function integrateOnce({
     const undone = undo({ ...where, preHead, pickedHead });
     return settle((store, d) => {
       const end = releaseAttempt({ store, dispatchId, reason: 'integration-error', usage: usageFor(d, null, []), ctx: lockCtx() });
-      // A release 080 refused (the attempt already ended outside the loop) still ends the dispatch.
-      if (d.phase !== 'ended') Object.assign(d, { phase: 'ended', disposition: 'released', endedAt: now().toISOString(), releaseReason: 'integration-error' });
+      // A release 080 threw or refused on a still-active attempt keeps `lastError` and the dispatch
+      // live, back at `collected` with the lease cleared (IC-024, RT-9); one refused because the
+      // attempt already ended outside the loop still ends the dispatch.
+      if (!end.result.ended && d.phase === 'integrating' && activeAttempt(readLedger(ctx), task, token)) d.phase = 'collected';
+      else if (d.phase !== 'ended') Object.assign(d, { phase: 'ended', disposition: 'released', endedAt: now().toISOString(), releaseReason: 'integration-error' });
       blockRun(store, { task, kind: 'integration-error', reason, exitCode, ...(undone.ok ? {} : { undo: undone.reason, undoFailed: true }) });
       return { ...base, outcome: 'integration-error', reason, exitCode, undo: undone, end: end.result };
     });
@@ -586,6 +595,7 @@ module.exports = {
   integrateNext,
   undo,
   staleReason,
+  activeAttempt,
   removalDue,
   removeDispatchWorktree,
 };
