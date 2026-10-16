@@ -72,6 +72,8 @@ const BLOCKERS_MAX = 20;
 const BLOCKER_CHARS = 200;
 const REASON_CHARS = 200;
 const BASES = Object.freeze(['measured', 'estimated']);
+/** IC-030 step 3: the run states a cancel has marked. From then on no pass moves the run's state. */
+const CANCEL_MARKED = Object.freeze(['cancelling', 'cancelled']);
 
 type Env = Record<string, string | undefined>;
 
@@ -962,12 +964,36 @@ function blockedReport(s: any, view: any, gaps: any[]) {
   };
 }
 
-/** The pass's last locked write: run state and records, durations, peaks and the step record. */
-function finishPass(p: any, outcome: string, apply: ((s: any) => void) | null = null, extra: any = {}) {
+/**
+ * Inside a locked write: runs `settle(st)`, which moves the run's state, unless a cancel has marked
+ * the run (IC-030 step 3), in which case nothing is moved and the marked state is returned. `decide`
+ * read the store outside the lock, so a cancel can land between that read and this write; without
+ * this check the pass would overwrite `cancelling` or `cancelled` with `completed` or `blocked`.
+ */
+function unlessCancelled(st: any, settle: (st: any) => void): string | null {
+  if (CANCEL_MARKED.includes(st.run.state)) return st.run.state;
+  settle(st);
+  return null;
+}
+
+/** The pass outcome for a cancel-marked run, as `decide` reports one (IC-003). */
+const cancelledOutcome = (state: string) => (state === 'cancelled' ? 'cancelled' : 'continue');
+
+/**
+ * The pass's last locked write: run state and records, durations, peaks and the step record. An
+ * `apply` that returns a cancel-marked state (from `unlessCancelled`) changed no run state; the pass
+ * then records and returns the cancelled outcome instead of `outcome`, without `extra`.
+ */
+function finishPass(p: any, outcome: string, apply: ((s: any) => string | null | void) | null = null, extra: any = {}) {
   const at = p.clock();
+  let landed = outcome;
   const written = mutateDispatch(p.file, (s: any) => {
     if (!s.run) return { write: false, result: null };
-    if (apply) apply(s);
+    const marked = apply ? apply(s) : null;
+    if (typeof marked === 'string') {
+      landed = cancelledOutcome(marked);
+      p.act('decide', null, 'cancelled', marked);
+    }
     if (p.integrationMs.length) {
       const d = s.run.integrationDurations && Number.isInteger(s.run.integrationDurations.count) ? s.run.integrationDurations : emptyDuration();
       for (const ms of p.integrationMs) addDuration(d, ms);
@@ -977,12 +1003,12 @@ function finishPass(p: any, outcome: string, apply: ((s: any) => void) | null = 
     s.run.measurement = measurement(s);
     const last = s.steps.length ? s.steps[s.steps.length - 1].step : 0;
     const step = (Number.isInteger(last) ? last : 0) + 1;
-    s.steps.push({ step, at: iso(at), driver: { pid: p.driver.pid, start: p.driver.start ?? null }, outcome, actions: p.actions });
+    s.steps.push({ step, at: iso(at), driver: { pid: p.driver.pid, start: p.driver.start ?? null }, outcome: landed, actions: p.actions });
     return { write: true, result: { step, dispatchRunId: s.run.dispatchRunId, measurement: structuredClone(s.run.measurement) } };
   });
   return {
-    disposition: 'stepped', dispatchRunId: written ? written.dispatchRunId : null, step: written ? written.step : null, outcome,
-    actions: p.actions, ...extra, measurement: written ? written.measurement : null,
+    disposition: 'stepped', dispatchRunId: written ? written.dispatchRunId : null, step: written ? written.step : null, outcome: landed,
+    actions: p.actions, ...(landed === outcome ? extra : {}), measurement: written ? written.measurement : null,
   };
 }
 
@@ -1005,7 +1031,10 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
     const gaps = [{ task: null, kind: 'final-verification-failed', cause: 'no-progress', reason: `evidence ${verification.evidenceId}`, blocks: [], evidenceId: verification.evidenceId }];
     const report = blockedReport(s, view, gaps);
     p.act('decide', null, 'blocked', 'final-verification-failed', Date.now() - decideStarted);
-    return finishPass(p, 'blocked', (st: any) => { record(st); st.run.state = 'blocked'; st.run.blockedReport = report; }, { blocked: report });
+    return finishPass(p, 'blocked', (st: any) => {
+      record(st);
+      return unlessCancelled(st, (x: any) => { x.run.state = 'blocked'; x.run.blockedReport = report; });
+    }, { blocked: report });
   }
   const completedAt = iso(p.clock());
   const completion: any = {
@@ -1015,11 +1044,16 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
     tasks: completedTasks(s, view).map((t: any) => ({ id: t.task, token: t.token, integratedCommit: t.integratedCommit })),
     removals: { verified: 0, kept: [] },
   };
-  mutateDispatch(p.file, (st: any) => {
+  // A cancel that marked the run during the final verification wins: the run is not completed.
+  const marked = mutateDispatch(p.file, (st: any) => {
     record(st);
-    Object.assign(st.run, { state: 'completed', completedAt, completion, blockedReport: null });
-    return { write: true, result: null };
+    const halted = unlessCancelled(st, (x: any) => Object.assign(x.run, { state: 'completed', completedAt, completion, blockedReport: null }));
+    return { write: true, result: halted };
   });
+  if (marked) {
+    p.act('decide', null, 'cancelled', marked, Date.now() - decideStarted);
+    return finishPass(p, cancelledOutcome(marked));
+  }
   const after = readDispatch(p.file);
   let verified = 0;
   for (const d of Object.values(after.dispatches) as any[]) {
@@ -1046,13 +1080,13 @@ async function decide(p: any) {
   const extra = (outcome: string, reason: string) => p.act('decide', null, outcome, reason, Date.now() - started);
 
   if (run.state === 'resume-required') { extra('resume-required', run.resumeReason); return finishPass(p, 'resume-required'); }
-  if (run.state === 'cancelling' || run.state === 'cancelled') { extra('cancelled', run.state); return finishPass(p, run.state === 'cancelled' ? 'cancelled' : 'continue'); }
+  if (CANCEL_MARKED.includes(run.state)) { extra('cancelled', run.state); return finishPass(p, cancelledOutcome(run.state)); }
 
   // An integration gap blocks the run until a pass integrates again (IC-018).
   if (run.state === 'blocked' && run.integrationGap) {
     const report = blockedReport(s, view, gapsFor(p, s, view));
     extra('blocked', run.integrationGap.kind);
-    return finishPass(p, 'blocked', (st: any) => { st.run.blockedReport = report; }, { blocked: report });
+    return finishPass(p, 'blocked', (st: any) => unlessCancelled(st, (x: any) => { x.run.blockedReport = report; }), { blocked: report });
   }
   const verificationDeclared = Boolean(run.verify && Array.isArray(run.verify.argv));
   const ledgerErrors = [...p.errors].some((id) => s.dispatches[id] && s.dispatches[id].phase !== 'ended' && s.dispatches[id].lastError);
@@ -1080,7 +1114,7 @@ async function decide(p: any) {
   if (!gaps.length) gaps.push({ task: null, kind: 'no-progress', cause: 'no-progress', reason: 'no task can progress', blocks: [] });
   const report = blockedReport(s, view, gaps);
   extra('blocked', report.cause);
-  return finishPass(p, 'blocked', (st: any) => { st.run.state = 'blocked'; st.run.blockedReport = report; }, { blocked: report });
+  return finishPass(p, 'blocked', (st: any) => unlessCancelled(st, (x: any) => { x.run.state = 'blocked'; x.run.blockedReport = report; }), { blocked: report });
 }
 
 // ── step and run (IC-003, IC-004) ────────────────────────────────────────────────────────────────
