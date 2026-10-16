@@ -390,7 +390,8 @@ function settleChildren(p: any) {
       r.endState = run.end ? run.end.state : 'unknown';
       r.endedAt = run.end ? run.end.at : iso(p.clock());
       r.report = run.report ? { status: run.report.status ?? null, usage: run.report.usage ?? null } : null;
-      r.cleanup = run.cleanup ?? null;
+      // DEC-047 / IC-021: an `exited` child's cleanup is what its group reading shows, never assumed.
+      r.cleanup = run.cleanup ?? (run.end && run.end.state === 'exited' ? exitedCleanup(run, p.platform) : null);
     }
     bumpPeak(store);
     return { write: true, result: null };
@@ -488,8 +489,7 @@ async function deferredRemovals(p: any) {
   const manager = integrate.managerFor(p.root, p.slug, 'attempt', p.env);
   for (const r of Object.values(s.spawnRequests) as any[]) {
     if (!r.worktree || r.endState == null || (r.removal && r.removal.verified)) continue;
-    const verified = r.endState === 'exited' || (r.cleanup && r.cleanup.status === 'verified');
-    if (!verified) continue;
+    if (!(r.cleanup && r.cleanup.status === 'verified')) continue;
     const removal = manager.removeVerified(r.requestId);
     mutateDispatch(p.file, (store: any) => {
       const cur = store.spawnRequests[r.requestId];
@@ -761,7 +761,11 @@ async function launchChildren(p: any) {
         bumpPeak(s);
         return { write: true, result: true };
       });
-      if (!recorded) await cancelWorker(p, body.runId, 'request-moved');
+      if (!recorded) {
+        await cancelWorker(p, body.runId, 'request-moved');
+        // The worktree is recorded nowhere, so no removal loop would reach it (IC-021).
+        integrate.managerFor(p.root, p.slug, 'attempt', p.env).removeVerified(req.requestId);
+      }
       p.act('launch-child', who, recorded ? 'launched' : 'request-moved', `${req.requestId} ${body.runId}`, Date.now() - started);
     } else {
       const reason = body.reason || body.error || 'refused';

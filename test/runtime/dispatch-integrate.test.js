@@ -421,3 +421,40 @@ test('RT-11: a settle whose lease was taken by another dispatch clears nothing a
   assert.deepEqual([r.outcome, s.lease && s.lease.dispatchId, s.dispatches[other.id].phase, s.dispatches[d.id].phase, s.run.verifications.length, p.attempts('A.1')[0].state],
     ['lease-lost', other.id, 'integrating', 'integrating', 1, 'active'], JSON.stringify(r));
 });
+
+// RR-2: step 6's finish writes the 080 ledger inside the dispatch lock, before the dispatch store is
+// written. The injected verify arms an fs seam whose next rename onto the dispatch store throws, so
+// the throw lands after 080 recorded the attempt COMPLETED with its commit. The catch must then keep
+// that commit and the lease for IC-032's lease rule, never undo a commit 080 shows integrated.
+test('RR-2: a dispatch-store write that throws after the finish applied keeps the commit and the lease', POSIX, async (t) => {
+  const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
+  const p = project(t);
+  const d = p.dispatchOf('A.1', (wt) => write(wt, 'src/a.js', '// a\n'));
+  const preHead = p.branchHead();
+  const rename = fs.renameSync;
+  let armed = false;
+  t.after(() => { fs.renameSync = rename; });
+  fs.renameSync = (from, to) => {
+    if (armed && to === p.file) {
+      armed = false;
+      fs.rmSync(from, { force: true });
+      throw Object.assign(new Error('EIO'), { code: 'EIO' });
+    }
+    return rename(from, to);
+  };
+  const verify = async (args) => {
+    const result = await runVerification(args);
+    armed = true;
+    return result;
+  };
+  await assert.rejects(p.integrate({ verify }), (error) => error && /EIO/.test(`${error.code} ${error.message}`));
+  fs.renameSync = rename;
+  const [attempt] = p.attempts('A.1');
+  assert.deepEqual([attempt.state, attempt.result], ['finished', 'COMPLETED'], JSON.stringify(attempt));
+  const s = p.read();
+  assert.ok(s.lease && s.lease.dispatchId === d.id && s.lease.pickedHead, `the lease is kept for the lease rule: ${JSON.stringify(s.lease)}`);
+  assert.notEqual(s.lease.pickedHead, preHead);
+  assert.equal(p.branchHead(), s.lease.pickedHead, 'the commit 080 recorded integrated is not undone');
+  assert.equal(s.dispatches[d.id].phase, 'integrating');
+  p.callerUnchanged();
+});

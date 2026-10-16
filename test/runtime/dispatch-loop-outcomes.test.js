@@ -447,3 +447,74 @@ test('RT-16: a spawn request refused at launch refunds its reserved tokens to th
   const s = p.read();
   assert.deepEqual([s.spawnRequests[requested.requestId].state, s.dispatches[granter.dispatchId].grant.used.tokens], ['refused', 0], JSON.stringify(stepped.actions));
 });
+
+// RR-3 / RR-4 (IC-033 launch, IC-030): a child run starts, and before its `launched` write the run
+// is held or its granter leaves `launched`. The injected `now` seam plays that move on its first
+// reading once the child's 081 run is in the run store (inside `worker run`, outside every dispatch
+// lock), so the order is fixed. The `launched` write must then be refused, the child run cancelled
+// and its child worktree removed, since no record names it.
+async function childLaunchMoved(t, move) {
+  const { cancelRun } = require(path.join(SRC, 'worker', 'cancel.ts'));
+  // Registered before the sandbox, so it runs before the sandbox is removed: every 081 run still
+  // alive is ended through 081.
+  const live = {};
+  t.after(async () => {
+    if (!live.runStore || !fs.existsSync(live.runStore)) return;
+    for (const run of Object.values(readRuns(live.runStore))) {
+      if (run.phase === 'ended') continue;
+      try { await cancelRun({ file: live.runStore, runId: run.runId, by: 'test', reason: 'test cleanup', env: live.env, cwd: live.root }); } catch { /* reported by the run */ }
+    }
+  });
+  const p = await project(t, {
+    mode: 'auto', scenario: SLEEPER, identity: { DOFLOW_ATTEMPT: undefined }, probe: true, reserveTokens: 100,
+    spawnGrant: { depth: 1, children: 1, tokens: 50 },
+  });
+  const runStore = runStoreFileFor(p.root, SLUG);
+  Object.assign(live, { runStore, env: p.env, root: p.root });
+  await p.step();
+  const [granter] = Object.values(p.read().dispatches);
+  assert.equal(granter.phase, 'launched');
+  const prompt = path.join(granter.attempt.worktree, 'child-prompt.md');
+  fs.writeFileSync(prompt, 'look something up');
+  const workerEnv = {
+    ...p.env, DOFLOW_RUN_ID: granter.workerIdentity.run, DOFLOW_LINEAGE_ID: granter.workerIdentity.lineage,
+    DOFLOW_ATTEMPT: granter.workerIdentity.attempt, DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKTREE: granter.attempt.worktree,
+  };
+  const requested = requestSpawn({ slug: SLUG, promptFile: prompt, reserveTokens: 20, env: workerEnv, cwd: granter.attempt.worktree, root: p.root });
+  assert.equal(requested.disposition, 'spawn-requested', JSON.stringify(requested));
+  fs.rmSync(prompt);
+  const { requestId } = requested;
+  let moved = false;
+  const now = () => {
+    if (!moved && Object.values(readRuns(runStore)).some((r) => r.request === requestId)) {
+      moved = true;
+      store.mutateDispatch(p.file, (s) => { move(s, granter.dispatchId); return { write: true, result: null }; });
+    }
+    return new Date();
+  };
+  const stepped = await p.step({ now });
+  const label = JSON.stringify(stepped.actions);
+  assert.ok(moved, `the child run started: ${label}`);
+  const child = Object.values(readRuns(runStore)).find((r) => r.request === requestId);
+  const worktree = path.join(p.root, require(path.join(SRC, 'dispatch', 'integrate.ts')).WORKTREES_DIR, requestId);
+  return { p, requestId, child, worktree, stepped, label };
+}
+
+const HOLD = (s) => { s.run.state = 'cancelling'; };
+const GRANTER_LEFT = (s, granterId) => { s.dispatches[granterId].phase = 'collected'; };
+
+test('RR-3: a child launch whose launched write is refused removes the child worktree it made', POSIX, async (t) => {
+  const { worktree, label } = await childLaunchMoved(t, HOLD);
+  assert.equal(fs.existsSync(worktree), false, `the unrecorded child worktree is removed: ${label}`);
+});
+
+for (const [cause, move] of [['the run held cancelling', HOLD], ['the granter no longer launched', GRANTER_LEFT]]) {
+  test(`RR-4: a child launch with ${cause} before its launched write is refused and its child run cancelled`, POSIX, async (t) => {
+    const { p, requestId, child, label } = await childLaunchMoved(t, move);
+    const r = p.read().spawnRequests[requestId];
+    assert.deepEqual([r.state, r.childRunId ?? null, r.worktree ?? null], ['requested', null, null], `the launched write is refused: ${label}`);
+    assert.ok(child, `one child run was started: ${label}`);
+    assert.equal(readRuns(runStoreFileFor(p.root, SLUG))[child.runId].phase, 'ended', `the child run just started is cancelled: ${label}`);
+    assert.ok(JSON.parse(label).some((a) => a.action === 'launch-child' && a.reason === `request-moved:${requestId} ${child.runId}`), label);
+  });
+}
