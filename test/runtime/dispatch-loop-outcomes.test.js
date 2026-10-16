@@ -392,3 +392,31 @@ test('RT-7: a worker run that ends with survivors during deferredRemovals is nev
   const d = p.read().dispatches[y.dispatchId];
   assert.notEqual(d.cleanup && (d.cleanup.cleanup || d.cleanup).status, 'verified', JSON.stringify([d.cleanup, stepped.actions]));
 });
+
+// RT-13: the completion write reads IC-026 step 2 again inside its lock. During the final
+// verification the injected verify plays a concurrent driver that took a lease, so the order is
+// fixed. The run must not be completed beside a held lease; the pass continues.
+test('RT-13: a lease taken during the final verification keeps the run from completing', POSIX, async (t) => {
+  const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
+  const p = await project(t, { plan: 'budget', mode: 'sequential' });
+  let leased = false;
+  const verify = async (args) => {
+    const result = await runVerification(args);
+    if (args.taskId === SLUG && !leased) {
+      leased = true;
+      store.mutateDispatch(p.file, (s) => {
+        const [d] = Object.values(s.dispatches);
+        s.lease = { holder: { pid: process.pid, start: null }, dispatchId: d.dispatchId, preHead: s.run.integration.head, takenAt: new Date().toISOString() };
+        return { write: true, result: null };
+      });
+    }
+    return result;
+  };
+  let r = null;
+  for (let i = 0; i < 10 && !leased; i += 1) {
+    r = await p.step({ verify });
+    if (r.outcome === 'perform') assert.equal((await p.submit(r.perform, { files: { 'src/retry.js': '// done\n' } })).disposition, 'submitted');
+  }
+  const s = p.read();
+  assert.deepEqual([leased, s.run.state, s.run.completion ?? null, r.outcome], [true, 'running', null, 'continue'], JSON.stringify(r.actions));
+});

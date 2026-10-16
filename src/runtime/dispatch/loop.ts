@@ -1047,6 +1047,17 @@ function finishPass(p: any, outcome: string, apply: ((s: any) => string | null |
   };
 }
 
+/** IC-026 step 2 over `s`: why the run cannot complete yet (a non-ended dispatch, a lease, a pending
+ * spawn request), or null. */
+function busyReason(s: any): string | null {
+  const nonEnded = (Object.values(s.dispatches) as any[]).filter((d) => d.phase !== 'ended').length;
+  const pending = (Object.values(s.spawnRequests) as any[]).filter((r) => r.state === 'requested' || (r.state === 'launched' && r.endState == null)).length;
+  if (nonEnded) return `${nonEnded} active`;
+  if (s.lease) return 'lease-held';
+  if (pending) return `${pending} spawn pending`;
+  return null;
+}
+
 /** IC-026 step 5 and the completion write; IC-021 then removes kept failed-attempt worktrees. */
 async function complete(p: any, s: any, view: any, decideStarted: number) {
   const run = s.run;
@@ -1080,11 +1091,20 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
     removals: { verified: 0, kept: [] },
   };
   // A cancel that marked the run during the final verification wins: the run is not completed.
+  // IC-026 step 2 is read again in the same write (RT-13): a dispatch admitted, a lease taken or a
+  // spawn requested by a concurrent driver since decide's snapshot leaves the run running.
   const marked = mutateDispatch(p.file, (st: any) => {
     record(st);
+    if (HELD_RUN_STATES.includes(st.run.state)) return { write: true, result: st.run.state };
+    const busy = busyReason(st);
+    if (busy) return { write: true, result: { busy } };
     const halted = unlessCancelled(st, (x: any) => { setRunState(x, 'completed'); Object.assign(x.run, { completedAt, completion, blockedReport: null }); });
     return { write: true, result: halted };
   });
+  if (marked && typeof marked === 'object') {
+    p.act('decide', null, 'continue', marked.busy, Date.now() - decideStarted);
+    return finishPass(p, 'continue');
+  }
   if (marked) {
     p.act('decide', null, heldAction(marked), marked, Date.now() - decideStarted);
     return finishPass(p, cancelledOutcome(marked));
