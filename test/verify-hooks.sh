@@ -138,10 +138,13 @@ fi
 
 IS_GIT=$(jq -r '.is_git_repo' "$GIT_CTX" 2>/dev/null)
 BRANCH=$(jq -r '.branch' "$GIT_CTX" 2>/dev/null)
-if [[ "$IS_GIT" == "true" && -n "$BRANCH" ]]; then
-  pass "is_git_repo=true, branch='$BRANCH'"
+# A CI pull-request checkout is a detached HEAD, where git itself reports no current branch, so
+# the expected branch is git's own answer, not "any non-empty name".
+EXPECTED_BRANCH=$(git -C "$CWD" branch --show-current 2>/dev/null)
+if [[ "$IS_GIT" == "true" && "$BRANCH" == "$EXPECTED_BRANCH" ]]; then
+  pass "is_git_repo=true, branch='$BRANCH' (git reports '$EXPECTED_BRANCH')"
 else
-  fail "unexpected git fields: is_git_repo=$IS_GIT branch=$BRANCH"
+  fail "unexpected git fields: is_git_repo=$IS_GIT branch=$BRANCH (git reports '$EXPECTED_BRANCH')"
 fi
 
 # Check captured_at field
