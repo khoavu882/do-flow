@@ -70,6 +70,8 @@ function parseArgs(argv: string[]): any {
       case '--adopt-unowned': o.adoptUnowned = true; break;
       // worker --action run: wait for the run to end. A switch, like --adopt-unowned (081 IC-026).
       case '--wait': o.wait = true; break;
+      // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
+      case '--edit': o.edit = true; break;
       case '-g': case '--global': o.global = true; break;
       case '--no-backup': o.noBackup = true; break;
       case '--permissions': o.permissions = true; break;
@@ -339,6 +341,19 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--timeout-seconds', 'timeoutSeconds'], // worker run: 1 to 14400
   ['--worker-run', 'workerRun'],       // worker status|cancel: a w-<12 hex> run id
   ['--model-check', 'modelCheck'],     // worker probe: a declared model-check id
+  // 082 dispatch (IC-001, IC-038) and worker --child-of (IC-015). Read as text and validated in
+  // executeDispatchCommand / handleWorkerCommand. `--slug`, `--by`, `--reason`, `--mode`,
+  // `--reserve-tokens`, `--budget-attempts`, `--budget-tokens`, `--harness`, `--need`, `--status`,
+  // `--summary`, `--tokens`, `--tokens-basis`, `--prompt-file`, `--request-id`, `--task`, `--token`,
+  // `--ack`, `--request` and `--exec-worktree` are shared.
+  ['--concurrency', 'concurrency'],    // dispatch start: 1 to 4
+  ['--verify-argv', 'verifyArgv'],     // dispatch start: the verification argv as a JSON array
+  ['--verify-seconds', 'verifySeconds'], // dispatch start: 1 to 14400
+  ['--attempt-seconds', 'attemptSeconds'], // dispatch start: 1 to 14280
+  ['--max-seconds', 'maxSeconds'],     // dispatch run: 1 to 14400
+  ['--spawn-grant', 'spawnGrant'],     // dispatch start: the spawn grant declaration as JSON
+  ['--dispatch', 'dispatch'],          // dispatch submit: a d-<12 hex> dispatch id
+  ['--child-of', 'childOf'],           // worker run: the granter's w-<12 hex> run id
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -353,6 +368,7 @@ const RUNTIME_LIST_FLAGS = new Map([
   ['--exclude', 'exclude'],            // leak-scan: extra path segments to skip · lifecycle --action release: slugs left out
   ['--feature', 'feature'],            // lifecycle --action release: a feature slug to add, one per occurrence
   ['--item', 'item'],                  // goal --action add: a checklist item, one per occurrence · goal --action check: the one item id (C3)
+  ['--blocker', 'blocker'],            // dispatch submit: one blocker line per occurrence, at most 20
 ]);
 
 /** Non-negative integer arguments. */
@@ -450,6 +466,7 @@ Commands:
   research-request     Open, list or resolve a feature-stage research question (--task-id)
   task-attempt         Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts (--action, --slug)
   worker               Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task (--action)
+  dispatch             Run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume (--action)
   retrieve             BM25 search over the installed guidance tree (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
   advise               Route decision questions to the configured local model (--action)
@@ -508,6 +525,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
                        worker: discover|probe|describe|select|run|status|cancel
+                       dispatch: start|step|run|submit|spawn|pause|inspect|cancel|takeover|resume
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
@@ -587,13 +605,36 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --harness, --need (repeatable),
       --model-check, --budget-tokens,
       --task, --token, --prompt-file,
-      --timeout-seconds, --wait,
+      --timeout-seconds, --wait, --edit,
+      --child-of, --request, --exec-worktree,
       --worker-run, --by, --reason          worker (probe: [--model-check <id> --budget-tokens <n>];
-                                            describe: --harness; run: --harness --task --token
-                                            --prompt-file [--timeout-seconds 1-14400] [--wait];
+                                            describe: --harness [--edit]; select: [--edit];
+                                            run: --harness --task --token
+                                            --prompt-file [--timeout-seconds 1-14400] [--wait] [--edit]
+                                            [--child-of <w-id> --request <d-id.cN> --exec-worktree <path>];
                                             status, cancel: --worker-run or --task --token;
                                             cancel also --by --reason. Exit 0 done; 1 refused or
                                             none-eligible, the disposition in the JSON; 2 usage)
+      --slug, --by, --reason, --concurrency,
+      --mode, --verify-argv, --verify-seconds,
+      --attempt-seconds, --reserve-tokens,
+      --budget-attempts, --budget-tokens,
+      --spawn-grant, --harness, --need,
+      --max-seconds, --dispatch, --status,
+      --summary, --blocker (repeatable),
+      --tokens, --tokens-basis, --prompt-file,
+      --request-id, --task, --ack           dispatch (start: --by [--concurrency 1-4] [--mode auto|sequential|manual]
+                                            [--verify-argv <json>] [--verify-seconds <n>] [--attempt-seconds <n>]
+                                            [--reserve-tokens <n>] [--budget-attempts <n>] [--budget-tokens <n>]
+                                            [--spawn-grant <json>] [--harness <id>] [--need <id>];
+                                            step: [--by]; run: [--by] [--max-seconds 1-14400];
+                                            submit: --dispatch <d-id> --status success|failure --summary <text>
+                                            [--blocker <text>] [--tokens <n> --tokens-basis measured|estimated];
+                                            spawn: --prompt-file [--reserve-tokens <n>] or --request-id;
+                                            pause, cancel: --by --reason; takeover: --task --by --reason;
+                                            resume: report and digest, then --ack sha256:<hex> --by [--reason];
+                                            inspect. Exit 0 done; 1 refused, stale or ack-required, the
+                                            disposition in the JSON; 2 usage or an unreadable store or plan)
       --error, --failed-check,
       --iteration, --agent                  recover
       --json           Machine-readable output (status)
