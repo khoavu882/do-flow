@@ -68,6 +68,11 @@ const VERIFY_SECONDS_MAX = 14400;
 /** DEC-035: 081's backstop of `n + 120` stays within 081's 14400. */
 const ATTEMPT_SECONDS_MAX = 14400 - loop.BACKSTOP_SECONDS;
 const RUN_MAX_SECONDS_MAX = 14400;
+/** IC-005's submit bounds, the same values `loop.submit` checks. */
+const SUMMARY_BYTES = 8192;
+const BLOCKERS_MAX = 20;
+const BLOCKER_CHARS = 200;
+const TOKEN_BASES = Object.freeze(['measured', 'estimated']);
 
 /** IC-001: the actions each flag may be given to; any other action is exit 2 `usage`. */
 const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object.freeze({
@@ -194,6 +199,20 @@ function startSettings(o: any) {
   return { by, concurrency, mode, argv, verifySeconds, attemptSeconds, reserveTokens, budgetAttempts, budgetTokens, spawnGrant, needs, harness };
 }
 
+/**
+ * IC-005 step 0's `--summary`, `--blocker` and `--tokens`/`--tokens-basis` values, checked here so
+ * a malformed submit is `usage` before any store read (IC-001). `loop.submit` repeats them for
+ * in-process callers.
+ */
+function submitValues(o: any) {
+  const summary = o.summary;
+  if (typeof summary !== 'string' || !summary.length || Buffer.byteLength(summary, 'utf8') > SUMMARY_BYTES) throw usage(`--summary expects 1 to ${SUMMARY_BYTES} bytes`);
+  const blockers = given(o.blocker) ? [].concat(o.blocker).map(String) : [];
+  if (blockers.length > BLOCKERS_MAX || blockers.some((b) => !b.length || Array.from(b).length > BLOCKER_CHARS)) throw usage(`--blocker is repeatable up to ${BLOCKERS_MAX}, each 1 to ${BLOCKER_CHARS} characters`);
+  if (given(o.tokens) !== given(o.tokensBasis)) throw usage('--tokens and --tokens-basis go together or not at all');
+  if (given(o.tokens) && (!DIGITS.test(String(o.tokens)) || !TOKEN_BASES.includes(String(o.tokensBasis)))) throw usage('--tokens expects a whole number and --tokens-basis measured or estimated');
+}
+
 /** IC-001 step 0 for every action but start: required flags and their values. */
 function actionFlags(action: string, o: any) {
   switch (action) {
@@ -205,6 +224,7 @@ function actionFlags(action: string, o: any) {
     case 'submit':
       if (!given(o.dispatch) || !DISPATCH_ID.test(String(o.dispatch))) throw usage(`--dispatch expects 'd-' plus 12 hex characters, got '${o.dispatch ?? ''}'`);
       if (o.status !== 'success' && o.status !== 'failure') throw usage('--status expects success or failure');
+      submitValues(o);
       break;
     case 'spawn': {
       const request = given(o.promptFile) || given(o.reserveTokens);

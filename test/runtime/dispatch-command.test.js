@@ -154,6 +154,41 @@ test('IC-001: --budget-tokens without --reserve-tokens of at least 1, and a gran
   assert.deepEqual(fs.readdirSync(cwd), []);
 });
 
+test('IC-001 / IC-005 (SF-1): submit summary, blocker and token values are usage before any store read, with or without a run', POSIX, async (t) => {
+  const bad = [
+    { status: 'success' },
+    { status: 'success', summary: '' },
+    { status: 'success', summary: 'x'.repeat(8193) },
+    { status: 'failure', summary: 's', blocker: Array.from({ length: 21 }, (_, i) => `b${i}`) },
+    { status: 'failure', summary: 's', blocker: 'y'.repeat(201) },
+    { status: 'success', summary: 's', tokens: '10' },
+    { status: 'success', summary: 's', tokensBasis: 'measured' },
+    { status: 'success', summary: 's', tokens: 'ten', tokensBasis: 'measured' },
+    { status: 'success', summary: 's', tokens: '10', tokensBasis: 'guessed' },
+  ];
+  const expectUsage = async (exec, label) => {
+    for (const flags of bad) {
+      const { exit, body } = await exec({ action: 'submit', dispatch: D_ID, ...flags });
+      assert.deepEqual([exit, body.error], [2, 'usage'], `${label} ${JSON.stringify(flags).slice(0, 120)} -> ${JSON.stringify(body).slice(0, 200)}`);
+    }
+  };
+  // No dispatch run: before the fix the store read answered first, as no-dispatch-run.
+  const p = project(t);
+  await expectUsage((o) => p.exec(o), 'no run:');
+  assert.equal(p.bytes(), null, 'no store was written');
+  // An unreadable store would be store-unreadable if it were read first.
+  fs.mkdirSync(path.dirname(p.file), { recursive: true });
+  fs.writeFileSync(p.file, 'not json');
+  await expectUsage((o) => p.exec(o), 'unreadable store:');
+  fs.rmSync(p.file);
+  // With a run, the same values are usage and the store bytes do not change.
+  const started = await p.startWith();
+  assert.equal(started.exit, 0, JSON.stringify(started.body));
+  const before = p.bytes();
+  await expectUsage((o) => p.exec(o), 'with run:');
+  assert.equal(p.bytes(), before, 'the store bytes are unchanged');
+});
+
 // ── identity checks (DEC-044) ────────────────────────────────────────────────────────────────────
 
 test('IC-001: identity-solo and worker-session are refused with no store written and no worktree made', POSIX, async (t) => {

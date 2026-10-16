@@ -23,7 +23,9 @@
 // the record gains `edit: { base, branch, callerTop }`; the supervisor launches the edit recipe and
 // records `isolation`. `--child-of <w-id>` (IC-015, DEC-028, DEC-041, DEC-062): a read-only child
 // of a live granter run on the same `(task, token)`, in its own `<granter d-id>.c<n>` worktree,
-// always run-scoped, unique on `(task, token, childOf, request)`; status and cancel by
+// always run-scoped, unique on `(task, token, childOf, request)`; `--request` must be the child
+// worktree's basename and, under a dispatch run, a `requested` spawn request of the granter's
+// dispatch (read through dispatch/store.ts's `readDispatch`); status and cancel by
 // `--task --token` keep naming the granter, and cancelling a child never cancels the 080 attempt.
 //
 // This module makes no fs write call: the run store is written through `insertRun` and
@@ -48,6 +50,7 @@ const { projectRoot: lifecycleProjectRoot } = require('../lifecycle/root.ts');
 const { isSafeSlug } = require('../task-scope.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { readDispatch, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
 
 const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel']);
 /** IC-025: the dispositions that exit 0; `refused` and `none-eligible` exit 1. */
@@ -248,6 +251,23 @@ function isDirectory(target: any): boolean {
   try { return typeof target === 'string' && fs.statSync(target).isDirectory(); } catch { return false; }
 }
 
+/**
+ * 082 IC-015: `--request` names the child worktree (its basename) and, when the slug has a dispatch
+ * run, a `requested` spawn request of the dispatch whose worker run is the granter. Returns the
+ * refusal reason, or null. Reads the dispatch store without a lock; an unreadable store throws
+ * `store-unreadable`. With no dispatch run there is no grant to name, so only the basename rule
+ * applies (081-level children, `worker-child-run.test.js`).
+ */
+function childRequestRefusal(root: string, slug: string, childOf: string, request: string, execWorktree: string): string | null {
+  if (path.basename(real(execWorktree)) !== request) return 'request-mismatch';
+  const dispatch = readDispatch(dispatchStoreFileFor(root, slug));
+  if (!dispatch.run) return null;
+  const granter = (Object.values(dispatch.dispatches) as any[]).find((d) => d.workerRunId === childOf && d.phase !== 'ended');
+  const r = Object.prototype.hasOwnProperty.call(dispatch.spawnRequests, request) ? dispatch.spawnRequests[request] : null;
+  if (!granter || !r || r.state !== 'requested' || r.granterDispatchId !== granter.dispatchId) return 'unknown-request';
+  return null;
+}
+
 /** IC-011 step 11: discover for the harness, then IC-008 on its effective facts. Writes nothing.
  * `edit` swaps in the edit baseline (082 IC-013). */
 function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs, platform, edit = false }: any) {
@@ -297,6 +317,10 @@ async function runAction(o: any) {
   const execWorktree = childOf ? path.resolve(cwd, String(o.execWorktree)) : active.execWorktree;
   if (!isDirectory(execWorktree)) return refused('exec-worktree-missing', { task, token, execWorktree: execWorktree ?? null });
   if (childOf && !childWorktreeOk(root, granter, execWorktree)) return refused('exec-worktree-not-child', { task, token, execWorktree });
+  if (childOf) {
+    const requestRefusal = childRequestRefusal(root, slug, childOf, String(o.request), execWorktree);
+    if (requestRefusal) return refused(requestRefusal, { task, token, childOf, request: o.request });
+  }
 
   // 082 IC-014 after step 8: an edit run's worktree is a dispatch attempt worktree.
   let editRecord: any = null;
