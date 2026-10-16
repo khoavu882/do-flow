@@ -193,4 +193,28 @@ function resolveIdentity(env: Env, options: ResolveOptions): SessionIdentity {
   };
 }
 
-module.exports = { ID_PATTERN, UNKNOWN_ROLE_LINE, cwdHash, resolveIdentity, stateDir };
+/**
+ * The run ledger's identity fields (082 IC-034, DEC-042). Each value is tested on its own and
+ * omitted, never written, when absent or invalid: `run` by `resolveIdentity`'s `runValid` rule
+ * (non-empty, not `local`, `ID_PATTERN`), `lineage` by `ID_PATTERN`, `attempt` by `ATTEMPT_PATTERN`.
+ */
+function identityFields(env: Env): { run?: string; lineage?: string; attempt?: string } {
+  const out: { run?: string; lineage?: string; attempt?: string } = {};
+  const run = env.DOFLOW_RUN_ID || '';
+  if (run !== '' && run !== DEFAULT_RUN && ID_PATTERN.test(run)) out.run = run;
+  const lineage = env.DOFLOW_LINEAGE_ID || '';
+  if (ID_PATTERN.test(lineage)) out.lineage = lineage;
+  const attempt = env.DOFLOW_ATTEMPT || '';
+  if (ATTEMPT_PATTERN.test(attempt)) out.attempt = attempt;
+  return out;
+}
+
+module.exports = {
+  ATTEMPT_PATTERN,
+  ID_PATTERN,
+  UNKNOWN_ROLE_LINE,
+  cwdHash,
+  identityFields,
+  resolveIdentity,
+  stateDir,
+};
