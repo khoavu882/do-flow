@@ -33,7 +33,7 @@ const { projectRoot } = require('../lifecycle/root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
-const { executeWorkerCommand, statusView } = require('../worker/command.ts');
+const { executeWorkerCommand, statusView, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
@@ -574,7 +574,6 @@ function releaseIntegrationError(p: any, d: any, error: any, parts: any) {
 async function collect(p: any) {
   const current = readDispatch(p.file);
   const ledger = readLedger(p);
-  const runs = readRuns(p.runStore);
   for (const d of Object.values(current.dispatches) as any[]) {
     // A main-session submit of `failure` fails at its next collection (IC-005).
     if (d.phase === 'collected' && d.outcome === 'failed' && d.report && d.report.performer === 'main') {
@@ -583,8 +582,9 @@ async function collect(p: any) {
     }
     if (d.phase !== 'launched' || d.mode !== 'subagent' || !d.workerRunId) continue;
     const started = Date.now();
-    const run = runs[d.workerRunId] ?? null;
-    const view = run ? statusView(run, ledger, { platform: p.platform, nowMs: p.clock().getTime() }) : null;
+    // Read per dispatch, after the earlier ones' git and cancels, and settled against the probe:
+    // a pass-wide snapshot read before a supervisor wrote its end and exited reads as lost.
+    const { run, view } = settledStatus(p.runStore, d.workerRunId, ledger, { platform: p.platform, nowMs: p.clock().getTime() });
     if (view && LIVE_WORKER_STATES.includes(view.state)) continue;
     if (!view || view.state === 'unknown') {
       const children = childRunsOf(p, current, d.dispatchId);

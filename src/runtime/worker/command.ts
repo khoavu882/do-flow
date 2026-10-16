@@ -430,6 +430,23 @@ function statusView(run: any, ledger: any, { platform, nowMs }: any) {
   };
 }
 
+/**
+ * `{ run, view }` for run `runId` in the run store `file`, read so a run that ends between the
+ * record read and the liveness probe is seen ended, never `unknown`. The supervisor writes the end
+ * before it exits, so a record read before a probe that finds every process gone may predate that
+ * end; it is read again after the probe, and only a record still not ended then is `unknown`.
+ * Writes nothing.
+ */
+function settledStatus(file: string, runId: string, ledger: any, opts: any, read: (file: string) => any = readRuns) {
+  let run = read(file)[runId] ?? null;
+  let view = run ? statusView(run, ledger, opts) : null;
+  if (run && run.phase !== 'ended' && view && view.state === 'unknown') {
+    run = read(file)[runId] ?? null;
+    view = run ? statusView(run, ledger, opts) : null;
+  }
+  return { run, view };
+}
+
 /** The run named by `--worker-run`, or the top-level run on `(task, token)` (`childOf` null, 082
  * IC-015, so a granter is named and never one of its children), or null. */
 function findRun(file: string, { workerRun, task, token }: any) {
@@ -577,4 +594,4 @@ async function handleWorkerCommand(options: any = {}): Promise<number> {
   return finishRuntime(exit);
 }
 
-module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, findRun, allowedExecArgv, ACTIONS, FLAG_ACTIONS, WorkerCommandError };
+module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, settledStatus, findRun, allowedExecArgv, ACTIONS, FLAG_ACTIONS, WorkerCommandError };
