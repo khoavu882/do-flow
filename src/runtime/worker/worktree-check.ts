@@ -249,4 +249,4 @@ function compare(before: Snapshot, after: Snapshot): Comparison {
   return { status, changes: changes.slice(0, MAX_CHANGES), head, refsChanged };
 }
 
-module.exports = { snapshot, compare, GIT_TIMEOUT_MS, MAX_PATHS, MAX_HASH_BYTES, MAX_CHANGES };
+module.exports = { snapshot, compare, storeRules, withoutDeclaredStores, GIT_TIMEOUT_MS, MAX_PATHS, MAX_HASH_BYTES, MAX_CHANGES };
