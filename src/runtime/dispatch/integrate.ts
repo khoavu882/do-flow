@@ -271,6 +271,8 @@ function readLedger(ctx: any): any {
 // ── IC-018 ───────────────────────────────────────────────────────────────────────────────────────
 
 const INTEGRABLE_RUN_STATES = Object.freeze(['running', 'blocked']);
+/** IC-030 step 3: the run states a cancel has marked. */
+const CANCEL_MARKED = Object.freeze(['cancelling', 'cancelled']);
 
 function oldestCollected(store: any): any {
   const ready = (Object.values(store.dispatches) as any[]).filter((d) => d.phase === 'collected' && d.outcome === 'offered');
@@ -367,9 +369,22 @@ async function integrateOnce({
     });
   };
   /** After a failed 080 end (thrown or refused, `lastError` recorded), the dispatch goes back to
-   * `collected` so the next pass retries it (IC-024). */
-  const retryLater = (d: any, end: any) => {
-    if (!end.result.ended && d.phase !== 'ended') d.phase = 'collected';
+   * `collected` so the next pass retries it (IC-024), unless no pass will: its attempt is no longer
+   * active (stale, IC-023) or a cancel marked the run (IC-030 step 6). Then the dispatch ends here,
+   * `stale` or `released`, so a cancelled run holds no non-ended dispatch. Read in the lock. */
+  const retryLater = (store: any, d: any, end: any = null) => {
+    if ((end && end.result.ended) || d.phase === 'ended') return;
+    const stale = staleReason(d, readLedger(ctx), d.parentRunKey ?? store.run.runKey ?? null);
+    if (stale) {
+      endStale(store, d, stale, lockCtx(), now());
+      if (d.phase === 'ended') return;
+    }
+    if (CANCEL_MARKED.includes(store.run.state)) {
+      const released = releaseAttempt({ store, dispatchId, reason: `cancelled: ${store.run.state}`, usage: usageFor(d, null, []), ctx: lockCtx() });
+      if (!released.result.ended && d.phase !== 'ended') Object.assign(d, { phase: 'ended', disposition: 'released', endedAt: now().toISOString(), releaseReason: 'run-cancelled' });
+      return;
+    }
+    d.phase = 'collected';
   };
 
   // Step 2, outside: the integration worktree is on its branch at preHead and clean.
@@ -377,7 +392,7 @@ async function integrateOnce({
   const check = integrationClean({ ...where, preHead });
   if (!check.clean) {
     return settle((store, d) => {
-      d.phase = 'collected';
+      retryLater(store, d);
       blockRun(store, { task, kind: 'integration-dirty', reason: check.reason, paths: check.paths });
       return { ...base, outcome: 'integration-dirty', reason: check.reason, paths: check.paths };
     });
@@ -393,7 +408,7 @@ async function integrateOnce({
       const undone = undo({ ...where, preHead });
       return settle((store, d) => {
         const end = endAttempt({ store, dispatchId, failureClass: 'conflict', detail: `${conflicted.length} conflicted path(s)`, usage: usageFor(d, null, []), ctx: lockCtx() });
-        retryLater(d, end);
+        retryLater(store, d, end);
         if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
         return { ...base, outcome: 'conflict', conflicted: conflicted.length, undo: undone, end: end.result };
       });
@@ -440,7 +455,7 @@ async function integrateOnce({
     return settle((store, d) => {
       record(store);
       const end = endAttempt({ store, dispatchId, failureClass: 'verification', detail: verification.timedOut ? 'timed out' : `exit ${verification.exitCode ?? verification.error}`, usage: usageFor(d, null, []), evidenceId: verification.evidenceId, ctx: lockCtx() });
-      retryLater(d, end);
+      retryLater(store, d, end);
       if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
       return { ...base, outcome: 'verification', verification, undo: undone, end: end.result };
     });

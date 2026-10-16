@@ -335,3 +335,33 @@ for (const held of ['resume-required', 'cancelling']) {
     p.callerUnchanged();
   });
 }
+
+// RT-4: a cancel lands while the integration verifies (IC-030 steps 3 and 5: the run marked and the
+// 080 attempt cancelled; step 7 leaves the leased dispatch to its holder). The injected `verify`
+// makes both writes before it runs, so the order is fixed. The failing verification's 080 finish is
+// refused, and the dispatch must end (here stale, its attempt cancelled), not go back to `collected`
+// in a run no pass will ever step again; its worktree is then due for removal (IC-021).
+test('RT-4: a verification failure on an attempt cancelled under a cancel-marked run ends the dispatch and its worktree is removed', POSIX, async (t) => {
+  const { cancel } = require(path.join(SRC, 'task-attempts.ts'));
+  const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
+  const { removalDue } = require(path.join(SRC, 'dispatch', 'integrate.ts'));
+  const p = project(t, { exitCode: 1 });
+  const d = p.dispatchOf('A.1', (wt) => write(wt, 'src/a.js', '// cancelled\n'));
+  const verify = async (args) => {
+    store.mutateDispatch(p.file, (s) => { s.run.state = 'cancelling'; return { write: true, result: null }; });
+    const c = cancel({ file: p.ctx.ledgerFile, fsImpl: fs, roots: p.ctx.roots, slug: SLUG, task: 'A.1', token: d.token, by: 'main', reason: 'RT-4 cancel', env: p.env, cwd: p.root });
+    assert.equal(c.disposition, 'cancelled', JSON.stringify(c));
+    return runVerification(args);
+  };
+  const r = await p.integrate({ verify });
+  assert.equal(r.outcome, 'verification', JSON.stringify(r));
+  assert.equal(r.end.ended, false, 'the 080 finish on the cancelled attempt is refused');
+  const s = p.read();
+  const x = s.dispatches[d.id];
+  assert.equal(x.phase, 'ended', JSON.stringify(x));
+  assert.ok(['stale', 'released'].includes(x.disposition), x.disposition);
+  assert.equal(s.lease, null);
+  assert.ok((x.removal && x.removal.verified === true) || removalDue(x, s.run).due, `its worktree is due for removal: ${JSON.stringify(x.removal)}`);
+  assert.equal(fs.existsSync(d.wt.worktree), false, 'the attempt worktree is removed');
+  p.callerUnchanged();
+});
