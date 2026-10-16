@@ -397,3 +397,27 @@ test('RT-9: a release that throws on an active attempt keeps lastError and leave
   const x = p.read().dispatches[d.id];
   assert.deepEqual([x.phase, Boolean(x.lastError), p.read().lease, p.attempts('A.1')[0].state], ['collected', true, null, 'active'], JSON.stringify(x));
 });
+
+// RT-11: settle checks what it settles. During the failing verification the injected verify plays a
+// resume that ruled on this lease and another driver that took a new one for A.2, so the order is
+// fixed. The verification's settle must then leave the other lease and both dispatches alone and
+// write only its evidence record.
+test('RT-11: a settle whose lease was taken by another dispatch clears nothing and records only the verification', POSIX, async (t) => {
+  const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
+  const p = project(t, { exitCode: 1 });
+  const d = p.dispatchOf('A.1', (wt) => write(wt, 'src/a.js', '// a\n'));
+  const other = p.dispatchOf('A.2', (wt) => write(wt, 'src/b.js', '// b\n'));
+  const verify = async (args) => {
+    const result = await runVerification(args);
+    store.mutateDispatch(p.file, (s) => {
+      s.lease = { holder: HOLDER, dispatchId: other.id, preHead: s.run.integration.head, takenAt: new Date().toISOString() };
+      s.dispatches[other.id].phase = 'integrating';
+      return { write: true, result: null };
+    });
+    return result;
+  };
+  const r = await p.integrate({ verify });
+  const s = p.read();
+  assert.deepEqual([r.outcome, s.lease && s.lease.dispatchId, s.dispatches[other.id].phase, s.dispatches[d.id].phase, s.run.verifications.length, p.attempts('A.1')[0].state],
+    ['lease-lost', other.id, 'integrating', 'integrating', 1, 'active'], JSON.stringify(r));
+});

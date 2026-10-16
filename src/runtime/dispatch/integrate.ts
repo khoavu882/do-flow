@@ -356,9 +356,19 @@ async function integrateOnce({
   const where = { worktree: integration.worktree, branch: integration.branch, env };
   const base = { dispatchId, task, token };
 
-  /** One locked write that clears the lease after `apply(store, dispatch)`. */
-  const settle = (apply: (store: any, d: any) => any) => mutateDispatch(file, (store: any) => {
-    const result = apply(store, store.dispatches[dispatchId]);
+  /** One locked write that clears the lease after `apply(store, dispatch)`, only while the lease is
+   * still this dispatch's and the dispatch still `integrating` (RT-11). Otherwise a cancel or resume
+   * settled this integration meanwhile: only `evidence(store)` (the verification record) is written,
+   * so another lease is never cleared and an ended dispatch never edited. */
+  const settle = (apply: (store: any, d: any) => any, evidence: ((store: any) => void) | null = null) => mutateDispatch(file, (store: any) => {
+    const d = store.dispatches[dispatchId];
+    if (!store.lease || store.lease.dispatchId !== dispatchId || !d || d.phase !== 'integrating') {
+      const lost = { ...base, outcome: 'lease-lost', lease: store.lease ? store.lease.dispatchId : null, phase: d ? d.phase : null };
+      if (!evidence) return { write: false, result: lost };
+      evidence(store);
+      return { write: true, result: lost };
+    }
+    const result = apply(store, d);
     store.lease = null;
     return { write: true, result };
   });
@@ -472,7 +482,7 @@ async function integrateOnce({
         retryLater(store, d, end);
         if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
         return { ...base, outcome: 'verification', verification, undo: undone, end: end.result };
-      });
+      }, record);
     }
 
     const after = readLedger(ctx);
