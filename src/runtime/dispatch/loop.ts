@@ -761,7 +761,11 @@ async function launchChildren(p: any) {
         bumpPeak(s);
         return { write: true, result: true };
       });
-      if (!recorded) await cancelWorker(p, body.runId, 'request-moved');
+      if (!recorded) {
+        await cancelWorker(p, body.runId, 'request-moved');
+        // The worktree is recorded nowhere, so no removal loop would reach it (IC-021).
+        integrate.managerFor(p.root, p.slug, 'attempt', p.env).removeVerified(req.requestId);
+      }
       p.act('launch-child', who, recorded ? 'launched' : 'request-moved', `${req.requestId} ${body.runId}`, Date.now() - started);
     } else {
       const reason = body.reason || body.error || 'refused';
