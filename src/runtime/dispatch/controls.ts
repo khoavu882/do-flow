@@ -64,10 +64,12 @@ function requireBy(by: any): string {
   return by;
 }
 
+/** The `--reason` text, masked once here (RT-17), so every store and every 080 or 081 call that
+ * receives it (cancel, take over, pause, resume, `cancelRun`) holds the masked text only. */
 function requireReason(reason: any, what: string): string {
   const text = typeof reason === 'string' ? reason.trim() : '';
   if (!text) throw usage(`--reason is required: ${what}`);
-  return text;
+  return maskLine(text).text;
 }
 
 /** One invocation's paths, identity inputs and clock. */

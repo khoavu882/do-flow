@@ -637,3 +637,18 @@ test('RT-9: the lease rule adopts a COMPLETED attempt with no pickedHead whose i
   assert.deepEqual([out.lease && out.lease.action, x.disposition, x.integratedCommit, s.run.integration.head, s.lease],
     ['adopted', 'completed', null, preHead, null], JSON.stringify(out));
 });
+
+// RT-17: a free-text `--reason` is masked once, where it is read, so neither the dispatch store, the
+// 080 ledger (pause, cancel) nor the 081 run store (the reason cancel forwards to cancelRun) holds a
+// secret typed into it.
+test('RT-17: pause and cancel reasons carrying a secret are stored masked in every store', POSIX, async (t) => {
+  const p = await project(t, { plan: 'budget', mode: 'auto', probe: true, identity: { DOFLOW_ATTEMPT: undefined }, scenario: { run: [{ sleep: 30000 }, { emit: SUCCESS }] } });
+  await p.step();
+  const [d] = Object.values(p.read().dispatches);
+  assert.equal(d.phase, 'launched');
+  assert.equal((await controls.pause(p.ctl({ reason: `hold ${SECRET}` }))).disposition, 'paused');
+  const out = await controls.cancel(p.ctl({ reason: `stop ${SECRET}` }));
+  assert.equal(out.disposition, 'cancelled', JSON.stringify(out));
+  const text = [p.file, p.ledgerFile, p.runStore].map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+  assert.deepEqual([text.includes(SECRET), /stop /.test(p.read().run.cancel.reason)], [false, true]);
+});
