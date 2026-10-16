@@ -623,6 +623,68 @@ test('RT-6: on POSIX an exited worker run whose leftover is unknown is never cle
   assert.equal(fs.existsSync(observed.worktree), false, 'an observed gone group lets its worktree be removed');
 });
 
+// RR-1 (NFR-005, DEC-047, IC-021): a child worktree follows the same rule. Each case seeds an ended
+// granter with launched spawn requests whose 081 child runs ended `exited`, with the seeded `process`
+// record and the injected platform deciding what was observed. A step settles each child's cleanup
+// through `exitedCleanup` and removes only an observed gone group's worktree; cancel then keeps and
+// lists every other child worktree.
+async function exitedChildren(t, { platform, children }) {
+  const { createChildWorktree } = require(path.join(SRC, 'dispatch', 'integrate.ts'));
+  const p = await project(t, { plan: 'disjoint', mode: 'auto' });
+  const at = new Date().toISOString();
+  const granter = p.seedDispatch({ task: 'A.1', phases: ['claimed', 'launched'] });
+  const workerRunId = p.seedRun({ task: 'A.1', token: granter.token, phase: 'ended', end: { state: 'exited', at }, process: { kind: 'exited', code: 0, signal: null, at, groupAlive: false } });
+  const seeded = children.map((proc, i) => {
+    const n = i + 1;
+    const requestId = `${granter.dispatchId}.c${n}`;
+    const wt = createChildWorktree({ root: p.root, slug: SLUG, dispatchId: granter.dispatchId, n, base: p.integration.head, env: p.env });
+    const childRunId = p.seedRun({ task: 'A.1', token: granter.token, childOf: workerRunId, request: requestId, phase: 'ended', end: { state: 'exited', at }, process: { kind: 'exited', code: 0, signal: null, at, ...proc } });
+    store.mutateDispatch(p.file, (s) => {
+      s.spawnRequests[requestId] = {
+        requestId, granterDispatchId: granter.dispatchId, state: 'launched', childRunId, reserveTokens: null, prompt: null,
+        launchedAt: at, worktree: wt.worktree, endState: null,
+      };
+      return { write: true, result: null };
+    });
+    return { requestId, worktree: wt.worktree };
+  });
+  store.mutateDispatch(p.file, (s) => {
+    Object.assign(s.dispatches[granter.dispatchId], { workerRunId, phase: 'ended', disposition: 'released', endedAt: at, releaseReason: 'test' });
+    return { write: true, result: null };
+  });
+  await p.step({ platform });
+  return { p, seeded };
+}
+
+const SURVIVORS = { groupAlive: true, leftover: { status: 'survivors', reason: 'group-survived', survivors: [{ pid: 1 }], zombies: [] } };
+
+test('RR-1: on win32 an exited child run with an observed gone group reads cleanup unknown; its worktree is kept by the step and by cancel', POSIX, async (t) => {
+  const { p, seeded: [child] } = await exitedChildren(t, { platform: 'win32', children: [{ groupAlive: false }] });
+  const r = p.read().spawnRequests[child.requestId];
+  assert.deepEqual([r.endState, r.cleanup], ['exited', { status: 'unknown', reason: 'win32' }], JSON.stringify(r));
+  assert.equal(fs.existsSync(child.worktree), true, 'on win32 no group reading is trusted, so the child worktree is kept');
+  const out = await controls.cancel(p.ctl({ platform: 'win32' }));
+  assert.equal(out.disposition, 'cancelled', JSON.stringify(out));
+  assert.equal(out.cleanupVerified, false, JSON.stringify(out));
+  assert.ok(out.worktrees.kept.some((k) => k.path === child.worktree && k.reason === 'worker-cleanup-unverified'), `kept and listed: ${JSON.stringify(out.worktrees)}`);
+  assert.equal(fs.existsSync(child.worktree), true);
+});
+
+test('RR-1: on POSIX an exited child run with leftover survivors keeps its worktree; an observed gone group\'s is removed', POSIX, async (t) => {
+  const { p, seeded: [survived, gone] } = await exitedChildren(t, { platform: process.platform, children: [SURVIVORS, { groupAlive: false }] });
+  const s = p.read();
+  assert.deepEqual(s.spawnRequests[survived.requestId].cleanup, { status: 'survivors', reason: 'group-survived' });
+  assert.equal(fs.existsSync(survived.worktree), true, 'a child whose group survived keeps its worktree');
+  assert.deepEqual(s.spawnRequests[gone.requestId].cleanup, { status: 'verified', reason: 'exited' });
+  assert.equal(s.spawnRequests[gone.requestId].removal.verified, true, JSON.stringify(s.spawnRequests[gone.requestId]));
+  assert.equal(fs.existsSync(gone.worktree), false, 'an observed gone group lets the child worktree be removed');
+  const out = await controls.cancel(p.ctl());
+  assert.equal(out.disposition, 'cancelled', JSON.stringify(out));
+  assert.equal(out.cleanupVerified, false, JSON.stringify(out));
+  assert.ok(out.worktrees.kept.some((k) => k.path === survived.worktree && k.reason === 'worker-cleanup-unverified'), `kept and listed: ${JSON.stringify(out.worktrees)}`);
+  assert.equal(fs.existsSync(survived.worktree), true);
+});
+
 // RT-9: an attempt the ledger shows finished COMPLETED with no pick recorded (an empty change, or a
 // pick equal to preHead's tree) and the integration HEAD still at preHead is adopted completed, not
 // recorded interrupted while 080 shows it SUCCEEDED.

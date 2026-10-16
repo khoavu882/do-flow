@@ -468,8 +468,10 @@ function removeWorktrees(c: any, dropped: string[]) {
   const done: Record<string, any> = {};
   for (const r of Object.values(s.spawnRequests) as any[]) {
     if (!r.worktree || (r.removal && r.removal.verified)) continue;
-    const verified = r.endState === 'exited' || (r.cleanup && r.cleanup.status === 'verified');
-    if (!verified) { kept.push({ path: r.worktree, reason: 'worker-cleanup-unverified' }); continue; }
+    // DEC-047 / IC-021: verified only when observed; an `exited` child read through `exitedCleanup`.
+    const run = r.childRunId ? runs[r.childRunId] : null;
+    const cleanup = r.cleanup ?? (run && run.phase === 'ended' ? run.cleanup ?? (run.end && run.end.state === 'exited' ? exitedCleanup(run, c.platform) : null) : null);
+    if (!(cleanup && cleanup.status === 'verified')) { kept.push({ path: r.worktree, reason: 'worker-cleanup-unverified' }); continue; }
     const removal = manager.removeVerified(r.requestId);
     done[r.requestId] = removal;
     if (removal.verified) removed.push(removal.path);
