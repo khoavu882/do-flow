@@ -487,9 +487,15 @@ async function deferredRemovals(p: any) {
   }
   // Child worktrees follow their child run's end (IC-021).
   const manager = integrate.managerFor(p.root, p.slug, 'attempt', p.env);
+  const runs = readRuns(p.runStore);
   for (const r of Object.values(s.spawnRequests) as any[]) {
-    if (!r.worktree || r.endState == null || (r.removal && r.removal.verified)) continue;
-    if (!(r.cleanup && r.cleanup.status === 'verified')) continue;
+    if (!r.worktree || (r.removal && r.removal.verified)) continue;
+    // RR-5: a refused launch's request names its cancelled child run but never settles an endState;
+    // its cleanup is the ended run's, read as IC-030 step 8 reads it (DEC-047).
+    const run = r.endState == null && r.state !== 'launched' && r.childRunId ? runs[r.childRunId] : null;
+    const cleanup = r.endState != null ? r.cleanup
+      : run && run.phase === 'ended' ? run.cleanup ?? (run.end && run.end.state === 'exited' ? exitedCleanup(run, p.platform) : null) : null;
+    if (!(cleanup && cleanup.status === 'verified')) continue;
     const removal = manager.removeVerified(r.requestId);
     mutateDispatch(p.file, (store: any) => {
       const cur = store.spawnRequests[r.requestId];
@@ -762,9 +768,22 @@ async function launchChildren(p: any) {
         return { write: true, result: true };
       });
       if (!recorded) {
-        await cancelWorker(p, body.runId, 'request-moved');
-        // The worktree is recorded nowhere, so no removal loop would reach it (IC-021).
-        integrate.managerFor(p.root, p.slug, 'attempt', p.env).removeVerified(req.requestId);
+        const res: any = await cancelWorker(p, body.runId, 'request-moved');
+        if (res && res.cleanup && res.cleanup.status === 'verified') {
+          // The worktree is recorded nowhere, so no removal loop would reach it (IC-021).
+          integrate.managerFor(p.root, p.slug, 'attempt', p.env).removeVerified(req.requestId);
+        } else {
+          // RR-5 / DEC-047: a child tree not verified ended may still write there. Keep the worktree
+          // and name it and its run on the request (add-only), so IC-030 step 8 and the deferred
+          // removals read its cleanup from the run and keep and list it.
+          mutateDispatch(p.file, (s: any) => {
+            const r = s.spawnRequests[req.requestId];
+            if (!r || (r.worktree != null && r.childRunId != null)) return { write: false, result: null };
+            if (r.worktree == null) r.worktree = wt.worktree;
+            if (r.childRunId == null) r.childRunId = body.runId;
+            return { write: true, result: null };
+          });
+        }
       }
       p.act('launch-child', who, recorded ? 'launched' : 'request-moved', `${req.requestId} ${body.runId}`, Date.now() - started);
     } else {
