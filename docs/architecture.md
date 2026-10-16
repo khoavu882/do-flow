@@ -730,8 +730,9 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   with a `src/runtime/dispatch/controls.ts#` locator, while Take over's Manual / assisted cell and
   both Redirect cells stay `target` (G42.3); `trace_run` records `run`, `lineage` and `attempt` only
   from values that pass a pattern test, otherwise `null`, and the run ledger declares the three as
-  tokens (G42.4); no dispatch module calls `process.kill` or `.kill(`, and only `verify-run.ts`
-  references `escalate` (G42.5); and no dispatch module holds the literals `'push'`, `'fetch'`,
+  tokens (G42.4); no dispatch module calls `process.kill` or `.kill(`, only `verify-run.ts`
+  references `escalate`, and IC-032's lease rule calls `verify-run.ts`'s exported `endVerification`
+  (G42.5); and no dispatch module holds the literals `'push'`, `'fetch'`,
   `'config'`, `'--no-verify'`, `'checkout'` or `'merge'` (G42.6).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
