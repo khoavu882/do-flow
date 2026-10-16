@@ -365,3 +365,59 @@ test('RT-4: a verification failure on an attempt cancelled under a cancel-marked
   assert.equal(fs.existsSync(d.wt.worktree), false, 'the attempt worktree is removed');
   p.callerUnchanged();
 });
+
+// RT-8: IC-021's last row, "any, worker cleanup not verified: kept and listed", covers every
+// disposition. A failed timeout dispatch whose cancelRun left survivors, and a completed one whose
+// run's cleanup is unknown, keep their attempt worktrees even once the run has ended.
+test('RT-8: removalDue keeps a completed or failed dispatch\'s worktree while its worker cleanup is not verified', () => {
+  const { removalDue } = require(path.join(SRC, 'dispatch', 'integrate.ts'));
+  const ended = { phase: 'ended', workerRunId: 'w-000000000001', attempt: { worktree: '/x' } };
+  const failed = { ...ended, disposition: 'failed', failureClass: 'timeout', cleanup: { disposition: 'cancelled', cleanup: { status: 'survivors', reason: 'group-survived' } } };
+  const completed = { ...ended, disposition: 'completed', cleanup: null };
+  const verified = { ...ended, disposition: 'failed', cleanup: { cleanup: { status: 'verified', reason: 'exited' } } };
+  assert.deepEqual([removalDue(failed, { state: 'completed' }), removalDue(completed, { state: 'running' }), removalDue(verified, { state: 'cancelled' }).due],
+    [{ due: false, reason: 'worker-cleanup-unverified' }, { due: false, reason: 'worker-cleanup-unverified' }, true]);
+});
+
+// RT-9: an 080 release that throws changes nothing else (IC-024). The run's verification is
+// undeclared, so step 5 takes the release-with-error path; the `afterLease` seam arms an fs whose
+// ledger rename fails, so 080's release throws `store-unreadable`. The attempt is still active, so
+// the dispatch keeps `lastError` and goes back to `collected`, never ended `released` beside an
+// active 080 attempt.
+test('RT-9: a release that throws on an active attempt keeps lastError and leaves the dispatch collected', POSIX, async (t) => {
+  const p = project(t);
+  const d = p.dispatchOf('A.1', (wt) => write(wt, 'src/a.js', '// a\n'));
+  store.mutateDispatch(p.file, (s) => { s.run.verify = { argv: null, argvSha256: null, argvCount: 0, timeoutSeconds: 30 }; return { write: true, result: null }; });
+  let armed = false;
+  const fsImpl = { ...fs, renameSync: (from, to) => { if (armed && to === p.ctx.ledgerFile) throw Object.assign(new Error('EIO'), { code: 'EIO' }); return fs.renameSync(from, to); } };
+  const afterLease = () => { armed = true; };
+  const r = await p.integrate({ afterLease, ctx: { ...p.ctx, fsImpl } });
+  armed = false;
+  assert.equal(r.outcome, 'integration-error', JSON.stringify(r));
+  const x = p.read().dispatches[d.id];
+  assert.deepEqual([x.phase, Boolean(x.lastError), p.read().lease, p.attempts('A.1')[0].state], ['collected', true, null, 'active'], JSON.stringify(x));
+});
+
+// RT-11: settle checks what it settles. During the failing verification the injected verify plays a
+// resume that ruled on this lease and another driver that took a new one for A.2, so the order is
+// fixed. The verification's settle must then leave the other lease and both dispatches alone and
+// write only its evidence record.
+test('RT-11: a settle whose lease was taken by another dispatch clears nothing and records only the verification', POSIX, async (t) => {
+  const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
+  const p = project(t, { exitCode: 1 });
+  const d = p.dispatchOf('A.1', (wt) => write(wt, 'src/a.js', '// a\n'));
+  const other = p.dispatchOf('A.2', (wt) => write(wt, 'src/b.js', '// b\n'));
+  const verify = async (args) => {
+    const result = await runVerification(args);
+    store.mutateDispatch(p.file, (s) => {
+      s.lease = { holder: HOLDER, dispatchId: other.id, preHead: s.run.integration.head, takenAt: new Date().toISOString() };
+      s.dispatches[other.id].phase = 'integrating';
+      return { write: true, result: null };
+    });
+    return result;
+  };
+  const r = await p.integrate({ verify });
+  const s = p.read();
+  assert.deepEqual([r.outcome, s.lease && s.lease.dispatchId, s.dispatches[other.id].phase, s.dispatches[d.id].phase, s.run.verifications.length, p.attempts('A.1')[0].state],
+    ['lease-lost', other.id, 'integrating', 'integrating', 1, 'active'], JSON.stringify(r));
+});

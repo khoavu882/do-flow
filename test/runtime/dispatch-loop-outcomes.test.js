@@ -344,3 +344,106 @@ test('RT-5: a plan task that disappears after its claim makes the launch throw a
   const next = await p.step();
   assert.equal(next.outcome, 'resume-required', JSON.stringify(next.actions));
 });
+
+// RT-7: deferredRemovals reads each ended dispatch's worker run settled against the probe, as
+// collect does. The dispatch is ended with no cleanup while its run (hand-built, its processes gone)
+// has no end; the injected clock, on its reading inside deferredRemovals, plays the supervisor
+// writing its end with survivors left and exiting. A pass-wide snapshot read before that write would
+// read the run lost and record cleanup `verified` add-only; the settled read sees the survivors.
+test('RT-7: a worker run that ends with survivors during deferredRemovals is never recorded cleanup verified', POSIX, async (t) => {
+  const crypto = require('node:crypto');
+  const { insertRun, newRunId, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
+  const { launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
+  const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
+  const p = await project(t, { plan: ONE_TASK, mode: 'sequential' });
+  const first = await p.step();
+  assert.equal(first.outcome, 'perform', JSON.stringify(first.actions));
+  const y = first.perform;
+  const d0 = p.read().dispatches[y.dispatchId];
+  const runStore = runStoreFileFor(p.root, SLUG);
+  const dead = spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  const proc = { pid: dead.pid, pgid: dead.pid, start: 'Thu Jan  1 00:00:00 1970' };
+  const runId = newRunId();
+  const { identity } = launchEnv({ env: p.env, runKey: p.started.runKey, token: d0.token, execWorktree: y.worktree, runId });
+  assert.equal(insertRun(runStore, {
+    runId, task: 'A.1', token: d0.token, harness: 'claude', phase: 'starting', execWorktree: y.worktree,
+    createdAt: new Date().toISOString(), timeoutSeconds: 60,
+    caller: { cwd: p.root, runKey: p.started.runKey, run: 'r1', lineage: 'main', attempt: null, role: 'main', lineageKind: 'launched' },
+    ...launchRecord(DESCRIPTORS.claude, identity, 'p'), descriptor: DESCRIPTORS.claude,
+    prompt: { path: path.join(p.root, 'p.md'), sha256: crypto.createHash('sha256').update('p').digest('hex'), bytes: 1 }, needs: [],
+  }).applied, true);
+  assert.equal(transition(runStore, runId, ['starting'], (r) => { Object.assign(r, { phase: 'running', supervisor: proc, worker: proc, deadline: new Date(Date.now() + 60000).toISOString() }); }).applied, true);
+  assert.equal(store.transitionDispatch(p.file, y.dispatchId, ['launched'], (d) => Object.assign(d, {
+    phase: 'ended', disposition: 'stale', staleReason: 'attempt-cancelled', endedAt: new Date().toISOString(), workerRunId: runId, cleanup: null,
+  })).applied, true);
+
+  let ended = false;
+  const now = () => {
+    if (!ended && new Error().stack.includes('deferredRemovals')) {
+      ended = true;
+      assert.equal(transition(runStore, runId, ['running'], (r) => {
+        Object.assign(r, { phase: 'ended', end: { state: 'exited', at: new Date().toISOString() }, process: { ...(r.process || {}), leftover: { status: 'survivors', reason: 'group-survived' } } });
+      }).applied, true);
+    }
+    return new Date();
+  };
+  const stepped = await p.step({ now });
+  assert.ok(ended, 'the run ended inside deferredRemovals');
+  const d = p.read().dispatches[y.dispatchId];
+  assert.notEqual(d.cleanup && (d.cleanup.cleanup || d.cleanup).status, 'verified', JSON.stringify([d.cleanup, stepped.actions]));
+});
+
+// RT-13: the completion write reads IC-026 step 2 again inside its lock. During the final
+// verification the injected verify plays a concurrent driver that took a lease, so the order is
+// fixed. The run must not be completed beside a held lease; the pass continues.
+test('RT-13: a lease taken during the final verification keeps the run from completing', POSIX, async (t) => {
+  const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
+  const p = await project(t, { plan: 'budget', mode: 'sequential' });
+  let leased = false;
+  const verify = async (args) => {
+    const result = await runVerification(args);
+    if (args.taskId === SLUG && !leased) {
+      leased = true;
+      store.mutateDispatch(p.file, (s) => {
+        const [d] = Object.values(s.dispatches);
+        s.lease = { holder: { pid: process.pid, start: null }, dispatchId: d.dispatchId, preHead: s.run.integration.head, takenAt: new Date().toISOString() };
+        return { write: true, result: null };
+      });
+    }
+    return result;
+  };
+  let r = null;
+  for (let i = 0; i < 10 && !leased; i += 1) {
+    r = await p.step({ verify });
+    if (r.outcome === 'perform') assert.equal((await p.submit(r.perform, { files: { 'src/retry.js': '// done\n' } })).disposition, 'submitted');
+  }
+  const s = p.read();
+  assert.deepEqual([leased, s.run.state, s.run.completion ?? null, r.outcome], [true, 'running', null, 'continue'], JSON.stringify(r.actions));
+});
+
+// RT-16: a request the launch refuses spent nothing. The granter's worker sleeps; its spawn request
+// is recorded with 20 tokens reserved, and its prompt copy is then removed, so the child's
+// `worker run` is refused at launch. The reserved tokens go back to the grant.
+test('RT-16: a spawn request refused at launch refunds its reserved tokens to the grant', POSIX, async (t) => {
+  const p = await project(t, {
+    mode: 'auto', scenario: SLEEPER, identity: { DOFLOW_ATTEMPT: undefined }, probe: true, reserveTokens: 100,
+    spawnGrant: { depth: 1, children: 1, tokens: 50 },
+  });
+  await p.step();
+  const [granter] = Object.values(p.read().dispatches);
+  assert.equal(granter.phase, 'launched');
+  const prompt = path.join(granter.attempt.worktree, 'child-prompt.md');
+  fs.writeFileSync(prompt, 'look something up');
+  const workerEnv = {
+    ...p.env, DOFLOW_RUN_ID: granter.workerIdentity.run, DOFLOW_LINEAGE_ID: granter.workerIdentity.lineage,
+    DOFLOW_ATTEMPT: granter.workerIdentity.attempt, DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKTREE: granter.attempt.worktree,
+  };
+  const requested = requestSpawn({ slug: SLUG, promptFile: prompt, reserveTokens: 20, env: workerEnv, cwd: granter.attempt.worktree, root: p.root });
+  assert.equal(requested.disposition, 'spawn-requested', JSON.stringify(requested));
+  fs.rmSync(prompt);
+  assert.equal(p.read().dispatches[granter.dispatchId].grant.used.tokens, 20);
+  fs.rmSync(path.join(p.root, '.doflow', 'state', p.read().spawnRequests[requested.requestId].prompt));
+  const stepped = await p.step();
+  const s = p.read();
+  assert.deepEqual([s.spawnRequests[requested.requestId].state, s.dispatches[granter.dispatchId].grant.used.tokens], ['refused', 0], JSON.stringify(stepped.actions));
+});

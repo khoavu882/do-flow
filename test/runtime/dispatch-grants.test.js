@@ -158,6 +158,29 @@ test('IC-033 request: the prompt is copied byte for byte with its sha256', (t) =
   assert.deepEqual(fs.readdirSync(p.envDir).filter((n) => n.endsWith('.tmp')), [], 'no temp file left');
 });
 
+// RT-16: the prompt copy exists before the request record does, so the launch never reads a
+// `requested` record whose prompt is missing; a copy that fails records nothing and spends nothing.
+// The fs seam observes the envelope directory at the store's own rename, and then fails the copy.
+test('RT-16: the prompt copy lands before the request record, and a failed copy spends no tokens', (t) => {
+  const p = project(t);
+  const copyAt = [];
+  let failCopy = false;
+  const fsImpl = {
+    ...fs,
+    renameSync: (from, to) => {
+      if (to === p.file) copyAt.push(fs.readdirSync(p.envDir).filter((n) => n.endsWith('.prompt.txt')).sort());
+      if (failCopy && to.endsWith('.prompt.txt')) throw Object.assign(new Error('EIO'), { code: 'EIO' });
+      return fs.renameSync(from, to);
+    },
+  };
+  assert.equal(p.spawn({ fsImpl }).requestId, `${D1}.c1`);
+  failCopy = true;
+  assert.throws(() => p.spawn({ fsImpl }), { code: 'EIO' });
+  const s = p.read();
+  assert.deepEqual([copyAt[0], Object.keys(s.spawnRequests), s.dispatches[D1].grant.used.tokens, fs.readdirSync(p.envDir).filter((n) => n.endsWith('.tmp'))],
+    [[`${D1}.c1.prompt.txt`], [`${D1}.c1`], 100, []]);
+});
+
 test('IC-033 request: an ungranted dispatch and a depth-0 grant are spawning-denied', (t) => {
   const p = project(t, { grant: null });
   assert.equal(p.read().dispatches[D1].grant, null);

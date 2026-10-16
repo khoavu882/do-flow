@@ -172,18 +172,6 @@ function runControl(root: string, slug: string, runKey: any, fsImpl: any): strin
   return run && typeof run.control === 'string' ? run.control : null;
 }
 
-/** Writes `bytes` to `file` through a temp file in the same directory, then a rename. */
-function writeAtomic(file: string, bytes: Buffer, fsImpl: any) {
-  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
-  try {
-    fsImpl.writeFileSync(tmp, bytes, { mode: 0o600 });
-    fsImpl.renameSync(tmp, file);
-  } catch (err) {
-    try { fsImpl.rmSync(tmp, { force: true }); } catch { /* the original error is the one reported */ }
-    throw err;
-  }
-}
-
 /**
  * IC-033 request: `dispatch --action spawn --slug --prompt-file --reserve-tokens`. Returns
  * `{ disposition: 'spawn-requested', requestId, state: 'requested' }`, or `{ disposition: 'refused',
@@ -213,62 +201,72 @@ function requestSpawn({ slug, promptFile, reserveTokens, env = process.env, cwd 
   const control = runControl(base, slug, seen.run.runKey, fsImpl);
   const paths = realPaths(seen, base);
 
-  const result = mutateDispatch(storeFile, (store: any) => {
-    const no = (reason: string, extra?: Record<string, any>) => ({ write: false, result: refused(reason, extra) });
-    if (!store.run) return no('no-dispatch-run');
-    const matches = matchCaller(store, caller, paths, base, true);
-    if (matches.length === 0) return no('no-matching-dispatch');
-    if (matches.length > 1) return no('identity-ambiguous', { dispatchIds: matches.map((m) => m.dispatchId).sort() });
-    const [{ dispatchId, requestId: childOf }] = matches;
-    if (childOf) return no('depth-exceeded', { limit: MAX_DEPTH, requestId: childOf });
-    const d = store.dispatches[dispatchId];
-    if (d.phase !== 'launched') return no('granter-not-running', { dispatchId, phase: d.phase });
-    if (control === 'paused') return no('run-paused', { dispatchId });
-    if (control !== 'running' || store.run.state === 'cancelling' || store.run.state === 'cancelled') return no('run-cancelled', { dispatchId });
-    const grant = d.grant;
-    if (!grant || grant.depth !== MAX_DEPTH) return no('spawning-denied', { dispatchId });
-    const active = (Object.values(store.spawnRequests) as any[]).filter((r) => r.granterDispatchId === dispatchId && liveChild(r)).length;
-    if (active >= grant.children) return no('concurrency-exceeded', { dispatchId, limit: grant.children });
-    const used = grant.used || { children: 0, tokens: 0 };
-    const remaining = grant.tokens - used.tokens;
-    if (reserve > remaining) return no('budget-exceeded', { dispatchId, remaining });
-
-    const requestId = nextRequestId(store, dispatchId);
-    store.spawnRequests[requestId] = {
-      requestId,
-      granterDispatchId: dispatchId,
-      prompt: `${ENVELOPE_DIR}/${requestId}.prompt.txt`,
-      promptSha256,
-      reserveTokens: reserve,
-      requestedAt: now.toISOString(),
-      state: 'requested',
-      reason: null,
-      childRunId: null,
-      identity: null,
-      endState: null,
-      report: null,
-    };
-    d.grant = { ...grant, used: { children: used.children + 1, tokens: used.tokens + reserve } };
-    return { write: true, result: { disposition: 'spawn-requested', requestId, state: 'requested' } };
-  }, fsImpl);
-  if (result.disposition !== 'spawn-requested') return result;
-
   // The copy, so the worker may delete its own file (which would otherwise count as a change of its
-  // attempt). Written after the lock: `decide` does no I/O (IC-006).
+  // attempt). Written before the lock under a temporary name and renamed to its request's name in the
+  // write that records the request, so no `requested` record is ever seen without its prompt (RT-16).
   const dir = path.join(base, '.doflow', 'state', ENVELOPE_DIR);
+  const staged = path.join(dir, `.spawn.${process.pid}.${crypto.randomBytes(4).toString('hex')}.prompt.tmp`);
+  fsImpl.mkdirSync(dir, { recursive: true });
   try {
-    fsImpl.mkdirSync(dir, { recursive: true });
-    writeAtomic(path.join(dir, `${result.requestId}.prompt.txt`), prompt, fsImpl);
+    fsImpl.writeFileSync(staged, prompt, { mode: 0o600 });
   } catch (err) {
-    mutateDispatch(storeFile, (store: any) => {
-      const r = store.spawnRequests[result.requestId];
-      if (!r || r.state !== 'requested') return { write: false, result: null };
-      r.state = 'refused';
-      r.reason = 'prompt-copy-failed';
-      return { write: true, result: null };
-    }, fsImpl);
+    try { fsImpl.rmSync(staged, { force: true }); } catch { /* the original error is the one reported */ }
     throw err;
   }
+  let copyError: any = null;
+
+  let result: any = null;
+  try {
+    result = mutateDispatch(storeFile, (store: any) => {
+      const no = (reason: string, extra?: Record<string, any>) => ({ write: false, result: refused(reason, extra) });
+      if (!store.run) return no('no-dispatch-run');
+      const matches = matchCaller(store, caller, paths, base, true);
+      if (matches.length === 0) return no('no-matching-dispatch');
+      if (matches.length > 1) return no('identity-ambiguous', { dispatchIds: matches.map((m) => m.dispatchId).sort() });
+      const [{ dispatchId, requestId: childOf }] = matches;
+      if (childOf) return no('depth-exceeded', { limit: MAX_DEPTH, requestId: childOf });
+      const d = store.dispatches[dispatchId];
+      if (d.phase !== 'launched') return no('granter-not-running', { dispatchId, phase: d.phase });
+      if (control === 'paused') return no('run-paused', { dispatchId });
+      if (control !== 'running' || store.run.state === 'cancelling' || store.run.state === 'cancelled') return no('run-cancelled', { dispatchId });
+      const grant = d.grant;
+      if (!grant || grant.depth !== MAX_DEPTH) return no('spawning-denied', { dispatchId });
+      const active = (Object.values(store.spawnRequests) as any[]).filter((r) => r.granterDispatchId === dispatchId && liveChild(r)).length;
+      if (active >= grant.children) return no('concurrency-exceeded', { dispatchId, limit: grant.children });
+      const used = grant.used || { children: 0, tokens: 0 };
+      const remaining = grant.tokens - used.tokens;
+      if (reserve > remaining) return no('budget-exceeded', { dispatchId, remaining });
+
+      const requestId = nextRequestId(store, dispatchId);
+      // One rename inside the lock, so the prompt exists before the record does; a failed rename
+      // writes nothing and spends nothing.
+      try { fsImpl.renameSync(staged, path.join(dir, `${requestId}.prompt.txt`)); } catch (err) {
+        copyError = err;
+        return { write: false, result: null };
+      }
+      store.spawnRequests[requestId] = {
+        requestId,
+        granterDispatchId: dispatchId,
+        prompt: `${ENVELOPE_DIR}/${requestId}.prompt.txt`,
+        promptSha256,
+        reserveTokens: reserve,
+        requestedAt: now.toISOString(),
+        state: 'requested',
+        reason: null,
+        childRunId: null,
+        identity: null,
+        endState: null,
+        report: null,
+      };
+      d.grant = { ...grant, used: { children: used.children + 1, tokens: used.tokens + reserve } };
+      return { write: true, result: { disposition: 'spawn-requested', requestId, state: 'requested' } };
+    }, fsImpl);
+  } finally {
+    if (!result || result.disposition !== 'spawn-requested') {
+      try { fsImpl.rmSync(staged, { force: true }); } catch { /* a refusal is still the answer */ }
+    }
+  }
+  if (copyError) throw copyError;
   return result;
 }
 

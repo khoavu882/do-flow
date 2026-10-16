@@ -268,6 +268,12 @@ function readLedger(ctx: any): any {
   return readTaskState(ctx.fsImpl || fs, ctx.ledgerFile) || { tasks: {}, runs: {} };
 }
 
+/** Whether `ledger` holds `(task, token)`'s 080 attempt `active`. */
+function activeAttempt(ledger: any, task: string, token: number): boolean {
+  const entry = ledger && ledger.tasks ? ledger.tasks[task] : null;
+  return Boolean(entry && Array.isArray(entry.attempts) && entry.attempts.some((a: any) => a.token === token && a.state === 'active'));
+}
+
 // ── IC-018 ───────────────────────────────────────────────────────────────────────────────────────
 
 const INTEGRABLE_RUN_STATES = Object.freeze(['running', 'blocked']);
@@ -350,9 +356,19 @@ async function integrateOnce({
   const where = { worktree: integration.worktree, branch: integration.branch, env };
   const base = { dispatchId, task, token };
 
-  /** One locked write that clears the lease after `apply(store, dispatch)`. */
-  const settle = (apply: (store: any, d: any) => any) => mutateDispatch(file, (store: any) => {
-    const result = apply(store, store.dispatches[dispatchId]);
+  /** One locked write that clears the lease after `apply(store, dispatch)`, only while the lease is
+   * still this dispatch's and the dispatch still `integrating` (RT-11). Otherwise a cancel or resume
+   * settled this integration meanwhile: only `evidence(store)` (the verification record) is written,
+   * so another lease is never cleared and an ended dispatch never edited. */
+  const settle = (apply: (store: any, d: any) => any, evidence: ((store: any) => void) | null = null) => mutateDispatch(file, (store: any) => {
+    const d = store.dispatches[dispatchId];
+    if (!store.lease || store.lease.dispatchId !== dispatchId || !d || d.phase !== 'integrating') {
+      const lost = { ...base, outcome: 'lease-lost', lease: store.lease ? store.lease.dispatchId : null, phase: d ? d.phase : null };
+      if (!evidence) return { write: false, result: lost };
+      evidence(store);
+      return { write: true, result: lost };
+    }
+    const result = apply(store, d);
     store.lease = null;
     return { write: true, result };
   });
@@ -362,8 +378,11 @@ async function integrateOnce({
     const undone = undo({ ...where, preHead, pickedHead });
     return settle((store, d) => {
       const end = releaseAttempt({ store, dispatchId, reason: 'integration-error', usage: usageFor(d, null, []), ctx: lockCtx() });
-      // A release 080 refused (the attempt already ended outside the loop) still ends the dispatch.
-      if (d.phase !== 'ended') Object.assign(d, { phase: 'ended', disposition: 'released', endedAt: now().toISOString(), releaseReason: 'integration-error' });
+      // A release 080 threw or refused on a still-active attempt keeps `lastError` and the dispatch
+      // live, back at `collected` with the lease cleared (IC-024, RT-9); one refused because the
+      // attempt already ended outside the loop still ends the dispatch.
+      if (!end.result.ended && d.phase === 'integrating' && activeAttempt(readLedger(ctx), task, token)) d.phase = 'collected';
+      else if (d.phase !== 'ended') Object.assign(d, { phase: 'ended', disposition: 'released', endedAt: now().toISOString(), releaseReason: 'integration-error' });
       blockRun(store, { task, kind: 'integration-error', reason, exitCode, ...(undone.ok ? {} : { undo: undone.reason, undoFailed: true }) });
       return { ...base, outcome: 'integration-error', reason, exitCode, undo: undone, end: end.result };
     });
@@ -463,7 +482,7 @@ async function integrateOnce({
         retryLater(store, d, end);
         if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
         return { ...base, outcome: 'verification', verification, undo: undone, end: end.result };
-      });
+      }, record);
     }
 
     const after = readLedger(ctx);
@@ -537,12 +556,13 @@ async function integrateNext(options: any) {
 function removalDue(dispatch: any, run: any): { due: boolean; reason: string | null } {
   if (dispatch.phase !== 'ended') return { due: false, reason: 'not-ended' };
   if (dispatch.removal && dispatch.removal.verified === true) return { due: false, reason: 'removed' };
-  if (dispatch.disposition === 'completed') return { due: true, reason: null };
-  if (RELEASED_ENDS.includes(dispatch.disposition)) {
-    if (!dispatch.workerRunId) return { due: true, reason: null };
+  // IC-021's last row covers every disposition: a worker run's worktree waits for verified cleanup (RT-8).
+  if (dispatch.workerRunId) {
     const cleanup = dispatch.cleanup ? dispatch.cleanup.cleanup ?? dispatch.cleanup : null;
-    return cleanup && cleanup.status === 'verified' ? { due: true, reason: null } : { due: false, reason: 'worker-cleanup-unverified' };
+    if (!cleanup || cleanup.status !== 'verified') return { due: false, reason: 'worker-cleanup-unverified' };
   }
+  if (dispatch.disposition === 'completed') return { due: true, reason: null };
+  if (RELEASED_ENDS.includes(dispatch.disposition)) return { due: true, reason: null };
   if (dispatch.disposition === 'failed') {
     return run && RUN_ENDS.includes(run.state) ? { due: true, reason: null } : { due: false, reason: 'failed-kept' };
   }
@@ -585,6 +605,7 @@ module.exports = {
   integrateNext,
   undo,
   staleReason,
+  activeAttempt,
   removalDue,
   removeDispatchWorktree,
 };

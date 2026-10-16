@@ -292,3 +292,30 @@ test('two processes released by the barrier on one READY task admit one; the oth
   }
   t.diagnostic(`race: ${RACE_REPS} repetitions in ${Date.now() - began} ms`);
 });
+
+// RT-14: a cancel or resume that drops an admitted slot after the first section and before its
+// worktree existed leaves that worktree to admission. The ctx fs plays that drop just before the
+// second section takes the dispatch lock, once the slot's worktree exists, so the order is fixed.
+// The second section reads the slot gone, and admission must remove the worktree and branch it made.
+test('RT-14: a slot dropped while its worktree was being made is removed verified by the second section', POSIX, (t) => {
+  const p = project(t, { concurrency: 1 });
+  const lock = `${p.file}.lock`;
+  let dropped = null;
+  const fsImpl = {
+    ...fs,
+    mkdirSync: (dir, ...rest) => {
+      if (!dropped && dir === lock) {
+        const slot = Object.values(p.read().dispatches).find((d) => d.phase === 'admitted');
+        if (slot && fs.existsSync(slot.attempt.worktree)) {
+          dropped = slot;
+          store.mutateDispatch(p.file, (s) => { delete s.dispatches[slot.dispatchId]; return { write: true, result: null }; });
+        }
+      }
+      return fs.mkdirSync(dir, ...rest);
+    },
+  };
+  const r = p.pass({ ctx: { ...p.ctx, fsImpl } });
+  assert.ok(dropped, JSON.stringify(r.actions));
+  const branch = git(p.root, p.env, ['rev-parse', '--verify', '--quiet', `refs/heads/${dropped.attempt.branch}`], { allowFailure: true });
+  assert.deepEqual([r.actions.filter((a) => a.dispatchId === dropped.dispatchId).map((a) => a.reason), fs.existsSync(dropped.attempt.worktree), branch.ok], [['slot-moved:dropped'], false, false]);
+});

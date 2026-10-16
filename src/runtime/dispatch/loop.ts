@@ -33,7 +33,7 @@ const { projectRoot } = require('../lifecycle/root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
-const { executeWorkerCommand, statusView, settledStatus } = require('../worker/command.ts');
+const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
@@ -451,16 +451,16 @@ function exitedCleanup(run: any, platform: string) {
   return { status: 'unknown', reason: proc.groupAlive === undefined ? 'group-unobserved' : 'group-liveness-unknown' };
 }
 
-/** IC-021: deferred removals of ended attempt and child worktrees. */
-async function deferredRemovals(p: any) {
-  let s = readDispatch(p.file);
-  const runs = readRuns(p.runStore);
+/** IC-021: records the worker cleanup of each ended dispatch whose run's end now shows it, read per
+ * dispatch and settled against the probe, as collect does (RT-7). */
+function recordWorkerCleanups(p: any) {
+  const s = readDispatch(p.file);
   const ledger = readLedger(p);
   for (const d of Object.values(s.dispatches) as any[]) {
     if (d.phase !== 'ended' || !d.attempt || !d.attempt.worktree || (d.removal && d.removal.verified)) continue;
     if (d.workerRunId && d.cleanup == null) {
-      const run = runs[d.workerRunId];
-      const view = run ? statusView(run, ledger, { platform: p.platform, nowMs: p.clock().getTime() }) : null;
+      // A pass-wide snapshot read before a supervisor wrote its end and exited reads as lost.
+      const { run, view } = settledStatus(p.runStore, d.workerRunId, ledger, { platform: p.platform, nowMs: p.clock().getTime() });
       const exited = view && run.phase === 'ended' && run.end && run.end.state === 'exited' ? exitedCleanup(run, p.platform) : null;
       if (view && run.phase === 'ended' && view.cleanup && view.cleanup.status === 'verified') {
         recordCleanup(p, d.dispatchId, { source: 'status', endState: view.state, cleanup: view.cleanup });
@@ -471,7 +471,12 @@ async function deferredRemovals(p: any) {
       }
     }
   }
-  s = readDispatch(p.file);
+}
+
+/** IC-021: deferred removals of ended attempt and child worktrees. */
+async function deferredRemovals(p: any) {
+  recordWorkerCleanups(p);
+  let s = readDispatch(p.file);
   for (const d of Object.values(s.dispatches) as any[]) {
     if (d.phase !== 'ended' || !d.attempt || !d.attempt.worktree) continue;
     if (!integrate.removalDue(d, s.run).due) continue;
@@ -705,6 +710,11 @@ async function launchChildren(p: any) {
     if (!r || r.state !== 'requested') return { write: false, result: false };
     r.state = 'refused';
     r.reason = reason;
+    // A refused request spent nothing: its reserved tokens go back to the granter's grant (RT-16).
+    const g = s.dispatches[r.granterDispatchId];
+    if (g && g.phase !== 'ended' && g.grant && g.grant.used && Number.isInteger(r.reserveTokens)) {
+      g.grant = { ...g.grant, used: { ...g.grant.used, tokens: Math.max(0, g.grant.used.tokens - r.reserveTokens) } };
+    }
     return { write: true, result: true };
   });
   for (const req of requested) {
@@ -1042,6 +1052,17 @@ function finishPass(p: any, outcome: string, apply: ((s: any) => string | null |
   };
 }
 
+/** IC-026 step 2 over `s`: why the run cannot complete yet (a non-ended dispatch, a lease, a pending
+ * spawn request), or null. */
+function busyReason(s: any): string | null {
+  const nonEnded = (Object.values(s.dispatches) as any[]).filter((d) => d.phase !== 'ended').length;
+  const pending = (Object.values(s.spawnRequests) as any[]).filter((r) => r.state === 'requested' || (r.state === 'launched' && r.endState == null)).length;
+  if (nonEnded) return `${nonEnded} active`;
+  if (s.lease) return 'lease-held';
+  if (pending) return `${pending} spawn pending`;
+  return null;
+}
+
 /** IC-026 step 5 and the completion write; IC-021 then removes kept failed-attempt worktrees. */
 async function complete(p: any, s: any, view: any, decideStarted: number) {
   const run = s.run;
@@ -1075,15 +1096,26 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
     removals: { verified: 0, kept: [] },
   };
   // A cancel that marked the run during the final verification wins: the run is not completed.
+  // IC-026 step 2 is read again in the same write (RT-13): a dispatch admitted, a lease taken or a
+  // spawn requested by a concurrent driver since decide's snapshot leaves the run running.
   const marked = mutateDispatch(p.file, (st: any) => {
     record(st);
+    if (HELD_RUN_STATES.includes(st.run.state)) return { write: true, result: st.run.state };
+    const busy = busyReason(st);
+    if (busy) return { write: true, result: { busy } };
     const halted = unlessCancelled(st, (x: any) => { setRunState(x, 'completed'); Object.assign(x.run, { completedAt, completion, blockedReport: null }); });
     return { write: true, result: halted };
   });
+  if (marked && typeof marked === 'object') {
+    p.act('decide', null, 'continue', marked.busy, Date.now() - decideStarted);
+    return finishPass(p, 'continue');
+  }
   if (marked) {
     p.act('decide', null, heldAction(marked), marked, Date.now() - decideStarted);
     return finishPass(p, cancelledOutcome(marked));
   }
+  // The worker cleanup of a dispatch integrated this pass is read before its removal is due (IC-021).
+  recordWorkerCleanups(p);
   const after = readDispatch(p.file);
   let verified = 0;
   for (const d of Object.values(after.dispatches) as any[]) {
