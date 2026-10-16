@@ -517,7 +517,11 @@ async function integrateOnce({
   } catch (error) {
     try {
       const held = readDispatch(file).lease;
-      if (held && held.dispatchId === dispatchId) {
+      // RR-2: an attempt 080 already finished COMPLETED (a store write that threw after the finish
+      // applied) keeps its commit; the lease stays for IC-032's lease rule, which adopts it.
+      const attempt = readLedger(ctx).tasks?.[task]?.attempts?.find((a: any) => a.token === token);
+      const completed = Boolean(attempt && attempt.state === 'finished' && attempt.result === 'COMPLETED');
+      if (held && held.dispatchId === dispatchId && !completed) {
         const undone = undo({ ...where, preHead, pickedHead: held.pickedHead ?? pickedHead });
         if (undone.ok) {
           mutateDispatch(file, (store: any) => {
