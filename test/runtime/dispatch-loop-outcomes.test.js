@@ -507,3 +507,14 @@ test('RR-3: a child launch whose launched write is refused removes the child wor
   const { worktree, label } = await childLaunchMoved(t, HOLD);
   assert.equal(fs.existsSync(worktree), false, `the unrecorded child worktree is removed: ${label}`);
 });
+
+for (const [cause, move] of [['the run held cancelling', HOLD], ['the granter no longer launched', GRANTER_LEFT]]) {
+  test(`RR-4: a child launch with ${cause} before its launched write is refused and its child run cancelled`, POSIX, async (t) => {
+    const { p, requestId, child, label } = await childLaunchMoved(t, move);
+    const r = p.read().spawnRequests[requestId];
+    assert.deepEqual([r.state, r.childRunId ?? null, r.worktree ?? null], ['requested', null, null], `the launched write is refused: ${label}`);
+    assert.ok(child, `one child run was started: ${label}`);
+    assert.equal(readRuns(runStoreFileFor(p.root, SLUG))[child.runId].phase, 'ended', `the child run just started is cancelled: ${label}`);
+    assert.ok(JSON.parse(label).some((a) => a.action === 'launch-child' && a.reason === `request-moved:${requestId} ${child.runId}`), label);
+  });
+}

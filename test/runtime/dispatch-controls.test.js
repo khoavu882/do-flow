@@ -384,6 +384,29 @@ test('IC-030: a worker in the starting gap reads cleanup unknown, keeps its work
   assert.equal(p.ledger().tasks['A.1'].attempts[0].state, 'cancelled');
 });
 
+// RR-4 (IC-030 step 7, RT-3): a worker a launch started after step 4 read the run store, whose
+// record write the cancel mark refused, is ended by step 7's second net. The injected `now` seam
+// inserts that worker run (its supervisor gone, as in the starting gap) on its first reading after
+// the cancel mark is on disk, which is step 5's 080 context, after step 4's read; the order is fixed.
+test('RR-4: cancel step 7 ends a worker run started after step 4 read the run store', POSIX, async (t) => {
+  const p = await project(t, { plan: 'budget', mode: 'auto' });
+  const d = p.seedDispatch({ task: 'A.1', phases: ['claimed'] });
+  let late = null;
+  const now = () => {
+    if (!late && p.read().run.state === 'cancelling') {
+      const dead = deadPid();
+      late = p.seedRun({ task: 'A.1', token: d.token, phase: 'starting', launchingAt: new Date().toISOString(), supervisor: { pid: dead, pgid: dead, start: DEAD_START } });
+    }
+    return new Date();
+  };
+  const out = await controls.cancel(p.ctl({ now }));
+  assert.equal(out.disposition, 'cancelled', JSON.stringify(out));
+  assert.ok(late, 'the late worker run was started');
+  assert.ok(out.workers.some((w) => w.workerRunId === late), `the late worker is cancelled: ${JSON.stringify(out.workers)}`);
+  assert.equal(readRuns(p.runStore)[late].phase, 'ended', 'no worker run is left live');
+  assert.equal(p.read().dispatches[d.dispatchId].phase, 'ended');
+});
+
 // ── IC-032 ───────────────────────────────────────────────────────────────────────────────────────
 
 test('IC-032: a killed loop with one live and one lost worker admits nothing before the acknowledged resume, leaves the live run and cancels the lost one before its retry', POSIX, async (t) => {
