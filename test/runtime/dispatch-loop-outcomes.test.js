@@ -508,6 +508,27 @@ test('RR-3: a child launch whose launched write is refused removes the child wor
   assert.equal(fs.existsSync(worktree), false, `the unrecorded child worktree is removed: ${label}`);
 });
 
+test('RR-5: a refused child launch whose cancel cleanup is not verified keeps the worktree, records it, and a later cancel lists it kept', POSIX, async (t) => {
+  // The child tree is ended through the real escalation, but its verdict reads unverified.
+  const processTree = require(path.join(SRC, 'worker', 'process-tree.ts'));
+  const escalate = processTree.escalate;
+  t.mock.method(processTree, 'escalate', async (args) => ({ ...(await escalate(args)), status: 'unknown', reason: 'test-unobserved' }));
+  const { p, requestId, child, worktree, label } = await childLaunchMoved(t, GRANTER_LEFT);
+  const runStore = runStoreFileFor(p.root, SLUG);
+  assert.equal(readRuns(runStore)[child.runId].cleanup.status, 'unknown', label);
+  assert.equal(fs.existsSync(worktree), true, `the child worktree is kept: ${label}`);
+  const r = p.read().spawnRequests[requestId];
+  assert.deepEqual([r.worktree, r.childRunId], [worktree, child.runId], `the request names the kept worktree and its run: ${label}`);
+  await p.step();
+  assert.equal(fs.existsSync(worktree), true, 'a later pass keeps it');
+  const controls = require(path.join(SRC, 'dispatch', 'controls.ts'));
+  const out = await controls.cancel({ slug: SLUG, env: p.env, cwd: p.root, by: 'main', reason: 'stop everything' });
+  assert.equal(out.disposition, 'cancelled', JSON.stringify(out));
+  assert.ok(out.worktrees.kept.some((k) => k.path === worktree && k.reason === 'worker-cleanup-unverified'), JSON.stringify(out.worktrees));
+  assert.equal(out.cleanupVerified, false);
+  assert.equal(fs.existsSync(worktree), true);
+});
+
 for (const [cause, move] of [['the run held cancelling', HOLD], ['the granter no longer launched', GRANTER_LEFT]]) {
   test(`RR-4: a child launch with ${cause} before its launched write is refused and its child run cancelled`, POSIX, async (t) => {
     const { p, requestId, child, label } = await childLaunchMoved(t, move);
