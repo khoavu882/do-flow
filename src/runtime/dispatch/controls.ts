@@ -38,7 +38,7 @@ const { registerDriver, endDriver, MAIN_SESSION_MODES } = require('./admission.t
 const { endAttempt, releaseAttempt, usageFor } = require('./attempt-end.ts');
 const integrate = require('./integrate.ts');
 const { endVerification } = require('./verify-run.ts');
-const { checkCaller, measurement, LOOP_BY, ATTEMPT_SECONDS_DEFAULT } = require('./loop.ts');
+const { checkCaller, measurement, exitedCleanup, LOOP_BY, ATTEMPT_SECONDS_DEFAULT } = require('./loop.ts');
 
 /** 080's `SAFE_NAME`, which `--by` must match. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
@@ -198,14 +198,14 @@ function strayTargets(s: any, runs: any, keep: (d: any) => boolean, into: Map<st
   return into;
 }
 
-/** A dispatch's worker cleanup: its recorded one, else what 081 recorded for its ended run. */
-function workerCleanupOf(d: any, runs: any) {
+/** A dispatch's worker cleanup: its recorded one, else what 081 recorded for its ended run, else
+ * what an `exited` run's group reading shows (`exitedCleanup`: verified only when observed). */
+function workerCleanupOf(c: any, d: any, runs: any) {
   if (d.cleanup) return d.cleanup.cleanup ?? d.cleanup;
   const run = d.workerRunId ? runs[d.workerRunId] : null;
   if (!run || run.phase !== 'ended') return null;
   if (run.cleanup) return run.cleanup;
-  const leftover = run.process && run.process.leftover;
-  if (run.end && run.end.state === 'exited' && !(leftover && leftover.status === 'survivors')) return { status: 'verified', reason: 'exited' };
+  if (run.end && run.end.state === 'exited') return exitedCleanup(run, c.platform);
   return null;
 }
 
@@ -441,7 +441,7 @@ function removeWorktrees(c: any, dropped: string[]) {
   const runs = readRuns(c.runStore);
   for (const d of Object.values(s.dispatches) as any[]) {
     if (d.phase !== 'ended' || !d.attempt || !d.attempt.worktree || (d.removal && d.removal.verified)) continue;
-    const cleanup = workerCleanupOf(d, runs);
+    const cleanup = workerCleanupOf(c, d, runs);
     if (d.workerRunId && !(cleanup && cleanup.status === 'verified')) { kept.push({ path: d.attempt.worktree, reason: 'worker-cleanup-unverified' }); continue; }
     const due = integrate.removalDue({ ...d, cleanup: d.cleanup ?? (cleanup ? { cleanup } : null) }, { state: 'cancelled' });
     if (!due.due) { kept.push({ path: d.attempt.worktree, reason: due.reason }); continue; }

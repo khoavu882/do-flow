@@ -436,6 +436,21 @@ async function endStale(p: any, d: any, reason: string, workerRun: any) {
   return ended;
 }
 
+/**
+ * DEC-047 / IC-021: the worker cleanup an `exited` 081 run shows, never assumed. `verified` only
+ * from an observed group reading: the supervisor read the group gone (`process.groupAlive: false`)
+ * or its escalation verified the leftover. On win32, with no reading, or with an `unknown` one, it is
+ * `unknown`; leftover survivors are `survivors`.
+ */
+function exitedCleanup(run: any, platform: string) {
+  const proc = (run && run.process) || {};
+  const leftover = proc.leftover || null;
+  if (leftover && leftover.status === 'survivors') return { status: 'survivors', reason: leftover.reason ?? 'group-survived' };
+  if (platform === 'win32') return { status: 'unknown', reason: 'win32' };
+  if (proc.groupAlive === false || (leftover && leftover.status === 'verified')) return { status: 'verified', reason: 'exited' };
+  return { status: 'unknown', reason: proc.groupAlive === undefined ? 'group-unobserved' : 'group-liveness-unknown' };
+}
+
 /** IC-021: deferred removals of ended attempt and child worktrees. */
 async function deferredRemovals(p: any) {
   let s = readDispatch(p.file);
@@ -446,10 +461,11 @@ async function deferredRemovals(p: any) {
     if (d.workerRunId && d.cleanup == null) {
       const run = runs[d.workerRunId];
       const view = run ? statusView(run, ledger, { platform: p.platform, nowMs: p.clock().getTime() }) : null;
+      const exited = view && run.phase === 'ended' && run.end && run.end.state === 'exited' ? exitedCleanup(run, p.platform) : null;
       if (view && run.phase === 'ended' && view.cleanup && view.cleanup.status === 'verified') {
         recordCleanup(p, d.dispatchId, { source: 'status', endState: view.state, cleanup: view.cleanup });
-      } else if (view && run.phase === 'ended' && run.end && run.end.state === 'exited' && !(run.process && run.process.leftover && run.process.leftover.status === 'survivors')) {
-        recordCleanup(p, d.dispatchId, { source: 'status', endState: 'exited', cleanup: { status: 'verified', reason: 'exited' } });
+      } else if (exited && exited.status !== 'survivors') {
+        recordCleanup(p, d.dispatchId, { source: 'status', endState: 'exited', cleanup: exited });
       } else if (view && view.state === 'unknown' && view.reason === 'process-lost') {
         recordCleanup(p, d.dispatchId, { source: 'status', endState: 'unknown', cleanup: { status: 'verified', reason: 'process-lost' } });
       }
@@ -1357,6 +1373,7 @@ module.exports = {
   evaluateHarnesses,
   checkCaller,
   measurement,
+  exitedCleanup,
   OUTCOMES,
   RUN_STOPS,
   IDLE_WAIT_MS,
