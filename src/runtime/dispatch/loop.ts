@@ -529,14 +529,15 @@ function writeResult(p: any, d: any, run: any, { outcome, staleReason = null, fa
   return { value, written };
 }
 
-/** Ends dispatch `d` by IC-024's class for `signal`; then, outside the lock, `cancelRun` when the
- * class asks for it, and the granter's children. */
-async function failDispatch(p: any, d: any, signal: string, detail: any, run: any, parts: any, envelope: any = null) {
+/** Ends dispatch `d` by IC-024's class for `signal`, only while its phase is one of `phases` (read
+ * inside the lock: a pass-wide snapshot can be older than another driver's lease); then, outside the
+ * lock, `cancelRun` when the class asks for it, and the granter's children. */
+async function failDispatch(p: any, d: any, phases: string[], signal: string, detail: any, run: any, parts: any, envelope: any = null) {
   const started = Date.now();
   const { failureClass, cancelRun: needCancel } = classFor(signal);
   const ended = mutateDispatch(p.file, (s: any) => {
     const cur = s.dispatches[d.dispatchId];
-    if (!cur || cur.phase === 'ended') return { write: false, result: { ended: false, reason: 'phase-not-allowed' } };
+    if (!cur || !phases.includes(cur.phase)) return { write: false, result: { ended: false, reason: 'phase-not-allowed', phase: cur ? cur.phase : null } };
     if (parts) cur.usageParts = parts.parts;
     if (envelope) cur.envelopes = { ...(cur.envelopes || {}), result: envelope.pointer };
     const end = endAttempt({ store: s, dispatchId: cur.dispatchId, failureClass, detail, usage: parts ? parts.usage : undefined, ctx: p.ctx() });
@@ -545,7 +546,8 @@ async function failDispatch(p: any, d: any, signal: string, detail: any, run: an
   });
   p.act('finish', d, ended.ended ? `failed:${failureClass}` : `finish-refused:${failureClass}`, ended.ended ? detail : ended.reason, Date.now() - started);
   if (!ended.ended) {
-    p.errors.add(d.dispatchId);
+    // A phase refusal wrote nothing and is no 080 error (no `lastError`).
+    if (ended.reason !== 'phase-not-allowed') p.errors.add(d.dispatchId);
     return ended;
   }
   if (needCancel && d.workerRunId) {
@@ -579,7 +581,7 @@ async function collect(p: any) {
   for (const d of Object.values(current.dispatches) as any[]) {
     // A main-session submit of `failure` fails at its next collection (IC-005).
     if (d.phase === 'collected' && d.outcome === 'failed' && d.report && d.report.performer === 'main') {
-      await failDispatch(p, d, 'submit-failure', 'submit --status failure', null, { usage: usageFor(d, null, []), parts: d.usageParts || { main: usageFor(d, null, []) } });
+      await failDispatch(p, d, ['collected'], 'submit-failure', 'submit --status failure', null, { usage: usageFor(d, null, []), parts: d.usageParts || { main: usageFor(d, null, []) } });
       continue;
     }
     if (d.phase !== 'launched' || d.mode !== 'subagent' || !d.workerRunId) continue;
@@ -590,7 +592,7 @@ async function collect(p: any) {
     if (view && LIVE_WORKER_STATES.includes(view.state)) continue;
     if (!view || view.state === 'unknown') {
       const children = childRunsOf(p, current, d.dispatchId);
-      await failDispatch(p, d, 'status-unknown', view ? view.reason : 'run-missing', run, usageParts(d, run, children));
+      await failDispatch(p, d, ['launched'], 'status-unknown', view ? view.reason : 'run-missing', run, usageParts(d, run, children));
       continue;
     }
     const stale = integrate.staleReason(d, ledger, d.parentRunKey ?? current.run.runKey ?? null);
@@ -607,7 +609,7 @@ async function collect(p: any) {
       const signal = signalFor(withheld[0], run);
       const { failureClass } = classFor(signal);
       const { written } = writeResult(p, d, run, { outcome: 'failed', failureClass, usage: parts.usage, withheld });
-      await failDispatch(p, d, signal, withheld.join(', '), run, parts, written);
+      await failDispatch(p, d, ['launched'], signal, withheld.join(', '), run, parts, written);
       continue;
     }
     let commit: any;
@@ -668,7 +670,7 @@ async function timeouts(p: any) {
     const run = runs[d.workerRunId] ?? null;
     const parts = usageParts(d, run, childRunsOf(p, current, d.dispatchId));
     p.act('timeout', d, 'deadline', `${seconds}s`);
-    await failDispatch(p, d, 'deadline', `${seconds}s`, run, parts);
+    await failDispatch(p, d, ['launched'], 'deadline', `${seconds}s`, run, parts);
   }
 }
 
@@ -871,7 +873,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
     return { write: true, result: null };
   });
   p.act('launch', d, 'refused', reason, Date.now() - started);
-  await failDispatch(p, d, 'run-refused', reason, null, null);
+  await failDispatch(p, d, ['claimed'], 'run-refused', reason, null, null);
 }
 
 async function admitAndLaunch(p: any) {

@@ -289,3 +289,51 @@ test('IC-041 / IC-030: a cancel that ends the run during the final verification 
   const after = await executeDispatchCommand(p.step());
   assert.deepEqual([after.body.outcome, after.body.actions], ['cancelled', []], label);
 });
+
+// RT-1: a timeout pass takes its targets from one snapshot and awaits each one's `cancelRun`, so the
+// snapshot ages. Both dispatches are past their deadline; the injected clock, on its first reading
+// after the first one ended, plays a second driver that collects the other and takes its lease
+// (IC-018 step 1). The pass's `failDispatch` for that one must then refuse with no write: its 080
+// attempt and the lease belong to the integration.
+test('RT-1: a timeout pass whose snapshot holds a dispatch launched leaves it integrating once another driver took its lease', POSIX, async (t) => {
+  const loop = require(path.join(SRC, 'dispatch', 'loop.ts'));
+  const { procStart } = require(path.join(SRC, 'worker', 'process-tree.ts'));
+  const p = await project(t, { plan: 'disjoint', mode: 'auto', concurrency: 2, scenario: SLEEPER, identity: { DOFLOW_ATTEMPT: undefined }, probe: true });
+  const first = await loop.step({ slug: SLUG, env: p.env, cwd: p.sb.root, by: 'main', descriptors: p.sb.descriptors });
+  const launched = Object.values(p.read().dispatches);
+  assert.deepEqual(launched.map((d) => [d.phase, d.mode]), [['launched', 'subagent'], ['launched', 'subagent']], JSON.stringify(first.actions));
+  const file = store.storeFileFor(p.sb.root, SLUG);
+  const past = new Date(Date.now() - 60000).toISOString();
+  store.mutateDispatch(file, (s) => { for (const d of Object.values(s.dispatches)) d.deadline = past; return { write: true, result: null }; });
+
+  let taken = null;
+  const now = () => {
+    if (!taken) {
+      const s = store.readDispatch(file);
+      const ended = Object.values(s.dispatches).find((d) => d.phase === 'ended');
+      const other = ended && Object.values(s.dispatches).find((d) => d.phase === 'launched');
+      if (other) {
+        taken = other.dispatchId;
+        store.transitionDispatch(file, other.dispatchId, ['launched'], (d) => Object.assign(d, { phase: 'collected', outcome: 'offered', collectedAt: new Date().toISOString(), commit: null, changes: [] }));
+        store.mutateDispatch(file, (st) => {
+          st.lease = { holder: { pid: process.pid, start: procStart(process.pid) }, dispatchId: other.dispatchId, preHead: st.run.integration.head, takenAt: new Date().toISOString() };
+          st.dispatches[other.dispatchId].phase = 'integrating';
+          return { write: true, result: null };
+        });
+      }
+    }
+    return new Date();
+  };
+  const stepped = await loop.step({ slug: SLUG, env: p.env, cwd: p.sb.root, by: 'main', descriptors: p.sb.descriptors, now });
+  const label = JSON.stringify(stepped.actions);
+  assert.ok(taken, `the second driver took a lease: ${label}`);
+  const s = p.read();
+  const d = s.dispatches[taken];
+  assert.equal(d.phase, 'integrating', label);
+  assert.equal(d.disposition ?? null, null, label);
+  assert.equal(s.lease && s.lease.dispatchId, taken, `the lease is untouched: ${label}`);
+  const attempt = p.ledger().tasks[d.task].attempts.find((a) => a.token === d.token);
+  assert.equal(attempt.state, 'active', `its 080 attempt is untouched: ${label}`);
+  const refusal = stepped.actions.find((a) => a.action === 'finish' && a.dispatchId === taken);
+  assert.equal(refusal && refusal.reason, 'finish-refused:timeout:phase-not-allowed', label);
+});
