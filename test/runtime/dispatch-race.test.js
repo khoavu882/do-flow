@@ -249,3 +249,43 @@ test('IC-041: a cancel racing a collection leaves no dispatch completed whose at
   assert.ok([...seen.submit, ...seen.step].some((x) => x.startsWith('submitted') || x.startsWith('completed')), JSON.stringify(seen));
   t.diagnostic(`${CANCEL_REPS} cancel races in ${Date.now() - started} ms; seen ${JSON.stringify({ submit: [...seen.submit], step: [...seen.step] })}`);
 });
+
+// The interleaving the load race found: `decide` reads the run `running` outside the lock and runs
+// the final verification; a cancel lands in that window and ends the run (IC-030 steps 3 to 9);
+// the completion write must then not overwrite `cancelled` with `completed` (IC-026, IC-030 step 3).
+// The cancel runs to its end inside the step's final verification, so the order is fixed.
+test('IC-041 / IC-030: a cancel that ends the run during the final verification is not overwritten by the completion', POSIX, async (t) => {
+  const loop = require(path.join(SRC, 'dispatch', 'loop.ts'));
+  const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
+  const p = await project(t, { plan: 'budget', mode: 'sequential' });
+  const first = await executeDispatchCommand(p.step());
+  assert.equal(first.body.outcome, 'perform', JSON.stringify(first.body));
+  const y = first.body.perform;
+  fs.writeFileSync(path.join(y.worktree, 'src', 'retry.js'), '// collected\n');
+  const submitted = await executeDispatchCommand(p.options({ action: 'submit', dispatch: y.dispatchId, status: 'success', summary: 'done' }));
+  assert.equal(submitted.body.disposition, 'submitted', JSON.stringify(submitted.body));
+
+  let cancelled = null;
+  const verify = async (args) => {
+    const result = await runVerification(args);
+    // The final verification is the one run with the slug as its task id (IC-026 step 5).
+    if (args.taskId === SLUG && !cancelled) cancelled = (await executeDispatchCommand(p.cancel())).body;
+    return result;
+  };
+  const stepped = await loop.step({ slug: SLUG, env: p.env, cwd: p.sb.root, by: 'main', descriptors: p.sb.descriptors, verify });
+  const label = JSON.stringify([stepped, cancelled]);
+  assert.ok(cancelled, `the final verification ran: ${label}`);
+  assert.equal(cancelled.disposition, 'cancelled', label);
+  const s = p.read();
+  assert.equal(s.run.state, 'cancelled', label);
+  assert.equal(s.run.completion ?? null, null, `no completion record on a cancelled run: ${label}`);
+  assert.equal(stepped.outcome, 'cancelled', label);
+  assert.equal(stepped.completion, undefined, label);
+  assert.deepEqual(stepped.actions.filter((a) => a.action === 'decide').map((a) => a.reason), ['cancelled:cancelled'], label);
+  assert.equal(s.steps[s.steps.length - 1].outcome, 'cancelled', label);
+  // Every final verification run is still recorded, and nothing was integrated past the cancel.
+  assert.equal(s.run.verifying, null, label);
+  assert.ok(s.run.verifications.length >= 1, label);
+  const after = await executeDispatchCommand(p.step());
+  assert.deepEqual([after.body.outcome, after.body.actions], ['cancelled', []], label);
+});
