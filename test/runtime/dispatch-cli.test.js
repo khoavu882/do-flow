@@ -46,6 +46,16 @@ test('IC-001: dispatch --action inspect with no dispatch run exits 1 no-dispatch
   }
 });
 
+test('IC-001 (SF-5(c)): the help shows --reserve-tokens as required with spawn --prompt-file', { skip: SKIP }, (t) => {
+  const p = project(t);
+  const r = p.cli('--help');
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const line = r.stdout.split('\n').find((l) => l.includes('spawn: --prompt-file'));
+  assert.ok(line, `a spawn line in the help: ${r.stdout}`);
+  assert.match(line, /spawn: --prompt-file --reserve-tokens <n>, or --request-id;/);
+  assert.doesNotMatch(line, /\[--reserve-tokens/, 'not shown as optional');
+});
+
 test('IC-001: a missing --action is exit 2', { skip: SKIP }, (t) => {
   const p = project(t);
   const r = p.cli('dispatch', '--slug', SLUG, '--json');

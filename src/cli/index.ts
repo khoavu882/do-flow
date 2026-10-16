@@ -630,7 +630,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             step: [--by]; run: [--by] [--max-seconds 1-14400];
                                             submit: --dispatch <d-id> --status success|failure --summary <text>
                                             [--blocker <text>] [--tokens <n> --tokens-basis measured|estimated];
-                                            spawn: --prompt-file [--reserve-tokens <n>] or --request-id;
+                                            spawn: --prompt-file --reserve-tokens <n>, or --request-id;
                                             pause, cancel: --by --reason; takeover: --task --by --reason;
                                             resume: report and digest, then --ack sha256:<hex> --by [--reason];
                                             inspect. Exit 0 done; 1 refused, stale or ack-required, the
