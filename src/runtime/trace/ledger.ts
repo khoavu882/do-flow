@@ -13,6 +13,7 @@ const {
   buildDiscover,
   PROVIDER,
 } = require('./views.ts');
+const { identityFields } = require('../context/identity.ts');
 const {
   shortTime,
   formatMs,
@@ -197,7 +198,14 @@ const RUN_FIELDS: Readonly<Array<{ key: string; wire: string; type: string }>> =
   { key: 'inputBytes', wire: 'input_bytes', type: 'uint' },
   { key: 'outputBytes', wire: 'output_bytes', type: 'uint' },
   { key: 'retryCount', wire: 'retry_count', type: 'uint' },
+  // Session identity (082 IC-034): filled by RunLedger#append from the environment only.
+  { key: 'run', wire: 'run', type: 'token' },
+  { key: 'lineage', wire: 'lineage', type: 'token' },
+  { key: 'attempt', wire: 'attempt', type: 'token' },
 ]);
+
+/** The identity keys a caller may not supply: the environment is their one source (DEC-042). */
+const IDENTITY_KEYS = Object.freeze(['run', 'lineage', 'attempt']);
 
 /**
  * Identifiers only. No space, no quote, no slash, no dot-dot — a capability id (`code.exact-search`)
@@ -340,6 +348,7 @@ class RunLedger {
   fsImpl: any;
   clock: () => Date;
   dir: string;
+  env: Record<string, string | undefined>;
 
   /**
    * @param {Object} [options]
@@ -347,10 +356,12 @@ class RunLedger {
    * @param {string} [options.configDir] an install root (`<project>/.doflow`)
    * @param {Object} [options.fsImpl=fs]
    * @param {Function} [options.clock] returns the current Date; injection seam for tests
+   * @param {Object} [options.env=process.env] the one source of `run`, `lineage` and `attempt`
    */
-  constructor({ dir, configDir, fsImpl = fs, clock = () => new Date() }: any = {}) {
+  constructor({ dir, configDir, fsImpl = fs, clock = () => new Date(), env = process.env }: any = {}) {
     this.fsImpl = fsImpl;
     this.clock = clock;
+    this.env = env;
     if (dir) this.dir = path.resolve(dir);
     else if (configDir) this.dir = runsDir(path.resolve(configDir));
     else this.dir = resolveRunsLocation({ fsImpl }).dir;
@@ -358,12 +369,24 @@ class RunLedger {
 
   /**
    * Appends one metadata record. Always succeeds: an unwritable state directory degrades
-   * observability, never the run being observed.
+   * observability, never the run being observed. `run`, `lineage` and `attempt` come from
+   * `this.env` only; a caller-supplied value is dropped and named in `dropped` (IC-034).
    * @param {Object} event
    * @returns {{written: boolean, file?: string, record?: Object, dropped: string[], reason?: string}}
    */
   append(event: any): any {
-    const { record, dropped, reason } = sanitizeRunEvent(event, { now: this.clock() });
+    let input = event;
+    const supplied: string[] = [];
+    if (event && typeof event === 'object' && !Array.isArray(event)) {
+      input = { ...event };
+      for (const key of IDENTITY_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(input, key)) { supplied.push(key); delete input[key]; }
+      }
+      Object.assign(input, identityFields(this.env));
+    }
+    const sanitized = sanitizeRunEvent(input, { now: this.clock() });
+    const { record, reason } = sanitized;
+    const dropped = [...supplied, ...sanitized.dropped];
     if (!record) return { written: false, dropped, reason };
     try {
       this.fsImpl.mkdirSync(this.dir, { recursive: true });
