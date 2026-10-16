@@ -16,6 +16,12 @@
 // `recipe`: a detached process cannot receive the in-process descriptors tests inject (DEC-036), and
 // the reduced recipe's `argvShape` has the prompt replaced, so it cannot be launched from.
 //
+// An edit run (082 IC-014, DEC-021, DEC-046, DEC-048) takes the edit check in place of the
+// read-only check of steps 2 and 6: before the launch a snapshot of the caller checkout
+// (`edit.callerTop`) and the attempt worktree's HEAD; after the exit `isolation` from the caller
+// comparison, the attempt branch and `merge-base --is-ancestor <edit.base> HEAD`, with `readOnly`
+// left null. The attempt worktree's files are not compared: they are the change.
+//
 // This is the one module under `src/runtime/worker/` that holds a direct fs write call: the output
 // sink's `mkdirSync` and `createWriteStream` (IC-018, IC-027, RK3). Every record write goes through
 // the run store's `transition`.
@@ -23,6 +29,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const { readRuns, transition, RUN_ID } = require('./run-store.ts');
 const { readTaskState } = require('../task-state.ts');
 const attempts = require('../task-attempts.ts');
@@ -53,6 +60,9 @@ const DEFAULT_TIMEOUT_SECONDS = 1800;
 /** How long the streams may stay open after the worker's exit (a grandchild may hold them). */
 const DRAIN_MS = 500;
 const STREAMS = Object.freeze({ stdout: 'out', stderr: 'err' });
+/** 082 IC-014: the bound on each attempt-worktree git read, and the variables it drops (081 REPO_ENV). */
+const EDIT_GIT_TIMEOUT_MS = 10000;
+const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']);
 
 const iso = (clock: () => Date) => clock().toISOString();
 
@@ -204,17 +214,69 @@ function createOutputSink({ stateRoot, runId, stream, onLine, onOversize }: {
   };
 }
 
+/** One bounded, read-only git call in `cwd`: `{ status, stdout }`, `status` null when it did not exit. */
+function gitRead(cwd: string, args: string[], env: any): { status: number | null; stdout: string } {
+  const clean: any = { ...env, GIT_OPTIONAL_LOCKS: '0' };
+  for (const key of REPO_ENV) delete clean[key];
+  const r = spawnSync('git', ['-C', cwd, ...args], { env: clean, timeout: EDIT_GIT_TIMEOUT_MS, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  return { status: r.error ? null : r.status, stdout: r.stdout || '' };
+}
+
+/** The attempt worktree's HEAD ref (`''` when detached) and object, or null when git failed. */
+function attemptHead(worktree: string, env: any): { ref: string; object: string } | null {
+  const ref = gitRead(worktree, ['symbolic-ref', '-q', 'HEAD'], env);
+  if (ref.status !== 0 && ref.status !== 1) return null;
+  const object = gitRead(worktree, ['rev-parse', '--verify', '-q', 'HEAD'], env);
+  if (object.status !== 0) return null;
+  return { ref: ref.status === 0 ? ref.stdout.trim() : '', object: object.stdout.trim() };
+}
+
+/**
+ * 082 IC-014's after-exit reading of an edit run: `violated` `outside-write` when the caller
+ * checkout changed, `violated` `branch-moved` when the attempt branch moved off `edit.branch` or
+ * off a descendant of `edit.base`, `unverifiable` `isolation-unverifiable` when a snapshot was
+ * incomplete or a git call failed, else `clean`. `refsChanged` stays advisory (DEC-046).
+ */
+function isolationOf(run: any, before: any, attemptBefore: any, env: any) {
+  let caller: any;
+  try {
+    caller = worktreeCheck.compare(before, worktreeCheck.snapshot(run.edit.callerTop));
+  } catch {
+    caller = { status: 'unverifiable', changes: [], head: { before: before.head, after: null }, refsChanged: null };
+  }
+  const after = attemptHead(run.execWorktree, env);
+  const ancestor = after ? gitRead(run.execWorktree, ['merge-base', '--is-ancestor', run.edit.base, 'HEAD'], env).status : null;
+  let status: string;
+  let reason: string | null;
+  if (caller.status === 'violated') [status, reason] = ['violated', 'outside-write'];
+  else if ((after && after.ref !== run.edit.branch) || ancestor === 1) [status, reason] = ['violated', 'branch-moved'];
+  else if (caller.status !== 'clean' || !after || ancestor !== 0) [status, reason] = ['unverifiable', 'isolation-unverifiable'];
+  else [status, reason] = ['clean', null];
+  return {
+    status, reason, changes: caller.changes, callerHead: caller.head,
+    attemptHead: { before: attemptBefore, after }, refsChanged: caller.refsChanged,
+  };
+}
+
 /**
  * IC-017, computed from a record, never stored: `resultOffered` is true only for a run that ended
  * `exited` with `process.kind: 'exited'`, a `clean` read-only check and a `success` report, and
- * whose group left no survivors after the exit (`group-survived`, DEC-058).
+ * whose group left no survivors after the exit (`group-survived`, DEC-058). For an edit run
+ * (082 IC-014) `isolation.status` stands in for `readOnly.status`, and a withheld one names
+ * `outside-write`, `branch-moved` or `isolation-unverifiable`.
  */
 function resultOfRun(run: any): { resultOffered: boolean; withheld: string[] } {
   const withheld: string[] = [];
   if (run?.end?.state !== 'exited' || run?.process?.kind !== 'exited') withheld.push('not-exited');
-  const readOnly = run?.readOnly?.status;
-  if (readOnly === 'violated') withheld.push('read-only-violation');
-  else if (readOnly !== 'clean') withheld.push('read-only-unverifiable');
+  if (run?.edit) {
+    const isolation = run?.isolation;
+    if (isolation?.status === 'violated') withheld.push(isolation.reason === 'branch-moved' ? 'branch-moved' : 'outside-write');
+    else if (isolation?.status !== 'clean') withheld.push('isolation-unverifiable');
+  } else {
+    const readOnly = run?.readOnly?.status;
+    if (readOnly === 'violated') withheld.push('read-only-violation');
+    else if (readOnly !== 'clean') withheld.push('read-only-unverifiable');
+  }
   const report = run?.report?.status;
   if (report === 'denied') withheld.push('report-denied');
   else if (report === 'failure') withheld.push('report-failure');
@@ -290,14 +352,16 @@ async function superviseRun({
     return current();
   }
 
-  // Step 2: the before snapshot.
+  // Step 2: the before snapshot; for an edit run the caller checkout and the attempt HEAD (082 IC-014).
   let before: any;
+  let attemptBefore: any = null;
   try {
-    before = worktreeCheck.snapshot(run.execWorktree);
+    before = worktreeCheck.snapshot(run.edit ? run.edit.callerTop : run.execWorktree);
+    if (run.edit) attemptBefore = attemptHead(run.execWorktree, env);
   } catch {
     before = null;
   }
-  if (!before || before.incomplete) {
+  if (!before || before.incomplete || (run.edit && !attemptBefore)) {
     notStarted('snapshot-failed');
     return current();
   }
@@ -309,7 +373,7 @@ async function superviseRun({
   try {
     launched = await launch({
       recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity,
-      execWorktree: run.execWorktree, env, taskId: run.task,
+      execWorktree: run.execWorktree, env, taskId: run.task, ...(run.edit ? { edit: true } : {}),
     });
   } catch (error: any) {
     notStarted(typeof error?.code === 'string' && error.code ? error.code : 'launch-failed');
@@ -382,8 +446,16 @@ async function superviseRun({
   const { code, signal } = await exited;
   clearTimeout(timer);
   transition(file, runId, STEP6, (r: any) => put(r, 'process', { kind: 'exited', code, signal, at: iso(clock) }));
-  // The group may outlive its leader: end what remains before the after snapshot (DEC-058).
-  if (platform !== 'win32' && processTree.groupAlive(worker.pgid, worker.start) === true) {
+  // The group may outlive its leader: end what remains before the after snapshot (DEC-058). The
+  // reading is recorded as `process.groupAlive` (false, true or 'unknown'; absent on win32, where no
+  // group is read), so a reader infers a cleaned-up tree only from an observed `false` (DEC-047).
+  const groupAlive = platform === 'win32' ? null : processTree.groupAlive(worker.pgid, worker.start);
+  if (groupAlive !== null) {
+    transition(file, runId, STEP6, (r: any) => {
+      if (r.process?.kind === 'exited' && r.process.groupAlive === undefined) r.process.groupAlive = groupAlive;
+    });
+  }
+  if (groupAlive === true) {
     const outcome = await escalate({ proc: worker, platform });
     const leftover = { status: outcome.status ?? 'unknown', reason: outcome.reason ?? null, survivors: outcome.survivors ?? [], zombies: outcome.zombies ?? [] };
     transition(file, runId, STEP6, (r: any) => {
@@ -394,17 +466,23 @@ async function superviseRun({
   child.stdout?.destroy();
   child.stderr?.destroy();
   const output = { stdout: await out.end(), stderr: await err.end() };
-  let readOnly: any;
-  try {
-    readOnly = worktreeCheck.compare(before, worktreeCheck.snapshot(run.execWorktree));
-  } catch {
-    readOnly = { status: 'unverifiable', changes: [], head: { before: before.head, after: null }, refsChanged: null };
+  let readOnly: any = null;
+  let isolation: any = null;
+  if (run.edit) {
+    isolation = isolationOf(run, before, attemptBefore, env);
+  } else {
+    try {
+      readOnly = worktreeCheck.compare(before, worktreeCheck.snapshot(run.execWorktree));
+    } catch {
+      readOnly = { status: 'unverifiable', changes: [], head: { before: before.head, after: null }, refsChanged: null };
+    }
   }
   const report = parser.end();
   const unit = `L.${run.identity?.run}.${run.identity?.lineage}.${run.token}`;
   const launchObserved = run.identity ? (bindingObserved(launched.env ?? env, unit) ? 'yes' : 'no') : 'unknown';
   transition(file, runId, STEP6, (r: any) => {
     put(r, 'readOnly', readOnly);
+    if (run.edit) put(r, 'isolation', isolation);
     put(r, 'report', report);
     put(r, 'launchObserved', launchObserved);
     put(r, 'output', output);

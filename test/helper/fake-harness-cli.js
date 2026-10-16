@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 'use strict';
 
-// fake-harness-cli.js — feature 081, IC-029 (DEC-036). Test-only, never shipped.
+// fake-harness-cli.js — feature 081, IC-029 (DEC-036); steps added by 082 IC-041. Test-only, never
+// shipped.
 //
 // A stand-in for a harness CLI. Tests link this file into a scratch bin/ under each binary name a
-// fake descriptor (test/fixtures/worker/descriptors.json) declares, and give the child a PATH of
-// that bin/ plus the directory of process.execPath, nothing else (NFR-002, RK9). The fake names are
-// `fake-<harness>` so a real harness binary that happens to share the node directory is never hit.
+// fake descriptor (test/fixtures/worker/descriptors.json) declares. The child PATH is that scratch
+// bin/ alone, built by test/helper/dispatch-sandbox.js: the fake links, a `node` symlink to
+// process.execPath, a `git` symlink to the resolved git binary, and named system tools only when a
+// test asks for them (082 DEC-056, NFR-002). It never contains dirname(process.execPath): a node
+// install directory can hold real codex, gemini or claude binaries. The fake names are
+// `fake-<harness>` so no real harness binary is ever hit. linkBin's returned PATH (bin/ plus the
+// node directory) is the 081 shape its existing callers assert; no new test uses it.
 //
 // Each invocation appends one JSON line `{ argv, cwd, doflowEnv }` to FAKE_HARNESS_LOG, where
 // doflowEnv holds the five DOFLOW_* identity values (null when unset). It then classifies itself by
@@ -26,6 +31,19 @@
 //   { print: 'text' }                       stdout text plus a newline
 //   { emit: event | [event, ...] }          one JSON line per IC-016 event on stdout
 //   { write: 'rel' | { path, content } }    a file under cwd; a path leaving cwd exits 97
+//   { writeAt: { env, content } }           content to the absolute path held in the environment
+//                                           variable named env, so a test can aim a stray write at a
+//                                           path it names (the caller checkout, a sibling attempt
+//                                           worktree); an unset or relative value exits 97
+//   { commit: { message } }                 git -c user.name=fake -c user.email=fake@invalid
+//                                           commit -qam <message> in cwd (git from PATH); a failed
+//                                           commit exits with git's status (96 when it has none)
+//   { doflow: { args, out? } }              runs process.execPath FAKE_DOFLOW_CLI ...args in cwd
+//                                           under the inherited environment and writes its stdout to
+//                                           out (absolute, or relative to cwd); FAKE_DOFLOW_CLI
+//                                           unset exits 96; the child's own status does not stop
+//                                           the steps
+//   { printRepeat: { text, times } }        stdout text plus a newline, times times
 //   { sleep: ms }                           wait
 //   { spawnChild: { newGroup?, ms?, pidFile? } }
 //                                           a sleeping node child (default 30000 ms), detached into
@@ -55,6 +73,7 @@ const FAKE_CLI = __filename;
 const IDENTITY_VARS = ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
 const PROBE_KINDS = new Set(['runnable', 'hooks', 'guidance', 'login']);
 const ESCAPE_EXIT = 97;
+const NO_TOOL_EXIT = 96;
 
 /** The invocation kind for an argv (process.argv without node and the script). */
 function kindOf(argv) {
@@ -88,7 +107,8 @@ function runFrontDoors(spec, cwd) {
   if (spec.stripEnv) for (const key of Object.keys(env)) if (key.startsWith('DOFLOW_')) delete env[key];
   const sessionId = spec.sessionId ?? `fake-${process.pid}`;
   const hooks = path.join(spec.mirror, `.${spec.harness ?? 'claude'}`, 'hooks');
-  // The child PATH is a scratch bin/ plus the node directory, so bash is taken from /bin when there.
+  // The child PATH is a scratch bin/ that holds bash only when a test names it, so bash is taken
+  // from /bin when there.
   const bash = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
   const door = (script, payload) => {
     const r = spawnSync(bash, [path.join(hooks, script)], { cwd, env, input: `${JSON.stringify(payload)}\n`, encoding: 'utf8' });
@@ -128,6 +148,39 @@ async function main() {
       }
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, spec.content ?? '');
+    } else if (Object.hasOwn(step, 'writeAt')) {
+      const spec = step.writeAt ?? {};
+      const target = typeof spec.env === 'string' && spec.env ? process.env[spec.env] : undefined;
+      if (typeof target !== 'string' || !path.isAbsolute(target)) {
+        fs.writeSync(2, `fake-harness-cli: writeAt names no absolute path: ${spec.env}\n`);
+        process.exitCode = ESCAPE_EXIT;
+        return;
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, spec.content ?? '');
+    } else if (Object.hasOwn(step, 'commit')) {
+      const message = String(step.commit?.message ?? 'fake commit');
+      const r = spawnSync('git', ['-c', 'user.name=fake', '-c', 'user.email=fake@invalid', 'commit', '-qam', message], { cwd, encoding: 'utf8' });
+      if (r.status !== 0) {
+        fs.writeSync(2, `fake-harness-cli: commit failed: ${r.error?.code ?? r.stderr ?? ''}\n`);
+        process.exitCode = typeof r.status === 'number' && r.status !== 0 ? r.status : NO_TOOL_EXIT;
+        return;
+      }
+    } else if (Object.hasOwn(step, 'doflow')) {
+      const spec = step.doflow ?? {};
+      const cli = process.env.FAKE_DOFLOW_CLI;
+      if (!cli) {
+        fs.writeSync(2, 'fake-harness-cli: doflow step needs FAKE_DOFLOW_CLI\n');
+        process.exitCode = NO_TOOL_EXIT;
+        return;
+      }
+      const args = Array.isArray(spec.args) ? spec.args.map(String) : [];
+      const r = spawnSync(process.execPath, [cli, ...args], { cwd, env: process.env, encoding: 'utf8' });
+      if (spec.out) fs.writeFileSync(path.resolve(cwd, spec.out), r.stdout ?? '');
+    } else if (Object.hasOwn(step, 'printRepeat')) {
+      const spec = step.printRepeat ?? {};
+      const times = Math.max(0, Math.floor(Number(spec.times) || 0));
+      for (let i = 0; i < times; i += 1) out(`${spec.text ?? ''}\n`);
     } else if (Object.hasOwn(step, 'sleep')) await new Promise((resolve) => setTimeout(resolve, step.sleep));
     else if (Object.hasOwn(step, 'spawnChild')) {
       const spec = step.spawnChild ?? {};

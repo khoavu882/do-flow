@@ -43,6 +43,7 @@ const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator.t
 const { handleResearchRequestCommand } = require('../runtime/research-request.ts');
 const { handleTaskAttemptCommand } = require('../runtime/task-attempts.ts');
 const { handleWorkerCommand } = require('../runtime/worker/command.ts');
+const { handleDispatchCommand } = require('../runtime/dispatch/command.ts');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval.ts');
 const { handleModelRoleCommand } = require('../runtime/model-router.ts');
 const { handleRouteCommand } = require('../runtime/capability-router.ts');
@@ -191,7 +192,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   try {
     if (['trace', 'stats', 'discover'].includes(o.cmd)) {
       moment.projectRoot = path.dirname(resolveRunsLocation({ start: evidenceRoot(o), global: o.global }).configDir);
-    } else if (['followup', 'lifecycle', 'goal', 'task-attempt', 'worker'].includes(o.cmd)) {
+    } else if (['followup', 'lifecycle', 'goal', 'task-attempt', 'worker', 'dispatch'].includes(o.cmd)) {
       moment.projectRoot = lifecycleProjectRoot(evidenceRoot(o));
     } else {
       moment.projectRoot = storeRoot;
@@ -271,7 +272,10 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // feature is `--slug`, else the branch's, resolved the way decision and scaffold resolve it.
     case 'task-attempt': return handleTaskAttemptCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, task: o.task, owner: o.owner, mode: o.mode, token: o.token, result: o.result, evidenceId: o.evidenceId, reason: o.reason, ownerOverride: o.ownerOverride, epoch: o.epoch, reserveTokens: o.reserveTokens, execWorktree: o.execWorktree, tokens: o.tokens, tokensBasis: o.tokensBasis, budgetAttempts: o.budgetAttempts, budgetTokens: o.budgetTokens, by: o.by, ack: o.ack, adoptUnowned: Boolean(o.adoptUnowned), json: o.json, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
     // 081 IC-026: the worker adapter reads and writes the same main-worktree store as task-attempt.
-    case 'worker': return handleWorkerCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, harness: o.harness, need: o.need, modelCheck: o.modelCheck, budgetTokens: o.budgetTokens, task: o.task, token: o.token, promptFile: o.promptFile, timeoutSeconds: o.timeoutSeconds, wait: Boolean(o.wait), workerRun: o.workerRun, by: o.by, reason: o.reason, json: o.json, env: process.env, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
+    case 'worker': return handleWorkerCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, harness: o.harness, need: o.need, modelCheck: o.modelCheck, budgetTokens: o.budgetTokens, task: o.task, token: o.token, promptFile: o.promptFile, timeoutSeconds: o.timeoutSeconds, wait: Boolean(o.wait), edit: Boolean(o.edit), childOf: o.childOf, request: o.request, execWorktree: o.execWorktree, workerRun: o.workerRun, by: o.by, reason: o.reason, json: o.json, env: process.env, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
+    // 082 IC-001, IC-038: the dispatch loop shares the main-worktree store root with task-attempt.
+    // `--status` is parsed under `attemptStatus` (retrieval-plan's key), so it is renamed here.
+    case 'dispatch': return handleDispatchCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, by: o.by, reason: o.reason, concurrency: o.concurrency, mode: o.mode, verifyArgv: o.verifyArgv, verifySeconds: o.verifySeconds, attemptSeconds: o.attemptSeconds, reserveTokens: o.reserveTokens, budgetAttempts: o.budgetAttempts, budgetTokens: o.budgetTokens, spawnGrant: o.spawnGrant, harness: o.harness, need: o.need, maxSeconds: o.maxSeconds, dispatch: o.dispatch, status: o.attemptStatus, summary: o.summary, blocker: o.blocker, tokens: o.tokens, tokensBasis: o.tokensBasis, promptFile: o.promptFile, requestId: o.requestId, task: o.task, ack: o.ack, json: o.json, env: process.env, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });

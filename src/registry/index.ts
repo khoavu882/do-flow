@@ -429,7 +429,13 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
   resume: { allowed: [], required: [] },
   steering: { allowed: [], required: [] },
 });
+/** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020). Absent reads
+ * as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
+const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
+  isolatedEdit: { allowed: ['argv'], required: ['argv'] },
+});
 const WORKER_KEYS = Object.freeze(['profile', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
+const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES)]);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
@@ -455,13 +461,13 @@ function validateWorker(value: any, location: string, errors: string[]): void {
   const fail = (key: string, message: string) => issue(errors, `${location} worker '${key}'`, message);
   if (!object(value)) { fail('*', 'worker block is required and must be an object'); return; }
   for (const key of WORKER_KEYS) if (!Object.hasOwn(value, key)) fail(key, 'is missing');
-  for (const key of Object.keys(value)) if (!WORKER_KEYS.includes(key)) fail(key, 'is not a worker key');
+  for (const key of Object.keys(value)) if (!WORKER_ALLOWED_KEYS.includes(key)) fail(key, 'is not a worker key');
 
   if (Object.hasOwn(value, 'profile') && value.profile !== null && !COVERAGE_PROFILES.has(value.profile)) {
     fail('profile', 'must be a lifecycle coverage profile or null');
   }
 
-  for (const [key, rule] of Object.entries(WORKER_CAPABILITIES)) {
+  for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {
     if (!Object.hasOwn(value, key)) continue;
     const entry = value[key];
     if (!object(entry)) { fail(key, 'must be a capability entry object'); continue; }
@@ -908,7 +914,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, WORKER_KEYS, WORKER_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
+  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry,
   harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };

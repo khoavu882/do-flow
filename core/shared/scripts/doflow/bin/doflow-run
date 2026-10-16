@@ -360,6 +360,7 @@ Workflow and evidence:
   research-request  open, list or resolve a feature-stage research question
   task-attempt     claim, finish, release, start, pause, cancel, resume, inspect, reopen or report-usage on a plan's task attempts
   worker           discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task
+  dispatch         run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume
   retrieve         BM25 search over the installed guidance tree (auto-refreshing index)
   model-role       resolve an abstract model role to ranked, availability-annotated providers
   route            resolve an information need to a healthy provider
@@ -447,12 +448,23 @@ now_ms() {
 #
 # Tracing never changes what a verb returned. Every step is failure-tolerant and the function
 # always succeeds: an unwritable state directory degrades observability, not the run.
+#
+# Session identity (082 IC-035, DEC-012, DEC-031, DEC-042): `run`, `lineage` and `attempt` come
+# from the environment only, each written quoted when it matches identity.ts's pattern (ERE, held in
+# a variable so `[[ =~ ]]` reads it unquoted, which bash 3.2 supports) and `null` otherwise. A value
+# that passes holds no quote, backslash or control character, so quoting it cannot break the line.
+# `[[ ]]` is a builtin: the trace starts no process beyond `mkdir` and `date` (NFR-007).
 trace_run() {
   local verb="$1" code="$2" duration="$3" argc="$4" started_at="$5"
   local runs_dir="$CONFIG_DIR/state/runs"
+  local id_re='^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$' attempt_re='^[1-9][0-9]{0,3}$'
+  local run_v=null lineage_v=null attempt_v=null
+  if [[ "${DOFLOW_RUN_ID:-}" =~ $id_re && "${DOFLOW_RUN_ID}" != local ]]; then run_v="\"${DOFLOW_RUN_ID}\""; fi
+  if [[ "${DOFLOW_LINEAGE_ID:-}" =~ $id_re ]]; then lineage_v="\"${DOFLOW_LINEAGE_ID}\""; fi
+  if [[ "${DOFLOW_ATTEMPT:-}" =~ $attempt_re ]]; then attempt_v="\"${DOFLOW_ATTEMPT}\""; fi
   mkdir -p "$runs_dir" 2>/dev/null || return 0
-  printf '{"timestamp":"%s","verb":"%s","exit_code":%s,"duration_ms":%s,"arg_count":%s}\n' \
-    "$started_at" "$verb" "$code" "$duration" "$argc" \
+  printf '{"timestamp":"%s","verb":"%s","exit_code":%s,"duration_ms":%s,"arg_count":%s,"run":%s,"lineage":%s,"attempt":%s}\n' \
+    "$started_at" "$verb" "$code" "$duration" "$argc" "$run_v" "$lineage_v" "$attempt_v" \
     >>"$runs_dir/$(date -u +%Y-%m-%d).jsonl" 2>/dev/null || return 0
   return 0
 }
@@ -490,7 +502,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|orchestrate|research-request|task-attempt|worker|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -239,6 +239,9 @@ function openLedgerReason(ledger: any): string | null {
   return null;
 }
 
+/** IC-037: the dispatch run states that settle a dispatch store; any other run state is open. */
+const DISPATCH_RUN_SETTLED = Object.freeze(['completed', 'cancelled']);
+
 function answer(state: string, reason: string, run: any, feature: any, since: number | null = null): any {
   return { state, since, reason, run, feature };
 }
@@ -302,6 +305,16 @@ function workStatus({
   if (store === 'task-attempts') {
     const ledgerOpen = openLedgerReason(record.value);
     if (ledgerOpen) return answer('open', ledgerOpen, resolvedRun.id, null);
+  }
+
+  // IC-037 (mirrors IC-028): a dispatch store stays open while its run is not `completed` or
+  // `cancelled`, so a paused, blocked or resume-required run on a fully ticked plan keeps the
+  // record that names its kept worktrees.
+  if (store === 'dispatch') {
+    const dispatchRun = record.value && typeof record.value === 'object' ? record.value.run : null;
+    if (dispatchRun !== null && dispatchRun !== undefined && !DISPATCH_RUN_SETTLED.includes(dispatchRun?.state)) {
+      return answer('open', 'dispatch-run-open', resolvedRun.id, null);
+    }
   }
 
   // W5: feature metadata is ordered; folder-name inference is the final fallback.

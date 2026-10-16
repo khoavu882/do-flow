@@ -471,6 +471,8 @@ async function probe({
 
 /** IC-008: requirements every task carries, in report order. */
 const BASELINE = Object.freeze(['installed', 'runnable', 'one-shot', 'structured-output', 'read-only', 'spawn-denial']);
+/** IC-013 (DEC-020): the baseline of an edit task, `read-only` replaced by `isolated-edit`. */
+const EDIT_BASELINE = Object.freeze(['installed', 'runnable', 'one-shot', 'structured-output', 'isolated-edit', 'spawn-denial']);
 /** IC-008: requirements a task adds with `--need`, besides `blocking-hook:<policy>`. */
 const NEED_IDS = Object.freeze(['hooks-loaded', 'identity-forwarding', 'guidance-loaded', 'login']);
 const BLOCKING_HOOK = 'blocking-hook:';
@@ -485,6 +487,7 @@ const FACT_REQUIREMENTS: Record<string, string> = Object.freeze({
 });
 const CAPABILITY_REQUIREMENTS: Record<string, string> = Object.freeze({
   'one-shot': 'oneShot', 'structured-output': 'structuredOutput', 'read-only': 'readOnly', 'spawn-denial': 'spawnDenial',
+  'isolated-edit': 'isolatedEdit',
 });
 const FACT_RESULT: Record<string, string> = Object.freeze({ yes: 'met', no: 'failed', unknown: 'unknown' });
 
@@ -554,11 +557,12 @@ function blockingHookRequirement(requirement: string, harness: string, worker: a
 /**
  * IC-008: the baseline and `needs` evaluated for one harness to `met`, `failed` or `unknown`, each
  * with a reason; fact-backed requirements also carry the fact's `at`. `descriptor` is a
- * `workerDescriptors` entry `{ harness, worker }`; `facts` are IC-007 effective facts.
+ * `workerDescriptors` entry `{ harness, worker }`; `facts` are IC-007 effective facts. With `edit`
+ * the baseline is `EDIT_BASELINE` (IC-013), without it `BASELINE`.
  */
-function requirementsFor(descriptor: any, facts: any, needs: any, coverage: any) {
+function requirementsFor(descriptor: any, facts: any, needs: any, coverage: any, edit = false) {
   const { harness, worker } = descriptor;
-  return [...BASELINE, ...validateNeeds(needs, coverage)].map((requirement) => {
+  return [...(edit ? EDIT_BASELINE : BASELINE), ...validateNeeds(needs, coverage)].map((requirement) => {
     if (Object.hasOwn(FACT_REQUIREMENTS, requirement)) return factRequirement(requirement, facts?.[FACT_REQUIREMENTS[requirement]]);
     if (Object.hasOwn(CAPABILITY_REQUIREMENTS, requirement)) return capabilityRequirement(requirement, worker?.[CAPABILITY_REQUIREMENTS[requirement]]);
     return blockingHookRequirement(requirement, harness, worker, facts, coverage);
@@ -578,11 +582,11 @@ function readinessContext({ descriptors, registry, coverage }: any) {
 }
 
 /** Discover, then the IC-007 effective facts and IC-008 evaluation of one harness. Writes nothing. */
-function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd, root, now, platform }: any) {
+function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd, root, now, platform, edit }: any) {
   const found = discoverOne(entry, { env, cwd, now, platform });
   const record = readProbeRecord(root, entry.harness);
   const facts = effectiveFacts(record, { ...found, descriptorDigest: descriptorDigest(entry.worker) }, now);
-  const requirements = requirementsFor(entry, facts, needs, coverage);
+  const requirements = requirementsFor(entry, facts, needs, coverage, edit === true);
   return { harness: entry.harness, facts, recordedAt: record?.at ?? null, requirements, ...eligibility(requirements) };
 }
 
@@ -591,14 +595,14 @@ function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd,
  * requirements for the baseline and `needs`. Read-only.
  */
 function describe({
-  descriptors, registry, coverage, harness, needs,
+  descriptors, registry, coverage, harness, needs, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
   const context = readinessContext({ descriptors, registry, coverage });
   const entry = context.entries.find((item) => item.harness === harness);
   if (!entry) throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.entries.map((item) => item.harness).join(', ')}`);
   const valid = validateNeeds(needs, context.coverage);
-  const evaluated = evaluateHarness(entry, valid, context.coverage, { env, cwd, root, now: clock(now), platform });
+  const evaluated = evaluateHarness(entry, valid, context.coverage, { env, cwd, root, now: clock(now), platform, edit });
   const declared: any = { profile: entry.worker?.profile ?? null, modelChecks: (entry.worker?.modelChecks || []).map((check: any) => check.id) };
   for (const key of CAPABILITIES) {
     const value = entry.worker?.[key];
@@ -616,7 +620,7 @@ function describe({
  * fallback modes. Claims nothing and writes nothing (DEC-002).
  */
 function select({
-  descriptors, registry, coverage, harness, needs,
+  descriptors, registry, coverage, harness, needs, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
   const context = readinessContext({ descriptors, registry, coverage });
@@ -626,7 +630,7 @@ function select({
   }
   const valid = validateNeeds(needs, context.coverage);
   const tick = clock(now);
-  const evaluated = entries.map((entry) => evaluateHarness(entry, valid, context.coverage, { env, cwd, root, now: tick, platform }));
+  const evaluated = entries.map((entry) => evaluateHarness(entry, valid, context.coverage, { env, cwd, root, now: tick, platform, edit }));
   const candidates = evaluated.map(({ harness: id, eligible, gaps }) => ({ harness: id, eligible, gaps }));
   const chosen = evaluated.find((item) => item.eligible);
   if (!chosen) {
@@ -663,9 +667,11 @@ module.exports = {
   readProbeRecord,
   probeFile,
   BASELINE,
+  EDIT_BASELINE,
   NEED_IDS,
   policyVocabulary,
   validateNeeds,
+  capabilityRequirement,
   requirementsFor,
   eligibility,
   describe,

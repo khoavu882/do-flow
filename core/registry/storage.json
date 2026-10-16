@@ -259,6 +259,64 @@
       ]
     },
     {
+      "id": "dispatch",
+      "root": "project-state",
+      "path": "dispatch",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.ts"
+      ]
+    },
+    {
+      "id": "dispatch-envelopes",
+      "root": "project-state",
+      "path": "dispatch-envelopes",
+      "entry": "file",
+      "match": "^d-[0-9a-f]{12}(?:\\.c[1-4])?\\.[a-z][a-z-]{0,31}\\.(?:json|txt)$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 400,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/dispatch/envelope.ts",
+        "src/runtime/dispatch/grants.ts"
+      ]
+    },
+    {
+      "id": "dispatch-worktrees",
+      "root": "project-state",
+      "path": "dispatch-worktrees",
+      "entry": "dir",
+      "match": "^[pd]-[0-9a-f]{12}(?:\\.c[1-4])?$",
+      "rule": "existing",
+      "bound": {
+        "text": "attempt worktrees removed by dispatch cleanup; the integration worktree stays for the user to merge"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/worktree.ts"
+      ],
+      "source": {
+        "file": "src/runtime/dispatch/integrate.ts",
+        "pattern": "removeVerified"
+      }
+    },
+    {
       "id": "task-orchestration",
       "root": "project-state",
       "path": "orchestration",

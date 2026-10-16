@@ -315,6 +315,24 @@ if (!inserted.applied) { console.error(JSON.stringify(inserted)); process.exit(1
 const sink = createOutputSink({ stateRoot, runId, stream: 'stdout' });
 sink.write('one line\\n');
 sink.end().then(() => process.exit(0), () => process.exit(1));`;
+    // No CLI step can write the three dispatch stores: the real registry makes every harness
+    // ineligible for editing and `dispatch start` needs a git project with a graph plan. One dispatch
+    // run, one handoff envelope and one attempt-worktree directory are written in process, with no git
+    // command and no binary lookup, so the scratch PATH never reaches a harness (082 IC-037, DEC-037).
+    const seedDispatch = `const fs=require('node:fs'),path=require('node:path');
+const { mutateDispatch, newDispatchRunId, newDispatchId } = require(${JSON.stringify(path.join(REPO, 'src/runtime/dispatch/store.ts'))});
+const { buildHandoff, writeEnvelope } = require(${JSON.stringify(path.join(REPO, 'src/runtime/dispatch/envelope.ts'))});
+const stateRoot = process.argv[1];
+const dispatchRunId = newDispatchRunId();
+const dispatchId = newDispatchId();
+mutateDispatch(path.join(stateRoot, 'dispatch', 'g26-task.json'), (store) => { store.run = { dispatchRunId, slug: 'g26-task', mode: 'manual' }; return { write: true, result: null }; });
+const worktree = path.join(stateRoot, 'dispatch-worktrees', dispatchId);
+const handoff = buildHandoff({ dispatchId, dispatchRunId, slug: 'g26-task', mode: 'manual',
+  task: { id: 'A.1', phase: 'A', owner: 'core-implementer', text: 'one task', files: ['f.js'], dependsOn: [] },
+  acceptance: [], sources: [], deltas: { runBase: null, attemptBase: null, changes: [] }, budget: { attempts: { used: 0, limit: 1 } },
+  grant: null, worktree: { path: worktree, branch: 'doflow-attempt/g26-task/' + dispatchId, base: null }, report: null });
+writeEnvelope({ stateRoot, dispatchId, kind: 'handoff', value: handoff });
+fs.mkdirSync(worktree, { recursive: true });`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps = [
@@ -351,6 +369,9 @@ sink.end().then(() => process.exit(0), () => process.exit(1));`;
       // `empty-bin` does not exist, so every harness is `not-on-path` and no process but Node starts:
       // no real harness binary runs (081 IC-031, IC-032). `/usr/bin/env` is absent on win32 (RK8).
       ['worker probe (empty PATH)', { cmd: '/usr/bin/env', args: [`PATH=${path.join(scratch.dir, 'empty-bin')}`, process.execPath, DOFLOW_CLI, 'worker', '--action', 'probe', '--json'] }, 0],
+      // In process with an empty PATH and no identity variables: the seed spawns nothing and looks up
+      // no binary, and no harness is reachable even by accident (NFR-002, DEC-056).
+      ['seed dispatch record, envelope and worktree layout', { cmd: '/usr/bin/env', args: [...['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'].flatMap((name) => ['-u', name]), `PATH=${path.join(scratch.dir, 'empty-bin')}`, process.execPath, '-e', seedDispatch, roots['project-state']] }, 0],
       ['storage --action prune', cli('storage', '--action', 'prune'), 0],
       ['project remove', cli('remove', project, ...target), 0],
       ['global remove', cli('remove', '-g', ...target), 0],
