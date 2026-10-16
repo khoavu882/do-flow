@@ -344,3 +344,51 @@ test('RT-5: a plan task that disappears after its claim makes the launch throw a
   const next = await p.step();
   assert.equal(next.outcome, 'resume-required', JSON.stringify(next.actions));
 });
+
+// RT-7: deferredRemovals reads each ended dispatch's worker run settled against the probe, as
+// collect does. The dispatch is ended with no cleanup while its run (hand-built, its processes gone)
+// has no end; the injected clock, on its reading inside deferredRemovals, plays the supervisor
+// writing its end with survivors left and exiting. A pass-wide snapshot read before that write would
+// read the run lost and record cleanup `verified` add-only; the settled read sees the survivors.
+test('RT-7: a worker run that ends with survivors during deferredRemovals is never recorded cleanup verified', POSIX, async (t) => {
+  const crypto = require('node:crypto');
+  const { insertRun, newRunId, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
+  const { launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
+  const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
+  const p = await project(t, { plan: ONE_TASK, mode: 'sequential' });
+  const first = await p.step();
+  assert.equal(first.outcome, 'perform', JSON.stringify(first.actions));
+  const y = first.perform;
+  const d0 = p.read().dispatches[y.dispatchId];
+  const runStore = runStoreFileFor(p.root, SLUG);
+  const dead = spawnSync(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  const proc = { pid: dead.pid, pgid: dead.pid, start: 'Thu Jan  1 00:00:00 1970' };
+  const runId = newRunId();
+  const { identity } = launchEnv({ env: p.env, runKey: p.started.runKey, token: d0.token, execWorktree: y.worktree, runId });
+  assert.equal(insertRun(runStore, {
+    runId, task: 'A.1', token: d0.token, harness: 'claude', phase: 'starting', execWorktree: y.worktree,
+    createdAt: new Date().toISOString(), timeoutSeconds: 60,
+    caller: { cwd: p.root, runKey: p.started.runKey, run: 'r1', lineage: 'main', attempt: null, role: 'main', lineageKind: 'launched' },
+    ...launchRecord(DESCRIPTORS.claude, identity, 'p'), descriptor: DESCRIPTORS.claude,
+    prompt: { path: path.join(p.root, 'p.md'), sha256: crypto.createHash('sha256').update('p').digest('hex'), bytes: 1 }, needs: [],
+  }).applied, true);
+  assert.equal(transition(runStore, runId, ['starting'], (r) => { Object.assign(r, { phase: 'running', supervisor: proc, worker: proc, deadline: new Date(Date.now() + 60000).toISOString() }); }).applied, true);
+  assert.equal(store.transitionDispatch(p.file, y.dispatchId, ['launched'], (d) => Object.assign(d, {
+    phase: 'ended', disposition: 'stale', staleReason: 'attempt-cancelled', endedAt: new Date().toISOString(), workerRunId: runId, cleanup: null,
+  })).applied, true);
+
+  let ended = false;
+  const now = () => {
+    if (!ended && new Error().stack.includes('deferredRemovals')) {
+      ended = true;
+      assert.equal(transition(runStore, runId, ['running'], (r) => {
+        Object.assign(r, { phase: 'ended', end: { state: 'exited', at: new Date().toISOString() }, process: { ...(r.process || {}), leftover: { status: 'survivors', reason: 'group-survived' } } });
+      }).applied, true);
+    }
+    return new Date();
+  };
+  const stepped = await p.step({ now });
+  assert.ok(ended, 'the run ended inside deferredRemovals');
+  const d = p.read().dispatches[y.dispatchId];
+  assert.notEqual(d.cleanup && (d.cleanup.cleanup || d.cleanup).status, 'verified', JSON.stringify([d.cleanup, stepped.actions]));
+});

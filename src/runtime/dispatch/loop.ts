@@ -33,7 +33,7 @@ const { projectRoot } = require('../lifecycle/root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
-const { executeWorkerCommand, statusView, settledStatus } = require('../worker/command.ts');
+const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
@@ -454,13 +454,13 @@ function exitedCleanup(run: any, platform: string) {
 /** IC-021: deferred removals of ended attempt and child worktrees. */
 async function deferredRemovals(p: any) {
   let s = readDispatch(p.file);
-  const runs = readRuns(p.runStore);
   const ledger = readLedger(p);
   for (const d of Object.values(s.dispatches) as any[]) {
     if (d.phase !== 'ended' || !d.attempt || !d.attempt.worktree || (d.removal && d.removal.verified)) continue;
     if (d.workerRunId && d.cleanup == null) {
-      const run = runs[d.workerRunId];
-      const view = run ? statusView(run, ledger, { platform: p.platform, nowMs: p.clock().getTime() }) : null;
+      // Read per dispatch and settled against the probe, as collect does (RT-7): a pass-wide
+      // snapshot read before a supervisor wrote its end and exited reads as lost.
+      const { run, view } = settledStatus(p.runStore, d.workerRunId, ledger, { platform: p.platform, nowMs: p.clock().getTime() });
       const exited = view && run.phase === 'ended' && run.end && run.end.state === 'exited' ? exitedCleanup(run, p.platform) : null;
       if (view && run.phase === 'ended' && view.cleanup && view.cleanup.status === 'verified') {
         recordCleanup(p, d.dispatchId, { source: 'status', endState: view.state, cleanup: view.cleanup });
