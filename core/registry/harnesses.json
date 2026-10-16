@@ -314,6 +314,13 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
         },
+        "isolatedEdit": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag that confines edits to the working directory and its source",
+          "verifiedOn": "2026-10-16",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -708,6 +715,13 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
         },
+        "isolatedEdit": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag that confines edits to the working directory and its source",
+          "verifiedOn": "2026-10-16",
+          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1054,6 +1068,13 @@
           "evidence": [],
           "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+        },
+        "isolatedEdit": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag that confines edits to the working directory and its source",
+          "verifiedOn": "2026-10-16",
           "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
         },
         "modelChecks": []
@@ -1451,6 +1472,13 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
         },
+        "isolatedEdit": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag that confines edits to the working directory and its source",
+          "verifiedOn": "2026-10-16",
+          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1834,6 +1862,13 @@
           "evidence": [],
           "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+        },
+        "isolatedEdit": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag that confines edits to the working directory and its source",
+          "verifiedOn": "2026-10-16",
           "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
         },
         "modelChecks": []
@@ -2226,6 +2261,13 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
         },
+        "isolatedEdit": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag that confines edits to the working directory and its source",
+          "verifiedOn": "2026-10-16",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2552,6 +2594,13 @@
           "evidence": [],
           "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+        },
+        "isolatedEdit": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag that confines edits to the working directory and its source",
+          "verifiedOn": "2026-10-16",
           "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
         },
         "modelChecks": []
@@ -2950,6 +2999,13 @@
           "evidence": [],
           "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+        },
+        "isolatedEdit": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag that confines edits to the working directory and its source",
+          "verifiedOn": "2026-10-16",
           "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
         },
         "modelChecks": []
