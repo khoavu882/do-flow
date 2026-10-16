@@ -88,10 +88,11 @@ pauses it with `src/runtime/task-run.ts#pauseRun`, cancels the run or one attemp
 `src/runtime/task-run.ts#cancelRun` and `src/runtime/task-run.ts#cancelAttempt`, resumes it from
 current state with the digest-acknowledged `src/runtime/task-run.ts#resumeRun`, and inspects the
 graph, task states and run totals read-only with `src/runtime/task-run.ts#inspectRun`. A done task
-is reopened with `src/runtime/task-attempts.ts#reopen`. No redirect or take-over operation exists,
-so both stay `target`. The Autonomous controls act on a dispatch run through
-`src/runtime/dispatch/controls.ts#pause`, `#inspect`, `#cancel`, `#takeOver` and `#resume`; take over
-exists only there, and redirect stays `target` because no worker steering exists (DEC-009).
+is reopened with `src/runtime/task-attempts.ts#reopen`. No Manual / assisted redirect or take-over
+operation exists, so both Manual / assisted cells stay `target`. The Autonomous controls act on a
+dispatch run through `src/runtime/dispatch/controls.ts#pause`, `#inspect`, `#cancel`, `#takeOver`
+and `#resume`; take over exists only there, and redirect stays `target` because no worker steering
+exists (DEC-009).
 
 A linked worktree on a pre-080 runtime ignores pause, cancel, budgets, the epoch and done-stale,
 and still refuses a cancelled token (DEC-013).
