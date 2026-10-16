@@ -1199,10 +1199,16 @@ async function step(options: any = {}) {
     own = registerDriver({ file: p.file, now: p.clock() });
     p.driver = own.driver;
   }
+  let threw = false;
   try {
     return await runPass(p);
+  } catch (error) {
+    // A pass that threw left claimed or leased state no later pass settles (RT-5): its driver end
+    // records `threw` and makes the run `resume-required` in one write (IC-009, IC-032).
+    threw = true;
+    throw error;
   } finally {
-    if (own) endDriver({ file: p.file, driver: own.driver, now: p.clock() });
+    if (own) endDriver({ file: p.file, driver: own.driver, now: p.clock(), endReason: threw ? 'threw' : null });
   }
 }
 
@@ -1240,6 +1246,7 @@ async function run(options: any = {}) {
   let steps = 0;
   let last: any = null;
   let timeUp = false;
+  let threw = false;
   try {
     for (;;) {
       last = await step({ ...options, driver: reg.driver, shouldStop: () => signal !== null });
@@ -1250,9 +1257,12 @@ async function run(options: any = {}) {
       if (signal) break;
       if (Date.now() - startedMs >= maxSeconds * 1000) { timeUp = true; break; }
     }
+  } catch (error) {
+    threw = true;
+    throw error;
   } finally {
     for (const [name, handler] of Object.entries(handlers)) process.removeListener(name as any, handler);
-    endDriver({ file: p.file, driver: reg.driver, now: p.clock() });
+    endDriver({ file: p.file, driver: reg.driver, now: p.clock(), endReason: threw ? 'threw' : null });
   }
   if (last && last.disposition !== 'stepped') return last;
   const result: any = { disposition: 'ran', dispatchRunId: last.dispatchRunId, steps, outcome: last.outcome, timeUp, elapsedMs: Date.now() - startedMs, last };

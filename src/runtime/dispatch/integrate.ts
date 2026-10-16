@@ -387,109 +387,134 @@ async function integrateOnce({
     d.phase = 'collected';
   };
 
-  // Step 2, outside: the integration worktree is on its branch at preHead and clean.
-  if (afterLease) await afterLease({ dispatchId, worktree: integration.worktree, preHead });
-  const check = integrationClean({ ...where, preHead });
-  if (!check.clean) {
-    return settle((store, d) => {
-      retryLater(store, d);
-      blockRun(store, { task, kind: 'integration-dirty', reason: check.reason, paths: check.paths });
-      return { ...base, outcome: 'integration-dirty', reason: check.reason, paths: check.paths };
-    });
-  }
-
-  // Steps 3 and 4, outside: the pick, unless the change is empty (DEC-049).
+  // RT-5: a throw from steps 2 to 6 (a git spawn, the verification, a store write) must not strand
+  // the lease under a driver that then ends cleanly. The catch undoes this integration and returns
+  // the dispatch to `collected` with the lease cleared, when HEAD allows it (IC-020), then rethrows;
+  // the pass records the throw and the run becomes `resume-required` (IC-009).
   let pickedHead: string | null = null;
-  if (dispatch.commit) {
-    const pick = runGit(integration.worktree, ['cherry-pick', '--no-commit', dispatch.commit], { env: gitEnv(env, DISPATCH_IDENTITY), timeout: WRITE_TIMEOUT_MS });
-    if (!pick.ok) {
-      const conflicted = nulList(readGit(integration.worktree, ['diff', '--name-only', '--diff-filter=U', '-z'], env).stdout);
-      if (conflicted.length === 0) return releaseWithError('cherry-pick-failed', pick.status, null);
-      const undone = undo({ ...where, preHead });
+  try {
+    // Step 2, outside: the integration worktree is on its branch at preHead and clean.
+    if (afterLease) await afterLease({ dispatchId, worktree: integration.worktree, preHead });
+    const check = integrationClean({ ...where, preHead });
+    if (!check.clean) {
       return settle((store, d) => {
-        const end = endAttempt({ store, dispatchId, failureClass: 'conflict', detail: `${conflicted.length} conflicted path(s)`, usage: usageFor(d, null, []), ctx: lockCtx() });
+        retryLater(store, d);
+        blockRun(store, { task, kind: 'integration-dirty', reason: check.reason, paths: check.paths });
+        return { ...base, outcome: 'integration-dirty', reason: check.reason, paths: check.paths };
+      });
+    }
+
+    // Steps 3 and 4, outside: the pick, unless the change is empty (DEC-049).
+    if (dispatch.commit) {
+      const pick = runGit(integration.worktree, ['cherry-pick', '--no-commit', dispatch.commit], { env: gitEnv(env, DISPATCH_IDENTITY), timeout: WRITE_TIMEOUT_MS });
+      if (!pick.ok) {
+        const conflicted = nulList(readGit(integration.worktree, ['diff', '--name-only', '--diff-filter=U', '-z'], env).stdout);
+        if (conflicted.length === 0) return releaseWithError('cherry-pick-failed', pick.status, null);
+        const undone = undo({ ...where, preHead });
+        return settle((store, d) => {
+          const end = endAttempt({ store, dispatchId, failureClass: 'conflict', detail: `${conflicted.length} conflicted path(s)`, usage: usageFor(d, null, []), ctx: lockCtx() });
+          retryLater(store, d, end);
+          if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
+          return { ...base, outcome: 'conflict', conflicted: conflicted.length, undo: undone, end: end.result };
+        });
+      }
+      const identityEnv = gitEnv(env, DISPATCH_IDENTITY);
+      const tree = runGit(integration.worktree, ['write-tree'], { env: identityEnv, timeout: WRITE_TIMEOUT_MS });
+      const preTree = readGit(integration.worktree, ['rev-parse', `${preHead}^{tree}`], env);
+      if (!tree.ok || !preTree.ok) return releaseWithError('write-tree-failed', tree.ok ? preTree.status : tree.status, null);
+      if (tree.stdout.trim() !== preTree.stdout.trim()) {
+        const made = runGit(integration.worktree, ['commit-tree', tree.stdout.trim(), '-p', preHead, '-m', `${task}: dispatch ${dispatchId} token ${token}`], { env: identityEnv, timeout: WRITE_TIMEOUT_MS });
+        const commit = made.stdout.trim();
+        if (!made.ok || !SHA.test(commit)) return releaseWithError('commit-tree-failed', made.status, null);
+        if (beforeUpdateRef) await beforeUpdateRef({ worktree: integration.worktree, branch: integration.branch, preHead, commit });
+        const moved = runGit(integration.worktree, ['update-ref', `refs/heads/${integration.branch}`, commit, preHead], { env: identityEnv, timeout: WRITE_TIMEOUT_MS });
+        if (!moved.ok) return releaseWithError('update-ref-failed', moved.status, null);
+        pickedHead = commit;
+        mutateDispatch(file, (store: any) => {
+          if (!store.lease || store.lease.dispatchId !== dispatchId) return { write: false, result: null };
+          store.lease.pickedHead = commit;
+          return { write: true, result: null };
+        });
+      }
+    }
+
+    // Step 5, outside: verification on the integration HEAD.
+    if (!declared || !Array.isArray(declared.argv)) return releaseWithError('verification-undeclared', null, pickedHead);
+    const verification = await verify({
+      root, slug, taskId: task, worktree: integration.worktree, argv: declared.argv, argvSha256: declared.argvSha256 ?? null,
+      seconds: declared.timeoutSeconds, env,
+      onSpawn: (proc: any) => mutateDispatch(file, (store: any) => {
+        store.run.verifying = proc;
+        return { write: true, result: null };
+      }),
+    });
+    const passed = verification.exitCode === 0 && verification.timedOut === false;
+    const record = (store: any) => {
+      store.run.verifying = null;
+      store.run.verifications = [...(Array.isArray(store.run.verifications) ? store.run.verifications : []), verification];
+    };
+
+    // Step 6, in the lock.
+    if (!passed) {
+      const undone = undo({ ...where, preHead, pickedHead });
+      return settle((store, d) => {
+        record(store);
+        const end = endAttempt({ store, dispatchId, failureClass: 'verification', detail: verification.timedOut ? 'timed out' : `exit ${verification.exitCode ?? verification.error}`, usage: usageFor(d, null, []), evidenceId: verification.evidenceId, ctx: lockCtx() });
         retryLater(store, d, end);
         if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
-        return { ...base, outcome: 'conflict', conflicted: conflicted.length, undo: undone, end: end.result };
+        return { ...base, outcome: 'verification', verification, undo: undone, end: end.result };
       });
     }
-    const identityEnv = gitEnv(env, DISPATCH_IDENTITY);
-    const tree = runGit(integration.worktree, ['write-tree'], { env: identityEnv, timeout: WRITE_TIMEOUT_MS });
-    const preTree = readGit(integration.worktree, ['rev-parse', `${preHead}^{tree}`], env);
-    if (!tree.ok || !preTree.ok) return releaseWithError('write-tree-failed', tree.ok ? preTree.status : tree.status, null);
-    if (tree.stdout.trim() !== preTree.stdout.trim()) {
-      const made = runGit(integration.worktree, ['commit-tree', tree.stdout.trim(), '-p', preHead, '-m', `${task}: dispatch ${dispatchId} token ${token}`], { env: identityEnv, timeout: WRITE_TIMEOUT_MS });
-      const commit = made.stdout.trim();
-      if (!made.ok || !SHA.test(commit)) return releaseWithError('commit-tree-failed', made.status, null);
-      if (beforeUpdateRef) await beforeUpdateRef({ worktree: integration.worktree, branch: integration.branch, preHead, commit });
-      const moved = runGit(integration.worktree, ['update-ref', `refs/heads/${integration.branch}`, commit, preHead], { env: identityEnv, timeout: WRITE_TIMEOUT_MS });
-      if (!moved.ok) return releaseWithError('update-ref-failed', moved.status, null);
-      pickedHead = commit;
-      mutateDispatch(file, (store: any) => {
-        if (!store.lease || store.lease.dispatchId !== dispatchId) return { write: false, result: null };
-        store.lease.pickedHead = commit;
-        return { write: true, result: null };
-      });
-    }
-  }
 
-  // Step 5, outside: verification on the integration HEAD.
-  if (!declared || !Array.isArray(declared.argv)) return releaseWithError('verification-undeclared', null, pickedHead);
-  const verification = await verify({
-    root, slug, taskId: task, worktree: integration.worktree, argv: declared.argv, argvSha256: declared.argvSha256 ?? null,
-    seconds: declared.timeoutSeconds, env,
-    onSpawn: (proc: any) => mutateDispatch(file, (store: any) => {
-      store.run.verifying = proc;
-      return { write: true, result: null };
-    }),
-  });
-  const passed = verification.exitCode === 0 && verification.timedOut === false;
-  const record = (store: any) => {
-    store.run.verifying = null;
-    store.run.verifications = [...(Array.isArray(store.run.verifications) ? store.run.verifications : []), verification];
-  };
+    const after = readLedger(ctx);
+    const finished = mutateDispatch(file, (store: any) => {
+      const d = store.dispatches[dispatchId];
+      record(store);
+      const stale = staleReason(d, after, d.parentRunKey ?? store.run.runKey ?? null);
+      const end = stale ? null : completeAttempt({ store, dispatchId, evidenceId: verification.evidenceId, usage: usageFor(d, null, []), integratedCommit: pickedHead, ctx: lockCtx() });
+      if (end && end.result.ended) {
+        store.run.integration.head = pickedHead ?? preHead;
+        store.run.integrationGap = null;
+        store.lease = null;
+        return { write: true, result: { ...base, outcome: 'completed', integratedCommit: pickedHead, head: pickedHead ?? preHead, verification, end: end.result } };
+      }
+      if (store.lease) store.lease.undoPending = true;
+      const why = stale ? `stale:${stale}` : (end.result.reason || end.result.outcome || 'refused');
+      return { write: true, result: { outcome: 'refused', why } };
+    });
+    if (finished.outcome === 'completed') return finished;
 
-  // Step 6, in the lock.
-  if (!passed) {
     const undone = undo({ ...where, preHead, pickedHead });
     return settle((store, d) => {
-      record(store);
-      const end = endAttempt({ store, dispatchId, failureClass: 'verification', detail: verification.timedOut ? 'timed out' : `exit ${verification.exitCode ?? verification.error}`, usage: usageFor(d, null, []), evidenceId: verification.evidenceId, ctx: lockCtx() });
-      retryLater(store, d, end);
+      const reason = `finish-refused:${finished.why}`;
+      let end: any = null;
+      if (after.tasks?.[task]?.attempts?.find((a: any) => a.token === token)?.state === 'active') {
+        end = releaseAttempt({ store, dispatchId, reason, usage: usageFor(d, null, []), ctx: lockCtx() }).result;
+      }
+      if (d.phase !== 'ended') Object.assign(d, { phase: 'ended', disposition: 'released', endedAt: now().toISOString(), releaseReason: reason });
       if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
-      return { ...base, outcome: 'verification', verification, undo: undone, end: end.result };
+      return { ...base, outcome: 'finish-refused', reason, verification, undo: undone, end };
     });
+  } catch (error) {
+    try {
+      const held = readDispatch(file).lease;
+      if (held && held.dispatchId === dispatchId) {
+        const undone = undo({ ...where, preHead, pickedHead: held.pickedHead ?? pickedHead });
+        if (undone.ok) {
+          mutateDispatch(file, (store: any) => {
+            if (!store.lease || store.lease.dispatchId !== dispatchId) return { write: false, result: null };
+            store.lease = null;
+            const d = store.dispatches[dispatchId];
+            if (d && d.phase === 'integrating') d.phase = 'collected';
+            return { write: true, result: null };
+          });
+        }
+      }
+    } catch {
+      // The lease stays for IC-032's lease rule; the original throw is the one reported.
+    }
+    throw error;
   }
-
-  const after = readLedger(ctx);
-  const finished = mutateDispatch(file, (store: any) => {
-    const d = store.dispatches[dispatchId];
-    record(store);
-    const stale = staleReason(d, after, d.parentRunKey ?? store.run.runKey ?? null);
-    const end = stale ? null : completeAttempt({ store, dispatchId, evidenceId: verification.evidenceId, usage: usageFor(d, null, []), integratedCommit: pickedHead, ctx: lockCtx() });
-    if (end && end.result.ended) {
-      store.run.integration.head = pickedHead ?? preHead;
-      store.run.integrationGap = null;
-      store.lease = null;
-      return { write: true, result: { ...base, outcome: 'completed', integratedCommit: pickedHead, head: pickedHead ?? preHead, verification, end: end.result } };
-    }
-    if (store.lease) store.lease.undoPending = true;
-    const why = stale ? `stale:${stale}` : (end.result.reason || end.result.outcome || 'refused');
-    return { write: true, result: { outcome: 'refused', why } };
-  });
-  if (finished.outcome === 'completed') return finished;
-
-  const undone = undo({ ...where, preHead, pickedHead });
-  return settle((store, d) => {
-    const reason = `finish-refused:${finished.why}`;
-    let end: any = null;
-    if (after.tasks?.[task]?.attempts?.find((a: any) => a.token === token)?.state === 'active') {
-      end = releaseAttempt({ store, dispatchId, reason, usage: usageFor(d, null, []), ctx: lockCtx() }).result;
-    }
-    if (d.phase !== 'ended') Object.assign(d, { phase: 'ended', disposition: 'released', endedAt: now().toISOString(), releaseReason: reason });
-    if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
-    return { ...base, outcome: 'finish-refused', reason, verification, undo: undone, end };
-  });
 }
 
 /**

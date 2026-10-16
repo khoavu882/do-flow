@@ -297,3 +297,50 @@ test('RT-2: decide\'s blocked write after a failed final verification leaves a r
   assert.equal(r.outcome, 'resume-required', JSON.stringify(r.actions));
   assert.equal(r.blocked, undefined);
 });
+
+// RT-5: a pass that throws must not end its driver cleanly over state no later pass settles. Case 1:
+// the injected integration verification throws while the pass holds the lease. Case 2: the plan
+// task disappears after admission claimed it (the injected clock rewrites plan.md on its first
+// reading after the 080 claim landed), so the launch's handoff throws. Either way the thrown pass
+// leaves the run `resume-required`, its driver ended `threw`, no lease resume cannot settle, and the
+// next step returns `resume-required`, not `continue`.
+test('RT-5: a verification that throws mid-integration leaves the run resume-required with the lease cleared', POSIX, async (t) => {
+  const p = await project(t, { plan: 'budget', mode: 'sequential' });
+  const y = (await p.step()).perform;
+  assert.equal((await p.submit(y, { files: { 'src/retry.js': '// done\n' } })).disposition, 'submitted');
+  const verify = async () => { throw new Error('injected verification throw'); };
+  await assert.rejects(p.step({ verify }), /injected verification throw/);
+  const s = p.read();
+  assert.equal(s.run.state, 'resume-required');
+  assert.equal(s.run.resumeReason, 'driver-threw');
+  assert.equal(s.lease, null, 'no stranded lease');
+  assert.equal(s.dispatches[y.dispatchId].phase, 'collected', 'the dispatch is back to collected');
+  assert.ok(s.drivers.some((d) => d.endReason === 'threw' && d.endedAt), JSON.stringify(s.drivers));
+  assert.equal(git(p.integration.worktree, p.env, ['rev-parse', 'HEAD']), p.integration.head, 'nothing was integrated');
+  const next = await p.step();
+  assert.equal(next.outcome, 'resume-required', JSON.stringify(next.actions));
+});
+
+test('RT-5: a plan task that disappears after its claim makes the launch throw and leaves the run resume-required', POSIX, async (t) => {
+  const p = await project(t, { plan: ONE_TASK, mode: 'sequential' });
+  let rewritten = false;
+  const now = () => {
+    if (!rewritten && fs.existsSync(p.ledgerFile)) {
+      const entry = JSON.parse(fs.readFileSync(p.ledgerFile, 'utf8')).tasks?.['A.1'];
+      if (entry && entry.attempts && entry.attempts.some((a) => a.state === 'active')) {
+        rewritten = true;
+        fs.writeFileSync(p.sb.planFile, ONE_TASK.replace('A.1 Write module a', 'A.9 Write module a'));
+      }
+    }
+    return new Date();
+  };
+  await assert.rejects(p.step({ now }));
+  assert.ok(rewritten, 'the claim landed before the launch');
+  const s = p.read();
+  assert.equal(s.run.state, 'resume-required');
+  assert.equal(s.run.resumeReason, 'driver-threw');
+  assert.deepEqual(Object.values(s.dispatches).map((d) => d.phase), ['claimed']);
+  assert.equal(s.lease, null);
+  const next = await p.step();
+  assert.equal(next.outcome, 'resume-required', JSON.stringify(next.actions));
+});
