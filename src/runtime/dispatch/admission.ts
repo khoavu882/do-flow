@@ -300,6 +300,8 @@ function admit({
       continue;
     }
     if (second.kind === 'gone') {
+      // A cancel or resume dropped the slot before its worktree existed: remove it here (RT-14).
+      if (made) manager.removeVerified(dispatchId);
       result.actions.push(action('admit', { dispatchId, task }, `slot-moved:${second.phase ?? 'dropped'}`, ms));
       continue;
     }
