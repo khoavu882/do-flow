@@ -554,6 +554,15 @@ async function cancel(options: any = {}) {
       return { write: true, result: out };
     });
 
+    // Step 7, second net: a worker or child a launch started after step 4 read the run store, whose
+    // record write the cancel mark then refused, is ended too (IC-030: every worker is cancelled).
+    const late = new Map<string, any>();
+    const after = readDispatch(c.file);
+    childTargets(after, null, late);
+    strayTargets(after, readRuns(c.runStore), () => true, late);
+    for (const id of targets.keys()) late.delete(id);
+    if (late.size) workers.push(...await endWorkers(c, late, by, reason));
+
     // Step 8, outside.
     const worktrees = removeWorktrees(c, dropped);
 

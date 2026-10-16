@@ -337,3 +337,43 @@ test('RT-1: a timeout pass whose snapshot holds a dispatch launched leaves it in
   const refusal = stepped.actions.find((a) => a.action === 'finish' && a.dispatchId === taken);
   assert.equal(refusal && refusal.reason, 'finish-refused:timeout:phase-not-allowed', label);
 });
+
+// RT-3: a cancel marks the run after admission claimed a dispatch and before its launch records the
+// worker run. The injected `shouldStop` seam, read just before each launch, marks the run
+// `cancelling` (IC-030 step 3) once the claim landed, so the order is fixed. The launch's
+// `claimed` -> `launched` move must then be refused and the worker run it just started cancelled;
+// the cancel that follows ends every dispatch with no live worker left behind.
+test('RT-3: a launch after the cancel mark is refused and its worker run cancelled; no dispatch ends cancelled with a live worker', POSIX, async (t) => {
+  const loop = require(path.join(SRC, 'dispatch', 'loop.ts'));
+  const controls = require(path.join(SRC, 'dispatch', 'controls.ts'));
+  const p = await project(t, { plan: 'budget', mode: 'auto', scenario: SLEEPER, identity: { DOFLOW_ATTEMPT: undefined }, probe: true });
+  const file = store.storeFileFor(p.sb.root, SLUG);
+  const runStore = runStoreFileFor(p.sb.root, SLUG);
+  let marked = false;
+  const shouldStop = () => {
+    if (!marked && Object.values(store.readDispatch(file).dispatches).some((d) => d.phase === 'claimed')) {
+      marked = true;
+      store.mutateDispatch(file, (s) => { s.run.state = 'cancelling'; return { write: true, result: null }; });
+    }
+    return false;
+  };
+  const stepped = await loop.step({ slug: SLUG, env: p.env, cwd: p.sb.root, by: 'main', descriptors: p.sb.descriptors, shouldStop });
+  const label = JSON.stringify(stepped.actions);
+  assert.ok(marked, `a dispatch was claimed: ${label}`);
+  const [d] = Object.values(p.read().dispatches);
+  assert.equal(d.phase, 'claimed', `the launch move is refused: ${label}`);
+  assert.equal(d.workerRunId, null, label);
+  const started = Object.values(readRuns(runStore)).filter((r) => r.task === d.task && r.token === d.token);
+  assert.equal(started.length, 1, `the launch started one worker run: ${label}`);
+  assert.equal(started[0].phase, 'ended', `the worker run just started is cancelled: ${label}`);
+  assert.ok(stepped.actions.some((a) => a.action === 'launch' && a.reason.startsWith('moved:run-cancelling:')), label);
+
+  const cancelled = await controls.cancel({ slug: SLUG, env: p.env, cwd: p.sb.root, by: 'main', reason: 'RT-3' });
+  assert.equal(cancelled.disposition, 'cancelled', JSON.stringify(cancelled));
+  const runs = readRuns(runStore);
+  for (const x of Object.values(p.read().dispatches)) {
+    assert.equal(x.phase, 'ended');
+    if (x.workerRunId) assert.equal(runs[x.workerRunId].phase, 'ended', `dispatch ${x.dispatchId} ended with a live worker`);
+  }
+  assert.deepEqual(Object.values(runs).filter((r) => r.phase !== 'ended').map((r) => r.runId), [], 'no worker run is left live');
+});

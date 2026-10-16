@@ -308,11 +308,14 @@ function control(ledger: any, runKey: string | null) {
 }
 
 /** One locked move of dispatch `id` from one of `phases`, `apply(dispatch, store)` changing it in
- * place; the peaks are raised in the same write. `{ applied, dispatch, phase }`. */
-function moveDispatch(p: any, id: string, phases: string[], apply: (d: any, s: any) => void) {
+ * place; the peaks are raised in the same write. With `open`, the move is also refused while the run
+ * holds a state no launch may start under (cancel-marked, `resume-required` or `completed`, IC-009,
+ * IC-030), read inside the lock. `{ applied, dispatch, phase }`. */
+function moveDispatch(p: any, id: string, phases: string[], apply: (d: any, s: any) => void, { open = false }: { open?: boolean } = {}) {
   return mutateDispatch(p.file, (s: any) => {
     const d = s.dispatches[id];
     if (!d || !phases.includes(d.phase)) return { write: false, result: { applied: false, phase: d ? d.phase : null } };
+    if (open && (!s.run || HELD_RUN_STATES.includes(s.run.state))) return { write: false, result: { applied: false, phase: `run-${s.run ? s.run.state : 'missing'}` } };
     apply(d, s);
     bumpPeak(s);
     return { write: true, result: { applied: true, dispatch: structuredClone(d) } };
@@ -724,6 +727,10 @@ async function launchChildren(p: any) {
       const recorded = mutateDispatch(p.file, (s: any) => {
         const r = s.spawnRequests[req.requestId];
         if (!r || r.state !== 'requested') return { write: false, result: false };
+        // Read inside the lock: a cancel or a lost driver since the pass's snapshot, or a granter that
+        // ended, leaves the request and the run just started is cancelled below (IC-030, IC-033).
+        const g = s.dispatches[req.granterDispatchId];
+        if (!s.run || HELD_RUN_STATES.includes(s.run.state) || !g || g.phase !== 'launched') return { write: false, result: false };
         Object.assign(r, { state: 'launched', childRunId: body.runId, identity: record ? record.identity ?? null : null, launchedAt: iso(p.clock()), worktree: wt.worktree });
         bumpPeak(s);
         return { write: true, result: true };
@@ -830,7 +837,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   if (MAIN_SESSION_MODES.includes(d.mode)) {
     const moved = moveDispatch(p, d.dispatchId, ['claimed'], (x: any) => {
       Object.assign(x, { phase: 'launched', launchedAt: iso(p.clock()), deadline: null, workerIdentity: null, envelopes: { handoff: handoff.pointer, result: null } });
-    });
+    }, { open: true });
     p.act('launch', d, moved.applied ? `perform:${d.mode}` : `moved:${moved.phase}`, null, Date.now() - started);
     if (moved.applied && !p.perform) p.perform = performYield(p, moved.dispatch);
     return;
@@ -857,9 +864,10 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
         workerIdentity: run && run.identity ? { ...run.identity } : null,
         envelopes: { handoff: handoff.pointer, result: null },
       });
-    });
+    }, { open: true });
     if (!moved.applied) {
-      // A cancel, take over or resume moved the dispatch first: end the run just started (IC-007).
+      // A cancel, take over or resume moved the dispatch or marked the run first: end the run just
+      // started (IC-007, IC-030).
       const res = await cancelWorker(p, body.runId, 'dispatch-moved');
       recordCleanup(p, d.dispatchId, cancelSummary(res));
     }
