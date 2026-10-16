@@ -8,7 +8,10 @@
 // `revision` and owns the only fs write calls (G26 (b), RK3): this module makes none.
 //
 // Two writes exist. `insertRun` adds a run unless one already holds the same `(task, token)`
-// (FR-019), checked inside the lock so two racing inserts yield one run. `transition` is the
+// (FR-019), checked inside the lock so two racing inserts yield one run. 082 IC-015 (DEC-062)
+// widens the key to `(task, token, childOf, request)`: a child run shares its granter's
+// `(task, token)`, and one granter may hold one child per spawn request. A record without
+// `childOf` or `request` reads them as null, so 081's key is unchanged for every 081 run. `transition` is the
 // compare-and-set every later write goes through: inside the lock it re-reads the run, refuses
 // with no write when its `phase` is not in `allowedPhases`, applies the change and increments the
 // run's `seq`. A refusal is a returned value, never a throw; a torn or future-version file is a
@@ -106,9 +109,14 @@ function mutate(file: string, fsImpl: any, decide: (store: any) => { result: any
   return outcome.result;
 }
 
+/** The uniqueness key of a run (082 IC-015, DEC-062); an absent `childOf` or `request` is null. */
+function sameKey(a: any, b: any): boolean {
+  return a.task === b.task && a.token === b.token && (a.childOf ?? null) === (b.childOf ?? null) && (a.request ?? null) === (b.request ?? null);
+}
+
 /**
  * Inserts a run with `seq: 0`. Refused, with no write, when any run in the store, live or ended,
- * has the same `task` and `token`: `{ applied: false, reason: 'run-exists', runId, phase }`.
+ * has the same `task`, `token`, `childOf` and `request`: `{ applied: false, reason: 'run-exists', runId, phase }`.
  * @returns {{ applied: true, run: Object } | { applied: false, reason: 'run-exists', runId: string, phase: string }}
  */
 function insertRun(file: string, record: any, fsImpl: any = fs): any {
@@ -118,7 +126,7 @@ function insertRun(file: string, record: any, fsImpl: any = fs): any {
   if (!Number.isInteger(record.token) || record.token < 1) throw new RunStoreError('usage', `token '${record.token}' is not a positive integer`);
   if (!PHASES.includes(record.phase)) throw new RunStoreError('usage', `phase '${record.phase}' is not one of ${PHASES.join(', ')}`);
   return mutate(file, fsImpl, (store) => {
-    const existing = Object.values(store.runs).find((run: any) => run.task === record.task && run.token === record.token) as any;
+    const existing = Object.values(store.runs).find((run: any) => sameKey(run, record)) as any;
     if (existing) return { write: false, result: { applied: false, reason: 'run-exists', runId: existing.runId, phase: existing.phase } };
     if (store.runs[record.runId]) return { write: false, result: { applied: false, reason: 'run-exists', runId: record.runId, phase: store.runs[record.runId].phase } };
     const run = { ...structuredClone(record), seq: 0 };

@@ -6,10 +6,12 @@
 // unchanged (DEC-045) and exactly the five DOFLOW_* identity variables are set. The run segment of
 // the claim's run key is the worker's run, or, when that segment is the default `local`, the run
 // id without its `w-` prefix (DEC-037), so the worker always resolves to a launched identity and
-// its 078 unit `L.<run>.<lineage>.<token>` is unique to this run.
+// its 078 unit `L.<run>.<lineage>.<token>` is unique to this run. A child run (082 IC-015) is
+// always run-scoped, so its unit differs from its granter's.
 //
 // `assembleArgv` builds the IC-003 argv: `readOnly`, `spawnDenial`, `structuredOutput` and
-// `oneShot` argv in that order, the one `{prompt}` element replaced whole. Substitution replaces an
+// `oneShot` argv in that order (082 IC-014: an edit run puts `isolatedEdit` first in place of
+// `readOnly`), the one `{prompt}` element replaced whole. Substitution replaces an
 // element and never interpolates inside a longer string. `argvShape` is the same argv with the
 // prompt written `<prompt sha256:<hex> bytes:<n>>`, the only form a run record stores.
 //
@@ -35,6 +37,8 @@ const DEFAULT_RUN = 'local';
 const RUN_ID = /^w-[0-9a-f]{12}$/;
 /** IC-003 order of the run recipe's argv. */
 const RECIPE_ORDER = Object.freeze(['readOnly', 'spawnDenial', 'structuredOutput', 'oneShot']);
+/** 082 IC-014: the order of an edit run's recipe argv. */
+const EDIT_RECIPE_ORDER = Object.freeze(['isolatedEdit', 'spawnDenial', 'structuredOutput', 'oneShot']);
 
 interface WorkerIdentity {
   run: string;
@@ -67,13 +71,14 @@ function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string):
   };
 }
 
-/** IC-012: the worker environment and identity from the claim's run key `<hash>/<run>/<lineage>`. */
-function launchEnv({ env, runKey, token, execWorktree, runId }: { env: Env; runKey: string; token: number | string; execWorktree: string; runId: string }): { env: Env; identity: WorkerIdentity } {
+/** IC-012: the worker environment and identity from the claim's run key `<hash>/<run>/<lineage>`.
+ * `runScoped` (082 IC-015, a child run) takes the run id as the run whatever the claim's run is. */
+function launchEnv({ env, runKey, token, execWorktree, runId, runScoped = false }: { env: Env; runKey: string; token: number | string; execWorktree: string; runId: string; runScoped?: boolean }): { env: Env; identity: WorkerIdentity } {
   const segments = String(runKey).split('/');
   if (segments.length !== 3 || segments.some((s) => s === '')) throw new LaunchUsageError('run-key-malformed', `launchEnv: run key must be <hash>/<run>/<lineage>: ${runKey}`);
   const [, claimRun, lineage] = segments;
   let identity: WorkerIdentity;
-  if (claimRun === DEFAULT_RUN) {
+  if (claimRun === DEFAULT_RUN || runScoped) {
     if (!RUN_ID.test(runId)) throw new LaunchUsageError('run-id-malformed', `launchEnv: run id must match ${RUN_ID}: ${runId}`);
     identity = { run: runId.slice(2), lineage, attempt: String(token), runSource: 'run-scoped' };
   } else {
@@ -83,9 +88,9 @@ function launchEnv({ env, runKey, token, execWorktree, runId }: { env: Env; runK
 }
 
 /** The recipe argv with the `{prompt}` element replaced whole by `element`; a longer string is kept as written. */
-function assemble(recipe: any, element: string): string[] {
+function assemble(recipe: any, element: string, edit = false): string[] {
   const argv: string[] = [];
-  for (const key of RECIPE_ORDER) {
+  for (const key of edit ? EDIT_RECIPE_ORDER : RECIPE_ORDER) {
     const entry = recipe?.[key];
     if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
       throw new LaunchUsageError('recipe-incomplete', `assembleArgv: worker '${key}' is not supported with an argv`);
@@ -100,29 +105,30 @@ function promptVia(recipe: any): 'argv' | 'stdin' {
   return recipe?.oneShot?.promptVia === 'stdin' ? 'stdin' : 'argv';
 }
 
-/** IC-003: the worker argv for `prompt`; a prompt over its mode's limit is `prompt-too-large`. */
-function assembleArgv(recipe: any, prompt: string): string[] {
+/** IC-003: the worker argv for `prompt`; a prompt over its mode's limit is `prompt-too-large`.
+ * `edit` selects the edit recipe order (082 IC-014). */
+function assembleArgv(recipe: any, prompt: string, edit = false): string[] {
   const mode = promptVia(recipe);
   const bytes = Buffer.byteLength(prompt, 'utf8');
   if (bytes > PROMPT_LIMITS[mode]) {
     throw new LaunchUsageError('prompt-too-large', `assembleArgv: the prompt is ${bytes} bytes; ${mode} mode allows ${PROMPT_LIMITS[mode]}`);
   }
-  return assemble(recipe, prompt);
+  return assemble(recipe, prompt, edit);
 }
 
 /** IC-003: the argv a record stores, the prompt element written `<prompt sha256:<hex> bytes:<n>>`. */
-function argvShape(recipe: any, prompt: string): string[] {
+function argvShape(recipe: any, prompt: string, edit = false): string[] {
   const hex = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
-  return assemble(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`);
+  return assemble(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, edit);
 }
 
 /** IC-012 / data-model §1: the launch fields a run record stores. Names only, never a value. */
-function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string) {
+function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edit = false) {
   return {
     identity: { run: identity.run, lineage: identity.lineage, attempt: identity.attempt, runSource: identity.runSource },
     recipe: {
       binary: recipe.cli.binary,
-      argvShape: argvShape(recipe, prompt),
+      argvShape: argvShape(recipe, prompt, edit),
       promptVia: promptVia(recipe),
       parser: recipe.structuredOutput.parser,
       profile: recipe.profile ?? null,
@@ -140,10 +146,12 @@ interface LaunchOptions {
   env: Env;
   taskId?: string;
   grant?: Record<string, unknown>;
+  /** 082 IC-014: launch with the edit recipe order. */
+  edit?: boolean;
 }
 
 /** IC-012 steps 1 to 5. Resolves `{ child, env, launched: { reason, bytes } }` once the process has spawned. */
-function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant }: LaunchOptions): Promise<any> {
+function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false }: LaunchOptions): Promise<any> {
   return new Promise((resolve, reject) => {
     const workerEnv = withIdentity(env, identity, execWorktree);
     if (grant) grantSummary({ ...grant, toRun: identity.run, toLineage: identity.lineage, env });
@@ -153,7 +161,7 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     const delivered = typeof emitted.text === 'string' ? emitted.text : null;
     const text = delivered !== null ? `${delivered}\n\n${prompt}` : prompt;
     const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
-    const argv = assembleArgv(recipe, text);
+    const argv = assembleArgv(recipe, text, edit);
     const viaStdin = promptVia(recipe) === 'stdin';
     const child = spawn(recipe.cli.binary, argv, {
       cwd: execWorktree,
@@ -175,4 +183,4 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
   });
 }
 
-module.exports = { ENV_SET, PROMPT_LIMITS, LaunchUsageError, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker };
+module.exports = { ENV_SET, PROMPT_LIMITS, RECIPE_ORDER, EDIT_RECIPE_ORDER, LaunchUsageError, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker };
