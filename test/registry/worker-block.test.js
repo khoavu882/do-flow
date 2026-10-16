@@ -6,7 +6,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {
-  loadRegistry, validateRegistry, validateWorker, WORKER_KEYS, WORKER_CAPABILITIES,
+  loadRegistry, validateRegistry, validateWorker, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES,
 } = require('../../src/registry/index.ts');
 const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752d8.json');
 
@@ -42,7 +42,9 @@ test('worker: the shipped registry carries the block on all eight harnesses and 
   assert.deepEqual(workerErrors, []);
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
   assert.deepEqual(registry.harnesses.map((harness) => harness.id), HARNESSES);
-  for (const harness of registry.harnesses) assert.deepEqual(Object.keys(harness.worker), WORKER_KEYS, `${harness.id} worker keys`);
+  const modelChecksAt = WORKER_KEYS.indexOf('modelChecks');
+  const expectedKeys = [...WORKER_KEYS.slice(0, modelChecksAt), ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), ...WORKER_KEYS.slice(modelChecksAt)];
+  for (const harness of registry.harnesses) assert.deepEqual(Object.keys(harness.worker), expectedKeys, `${harness.id} worker keys`);
 });
 
 test('worker: the eight harnesses declare IC-002 values and nothing else as supported', () => {
