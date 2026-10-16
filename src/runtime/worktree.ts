@@ -56,30 +56,67 @@ function sha256File(file: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-function git(args: string[], cwd: string, { allowFailure = false }: { allowFailure?: boolean } = {}): { ok: boolean; stdout: string; stderr?: string } {
+/** Bounds for git children (082 IC-016). Null fields leave execFileSync's defaults, which is the
+ * bench behaviour: no timeout and the parent's environment. */
+interface GitBounds { timeoutMs?: number | null; env?: Record<string, string | undefined> | null }
+
+/** What `removeVerified` observed after removing (082 IC-021). `errors` holds exit codes or error
+ * codes only, never git's output, so a record can carry it without leaking repository text. */
+interface Removal {
+  path: string; branch: string;
+  pathGone: boolean; branchGone: boolean; unregistered: boolean; verified: boolean;
+  errors: string[];
+}
+
+function git(
+  args: string[],
+  cwd: string,
+  { allowFailure = false, timeoutMs = null, env = null }: { allowFailure?: boolean } & GitBounds = {},
+): { ok: boolean; stdout: string; stderr?: string; code?: string } {
+  const opts: any = { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] };
+  if (timeoutMs != null) opts.timeout = timeoutMs;
+  if (env != null) opts.env = env;
   try {
-    return {
-      ok: true,
-      stdout: execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-    };
+    return { ok: true, stdout: execFileSync('git', args, opts) };
   } catch (err: any) {
     if (!allowFailure) throw err;
-    return { ok: false, stdout: '', stderr: err.stderr ? String(err.stderr) : String(err.message) };
+    return {
+      ok: false,
+      stdout: '',
+      stderr: err.stderr ? String(err.stderr) : String(err.message),
+      // Exit status, else the signal of a timed-out child, else the spawn error code.
+      code: String(err.status ?? err.signal ?? err.code ?? 'unknown'),
+    };
   }
 }
 
 class WorktreeManager {
   repoRoot: string;
   worktreesDir: string;
+  branchPrefix: string;
+  gitBounds: GitBounds;
 
   /**
    * @param {string} repoRoot repository whose worktrees are managed
    * @param {string} [worktreesDir] override the sandbox root; defaults to `<repo>/.doflow/worktrees`,
    *   which is gitignored so sandboxes never appear as untracked noise in the parent tree.
+   * @param {object} [options] 082 IC-016: `branchPrefix` (default `task/`), and `timeoutMs` and
+   *   `env` passed to every git child when given. Omitted, every bench path is unchanged.
    */
-  constructor(repoRoot: string, worktreesDir?: string) {
+  constructor(
+    repoRoot: string,
+    worktreesDir?: string,
+    { branchPrefix = 'task/', timeoutMs = null, env = null }: { branchPrefix?: string } & GitBounds = {},
+  ) {
     this.repoRoot = repoRoot;
     this.worktreesDir = worktreesDir || path.join(repoRoot, '.doflow', 'worktrees');
+    this.branchPrefix = branchPrefix;
+    this.gitBounds = { timeoutMs, env };
+  }
+
+  /** The module's git helper with this manager's bounds applied. */
+  git(args: string[], cwd: string, opts: { allowFailure?: boolean } = {}) {
+    return git(args, cwd, { ...opts, ...this.gitBounds });
   }
 
   static assertSafeId(taskId: any): void {
@@ -95,13 +132,13 @@ class WorktreeManager {
 
   branchFor(taskId: string): string {
     WorktreeManager.assertSafeId(taskId);
-    return `task/${taskId}`;
+    return `${this.branchPrefix}${taskId}`;
   }
 
   /** Whether git itself considers this path a registered worktree — the directory existing on disk
    * is not the same question, which is the bug fixed here. */
   isRegistered(wtPath: string): boolean {
-    const res = git(['worktree', 'list', '--porcelain'], this.repoRoot, { allowFailure: true });
+    const res = this.git(['worktree', 'list', '--porcelain'], this.repoRoot, { allowFailure: true });
     if (!res.ok) return false;
     const resolved = path.resolve(wtPath);
     return res.stdout
@@ -123,20 +160,20 @@ class WorktreeManager {
     // A leftover directory that git does not know about blocks `worktree add`. Clear it, and
     // prune git's stale administrative records, before trying.
     if (fs.existsSync(wtPath)) fs.rmSync(wtPath, { recursive: true, force: true });
-    git(['worktree', 'prune'], this.repoRoot, { allowFailure: true });
+    this.git(['worktree', 'prune'], this.repoRoot, { allowFailure: true });
 
     fs.mkdirSync(this.worktreesDir, { recursive: true });
 
-    const branchExists = git(['rev-parse', '--verify', '--quiet', branch], this.repoRoot, { allowFailure: true }).ok;
+    const branchExists = this.git(['rev-parse', '--verify', '--quiet', branch], this.repoRoot, { allowFailure: true }).ok;
     const args = branchExists
       ? ['worktree', 'add', wtPath, branch]
       : ['worktree', 'add', '-b', branch, wtPath, baseRef];
-    git(args, this.repoRoot);
+    this.git(args, this.repoRoot);
 
     // Persist the base as a resolved SHA. A symbolic ref is useless later: inside the worktree
     // `HEAD` moves with every commit the task makes, so diffing against it reports nothing. The
     // file also survives a process boundary, since grading may run separately from execution.
-    const baseSha = git(['rev-parse', baseRef], this.repoRoot).stdout.trim();
+    const baseSha = this.git(['rev-parse', baseRef], this.repoRoot).stdout.trim();
     fs.writeFileSync(path.join(wtPath, BASE_FILE), `${baseSha}\n`);
     return wtPath;
   }
@@ -250,7 +287,7 @@ class WorktreeManager {
   /** Repo HEAD, or null outside a repository. Recorded for readability; the per-skill hashes are
    * the actual provenance, and they stay correct on a dirty tree where a commit id does not. */
   headCommit(): string | null {
-    const res = git(['rev-parse', 'HEAD'], this.repoRoot, { allowFailure: true });
+    const res = this.git(['rev-parse', 'HEAD'], this.repoRoot, { allowFailure: true });
     return res.ok ? res.stdout.trim() : null;
   }
 
@@ -269,11 +306,54 @@ class WorktreeManager {
     const wtPath = this.pathFor(taskId);
     const branch = this.branchFor(taskId);
 
-    git(['worktree', 'remove', '--force', wtPath], this.repoRoot, { allowFailure: true });
+    this.git(['worktree', 'remove', '--force', wtPath], this.repoRoot, { allowFailure: true });
     if (fs.existsSync(wtPath)) fs.rmSync(wtPath, { recursive: true, force: true });
-    git(['worktree', 'prune'], this.repoRoot, { allowFailure: true });
+    this.git(['worktree', 'prune'], this.repoRoot, { allowFailure: true });
     // Deleting the branch is what keeps repeated bench runs from accumulating one branch per case.
-    git(['branch', '-D', branch], this.repoRoot, { allowFailure: true });
+    this.git(['branch', '-D', branch], this.repoRoot, { allowFailure: true });
+  }
+
+  /**
+   * `remove`'s steps, then a reading of what is actually gone (082 IC-021). Never throws for a
+   * failed step: the failure is an entry in `errors` and a false `verified`, so a caller can keep
+   * the worktree and list it by path instead of assuming it was removed.
+   */
+  removeVerified(taskId: string): Removal {
+    const wtPath = this.pathFor(taskId);
+    const branch = this.branchFor(taskId);
+    const errors: string[] = [];
+    let threw = false;
+    const step = (args: string[]) => {
+      const res = this.git(args, this.repoRoot, { allowFailure: true });
+      if (!res.ok) errors.push(res.code as string);
+      return res;
+    };
+
+    step(['worktree', 'remove', '--force', wtPath]);
+    if (fs.existsSync(wtPath)) {
+      try {
+        fs.rmSync(wtPath, { recursive: true, force: true });
+      } catch (err: any) {
+        threw = true;
+        errors.push(String(err?.code ?? 'unknown'));
+      }
+    }
+    step(['worktree', 'prune']);
+    // `branch -D` fails harmlessly when the branch never existed; only the reading below decides.
+    step(['branch', '-D', branch]);
+
+    const pathGone = !fs.existsSync(wtPath);
+    const branchGone = !this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], this.repoRoot, { allowFailure: true }).ok;
+    const unregistered = !this.isRegistered(wtPath);
+    return {
+      path: wtPath,
+      branch,
+      pathGone,
+      branchGone,
+      unregistered,
+      verified: !threw && pathGone && branchGone && unregistered,
+      errors,
+    };
   }
 
   /**
@@ -292,9 +372,9 @@ class WorktreeManager {
     if (!base) {
       return { diff: null, untracked: [], error: `no recorded base for ${taskId}; pass baseRef explicitly` };
     }
-    const committed = git(['diff', `${base}...HEAD`], wtPath, { allowFailure: true });
-    const working = git(['diff', 'HEAD'], wtPath, { allowFailure: true });
-    const untracked = git(['ls-files', '--others', '--exclude-standard'], wtPath, { allowFailure: true });
+    const committed = this.git(['diff', `${base}...HEAD`], wtPath, { allowFailure: true });
+    const working = this.git(['diff', 'HEAD'], wtPath, { allowFailure: true });
+    const untracked = this.git(['ls-files', '--others', '--exclude-standard'], wtPath, { allowFailure: true });
 
     if (!committed.ok && !working.ok) {
       return { diff: null, untracked: [], error: committed.stderr || working.stderr };
