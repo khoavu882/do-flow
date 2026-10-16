@@ -365,3 +365,16 @@ test('RT-4: a verification failure on an attempt cancelled under a cancel-marked
   assert.equal(fs.existsSync(d.wt.worktree), false, 'the attempt worktree is removed');
   p.callerUnchanged();
 });
+
+// RT-8: IC-021's last row, "any, worker cleanup not verified: kept and listed", covers every
+// disposition. A failed timeout dispatch whose cancelRun left survivors, and a completed one whose
+// run's cleanup is unknown, keep their attempt worktrees even once the run has ended.
+test('RT-8: removalDue keeps a completed or failed dispatch\'s worktree while its worker cleanup is not verified', () => {
+  const { removalDue } = require(path.join(SRC, 'dispatch', 'integrate.ts'));
+  const ended = { phase: 'ended', workerRunId: 'w-000000000001', attempt: { worktree: '/x' } };
+  const failed = { ...ended, disposition: 'failed', failureClass: 'timeout', cleanup: { disposition: 'cancelled', cleanup: { status: 'survivors', reason: 'group-survived' } } };
+  const completed = { ...ended, disposition: 'completed', cleanup: null };
+  const verified = { ...ended, disposition: 'failed', cleanup: { cleanup: { status: 'verified', reason: 'exited' } } };
+  assert.deepEqual([removalDue(failed, { state: 'completed' }), removalDue(completed, { state: 'running' }), removalDue(verified, { state: 'cancelled' }).due],
+    [{ due: false, reason: 'worker-cleanup-unverified' }, { due: false, reason: 'worker-cleanup-unverified' }, true]);
+});

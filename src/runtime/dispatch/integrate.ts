@@ -537,12 +537,13 @@ async function integrateNext(options: any) {
 function removalDue(dispatch: any, run: any): { due: boolean; reason: string | null } {
   if (dispatch.phase !== 'ended') return { due: false, reason: 'not-ended' };
   if (dispatch.removal && dispatch.removal.verified === true) return { due: false, reason: 'removed' };
-  if (dispatch.disposition === 'completed') return { due: true, reason: null };
-  if (RELEASED_ENDS.includes(dispatch.disposition)) {
-    if (!dispatch.workerRunId) return { due: true, reason: null };
+  // IC-021's last row covers every disposition: a worker run's worktree waits for verified cleanup (RT-8).
+  if (dispatch.workerRunId) {
     const cleanup = dispatch.cleanup ? dispatch.cleanup.cleanup ?? dispatch.cleanup : null;
-    return cleanup && cleanup.status === 'verified' ? { due: true, reason: null } : { due: false, reason: 'worker-cleanup-unverified' };
+    if (!cleanup || cleanup.status !== 'verified') return { due: false, reason: 'worker-cleanup-unverified' };
   }
+  if (dispatch.disposition === 'completed') return { due: true, reason: null };
+  if (RELEASED_ENDS.includes(dispatch.disposition)) return { due: true, reason: null };
   if (dispatch.disposition === 'failed') {
     return run && RUN_ENDS.includes(run.state) ? { due: true, reason: null } : { due: false, reason: 'failed-kept' };
   }

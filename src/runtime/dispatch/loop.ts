@@ -451,15 +451,15 @@ function exitedCleanup(run: any, platform: string) {
   return { status: 'unknown', reason: proc.groupAlive === undefined ? 'group-unobserved' : 'group-liveness-unknown' };
 }
 
-/** IC-021: deferred removals of ended attempt and child worktrees. */
-async function deferredRemovals(p: any) {
-  let s = readDispatch(p.file);
+/** IC-021: records the worker cleanup of each ended dispatch whose run's end now shows it, read per
+ * dispatch and settled against the probe, as collect does (RT-7). */
+function recordWorkerCleanups(p: any) {
+  const s = readDispatch(p.file);
   const ledger = readLedger(p);
   for (const d of Object.values(s.dispatches) as any[]) {
     if (d.phase !== 'ended' || !d.attempt || !d.attempt.worktree || (d.removal && d.removal.verified)) continue;
     if (d.workerRunId && d.cleanup == null) {
-      // Read per dispatch and settled against the probe, as collect does (RT-7): a pass-wide
-      // snapshot read before a supervisor wrote its end and exited reads as lost.
+      // A pass-wide snapshot read before a supervisor wrote its end and exited reads as lost.
       const { run, view } = settledStatus(p.runStore, d.workerRunId, ledger, { platform: p.platform, nowMs: p.clock().getTime() });
       const exited = view && run.phase === 'ended' && run.end && run.end.state === 'exited' ? exitedCleanup(run, p.platform) : null;
       if (view && run.phase === 'ended' && view.cleanup && view.cleanup.status === 'verified') {
@@ -471,7 +471,12 @@ async function deferredRemovals(p: any) {
       }
     }
   }
-  s = readDispatch(p.file);
+}
+
+/** IC-021: deferred removals of ended attempt and child worktrees. */
+async function deferredRemovals(p: any) {
+  recordWorkerCleanups(p);
+  let s = readDispatch(p.file);
   for (const d of Object.values(s.dispatches) as any[]) {
     if (d.phase !== 'ended' || !d.attempt || !d.attempt.worktree) continue;
     if (!integrate.removalDue(d, s.run).due) continue;
@@ -1084,6 +1089,8 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
     p.act('decide', null, heldAction(marked), marked, Date.now() - decideStarted);
     return finishPass(p, cancelledOutcome(marked));
   }
+  // The worker cleanup of a dispatch integrated this pass is read before its removal is due (IC-021).
+  recordWorkerCleanups(p);
   const after = readDispatch(p.file);
   let verified = 0;
   for (const d of Object.values(after.dispatches) as any[]) {
