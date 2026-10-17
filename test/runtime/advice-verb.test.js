@@ -29,13 +29,26 @@ function fixture(t, { setting = null } = {}) {
   return {
     scratch, project, userFile, projectFile, userSettingsFile, projectSettingsFile,
     env: () => scratch.env({ DOFLOW_CLI: BIN }),
-    run: (args) => spawnSync('/bin/bash', [RUN, 'advise', ...args], { cwd: project, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' }),
+    run: (args, { cwd = project } = {}) => spawnSync('/bin/bash', [RUN, 'advise', ...args], { cwd, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' }),
     startServer: async (routes = {}) => {
       const server = await spawnFakeServer({ routes, dir: scratch.dir });
       servers.push(server);
       return server;
     },
   };
+}
+
+function linkProjectWorktree(main, worktree) {
+  const commonGit = path.join(main, '.git');
+  const gitdir = path.join(commonGit, 'worktrees', 'linked');
+  fs.mkdirSync(gitdir, { recursive: true });
+  fs.mkdirSync(path.join(worktree, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(commonGit, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(commonGit, 'config'), '[core]\n\trepositoryformatversion = 0\n\tbare = false\n');
+  fs.writeFileSync(path.join(worktree, '.git'), `gitdir: ${gitdir}\n`);
+  fs.writeFileSync(path.join(gitdir, 'gitdir'), `${path.join(worktree, '.git')}\n`);
+  fs.writeFileSync(path.join(gitdir, 'commondir'), '../..\n');
+  return worktree;
 }
 
 function writeJson(file, value) {
@@ -222,6 +235,50 @@ test('IC-021 configure writes user/project forms and off performs no server chec
   const projectWhileOff = f.run(['--action', 'configure', '--project', '--model', 'clef-flash']);
   assert.equal(projectWhileOff.status, 1);
   assert.match(projectWhileOff.stderr, /turn the decision model on at user level first/);
+});
+
+test('project configure in an inheriting worktree writes the main layer and keeps its disable', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  const worktree = linkProjectWorktree(f.project, path.join(f.scratch.dir, 'linked'));
+  writeJson(f.userFile, userSetting(server.origin));
+  writeJson(f.projectSettingsFile, { schema: 1, 'advice.enabled': false });
+
+  const configured = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json'], { cwd: worktree });
+  assert.equal(configured.status, 0, `${configured.stderr}\n${configured.stdout}`);
+  assert.match(configured.stderr, /decision-model\.json is deprecated; set "advice\.enabled"/);
+  const json = JSON.parse(configured.stdout);
+  assert.equal(json.written, f.projectSettingsFile);
+  assert.equal(json.inheritedFromMainCheckout, true);
+  assert.equal(json.setting.state, 'off');
+  assert.equal(json.setting.reason, 'project-disabled');
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectSettingsFile, 'utf8')),
+    { schema: 1, 'advice.enabled': false, 'advice.model': 'clef-flash' });
+  assert.equal(fs.existsSync(path.join(worktree, '.doflow', 'settings.json')), false);
+
+  const text = f.run(['--action', 'configure', '--project', '--model', 'clef-flash'], { cwd: worktree });
+  assert.equal(text.status, 0, text.stderr);
+  assert.ok(text.stdout.includes(`wrote ${f.projectSettingsFile} (inherited from the main checkout)`), text.stdout);
+});
+
+test('advise writes a legacy deprecation note to stderr without changing JSON stdout', async (t) => {
+  const legacy = fixture(t);
+  const server = await legacy.startServer();
+  writeJson(legacy.userFile, userSetting(server.origin));
+  const advised = legacy.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
+  assert.equal(advised.status, 0, advised.stderr);
+  assert.equal(JSON.parse(advised.stdout).status, 'answered');
+  assert.match(advised.stderr, /note: .*decision-model\.json is deprecated; set "advice\.enabled" in .*settings\.json \(read through 2\.x\)/);
+  assert.doesNotMatch(advised.stdout, /decision-model\.json is deprecated/);
+
+  const current = fixture(t);
+  writeJson(current.userSettingsFile, {
+    schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama',
+    'advice.endpoint': server.origin, 'advice.model': 'clef-flash',
+  });
+  const clean = current.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.equal(clean.stderr, '', 'control: a current settings file has no deprecation note');
 });
 
 test('configure at user level with no config home exits 2 naming HOME or XDG_CONFIG_HOME, writes nothing and throws no TypeError (086 DD-7)', (t) => {

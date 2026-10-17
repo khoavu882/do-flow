@@ -35,9 +35,15 @@ function errorNote(error: any): string {
   return `user setting at ${error.source} is invalid${error.key ? ` for '${error.key}'` : ''}: ${error.reason}`;
 }
 
-function settingNotes(view: any, includeProject: boolean): string[] {
+function settingNotes(view: any, includeProject: boolean, includeDeprecated = false): string[] {
   const notes = view.notes
-    .filter((note: any) => note.code !== 'deprecated')
+    .filter((note: any) => {
+      if (note.code !== 'deprecated' || !includeDeprecated) return note.code !== 'deprecated';
+      const sourceLayer = view.files.find((file: any) => file.path === note.source)?.layer;
+      if (!note.key || !['user', 'project'].includes(sourceLayer)) return false;
+      const resolution = view.get(note.key, sourceLayer === 'user' ? 'global' : 'project');
+      return resolution.origin.legacy && resolution.origin.source === note.source;
+    })
     .filter((note: any) => includeProject || !projectLayer(view.files.find((file: any) => file.path === note.source)?.layer))
     .map((note: any) => note.text);
   const seen = new Set<string>();
@@ -72,6 +78,7 @@ function resolveSetting({
   global = false,
   env = process.env,
   fsImpl = fs,
+  includeDeprecated = false,
 }: any = {}): any {
   let resolvedRoots = roots;
   try {
@@ -114,7 +121,7 @@ function resolveSetting({
       else reason = 'user-disabled';
     }
 
-    const notes = settingNotes(view, canReadProject);
+    const notes = settingNotes(view, canReadProject, includeDeprecated);
     if (reason === 'not-configured') return offResult(reason, decidedBy, notes);
     if (reason === 'config-invalid' && (enabledGlobal.state === 'invalid'
       || enabledGlobal.origin.via === 'fail-safe' || enabledGlobal.origin.via === 'cross-key')) {

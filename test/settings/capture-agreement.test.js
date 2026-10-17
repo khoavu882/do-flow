@@ -23,8 +23,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp');
 const { createSettingsEnv, REPO } = require('../helper/settings-fixtures');
-const { failureHome, captureIsOff } = require('../../src/runtime/failure/home.ts');
+const { failureHome, captureIsOff, captureSwitch } = require('../../src/runtime/failure/home.ts');
+const { readLexicalCapture } = require('../../src/runtime/settings/lexical.ts');
 
 const POSIX = process.platform !== 'win32';
 const ROOT = POSIX && typeof process.getuid === 'function' && process.getuid() === 0;
@@ -140,6 +142,14 @@ const CORPUS = [
   ['non-breaking space after the colon', `{"failure.capture":${NBSP}"on"}`, 'off'],
 ];
 const CORPUS_ROWS = CORPUS.map(([name, text, answer]) => ({ name: `corpus: ${name}`, xdg: 'absolute', settings: { text }, off: answer === 'off' }));
+
+// IC-004 read-error rows: ELOOP and ENOTDIR are unset; EACCES from an unsearchable ancestor is
+// unset too. An immediate parent that exists but cannot be searched remains off per the bash check.
+const READ_ERROR_CORPUS = [
+  ['ELOOP settings link', 'loop', null],
+  ['ENOTDIR settings ancestor', 'enotdir', null],
+  ['ancestor EACCES', 'ancestor-eacces', null],
+];
 
 // ── fixtures ───────────────────────────────────────────────────────────────────────────────────
 
@@ -365,5 +375,74 @@ test('negative control: a dispatcher block without the unsearchable-folder check
   assert.equal(lexOf(text.replace(check, '')), '');
 });
 }
+
+test('IC-004 read-error corpus: ELOOP, ENOTDIR and ancestor EACCES are unset in all four readers', { skip: !POSIX || ROOT }, (t) => {
+  const dispatcher = fs.readFileSync(DISPATCHER, 'utf8');
+  const helper = fs.readFileSync(POLICY_HELPER, 'utf8');
+  const runnerLines = fs.readFileSync(RUNNER, 'utf8').split('\n');
+  const runnerStart = runnerLines.findIndex((line) => line.startsWith('// BEGIN doflow-settings-lexical v1'));
+  const runnerEnd = runnerLines.findIndex((line, i) => i > runnerStart && line === '// END doflow-settings-lexical v1');
+  assert.ok(runnerStart >= 0 && runnerEnd > runnerStart, 'runner lexical block exists');
+  const runnerRead = new Function('fs', 'path', `${runnerLines.slice(runnerStart, runnerEnd + 1).join('\n')}\nreturn readLexicalCapture;`)(fs, path);
+
+  const bashRead = (source, file, cwd, label) => {
+    const script = `set -euo pipefail\nexport LC_ALL=C\n${block(source.split('\n'), 'doflow-settings-lexical v1', label).join('\n')}\ndoflow_lex_capture "$1"; printf '%s' "$DOFLOW_LEX_CAPTURE"`;
+    const result = spawnSync(BASH, ['-c', script, 'x', file], { cwd, env: { PATH: process.env.PATH }, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout || null;
+  };
+
+  for (const [name, kind, expected] of READ_ERROR_CORPUS) {
+    const dir = tempDir(t, `doflow-lexical-${kind}-`);
+    const xdg = path.join(dir, 'xdg');
+    const config = path.join(xdg, 'doflow');
+    const file = path.join(config, 'settings.json');
+    let restore = () => {};
+    if (kind === 'loop') {
+      fs.mkdirSync(config, { recursive: true });
+      fs.symlinkSync(file, file);
+    } else if (kind === 'enotdir') {
+      fs.mkdirSync(xdg, { recursive: true });
+      fs.writeFileSync(config, 'not a directory');
+    } else {
+      fs.mkdirSync(config, { recursive: true });
+      fs.writeFileSync(file, '{"failure.capture":"on"}');
+      fs.chmodSync(xdg, 0o000);
+      restore = () => fs.chmodSync(xdg, 0o700);
+    }
+
+    try {
+      const actual = {
+        'bash dispatcher': bashRead(dispatcher, file, dir, 'doflow-run'),
+        'bash policy helper': bashRead(helper, file, dir, 'capture-failure.sh'),
+        'JS hook runner': runnerRead(file),
+        'Node': readLexicalCapture(file),
+      };
+      assert.deepEqual(actual, {
+        'bash dispatcher': expected,
+        'bash policy helper': expected,
+        'JS hook runner': expected,
+        'Node': expected,
+      }, name);
+    } finally { restore(); }
+  }
+});
+
+test('captureSwitch delegates decidedBy to the resolver origin', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeUserSettings({ schema: 1, 'failure.capture': 'off' });
+  const settings = f.userFile('settings.json');
+  const sentinel = f.writeSentinel();
+
+  const sentinelState = captureSwitch(f.failuresDir, f.env());
+  assert.equal(sentinelState.decidedBy, sentinel);
+  fs.unlinkSync(sentinel);
+  assert.equal(captureSwitch(f.failuresDir, f.env()).decidedBy, settings);
+  fs.unlinkSync(settings);
+  assert.equal(captureSwitch(f.failuresDir, f.env({ DOFLOW_FAILURE_CAPTURE: 'off' })).decidedBy, 'DOFLOW_FAILURE_CAPTURE');
+
+  const noHome = captureSwitch(null, { DOFLOW_FAILURE_CAPTURE: 'off' });
+  assert.equal(noHome.decidedBy, null);
+});
 
 module.exports = { ROWS, HOME_ROWS, FILE_ROWS, CORPUS_ROWS, rowEnv };

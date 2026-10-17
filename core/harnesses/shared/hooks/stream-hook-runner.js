@@ -94,7 +94,17 @@ function readLexicalCapture(file) {
   try {
     if (!fs.statSync(file).isFile()) return 'off';
   } catch (error) {
-    return error && error.code === 'ENOENT' ? null : 'off';
+    const code = error && error.code;
+    if (code === 'ENOENT' || code === 'ELOOP' || code === 'ENOTDIR') return null;
+    if (code === 'EACCES') {
+      try {
+        const parent = path.dirname(file);
+        if (!fs.statSync(parent).isDirectory()) return null;
+        try { fs.accessSync(parent, fs.constants.X_OK); return null; }
+        catch (accessError) { return accessError && accessError.code === 'EACCES' ? 'off' : null; }
+      } catch { return null; }
+    }
+    return 'off';
   }
   try { return lexicalCapture(fs.readFileSync(file, 'latin1')); } catch { return 'off'; }
 }

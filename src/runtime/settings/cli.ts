@@ -9,19 +9,7 @@ const { finishRuntime, usageError } = require('../cli-result.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadSettingsRegistry, REGISTRY_FILE } = require('./registry.ts');
 const { loadSettings } = require('./resolve.ts');
-
-const SECRET_URL_USERINFO = /\/\/[^/\s]*@/g;
-
-/** A URL with credentials removed, using the platform URL parser before a conservative fallback. */
-function maskUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    if (!url.username && !url.password) return value;
-    return `${url.protocol}//***@${url.host}${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return value.replace(SECRET_URL_USERINFO, '//***@');
-  }
-}
+const { maskUrl } = require('./shared.ts');
 
 function safeValue(value: any, meta: any): any {
   return meta?.type === 'url' && typeof value === 'string' ? maskUrl(value) : value;
@@ -118,8 +106,8 @@ function originLabel(resolution: any): string {
 }
 
 function printResolution(key: string, resolution: any, showOrigin: boolean, suffix = ''): void {
-  if (key === 'failure.capture' && resolution.origin?.via === 'no-config-home') {
-    console.log('failure.capture = "off"  (no config home: capture skipped)');
+  if (resolution.meta?.needsConfigHome && resolution.origin?.via === 'no-config-home') {
+    console.log(`${key}${suffix} = ${settingValue(resolution.value, resolution.meta)}  (no config home: capture skipped)`);
   } else {
     const origin = showOrigin ? `  (${originLabel(resolution)})` : '';
     console.log(`${key}${suffix} = ${settingValue(resolution.value, resolution.meta)}${origin}`);
@@ -135,18 +123,27 @@ function printResolution(key: string, resolution: any, showOrigin: boolean, suff
 function printSettingsList(report: any, showOrigin: boolean): void {
   const home = report.configHome;
   const ignored = home.ignored || [];
-  console.log(`config home: ${home.dir || 'none'}${ignored.length ? ` | ignored: ${ignored.join(', ')}` : ''}`);
+  const homeLabel = home.dir
+    ? `${home.dir}${ignored.length ? ` | ${ignored.join(', ')} ignored` : ''}`
+    : `none${ignored.length ? ` (${ignored.join(', ')} ignored)` : ''}`;
+  console.log(`config home: ${homeLabel}`);
   for (const name of ignored) console.log(`note: ignored relative ${name}`);
   const project = report.project;
   console.log(`project: ${project.root || '(none)'}${project.checkout ? ` (${project.checkout})` : ''}`);
 
   for (const [key, value] of Object.entries(report.keys || {})) {
-    if (key === 'storage.prune' && value && typeof value === 'object'
-      && 'project' in (value as any) && 'global' in (value as any)) {
+    const dualView = value && typeof value === 'object' && !('key' in (value as any))
+      && 'project' in (value as any) && 'global' in (value as any)
+      && Array.isArray((value as any).project?.meta?.views) && (value as any).project.meta.views.includes('global');
+    if (dualView) {
       printResolution(key, (value as any).project, showOrigin, ' [project roots]');
       printResolution(key, (value as any).global, showOrigin, ' [user roots]');
     } else {
-      printResolution(key, value, showOrigin, key === 'storage.prune' ? ' [user roots]' : '');
+      const views = (value as any)?.meta?.views;
+      const suffix = Array.isArray(views) && views.includes('global')
+        ? ((value as any).view === 'global' ? ' [user roots]' : ' [project roots]')
+        : '';
+      printResolution(key, value, showOrigin, suffix);
     }
   }
   for (const error of report.errors || []) {

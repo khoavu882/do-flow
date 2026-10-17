@@ -38,7 +38,17 @@ function readLexicalCapture(file: string, fsImpl: any = nodeFs): Capture {
   try {
     if (!fsImpl.statSync(file).isFile()) return 'off';
   } catch (error: any) {
-    return error?.code === 'ENOENT' ? null : 'off';
+    const code = error?.code;
+    if (code === 'ENOENT' || code === 'ELOOP' || code === 'ENOTDIR') return null;
+    if (code === 'EACCES') {
+      try {
+        const parent = require('node:path').dirname(file);
+        if (!fsImpl.statSync(parent).isDirectory()) return null;
+        try { fsImpl.accessSync(parent, fsImpl.constants?.X_OK ?? nodeFs.constants.X_OK); return null; }
+        catch (accessError: any) { return accessError?.code === 'EACCES' ? 'off' : null; }
+      } catch { return null; }
+    }
+    return 'off';
   }
   try { return lexicalCapture(fsImpl.readFileSync(file, 'latin1')); } catch { return 'off'; }
 }

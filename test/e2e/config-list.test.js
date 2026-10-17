@@ -119,6 +119,38 @@ test('config list masks credentials in both user and project URL candidates', (t
   assert.doesNotMatch(json.stdout, /http:\/\/u:p@h/);
 });
 
+test('config list masks query values and opaque URL userinfo in text and JSON', (t) => {
+  const cases = [
+    ['query values', 'http://h:1/api?token=private-token&key=private-key', /http:\/\/h:1\/api\?token=\*\*\*&key=\*\*\*/],
+    ['opaque userinfo', 'ollama-key:private-token@127.0.0.1:11434', /ollama-key:\*\*\*@127\.0\.0\.1:11434/],
+  ];
+  for (const [name, endpoint, masked] of cases) {
+    const f = createSettingsEnv(t);
+    f.writeUserSettings({ schema: 1, 'advice.endpoint': endpoint });
+    const text = f.run(['config', 'list', '--show-origin']);
+    assert.equal(text.status, 0, `${name}: ${text.stderr}`);
+    assert.match(text.stdout, masked, name);
+    assert.doesNotMatch(text.stdout, /private-token|private-key/, name);
+
+    const json = f.run(['config', 'list', '--json']);
+    assert.equal(json.status, 0, `${name}: ${json.stderr}`);
+    assert.match(json.stdout, masked, name);
+    assert.doesNotMatch(json.stdout, /private-token|private-key/, name);
+  }
+});
+
+test('config list reports a user failure.capture enum typo as invalid instead of its lexical outcome', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeUserSettings({ schema: 1, 'failure.capture': 'maybe' });
+
+  const json = f.run(['config', 'list', '--show-origin', '--json']);
+  assert.equal(json.status, 0, json.stderr);
+  const resolution = json.json.keys['failure.capture'];
+  assert.equal(resolution.value, 'off');
+  assert.ok(resolution.candidates.some((candidate) => candidate.layer === 'user' && candidate.status === 'invalid' && candidate.code === 'enum'));
+  assert.ok(json.json.errors.some((error) => error.key === 'failure.capture' && error.code === 'enum'));
+});
+
 test('config list reports the ignored relative XDG variable and no-home capture fallback', (t) => {
   const f = createSettingsEnv(t);
   const relative = f.run(['config', 'list'], { env: { XDG_CONFIG_HOME: 'relative/xdg' } });
@@ -130,6 +162,13 @@ test('config list reports the ignored relative XDG variable and no-home capture 
   assert.equal(noHome.status, 0, noHome.stderr);
   assert.match(noHome.stdout, /failure\.capture = "off"\s+\(no config home: capture skipped\)/);
   assert.equal(snapshot(f.dir), before, 'config list must not create settings or storage files');
+});
+
+test('no-home config header names ignored variables in the IC-012 form', (t) => {
+  const f = createSettingsEnv(t);
+  const result = f.run(['config', 'list'], { env: { HOME: undefined, XDG_CONFIG_HOME: 'relative/xdg' } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^config home: none \(XDG_CONFIG_HOME ignored\)$/m);
 });
 
 test('config list tree snapshot stays unchanged because config skips after-verb upkeep', (t) => {

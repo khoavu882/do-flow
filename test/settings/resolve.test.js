@@ -827,3 +827,30 @@ test('deterministic: the same tree gives the same report, and reading creates no
   assert.deepEqual(snapshot(), before);
   clearSettingsCache();
 });
+
+test('legacy unknown project keys are JSON-escaped and capped before becoming notes', (t) => {
+  const f = fx(t);
+  const key = `unsafe\u001b]0;title\u0007${'x'.repeat(100)}${'y'.repeat(40)}`;
+  const file = f.writeProjectDecision({ schema: 1, enabled: false, [key]: 'ignored' });
+  const view = load(f);
+  view.get('advice.enabled');
+  const note = view.notes.find((entry) => entry.source === file && entry.text.startsWith('unknown project key'));
+  assert.ok(note, 'the legacy key is still reported');
+  const shown = JSON.stringify(`${key.slice(0, 80)}...`);
+  assert.equal(note.text, `unknown project key ${shown} ignored`);
+  assert.doesNotMatch(note.text, /[\u0000-\u001f\u007f-\u009f]/, 'terminal control bytes are escaped');
+  assert.ok(!note.text.includes(key.slice(80)), 'long keys are capped');
+});
+
+test('without a config home, the fail-safe owns failure.capture and the env candidate is overridden', (t) => {
+  const f = fx(t);
+  const noHome = load(f, { env: { HOME: undefined, XDG_CONFIG_HOME: undefined, DOFLOW_FAILURE_CAPTURE: 'off' } });
+  const resolution = noHome.get('failure.capture', 'global');
+  assert.equal(resolution.value, 'off');
+  assert.equal(resolution.origin.via, 'no-config-home');
+  assert.equal(resolution.candidates.find((candidate) => candidate.layer === 'env').status, 'overridden');
+
+  const withHome = load(f, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } }).get('failure.capture', 'global');
+  assert.equal(withHome.origin.layer, 'env');
+  assert.equal(withHome.candidates.find((candidate) => candidate.layer === 'env').status, 'decided', 'control: the env holds origin when a config home exists');
+});

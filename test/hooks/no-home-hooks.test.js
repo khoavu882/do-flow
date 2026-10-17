@@ -189,12 +189,23 @@ test('user-prompt-submit with HOME unset: exit 0, the silent response, nothing c
   assert.match(withHome.stdout, /additionalContext/, 'control: with a home the first prompt renders');
 });
 
-test('stop-check with HOME unset: same output and status as with a HOME, nothing created', { skip: !POSIX || !HAS_JQ }, (t) => {
-  for (const message of ['done', 'left a TODO: finish this']) {
-    const { none, withHome, cwd } = policyPair(t, 'stop-check', 'Stop', { session_id: 'sess-1', cwd: null, last_assistant_message: message });
-    assert.deepEqual([none.status, none.stdout, none.stderr], [withHome.status, withHome.stdout, withHome.stderr], message);
-    assert.deepEqual(fs.readdirSync(cwd), [], message);
-  }
+test('stop-check with no config home allows flagged repeats without creating state', { skip: !POSIX || !HAS_JQ }, (t) => {
+  const done = policyPair(t, 'stop-check', 'Stop', { session_id: 'sess-1', cwd: null, last_assistant_message: 'done' });
+  assert.deepEqual([done.none.status, done.none.stdout, done.none.stderr], [done.withHome.status, done.withHome.stdout, done.withHome.stderr]);
+  assert.deepEqual(fs.readdirSync(done.cwd), []);
+
+  const payload = { session_id: 'sess-1', cwd: null, last_assistant_message: 'Here it is:\n```js\n// TODO: finish this\n```' };
+  const first = policyPair(t, 'stop-check', 'Stop', payload);
+  assert.equal(first.none.status, 0, first.none.stderr);
+  assert.equal(first.none.stdout, '');
+  assert.equal(first.none.stderr, '');
+  assert.equal(first.withHome.status, 2, first.withHome.stderr);
+  assert.match(first.withHome.stderr, /unfinished-work marker/);
+  assert.deepEqual(fs.readdirSync(first.cwd), [], 'the no-home branch creates no state');
+
+  const repeated = policyPair(t, 'stop-check', 'Stop', payload);
+  assert.equal(repeated.none.status, 0, repeated.none.stderr);
+  assert.equal(repeated.none.stderr, '', 'a repeated flagged message cannot block without persisted state');
 });
 
 test('kiro pre-bash-guard (installed shape) with HOME unset still denies rm -rf /, exactly as with a HOME', { skip: !POSIX || !HAS_JQ }, (t) => {
@@ -301,13 +312,13 @@ test('stop-check with an absolute XDG_CONFIG_HOME and HOME unset lints the queue
   assert.ok(r.untouched);
 });
 
-test('stop-check with no config home still denies an unfinished-work marker each time, keeping no state', { skip: !POSIX || !HAS_JQ }, (t) => {
+test('stop-check with no config home allows an unfinished-work marker because it cannot persist state', { skip: !POSIX || !HAS_JQ }, (t) => {
   const cwd = tempDir(t, 'doflow-no-home-cwd-');
   const input = encodeEnvelope('claude', 'Stop', 'stop-check', JSON.stringify({ session_id: 's1', cwd, last_assistant_message: 'Here it is:\n```js\n// TODO: finish this\n```' }));
   for (let i = 0; i < 2; i += 1) {
     const r = bash(t, [path.join(POLICIES, 'stop-check.sh')], { DOFLOW_AGENT: 'claude', DOFLOW_TELEMETRY: 'off' }, { input, cwd });
-    assert.equal(r.status, 2, `call ${i + 1}: the decision is reached`);
-    assert.match(r.stderr, /unfinished-work marker/);
+    assert.equal(r.status, 0, `call ${i + 1}: no state directory means allow`);
+    assert.equal(r.stderr, '');
   }
   assert.deepEqual(fs.readdirSync(cwd), []);
 });

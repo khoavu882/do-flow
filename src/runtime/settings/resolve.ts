@@ -35,6 +35,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
+const { isOffWord, maskUrl } = require('./shared.ts');
 
 type Layer = 'flag' | 'env' | 'local' | 'project' | 'user' | 'default';
 type ViewName = 'project' | 'global';
@@ -63,7 +64,6 @@ interface Raw {
   fault: { code: string; reason: string; offset: number | null } | null; noEffect?: boolean;
 }
 
-const OFF_WORDS = new Set(['off', '0', 'false', 'no']);
 const NEW_FILE = { user: 'settings.json', project: 'settings.json', local: 'settings.local.json' } as const;
 
 function isObject(value: unknown): value is Record<string, any> {
@@ -72,17 +72,6 @@ function isObject(value: unknown): value is Record<string, any> {
 
 function absolute(value: unknown): string | null {
   return typeof value === 'string' && path.isAbsolute(value) ? value : null;
-}
-
-/** A URL with its user-info replaced by `***` (DD-8; WHATWG `URL`, not mask.ts). */
-function maskUrl(text: string): string {
-  try {
-    const url = new URL(text);
-    if (!url.username && !url.password) return text;
-    return `${url.protocol}//***@${url.host}${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return text.replace(/\/\/.*@/s, '//***@');
-  }
 }
 
 /** How a value is shown: JSON text, a url without its user-info. */
@@ -109,6 +98,7 @@ function onceFs(fsImpl: any): any {
   };
   return {
     statSync: (p: string) => remembered(stats, p, () => fsImpl.statSync(p)),
+    accessSync: (p: string, mode?: number) => fsImpl.accessSync(p, mode),
     lstatSync: (p: string) => fsImpl.lstatSync(p),
     realpathSync: (p: string) => fsImpl.realpathSync(p),
     readFileSync(p: string, options?: any) {
@@ -286,7 +276,18 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
     const fileAt = (layer: 'user' | 'project' | 'local', file: string, checkout: Checkout): void => {
       const base0 = { layer, source: file, legacy: false, checkout };
       if (layer === 'user' && spec.shellRead === 'lexical-v1') {
-        // the line rule every shell reader applies to this file, so all readers agree (IC-004)
+        // Valid JSON still gets the schema check (so invalid enum values are visible in config list);
+        // malformed JSON keeps the shell-compatible lexical fallback (IC-004).
+        const read = settingsFile(layer, file, checkout);
+        if (read.status === 'ok') {
+          const entry = read.values.get(key);
+          if (entry?.error) {
+            out.push({ ...base0, display: displayOf(spec, entry.raw), value: null,
+              fault: { ...entry.error, offset: null } });
+            return;
+          }
+        }
+        // Even parseable values use the literal line rule; duplicate keys keep every reader aligned.
         const value = require('./lexical.ts').readLexicalCapture(file, io);
         if (value !== null) out.push({ ...base0, display: displayOf(spec, value), value, fault: null });
         return;
@@ -319,7 +320,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
           // 2.0 parseWindow (lifecycle/retention.ts)
           const ok = /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw));
           out.push({ ...base0, value: ok ? Number(raw) : null, fault: ok ? null : { code: 'type', reason: 'must be a positive whole number', offset: null } });
-        } else if (OFF_WORDS.has(raw.trim().toLowerCase())) {
+        } else if (isOffWord(raw)) {
           // 2.0 envSetting + OFF_VALUES (failure/home.ts): only an off word has an effect
           out.push({ ...base0, value: 'off', fault: null });
         } else {
@@ -438,6 +439,8 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
       }
     }
     if (spec.needsConfigHome && home.dir === null) {
+      const previous = holder as Candidate | null;
+      if (previous?.status === 'decided') previous.status = 'overridden';
       origin = { layer: 'default', source: null, legacy: false, checkout: null, via: 'no-config-home' };
       value = spec.failSafe;
       state = 'ok';
@@ -451,7 +454,8 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         order: spec.order ?? null,
         default: fallback,
         scope: spec.scope, combine: spec.combine, securityRelevant: spec.securityRelevant,
-        env: spec.env, flag: spec.flag, shellRead: spec.shellRead, description: spec.description,
+        env: spec.env, flag: spec.flag, shellRead: spec.shellRead, views: spec.views ?? ['project'],
+        needsConfigHome: spec.needsConfigHome, description: spec.description,
       },
     };
     return { resolution, tripped };

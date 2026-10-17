@@ -272,6 +272,60 @@ describe('what capture must never change', () => {
     assert.equal(fs.existsSync(path.join(result.xdg, 'doflow', 'failures', 'off')), false);
   });
 
+  test('failure --set off retries with force for an unparseable settings file', () => {
+    const result = run(['failure', '--action', 'capture', '--set', 'off', '--json'], {
+      setup(cwd) {
+        const file = path.join(cwd, '..', 'xdg', 'doflow', 'settings.json');
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, '{"schema":1,}\n');
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).effective, 'off');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(result.xdg, 'doflow', 'settings.json'), 'utf8')),
+      { schema: 1, 'failure.capture': 'off' });
+  });
+
+  test('failure --set on removes every lexical key occurrence it owns before reporting the effective value', () => {
+    for (const [name, original] of [
+      ['duplicate key', '{"schema":1,"failure.capture":"off","failure.capture":"on"}\n'],
+      ['nested foreign value', '{"schema":1,"future":{"failure.capture":"off"}}\n'],
+    ]) {
+      const result = run(['failure', '--action', 'capture', '--set', 'on', '--json'], {
+        setup(cwd) {
+          const file = path.join(cwd, '..', 'xdg', 'doflow', 'settings.json');
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, original);
+        },
+      });
+      assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+      const file = path.join(result.xdg, 'doflow', 'settings.json');
+      const text = fs.readFileSync(file, 'utf8');
+      assert.equal([...text.matchAll(/"failure\.capture"/g)].length, 1, `${name}: one owned occurrence remains`);
+      assert.equal(JSON.parse(result.stdout).effective, 'on', name);
+      assert.equal(JSON.parse(result.stdout).decidedBy, 'core/registry/settings.json', name);
+      assert.equal(JSON.parse(text)['failure.capture'], 'on', name);
+    }
+  });
+
+  test('failure capture prints the sentinel deprecation note to stderr', () => {
+    const result = run(['failure', '--action', 'capture', '--json'], {
+      setup(cwd) {
+        const sentinel = path.join(cwd, '..', 'xdg', 'doflow', 'failures', 'off');
+        fs.mkdirSync(path.dirname(sentinel), { recursive: true });
+        fs.writeFileSync(sentinel, 'off\n');
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).effective, 'off');
+    assert.match(result.stderr, /note: .*failures\/off is deprecated; set "failure\.capture" in .*settings\.json \(read through 2\.x\)/);
+    assert.doesNotMatch(result.stdout, /is deprecated/);
+
+    const current = run(['failure', '--action', 'capture', '--json']);
+    assert.equal(current.status, 0, current.stderr);
+    assert.equal(current.stderr, '', 'control: no legacy sentinel means no deprecation note');
+  });
+
   test('an unwritable store: silent, same output and exit status as capture off', (t) => {
     const dir = tempDir(t, 'doflow-failure-capture-cli-blocked-');
     const blocker = path.join(dir, 'file');

@@ -15,19 +15,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { maskLine, printSafe } = require('../mask.ts');
-const { failureHome, captureSwitch, sentinelPath } = require('./home.ts');
+const { failureHome, captureSwitchDetailed } = require('./home.ts');
 const { writeLayer } = require('../settings/write.ts');
 const { rotateIfDue } = require('./capture.ts');
 const store = require('./store.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
 const { appendEvents, readFold, randomChars, StoreUnsafeError, StoreLockedError } = require('../lifecycle/event-store.ts');
 const { prepareStore } = require('../lifecycle/store-upkeep.ts');
+const { isOffWord } = require('../settings/shared.ts');
 
 const ACTIONS = ['list', 'settle', 'capture'];
 const STATEMENT_MAX = 280;
 const FP = /^[0-9a-f]{16}$/;
 const CONTROL = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/g;
-const OFF_ENV_VALUES = new Set(['off', '0', 'false', 'no']);
 
 /** A caller mistake (exit 2). */
 class FailureUsageError extends Error {}
@@ -127,17 +127,21 @@ function captureState({ set, env = process.env }: any = {}): any {
   const home = failureHome(env);
   if (home !== null && set !== undefined) {
     const file = path.join(path.dirname(home), 'settings.json');
-    const written = writeLayer({ file, set: { 'failure.capture': set } });
-    if (!written.ok) return refusal('capture', 'write-failed', written.detail);
+    const written = writeLayer({ file, set: { 'failure.capture': set }, scrubKeys: set === 'on' ? ['failure.capture'] : [] });
+    if (!written.ok && isOffWord(set) && written.code === 'unparseable') {
+      const recovered = writeLayer({ file, set: { 'failure.capture': set }, force: true });
+      if (!recovered.ok) return refusal('capture', 'write-failed', recovered.detail);
+    } else if (!written.ok) {
+      return refusal('capture', 'write-failed', written.detail);
+    }
   }
-  const state = captureSwitch(home, env);
+  const state = captureSwitchDetailed(home, env);
+  for (const note of state.deprecatedNotes) console.error(printSafe(`note: ${note}`));
   // With no failure home nothing is captured, whatever the switch says.
   const result: any = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, sentinel: state.sentinel, env: state.env };
   if (home === null) result.home = null;
   else if (set !== undefined) {
-    const envOff = state.env !== null && OFF_ENV_VALUES.has(state.env.trim().toLowerCase());
-    result.decidedBy = state.sentinel ? sentinelPath(home)
-      : envOff ? 'DOFLOW_FAILURE_CAPTURE' : path.join(path.dirname(home), 'settings.json');
+    result.decidedBy = state.decidedBy;
   }
   return result;
 }

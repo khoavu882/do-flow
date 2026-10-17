@@ -88,7 +88,10 @@ function parseProjectSetting(value: any): Fault | { notes: LegacyNote[] } {
     if (Object.hasOwn(value, key)) notes.push({ code: 'scope', field: key, text: `project key '${key}' ignored: ${PROJECT_NOTE}` });
   }
   for (const key of Object.keys(value)) {
-    if (!PROJECT_KEYS.includes(key)) notes.push({ code: 'unknown-key', field: null, text: `unknown project key '${key}' ignored` });
+    if (!PROJECT_KEYS.includes(key)) {
+      const shown = JSON.stringify(key.length > 80 ? `${key.slice(0, 80)}...` : key);
+      notes.push({ code: 'unknown-key', field: null, text: `unknown project key ${shown} ignored` });
+    }
   }
   return { notes };
 }

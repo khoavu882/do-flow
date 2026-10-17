@@ -32,6 +32,8 @@ interface LayerRead {
   reason: string | null;
   values: Map<string, Entry>;
   notes: Note[];
+  /** Parsed document for a writer that requested it; absent on ordinary reads. */
+  document?: Record<string, unknown>;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -93,7 +95,7 @@ function invalid(code: LayerCode, reason: string, offset: number | null = null, 
  * invalid layer with a code (data-model §2): not-file, unreadable, too-large, unparseable, schema.
  * @param registry `{ keys: Map<string, KeySpec>, enumValues(key): string[] | null }`
  */
-function readLayerFile(file: string, { registry, fsImpl = nodeFs }: { registry: any; fsImpl?: any }): LayerRead {
+function readLayerFile(file: string, { registry, fsImpl = nodeFs, includeDocument = false }: { registry: any; fsImpl?: any; includeDocument?: boolean }): LayerRead {
   let stat: any;
   try { stat = fsImpl.statSync(file); }
   catch (error: any) {
@@ -143,7 +145,8 @@ function readLayerFile(file: string, { registry, fsImpl = nodeFs }: { registry: 
     const error = validateValue(spec, raw, spec.type === 'enum' ? registry.enumValues(key) : null);
     values.set(key, { raw, value: error ? null : raw, error });
   }
-  return { status: 'ok', code: null, offset: null, reason: null, values, notes };
+  return { status: 'ok', code: null, offset: null, reason: null, values, notes,
+    ...(includeDocument ? { document: parsed as Record<string, unknown> } : {}) };
 }
 
 module.exports = { MAX_BYTES, jsonFailure, validateValue, readLayerFile };

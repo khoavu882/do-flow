@@ -247,6 +247,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     }
     if (has(spec, 'flag') && spec.flag !== null) err("flag must be null in v1 (a declared flag must be absent from the CLI flag tables; '--set' and '--setting' are reserved)");
     if (has(spec, 'shellRead') && !SHELL_READS.includes(spec.shellRead)) err("shellRead must be null or 'lexical-v1'");
+    if (spec.shellRead === 'lexical-v1' && name !== 'failure.capture') err("shellRead 'lexical-v1' is only allowed for 'failure.capture'");
     if (has(spec, 'needsConfigHome') && typeof spec.needsConfigHome !== 'boolean') err('needsConfigHome must be true or false');
 
     // legacy

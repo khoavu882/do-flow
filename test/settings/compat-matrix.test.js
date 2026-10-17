@@ -316,7 +316,7 @@ test('C17: no sentinel and env unset is capture on, through both readers and the
   const env = f.env();
   const home = failureHome(env);
   assert.equal(home, f.failuresDir);
-  assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: null, settings: null });
+  assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: 'core/registry/settings.json' });
   assert.equal(captureIsOff(home, env), false);
   const r = f.run(['failure', '--action', 'capture']);
   assert.equal(r.status, 0, r.stderr);
@@ -343,7 +343,7 @@ test('C19: env off, 0, false or no in any case and padded is capture off with no
   for (const value of ['off', '0', 'false', 'no', 'OFF', 'False', ' No ', '  0\t']) {
     const env = f.env({ DOFLOW_FAILURE_CAPTURE: value });
     const home = failureHome(env);
-    assert.deepEqual(captureSwitch(home, env), { effective: 'off', sentinel: false, env: value, settings: null }, JSON.stringify(value));
+    assert.deepEqual(captureSwitch(home, env), { effective: 'off', sentinel: false, env: value, settings: null, decidedBy: 'DOFLOW_FAILURE_CAPTURE' }, JSON.stringify(value));
     assert.equal(captureIsOff(home, env), true, JSON.stringify(value));
   }
   const r = f.run(['failure', '--action', 'capture'], { env: { DOFLOW_FAILURE_CAPTURE: 'false' } });
@@ -356,7 +356,7 @@ test('C20: env on or any other word with no sentinel is capture on; the env cann
   for (const value of ['on', '1', 'true', 'yes', 'banana', 'offf']) {
     const env = f.env({ DOFLOW_FAILURE_CAPTURE: value });
     const home = failureHome(env);
-    assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: value, settings: null }, value);
+    assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: value, settings: null, decidedBy: 'core/registry/settings.json' }, value);
     assert.equal(captureIsOff(home, env), false, value);
   }
   f.writeSentinel();
@@ -431,7 +431,7 @@ test('C22 (HOME unset, XDG unset), 2.1: there is no config home, no failure home
   assert.equal(out.configHome, null);
   assert.equal(out.userState, null);
   assert.equal(out.failureHome, null);
-  assert.deepEqual(out.switch, { effective: 'on', sentinel: false, env: null, settings: null }, 'captureSwitch(null) reads on; the failure verb maps a null home to off');
+  assert.deepEqual(out.switch, { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: null }, 'captureSwitch(null) reads on; the failure verb maps a null home to off');
 });
 
 test('C22 (HOME relative, XDG unset), 2.1: the relative HOME is ignored; user advice and prune files are not read from <cwd>/<HOME>', { skip: !POSIX }, (t) => {
@@ -496,11 +496,11 @@ test('W1: a linked worktree inherits the main checkout project layers; its own l
   assert.equal(result.reason, 'project-disabled');
   assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: mainAdvice });
   assert.deepEqual(retentionWindow({ env: f.env(), projectRoot: f.worktree }), { state: 'off' });
-  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', sentinel: false, env: null, settings: null });
+  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: 'core/registry/settings.json' });
   // control: the main checkout itself does read its own files
   assert.equal(prune(f, 'project-state').setting, 'off');
   assert.equal(advice(f).reason, 'project-disabled');
-  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', sentinel: false, env: null, settings: null });
+  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: 'core/registry/settings.json' });
   // control: a file in the worktree's own .doflow is read
   const own = f.writeProjectPrune('on\n', f.worktree);
   assert.deepEqual(prune(f, 'project-state', { projectRoot: f.worktree }), { setting: 'on', decidedBy: own });

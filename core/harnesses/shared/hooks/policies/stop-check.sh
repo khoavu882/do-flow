@@ -277,8 +277,9 @@ if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
   # Block a given message once: the continuation that follows is judged on new text, and a
   # harness with no stop_hook_active would otherwise be blocked on this one forever. State is
   # per session, or per transcript when the harness sends no session_id; any failure here
-  # leaves the block in force only for this call. With no config home there is no state, so every
-  # call with such a message is blocked.
+  # leaves the block in force only for this call. With no config home there is no state store, so
+  # this policy cannot remember a block and allows the stop.
+  [ -n "$SESSION_DIR" ] || exit 0
   GUARD_KEY="$SESSION_ID"
   [ -z "$GUARD_KEY" ] && GUARD_KEY="t$(printf '%s' "$TRANSCRIPT_PATH" | cksum | cut -d' ' -f1)"
   GUARD_FILE=""

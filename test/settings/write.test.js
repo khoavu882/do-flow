@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { createSettingsEnv, userDecision } = require('../helper/settings-fixtures');
+const { createSettingsEnv, userDecision, REPO } = require('../helper/settings-fixtures');
 const { writeLayer } = require('../../src/runtime/settings/write.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
 
@@ -68,6 +68,37 @@ test('a no-op keeps the existing settings file byte-identical', (t) => {
 
   assert.equal(result.ok, true, result.detail);
   assert.equal(fs.readFileSync(file, 'utf8'), original);
+});
+
+test('writer reads the layer once and loads the registry through its injected file system', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{"schema":1,"storage.prune":"on"}\n');
+  const reads = [];
+  const fsImpl = Object.create(fs);
+  fsImpl.readFileSync = (target, ...args) => {
+    reads.push(path.resolve(target));
+    return fs.readFileSync(target, ...args);
+  };
+
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' }, fsImpl });
+
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(reads.filter((target) => target === path.resolve(file)).length, 1, 'the settings layer is read once');
+  assert.ok(reads.includes(path.join(REPO, 'core/registry/settings.json')), 'the injected fsImpl reads the registry');
+});
+
+test('writer creates a missing config-home directory with private permissions', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  const directory = path.dirname(file);
+  assert.equal(fs.existsSync(directory), false);
+
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(fs.statSync(directory).mode & 0o777, 0o700);
 });
 
 test('refuses an invalid settings file unless force is set', (t) => {

@@ -23,6 +23,16 @@ function verifyKey() {
   };
 }
 
+function sharedViewsKey() {
+  return {
+    type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'on',
+    scope: 'project-overridable', combine: 'override', views: ['project', 'global'],
+    securityRelevant: false, failSafe: 'off', env: null, flag: null, shellRead: null,
+    needsConfigHome: false, legacy: [], consumers: ['src/runtime/settings/resolve.ts'],
+    description: 'A fixture key reported in project and user views.',
+  };
+}
+
 function writeFixtureRepo(root, raw) {
   const registryDir = path.join(root, 'core', 'registry');
   fs.mkdirSync(registryDir, { recursive: true });
@@ -122,4 +132,22 @@ test('IC-016: verify.v0 registers through the existing consumer and config list 
   fs.writeFileSync(path.join(fixture.project, '.doflow', 'verify-v0.off'), 'off\n');
   const sentinelOutput = listConfig(repoRoot, fixture, { DOFLOW_VERIFY_V0: undefined });
   assert.match(sentinelOutput, /^verify\.v0 = "off"  \(project: .*verify-v0\.off\)$/m);
+});
+
+test('config list prints both views generically for a registered 8th key', (t) => {
+  const fixture = createSettingsEnv(t, { prefix: 'doflow-settings-register-views-' });
+  const repoRoot = path.join(fixture.dir, 'repo');
+  const raw = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'settings.json'), 'utf8'));
+  raw.keys['verify.shared'] = sharedViewsKey();
+  writeFixtureRepo(repoRoot, raw);
+  fixture.writeUserSettings({ schema: 1, 'verify.shared': 'on' });
+  fixture.writeProjectSettings({ schema: 1, 'verify.shared': 'off' });
+
+  const loaded = loadSettingsRegistry({ repoRoot, verifyRefs: true, checkConsumers: true });
+  assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
+  const output = listConfig(repoRoot, fixture);
+  assert.match(output, /^verify\.shared \[project roots\] = "off"  \(project: .*settings\.json\)$/m);
+  assert.match(output, /^verify\.shared \[user roots\] = "on"  \(user: .*settings\.json\)$/m);
+  assert.match(output, new RegExp(`    project ${fixture.project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/\.doflow\\/settings\\.json: "off" — decided`));
+  assert.match(output, new RegExp(`    user ${fixture.xdg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/doflow\\/settings\\.json: "on" — decided`));
 });

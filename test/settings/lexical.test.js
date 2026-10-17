@@ -50,6 +50,9 @@ const CORPUS = [
   ['NUL before the key', '\0{"failure.capture":"off"}', null],
   [`non-breaking space is not space (negative control)`, `{"failure.capture"${NBSP}:"on"}`, null],
   ['non-breaking space after the colon', `{"failure.capture":${NBSP}"on"}`, 'off'],
+  ['ELOOP read error has no lexical text', '', null],
+  ['ENOTDIR read error has no lexical text', '{}', null],
+  ['ancestor EACCES read error has no lexical text', '{"schema":1}', null],
 ];
 
 for (const [name, text, expected] of CORPUS) {
@@ -137,7 +140,13 @@ test('readLexicalCapture: a stat or read error other than a missing file is off,
   const secret = 'SECRET-FILE-TEXT';
   const failing = (code) => ({ statSync: () => { throw Object.assign(new Error(secret), { code }); }, readFileSync: () => secret });
   assert.equal(readLexicalCapture('/x', failing('ENOENT')), null);
-  assert.equal(readLexicalCapture('/x', failing('EACCES')), 'off');
+  assert.equal(readLexicalCapture('/x', failing('EACCES')), null, 'an EACCES while resolving the parent chain is unset');
+  const blockedParent = {
+    constants: fs.constants,
+    statSync: (file) => file === '/x' ? { isDirectory: () => true } : (() => { throw Object.assign(new Error(secret), { code: 'EACCES' }); })(),
+    accessSync: () => { throw Object.assign(new Error(secret), { code: 'EACCES' }); },
+  };
+  assert.equal(readLexicalCapture('/x/settings.json', blockedParent), 'off', 'an existing but unsearchable immediate parent is off');
   const rereadFails = { statSync: () => ({ isFile: () => true }), readFileSync: () => { throw new Error(secret); } };
   assert.equal(readLexicalCapture('/x', rereadFails), 'off');
   assert.equal(lexicalCapture(`{"failure.capture":"${secret}"}`), 'off', 'the answer is a word, never the text');

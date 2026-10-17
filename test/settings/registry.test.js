@@ -9,6 +9,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { REPO } = require('../helper/settings-fixtures');
 const { validateSettingsRegistry, loadSettingsRegistry, derivedEnvName, REGISTRY_FILE } = require('../../src/runtime/settings/registry.ts');
 const { REF_META, createRefs } = require('../../src/runtime/settings/refs.ts');
@@ -384,4 +385,24 @@ test('loader: the registry hands back enum lists and refs lazily and keys are fr
   assert.deepEqual(registry.enumValues('failure.capture'), ['off', 'on']);
   assert.deepEqual(registry.resolveRef('advice.providerIds'), ['ollama']);
   assert.equal(registry.resolveRef('storage.lifecycleEventsDefaultHours'), 4320);
+});
+
+test('loader rejects lexical-v1 on any key except failure.capture', (t) => {
+  const fixture = (raw) => {
+    const root = tempDir(t, 'doflow-settings-shellread-');
+    const file = path.join(root, REGISTRY_FILE);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`);
+    return root;
+  };
+  const bad = structuredClone(SHIPPED);
+  bad.keys['advice.enabled'].shellRead = 'lexical-v1';
+  const rejected = loadSettingsRegistry({ repoRoot: fixture(bad) });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.detail, /advice\.enabled shellRead 'lexical-v1' is only allowed for 'failure\.capture'/);
+
+  const control = structuredClone(SHIPPED);
+  control.keys['advice.enabled'].shellRead = null;
+  const accepted = loadSettingsRegistry({ repoRoot: fixture(control) });
+  assert.equal(accepted.ok, true, accepted.detail);
 });

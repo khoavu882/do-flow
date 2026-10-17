@@ -15,6 +15,7 @@ const { createAdviceClient } = require('./client.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
 const { findPick, appendOutcome } = require('./record.ts');
 const { strengthWords } = require('./strength.ts');
+const { projectLayerSource } = require('../settings/project-layers.ts');
 
 function loadSources(repoRoot: any) {
   const read = (name: any) => JSON.parse(fs.readFileSync(path.join(repoRoot, 'core/registry', name), 'utf8'));
@@ -29,9 +30,18 @@ function loadRuntime({ projectRoot, global = false }: any = {}) {
   const advice = loadAdviceRegistry({ repoRoot: REPO_ROOT });
   const storage = loadStorageRegistry({ repoRoot: REPO_ROOT });
   const roots = resolveRoots({ registry: storage, projectRoot, global });
+  const projectLayers = projectLayerSource(projectRoot);
   const sources = loadSources(REPO_ROOT);
   const adviceRegistry = advice.ok ? advice.registry : null;
-  return { adviceRegistry, adviceError: advice.ok ? null : advice.detail, storage, roots, sources };
+  return { adviceRegistry, adviceError: advice.ok ? null : advice.detail, storage, roots, sources, projectLayers };
+}
+
+function emitDeprecatedNotes(runtime: any): void {
+  if (!runtime.adviceRegistry) return;
+  const setting = resolveSetting({ adviceRegistry: runtime.adviceRegistry, roots: runtime.roots, fsImpl: fs, includeDeprecated: true });
+  for (const note of setting.notes || []) {
+    if (/ is deprecated; set ".+" in .+ \(read through 2\.x\)$/.test(note)) console.error(`note: ${note}`);
+  }
 }
 
 function emitResult(result: any, { json, kind }: any) {
@@ -142,7 +152,7 @@ function writeFailure(message: any, json: any) {
 }
 
 async function handleConfigure(options: any, runtime: any) {
-  const { adviceRegistry, adviceError, roots, sources } = runtime;
+  const { adviceRegistry, adviceError, roots, sources, projectLayers } = runtime;
   const { json, project, global, force } = options;
   const hasModel = typeof options.model === 'string' && options.model.length > 0;
   const hasOff = options.off === true;
@@ -154,17 +164,27 @@ async function handleConfigure(options: any, runtime: any) {
   if (adviceError || !adviceRegistry) return writeFailure(`advice registry is invalid: ${adviceError || 'missing registry'}`, json);
 
   if (!project && !roots['config-home']) return usageError('advise', 'no config home resolves; set an absolute HOME or XDG_CONFIG_HOME, or use --project', json);
+  emitDeprecatedNotes(runtime);
 
   const file = project
-    ? path.join(roots['project-doflow'], 'settings.json')
+    ? path.join(projectLayers.layersFrom || roots['project-doflow'], 'settings.json')
     : path.join(roots['config-home'], 'settings.json');
   const fsImpl = fs;
+  const inheritedFromMain = !!project && projectLayers.checkout === 'main';
+  const discloseWrite = (setting: any) => {
+    const result: any = { written: file, setting };
+    if (inheritedFromMain) result.inheritedFromMainCheckout = true;
+    if (json) console.log(JSON.stringify(result, null, 2));
+    else if (inheritedFromMain) console.log(`(inherited from the main checkout)`);
+  };
   if (hasOff) {
     const written = writeLayer({ file, set: { 'advice.enabled': false }, force, fsImpl });
     if (!written.ok) return writeFailure(written.detail, json);
     const effective = resolveSetting({ adviceRegistry, roots, fsImpl });
-    if (json) console.log(JSON.stringify({ written: file, setting: effective }, null, 2));
-    else console.log(project ? `Decision model for this project: off (wrote ${file}).` : `Decision model off (wrote ${file}).`);
+    if (json) discloseWrite(effective);
+    else console.log(project
+      ? `Decision model for this project: off (wrote ${file}${inheritedFromMain ? ' (inherited from the main checkout)' : ''}).`
+      : `Decision model off (wrote ${file}).`);
     return finishRuntime(0);
   }
 
@@ -192,9 +212,9 @@ async function handleConfigure(options: any, runtime: any) {
   const written = writeLayer({ file, set: setting, force, fsImpl });
   if (!written.ok) return writeFailure(written.detail, json);
   const effective = resolveSetting({ adviceRegistry, roots, fsImpl });
-  if (json) console.log(JSON.stringify({ written: file, setting: effective }, null, 2));
+  if (json) discloseWrite(effective);
   else console.log(project
-    ? `Decision model for this project: ${options.model} (wrote ${file}).`
+    ? `Decision model for this project: ${options.model} (wrote ${file}${inheritedFromMain ? ' (inherited from the main checkout)' : ''}).`
     : `Decision model on: ${options.model} at ${endpoint} (wrote ${file}).`);
   return finishRuntime(0);
 }
@@ -276,6 +296,7 @@ async function handleAdviseCommand(options: any = {}) {
     const shaped = { ...options, projectRoot };
     if (action === 'configure') return await handleConfigure(shaped, runtime);
     if (action === 'outcome') return handleOutcome(shaped, runtime);
+    emitDeprecatedNotes(runtime);
     return await handleAsk(shaped, runtime);
   } catch (error: any) {
     return writeFailure(error?.message || 'advice command failed', options.json);
