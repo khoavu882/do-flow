@@ -91,7 +91,8 @@ test('start issues epoch 1 with history and the recorded graph; a second start i
   });
   const run = p.read().runs[p.main.key.runKey];
   assert.deepEqual([run.control, run.epoch, run.worktree], ['running', 1, p.dir]);
-  assert.deepEqual(run.history, [{ at: NOW.toISOString(), action: 'start', by: 'orchestrator', reason: null, epoch: 1 }]);
+  // 088 adds `traceId` to the entry when telemetry is on (test/runtime/trace-ids.test.js pins it); this pin is the pre-088 shape.
+  assert.deepEqual(run.history.map(({ traceId, ...rest }) => rest), [{ at: NOW.toISOString(), action: 'start', by: 'orchestrator', reason: null, epoch: 1 }]);
   assert.match(run.graphDigest, /^sha256:[0-9a-f]{64}$/);
   assert.equal(run.graphTasks.length, 3);
   assert.deepEqual(unchanged(p, () => start({ ...p.common(), by: 'orchestrator' })),

@@ -24,7 +24,9 @@ const { mcpReach } = require('./mcp-reach.ts');
 const { loadRegistry } = require('../registry/index.ts');
 const { loadStorageRegistry } = require('./storage/registry.ts');
 const { resolveRoots, resolveStorePath } = require('./storage/roots.ts');
-const { checkCompletion: checkTaskAttemptCompletion } = require('./task-attempts.ts');
+const { checkCompletion: checkTaskAttemptCompletion, storeFile: taskAttemptStoreFile } = require('./task-attempts.ts');
+const { runKeyFor, refuseSolo } = require('./task-run.ts');
+const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
@@ -108,6 +110,8 @@ class WorkflowOrchestrator {
   declare taskAttemptCheck: any;
   declare featureSlug: any;
   declare buildAdapters: any;
+  declare env: any;
+  declare cwd: any;
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot] install root owning core/registry + default state dir.
@@ -125,10 +129,12 @@ class WorkflowOrchestrator {
    *   relies on: the CLI always wires the real one.
    * @param {object} [options.fsImpl]
    * @param {string|null} [options.featureSlug] the feature a run started here belongs to
+   * @param {object} [options.env] the environment `start` reads the caller's identity and the telemetry switch from
+   * @param {string} [options.cwd] the directory `start` resolves the caller's run key and the 080 store from
    * @param {() => object} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs
    *   through; without it install facts are unknown and no outcome is inferred from them
    */
-  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null }: any = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null, env = process.env, cwd = process.cwd() }: any = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
     this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
@@ -139,6 +145,8 @@ class WorkflowOrchestrator {
     this.taskAttemptCheck = taskAttemptCheck || null;
     this.featureSlug = featureSlug;
     this.buildAdapters = buildAdapters;
+    this.env = env;
+    this.cwd = cwd;
   }
 
   runFile(taskId: any) {
@@ -185,9 +193,31 @@ class WorkflowOrchestrator {
       startedAt: iso(now),
       // The feature the run belongs to, so another checkout can tell it from a run with the same id.
       ...(this.featureSlug ? { featureSlug: this.featureSlug } : {}),
+      ...this.traceFields(),
     };
     this.writeRun(run, now);
     return this.snapshot(run);
+  }
+
+  /**
+   * 088 IC-010 / DD-5: the caller's 080 run key and, when the 080 store already holds that run with
+   * a trace id, a copy of the id. Empty with telemetry off, for a solo lineage, or on any fault:
+   * nothing here can fail or change a start. No id is minted here and no action is added.
+   */
+  traceFields(): { runKey?: string; traceId?: string } {
+    try {
+      const key = runKeyFor(this.env, this.cwd);
+      if (!key.traceIds || refuseSolo(key.identity)) return {};
+      const out: { runKey?: string; traceId?: string } = { runKey: key.runKey };
+      if (this.featureSlug) {
+        try {
+          const store = readTaskState(this.fsImpl, taskAttemptStoreFile(lifecycleProjectRoot(this.cwd), this.featureSlug));
+          const record = store && store.runs && Object.hasOwn(store.runs, key.runKey) ? store.runs[key.runKey] : null;
+          if (record && typeof record.traceId === 'string' && /^[0-9a-f]{32}$/.test(record.traceId)) out.traceId = record.traceId;
+        } catch { /* an unreadable 080 store means no copy */ }
+      }
+      return out;
+    } catch { return {}; }
   }
 
   snapshot(run: any) {

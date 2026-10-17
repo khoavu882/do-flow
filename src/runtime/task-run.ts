@@ -29,7 +29,10 @@ interface RunTotals {
   unreported: number;
 }
 
-interface RunKey { runKey: string; top: string; identity: any }
+/** `traceIds` is whether this caller's environment lets a run mint trace ids (088, IC-010): the
+ * switch is read where the environment is, because `startRun` is handed only the key. A key built
+ * by hand leaves it out and `traceIdsOn` reads the process environment. */
+interface RunKey { runKey: string; top: string; identity: any; traceIds?: boolean }
 
 /**
  * IC-011: the caller's run key. `top` is the worktree top above the identity's worktree (or the
@@ -39,7 +42,29 @@ interface RunKey { runKey: string; top: string; identity: any }
 function runKeyFor(env: Env, cwd: string): RunKey {
   const identity = resolveIdentity(env, { cwd, sessionId: '' });
   const top = findWorkTreeTop(identity.worktree).top ?? identity.worktree;
-  return { runKey: `${cwdHash(top)}/${identity.run}/${identity.lineage}`, top, identity };
+  return { runKey: `${cwdHash(top)}/${identity.run}/${identity.lineage}`, top, identity, traceIds: traceSwitchOn(env) };
+}
+
+/** 088 DD-5: the telemetry switch read through its one reader. `telemetry.ts` is required here, not
+ * at load, so a module user that never reaches a run key does not load the trace modules. A fault
+ * reading the switch means no ids. */
+function traceSwitchOn(env: Env): boolean {
+  try { return !require('./trace/telemetry.ts').telemetryOff(env); } catch { return false; }
+}
+
+/** Whether `key` may mint trace ids: its own flag, else the given environment. */
+function traceIdsOn(key: RunKey, env: Env = process.env): boolean {
+  return typeof key.traceIds === 'boolean' ? key.traceIds : traceSwitchOn(env);
+}
+
+/** 088 IC-010: a fresh 128-bit id as 32 lowercase hex, or null when telemetry is off or the id
+ * source faults. Minting never fails the mutation that calls it. */
+function mintTraceId(on: boolean): string | null {
+  if (!on) return null;
+  try {
+    const id = crypto.randomBytes(16).toString('hex');
+    return /^[0-9a-f]{32}$/.test(id) ? id : null;
+  } catch { return null; }
 }
 
 /** IC-011: a `solo` lineage may not start, pause, cancel, resume or reopen a run, because every
@@ -233,9 +258,12 @@ function startRun(store: any, { key, graph, by, budget, now }: { key: RunKey; gr
   if (who) return refusedControl(who.reason, key.runKey);
   if (ownRun(store, key.runKey)) return refusedControl('run-exists', key.runKey);
   if (!store.runs) store.runs = {};
-  const run = createRun(key, budget, now, { epoch: 1 });
+  const run: any = createRun(key, budget, now, { epoch: 1 });
   store.runs[key.runKey] = run;
-  run.history.push({ at: now.toISOString(), action: 'start', by, reason: null, epoch: 1 });
+  const entry: any = { at: now.toISOString(), action: 'start', by, reason: null, epoch: 1 };
+  const traceId = mintTraceId(traceIdsOn(key));
+  if (traceId) { run.traceId = traceId; entry.traceId = traceId; }
+  run.history.push(entry);
   refreshRun(store, run, graph);
   return { write: true, result: { disposition: 'started', runKey: key.runKey, epoch: 1, budget: run.budget, revision: store.revision } };
 }
@@ -581,7 +609,14 @@ function resumeRun(
     for (const [taskId, entry] of Object.entries<any>(store.tasks || {})) {
       for (const a of entry.attempts) if (a.state === 'cancelled' && a.runKey === key.runKey) cleared.push({ taskId, token: a.token });
     }
-    run.history.push({ at: now.toISOString(), action: 'resume', by, reason: reason ?? null, digest, epoch, cleared });
+    const entry: any = { at: now.toISOString(), action: 'resume', by, reason: reason ?? null, digest, epoch, cleared };
+    const traceId = mintTraceId(traceIdsOn(key, env));
+    if (traceId) {
+      entry.traceId = traceId;
+      entry.traceLink = typeof run.traceId === 'string' ? run.traceId : null;
+      run.traceId = traceId;
+    }
+    run.history.push(entry);
     refreshRun(store, run, graph);
     return { write: true, result: { disposition: 'resumed', report, digest, epoch, revision: store.revision } };
   });
@@ -613,6 +648,14 @@ function decompositionAdvisory(graph: any) {
   };
 }
 
+/** 088 OI-1: a history entry as it was before trace ids, so `inspect` output does not depend on the
+ * telemetry switch (FR-002). */
+function withoutTrace(entry: any) {
+  if (!entry || typeof entry !== 'object' || (!('traceId' in entry) && !('traceLink' in entry))) return entry;
+  const { traceId, traceLink, ...rest } = entry;
+  return rest;
+}
+
 /**
  * IC-016: the inspect view of the caller's run. `store` is a plain read (`readTaskState`);
  * `graph`, `hashes` and `warnings` come from `loadPlan`; `key` from `runKeyFor`. Pure: nothing is
@@ -635,7 +678,7 @@ function inspectRun(store: any, { slug, key, graph, hashes = null, warnings = []
     budget: { attempts: limits.attempts, tokens: limits.tokens, source: normalizeBudget(run && run.budget).attempts === null ? 'default' : 'run' },
     totals,
     totalsMismatch,
-    history: run && Array.isArray(run.history) ? run.history : [],
+    history: run && Array.isArray(run.history) ? run.history.map(withoutTrace) : [],
   };
   if (totalsMismatch) runView.storedTotals = run.totals === undefined ? null : run.totals;
   return {
