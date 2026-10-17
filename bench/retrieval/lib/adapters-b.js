@@ -7,6 +7,7 @@
  * after this file and a shared helper must not point back at them.
  */
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { childEnv } = require('../runner.js');
@@ -82,8 +83,12 @@ function answerOf({ result, freshness, candidates, providers, wallMs, extra }) {
 
 function runCodeB(task, exportRoot, { bins, hasFd, listFiles, admittedPaths }) {
   const providers = [];
-  const rgArgs = (extra, pattern) => ['-n', '--no-heading', '--color', 'never', ...extra, '-e', pattern,
-    ...(Array.isArray(admittedPaths) ? ['--', ...admittedPaths.map((p) => path.resolve(exportRoot, p))] : [exportRoot])];
+  const scoped = Array.isArray(admittedPaths);
+  const rgArgs = (extra, pattern) => ['-n', '--no-heading', '--color', 'never', ...(scoped ? ['-H'] : []), ...extra, '-e', pattern,
+    ...(scoped ? ['--', ...admittedPaths.map((p) => path.resolve(exportRoot, p))] : [exportRoot])];
+  // An empty scope must not reach rg: with no path operand it would search the working directory.
+  const search = (extra, pattern) => (scoped && admittedPaths.length === 0
+    ? { ran: true, status: 1, stdout: '', stderr: '', cause: undefined } : runTool(bins.rg, rgArgs(extra, pattern)));
   const failed = (run) => {
     const cause = run.ran ? `rg exited ${run.status}` : run.cause;
     providers.push({ id: 'native.rg', state: 'unreached', cause });
@@ -91,7 +96,7 @@ function runCodeB(task, exportRoot, { bins, hasFd, listFiles, admittedPaths }) {
   };
 
   if (task.literal) {
-    const run = runTool(bins.rg, rgArgs(['-F'], task.literal));
+    const run = search(['-F'], task.literal);
     if (!run.ran || (run.status !== 0 && run.status !== 1)) { failed(run); return { providers, candidates: [] , unreached: true }; }
     providers.push({ id: 'native.rg', state: 'reached' });
     const hits = parseRgLines(run.stdout, exportRoot).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line));
@@ -104,7 +109,7 @@ function runCodeB(task, exportRoot, { bins, hasFd, listFiles, admittedPaths }) {
   const filesPerTerm = new Map();
   let rgOk = true;
   for (const term of terms) {
-    const run = runTool(bins.rg, rgArgs(['-i', '-F'], term));
+    const run = search(['-i', '-F'], term);
     if (!run.ran || (run.status !== 0 && run.status !== 1)) { failed(run); rgOk = false; break; }
     const seenFiles = new Set();
     for (const h of parseRgLines(run.stdout, exportRoot)) {
@@ -123,7 +128,7 @@ function runCodeB(task, exportRoot, { bins, hasFd, listFiles, admittedPaths }) {
 
   // File-name step: fd when present, otherwise `rg --files` filtered by basename substring.
   const nameHits = new Map();
-  if (Array.isArray(admittedPaths)) {
+  if (scoped) {
     for (const term of terms) for (const rel of admittedPaths) {
       if (path.posix.basename(toPosix(rel)).toLowerCase().includes(term)) nameHits.set(rel, (nameHits.get(rel) || 0) + 1);
     }
@@ -209,8 +214,9 @@ function runB({ corpus, task, exportRoot, indexDir, bins = {}, hasFd, admittedPa
     }
     return fileList;
   };
-  const scopedListFiles = Array.isArray(admittedPaths) ? () => admittedPaths : listFiles;
-  const r = runCodeB(task, exportRoot, { bins: tools, hasFd: fdPresent, listFiles: scopedListFiles, admittedPaths });
+  // The pinned manifest bounds every lexical route; a path a task patch removed is not searched.
+  const inScope = Array.isArray(admittedPaths) ? admittedPaths.filter((rel) => fs.existsSync(path.resolve(exportRoot, rel))) : undefined;
+  const r = runCodeB(task, exportRoot, { bins: tools, hasFd: fdPresent, listFiles, admittedPaths: inScope });
   const result = r.unreached ? 'UNREACHED' : r.candidates.length > 0 ? 'RETRIEVED' : 'EMPTY';
   return answerOf({ result, freshness: 'NOT_APPLICABLE', candidates: r.candidates, providers: r.providers, wallMs: wall() });
 }
