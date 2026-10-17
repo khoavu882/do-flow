@@ -88,6 +88,15 @@ function extractFailedTests(text: string): string[] {
   return [...seen];
 }
 
+/** The monotonic clock in nanoseconds, or null when it cannot be read. */
+function monotonicNs(): bigint | null {
+  try {
+    return process.hrtime.bigint();
+  } catch {
+    return null;
+  }
+}
+
 class VerificationContractRunner {
   cwd: string;
   defaultTimeoutMs: number;
@@ -95,6 +104,9 @@ class VerificationContractRunner {
   fsImpl: any;
   logDir: string;
   logWriteWarned?: boolean;
+  /** Check result → `{ startedAt (epoch ms), durationMs (monotonic, null on a clock fault) }` for
+   * every executed check; an in-run duplicate and a check with no command have no entry. */
+  metrics: WeakMap<object, { startedAt: number; durationMs: number | null }>;
 
   /**
    * @param {Object|string} [options] a string is accepted for parity with the Python's positional
@@ -110,6 +122,7 @@ class VerificationContractRunner {
     this.exec = opts.exec || spawnSync;
     this.fsImpl = opts.fsImpl || fs;
     this.logDir = opts.logDir || path.join(this.cwd, '.doflow', 'state', 'verification', 'logs');
+    this.metrics = new WeakMap();
   }
 
   /**
@@ -196,9 +209,19 @@ class VerificationContractRunner {
     if (dedupeCache && dedupeCache.has(dedupeKey)) {
       return { ...dedupeCache.get(dedupeKey), name: checkName, deduplicated: true };
     }
+    // Timing for telemetry (088 C.1, IC-006) lives in `this.metrics`, never in the result, so the
+    // report is the same with telemetry on or off. A clock fault leaves the duration null.
+    const startedAt = Date.now();
+    const t0 = monotonicNs();
+    let timing: any = null;
     const remember = (result: any) => {
+      if (timing) this.metrics.set(result, timing);
       if (dedupeCache) dedupeCache.set(dedupeKey, result);
       return result;
+    };
+    const stop = () => {
+      const t1 = monotonicNs();
+      timing = { startedAt, durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null };
     };
 
     let res: any;
@@ -215,6 +238,7 @@ class VerificationContractRunner {
         maxBuffer: 64 * 1024 * 1024,
       });
     } catch (error: any) {
+      stop();
       // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a
       // thrown error that aborts the whole contract.
       return remember({
@@ -225,6 +249,7 @@ class VerificationContractRunner {
         error: error.message,
       });
     }
+    stop();
 
     // Defect fix (2): the Python's TimeoutExpired arm returned neither stdout nor stderr, so a
     // check that hung after printing its first failure told you only that it hung. Whatever the

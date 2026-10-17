@@ -35,17 +35,35 @@
     "verify.run": {
       "store": "runs-telemetry",
       "writers": ["src/runtime/trace/telemetry.ts"],
-      "fields": {}
+      "fields": {
+        "verify_id": { "name": "doflow.verify.run.verify_id", "class": "T0", "type": "hex16", "phase": "P2" },
+        "source": { "name": "doflow.verify.run.source", "class": "T2", "type": "enum:source", "phase": "P2" },
+        "task": { "name": "doflow.verify.run.task", "class": "T0", "type": "token|null", "phase": "P2" },
+        "risk": { "name": "doflow.verify.run.risk", "class": "T2", "type": "enum:risk|null", "phase": "P2" },
+        "status": { "name": "doflow.verify.run.status", "class": "T2", "type": "enum:status|null", "phase": "P2" }
+      }
     },
     "verify.tier": {
       "store": "runs-telemetry",
       "writers": ["src/runtime/trace/telemetry.ts"],
-      "fields": {}
+      "fields": {
+        "verify_id": { "name": "doflow.verify.tier.verify_id", "class": "T0", "type": "hex16", "phase": "P2" },
+        "tier": { "name": "doflow.verify.tier.tier", "class": "T2", "type": "token|null", "phase": "P2" },
+        "status": { "name": "doflow.verify.tier.status", "class": "T2", "type": "enum:status|null", "phase": "P2" },
+        "selection_basis": { "name": "doflow.verify.tier.selection_basis", "class": "T2", "type": "enum:selection_basis|null", "phase": "P2" },
+        "selected": { "name": "doflow.verify.tier.selected", "class": "T1", "type": "uint|null", "phase": "P2" },
+        "total": { "name": "doflow.verify.tier.total", "class": "T1", "type": "uint|null", "phase": "P2" },
+        "fallback": { "name": "doflow.verify.tier.fallback", "class": "T2", "type": "enum:fallback|null", "phase": "P2" }
+      }
     },
     "verify.check": {
       "store": "runs-telemetry",
       "writers": ["src/runtime/trace/telemetry.ts"],
-      "fields": {}
+      "fields": {
+        "verify_id": { "name": "doflow.verify.check.verify_id", "class": "T0", "type": "hex16", "phase": "P2" },
+        "tier": { "name": "doflow.verify.check.tier", "class": "T2", "type": "token|null", "phase": "P2" },
+        "status": { "name": "doflow.verify.check.status", "class": "T2", "type": "enum:status|null", "phase": "P2" }
+      }
     }
   },
   "recordFields": {

@@ -37,6 +37,7 @@ const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record.ts'
 const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate.ts');
 const { assertSafeTaskId } = require('../evidence-ledger.ts');
 const { upkeepAfterVerify } = require('../storage/upkeep.ts');
+const { emitVerifyTelemetry } = require('./telemetry-emit.ts');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -1425,8 +1426,11 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   }
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
+  const exitCode = report.status === 'PASS' ? 0 : 1;
+  // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
+  emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode }, start: cwd });
   upkeepAfterVerify({ projectRoot: cwd });
-  return finishRuntime(report.status === 'PASS' ? 0 : 1);
+  return finishRuntime(exitCode);
 }
 
 /** One line stating what the targeted tier selected, or why it ran the broad command instead. */

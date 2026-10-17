@@ -1,6 +1,6 @@
 # Spec: telemetry contract v1
 
-Contract document for feature 088 (IC-001, IC-002, IC-003, IC-004, IC-018). The machine-readable
+Contract document for feature 088 (IC-001, IC-002, IC-003, IC-004, IC-006, IC-018). The machine-readable
 form is `core/registry/telemetry.json`; this page is its prose mirror. When the two disagree the
 registry is right, and `test/guards/telemetry-contract.test.js` (G44, provisional number) is what
 notices.
@@ -48,9 +48,9 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 | Kind | Written by | Keys beyond the common ones |
 |---|---|---|
 | `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `session`, `tool`, `tool_call_id` (see Hook lines) |
-| `verify.run` | `src/runtime/trace/telemetry.ts` | none declared yet |
-| `verify.tier` | `src/runtime/trace/telemetry.ts` | none declared yet |
-| `verify.check` | `src/runtime/trace/telemetry.ts` | none declared yet |
+| `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `risk`, `status` (see Verify lines) |
+| `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback` |
+| `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status` |
 
 A key is added to a kind in the same change that writes it, with its `phase` (the merge that first
 writes it). Until then the writer drops every key it is handed for that kind. Changes to the contract
@@ -87,6 +87,38 @@ install or global fallback beyond that walk. Nothing is written unless `<config>
 appended to only when it is absent or a regular file. A FIFO, a directory or an unwritable target
 writes nothing, never blocks, and changes no output or exit code. One `printf >>` per invocation,
 builtins only apart from that first `mkdir`.
+
+## Verify lines
+
+`src/runtime/verification/telemetry-emit.ts` builds the lines and hands them to the writer. The
+verify verb writes, once its report is printed, one `verify.run`, then for each report tier one
+`verify.tier` followed by one `verify.check` per check in that tier. The dispatch runner
+(`src/runtime/dispatch/verify-run.ts`) writes one `verify.run` with `source: dispatch` after its
+spawn settles, and no tier or check line. All lines of one run share `verify_id`.
+
+| Kind | Key | Type | Class | Source |
+|---|---|---|---|---|
+| all three | `verify_id` | `hex16` | T0 | 8 random bytes per run, never derived from a path, task or command |
+| `verify.run` | `source` | `enum:source` | T2 | `verb` or `dispatch` |
+| `verify.run` | `task` | `token` or null | T0 | the task id when it passes `token`, else null |
+| `verify.run` | `risk` | `enum:risk` or null | T2 | the report's risk level; null from the dispatch runner |
+| `verify.run` | `status` | `enum:status` or null | T2 | the report status; a status outside the vocabulary (`INCONCLUSIVE`) is null |
+| `verify.tier`, `verify.check` | `tier` | `token` or null | T2 | the tier id |
+| `verify.tier`, `verify.check` | `status` | `enum:status` or null | T2 | the tier's or the check's status |
+| `verify.tier` | `selection_basis`, `fallback` | `enum:selection_basis`, `enum:fallback`, or null | T2 | the targeted tier's test selection; null on every other tier |
+| `verify.tier` | `selected`, `total` | `uint` or null | T1 | the selection's counts; null when unknown |
+
+`timestamp` is the report's `startedAt` for the run line, the check's own start for a check line,
+and the first check's start for a tier line. Timing comes from the contract runner's `metrics`
+WeakMap (keyed by each check result, measured with the monotonic clock around the check's spawn),
+so the report and `verify --json` carry no timing and are the same bytes with telemetry on, off or
+faulted. The lines go to the nearest `.doflow` above the verify's working directory that holds
+`state/runs` (or `DOFLOW_CONFIG_DIR`): a failing check leaves a `.doflow/state/verification/logs`
+fragment in the working directory, and the walk passes over it. With no project store nothing is
+written; there is no global fallback.
+
+Exit code, durations, executed-check count, check key and sharing are measured but not declared
+yet, so the writer drops them; they are declared with phase P3. `level` and `v0` follow in P5.
 
 `recordFields` are not line keys: they are the identifiers a run record carries
 (`task-run.run.traceId`, `task-run.history.traceId`, `task-run.history.traceLink`,
