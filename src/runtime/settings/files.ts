@@ -17,7 +17,7 @@ const nodeFs = require('node:fs');
 
 /** A file larger than this is a layer fault, not a read (data-model §2). */
 const MAX_BYTES = 65536;
-const BOM = '﻿';
+const BOM = '\uFEFF';
 
 interface ValueFault { code: 'type' | 'enum' | 'range' | 'url'; reason: string }
 interface Entry { raw: unknown; value: unknown | null; error: ValueFault | null }
