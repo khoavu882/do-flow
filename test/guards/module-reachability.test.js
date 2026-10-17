@@ -60,6 +60,8 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
 const ALLOWLIST = new Set([
   // 086 C.2; remove in C.3 when the resolver consumes it
   'src/runtime/settings/project-layers.ts',
+  // 086 C.1; remove in C.3 when the resolver consumes it
+  'src/runtime/settings/registry.ts',
 ]);
 
 /** Every runtime module file (`.js` or `.ts`) under a source/test root. The TypeScript migration
