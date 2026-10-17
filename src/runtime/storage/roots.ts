@@ -5,8 +5,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { configHome } = require('../config-home.ts');
-const { loadSettings } = require('../settings/resolve.ts');
-const { loadSettingsRegistry } = require('../settings/registry.ts');
 
 function absolute(value: any): string | null { return typeof value === 'string' && path.isAbsolute(value) ? value : null; }
 
@@ -23,6 +21,45 @@ function resolveRoots({ registry, projectRoot, global = false, env = process.env
   }));
 }
 
+/** Creates one IC-014 resolver for all roots in a command; a project view can also read global scope. */
+function createPruneSettingsResolver({ roots, fsImpl = fs }: any = {}): (rootId: string) => { setting: string; decidedBy: string | null } {
+  const resolverEnv: Record<string, string> = {};
+  if (roots['config-home']) resolverEnv.XDG_CONFIG_HOME = path.dirname(roots['config-home']);
+  let view: any = null;
+  let loadedView = false;
+  return (rootId: string) => {
+    if (!loadedView) {
+      loadedView = true;
+      try {
+        let settingsRegistry;
+        if (fsImpl !== fs) {
+          const { loadSettingsRegistry } = require('../settings/registry.ts');
+          const loaded = loadSettingsRegistry({ fsImpl });
+          if (!loaded.ok) throw new Error(loaded.detail);
+          settingsRegistry = loaded.registry;
+        }
+        const { loadSettings } = require('../settings/resolve.ts');
+        const projectRoot = roots['project-doflow'] ? path.dirname(roots['project-doflow']) : null;
+        view = loadSettings({ projectRoot, env: resolverEnv, fsImpl, ...(settingsRegistry ? { registry: settingsRegistry } : {}) });
+      } catch {
+        // A settings registry fault fails closed for every root, as it did for each old call.
+        view = null;
+      }
+    }
+    if (!view) return { setting: 'off', decidedBy: null };
+    try {
+      const usesProject = rootId === 'project-doflow' || rootId === 'project-state';
+      const resolved = view.get('storage.prune', usesProject ? 'project' : 'global');
+      return {
+        setting: resolved.value === 'on' ? 'on' : 'off',
+        decidedBy: resolved.origin.layer === 'default' ? null : resolved.origin.source,
+      };
+    } catch {
+      return { setting: 'off', decidedBy: null };
+    }
+  };
+}
+
 /** Reads IC-014 and reports exactly which present file made the decision, if any. */
 function readPruneSetting({ roots, rootId, fsImpl = fs }: any = {}): { setting: string; decidedBy: string | null } {
   const usesProject = rootId === 'project-doflow' || rootId === 'project-state';
@@ -33,10 +70,12 @@ function readPruneSetting({ roots, rootId, fsImpl = fs }: any = {}): { setting: 
   try {
     let settingsRegistry;
     if (fsImpl !== fs) {
+      const { loadSettingsRegistry } = require('../settings/registry.ts');
       const loaded = loadSettingsRegistry({ fsImpl });
       if (!loaded.ok) throw new Error(loaded.detail);
       settingsRegistry = loaded.registry;
     }
+    const { loadSettings } = require('../settings/resolve.ts');
     const view = loadSettings({ projectRoot, global, env: resolverEnv, fsImpl, ...(settingsRegistry ? { registry: settingsRegistry } : {}) });
     const resolved = view.get('storage.prune', global ? 'global' : 'project');
     return {
@@ -70,4 +109,4 @@ function resolveStorePath({ store, roots, fsImpl = fs }: any = {}): string | nul
   return current;
 }
 
-module.exports = { resolveRoots, readPruneSetting, resolveStorePath };
+module.exports = { resolveRoots, readPruneSetting, createPruneSettingsResolver, resolveStorePath };

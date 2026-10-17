@@ -18,7 +18,6 @@
 const nodeFs = require('node:fs');
 const { isDeepStrictEqual } = require('node:util');
 const { loadSettings } = require('../settings/resolve.ts');
-const { loadSettingsRegistry } = require('../settings/registry.ts');
 const { foldInto, finalize } = require('./fold.ts');
 
 const HOUR_MS = 3600000;
@@ -55,6 +54,7 @@ function retentionWindow({ env = process.env, projectRoot, fsImpl = nodeFs }: an
   try {
     let settingsRegistry;
     if (fsImpl !== nodeFs) {
+      const { loadSettingsRegistry } = require('../settings/registry.ts');
       const loaded = loadSettingsRegistry({ fsImpl });
       if (!loaded.ok) throw new Error(loaded.detail);
       settingsRegistry = loaded.registry;

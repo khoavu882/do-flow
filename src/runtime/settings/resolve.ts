@@ -35,11 +35,6 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
-const { configHome } = require('../config-home.ts');
-const { REGISTRY_FILE, loadSettingsRegistry } = require('./registry.ts');
-const { REF_META } = require('./refs.ts');
-const { readLayerFile } = require('./files.ts');
-const { projectLayerSource } = require('./project-layers.ts');
 
 type Layer = 'flag' | 'env' | 'local' | 'project' | 'user' | 'default';
 type ViewName = 'project' | 'global';
@@ -128,6 +123,7 @@ function onceFs(fsImpl: any): any {
 }
 
 function registryOrThrow(): any {
+  const { loadSettingsRegistry } = require('./registry.ts');
   const loaded = loadSettingsRegistry();
   if (loaded.ok) return loaded.registry;
   const error: any = new Error(`settings registry unavailable: ${loaded.detail}`);
@@ -158,6 +154,7 @@ interface LoadOptions { projectRoot?: string | null; global?: boolean; env?: Rec
  * @param registry a loaded settings registry; defaults to the shipped one (throws when unusable)
  */
 function loadSettings({ projectRoot = null, global = false, env = process.env, registry, fsImpl = nodeFs }: LoadOptions = {}): any {
+  const { configHome } = require('../config-home.ts');
   const reg = registry ?? registryOrThrow();
   const home = configHome(env);
   const root = global ? null : absolute(projectRoot);
@@ -173,6 +170,10 @@ function loadSettings({ projectRoot = null, global = false, env = process.env, r
 }
 
 function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any): any {
+  const { REGISTRY_FILE } = require('./registry.ts');
+  const { REF_META } = require('./refs.ts');
+  const { readLayerFile } = require('./files.ts');
+  const { projectLayerSource } = require('./project-layers.ts');
   const scope: ViewName = global ? 'global' : 'project';
   const io = onceFs(fsImpl);
   const layers = root ? projectLayerSource(root, io) : { layersFrom: null, checkout: null };

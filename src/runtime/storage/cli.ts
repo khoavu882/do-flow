@@ -5,7 +5,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { loadStorageRegistry } = require('./registry.ts');
-const { resolveRoots, readPruneSetting } = require('./roots.ts');
+const { resolveRoots, createPruneSettingsResolver } = require('./roots.ts');
 const { runPass } = require('./engine.ts');
 const { upkeepAfterVerb } = require('./upkeep.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
@@ -29,10 +29,10 @@ function handleStorageCommand({ action = 'report', json = false, global = false,
     return;
   }
   const roots = resolveRoots({ registry, projectRoot: global ? null : path.resolve(projectRoot), global, env });
-  const projectSetting = readPruneSetting({ registry, roots, rootId: 'project-state', fsImpl });
-  const userSetting = readPruneSetting({ registry, roots, rootId: 'user-state', fsImpl });
-  const setting = Object.fromEntries(Object.keys(roots).map(rootId => [rootId,
-    readPruneSetting({ registry, roots, rootId, fsImpl })]));
+  const resolvePruneSetting = createPruneSettingsResolver({ roots, fsImpl });
+  const projectSetting = resolvePruneSetting('project-state');
+  const userSetting = resolvePruneSetting('user-state');
+  const setting = Object.fromEntries(Object.keys(roots).map(rootId => [rootId, resolvePruneSetting(rootId)]));
   const mode = action === 'prune' ? 'prune' : 'report';
   const result = runPass({ registry, roots, mode, setting, now: Date.now(), env, fsImpl });
   const removed = result.stores.reduce((sum: any, row: any) => sum + row.removed, 0);
