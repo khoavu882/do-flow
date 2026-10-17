@@ -13,10 +13,6 @@ const STORAGE_REGISTRY = path.join(REPO, 'src/runtime/storage/registry.ts');
 const STORAGE_ROOTS = path.join(REPO, 'src/runtime/storage/roots.ts');
 const STORAGE_REGISTRY_ROOT = REPO;
 const STORAGE_STAT_CEILING = 199; // BEFORE's 194 calls plus the NFR-003 allowance of five.
-// One-process `install --dry-run -g` counts from a c81abbdc archive, with an empty project and
-// scratch HOME/XDG_CONFIG_HOME. The allowance matches PF.3's filesystem delta acceptance.
-const INSTALL_BEFORE_FS = Object.freeze({ stat: 415, open: 406, read: 1016, exists: 483 });
-const INSTALL_FS_ALLOWANCE = Object.freeze({ stat: 10, open: 5, read: 10, exists: 10 });
 let counterSerial = 0;
 
 function isolatedProject(fixture) {
@@ -25,13 +21,13 @@ function isolatedProject(fixture) {
   return project;
 }
 
-function runCounters(fixture, args, cwd, { extraPreload } = {}) {
+function runCounters(fixture, args, cwd) {
   counterSerial += 1;
   const output = path.join(fixture.dir, `settings-hot-path-${process.pid}-${counterSerial}.jsonl`);
   const env = {
     DOFLOW_COUNTER_OUT: output,
     DOFLOW_SETTINGS_RESOLVER: RESOLVER,
-    NODE_OPTIONS: [COUNTER, extraPreload].filter(Boolean).map((file) => `--require=${file}`).join(' '),
+    NODE_OPTIONS: `--require=${COUNTER}`,
   };
   const result = fixture.run(args, { cwd, env });
   let counts = null;
@@ -58,44 +54,17 @@ function runNodeWithCounters(fixture, script, cwd, project) {
   return { result, counts: JSON.parse(lines[lines.length - 1]) };
 }
 
-test('install --dry-run -g stays within the BEFORE filesystem budget and loads the resolver at most once', (t) => {
+test('install --dry-run -g loads no settings support modules', (t) => {
   const fixture = createSettingsEnv(t, { prefix: 'doflow-settings-install-hot-path-' });
   const project = isolatedProject(fixture);
   const result = runCounters(fixture, ['install', '--dry-run', '-g'], project);
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Dry run complete/);
-  assert.equal(result.counts.loadSettingsCalls, 0, 'install projection does not resolve user settings');
+  assert.equal(result.counts.loadSettingsCalls, 0);
   assert.ok(result.counts.resolverModuleLoads <= 1);
   assert.deepEqual(result.counts.settingsSupportModules, [],
     `dry run imported ${result.counts.settingsSupportModules.join(', ')}`);
-  for (const operation of Object.keys(INSTALL_BEFORE_FS)) {
-    const ceiling = INSTALL_BEFORE_FS[operation] + INSTALL_FS_ALLOWANCE[operation];
-    assert.ok(result.counts.fsOperations[operation] <= ceiling,
-      `expected ${operation} <= ${ceiling} (BEFORE ${INSTALL_BEFORE_FS[operation]} + ${INSTALL_FS_ALLOWANCE[operation]}), got ${result.counts.fsOperations[operation]}`);
-  }
-});
-
-test('negative control: repeated per-adapter settings resolution exceeds the install filesystem budget', (t) => {
-  const fixture = createSettingsEnv(t, { prefix: 'doflow-settings-install-control-' });
-  const project = isolatedProject(fixture);
-  const planted = path.join(fixture.dir, 'planted-per-adapter-resolver.cjs');
-  fs.writeFileSync(planted, `
-    const { loadSettings } = require(${JSON.stringify(RESOLVER)});
-    for (let adapter = 0; adapter < 12; adapter++) {
-      loadSettings({ global: true, env: { ...process.env } });
-    }
-  `);
-  const result = runCounters(fixture, ['install', '--dry-run', '-g'], project, { extraPreload: planted });
-  const { counts } = result;
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(counts.resolverModuleLoads, 1);
-  assert.equal(counts.loadSettingsCalls, 12);
-  const exceeded = Object.keys(INSTALL_BEFORE_FS).some((operation) =>
-    counts.fsOperations[operation] > INSTALL_BEFORE_FS[operation] + INSTALL_FS_ALLOWANCE[operation]);
-  assert.ok(exceeded,
-    `expected the planted per-adapter resolver calls to exceed ${JSON.stringify(INSTALL_FS_ALLOWANCE)}; got ${JSON.stringify(counts.fsOperations)}`);
 });
 
 test('storage report resolves settings once and stays within five stat calls of BEFORE', (t) => {

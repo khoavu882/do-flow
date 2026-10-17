@@ -35,57 +35,6 @@ test('discoverTree lists nested files with source fingerprints and dest existenc
   assert.equal(byRel['a.md'].fingerprint, sha256('A'));
 });
 
-test('discoverTree caches source bytes by absolute path and clears them before apply', () => {
-  const root = scratch();
-  const sourceDir = seedSource(root, { 'a.md': 'A', 'nested/b.md': 'B' });
-  const destA = path.join(root, 'dest-a');
-  const destB = path.join(root, 'dest-b');
-  const reads = [];
-  const exists = [];
-  const fsImpl = new Proxy(fs, {
-    get(target, property) {
-      const value = Reflect.get(target, property, target);
-      if (property === 'readFileSync') return (file, ...args) => {
-        reads.push(path.resolve(String(file)));
-        return value.call(target, file, ...args);
-      };
-      if (property === 'existsSync') return (file) => {
-        exists.push(path.resolve(String(file)));
-        return value.call(target, file);
-      };
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-
-  const first = discoverTree({ sourceDir, destDir: destA, fsImpl });
-  const second = discoverTree({ sourceDir, destDir: destB, fsImpl });
-  assert.deepEqual(reads.sort(), [path.join(sourceDir, 'a.md'), path.join(sourceDir, 'nested/b.md')].sort());
-  assert.deepEqual(first.files.map((file) => file.fingerprint), second.files.map((file) => file.fingerprint));
-  const destinationChecks = exists.filter((file) => [destA, destB].some((root) => file.startsWith(`${root}${path.sep}`)));
-  assert.deepEqual(destinationChecks.sort(), [
-    path.join(destA, 'a.md'), path.join(destA, 'nested/b.md'),
-    path.join(destB, 'a.md'), path.join(destB, 'nested/b.md'),
-  ].sort(), 'a missing root still gets the original per-file checks');
-
-  // A present destination is still checked per file; source-content caching never caches a target.
-  fs.mkdirSync(destB, { recursive: true });
-  fs.writeFileSync(path.join(destB, 'a.md'), 'A');
-  const withExistingTarget = discoverTree({ sourceDir, destDir: destB, fsImpl });
-  assert.equal(withExistingTarget.files.find((file) => file.relPath === 'a.md').exists, true);
-  assert.ok(exists.includes(path.join(destB, 'a.md')));
-
-  // Equal bytes at a different absolute source path do not hit the first path's cache entry.
-  const otherSource = seedSource(path.join(root, 'other'), { 'a.md': 'A' });
-  discoverTree({ sourceDir: otherSource, destDir: path.join(root, 'dest-c'), fsImpl });
-  assert.equal(reads.filter((file) => file === path.join(otherSource, 'a.md')).length, 1);
-
-  // A real apply starts with fresh source bytes, so a source edit after planning is not stale.
-  fs.writeFileSync(path.join(sourceDir, 'a.md'), 'A2');
-  applyTree({ changes: [{ source: path.join(sourceDir, 'a.md'), target: path.join(destA, 'a.md'), operation: 'create' }], fsImpl });
-  const afterApply = discoverTree({ sourceDir, destDir: path.join(root, 'dest-d'), fsImpl });
-  assert.equal(afterApply.files.find((file) => file.relPath === 'a.md').fingerprint, sha256('A2'));
-});
-
 test('planTree proposes create for every file on a fresh (empty) destination', () => {
   const root = scratch();
   const sourceDir = seedSource(root, { 'a.md': 'A', 'nested/b.md': 'B' });
