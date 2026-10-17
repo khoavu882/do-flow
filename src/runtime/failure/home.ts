@@ -13,9 +13,9 @@
  * "on" turns it off (the lexical rule, `../settings/lexical.ts`). Otherwise it is on.
  */
 
-const fs = require('node:fs');
 const path = require('node:path');
 const { configHome } = require('../config-home.ts');
+const { loadSettings } = require('../settings/resolve.ts');
 
 const OFF_VALUES = new Set(['off', '0', 'false', 'no']);
 
@@ -31,13 +31,17 @@ const eventsPath = (home: string): string => path.join(home, 'events.jsonl');
 /** `settings.json` sits in the config home, one level above the failure home. */
 const settingsPath = (home: string): string => path.join(path.dirname(home), 'settings.json');
 
-/**
- * The lexical read of `<config home>/settings.json`. The rule module is required on the first call,
- * not at load: every verb loads this file through failure/capture.ts, and only a capture decision
- * needs the rule (086 B.4a; a `.ts` module costs about 1 ms to load).
- */
-function settingsCapture(home: string): 'on' | 'off' | null {
-  return require('../settings/lexical.ts').readLexicalCapture(settingsPath(home));
+/** Resolves the machine-wide setting and returns the file and sentinel parts of the old result shape. */
+function resolvedCapture(home: string, env: any): { effective: 'on' | 'off'; sentinel: boolean; settings: 'on' | 'off' | null } {
+  const resolverEnv = { ...env, XDG_CONFIG_HOME: path.dirname(path.dirname(home)) };
+  const view = loadSettings({ global: true, env: resolverEnv });
+  const result = view.get('failure.capture', 'global');
+  const sentinel = result.candidates.some((candidate: any) =>
+    candidate.legacy && candidate.source === sentinelPath(home) && candidate.value === 'off');
+  const file = result.candidates.find((candidate: any) =>
+    !candidate.legacy && candidate.layer === 'user' && candidate.source === settingsPath(home));
+  const settings = file?.value === 'on' || file?.value === 'off' ? file.value : null;
+  return { effective: result.value === 'off' ? 'off' : 'on', sentinel, settings };
 }
 
 /** The value of `DOFLOW_FAILURE_CAPTURE` when it is set to anything, else null. */
@@ -47,32 +51,30 @@ function envSetting(env: any = process.env): string | null {
 }
 
 /**
- * The capture switch (IC-014, IC-005). The sentinel file and a settings.json value other than "on"
- * turn capture off, and the environment can only turn capture off, never on over either. One `stat`
- * and one bounded read, no folder created.
+ * The capture switch (IC-014, IC-005). The resolver applies the global sentinel, lexical settings
+ * file value and environment layers; any off value wins. The resolver reads without creating a folder.
  * @param {string|null} home
  * @param {Object} [env]
  * @returns {{effective: 'on'|'off', sentinel: boolean, env: string|null, settings: 'on'|'off'|null}}
  *   `settings` is the lexical read of settings.json: null when the file holds no `failure.capture`
  */
 function captureSwitch(home: string | null, env: any = process.env): { effective: 'on' | 'off'; sentinel: boolean; env: string | null; settings: 'on' | 'off' | null } {
-  let sentinel = false;
-  let settings: 'on' | 'off' | null = null;
-  if (home) {
-    try { sentinel = fs.statSync(sentinelPath(home)).isFile(); } catch { sentinel = false; }
-    settings = settingsCapture(home);
-  }
   const setting = envSetting(env);
-  const envOff = setting !== null && OFF_VALUES.has(setting.trim().toLowerCase());
-  return { effective: sentinel || envOff || settings === 'off' ? 'off' : 'on', sentinel, env: setting, settings };
+  if (!home) {
+    const envOff = setting !== null && OFF_VALUES.has(setting.trim().toLowerCase());
+    return { effective: envOff ? 'off' : 'on', sentinel: false, env: setting, settings: null };
+  }
+  try {
+    const resolved = resolvedCapture(home, env);
+    return { ...resolved, env: setting };
+  } catch {
+    return { effective: 'off', sentinel: false, env: setting, settings: null };
+  }
 }
 
-/** The hot-path check a writer makes: the environment first, then one `stat` of the sentinel, then settings.json. */
+/** The hot-path check a writer makes; the shared resolver owns sentinel and settings-file reads. */
 function captureIsOff(home: string, env: any = process.env): boolean {
-  const setting = envSetting(env);
-  if (setting !== null && OFF_VALUES.has(setting.trim().toLowerCase())) return true;
-  try { if (fs.statSync(sentinelPath(home)).isFile()) return true; } catch { /* no sentinel */ }
-  return settingsCapture(home) === 'off';
+  try { return resolvedCapture(home, env).effective === 'off'; } catch { return true; }
 }
 
 module.exports = { failureHome, captureSwitch, captureIsOff, sentinelPath, eventsPath, envSetting };

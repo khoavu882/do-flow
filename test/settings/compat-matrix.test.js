@@ -481,23 +481,29 @@ test('C23 (XDG relative, HOME absolute), 2.1: the relative XDG is ignored and th
   assert.equal(f.node(NODE_PROBE, { env: { PROBE_READ: '1' } }).advice.state, 'on');
 });
 
-// flips in B.1/C.5 (086)
-test('2.0-pin: W1: a linked worktree reads only its own .doflow, never the main checkout\'s', (t) => {
+// The 2.1 linked-worktree result is the one declared by FR-012/OI-4.
+test('W1: a linked worktree inherits the main checkout project layers; its own layers still win', (t) => {
   const f = fx(t, { worktree: true });
   f.writeUserDecision(userDecision());
-  f.writeProjectPrune('off\n');                                            // main checkout
-  f.writeProjectDecision({ schema: 1, enabled: false });                  // main checkout
+  const mainPrune = f.writeProjectPrune('off\n');
+  const mainAdvice = f.writeProjectDecision({ schema: 1, enabled: false });
+  f.writeProjectSettings({ schema: 1, 'failure.capture': 'off' });          // capture remains global-only
   const roots = rootsOf(f, { projectRoot: f.worktree });
   assert.equal(roots['project-doflow'], path.join(f.worktree, '.doflow'));
-  assert.deepEqual(prune(f, 'project-state', { projectRoot: f.worktree }), { setting: 'on', decidedBy: null });
+  assert.deepEqual(prune(f, 'project-state', { projectRoot: f.worktree }), { setting: 'off', decidedBy: mainPrune });
   const result = resolveSetting({ adviceRegistry: ADVICE, roots });
-  assert.equal(result.state, 'on');
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: null });
-  assert.deepEqual(retentionWindow({ env: f.env(), projectRoot: f.worktree }), { state: 'on', hours: 4320, ms: 4320 * HOUR, source: 'default' });
+  assert.equal(result.state, 'off');
+  assert.equal(result.reason, 'project-disabled');
+  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: mainAdvice });
+  assert.deepEqual(retentionWindow({ env: f.env(), projectRoot: f.worktree }), { state: 'off' });
+  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', sentinel: false, env: null, settings: null });
   // control: the main checkout itself does read its own files
   assert.equal(prune(f, 'project-state').setting, 'off');
   assert.equal(advice(f).reason, 'project-disabled');
+  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', sentinel: false, env: null, settings: null });
   // control: a file in the worktree's own .doflow is read
-  const own = f.writeProjectPrune('off\n', f.worktree);
-  assert.deepEqual(prune(f, 'project-state', { projectRoot: f.worktree }), { setting: 'off', decidedBy: own });
+  const own = f.writeProjectPrune('on\n', f.worktree);
+  assert.deepEqual(prune(f, 'project-state', { projectRoot: f.worktree }), { setting: 'on', decidedBy: own });
+  assert.equal(resolveSetting({ adviceRegistry: ADVICE, roots: rootsOf(f, { projectRoot: f.worktree }) }).state, 'on');
+  assert.deepEqual(retentionWindow({ env: f.env(), projectRoot: f.worktree }), { state: 'on', hours: 4320, ms: 4320 * HOUR, source: 'default' });
 });

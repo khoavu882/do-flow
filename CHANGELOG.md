@@ -21,6 +21,9 @@ All notable changes to DoFlow are documented here. Format follows
 - With no config home the hooks no longer exit: `lib.sh` in the shared policies and in each harness continues, session hooks (`session-start`, `user-prompt-submit`, `stop-check`) skip their state work and exit 0, and a guard hook such as Kiro's `pre-bash-guard` reaches its own decision.
 - `doflow advise --action configure` exits 2 with a usage message, and writes nothing, when there is no config home.
 - Failure capture reads `failure.capture` from `<config home>/settings.json`. The dispatcher, the shell policies, the JS hook runner and Node apply one text rule: any value other than `"on"` means off, and a settings file that is unreadable or not a regular file means off. See [Config home](docs/reference.md#config-home).
+- A linked worktree with no settings files in its own `.doflow/` now reads project settings from the main checkout, including legacy `decision-model.json` and `prune` files. A worktree with its own settings continues to use them.
+- Settings JSON parse errors report the byte offset only; the file contents are not included in errors.
+- The legacy `decision-model.json`, `prune` and `failures/off` sources remain readable through 2.x. `doflow config list` identifies each legacy source with a deprecation note and the corresponding `settings.json` key.
 
 ## [2.0.0] - 2026-10-14
 

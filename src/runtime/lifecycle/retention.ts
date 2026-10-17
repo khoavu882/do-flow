@@ -11,15 +11,14 @@
  * older than the window. A unit whose removal would change anything else the fold shows (another
  * item, a feature, a release, a conflict) is kept.
  *
- * `parseWindow` remains pure. `retentionWindow` composes its unset case with the declared storage
- * default and the project's prune setting; explicit environment values retain their existing meaning.
+ * `parseWindow` remains pure. `retentionWindow` composes the resolver-owned default with the project's
+ * prune setting; explicit values retain their existing meaning while pruning is off.
  */
 
 const nodeFs = require('node:fs');
 const { isDeepStrictEqual } = require('node:util');
-const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { loadStorageRegistry } = require('../storage/registry.ts');
-const { resolveRoots, readPruneSetting } = require('../storage/roots.ts');
+const { loadSettings } = require('../settings/resolve.ts');
+const { loadSettingsRegistry } = require('../settings/registry.ts');
 const { foldInto, finalize } = require('./fold.ts');
 
 const HOUR_MS = 3600000;
@@ -35,23 +34,45 @@ function parseWindow(env: Record<string, string | undefined> = process.env): { s
   return { state: 'invalid', raw: String(raw) };
 }
 
-/** Composes IC-013's explicit environment override with the declared lifecycle default. */
-function retentionWindow({ env = process.env, projectRoot, registry, fsImpl = nodeFs }: any = {}): any {
+function invalidRaw(resolved: any, env: Record<string, string | undefined>): string {
+  for (let i = resolved.candidates.length - 1; i >= 0; i -= 1) {
+    const candidate = resolved.candidates[i];
+    if (candidate.status !== 'invalid') continue;
+    if (candidate.layer === 'env') return String(env.DOFLOW_RETENTION_HOURS ?? '');
+    try {
+      const raw = JSON.parse(candidate.display);
+      if (typeof raw === 'string' || typeof raw === 'number') return String(raw);
+    } catch { /* a malformed whole-file candidate has no display value */ }
+    return candidate.display || candidate.reason || candidate.code || '';
+  }
+  return '';
+}
+
+/** Composes the retention setting and prune gate through the shared settings resolver. */
+function retentionWindow({ env = process.env, projectRoot, fsImpl = nodeFs }: any = {}): any {
   const parsed = parseWindow(env);
   if (parsed.state === 'invalid') return parsed;
-  if (parsed.state === 'on') return { ...parsed, source: 'env' };
-  let activeRegistry: any;
   try {
-    activeRegistry = registry || loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
+    let settingsRegistry;
+    if (fsImpl !== nodeFs) {
+      const loaded = loadSettingsRegistry({ fsImpl });
+      if (!loaded.ok) throw new Error(loaded.detail);
+      settingsRegistry = loaded.registry;
+    }
+    const view = loadSettings({ projectRoot, env, fsImpl, ...(settingsRegistry ? { registry: settingsRegistry } : {}) });
+    const retention = view.get('storage.retentionHours', 'project');
+    if (retention.state === 'invalid') return { state: 'invalid', raw: invalidRaw(retention, env) };
+    if (retention.explicit) {
+      const hours = retention.value;
+      return { state: 'on', hours, ms: hours * HOUR_MS, source: retention.origin.layer };
+    }
+    if (view.get('storage.prune', 'project').value !== 'on') return { state: 'off' };
+    const hours = retention.value;
+    return { state: 'on', hours, ms: hours * HOUR_MS, source: 'default' };
   } catch {
-    return { state: 'off' };
+    // Preserve an explicit environment window when the resolver registry is unavailable.
+    return parsed.state === 'on' ? { ...parsed, source: 'env' } : { state: 'off' };
   }
-  const roots = resolveRoots({ registry: activeRegistry, projectRoot, env });
-  if (readPruneSetting({ registry: activeRegistry, roots, rootId: 'project-state', fsImpl }).setting !== 'on') return { state: 'off' };
-  const lifecycleStore = activeRegistry.stores.find((store: any) => store.id === 'lifecycle-events');
-  if (!lifecycleStore) throw new Error('Storage registry has no lifecycle-events store');
-  const hours = lifecycleStore.bound.defaultHours;
-  return { state: 'on', hours, ms: hours * HOUR_MS, source: 'default' };
 }
 
 function isText(value: any): boolean { return typeof value === 'string' && value.trim() !== ''; }
