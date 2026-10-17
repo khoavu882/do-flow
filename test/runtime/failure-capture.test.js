@@ -110,7 +110,9 @@ describe('capture switch (IC-014)', () => {
 
   test('on by default, and stat-ing the sentinel creates no folder', () => {
     const home = homeOf(ctx.env);
-    assert.deepEqual(captureSwitch(home, ctx.env), { effective: 'on', sentinel: false, env: null, settings: null });
+    assert.deepEqual(captureSwitch(home, ctx.env), {
+      effective: 'on', sentinel: false, env: null, settings: null, decidedBy: 'core/registry/settings.json',
+    });
     assert.equal(fs.existsSync(home), false);
   });
   for (const value of ['off', 'OFF', '0', 'false', 'No', ' off ']) {
@@ -132,20 +134,24 @@ describe('capture switch (IC-014)', () => {
     fs.writeFileSync(path.join(home, 'off'), '2026-10-03T00:00:00.000Z\n');
     const env = { ...ctx.env, DOFLOW_FAILURE_CAPTURE: 'on' };
     assert.equal(captureIsOff(home, env), true);
-    assert.deepEqual(captureSwitch(home, env), { effective: 'off', sentinel: true, env: 'on', settings: null });
+    assert.deepEqual(captureSwitch(home, env), {
+      effective: 'off', sentinel: true, env: 'on', settings: null, decidedBy: path.join(home, 'off'),
+    });
   });
   test('settings.json: a failure.capture value other than "on" turns capture off; "on" and a missing key do not (IC-005)', () => {
     const home = homeOf(ctx.env);
     const settings = path.join(path.dirname(home), 'settings.json');
     fs.mkdirSync(path.dirname(settings), { recursive: true });
-    for (const [text, settingsValue, effective] of [
-      ['{"failure.capture":"off"}', 'off', 'off'],
-      ['{"failure.capture":"banana"}', 'off', 'off'],
-      ['{\r\n  "failure.capture": "on"\r\n}', 'on', 'on'],
-      ['{"schema":1}', null, 'on'],
+    for (const [text, settingsValue, effective, decidedBy] of [
+      ['{"failure.capture":"off"}', 'off', 'off', settings],
+      ['{"failure.capture":"banana"}', null, 'off', settings],
+      ['{\r\n  "failure.capture": "on"\r\n}', 'on', 'on', 'core/registry/settings.json'],
+      ['{"schema":1}', null, 'on', 'core/registry/settings.json'],
     ]) {
       fs.writeFileSync(settings, text);
-      assert.deepEqual(captureSwitch(home, ctx.env), { effective, sentinel: false, env: null, settings: settingsValue }, text);
+      assert.deepEqual(captureSwitch(home, ctx.env), {
+        effective, sentinel: false, env: null, settings: settingsValue, decidedBy,
+      }, text);
       assert.equal(captureIsOff(home, ctx.env), effective === 'off', text);
     }
     // the environment still only turns capture off, never on over settings.json

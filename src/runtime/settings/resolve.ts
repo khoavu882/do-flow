@@ -35,7 +35,11 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
-const { isOffWord, maskUrl } = require('./shared.ts');
+const { isOffWord } = require('../off-words.ts');
+
+function maskUrl(value: string): string {
+  return require('./shared.ts').maskUrl(value);
+}
 
 type Layer = 'flag' | 'env' | 'local' | 'project' | 'user' | 'default';
 type ViewName = 'project' | 'global';

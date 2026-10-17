@@ -2,12 +2,8 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
-/** Shared parsing and redaction rules for settings and their compatibility adapters. */
-const OFF_WORDS = new Set(['off', '0', 'false', 'no']);
-
-function isOffWord(value: unknown): boolean {
-  return typeof value === 'string' && OFF_WORDS.has(value.trim().toLowerCase());
-}
+/** Shared redaction rules for settings and their compatibility adapters. */
+const { OFF_WORDS, isOffWord } = require('../off-words.ts');
 
 function maskUrlParts(text: string): string {
   return text.split('&').map((part) => {

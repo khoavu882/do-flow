@@ -114,14 +114,42 @@ test("A.3: append's return keys are unchanged apart from the three fields", (t) 
   assert.deepEqual(ledger(t, { ...VALID }).append('route'), { written: false, dropped: [], reason: 'event must be an object' });
 });
 
-test('PF.1b: a run-ledger append creates the telemetry subdirectory beside runs', (t) => {
+test('PF.1b: a run-ledger append creates the telemetry subdirectory when telemetry is on', (t) => {
   const projectRoot = tempDir(t, 'doflow-run-ledger-telemetry-');
   const runs = path.join(projectRoot, '.doflow', 'state', 'runs');
   fs.mkdirSync(path.dirname(runs), { recursive: true });
-  const result = new RunLedger({ dir: runs, clock: () => NOW, env: {} }).append({ verb: 'route', outcome: 'ok' });
+  const result = new RunLedger({ dir: runs, clock: () => NOW, env: { DOFLOW_TELEMETRY: 'on' } }).append({ verb: 'route', outcome: 'ok' });
 
   assert.equal(result.written, true);
   assert.equal(fs.statSync(path.join(runs, 'telemetry')).isDirectory(), true);
+  assert.equal(fs.readFileSync(result.file, 'utf8'), `${JSON.stringify(result.record)}\n`);
+});
+
+test('PF.1b: telemetry off leaves the telemetry subdirectory absent', (t) => {
+  const projectRoot = tempDir(t, 'doflow-run-ledger-telemetry-off-');
+  const runs = path.join(projectRoot, '.doflow', 'state', 'runs');
+  fs.mkdirSync(path.dirname(runs), { recursive: true });
+  const result = new RunLedger({ dir: runs, clock: () => NOW, env: { DOFLOW_TELEMETRY: 'off' } }).append({ verb: 'route', outcome: 'ok' });
+
+  assert.equal(result.written, true);
+  assert.equal(fs.existsSync(path.join(runs, 'telemetry')), false);
+  assert.equal(fs.readFileSync(result.file, 'utf8'), `${JSON.stringify(result.record)}\n`);
+});
+
+test('PF.1b: a telemetry directory fault leaves no directory and does not change the ledger outcome', (t) => {
+  const projectRoot = tempDir(t, 'doflow-run-ledger-telemetry-fault-');
+  const runs = path.join(projectRoot, '.doflow', 'state', 'runs');
+  const telemetry = path.join(runs, 'telemetry');
+  fs.mkdirSync(path.dirname(runs), { recursive: true });
+  const fsImpl = Object.create(fs);
+  fsImpl.mkdirSync = (target, options) => {
+    if (path.resolve(target) === telemetry) throw new Error('injected telemetry mkdir fault');
+    return fs.mkdirSync(target, options);
+  };
+  const result = new RunLedger({ dir: runs, fsImpl, clock: () => NOW, env: { DOFLOW_TELEMETRY: 'on' } }).append({ verb: 'route', outcome: 'ok' });
+
+  assert.equal(result.written, true);
+  assert.equal(fs.existsSync(telemetry), false);
   assert.equal(fs.readFileSync(result.file, 'utf8'), `${JSON.stringify(result.record)}\n`);
 });
 

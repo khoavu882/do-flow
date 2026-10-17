@@ -15,8 +15,7 @@
 
 const path = require('node:path');
 const { configHome } = require('../config-home.ts');
-const { loadSettings } = require('../settings/resolve.ts');
-const { isOffWord } = require('../settings/shared.ts');
+const { isOffWord } = require('../off-words.ts');
 
 /** @param {Object} [env] defaults to process.env
  * @returns {string|null} the failure home, an absolute path, or null when none can be resolved */
@@ -32,6 +31,7 @@ const settingsPath = (home: string): string => path.join(path.dirname(home), 'se
 
 /** Resolves the machine-wide setting and returns the file and sentinel parts of the old result shape. */
 function resolvedCapture(home: string, env: any): { effective: 'on' | 'off'; sentinel: boolean; settings: 'on' | 'off' | null; decidedBy: string | null; deprecatedNotes: string[] } {
+  const { loadSettings } = require('../settings/resolve.ts');
   const resolverEnv = { ...env, XDG_CONFIG_HOME: path.dirname(path.dirname(home)) };
   const view = loadSettings({ global: true, env: resolverEnv });
   const result = view.get('failure.capture', 'global');
