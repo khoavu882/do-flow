@@ -12,9 +12,11 @@
  */
 
 const fs = require('node:fs');
+const path = require('node:path');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { maskLine, printSafe } = require('../mask.ts');
 const { failureHome, captureSwitch, sentinelPath } = require('./home.ts');
+const { writeLayer } = require('../settings/write.ts');
 const { rotateIfDue } = require('./capture.ts');
 const store = require('./store.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
@@ -25,6 +27,7 @@ const ACTIONS = ['list', 'settle', 'capture'];
 const STATEMENT_MAX = 280;
 const FP = /^[0-9a-f]{16}$/;
 const CONTROL = /[\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]/g;
+const OFF_ENV_VALUES = new Set(['off', '0', 'false', 'no']);
 
 /** A caller mistake (exit 2). */
 class FailureUsageError extends Error {}
@@ -119,19 +122,23 @@ function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date(
 
 // ── capture ────────────────────────────────────────────────────────────────────────────────────
 
-function captureState({ set, env = process.env, now = new Date() }: any = {}): any {
+function captureState({ set, env = process.env }: any = {}): any {
   if (set !== undefined && set !== 'on' && set !== 'off') throw new FailureUsageError(`--set must be on or off (got '${set}')`);
   const home = failureHome(env);
-  if (home !== null && set === 'off') {
-    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(sentinelPath(home), `${now.toISOString()}\n`, { mode: 0o600 });
-  } else if (home !== null && set === 'on') {
-    fs.rmSync(sentinelPath(home), { force: true });
+  if (home !== null && set !== undefined) {
+    const file = path.join(path.dirname(home), 'settings.json');
+    const written = writeLayer({ file, set: { 'failure.capture': set } });
+    if (!written.ok) return refusal('capture', 'write-failed', written.detail);
   }
   const state = captureSwitch(home, env);
   // With no failure home nothing is captured, whatever the switch says.
   const result: any = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, sentinel: state.sentinel, env: state.env };
   if (home === null) result.home = null;
+  else if (set !== undefined) {
+    const envOff = state.env !== null && OFF_ENV_VALUES.has(state.env.trim().toLowerCase());
+    result.decidedBy = state.sentinel ? sentinelPath(home)
+      : envOff ? 'DOFLOW_FAILURE_CAPTURE' : path.join(path.dirname(home), 'settings.json');
+  }
   return result;
 }
 
@@ -147,7 +154,7 @@ function lines(result: any): string[] {
     return [...out, ...result.next.map((n: string) => `next: ${n}`)];
   }
   if (result.action === 'settle') return [`${result.fp} settled as ${result.as}${result.followup ? `, follow-up ${result.followup.id}` : ''}`];
-  return [`capture ${result.effective}${result.sentinel ? ' (switched off on this machine)' : ''}${result.env ? ` (DOFLOW_FAILURE_CAPTURE=${result.env})` : ''}`];
+  return [`capture ${result.effective}${result.sentinel ? ' (switched off on this machine)' : ''}${result.env ? ` (DOFLOW_FAILURE_CAPTURE=${result.env})` : ''}${result.decidedBy ? ` (decided by ${result.decidedBy})` : ''}`];
 }
 
 /**

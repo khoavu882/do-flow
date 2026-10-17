@@ -7,12 +7,6 @@ const path = require('node:path');
 const { resolveRoots } = require('../storage/roots.ts');
 const { loadSettings } = require('../settings/resolve.ts');
 
-const KNOWN_KEYS = new Set(['schema', 'enabled', 'provider', 'endpoint', 'model']);
-
-function isObject(value: any): boolean {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function offResult(reason: string, decidedBy: any, notes: string[] = [], setting: any = {}): any {
   return {
     state: 'off', reason,
@@ -146,41 +140,4 @@ function resolveSetting({
   }
 }
 
-function writeSetting({ file, setting, level = 'user', force = false, fsImpl = fs }: any = {}): any {
-  if (typeof file !== 'string' || !file || !isObject(setting)) {
-    return { ok: false, reason: 'config-invalid', detail: 'file and setting object are required' };
-  }
-  const directory = path.dirname(file);
-  let existing: any = {};
-  try {
-    if (fsImpl.existsSync(file)) {
-      try {
-        const parsed = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
-        if (!isObject(parsed)) throw new Error('setting must be a JSON object');
-        existing = parsed;
-      } catch (error: any) {
-        if (!force) return { ok: false, reason: 'config-invalid', detail: `${file}: ${error.message}` };
-      }
-    }
-
-    const preserved = Object.fromEntries(Object.entries(existing).filter(([key]) => !KNOWN_KEYS.has(key)));
-    const retainedUserFields = level === 'user' && setting.enabled === false
-      ? Object.fromEntries(['provider', 'endpoint', 'model'].filter((key) => existing[key] !== undefined).map((key) => [key, existing[key]]))
-      : {};
-    const output = { ...preserved, ...retainedUserFields, ...setting };
-    fsImpl.mkdirSync(directory, { recursive: true });
-    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const temporary = path.join(directory, `.${path.basename(file)}.${suffix}.tmp`);
-    try {
-      fsImpl.writeFileSync(temporary, `${JSON.stringify(output, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-      fsImpl.renameSync(temporary, file);
-    } finally {
-      try { if (fsImpl.existsSync(temporary)) fsImpl.unlinkSync(temporary); } catch { /* keep the primary result */ }
-    }
-    return { ok: true, file, setting: output };
-  } catch (error: any) {
-    return { ok: false, reason: 'config-invalid', detail: `${file}: ${error.message}` };
-  }
-}
-
-module.exports = { resolveSetting, writeSetting };
+module.exports = { resolveSetting };

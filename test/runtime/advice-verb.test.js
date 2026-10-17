@@ -18,6 +18,8 @@ function fixture(t, { setting = null } = {}) {
   fs.mkdirSync(project);
   const userFile = path.join(scratch.xdg, 'doflow', 'decision-model.json');
   const projectFile = path.join(project, '.doflow', 'decision-model.json');
+  const userSettingsFile = path.join(scratch.xdg, 'doflow', 'settings.json');
+  const projectSettingsFile = path.join(project, '.doflow', 'settings.json');
   const servers = [];
   t.after(async () => {
     for (const server of servers) await server.close();
@@ -25,7 +27,7 @@ function fixture(t, { setting = null } = {}) {
   });
   if (setting) writeJson(userFile, setting);
   return {
-    scratch, project, userFile, projectFile,
+    scratch, project, userFile, projectFile, userSettingsFile, projectSettingsFile,
     env: () => scratch.env({ DOFLOW_CLI: BIN }),
     run: (args) => spawnSync('/bin/bash', [RUN, 'advise', ...args], { cwd: project, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' }),
     startServer: async (routes = {}) => {
@@ -187,26 +189,33 @@ test('IC-021 configure writes user/project forms and off performs no server chec
   assert.equal(configured.status, 0, configured.stderr);
   const json = JSON.parse(configured.stdout);
   assert.equal(json.setting.state, 'on');
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.userFile, 'utf8')), {
-    schema: 1, enabled: true, provider: 'ollama', endpoint: server.origin, model: 'clef-flash',
+  assert.equal(json.written, f.userSettingsFile);
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.userSettingsFile, 'utf8')), {
+    schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': server.origin, 'advice.model': 'clef-flash',
   });
 
   // A closed endpoint makes accidental inspection fail; --off must succeed without opening a socket.
-  writeJson(f.userFile, userSetting('http://127.0.0.1:9'));
+  writeJson(f.userSettingsFile, {
+    schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama',
+    'advice.endpoint': 'http://127.0.0.1:9', 'advice.model': 'clef-flash',
+  });
   const off = f.run(['--action', 'configure', '--off', '--json']);
   assert.equal(off.status, 0, off.stderr);
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.userFile, 'utf8')), {
-    schema: 1, enabled: false, provider: 'ollama', endpoint: 'http://127.0.0.1:9', model: 'clef-flash',
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.userSettingsFile, 'utf8')), {
+    schema: 1, 'advice.enabled': false, 'advice.provider': 'ollama',
+    'advice.endpoint': 'http://127.0.0.1:9', 'advice.model': 'clef-flash',
   });
 
   const reenabled = f.run(['--action', 'configure', '--model', 'clef-flash', '--endpoint', server.origin, '--json']);
   assert.equal(reenabled.status, 0, reenabled.stderr);
   const projectOn = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json']);
   assert.equal(projectOn.status, 0, projectOn.stderr);
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectFile, 'utf8')), { schema: 1, model: 'clef-flash' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectSettingsFile, 'utf8')), { schema: 1, 'advice.model': 'clef-flash' });
   const projectOff = f.run(['--action', 'configure', '--project', '--off', '--json']);
   assert.equal(projectOff.status, 0, projectOff.stderr);
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectFile, 'utf8')), { schema: 1, enabled: false });
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectSettingsFile, 'utf8')), {
+    schema: 1, 'advice.enabled': false, 'advice.model': 'clef-flash',
+  });
 
   const userOff = f.run(['--action', 'configure', '--off']);
   assert.equal(userOff.status, 0, userOff.stderr);
@@ -236,7 +245,7 @@ test('configure at user level with no config home exits 2 naming HOME or XDG_CON
   // control: with a config home the same command writes as before
   const ok = f.run(['--action', 'configure', '--off']);
   assert.equal(ok.status, 0, ok.stderr);
-  assert.equal(fs.existsSync(f.userFile), true);
+  assert.equal(fs.existsSync(f.userSettingsFile), true);
 });
 
 for (const failure of [

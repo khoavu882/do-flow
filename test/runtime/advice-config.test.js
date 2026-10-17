@@ -10,7 +10,7 @@ const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts')
 const { loadSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
-const { resolveSetting, writeSetting } = require('../../src/runtime/advice/config.ts');
+const { resolveSetting } = require('../../src/runtime/advice/config.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const ADVICE = loadAdviceRegistry({ repoRoot: REPO }).registry;
@@ -164,51 +164,6 @@ test('IC-001 global mode reads only the user setting', (t) => {
   const result = resolve(paths);
   assert.equal(result.state, 'on');
   assert.equal(result.decidedBy.project, null);
-});
-
-test('IC-021 writer creates config-home and atomically renames the user setting', (t) => {
-  const paths = fixture(t, true);
-  const calls = [];
-  const fsImpl = Object.create(fs);
-  fsImpl.renameSync = (from, to) => { calls.push([from, to]); return fs.renameSync(from, to); };
-  const setting = userSetting();
-  const result = writeSetting({ file: paths.userFile, setting, fsImpl });
-  assert.equal(result.ok, true, result.detail);
-  assert.deepEqual(JSON.parse(fs.readFileSync(paths.userFile, 'utf8')), setting);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][1], paths.userFile);
-  assert.equal(path.dirname(calls[0][0]), path.dirname(paths.userFile));
-  assert.equal(fs.readdirSync(path.dirname(paths.userFile)).length, 1);
-});
-
-test('IC-021 --off keeps existing fields and unknown keys', (t) => {
-  const paths = fixture(t, true);
-  writeJson(paths.userFile, userSetting({ future: 'preserved' }));
-  const result = writeSetting({ file: paths.userFile, setting: { schema: 1, enabled: false } });
-  assert.equal(result.ok, true, result.detail);
-  assert.deepEqual(JSON.parse(fs.readFileSync(paths.userFile, 'utf8')), userSetting({ enabled: false, future: 'preserved' }));
-});
-
-test('IC-021 refuses malformed existing JSON without force and replaces it with force', (t) => {
-  const paths = fixture(t, true);
-  fs.mkdirSync(path.dirname(paths.userFile), { recursive: true });
-  fs.writeFileSync(paths.userFile, '{broken');
-  let result = writeSetting({ file: paths.userFile, setting: userSetting() });
-  assert.equal(result.ok, false);
-  assert.equal(fs.readFileSync(paths.userFile, 'utf8'), '{broken');
-  result = writeSetting({ file: paths.userFile, setting: userSetting(), force: true });
-  assert.equal(result.ok, true, result.detail);
-  assert.deepEqual(JSON.parse(fs.readFileSync(paths.userFile, 'utf8')), userSetting());
-});
-
-test('IC-021 writer handles project model and project off shapes', (t) => {
-  const paths = fixture(t);
-  let result = writeSetting({ file: paths.projectFile, level: 'project', setting: { schema: 1, model: 'nimble', future: 'preserved' } });
-  assert.equal(result.ok, true, result.detail);
-  assert.deepEqual(JSON.parse(fs.readFileSync(paths.projectFile, 'utf8')), { schema: 1, model: 'nimble', future: 'preserved' });
-  result = writeSetting({ file: paths.projectFile, level: 'project', setting: { schema: 1, enabled: false } });
-  assert.equal(result.ok, true, result.detail);
-  assert.deepEqual(JSON.parse(fs.readFileSync(paths.projectFile, 'utf8')), { schema: 1, enabled: false, future: 'preserved' });
 });
 
 test('C4: decision-model JSON failures report offsets without file contents', (t) => {

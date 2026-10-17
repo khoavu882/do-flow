@@ -264,6 +264,14 @@ describe('uncaughtExceptionMonitor in bin/doflow.js', () => {
 describe('what capture must never change', () => {
   const type = { kind: 'stub', module: 'src/cli/commands/status.ts', error: 'type' };
 
+  test('failure --set off writes settings.json and leaves the legacy sentinel path untouched', () => {
+    const result = run(['failure', '--action', 'capture', '--set', 'off', '--json']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(result.xdg, 'doflow', 'settings.json'), 'utf8')),
+      { schema: 1, 'failure.capture': 'off' });
+    assert.equal(fs.existsSync(path.join(result.xdg, 'doflow', 'failures', 'off')), false);
+  });
+
   test('an unwritable store: silent, same output and exit status as capture off', (t) => {
     const dir = tempDir(t, 'doflow-failure-capture-cli-blocked-');
     const blocker = path.join(dir, 'file');

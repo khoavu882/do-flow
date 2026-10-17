@@ -9,7 +9,8 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadAdviceRegistry } = require('./registry.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
-const { resolveSetting, writeSetting } = require('./config.ts');
+const { resolveSetting } = require('./config.ts');
+const { writeLayer } = require('../settings/write.ts');
 const { createAdviceClient } = require('./client.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
 const { findPick, appendOutcome } = require('./record.ts');
@@ -155,12 +156,11 @@ async function handleConfigure(options: any, runtime: any) {
   if (!project && !roots['config-home']) return usageError('advise', 'no config home resolves; set an absolute HOME or XDG_CONFIG_HOME, or use --project', json);
 
   const file = project
-    ? path.join(roots['project-doflow'], 'decision-model.json')
-    : path.join(roots['config-home'], 'decision-model.json');
+    ? path.join(roots['project-doflow'], 'settings.json')
+    : path.join(roots['config-home'], 'settings.json');
   const fsImpl = fs;
   if (hasOff) {
-    const setting = project ? { schema: 1, enabled: false } : { schema: 1, enabled: false };
-    const written = writeSetting({ file, level: project ? 'project' : 'user', setting, force, fsImpl });
+    const written = writeLayer({ file, set: { 'advice.enabled': false }, force, fsImpl });
     if (!written.ok) return writeFailure(written.detail, json);
     const effective = resolveSetting({ adviceRegistry, roots, fsImpl });
     if (json) console.log(JSON.stringify({ written: file, setting: effective }, null, 2));
@@ -187,9 +187,9 @@ async function handleConfigure(options: any, runtime: any) {
   if (failure) return writeFailure(failure, json);
 
   const setting = project
-    ? { schema: 1, model: options.model }
-    : { schema: 1, enabled: true, provider: provider.id, endpoint, model: options.model };
-  const written = writeSetting({ file, level: project ? 'project' : 'user', setting, force, fsImpl });
+    ? { 'advice.model': options.model }
+    : { 'advice.enabled': true, 'advice.provider': provider.id, 'advice.endpoint': endpoint, 'advice.model': options.model };
+  const written = writeLayer({ file, set: setting, force, fsImpl });
   if (!written.ok) return writeFailure(written.detail, json);
   const effective = resolveSetting({ adviceRegistry, roots, fsImpl });
   if (json) console.log(JSON.stringify({ written: file, setting: effective }, null, 2));
