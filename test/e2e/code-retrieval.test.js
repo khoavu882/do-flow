@@ -72,3 +72,23 @@ test('unbound retrieve --scope code in a linked worktree searches the worktree w
   assert.equal(slugged.status, 0, slugged.stderr);
   assert.match(slugged.stderr, /feature '930-wt' lives in the main checkout/, 'an explicit --slug keeps feature-store routing');
 });
+
+// X3: an unstaged tracked delete is an admission coverage gap, never a lexical provider-error.
+test('retrieve --scope code with an unstaged tracked delete reports an admission gap and no provider-error', (t) => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-code-retrieve-x3-'));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  delete env.FORCE_COLOR;
+  const git = (...args) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: root, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.writeFileSync(path.join(root, 'src/auth.js'), 'function parseToken() { return true; }\n');
+  fs.writeFileSync(path.join(root, 'src/gone.js'), 'parseToken();\n');
+  git('init', '-q', '-b', 'main'); git('add', '-A'); git('commit', '-q', '-m', 'init');
+  fs.unlinkSync(path.join(root, 'src/gone.js'));
+  const result = spawnSync(process.execPath, [BIN, 'retrieve', '--scope', 'code', '--root', root, '--query', 'parseToken', '--json'], { cwd: root, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.deepEqual(response.results.map((r) => r.locator.file), ['src/auth.js']);
+  assert.deepEqual(response.gaps, [{ source: 'admission', reason: 'source-unreadable', count: 1 }]);
+  assert.equal(response.coverage.complete, false);
+  assert.equal(response.attempts[0].reason, undefined, 'native.rg is not marked provider-error');
+});

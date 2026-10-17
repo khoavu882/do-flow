@@ -198,6 +198,15 @@ async function executeCodeRetrieval(options: any = {}) {
   const gaps = [];
   const rankedLists = [];
   const coverage = { corpusComplete: Boolean(inventory.complete), lexical: [] as any[], semantic: null, live: null, complete: Boolean(inventory.complete) };
+  // Admission skips are counted coverage gaps with their cause, never a provider outcome (X3); index build and
+  // refresh still refuse an incomplete corpus (IC-003, IC-005).
+  if (!inventory.complete) {
+    const skipped = Array.isArray(inventory.skipped) ? inventory.skipped : [];
+    const byReason = new Map<string, number>();
+    for (const entry of skipped) byReason.set(entry.reason, (byReason.get(entry.reason) || 0) + 1);
+    if (!byReason.size) byReason.set('incomplete-corpus', 1);
+    for (const [reason, count] of byReason) gaps.push({ source: 'admission', reason, count });
+  }
   const accounting = { corpusFiles: inventory.files?.length || 0, corpusBytes: inventory.accounting?.sourceBytes || 0,
     semanticSourceReadBytes: 0, lexicalReadBytes: 0, liveReadBytes: 0, deliveredCandidates: 0 };
   let lexicalExecuted = false;
@@ -224,7 +233,7 @@ async function executeCodeRetrieval(options: any = {}) {
     rankedLists.push({ provider: 'native.rg', capability, queryRef, retrievalAttemptRef: lexicalId, candidates: lexCandidates });
     const lexOutcome = lexicalOutcome(lexResult);
     attempts.push(appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider: 'native.rg', capability,
-      id: lexicalId, candidates: lexCandidates, indexState: 'NOT_APPLICABLE', ...lexOutcome, complete: Boolean(lexResult.complete) }));
+      id: lexicalId, candidates: lexCandidates, indexState: 'NOT_APPLICABLE', ...lexOutcome, complete: Boolean(lexResult.complete && inventory.complete) }));
     if (lexOutcome.failure || lexOutcome.bound) gaps.push({ provider: 'native.rg', reason: lexOutcome.failure || lexOutcome.bound, source: 'lexical' });
 
     if (profile === 'hybrid' && classification.queryClass === 'conceptual') {
@@ -260,7 +269,7 @@ async function executeCodeRetrieval(options: any = {}) {
         rankedLists.push({ provider: 'native.rg', capability, queryRef, retrievalAttemptRef: fallbackId, candidates: fallbackCandidates });
         const fallbackOutcome = lexicalOutcome(fallback);
         attempts.push(appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider: 'native.rg', capability,
-          id: fallbackId, candidates: fallbackCandidates, indexState: 'NOT_APPLICABLE', ...fallbackOutcome, complete: Boolean(fallback.complete) }));
+          id: fallbackId, candidates: fallbackCandidates, indexState: 'NOT_APPLICABLE', ...fallbackOutcome, complete: Boolean(fallback.complete && inventory.complete) }));
         if (fallbackOutcome.failure || fallbackOutcome.bound) gaps.push({ provider: 'native.rg', reason: fallbackOutcome.failure || fallbackOutcome.bound, source: 'fallback' });
       }
     }

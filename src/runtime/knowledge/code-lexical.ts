@@ -36,11 +36,12 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
   const rows: any[] = [];
   const rejected: any[] = [];
   const filesPerTerm = new Map<string, number>();
-  let complete = Boolean(inventory.complete);
+  let complete = true;
   let readBytes = 0;
   let searchedFiles = 0;
-  // A binary-looking admitted file is a coverage gap (counted with its cause), not a provider fault:
-  // `complete` stays the provider outcome while `coverage.complete` reports every unsearched file.
+  // A binary-looking admitted file, like a file admission skipped (size or count cap, unstaged delete or rename;
+  // X3), is a coverage gap counted with its cause, not a provider fault: `complete` stays the provider outcome
+  // while `coverage.complete` reports every unsearched or unadmitted file.
   const unsearched: any[] = [];
   const failures = (p: string, reason: string) => { complete = false; rejected.push({ path: p, reason }); };
   if (!Number.isInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 200 || !Number.isInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('invalid lexical output limits');
@@ -121,7 +122,7 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
   }
   const skipped = [...rejected, ...unsearched];
   return { candidates, queryClass: routed.queryClass, classificationBasis: routed.classificationBasis,
-    complete, coverage: { complete: complete && unsearched.length === 0, searchedFiles, skipped, skippedFiles: skipped.length,
+    complete, coverage: { complete: complete && unsearched.length === 0 && Boolean(inventory.complete), searchedFiles, skipped, skippedFiles: skipped.length,
       skippedByReason: skipped.reduce((counts: any, s: any) => ({ ...counts, [s.reason]: (counts[s.reason] || 0) + 1 }), {}) },
     accounting: { readBytes, outputBytes, rawCandidates: rows.length, elapsedMs: Math.max(0, now() - started) }, rejections: rejected };
 }

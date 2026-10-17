@@ -387,3 +387,61 @@ test('DEC-025 semantic fault fallback: lexical-only profile, attempt order kept,
   assert.deepEqual(fault.results.map((r) => [r.id, r.locator]), lexical.results.map((r) => [r.id, r.locator]));
   assert.equal(fault.absenceEstablished, false);
 });
+
+// X3: an admission skip is a counted coverage gap with its cause, never a native.rg provider fault, and a
+// task-bound attempt that delivered candidates is never recorded UNREACHED. Index build/refresh still refuse.
+function admissionWorld(t) {
+  const root = fs.realpathSync(tempDir(t, 'doflow-code-retrieval-admission-'));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const git = (...args) => { const r = require('node:child_process').spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: root, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.writeFileSync(path.join(root, '.gitignore'), '.doflow/\n');
+  fs.writeFileSync(path.join(root, 'src/auth.js'), 'function refreshCredentials(token) {\n  return token;\n}\n');
+  fs.writeFileSync(path.join(root, 'src/old.js'), '// refresh credentials, the old way\n'.repeat(4));
+  git('init', '-q', '-b', 'main'); git('add', '-A'); git('commit', '-q', '-m', 'init');
+  return root;
+}
+const ADMISSION_SKIPS = {
+  'file-byte-limit': { corpusLimits: { maxFileBytes: 100 } },
+  'file-count-limit': { corpusLimits: { maxFiles: 2 } },
+  'unstaged delete': { reason: 'source-unreadable', mutate: (root) => fs.unlinkSync(path.join(root, 'src/old.js')) },
+  'unstaged rename': { reason: 'source-unreadable', mutate: (root) => fs.renameSync(path.join(root, 'src/old.js'), path.join(root, 'src/renamed.js')) },
+};
+
+for (const [kind, setup] of Object.entries(ADMISSION_SKIPS)) {
+  test(`X3 ${kind}: a counted admission gap, no native.rg provider-error, no UNREACHED attempt when candidates were delivered`, async (t) => {
+    const root = admissionWorld(t);
+    if (setup.mutate) setup.mutate(root);
+    const taskId = `t-x3-${kind.replace(/\W+/g, '-')}`;
+    assert.equal(declare(root, taskId, 'locate-concept'), 0);
+    const { exit, response } = await executeCodeRetrieval({ query: 'refresh credentials token', root, taskId, need: 'locate-concept',
+      corpusLimits: setup.corpusLimits, providers: { router } });
+    assert.equal(exit, 0);
+    assert.ok(response.results.length > 0);
+    assert.equal(response.coverage.corpusComplete, false);
+    assert.equal(response.coverage.complete, false);
+    assert.equal(response.coverage.lexical[0].complete, false, 'lexical coverage stays honest');
+    assert.deepEqual(response.gaps.filter((g) => g.source === 'admission'), [{ source: 'admission', reason: setup.reason || kind, count: 1 }]);
+    assert.equal(JSON.stringify(response).includes('provider-error'), false, JSON.stringify(response.gaps));
+    assert.equal(response.attempts[0].reason, undefined);
+    assert.equal(response.attempts[0].recordedAttempt, undefined);
+    assert.equal((readPlan(root, taskId).needs[0].attempts || []).some((a) => a.status === 'UNREACHED'), false);
+  });
+}
+
+test('X3 control: a complete corpus has no admission gap; a real lexical fault on an incomplete corpus stays provider-error UNREACHED', async (t) => {
+  const root = admissionWorld(t);
+  const clean = await executeCodeRetrieval({ query: 'refresh credentials token', root, providers: { router } });
+  assert.equal(clean.response.coverage.corpusComplete, true);
+  assert.equal(clean.response.gaps.some((g) => g.source === 'admission'), false);
+  fs.unlinkSync(path.join(root, 'src/old.js'));
+  const taskId = 't-x3-fault';
+  assert.equal(declare(root, taskId, 'locate-concept'), 0);
+  const faulty = () => ({ candidates: [], complete: false, rejections: [{ reason: 'not-regular-file' }], accounting: {}, coverage: { complete: false } });
+  const { response } = await executeCodeRetrieval({ query: 'refresh credentials token', root, taskId, need: 'locate-concept', providers: { router, lexicalSearch: faulty } });
+  assert.equal(response.attempts[0].reason, 'provider-error');
+  assert.deepEqual(readPlan(root, taskId).needs[0].attempts.filter((a) => a.provider === 'native.rg').map((a) => a.status), ['UNREACHED']);
+  const build = await executeCodeRetrieval({ root, indexAction: 'build', modelPath: '/fake/model', providers: { router, lifecycle: async () => { throw new Error('must not run'); } } });
+  assert.equal(build.exit, 1);
+  assert.equal(build.response.error, 'incomplete-corpus', 'index build still refuses an incomplete corpus (IC-003)');
+});

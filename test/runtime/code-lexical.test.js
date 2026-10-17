@@ -74,3 +74,22 @@ test('R4c: exact search reports every literal line, filename-only hits and skips
   assert.deepEqual(lines('loadRegistry'), ['src/a.js:2', 'src/a.js:3', 'src/a.js:4', 'src/loadRegistry:1']);
   assert.deepEqual(lines('"absent literal"'), []);
 });
+
+// X3: an admission skip leaves lexical coverage partial but is not a provider outcome.
+test('X3: an incomplete admitted inventory keeps the lexical provider outcome complete and its coverage partial', t => {
+  const root = tempDir(t, 'doflow-code-lexical-admission-');
+  fs.writeFileSync(path.join(root, 'small.js'), 'function findMeLiteral() {}\n');
+  fs.writeFileSync(path.join(root, 'large.js'), `// findMeLiteral\n${'x'.repeat(300)}\n`);
+  const inventory = admitCodeCorpus({ root, files: ['large.js', 'small.js'], limits: { maxFileBytes: 200 } });
+  assert.equal(inventory.complete, false);
+  assert.deepEqual(inventory.skipped, [{ path: 'large.js', reason: 'file-byte-limit' }]);
+  for (const query of ['findMeLiteral', 'find me literal']) {
+    const result = searchCodeLexical({ inventory, query });
+    assert.equal(result.complete, true, 'no lexical fault occurred');
+    assert.deepEqual(result.rejections, []);
+    assert.equal(result.coverage.complete, false, 'the unadmitted file still leaves coverage partial');
+    assert.deepEqual(result.candidates.map((c) => c.locator.file), ['small.js']);
+  }
+  const control = searchCodeLexical({ inventory: admitCodeCorpus({ root, files: ['large.js', 'small.js'] }), query: 'findMeLiteral' });
+  assert.equal(control.coverage.complete, true);
+});
