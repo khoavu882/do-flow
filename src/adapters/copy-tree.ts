@@ -12,6 +12,27 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
+// A dry-run can discover the same shipped tree through several adapters. Reuse its source bytes
+// for this process, keyed by the absolute path and filesystem implementation. Writes through
+// applyTree invalidate the view before touching the destination, so a later discovery sees the
+// current source state after a lifecycle apply.
+const sourceBytesByFs = new WeakMap<object, Map<string, Buffer>>();
+
+function sourceBytes(file: string, fsImpl: any): Buffer {
+  let cache = sourceBytesByFs.get(fsImpl);
+  if (!cache) {
+    cache = new Map();
+    sourceBytesByFs.set(fsImpl, cache);
+  }
+  const key = path.resolve(file);
+  if (!cache.has(key)) cache.set(key, fsImpl.readFileSync(file));
+  return cache.get(key)!;
+}
+
+function clearSourceBytes(fsImpl: any): void {
+  sourceBytesByFs.get(fsImpl)?.clear();
+}
+
 function sha256(buf: any): string {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
@@ -241,7 +262,7 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: an
     const relPath = mapRel(sourceRel);
     const sourceAbs = path.join(sourceDir, sourceRel);
     const destAbs = path.join(destDir, relPath);
-    const raw = fsImpl.readFileSync(sourceAbs);
+    const raw = sourceBytes(sourceAbs, fsImpl);
     return { relPath, sourceAbs, destAbs, exists: fsImpl.existsSync(destAbs), fingerprint: sha256(mapContent ? mapContent(sourceRel, raw) : raw) };
   });
   return { files };
@@ -417,6 +438,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
  * general convention for a lifecycle-owned write (see src/adapters/claude/index.ts's
  * applySettingsAsset for the same pattern applied to a transformed-content file). */
 function applyTree({ changes = [], fsImpl = fs, transform }: any): { applied: number } {
+  clearSourceBytes(fsImpl);
   const mapContent = typeof transform === 'function' ? transform : resolveTransform(transform);
   let applied = 0;
   for (const change of changes) {

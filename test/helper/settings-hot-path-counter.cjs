@@ -4,7 +4,14 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 
-const counts = { resolverModuleLoads: 0, resolverImporters: [], settingsSupportModules: [], loadSettingsCalls: 0, fsStatCalls: 0 };
+const counts = {
+  resolverModuleLoads: 0,
+  resolverImporters: [],
+  settingsSupportModules: [],
+  loadSettingsCalls: 0,
+  fsStatCalls: 0,
+  fsOperations: { stat: 0, open: 0, read: 0, readdir: 0, exists: 0 },
+};
 const resolverPath = process.env.DOFLOW_SETTINGS_RESOLVER
   ? path.resolve(process.env.DOFLOW_SETTINGS_RESOLVER)
   : null;
@@ -12,19 +19,27 @@ const settingsRoot = resolverPath ? path.dirname(resolverPath) : null;
 const wrappedExports = new WeakSet();
 const seenSupportPaths = new Set();
 
-function wrapFs(object, name) {
+function wrapFs(object, name, operation) {
   const original = object?.[name];
   if (typeof original !== 'function') return;
   try {
     object[name] = function (...args) {
-      counts.fsStatCalls += 1;
+      counts.fsOperations[operation] += 1;
+      if (operation === 'stat') counts.fsStatCalls += 1;
       return original.apply(this, args);
     };
   } catch { /* a read-only fs method is outside the counter surface */ }
 }
 
-for (const name of ['statSync', 'lstatSync', 'accessSync', 'stat', 'lstat', 'access']) wrapFs(fs, name);
-for (const name of ['stat', 'lstat', 'access']) wrapFs(fs.promises, name);
+for (const name of ['statSync', 'lstatSync', 'accessSync', 'stat', 'lstat', 'access']) wrapFs(fs, name, 'stat');
+for (const name of ['openSync', 'open']) wrapFs(fs, name, 'open');
+for (const name of ['readSync', 'readFileSync', 'readFile', 'read']) wrapFs(fs, name, 'read');
+for (const name of ['readdirSync', 'readdir']) wrapFs(fs, name, 'readdir');
+for (const name of ['existsSync', 'exists']) wrapFs(fs, name, 'exists');
+for (const name of ['stat', 'lstat', 'access']) wrapFs(fs.promises, name, 'stat');
+for (const name of ['open']) wrapFs(fs.promises, name, 'open');
+for (const name of ['readFile']) wrapFs(fs.promises, name, 'read');
+for (const name of ['readdir']) wrapFs(fs.promises, name, 'readdir');
 
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
