@@ -15,6 +15,29 @@ Evaluation tracks configurations A through F per ADR §6. Feature 074 evaluates 
 | E | D + selective rerank | Feature 083 | Not run in 074 |
 | F | best validated configuration + local advisor | Feature 084 | Not run in 074 |
 
+## Hybrid C protocol (079)
+
+Configuration C is opt-in through the distinct `hybrid-c-v1` protocol. It runs A, B and C against
+both corpora in one invocation; A/B code discovery is restricted to the pinned code manifest, and
+C calls the production code retrieval coordinator. The protocol does not rewrite the historical
+A/B baseline, thresholds, qrels or G33 checks. The legacy runner remains on its original A/B
+protocol when `hybrid-c-v1` is not selected.
+
+The C holdout invocation reserves all six prospective aggregate result slots atomically before
+decrypting either corpus. Once evaluation begins, a failure consumes the reserved slots. Only a
+failed pre-evaluation check may release the reservation, with an audit record. Holdout outputs
+contain aggregate metrics and fixed causes only; task ids, queries, qrels, snippets and decrypted
+content do not enter result files or the gate report. Comparisons are computed from aggregate files
+and consume no additional result slot.
+
+For development comparisons, prepare an isolated export of the pinned snapshot, a local Semble
+0.6.1 Python environment with its required dependencies, and a compatible model already on disk.
+Set `SEMBLE_MODEL_PATH` to that model directory before choosing the development run. The adapter
+does not install packages or fetch models. Hybrid stays opt-in, and the promotion record remains
+incomplete until repeated provider conformance and every required gate are established; paid
+T-005/T-006 are unreached without separate authorization. See [Guide: code retrieval](../../docs/guide.md#retrieve-code-from-the-project)
+for the runtime's explicit build, refresh and repair workflow.
+
 ## Corpora
 
 The benchmark evaluates retrieval against two distinct corpora pinned in `bench/retrieval/snapshot.json` (commit `3fc988bc519cd7ac289f6db64dfa15b78457cf1b`, seed `20261012`) per IC-011:
