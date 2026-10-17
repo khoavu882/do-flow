@@ -379,7 +379,7 @@ test('perf runner executes front doors in an install mirror and fixture project 
 test('perf runner executes Antigravity and Pi surfaces using their corpus payloads', () => {
   const { surfaces } = runner.enumerateHookSurfaces({ repoRoot: REPO_ROOT, isToolInstalledFn: () => true });
   const selected = surfaces.filter((surface) => surface.id.startsWith('hook.antigravity.') || surface.id.startsWith('hook.pi.tool-call-'));
-  assert.equal(selected.length, 5);
+  assert.equal(selected.length, 6);
   for (const surface of selected) {
     assert.equal(typeof runner.runSurfaceProcess(surface, REPO_ROOT), 'number', surface.id);
   }

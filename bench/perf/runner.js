@@ -211,8 +211,12 @@ function enumerateHookSurfaces({
   // Antigravity's bridge front door is the stream runner, not a shell hook file.
   const antigravityRunner = path.join(repoRoot, 'core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js');
   if (fs.existsSync(antigravityRunner)) {
-    for (const [stem, fixtureStem, event] of [['pre-implementation-gate', 'pre-implement-gate', 'PreToolUse'], ['stop-check', 'stop-check', 'Stop']]) {
-      const fixtureRel = path.join('test', 'fixtures', 'hooks', 'antigravity', fixtureStem, 'allow-perf.json');
+    for (const [stem, fixtureStem, event, fixtureFile] of [
+      ['pre-implementation-gate', 'pre-implement-gate', 'PreToolUse', 'allow-perf.json'],
+      ['stop-check', 'stop-check', 'Stop', 'allow-perf.json'],
+      ['pre-bash-guard', 'pre-bash-guard', 'PreToolUse', 'perf.json'],
+    ]) {
+      const fixtureRel = path.join('test', 'fixtures', 'hooks', 'antigravity', fixtureStem, fixtureFile);
       const id = `hook.antigravity.${stem}`;
       surfaces.push({
         id,
@@ -408,6 +412,11 @@ function runSurfaceProcess(surface, repoRoot, tempHome, spawnSyncFn = spawnSync)
       cmd = process.execPath;
     }
     const env = { ...process.env, DOFLOW_QUIET: '1' };
+    // Paired variants (IC-013): a string sets the variable, null removes it.
+    for (const [name, value] of Object.entries(surface.envOverlay || {})) {
+      if (value === null) delete env[name];
+      else env[name] = value;
+    }
     if (surface.kind === 'install' || surface.intentClass === 'install' || surface.id === 'install.dry-run') {
       if (tempHome) env.HOME = tempHome;
     } else if (tempHookHomeDir) {
@@ -476,15 +485,65 @@ function runSurfaceProcess(surface, repoRoot, tempHome, spawnSyncFn = spawnSync)
   }
 }
 
+const PAIRED_ENV_PATTERN = /^([A-Z_][A-Z0-9_]*)=(.*)$/s;
+
+/** NFR-003 bound for one off/on pair: p50 within max(2 ms, 5 %), p95 within max(5 ms, 10 %). */
+const PAIRED_BOUND = Object.freeze({ p50: { minMs: 2, pct: 5 }, p95: { minMs: 5, pct: 10 } });
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+/** `NAME=VALUE` -> { name, value }; anything else is a usage error. */
+function parsePairedEnv(raw) {
+  const match = typeof raw === 'string' ? PAIRED_ENV_PATTERN.exec(raw) : null;
+  if (!match) throw new UsageError('--paired-env must look like NAME=VALUE (NAME matches [A-Z_][A-Z0-9_]*)');
+  return { name: match[1], value: match[2] };
+}
+
+/** Each surface becomes `<id>#off` (NAME=VALUE) and `<id>#on` (NAME removed); both keep the one setup. */
+function expandPaired(surfaces, { name, value }) {
+  return surfaces.flatMap((surface) => [
+    { ...surface, id: `${surface.id}#off`, envOverlay: { ...surface.envOverlay, [name]: value } },
+    { ...surface, id: `${surface.id}#on`, envOverlay: { ...surface.envOverlay, [name]: null } },
+  ]);
+}
+
+function pairedRow(id, offSamples, onSamples) {
+  const side = (samples) => ({
+    p50: round2(stats.median(samples)),
+    p95: round2(stats.percentile(samples, 0.95)),
+    n: samples.length,
+  });
+  const off = side(offSamples);
+  const on = side(onSamples);
+  const delta = { p50Ms: round2(on.p50 - off.p50), p95Ms: round2(on.p95 - off.p95) };
+  delta.p50Pct = off.p50 > 0 ? round2((delta.p50Ms / off.p50) * 100) : null;
+  delta.p95Pct = off.p95 > 0 ? round2((delta.p95Ms / off.p95) * 100) : null;
+  const bound = {
+    p50Ms: round2(Math.max(PAIRED_BOUND.p50.minMs, (off.p50 * PAIRED_BOUND.p50.pct) / 100)),
+    p95Ms: round2(Math.max(PAIRED_BOUND.p95.minMs, (off.p95 * PAIRED_BOUND.p95.pct) / 100)),
+  };
+  return { id, off, on, delta, bound, pass: delta.p50Ms <= bound.p50Ms && delta.p95Ms <= bound.p95Ms };
+}
+
+function bashVersion() {
+  const res = spawnSync('bash', ['-c', 'printf %s "$BASH_VERSION"'], { encoding: 'utf8' });
+  return res.status === 0 && res.stdout ? res.stdout : null;
+}
+
 function cmdMeasure(flags, options = {}) {
   const {
     repoRoot = REPO_ROOT,
     budgetsPath = flags.budgets ? path.resolve(flags.budgets) : DEFAULT_BUDGETS_PATH,
     isAnotherNodeTestRunningFn = isAnotherNodeTestRunning,
     runSurfaceFn = runSurfaceProcess,
+    pairedOutDir = __dirname,
+    bashVersionFn = bashVersion,
     log = (m) => process.stdout.write(`${m}\n`),
     err = (m) => process.stderr.write(`${m}\n`),
   } = options;
+
+  const paired = flags['paired-env'] !== undefined ? parsePairedEnv(flags['paired-env']) : null;
+  if (paired && flags.write) throw new UsageError('--paired-env never writes budgets.json; drop --write');
 
   // 1. Refuse with exit 2 while another node --test process is running
   if (isAnotherNodeTestRunningFn()) {
@@ -547,7 +606,7 @@ function cmdMeasure(flags, options = {}) {
     unmeasuredMap.set(u.surfaceId, u.unmeasured);
   }
 
-  const measurableSurfaces = [];
+  const measurableBase = [];
   const unmeasuredRows = [];
 
   for (const s of selectedSurfaces) {
@@ -556,9 +615,10 @@ function cmdMeasure(flags, options = {}) {
     } else if (!s.argv || s.argv.length === 0) {
       unmeasuredRows.push({ surfaceId: s.id, unmeasured: 'no executable command' });
     } else {
-      measurableSurfaces.push(s);
+      measurableBase.push(s);
     }
   }
+  const measurableSurfaces = paired ? expandPaired(measurableBase, paired) : measurableBase;
 
   // Run warm-ups
   let tempHomeDir = null;
@@ -639,6 +699,36 @@ function cmdMeasure(flags, options = {}) {
 
     for (const [id, reason] of failedSurfaces.entries()) {
       err(`perf measure: surface ${id} failed: ${reason}`);
+    }
+
+    if (paired) {
+      const rows = measurableBase
+        .filter((s) => surfaceSamples.has(`${s.id}#off`) && surfaceSamples.has(`${s.id}#on`))
+        .map((s) => pairedRow(s.id, surfaceSamples.get(`${s.id}#off`), surfaceSamples.get(`${s.id}#on`)));
+      const report = {
+        v: 1,
+        pairedEnv: flags['paired-env'],
+        seed,
+        runs,
+        platform: process.platform,
+        node: process.version,
+        bash: bashVersionFn(),
+        surfaces: rows,
+        ...(unmeasuredRows.length > 0 ? { unmeasured: unmeasuredRows } : {}),
+        ...(failedSurfaces.size > 0 ? { failed: [...failedSurfaces.entries()].map(([id, reason]) => ({ surfaceId: id, reason })) } : {}),
+      };
+      const outFile = path.join(pairedOutDir, `paired-${new Date().toISOString().slice(0, 10)}.json`);
+      fs.mkdirSync(pairedOutDir, { recursive: true });
+      fs.writeFileSync(outFile, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+      if (flags.json) {
+        log(JSON.stringify(report, null, 2));
+      } else {
+        log(`perf measure --paired-env ${flags['paired-env']}: ${rows.length} paired, ${unmeasuredRows.length} unmeasured${failedSurfaces.size > 0 ? `, ${failedSurfaces.size} failed` : ''} -> ${outFile}`);
+        for (const r of rows) {
+          log(`  ${r.id.padEnd(40)} off p50=${r.off.p50} p95=${r.off.p95}  on p50=${r.on.p50} p95=${r.on.p95}  delta p50=${r.delta.p50Ms}ms p95=${r.delta.p95Ms}ms  ${r.pass ? 'pass' : 'FAIL'}`);
+        }
+      }
+      return { exitCode: failedSurfaces.size > 0 ? 1 : 0, report, outFile };
     }
 
     const successfullyMeasuredSurfaces = measurableSurfaces.filter((s) => !failedSurfaces.has(s.id));
@@ -903,6 +993,7 @@ function main(args = process.argv.slice(2), options = {}) {
     write: 'bool',
     json: 'bool',
     budgets: 'value',
+    'paired-env': 'value',
   };
 
   let parsed;
