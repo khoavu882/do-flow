@@ -430,6 +430,7 @@ for (const [name, rel, kind] of [
   ['task-run store', 'task-attempts/fifo.json', 'task-run'],
   ['worker store', 'worker-runs/fifo.json', 'worker'],
   ['orchestration store', 'orchestration/fifo.json', 'orchestration'],
+  ['dispatch store', 'dispatch/fifo.json', 'dispatch'], // C.2f
 ]) {
   test(`C.2d: a FIFO with no reader as a ${name} returns promptly and is one located gap`, { skip: !POSIX }, (t) => {
     const { dir, state } = seed(t);
@@ -493,9 +494,10 @@ function orchD(taskId, end = null) {
 const lineD = (timestamp, extra = {}) => ({ timestamp, verb: 'dispatch', run: 'r6', lineage: 'l6', ...extra });
 const hookD = (timestamp) => ({ timestamp, kind: 'hook', run: 'r6', lineage: 'l6', attempt: null, harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's6', tool: 'Bash', tool_call_id: 'tc6' });
 
-function seedD(t, { run = runD(), ledger = [], telemetry = [], orchestration = {} } = {}) {
+function seedD(t, { run = runD(), ledger = [], telemetry = [], orchestration = {}, dispatch = {} } = {}) {
   const extraStores = { 'task-attempts/d.json': { runs: { [KEY_D]: run }, tasks: {} } };
   for (const [taskId, body] of Object.entries(orchestration)) extraStores[`orchestration/${taskId}.json`] = body;
+  for (const [slug, body] of Object.entries(dispatch)) extraStores[`dispatch/${slug}.json`] = body;
   return view(seed(t, { ledger, telemetry, workers: false, orchestration: false, extraStores }).dir);
 }
 
@@ -541,4 +543,57 @@ test('D.1-fix negative controls: no orchestration, or one still running beside a
   const mixed = seedD(t, { orchestration: { 'F-6': orchD('F-6', 'complete'), 'F-7': orchD('F-7') }, telemetry: [hookD(ms('12:13:00.000'))] });
   assert.equal(traceOf(mixed, ID4).window.to, null);
   assert.deepEqual(where(mixed, `${TELEMETRY}:1`), [`trace:${ID4}`]);
+});
+
+// ── C.2f: a terminal dispatch run closes its segment ────────────────────────────────────────────
+
+/** A dispatch store (082) for KEY_D, created at the run start; `state` and its end stamps vary. */
+function dispatchD(state, { completedAt = null, endedAt = null, run = {} } = {}) {
+  return { version: 1, revision: 3, slug: 'feat-d', run: { dispatchRunId: 'p-0123456789ab', slug: 'feat-d', state, runKey: KEY_D, run: 'r6', lineage: 'l6',
+    epoch: 1, createdAt: ms('12:00:00.302'), endedAt, completedAt, ...run }, dispatches: {}, drivers: [], lease: null, spawnRequests: [], steps: [] };
+}
+
+test('C.2f: a completed dispatch run closes the trace at completedAt; a hook line after it is an unmatched gap', (t) => {
+  const v = seedD(t, { dispatch: { 'feat-d': dispatchD('completed', { completedAt: ms('12:00:44.384') }) },
+    ledger: [lineD(ms('12:00:44'))], telemetry: [hookD(ms('12:00:30.000')), hookD(ms('12:03:44.000'))] });
+  assert.equal(traceOf(v, ID4).window.to, ms('12:00:44.384'));
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${ID4}`], 'before completion');
+  assert.deepEqual(where(v, `${TELEMETRY}:2`), ['gap:unmatched'], 'three minutes after completion');
+  assert.deepEqual(where(v, `${LEDGER}:1`), [`trace:${ID4}`], 'the whole-second line of the completing step');
+});
+
+test('C.2f: a cancelled dispatch run closes the trace at its endedAt', (t) => {
+  const v = seedD(t, { dispatch: { 'feat-d': dispatchD('cancelled', { endedAt: ms('12:00:50.000') }) }, telemetry: [hookD(ms('12:00:51.000'))] });
+  assert.equal(traceOf(v, ID4).window.to, ms('12:00:50.000'));
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:unmatched']);
+});
+
+test('C.2f negative controls: a running, blocked or resume-required dispatch run keeps the trace open', (t) => {
+  for (const state of ['running', 'blocked', 'resume-required', 'cancelling']) {
+    const v = seedD(t, { dispatch: { 'feat-d': dispatchD(state) }, telemetry: [hookD(ms('12:13:00.000'))] });
+    assert.equal(traceOf(v, ID4).window.to, null, state);
+    assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${ID4}`], state);
+  }
+});
+
+test('C.2f: a dispatch record that cannot be tied to the run, or has no end stamp, closes nothing', (t) => {
+  for (const [label, body] of [
+    ['no runKey', dispatchD('completed', { completedAt: ms('12:00:44.384'), run: { runKey: null } })],
+    ['run id disagrees with the runKey', dispatchD('completed', { completedAt: ms('12:00:44.384'), run: { run: 'r7' } })],
+    ['lineage disagrees with the runKey', dispatchD('completed', { completedAt: ms('12:00:44.384'), run: { lineage: 'l7' } })],
+    ['completed without completedAt', dispatchD('completed')],
+  ]) {
+    const v = seedD(t, { dispatch: { 'feat-d': body }, telemetry: [hookD(ms('12:13:00.000'))] });
+    assert.equal(traceOf(v, ID4).window.to, null, label);
+    assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${ID4}`], label);
+  }
+});
+
+test('C.2f: a completed dispatch beside a running orchestration keeps the trace open; both ended close at the later end', (t) => {
+  const done = dispatchD('completed', { completedAt: ms('12:00:44.384') });
+  const running = seedD(t, { dispatch: { 'feat-d': done }, orchestration: { 'F-7': orchD('F-7') }, telemetry: [hookD(ms('12:13:00.000'))] });
+  assert.equal(traceOf(running, ID4).window.to, null);
+  const both = seedD(t, { dispatch: { 'feat-d': done }, orchestration: { 'F-6': orchD('F-6', 'complete') }, telemetry: [hookD(ms('12:13:00.000'))] });
+  assert.equal(traceOf(both, ID4).window.to, ms('12:10:00.000'));
+  assert.deepEqual(where(both, `${TELEMETRY}:1`), ['gap:unmatched']);
 });

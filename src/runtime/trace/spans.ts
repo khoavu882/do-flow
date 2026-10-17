@@ -14,12 +14,17 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
  * `trace spans` (088 IC-011, FR-005, DD-5): spans projected offline from the records that already
  * exist under `<config>/state`: the run ledger (`runs/*.jsonl`), telemetry lines
  * (`runs/telemetry/*.jsonl`), 080 task-run records (`task-attempts/*.json`), orchestration records
- * (`orchestration/*.json`) and worker runs (`worker-runs/*.json`). There is no span store.
+ * (`orchestration/*.json`), worker runs (`worker-runs/*.json`) and 082 dispatch stores
+ * (`dispatch/*.json`, read only for when a run ended). There is no span store.
  *
  * A trace is one epoch segment of one 080 run: a `start` or `resume` history entry with a `traceId`
- * opens `[at, next resume or closing cancel)`. A segment whose orchestration runs (same `runKey`,
- * started inside it) have all ended (`complete-run`, or a `reject` gate decision) also closes, at
- * their last entry, inclusive: the 080 record itself has no completion marker. A record with a run
+ * opens `[at, next resume or closing cancel)`. The 080 record itself has no completion marker, so a
+ * segment also closes, inclusive, at the latest end among the activities of its `runKey` that
+ * started inside it, once every one of them has ended: an orchestration run ends at its last entry
+ * after `complete-run` or a `reject` gate decision; a dispatch run at `completedAt` when
+ * `completed`, `endedAt` when `cancelled` (`blocked`, `resume-required` and `cancelling` can still
+ * move on). A dispatch record whose `run`/`lineage` disagree with its `runKey`, or with no end
+ * stamp, closes nothing. A record with a run
  * identity joins the one segment that holds it, or is a gap named by its locator: none holds it
  * (`unmatched`) or more than one does (`ambiguous`, e.g. one session identity under two worktrees).
  * A line stamped to the whole second (doflow-run's ledger lines) is compared at that resolution:
@@ -36,9 +41,8 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
  * Accepted ceiling: a history `cancel` entry does not say whether it cancelled the run or one
  * attempt. The last cancel of a segment closes it only when no pause follows it and the run was
  * resumed after it or is cancelled now; any other reading leaves the segment open to the next
- * resume, and a misread shows up as located `unmatched` gaps, never as a wrong join. A dispatch run
- * that completes without an orchestration run leaves its segment open: its completion is recorded
- * only in the dispatch store, which this view does not read.
+ * resume, and a misread shows up as located `unmatched` gaps, never as a wrong join. An activity
+ * that began before a resume counts for the segment it began in only.
  */
 
 const PARTITION = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
@@ -212,8 +216,9 @@ const holds = (seg: any, t: number | null, coarse = false): boolean => t !== nul
   && (seg.toMs === null || t < seg.toMs) && (seg.closeMs === null || t <= seg.closeMs);
 
 /**
- * Closes each segment whose orchestration runs (its `runKey`, started inside it) have all ended, at
- * the last entry among them, when that is inside the segment. One run still going keeps it open.
+ * Closes each segment whose activities (orchestration and dispatch runs of its `runKey`, started
+ * inside it) have all ended, at the latest end among them, when that is inside the segment. One
+ * activity still going keeps it open.
  * @param {Object[]} segments
  * @param {Array<{runKey: string, startMs: number|null, ended: boolean, last: string|null}>} runs
  */
@@ -287,7 +292,7 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     }
   }
 
-  const orchestrationRuns: any[] = [];
+  const activities: any[] = [];
   for (const { file, value } of readStores(fsImpl, stateDir, 'orchestration', gaps, 'orchestration')) {
     const runKey = runKeyOf(value.runKey);
     const history: any[] = Array.isArray(value.history) ? value.history : [];
@@ -295,7 +300,7 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     const ended = history.some((e) => e && (e.action === 'complete-run' || (e.action === 'decide-gate' && e.detail === 'reject')));
     const stamps = history.map((e) => (e && typeof e === 'object' ? iso(e.at) : null)).filter((a): a is string => a !== null);
     const last = stamps.sort((a, b) => (msOf(a) as number) - (msOf(b) as number)).pop() ?? null;
-    if (runKey) orchestrationRuns.push({ runKey, startMs: msOf(stageStart), ended, last });
+    if (runKey) activities.push({ runKey, startMs: msOf(stageStart), ended, last });
     history.forEach((entry, i) => {
       if (!entry || typeof entry !== 'object') return;
       const at = iso(entry.at);
@@ -311,7 +316,16 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     });
   }
 
-  closeEnded(segments, orchestrationRuns);
+  for (const { value } of readStores(fsImpl, stateDir, 'dispatch', gaps, 'dispatch')) {
+    const d = value.run && typeof value.run === 'object' ? value.run : null;
+    const runKey = d ? runKeyOf(d.runKey) : null;
+    if (!runKey) continue;
+    const [, keyRun, keyLineage] = runKey.split('/');
+    if ((d.run != null && d.run !== keyRun) || (d.lineage != null && d.lineage !== keyLineage)) continue; // not tied: no closer
+    const last = d.state === 'completed' ? iso(d.completedAt) : d.state === 'cancelled' ? iso(d.endedAt) : null;
+    activities.push({ runKey, startMs: msOf(iso(d.createdAt)), ended: last !== null, last });
+  }
+  closeEnded(segments, activities);
 
   const runsDir = path.join(stateDir, 'runs');
   for (const { locator, value } of readLines(fsImpl, runsDir, 'runs', gaps, 'ledger')) {
