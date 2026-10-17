@@ -282,6 +282,10 @@ function validateModelProvider(value: any, location: string, errors: string[]): 
   if (typeof value.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.id)) issue(errors, location, 'id must be a lowercase identifier');
   if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
   if (!MODEL_KINDS.has(value.kind)) issue(errors, location, `kind must be one of: ${[...MODEL_KINDS].join(', ')}`);
+  if (!Array.isArray(value.families) || value.families.length === 0
+    || value.families.some((family: any) => typeof family !== 'string' || !family.trim())) {
+    issue(errors, location, 'families must be a non-empty array of non-empty strings');
+  }
   if (!Array.isArray(value.evidence) || value.evidence.length === 0
     || value.evidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
     issue(errors, location, 'must include one or more HTTPS evidence URLs');

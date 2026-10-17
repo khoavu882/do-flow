@@ -10,8 +10,8 @@ const REPO = path.resolve(__dirname, '..', '..');
 const EMPTY = { harnesses: [], assets: [], mcp: [], lifecycle: [], externalTools: [], contracts: [] };
 
 const goodProviders = [
-  { id: 'claude', displayName: 'Claude Code hosted models', kind: 'hosted', evidence: ['https://code.claude.com/docs/en/model-config'] },
-  { id: 'ollama', displayName: 'Ollama local models', kind: 'local', evidence: ['https://ollama.com'] },
+  { id: 'claude', displayName: 'Claude Code hosted models', kind: 'hosted', evidence: ['https://code.claude.com/docs/en/model-config'], families: ['claude'] },
+  { id: 'ollama', displayName: 'Ollama local models', kind: 'local', evidence: ['https://ollama.com'], families: ['unknown'] },
 ];
 const goodRoles = [
   { id: 'triage', prefer: 'cheap-fast', fallback: 'any-healthy' },
@@ -53,6 +53,19 @@ test('provider claims without evidence, bad kinds, or duplicate ids fail validat
   }
   const duplicated = validateRegistry({ ...EMPTY, modelProviders: [goodProviders[0], { ...goodProviders[0] }], modelRoles: [] }, { repoRoot: REPO });
   assert.ok(duplicated.errors.some((error) => error.includes("duplicate id 'claude'")));
+});
+
+test('providers require a non-empty array of non-empty family names', () => {
+  for (const families of [undefined, [], [''], ['  '], ['claude', 4]]) {
+    const provider = { ...goodProviders[0] };
+    if (families === undefined) delete provider.families;
+    else provider.families = families;
+    const result = validateRegistry({ ...EMPTY, modelProviders: [provider], modelRoles: [] }, { repoRoot: REPO });
+    assert.equal(result.ok, false, String(JSON.stringify(families)));
+    assert.match(result.errors.join('\n'), /families/);
+  }
+  const valid = validateRegistry({ ...EMPTY, modelProviders: [{ ...goodProviders[0], families: ['claude', 'unknown'] }], modelRoles: [] }, { repoRoot: REPO });
+  assert.deepEqual(valid.errors, []);
 });
 
 test('roles must be uniquely identified with non-empty routing hints', () => {

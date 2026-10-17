@@ -39,22 +39,45 @@ function availableProviderIds({ fsImpl = fs }: { fsImpl?: any } = {}): string[] 
     .map(([id]) => id);
 }
 
+function normalizeFamilyList(value: any): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  return [...new Set(values.flatMap((entry) => String(entry ?? '').split(',').map((family) => family.trim()).filter(Boolean)))];
+}
+
+/** An unknown family is not evidence that a provider can review outside the author's family. */
+function familyInfo(families: any, excludedFamilies: Set<string>): { families: string[], familyVerified: boolean, sameFamily: boolean } {
+  const declared = Array.isArray(families) ? families : [];
+  const knownFamilies = declared.filter((family) => typeof family === 'string' && family !== 'unknown');
+  const familyVerified = declared.length > 0
+    && declared.every((family) => typeof family === 'string' && family.trim() !== '' && family !== 'unknown');
+  return {
+    families: [...declared],
+    familyVerified,
+    sameFamily: familyVerified && knownFamilies.length > 0 && knownFamilies.every((family) => excludedFamilies.has(family)),
+  };
+}
+
 /**
  * Resolve one role to ranked candidates.
  * Ordering: available first, then preferred-tier match, then fallback-tier match, registry order
- * breaking ties. `exclude` drops provider ids entirely (e.g. the implementer when the role is
- * review with require:different-family) and is reported back rather than hidden.
+ * breaking ties. `exclude` drops provider ids entirely; `excludeFamilies` drops providers whose
+ * complete, known catalogue is within the excluded model families. Unknown catalogues are kept
+ * unverified rather than being presented as cross-family.
  * Availability unknown stays null — absence of evidence is not reported as absent.
  */
-function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] }: any = {}): any {
+function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [], excludeFamilies }: any = {}): any {
   const role = (registry.modelRoles || []).find((entry: any) => entry.id === roleId);
   if (!role) {
     throw new Error(`Unknown model role '${roleId}'; valid: ${(registry.modelRoles || []).map((r: any) => r.id).join(', ')}`);
   }
   const excluded = new Set(exclude);
+  const familyMode = excludeFamilies !== undefined && excludeFamilies !== null;
+  const excludedFamilies = new Set(familyMode ? normalizeFamilyList(excludeFamilies) : []);
   const candidates: any[] = [];
   for (const [index, provider] of (registry.modelProviders || []).entries()) {
     if (excluded.has(provider.id)) continue;
+    const family = familyInfo(provider.families, excludedFamilies);
+    if (familyMode && family.sameFamily) continue;
     const tiers = provider.tiers ?? [];
     candidates.push({
       id: provider.id,
@@ -64,6 +87,7 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] }
       available: isAvailable ? Boolean(isAvailable(provider.id)) : null,
       servesPreferredTier: role.prefer ? tiers.includes(role.prefer) : null,
       servesFallbackTier: role.fallback ? tiers.includes(role.fallback) : null,
+      ...(familyMode ? { families: family.families, familyVerified: family.familyVerified } : {}),
       _index: index,
     });
   }
@@ -79,12 +103,16 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] }
     return 0;
   });
   for (const candidate of candidates) delete candidate._index;
-  return {
+  const result: any = {
     roleId,
     policy: { prefer: role.prefer ?? null, fallback: role.fallback ?? null, require: role.require ?? null },
     candidates,
     excluded: [...excluded],
   };
+  // Keep the established result shape byte-for-byte for callers that do not request family
+  // filtering. Family metadata is included whenever that comparison is requested.
+  if (familyMode) result.excludedFamilies = [...excludedFamilies];
+  return result;
 }
 
 /**
@@ -118,7 +146,7 @@ function resolveRetrievalSlot({ registry, slotId, isAvailable = null }: any = {}
 
 /** CLI handler for `doflow model-role`. Read-only advisory routing; exits 1 on an unknown role
  * because a silently-empty candidate list would read as "no providers" rather than "bad input". */
-function handleModelRoleCommand({ role, exclude, json = false, repoRoot }: any = {}): number | undefined {
+function handleModelRoleCommand({ role, exclude, excludeFamilies, json = false, repoRoot }: any = {}): number | undefined {
   if (!role) return usageError('model-role', '--role is required (one of the roles in core/registry/models.json)', json);
   const registry = (() => {
     try { return loadRegistry({ repoRoot: repoRoot || REPO_ROOT }); }
@@ -127,20 +155,33 @@ function handleModelRoleCommand({ role, exclude, json = false, repoRoot }: any =
   if (!registry) return undefined;
   const available = new Set(availableProviderIds());
   try {
+    const excludedProviderIds = Array.isArray(exclude) ? exclude : String(exclude ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
+    const requestedFamilies = excludeFamilies === undefined || excludeFamilies === null ? null : normalizeFamilyList(excludeFamilies);
     const resolution = resolveModelRole({
       registry,
       roleId: role,
       isAvailable: (providerId: string) => available.has(providerId),
-      exclude: Array.isArray(exclude) ? exclude : String(exclude ?? '').split(',').map((s: string) => s.trim()).filter(Boolean),
+      exclude: excludedProviderIds,
+      ...(requestedFamilies === null ? {} : { excludeFamilies: requestedFamilies }),
     });
     if (json) console.log(JSON.stringify(resolution, null, 2));
     else {
       console.log(`Role '${resolution.roleId}' — prefer:${resolution.policy.prefer ?? '—'} fallback:${resolution.policy.fallback ?? '—'} require:${resolution.policy.require ?? '—'}`);
       for (const candidate of resolution.candidates) {
         const availability = candidate.available === null ? '?' : candidate.available ? 'yes' : 'no';
-        console.log(`  ${candidate.available ? '*' : ' '} ${candidate.id} (${candidate.kind}, via ${candidate.backendCli ?? 'hosted'}) available=${availability}${resolution.policy.prefer && candidate.servesPreferredTier ? ` serves ${resolution.policy.prefer}` : ''}`);
+        const familyStatus = requestedFamilies === null ? ''
+          : ` ${candidate.familyVerified ? 'cross-family' : 'unverified'}`;
+        console.log(`  ${candidate.available ? '*' : ' '} ${candidate.id} (${candidate.kind}, via ${candidate.backendCli ?? 'hosted'}) available=${availability}${resolution.policy.prefer && candidate.servesPreferredTier ? ` serves ${resolution.policy.prefer}` : ''}${familyStatus}`);
       }
       if (resolution.excluded.length) console.log(`Excluded: ${resolution.excluded.join(', ')}`);
+      if (requestedFamilies !== null) {
+        const familySet = new Set(requestedFamilies);
+        const providerExcluded = new Set(excludedProviderIds);
+        const sameFamily = (registry.modelProviders || []).filter((provider: any) => !providerExcluded.has(provider.id)
+          && familyInfo(provider.families, familySet).sameFamily);
+        for (const provider of sameFamily) console.log(`  ${provider.id} same-family (excluded)`);
+        if (resolution.excludedFamilies.length) console.log(`Excluded families: ${resolution.excludedFamilies.join(', ')}`);
+      }
     }
     return finishRuntime(0);
   } catch (error: any) {
