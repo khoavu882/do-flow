@@ -44,13 +44,13 @@ test('a main checkout: its own .doflow, local file before shared file, two lstat
   assert.deepEqual(spy.counts, { lstat: 2, stat: 0, read: 0, realpath: 0 });
 });
 
-test('a linked worktree with no settings of its own takes the main checkout .doflow, in two reads', (t) => {
+test('a linked worktree with no settings of its own takes the main checkout .doflow, in three reads', (t) => {
   const { fx, main, linked } = worktreePair(t);
   const spy = countingFs();
   const got = projectLayerSource(linked, spy);
   assert.deepEqual(got, { layersFrom: path.join(main, '.doflow'), checkout: 'main', files: filesOf(main) });
   assert.ok(spy.counts.read <= 3, `reads: ${spy.counts.read}`);
-  assert.equal(spy.counts.read, 2);
+  assert.equal(spy.counts.read, 3);
   // the same answer as the one source that names every checkout
   const listed = listCheckouts({ cwd: linked, exec: (...a) => childProcess.spawnSync(...a) });
   assert.equal(real(listed.main), main);
@@ -104,6 +104,40 @@ test('a worktree whose commondir is missing, outside a .git, or not a regular fi
   write(path.join(gitdir, 'commondir'), original);
   assert.equal(projectLayerSource(linked).checkout, 'main', 'restored');
   assert.ok(fx);
+});
+
+test('the gitdir back-pointer must name this worktree: a forged .git file or a stale one inherits nothing', (t) => {
+  const { fx, main, linked } = worktreePair(t);
+  const gitdir = path.join(main, '.git', 'worktrees', path.basename(linked));
+  const ownOf = (dir) => ({ layersFrom: path.join(dir, '.doflow'), checkout: 'own', files: filesOf(dir) });
+
+  // hostile: another folder whose .git names the real worktree admin dir of `linked`
+  const hostile = tempDir(t, 'doflow-layers-hostile-');
+  fs.mkdirSync(path.join(hostile, '.doflow'));
+  fs.writeFileSync(path.join(hostile, '.git'), `gitdir: ${gitdir}\n`);
+  assert.deepEqual(projectLayerSource(hostile), ownOf(hostile));
+  // negative control: without the back-pointer check git's own worktree is what this looks like
+  assert.equal(projectLayerSource(linked).checkout, 'main');
+
+  // stale: the worktree was moved without `git worktree repair`
+  const moved = path.join(path.dirname(linked), 'moved');
+  fs.renameSync(linked, moved);
+  assert.deepEqual(projectLayerSource(moved), ownOf(moved));
+  fs.renameSync(moved, linked);
+  assert.equal(projectLayerSource(linked).checkout, 'main', 'restored');
+
+  // missing, empty or oversize back-pointer; a relative one still resolves
+  const back = path.join(gitdir, 'gitdir');
+  const original = fs.readFileSync(back, 'utf8');
+  for (const bad of ['', '\n', 'x'.repeat(5000), `${linked}/.git\0`]) {
+    fs.writeFileSync(back, bad);
+    assert.deepEqual(projectLayerSource(linked), ownOf(linked), JSON.stringify(bad.slice(0, 12)));
+  }
+  fs.rmSync(back);
+  assert.deepEqual(projectLayerSource(linked), ownOf(linked), 'missing');
+  fs.writeFileSync(back, path.relative(gitdir, path.join(linked, '.git')));
+  assert.equal(projectLayerSource(linked).checkout, 'main', 'relative');
+  assert.ok(fx && original);
 });
 
 test('a relative commondir resolves against the gitdir, as git writes it', (t) => {

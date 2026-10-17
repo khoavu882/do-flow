@@ -6,7 +6,8 @@
  * 086 IC-007, DD-9: where the project layer of the settings lives. Locates files only; both project
  * files are untrusted (D-16) and the resolver reads them. A linked worktree with no settings of its
  * own falls back to the main checkout's `.doflow/` (OI-4, a declared 2.1 change), found by reading
- * `.git` (`gitdir: <g>`) and `<g>/commondir`: two small reads, no process (no `git worktree list` per
+ * `.git` (`gitdir: <g>`), `<g>/gitdir` (the back-pointer to this worktree, so a forged or stale `.git`
+ * inherits nothing) and `<g>/commondir`: three small reads, no process (no `git worktree list` per
  * verb). A sandbox (`.doflow-worktree-base`, which every dispatch worktree under
  * `<root>/.doflow/state/dispatch-worktrees/<id>` carries) stays isolated and uses only its own.
  *
@@ -81,6 +82,14 @@ function mainCheckoutOf(root: string, fsImpl: any): string | null {
   const match = pointer === null ? null : GITDIR_LINE.exec(pointer);
   if (!match) return null;
   const gitdir = path.resolve(root, match[1]);
+  // git writes `<gitdir>/gitdir` pointing back at this worktree's `.git` file; a `.git` file that names
+  // some other worktree's admin dir (hostile or stale after a move) fails this and inherits nothing
+  const back = readPointer(path.join(gitdir, 'gitdir'), fsImpl);
+  const backLine = back === null ? '' : back.replace(/\r?\n$/, '');
+  if (!backLine || /[\r\n]/.test(backLine)) return null;
+  try {
+    if (fsImpl.realpathSync(path.resolve(gitdir, backLine)) !== fsImpl.realpathSync(path.join(root, '.git'))) return null;
+  } catch { return null; }
   const common = readPointer(path.join(gitdir, 'commondir'), fsImpl);
   const line = common === null ? '' : common.replace(/\r?\n$/, '');
   if (!line || /[\r\n]/.test(line)) return null;
