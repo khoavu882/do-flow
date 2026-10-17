@@ -11,7 +11,7 @@
 // A.2 pinned the env and sentinel rows (C17-C20, unchanged in 2.1). B.2 adds the home shapes of
 // IC-003 (C21-C23 at 2.1: a relative XDG_CONFIG_HOME is ignored and a usable HOME decides), the
 // settings.json file faults (unreadable, dangling link, folder, unsearchable folder, FIFO) and the
-// IC-004 corpus through the three non-Node readers (the Node column of the corpus is B.3's).
+// IC-004 corpus through all four readers (B.3 added the Node column to the corpus).
 //
 // policies/lib.sh holds no capture reader (it only resolves the config home), so the "policy path"
 // reader is capture-failure.sh, the helper the guard policies call.
@@ -234,7 +234,6 @@ const READERS = {
     return off;
   },
 };
-const { 'Node captureIsOff (failure/home.ts)': _node, ...SHELL_AND_RUNNER } = READERS;
 
 /** Runs every reader over every row (fresh fixture per reader and row); returns the disagreements. */
 function disagreements(readers, rows, t) {
@@ -282,10 +281,16 @@ test('the four readers agree on settings.json and its file faults (unreadable, d
   assert.deepEqual(found, [], `readers disagree: ${JSON.stringify(found, null, 1)}`);
 });
 
-test('the dispatcher, the policy helper and the runner agree with the IC-004 corpus answers', { skip: !POSIX }, (t) => {
-  assert.equal(Object.keys(SHELL_AND_RUNNER).length, 3);
-  const found = disagreements(SHELL_AND_RUNNER, CORPUS_ROWS, t);
+test('the four readers agree with the IC-004 corpus answers (Node included)', { skip: !POSIX }, (t) => {
+  assert.equal(Object.keys(READERS).length, 4);
+  const found = disagreements(READERS, CORPUS_ROWS, t);
   assert.deepEqual(found, [], `readers disagree: ${JSON.stringify(found, null, 1)}`);
+});
+
+test('negative control: the Node column of the corpus is live (a corpus row Node would read wrongly fails)', { skip: !POSIX }, (t) => {
+  const wrong = CORPUS_ROWS.map((row) => (row.name === 'corpus: junk after the closing quote (OI-1)' ? { ...row, off: !row.off } : row));
+  const found = disagreements({ node: READERS['Node captureIsOff (failure/home.ts)'] }, wrong, t);
+  assert.deepEqual(found.map((x) => x.row), ['absolute xdg: corpus: junk after the closing quote (OI-1)']);
 });
 
 test('the two bash readers carry byte-identical config-home and lexical blocks', () => {
