@@ -48,17 +48,6 @@ const EXCLUDED_CONSUMER_DIRS = ['bench/runs', 'bench/reports'].map((d) => path.j
  */
 const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scripts')];
 
-/**
- * An entry here documents why the named module is deliberately unreferenced — e.g. an entry point
- * invoked only via `node <path>` or `require.resolve` rather than a static `require('...')` a text
- * scan can see. Empty: the three modules no bin/ or src/ file requires are recognised by
- * PATH_CALLER_SURFACES (sync-plugin-versions.ts via the `version` npm script, c4-project.ts via
- * render-puml.sh) and CONSUMER_ROOTS (worktree.js via bench/runner.js), both of which stop
- * vouching for a module the moment its caller goes — which an allowlist entry would not.
- * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
- */
-const ALLOWLIST = new Set([]);
-
 /** Every runtime module file (`.js` or `.ts`) under a source/test root. The TypeScript migration
  * (see agent-docs/BRIEF_GOAL_DOFLOW.md) runs `.ts` directly through Node native type-stripping, so a
  * converted module is still a real node in this tree's require graph and must stay reachable. `.d.ts`
@@ -168,7 +157,6 @@ test('G16: every .js module under src/ is required by at least one non-test cons
     .filter((m) => !reached.has(m))
     .map((m) => path.relative(REPO, m))
     .filter((rel) => !callerText.includes(rel.split(path.sep).join('/')))
-    .filter((rel) => !ALLOWLIST.has(rel))
     .sort();
 
   assert.deepEqual(orphaned, [],
@@ -235,13 +223,6 @@ test('G16: the repository root is computed in exactly one place', () => {
     'these modules walk up from __dirname to reach the repository root. That expression encodes the '
     + "file's own depth, so moving it into a directory silently changes what it resolves to. Require "
     + `{ REPO_ROOT } from src/helper/repo-root.ts instead:\n  ${offenders.join('\n  ')}`);
-});
-
-test('G16: every ALLOWLIST entry names a module that actually exists', () => {
-  // An allowlist entry for a module that has since been deleted is dead weight nobody will notice —
-  // this keeps the list honest if it is ever populated.
-  const missing = [...ALLOWLIST].filter((rel) => !fs.existsSync(path.join(REPO, rel)));
-  assert.deepEqual(missing, [], `ALLOWLIST names modules that do not exist:\n  ${missing.join('\n  ')}`);
 });
 
 // G30 — the TypeScript "force rule". DoFlow is migrating src/ to TypeScript run through Node native

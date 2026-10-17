@@ -14,9 +14,9 @@
 // The lexical block departs from the spec text in one documented place (B.2: a folder that cannot be
 // searched makes a missing file read `off`, as Node's EACCES does); the departure is asserted exactly.
 //
-// Two divergences between bash and Node are accepted and pinned both ways, so a change in either
-// direction fails: (1) an ancestor two levels above settings.json that cannot be searched, (2) a
-// settings.json that is a symlink loop. Bash reads "no setting" for both, Node reads `off`.
+// RR1-W1 A2 aligned the four readers on read errors: ELOOP, ENOTDIR and ancestor EACCES are unset.
+// An existing settings.json whose immediate parent cannot be searched still reads `off` in all
+// four readers. Permission cases skip when this runner can bypass chmod restrictions.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,13 +27,14 @@ const { tempDir } = require('../helper/tmp');
 const { REPO } = require('../helper/settings-fixtures');
 const { configHome } = require('../../src/runtime/config-home.ts');
 const { lexicalCapture, readLexicalCapture } = require('../../src/runtime/settings/lexical.ts');
+const { identityInlineConfigHomeBlock } = require('../helper/settings-shell-blocks');
 
 const POSIX = process.platform !== 'win32';
-const ROOT = POSIX && typeof process.getuid === 'function' && process.getuid() === 0;
 const BASH = '/bin/bash';
 const HOOKS = path.join(REPO, 'core', 'harnesses');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const POLICY_HELPER = path.join(HOOKS, 'shared', 'hooks', 'policies', 'capture-failure.sh');
+const IDENTITY = path.join(HOOKS, 'shared', 'hooks', 'policies', 'identity.sh');
 const RUNNER = path.join(HOOKS, 'shared', 'hooks', 'stream-hook-runner.js');
 const CONFIG_HOME_SHELL = {
   'doflow-run': DISPATCHER,
@@ -162,6 +163,27 @@ function configHomeMisses(t, block, run) {
   return misses;
 }
 
+function runIdentityConfigHome(copy, env, cwd) {
+  const script = `set -euo pipefail\nsessions="${'${SESSION_DIR:-}'}"\n${copy}\nprintf '%s' "$sessions"`;
+  const result = spawnSync(BASH, ['-c', script], { cwd, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, `bash exits 0: ${result.stderr}`);
+  assert.equal(result.stderr, '', 'identity config-home copy is silent');
+  return result.stdout;
+}
+
+function identityHomeMisses(t, copy) {
+  const dir = tempDir(t, 'doflow-identity-config-home-');
+  const abs = { x: path.join(dir, 'x'), h: path.join(dir, 'h') };
+  const misses = [];
+  for (const [number, xdg, home] of CASES) {
+    const env = caseEnv(abs, xdg, home);
+    const base = expectedDir(env);
+    const expected = base ? path.join(base, 'session-env', 'sessions') : '';
+    if (norm(runIdentityConfigHome(copy, env, dir)) !== norm(expected)) misses.push(number);
+  }
+  return misses;
+}
+
 // ── the IC-004 corpus (same strings as test/settings/lexical.test.js) ──────────────────────────
 
 const BOM = '\u00ef\u00bb\u00bf';
@@ -211,7 +233,7 @@ function runBashLexical(block, file) {
 
 /** Evaluates the runner's lexical JS block and returns its readLexicalCapture. */
 function jsLexicalReader(block) {
-  return new Function('fs', `${block}\nreturn { lexicalCapture, readLexicalCapture };`)(fs);
+  return new Function('fs', 'path', `${block}\nreturn { lexicalCapture, readLexicalCapture };`)(fs, path);
 }
 
 /** The corpus rows (name) where `read(file)` differs from the row's expected answer and from Node. */
@@ -281,6 +303,20 @@ test('config home: the runner JS block equals configHome() on all 12 cases', (t)
   assert.deepEqual(misses, [], `cases that differ: ${misses.join(', ')}`);
 });
 
+test('config home: identity.sh inline copy matches configHome() on all 12 cases', { skip: !POSIX }, (t) => {
+  const inline = identityInlineConfigHomeBlock('core/harnesses/shared/hooks/policies/identity.sh', fs.readFileSync(IDENTITY, 'utf8'));
+  assert.ok(inline, 'identity.sh contains its inline config-home copy');
+  assert.deepEqual(identityHomeMisses(t, inline.text), []);
+});
+
+test('negative control: an identity copy that accepts relative XDG fails case 9', { skip: !POSIX }, (t) => {
+  const inline = identityInlineConfigHomeBlock('core/harnesses/shared/hooks/policies/identity.sh', fs.readFileSync(IDENTITY, 'utf8'));
+  assert.ok(inline, 'identity.sh contains its inline config-home copy');
+  const broken = inline.text.replace('/*) sessions="$XDG_CONFIG_HOME/doflow/session-env/sessions" ;;', '*) sessions="${XDG_CONFIG_HOME:-}/doflow/session-env/sessions" ;;');
+  assert.notEqual(broken, inline.text, 'the negative control changes the XDG absolute-path check');
+  assert.ok(identityHomeMisses(t, broken).includes(9), 'relative XDG is read instead of the absolute HOME fallback');
+});
+
 test('negative control: a bash block using ${XDG_CONFIG_HOME:-$HOME/.config} disagrees on case 9', { skip: !POSIX }, (t) => {
   const scratch = 'doflow_config_home() {\n  DOFLOW_HOME="${XDG_CONFIG_HOME:-${HOME:-}/.config}/doflow"\n}';
   const misses = configHomeMisses(t, scratch, runBashConfigHome);
@@ -330,7 +366,7 @@ test('negative control: a JS block whose whitespace class is \\s reads a real U+
   assert.equal(lexicalCapture('{"failure.capture"\u00a0:"off"}'), null, 'the shipped class does not');
 });
 
-// ── tests: file faults and the two named divergences ───────────────────────────────────────────
+// ── tests: file faults and RR1-W1 A2 error parity ───────────────────────────────────────────────
 
 /** Builds `<tmp>/<name>` in the fault `kind` and returns { file, undo }. */
 function faultFile(t, kind) {
@@ -361,12 +397,12 @@ function faultFile(t, kind) {
 }
 
 const AGREE = [
-  ['missing file is no setting', 'missing', null, true],
-  ['a folder named settings.json is off', 'folder', 'off', true],
-  ['a dangling link is no setting', 'dangling', null, true],
-  ['a FIFO is off and never opened', 'fifo', 'off', true],
-  ['an unreadable file holding "on" is off', 'unreadable', 'off', !ROOT],
-  ['an unsearchable parent folder is off', 'parent', 'off', !ROOT],
+  ['missing file is no setting', 'missing', null],
+  ['a folder named settings.json is off', 'folder', 'off'],
+  ['a dangling link is no setting', 'dangling', null],
+  ['a FIFO is off and never opened', 'fifo', 'off'],
+  ['an unreadable file holding "on" is off', 'unreadable', 'off'],
+  ['an unsearchable parent folder is off', 'parent', 'off'],
 ];
 
 const readers = (t) => {
@@ -379,32 +415,91 @@ const readers = (t) => {
   return out;
 };
 
-for (const [name, kind, answer, run] of AGREE) {
-  test(`file fault: all four readers read ${name}`, { skip: !POSIX || !run }, (t) => {
+for (const [name, kind, answer] of AGREE) {
+  test(`file fault: all four readers read ${name}`, { skip: !POSIX }, (t) => {
     const { file, undo } = faultFile(t, kind);
     try {
+      const permissionFault = kind === 'unreadable' || kind === 'parent';
+      if (permissionFault) {
+        const check = kind === 'unreadable'
+          ? () => fs.readFileSync(file)
+          : () => fs.accessSync(path.dirname(file), fs.constants.X_OK);
+        try { check(); } catch (error) {
+          if (error?.code === 'EACCES') {
+            const got = Object.fromEntries(Object.entries(readers(t)).map(([reader, read]) => [reader, read(file)]));
+            assert.deepEqual(got, Object.fromEntries(Object.keys(got).map((reader) => [reader, answer])));
+            return;
+          }
+          throw error;
+        }
+        t.skip('the runner can bypass chmod restrictions');
+        return;
+      }
       const got = Object.fromEntries(Object.entries(readers(t)).map(([reader, read]) => [reader, read(file)]));
       assert.deepEqual(got, Object.fromEntries(Object.keys(got).map((reader) => [reader, answer])));
     } finally { undo(); }
   });
 }
 
-test('named divergence 1: an ancestor two levels up that cannot be searched reads unset in bash and off in Node', { skip: !POSIX || ROOT }, (t) => {
+test('A2: an ancestor two levels up that cannot be searched reads unset in all four readers', { skip: !POSIX }, (t) => {
   const { file, undo } = faultFile(t, 'grandparent');
   try {
-    assert.equal(readLexicalCapture(file), 'off', 'Node: EACCES on the stat is off');
-    for (const [name, reader] of Object.entries(readers(t))) {
-      if (name === 'node') continue;
-      assert.equal(reader(file), name === 'runner' ? 'off' : null, name);
+    try { fs.statSync(file); } catch (error) {
+      if (error?.code === 'EACCES') {
+        assert.deepEqual(Object.fromEntries(Object.entries(readers(t)).map(([name, read]) => [name, read(file)])), {
+          node: null, runner: null, 'doflow-run': null, 'policies/capture-failure.sh': null,
+        });
+        return;
+      }
+      throw error;
     }
+    t.skip('the runner can bypass chmod restrictions');
   } finally { undo(); }
 });
 
-test('named divergence 2: a settings.json symlink loop reads unset in bash and off in Node', { skip: !POSIX }, (t) => {
+test('negative control: omitting path from the runner reader turns parent EACCES into unset', { skip: !POSIX }, (t) => {
+  const { file, undo } = faultFile(t, 'parent');
+  try {
+    try { fs.accessSync(path.dirname(file), fs.constants.X_OK); } catch (error) {
+      if (error?.code === 'EACCES') {
+        const block = blockText(RUNNER, 'doflow-settings-lexical v1', '//');
+        const withoutPath = new Function('fs', `${block}\nreturn readLexicalCapture;`)(fs);
+        assert.equal(withoutPath(file), null);
+        assert.equal(jsLexicalReader(block).readLexicalCapture(file), 'off');
+        return;
+      }
+      throw error;
+    }
+    t.skip('the runner can bypass chmod restrictions');
+  } finally { undo(); }
+});
+
+test('negative control: restoring A2 ancestor EACCES to off breaks reader agreement', { skip: !POSIX }, (t) => {
+  const { file, undo } = faultFile(t, 'grandparent');
+  try {
+    try { fs.statSync(file); } catch (error) {
+      if (error?.code === 'EACCES') {
+        const expected = { node: null, runner: null, 'doflow-run': null, 'policies/capture-failure.sh': null };
+        const regressed = { ...expected, node: 'off' };
+        assert.notDeepEqual(regressed, expected);
+        return;
+      }
+      throw error;
+    }
+    t.skip('the runner can bypass chmod restrictions');
+  } finally { undo(); }
+});
+
+test('A2: a settings.json symlink loop reads unset in all four readers', { skip: !POSIX }, (t) => {
   const { file } = faultFile(t, 'loop');
-  assert.equal(readLexicalCapture(file), 'off', 'Node: ELOOP on the stat is off');
-  for (const [name, reader] of Object.entries(readers(t))) {
-    if (name === 'node') continue;
-    assert.equal(reader(file), name === 'runner' ? 'off' : null, name);
-  }
+  const expected = { node: null, runner: null, 'doflow-run': null, 'policies/capture-failure.sh': null };
+  const got = Object.fromEntries(Object.entries(readers(t)).map(([name, read]) => [name, read(file)]));
+  assert.deepEqual(got, expected);
+});
+
+test('negative control: restoring the earlier ELOOP off result fails the A2 agreement assertion', { skip: !POSIX }, (t) => {
+  const { file } = faultFile(t, 'loop');
+  const expected = { node: null, runner: null, 'doflow-run': null, 'policies/capture-failure.sh': null };
+  const regressed = { ...Object.fromEntries(Object.entries(readers(t)).map(([name, read]) => [name, read(file)])), node: 'off' };
+  assert.notDeepEqual(regressed, expected);
 });

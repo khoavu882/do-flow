@@ -173,6 +173,10 @@ test('no-home config header names ignored variables in the IC-012 form', (t) => 
 
 test('config list tree snapshot stays unchanged because config skips after-verb upkeep', (t) => {
   const f = createSettingsEnv(t);
+  // The runtime dispatch sees `list` as its positional root for this explicit form.
+  const projectState = path.join(f.project, 'list', '.doflow', 'state');
+  fs.mkdirSync(projectState, { recursive: true });
+  assert.equal(fs.statSync(projectState).isDirectory(), true, 'the fixture has a usable project-state root');
   const before = snapshot(f.dir);
   const result = f.run(['config', 'list', '--json']);
   assert.equal(result.status, 0, result.stderr);

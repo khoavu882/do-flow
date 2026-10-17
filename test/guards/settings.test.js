@@ -11,11 +11,12 @@ const { tempDir } = require('../helper/tmp');
 const { loadSettingsRegistry, validateSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
 const { configHome } = require('../../src/runtime/config-home.ts');
 const { lexicalCapture } = require('../../src/runtime/settings/lexical.ts');
+const { checkSettingsDocs, renderSettingsTable, resolvedDefault } = require('../helper/settings-doc-guard');
+const { identityInlineConfigHomeBlock } = require('../helper/settings-shell-blocks');
 
 const REPO = path.resolve(__dirname, '../..');
 const SOURCE_EXT = /\.(?:js|mjs|cjs|ts|sh)$/;
 const CONFIG_NAME = 'doflow-config-home v1';
-const LEXICAL_NAME = 'doflow-settings-lexical v1';
 const CONFIG_FORMS = /\$XDG_CONFIG_HOME\b|\$\{XDG_CONFIG_HOME\b|\benv(?:\?\.|\.)XDG_CONFIG_HOME\b/;
 const BANNED_CONFIG_FORMS = /\$\{XDG_CONFIG_HOME:-|XDG_CONFIG_HOME\s*\|\|/;
 const CONFIG_BLOCK_FILES = [
@@ -27,11 +28,7 @@ const CONFIG_BLOCK_FILES = [
   'core/harnesses/gemini/hooks/lib.sh',
   'core/harnesses/kiro/hooks/lib.sh',
   'core/harnesses/shared/hooks/stream-hook-runner.js',
-];
-const LEXICAL_BLOCK_FILES = [
-  'core/shared/scripts/doflow/bin/doflow-run',
-  'core/harnesses/shared/hooks/policies/capture-failure.sh',
-  'core/harnesses/shared/hooks/stream-hook-runner.js',
+  'core/harnesses/shared/hooks/policies/identity.sh',
 ];
 const SETTINGS_FILE = 'core/registry/settings.json';
 const STORAGE_FILE = 'core/registry/storage.json';
@@ -81,23 +78,14 @@ function markerRanges(text, name) {
   return ranges;
 }
 
-function inlineIdentityRange(file, lines) {
-  if (file !== 'core/harnesses/shared/hooks/policies/identity.sh') return null;
-  const marker = lines.findIndex((line) => line.includes('doflow-config-home v1 inline copy'));
-  if (marker < 0) return null;
-  for (let end = marker + 1; end < lines.length; end++) {
-    if (/^\s*fi\s*$/.test(lines[end])) return { start: marker, end };
-  }
-  return { start: marker, end: marker };
-}
-
 function checkConfigHomeSources(sources) {
   const errors = [];
   for (const { file, text } of sources) {
     const lines = text.split('\n');
     const ranges = markerRanges(text, CONFIG_NAME);
     for (const range of ranges) if (range.invalid) errors.push(`${file}:${range.start + 1} unterminated ${CONFIG_NAME} block`);
-    const allowed = [...ranges, ...(inlineIdentityRange(file, lines) ? [inlineIdentityRange(file, lines)] : [])];
+    const inline = identityInlineConfigHomeBlock(file, text);
+    const allowed = [...ranges, ...(inline ? [inline] : [])];
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (sourceComment(line, file) || !CONFIG_FORMS.test(line)) continue;
@@ -119,6 +107,10 @@ function extractBlocks(sources, name) {
     for (const range of ranges) {
       if (range.invalid) continue;
       blocks.push({ file, text: text.split('\n').slice(range.start, range.end + 1).join('\n') });
+    }
+    if (name === CONFIG_NAME) {
+      const inline = identityInlineConfigHomeBlock(file, text);
+      if (inline) blocks.push({ file, text: inline.text, inline: true });
     }
   }
   return { blocks, errors };
@@ -160,9 +152,12 @@ function checkConfigBlocks(blocks, dir) {
   const errors = [];
   const cases = configCases(dir);
   for (const block of blocks) {
-    const run = /\.js$/.test(block.file) ? runJsConfigHome : (value, env) => runBashConfigHome(value, env, dir);
+    const run = block.inline
+      ? (value, env) => runIdentityInlineConfigHome(value, env, dir)
+      : /\.js$/.test(block.file) ? runJsConfigHome : (value, env) => runBashConfigHome(value, env, dir);
     for (const { number, env } of cases) {
-      const expected = configHome(env).dir ?? '';
+      const configDir = configHome(env).dir ?? '';
+      const expected = block.inline && configDir ? path.join(configDir, 'session-env', 'sessions') : configDir;
       const actual = run(block.text, env);
       if ((actual ? path.normalize(actual) : '') !== (expected ? path.normalize(expected) : '')) {
         errors.push(`${block.file} config-home case ${number}: expected '${expected}', got '${actual}'`);
@@ -172,87 +167,36 @@ function checkConfigBlocks(blocks, dir) {
   return errors;
 }
 
-function docsRows(text) {
-  const lines = text.split('\n');
-  const heading = lines.indexOf('### Settings keys');
-  if (heading < 0) return { error: '### Settings keys heading is missing', rows: new Map() };
-  let header = heading + 1;
-  while (header < lines.length && !lines[header].startsWith('|')) header++;
-  if (header === lines.length) return { error: 'settings table is missing', rows: new Map() };
-  const split = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim().replace(/^`(.*)`$/, '$1'));
-  const headings = split(lines[header]);
-  const wanted = ['Key', 'Type', 'Default', 'Scope', 'Env', 'Legacy file'];
-  if (headings.length !== wanted.length || headings.some((value, i) => value !== wanted[i])) {
-    return { error: `settings table columns are [${headings.join(', ')}]`, rows: new Map() };
-  }
-  const rows = new Map();
-  for (let i = header + 1; i < lines.length && lines[i].startsWith('|'); i++) {
-    if (/^\|\s*[-:| ]+\s*\|$/.test(lines[i])) continue;
-    const cells = split(lines[i]);
-    if (cells.length !== wanted.length) continue;
-    const [key, type, defaultValue, scope, env] = cells;
-    if (rows.has(key)) rows.set(key, { duplicate: true, line: i + 1 });
-    else rows.set(key, { type, defaultValue, scope, env, line: i + 1 });
-  }
-  return { error: null, rows };
-}
-
-function resolvedDefault(key, spec, registry) {
-  if (Object.hasOwn(spec, 'default')) return spec.default;
-  if (!spec.defaultRef) return undefined;
-  const deps = {};
-  if (spec.defaultRef === 'advice.providerDefaultEndpoint') {
-    deps['advice.provider'] = registry.keys.get('advice.provider')?.default;
-  }
-  return registry.resolveRef(spec.defaultRef, deps);
-}
-
-function displayDefault(value) {
-  return value === null || value === undefined ? '—' : String(value);
-}
-
-function renderSettingsTable(raw, registry, { omitKey = null } = {}) {
-  const lines = [
-    '### Settings keys', '',
-    '| Key | Type | Default | Scope | Env | Legacy file |',
-    '|---|---|---|---|---|---|',
-  ];
-  for (const [key, spec] of Object.entries(raw.keys)) {
-    if (key === omitKey) continue;
-    const legacy = (spec.legacy || []).map((entry) => entry.path).join(', ') || '—';
-    lines.push(`| \`${key}\` | ${spec.type} | \`${displayDefault(resolvedDefault(key, spec, registry))}\` | ${spec.scope} | ${spec.env?.name || '—'} | \`${legacy}\` |`);
-  }
-  return lines.join('\n');
-}
-
-function checkSettingsDocs(raw, text, registry) {
-  const { error, rows } = docsRows(text);
-  if (error) return [error];
-  const errors = [];
-  const expected = Object.entries(raw.keys);
-  for (const [key, spec] of expected) {
-    const row = rows.get(key);
-    if (!row) { errors.push(`settings table is missing ${key}`); continue; }
-    if (row.duplicate) { errors.push(`settings table duplicates ${key} at line ${row.line}`); continue; }
-    const defaults = displayDefault(resolvedDefault(key, spec, registry));
-    const env = spec.env?.name || '—';
-    for (const [field, actual, wanted] of [
-      ['default', row.defaultValue, defaults], ['scope', row.scope, spec.scope], ['env', row.env, env],
-    ]) if (actual !== wanted) errors.push(`${key} ${field} is '${actual}', expected '${wanted}'`);
-  }
-  for (const key of rows.keys()) if (!Object.hasOwn(raw.keys, key)) errors.push(`settings table has undeclared key ${key}`);
-  return errors;
+function runIdentityInlineConfigHome(block, env, cwd) {
+  const script = `set -euo pipefail\nsessions="${'${SESSION_DIR:-}'}"\n${block}\nprintf '%s' "$sessions"`;
+  const result = spawnSync('/bin/bash', ['-c', script], { cwd, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, `bash exits 0: ${result.stderr}`);
+  assert.equal(result.stderr, '', 'identity config-home copy is silent');
+  return result.stdout;
 }
 
 function stripComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
-function checkNoCopiedDefaults(adviceConfig, retention) {
+// model-router maps a model backend to its CLI name; that string is not the advice.provider default.
+const OLLAMA_LITERAL_ALLOWLIST = new Set(['src/runtime/model-router.ts']);
+
+function checkNoCopiedDefaults(sources, retention) {
   const errors = [];
-  if (/(?:'ollama'|"ollama")/.test(stripComments(adviceConfig))) errors.push('advice/config.ts copies the advice.provider default');
+  for (const { file, text } of sources) {
+    if (OLLAMA_LITERAL_ALLOWLIST.has(file)) continue;
+    if (/(?:'ollama'|"ollama")/.test(stripComments(text))) errors.push(`${file} copies the advice.provider default`);
+  }
   if (/\b4320\b/.test(stripComments(retention))) errors.push('lifecycle/retention.ts copies the storage.retentionHours default');
   return errors;
+}
+
+function shellReadBlockNames(raw) {
+  return [...new Set(Object.values(raw.keys)
+    .map((spec) => spec.shellRead)
+    .filter((shellRead) => typeof shellRead === 'string')
+    .map((shellRead) => `doflow-settings-${shellRead.replace(/-v(\d+)$/, ' v$1')}`))];
 }
 
 function loadLexicalCorpus() {
@@ -335,7 +279,7 @@ test('G44 S1: the settings registry validates refs and every consumer path exist
   assert.match(control.errors.join('\n'), /advice\.enabled is missing 'consumers'/);
 });
 
-test('G44 S2: the settings keys table matches registry defaults, scopes and env names', () => {
+test('G44 S2: the settings keys table matches registry types, defaults, scopes, env names and legacy files', () => {
   const raw = readJson(SETTINGS_FILE);
   const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
   assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
@@ -355,6 +299,31 @@ test('G44 S2 control: a scratch settings table missing storage.prune is rejected
   assert.ok(errors.some((message) => message.includes('missing storage.prune')), errors.join('\n'));
 });
 
+test('G44 S2 control: wrong Type and Legacy file cells are rejected', () => {
+  const raw = readJson(SETTINGS_FILE);
+  const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
+  assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
+  const good = renderSettingsTable(raw, loaded.registry);
+  const row = good.split('\n').find((line) => line.includes('| `storage.prune` |'));
+  assert.ok(row, 'the fixture has a storage.prune row');
+  const wrong = good.replace(row, row.replace('| enum |', '| string |').replace(' | `prune` |', ' | `obsolete-prune` |'));
+  const errors = checkSettingsDocs(raw, wrong, loaded.registry);
+  assert.ok(errors.some((message) => message.includes('storage.prune type')), errors.join('\n'));
+  assert.ok(errors.some((message) => message.includes('storage.prune legacy file')), errors.join('\n'));
+});
+
+test('G44 S2 control: default refs receive dependencies from registry metadata and requires', () => {
+  const keys = new Map([
+    ['base.value', { default: 'registry-default' }],
+    ['derived.value', { defaultRef: 'fixture.ref', requires: [{ when: true, key: 'base.value', view: 'global' }] }],
+  ]);
+  const registry = {
+    keys,
+    resolveRef(name, deps) { return name === 'fixture.ref' ? `resolved:${deps['base.value']}` : undefined; },
+  };
+  assert.equal(resolvedDefault('derived.value', keys.get('derived.value'), registry), 'resolved:registry-default');
+});
+
 test('G44 S3: every registry reference resolves and consumers do not copy referenced defaults', () => {
   const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
   assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
@@ -362,12 +331,15 @@ test('G44 S3: every registry reference resolves and consumers do not copy refere
     if (spec.valuesRef) assert.ok(loaded.registry.enumValues(key)?.length, `${key} valuesRef resolves`);
     if (spec.defaultRef) assert.notEqual(resolvedDefault(key, spec, loaded.registry), undefined, `${key} defaultRef resolves`);
   }
-  const adviceFile = fs.readFileSync(path.join(REPO, 'src/runtime/advice/config.ts'), 'utf8');
+  const adviceFiles = walkSourceFiles(REPO, 'src');
   const retentionFile = fs.readFileSync(path.join(REPO, 'src/runtime/lifecycle/retention.ts'), 'utf8');
-  assert.deepEqual(checkNoCopiedDefaults(adviceFile, retentionFile), []);
+  assert.deepEqual(checkNoCopiedDefaults(adviceFiles, retentionFile), []);
 
-  const controls = checkNoCopiedDefaults("const defaultProvider = 'ollama';", 'const window = 4320;');
-  assert.equal(controls.length, 2, 'both copied defaults are detected');
+  const controls = checkNoCopiedDefaults([
+    { file: 'src/runtime/fake-default.ts', text: "const defaultProvider = 'ollama';" },
+  ], 'const window = 4320;');
+  assert.equal(controls.length, 2, 'the copied provider and retention defaults are detected');
+  assert.match(controls[0], /src\/runtime\/fake-default\.ts/);
 });
 
 test('G44 S4: config-home accesses use the helper or a checked block, and every block matches all 12 cases', (t) => {
@@ -393,9 +365,13 @@ test('G44 S4 control: a scratch src file using an unsafe XDG expression is rejec
 test('G44 S5: every lexical-v1 consumer block matches the IC-004 corpus', (t) => {
   const dir = tempDir(t, 'doflow-settings-lexical-');
   const sources = shippedSources();
-  const { blocks, errors } = extractBlocks(sources, LEXICAL_NAME);
+  const raw = readJson(SETTINGS_FILE);
+  const blockSets = shellReadBlockNames(raw).map((name) => extractBlocks(sources, name));
+  const blocks = blockSets.flatMap((result) => result.blocks);
+  const errors = blockSets.flatMap((result) => result.errors);
+  assert.ok(blockSets.length > 0, 'the registry declares at least one shellRead block');
+  assert.ok(blocks.length > 0, 'the declared shellRead blocks are present in shipped sources');
   assert.deepEqual(errors, []);
-  assert.deepEqual(blocks.map((block) => block.file).sort(), [...LEXICAL_BLOCK_FILES].sort());
   const corpus = loadLexicalCorpus();
   for (const block of blocks) {
     assert.deepEqual(lexicalMismatches(block, corpus, dir), [], `${block.file} differs from lexicalCapture()`);

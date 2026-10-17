@@ -10,6 +10,7 @@ const { createSettingsEnv, REPO } = require('../helper/settings-fixtures');
 const { loadSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
 const { handleConfigCommand } = require('../../src/runtime/settings/cli.ts');
+const { checkSettingsDocs, renderSettingsRow } = require('../helper/settings-doc-guard');
 
 function verifyKey() {
   return {
@@ -47,26 +48,7 @@ function writeFixtureRepo(root, raw) {
   }
 }
 
-function tableKeys(text) {
-  const lines = text.split('\n');
-  const heading = lines.indexOf('### Settings keys');
-  if (heading < 0) return new Set();
-  let start = heading + 1;
-  while (start < lines.length && !lines[start].startsWith('|')) start++;
-  const keys = new Set();
-  for (let i = start + 2; i < lines.length && lines[i].startsWith('|'); i++) {
-    const key = lines[i].split('|')[1]?.trim().replace(/^`|`$/g, '');
-    if (key) keys.add(key);
-  }
-  return keys;
-}
-
-function missingDocsKeys(raw, text) {
-  const keys = tableKeys(text);
-  return Object.keys(raw.keys).filter((key) => !keys.has(key));
-}
-
-function addVerifyDocsRow(text) {
+function addVerifyDocsRow(text, raw, registry) {
   const lines = text.split('\n');
   const heading = lines.indexOf('### Settings keys');
   assert.notEqual(heading, -1, 'settings docs table exists');
@@ -74,7 +56,7 @@ function addVerifyDocsRow(text) {
   while (end < lines.length && !lines[end].startsWith('|')) end++;
   assert.ok(end < lines.length, 'settings docs table has a header');
   while (end < lines.length && lines[end].startsWith('|')) end++;
-  lines.splice(end, 0, '| `verify.v0` | enum | `on` | narrow-only | `DOFLOW_VERIFY_V0` | `verify-v0.off` |');
+  lines.splice(end, 0, renderSettingsRow('verify.v0', raw.keys['verify.v0'], registry));
   return lines.join('\n');
 }
 
@@ -117,11 +99,11 @@ test('IC-016: verify.v0 registers through the existing consumer and config list 
   const fixtureDocsFile = path.join(fixture.dir, 'docs', 'reference.md');
   fs.mkdirSync(path.dirname(fixtureDocsFile), { recursive: true });
   fs.writeFileSync(fixtureDocsFile, shippedDocs);
-  assert.deepEqual(missingDocsKeys(raw, fs.readFileSync(fixtureDocsFile, 'utf8')), ['verify.v0'],
-    'the S2 contract rejects a registered key without its table row');
-  fs.writeFileSync(fixtureDocsFile, addVerifyDocsRow(shippedDocs));
-  assert.deepEqual(missingDocsKeys(raw, fs.readFileSync(fixtureDocsFile, 'utf8')), [],
-    'adding the fixture row makes the key documented');
+  const missingRow = checkSettingsDocs(raw, shippedDocs, loaded.registry);
+  assert.ok(missingRow.some((message) => message.includes('missing verify.v0')), missingRow.join('\n'));
+  fs.writeFileSync(fixtureDocsFile, addVerifyDocsRow(shippedDocs, raw, loaded.registry));
+  assert.deepEqual(checkSettingsDocs(raw, fs.readFileSync(fixtureDocsFile, 'utf8'), loaded.registry), [],
+    'the same G44 S2 check accepts the added fixture row');
 
   const defaultOutput = listConfig(repoRoot, fixture);
   assert.match(defaultOutput, /^verify\.v0 = "on"  \(default: core\/registry\/settings\.json\)$/m);

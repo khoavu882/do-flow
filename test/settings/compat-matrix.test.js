@@ -423,7 +423,7 @@ const NODE_PROBE = `
   process.stdout.write(JSON.stringify(out));
 `;
 
-test('C22 (HOME unset, XDG unset), 2.1: there is no config home, no failure home and no home root; nothing falls back to the account home', { skip: !POSIX }, (t) => {
+test('C22 (HOME unset, XDG unset), this release: there is no config home, no failure home and no home root; nothing falls back to the account home', { skip: !POSIX }, (t) => {
   const f = fx(t);
   // HOME is unset: compute and compare, read nothing (Node would otherwise name the real account home).
   const out = f.node(NODE_PROBE, { env: { HOME: undefined, XDG_CONFIG_HOME: undefined } });
@@ -434,7 +434,7 @@ test('C22 (HOME unset, XDG unset), 2.1: there is no config home, no failure home
   assert.deepEqual(out.switch, { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: null }, 'captureSwitch(null) reads on; the failure verb maps a null home to off');
 });
 
-test('C22 (HOME relative, XDG unset), 2.1: the relative HOME is ignored; user advice and prune files are not read from <cwd>/<HOME>', { skip: !POSIX }, (t) => {
+test('C22 (HOME relative, XDG unset), this release: the relative HOME is ignored; user advice and prune files are not read from <cwd>/<HOME>', { skip: !POSIX }, (t) => {
   const f = fx(t);
   const configDir = path.join(f.project, 'rel-home', '.config', 'doflow');
   write(path.join(configDir, 'decision-model.json'), userDecision());
@@ -453,7 +453,7 @@ test('C22 (HOME relative, XDG unset), 2.1: the relative HOME is ignored; user ad
   assert.equal(clean.prune.setting, 'off');
 });
 
-test('C23 (XDG relative, HOME absolute), 2.1: the relative XDG is ignored and the config home is $HOME/.config/doflow', { skip: !POSIX }, (t) => {
+test('C23 (XDG relative, HOME absolute), this release: the relative XDG is ignored and the config home is $HOME/.config/doflow', { skip: !POSIX }, (t) => {
   const f = fx(t);
   const relDir = path.join(f.project, 'rel-xdg', 'doflow');
   write(path.join(relDir, 'decision-model.json'), userDecision());
@@ -481,7 +481,7 @@ test('C23 (XDG relative, HOME absolute), 2.1: the relative XDG is ignored and th
   assert.equal(f.node(NODE_PROBE, { env: { PROBE_READ: '1' } }).advice.state, 'on');
 });
 
-// The 2.1 linked-worktree result is the one declared by FR-012/OI-4.
+// This release's linked-worktree result is the one declared by FR-012/OI-4.
 test('W1: a linked worktree inherits the main checkout project layers; its own layers still win', (t) => {
   const f = fx(t, { worktree: true });
   f.writeUserDecision(userDecision());

@@ -651,7 +651,7 @@ test('inverted boolean order: true is the narrower value', (t) => {
 
 // ── worktrees and sandboxes (W1, FR-012) ──────────────────────────────────────────────────────────
 
-test('W1 (2.1): a linked worktree with no settings of its own reads the main checkout files, named as such', (t) => {
+test('W1 (this release): a linked worktree with no settings of its own reads the main checkout files, named as such', (t) => {
   const f = fx(t, { worktree: true });
   f.writeUserDecision(userDecision());
   const prune = f.writeProjectPrune('off\n');
@@ -682,9 +682,9 @@ test('a sandbox reads only its own checkout', (t) => {
   assert.equal(load(f, { projectRoot: f.worktree }).get('storage.prune').value, 'off', 'control: without the marker it inherits');
 });
 
-// ── pre-2.1 setup ──────────────────────────────────────────────────────────────────────────────
+// ── before this release ────────────────────────────────────────────────────────────────────────
 
-test('a pre-2.1 machine with only old files resolves to the 2.0 values, each with a deprecation note', (t) => {
+test('a machine from earlier betas with only old files resolves to legacy values, each with a deprecation note', (t) => {
   const f = fx(t);
   const decision = f.writeUserDecision(userDecision());
   const userPrune = f.writeUserPrune('off\n');

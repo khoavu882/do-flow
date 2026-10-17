@@ -47,6 +47,17 @@ are reported rather than imitated.
 | `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.ts` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.ts` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic; `src/adapters/mcp-entries.ts` holds the MCP entry ownership rules the Claude, Kiro, OpenCode, Copilot and Antigravity adapters share |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.ts`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.ts` with `src/adapters/codex/config.ts` instead of depending on that adapter |
 | `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, the per-feature decision register and History compaction (`decision-register.ts`, `history-compactor.ts`), and provider health; `src/runtime/cli-result.ts` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.ts` dispatches to, and deliberately depends on nothing else in the tree |
+| `src/runtime/config-home.ts` | Resolves the one absolute XDG-or-HOME config home shared by Node and shell readers |
+| `src/runtime/settings/files.ts` | Reads and validates project and user settings files |
+| `src/runtime/settings/legacy.ts` | Reads legacy settings sources when the replacement key is absent |
+| `src/runtime/settings/resolve.ts` | Resolves effective values across registry defaults and settings layers |
+| `src/runtime/settings/write.ts` | Safely writes settings layers, replacing symlink targets rather than following them |
+| `src/runtime/settings/registry.ts` | Loads and validates the runtime settings registry |
+| `src/runtime/settings/shared.ts` | Shared lexical value parsing and URL masking for settings adapters |
+| `src/runtime/settings/cli.ts` | Implements `doflow config list` and settings output |
+| `src/runtime/settings/lexical.ts` | Reads the compatibility lexical setting used by shell copies |
+| `src/runtime/settings/project-layers.ts` | Resolves project settings ownership across linked worktrees |
+| `src/runtime/settings/refs.ts` | Resolves registry default references and requirements |
 | `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.ts`, `roots.ts`), the one definition of finished work (`work-status.ts`), the bounded pass and its rules (`engine.ts`, `rules.ts`), the silent cleanup moments (`upkeep.ts`) and the `storage` verb (`cli.ts`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
@@ -501,17 +512,17 @@ configuration as a test fixture.
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
 fifty-one test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-forty-four entries across thirty-nine test files and carries forty-two distinct G-numbers.
+forty-four entries across forty test files and carries forty-two distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
 historical rather than a convention; G44 is the highest number in use, so a new guard takes the next
-one above it instead of adding a fourth collision. The list is not the whole directory. The fourteen
+one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
 of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
 `harness-paths.test.js`, `cli-boundary.test.js`, `frozen-behaviour.test.js`,
-`provider-source-mode.test.js`, `context-docs.test.js`, `context-profile.test.js`,
-`context-silence.test.js`, `context-budget.test.js`, `evals.test.js` and `scaffold.test.js`.
+`provider-source-mode.test.js`, `context-docs.test.js`, `context-profile.test.js` and
+`context-silence.test.js`.
 
 - **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
 - **G2** (`paths.test.js`) — path reachability from `MCP_INDEX.md`-style generalizations.
@@ -565,7 +576,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   verb with two implementations, every shell verb resolving to a helper that exists, every Node verb
   having a CLI command and vice versa, no skill reaching the JS runtime except through the
   dispatcher, and the run ledger carrying metadata only.
-- **G13** (`workflows.test.js`) — every class in `workflows.yaml` resolves to stages naming skills
+- **G13** (`workflows.test.js`) — every class in `workflows.json` resolves to stages naming skills
   that exist; review has no implementation stage; research requires no implementation readiness.
 - **G13** (`context-budget.test.js`, same number, different guard) — the DoFlow-authored
   always-loaded set stays within its byte ceiling and every import in it resolves; and every task

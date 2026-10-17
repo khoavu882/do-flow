@@ -8,8 +8,8 @@
 // equal to the row's expected value. The three writers answer by whether they append a line to the
 // events file; Node answers with captureIsOff (or "skipped" when failureHome is null).
 //
-// A.2 pinned the env and sentinel rows (C17-C20, unchanged in 2.1). B.2 adds the home shapes of
-// IC-003 (C21-C23 at 2.1: a relative XDG_CONFIG_HOME is ignored and a usable HOME decides), the
+// A.2 pinned the env and sentinel rows (C17-C20, unchanged from earlier betas). B.2 adds the home shapes of
+// IC-003 (C21-C23 in this release: a relative XDG_CONFIG_HOME is ignored and a usable HOME decides), the
 // settings.json file faults (unreadable, dangling link, folder, unsearchable folder, FIFO) and the
 // IC-004 corpus through all four readers (B.3 added the Node column to the corpus).
 //
@@ -62,8 +62,8 @@ function dispatcherFunctions(text = fs.readFileSync(DISPATCHER, 'utf8')) {
 
 // `word` undefined leaves DOFLOW_FAILURE_CAPTURE unset; `xdg` is 'absolute' (XDG_CONFIG_HOME set to
 // the fixture folder) or 'unset' (the home falls back to $HOME/.config); `sentinel` puts the
-// failures/off file where that row's readers look; `off` is the expected answer (C17-C20, the same in
-// 2.0 and 2.1).
+// failures/off file where that row's readers look; `off` is the expected answer (C17-C20, unchanged
+// from earlier betas).
 const ROWS = [];
 for (const xdg of ['absolute', 'unset']) {
   ROWS.push({ name: 'unset, no sentinel', xdg, word: undefined, sentinel: false, off: false });
@@ -78,7 +78,7 @@ for (const xdg of ['absolute', 'unset']) {
   }
 }
 
-// IC-003 home shapes at 2.1. `relative-xdg`: XDG_CONFIG_HOME relative and HOME absolute (case 9,
+// IC-003 home shapes in this release. `relative-xdg`: XDG_CONFIG_HOME relative and HOME absolute (case 9,
 // C23 flipped: HOME decides). `relative-xdg, no HOME` (case 7) and `no HOME, no XDG` (case 1, C22):
 // no config home, capture skipped, nothing created anywhere.
 const HOME_ROWS = [
@@ -283,7 +283,7 @@ test('the four capture readers give one on/off answer on every env and sentinel 
   assert.deepEqual(found, [], `readers disagree: ${JSON.stringify(found, null, 1)}`);
 });
 
-test('the four readers agree on the IC-003 home shapes at 2.1 (C21-C23)', { skip: !POSIX }, (t) => {
+test('the four readers agree on the IC-003 home shapes in this release (C21-C23)', { skip: !POSIX }, (t) => {
   const found = disagreements(READERS, HOME_ROWS, t);
   assert.deepEqual(found, [], `readers disagree: ${JSON.stringify(found, null, 1)}`);
 });

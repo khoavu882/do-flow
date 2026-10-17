@@ -13,6 +13,46 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
+function assertSymlinkReplacement(write, t) {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  const target = f.userFile('target.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(target, '{\n  "schema": 1,\n  "storage.prune": "on"\n}\n');
+  const targetHash = sha256(target);
+  fs.symlinkSync(target, file);
+
+  const result = write({ file, set: { 'storage.prune': 'off' } });
+
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), false);
+  assert.equal(sha256(target), targetHash);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { schema: 1, 'storage.prune': 'off' });
+}
+
+function directWriteVariant(dir, t) {
+  const original = fs.readFileSync(path.join(REPO, 'src/runtime/settings/write.ts'), 'utf8');
+  let source = original.replace(
+    '    fsImpl.renameSync(temporary, file);',
+    '    fsImpl.writeFileSync(file, fsImpl.readFileSync(temporary));\n    fsImpl.rmSync(temporary);',
+  );
+  assert.notEqual(source, original, 'the scratch variant replaces rename with a direct writeFileSync');
+  const imports = [
+    ['../../helper/repo-root.ts', path.join(REPO, 'src/helper/repo-root.ts')],
+    ['./registry.ts', path.join(REPO, 'src/runtime/settings/registry.ts')],
+    ['./files.ts', path.join(REPO, 'src/runtime/settings/files.ts')],
+    ['./resolve.ts', path.join(REPO, 'src/runtime/settings/resolve.ts')],
+  ];
+  for (const [specifier, absolute] of imports) {
+    source = source.replace(`require('${specifier}')`, `require(${JSON.stringify(absolute)})`);
+  }
+  const scratch = path.join(dir, 'write-direct.ts');
+  fs.writeFileSync(scratch, source);
+  const loaded = require(scratch);
+  t.after(() => { delete require.cache[require.resolve(scratch)]; });
+  return loaded.writeLayer;
+}
+
 test('writes schema first and owned keys in registry order, keeps foreign keys, and leaves legacy files byte-identical', (t) => {
   const f = createSettingsEnv(t);
   f.writeUserSettings({
@@ -118,36 +158,13 @@ test('refuses an invalid settings file unless force is set', (t) => {
 });
 
 test('replaces a symlinked settings target without changing its referent', (t) => {
-  const f = createSettingsEnv(t);
-  const file = f.userFile('settings.json');
-  const target = f.userFile('target.json');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(target, '{\n  "schema": 1,\n  "storage.prune": "on"\n}\n');
-  const targetHash = sha256(target);
-  fs.symlinkSync(target, file);
-
-  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
-
-  assert.equal(result.ok, true, result.detail);
-  assert.equal(fs.lstatSync(file).isSymbolicLink(), false);
-  assert.equal(sha256(target), targetHash);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { schema: 1, 'storage.prune': 'off' });
+  assertSymlinkReplacement(writeLayer, t);
 });
 
-test('negative control: a direct write through the symlink fails the replacement assertions', (t) => {
+test('negative control: a writeLayer scratch variant using writeFileSync fails the symlink assertions', (t) => {
   const f = createSettingsEnv(t);
-  const file = f.userFile('settings.json');
-  const target = f.userFile('target.json');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(target, 'original\n');
-  const targetHash = sha256(target);
-  fs.symlinkSync(target, file);
-
-  assert.throws(() => {
-    fs.writeFileSync(file, 'wrong: write-through\n');
-    assert.equal(fs.lstatSync(file).isSymbolicLink(), false);
-    assert.equal(sha256(target), targetHash);
-  }, assert.AssertionError);
+  const unsafeWriteLayer = directWriteVariant(f.dir, t);
+  assert.throws(() => assertSymlinkReplacement(unsafeWriteLayer, t), assert.AssertionError);
 });
 
 test('a failure --set with no config home keeps the existing no-home output and writes nothing', (t) => {

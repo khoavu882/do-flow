@@ -5,7 +5,7 @@
 /**
  * 086 IC-007, DD-9: where the project layer of the settings lives. Locates files only; both project
  * files are untrusted (D-16) and the resolver reads them. A linked worktree with no settings of its
- * own falls back to the main checkout's `.doflow/` (OI-4, a declared 2.1 change), found by reading
+ * own falls back to the main checkout's `.doflow/` (OI-4, a declared change in this release), found by reading
  * `.git` (`gitdir: <g>`), `<g>/gitdir` (the back-pointer to this worktree, so a forged or stale `.git`
  * inherits nothing) and `<g>/commondir`: three small reads, no process (no `git worktree list` per
  * verb). A sandbox (`.doflow-worktree-base`, which every dispatch worktree under

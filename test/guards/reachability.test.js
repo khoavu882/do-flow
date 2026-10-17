@@ -88,10 +88,11 @@ function verbTable() {
  */
 const INVOCATION = /(?:doflow-run|\$\{?DOFLOW\}?"?)\s+([a-z][a-z-]*)/g;
 
-/** Operator-only runtime verbs with no skill or user-document caller yet. */
-const RUNTIME_CLI_ALLOWLIST = new Map([
-  ['config', 'user-run diagnostic; no skill calls it'],
-]);
+function undocumentedRuntimeCommands(commands, consumers) {
+  return commands
+    .filter((cmd) => !consumers.some((consumer) => consumer.text.includes(`doflow ${cmd}`)))
+    .sort();
+}
 
 /** Verbs a consumer actually invokes — `doflow-run <verb>`, however the seam is spelled. */
 function verbsNamedBy(consumers) {
@@ -169,18 +170,16 @@ test('G8: every runtime CLI command is named by a skill or doc', () => {
   assert.ok(commands.length > 0, 'expected to find runtime command handlers in src/cli/runtime-commands.js');
 
   const consumers = consumerTexts();
-  const orphaned = commands
-    .filter((cmd) => !consumers.some((c) => c.text.includes(`doflow ${cmd}`)) && !RUNTIME_CLI_ALLOWLIST.has(cmd))
-    .sort();
+  const orphaned = undocumentedRuntimeCommands(commands, consumers);
   assert.deepEqual(
     orphaned,
     [],
     `these runtime commands ship but no skill or doc tells anyone to run them:\n  ${orphaned.join('\n  ')}`,
   );
-  const stale = [...RUNTIME_CLI_ALLOWLIST.keys()].filter((cmd) => !commands.includes(cmd));
-  assert.deepEqual(stale, [], `these runtime CLI allowlist entries no longer name a command:\n  ${stale.join('\n  ')}`);
-  const missingReason = [...RUNTIME_CLI_ALLOWLIST].filter(([, reason]) => typeof reason !== 'string' || !reason.trim());
-  assert.deepEqual(missingReason, [], `runtime CLI allowlist entries need a reason:\n  ${missingReason.map(([cmd]) => cmd).join('\n  ')}`);
+});
+
+test('G8 control: a runtime command without a shipped caller is rejected', () => {
+  assert.deepEqual(undocumentedRuntimeCommands(['planted-command'], []), ['planted-command']);
 });
 
 test('G8: every flag docs/reference.md documents for a skill exists in that skill', () => {

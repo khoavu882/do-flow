@@ -16,7 +16,7 @@ All notable changes to DoFlow are documented here. Format follows
 ## [Unreleased]
 
 ### Added
-- `doflow-run config list [--json] [--show-origin] [-g]` displays the effective settings and their origins.
+- `doflow config list [--json] [--show-origin] [-g]` displays the effective settings and their origins.
 - Layered settings add user `settings.json`, project `.doflow/settings.json` and `.doflow/settings.local.json`, plus registry `core/registry/settings.json`.
 
 ### Changed
@@ -26,11 +26,18 @@ All notable changes to DoFlow are documented here. Format follows
 - `doflow advise --action configure` exits 2 with a usage message, and writes nothing, when there is no config home.
 - Failure capture reads `failure.capture` from `<config home>/settings.json`. The dispatcher, the shell policies, the JS hook runner and Node apply one text rule: any value other than `"on"` means off, and a settings file that is unreadable or not a regular file means off. See [Config home](docs/reference.md#config-home).
 - In this release, a linked worktree with no settings files in its own `.doflow/` reads project settings from the main checkout, including legacy `decision-model.json` and `prune` files. A worktree with its own settings continues to use them.
-- Settings JSON parse errors report the byte offset only; the file contents are not included in errors.
-- The legacy `decision-model.json`, `prune` and `failures/off` sources remain readable through 2.x. `doflow config list` identifies each legacy source with a deprecation note and the corresponding `settings.json` key.
 - `advise --action configure` and `failure --action capture --set on|off` write `settings.json`; legacy `decision-model.json` and `failures/off` remain untouched.
-- `failure --action capture --set on` keeps an existing `failures/off` sentinel and reports `effective: off`, naming the sentinel.
 - Settings written by this release are not read by earlier betas or 2.0.x, which keep reading `decision-model.json` and `failures/off`.
+
+### Fixed
+- Settings JSON parse errors report the byte offset only; the file contents are not included in errors.
+- Failure masking now redacts URL query values and user information, including opaque URL forms.
+- A linked worktree writer targets the inherited main-checkout settings layer and reports that location without silently changing inheritance.
+- Stop-check with no state now allows the turn instead of repeating a prior block.
+- `failure --action capture --set off` can replace malformed settings; `--set on` resolves DoFlow-owned lexical duplicates and preserves an existing `failures/off` sentinel while reporting `effective: off`.
+
+### Deprecated
+- `decision-model.json`, the one-line `prune` files and the `failures/off` sentinel remain readable through 2.x. `doflow config list` identifies each legacy source with a deprecation note and the corresponding `settings.json` key.
 
 ## [2.0.0] - 2026-10-14
 

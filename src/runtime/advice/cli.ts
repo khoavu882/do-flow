@@ -10,6 +10,7 @@ const { loadAdviceRegistry } = require('./registry.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { resolveSetting } = require('./config.ts');
+const { loadSettings } = require('../settings/resolve.ts');
 const { writeLayer } = require('../settings/write.ts');
 const { createAdviceClient } = require('./client.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
@@ -194,7 +195,7 @@ async function handleConfigure(options: any, runtime: any) {
   if (project && userSetting.state !== 'on') {
     return writeFailure('turn the decision model on at user level first; a project cannot enable it', json);
   }
-  const providerId = userSetting.provider || 'ollama';
+  const providerId = userSetting.provider ?? loadSettings({ global: true }).get('advice.provider', 'global').value;
   const provider = adviceRegistry.providers.find((entry: any) => entry.id === providerId);
   if (!provider) return writeFailure(`provider '${providerId}' is not in core/registry/advice.json`, json);
   const endpoint = project
