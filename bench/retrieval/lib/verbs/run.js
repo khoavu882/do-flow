@@ -53,6 +53,8 @@ function parseSelection(args) {
   if (!['code', 'guidance', 'all'].includes(corpus)) throw new Refused('--corpus must be code, guidance or all');
   if (args.class && !metricsLib.CLASSES.includes(args.class)) throw new Refused(`--class must be one of ${metricsLib.CLASSES.join(', ')}`);
   if (hybrid && split === 'holdout' && corpus !== 'all') throw new Refused('hybrid-c-v1 holdout must reserve both corpora with --corpus all');
+  // Refused here, before preconditions reserve anything: a hybrid holdout run consumes all six slots of a generation.
+  if (hybrid && split === 'holdout' && args.class !== undefined) throw new Refused('--class is not accepted with --protocol hybrid-c-v1 --split holdout: the run consumes all six slots of the generation, so it evaluates every class');
   return { configs: (hybrid ? ['A', 'B', 'C'] : ['A', 'B']).filter((c) => configs.includes(c)), corpora: corpus === 'all' ? ['code', 'guidance'] : [corpus], split, cls: args.class,
     ...(hybrid ? { protocol: hybridProtocol.ID } : {}) };
 }
@@ -116,12 +118,13 @@ function measureLatency({ tasks, configs, call, seed, corpus, cls, warmups, runs
 /**
  * Aggregate raw/rejected/delivered candidate counts over C answers that reported them; null when none did (no zero stands in for unreached).
  * `answered` counts those answers; it is not named `tasks`, which the holdout privacy check (report.js FORBIDDEN_KEYS) refuses anywhere.
+ * `semanticReached` counts the answered ones whose semantic leg answered, from the coordinator's own attempt state.
  */
 function rawValidityOf(answers) {
   const reported = answers.map((a) => a.rawValidity).filter(Boolean);
   if (reported.length === 0) return null;
   const sum = (key) => reported.reduce((n, v) => n + (v[key] || 0), 0);
-  return { answered: reported.length, raw: sum('raw'), rejected: sum('rejected'), delivered: sum('delivered') };
+  return { answered: reported.length, raw: sum('raw'), rejected: sum('rejected'), delivered: sum('delivered'), semanticReached: sum('semanticReached') };
 }
 
 function summaryLines(corpora, split) {
@@ -189,11 +192,11 @@ function closeReservedSlots({ reservation, sealMeta, snapshot, protocol, repoRoo
     const match = /-(code|guidance)-([ABC])\.json$/.exec(slot);
     if (!match) continue;
     const [, corpus, config] = match;
-    const unreached = { applicable: true, state: 'unreached', cause: SLOT_CLOSED_CAUSE };
+    const unreached = (c) => ({ applicable: true, state: 'unreached', cause: SLOT_CLOSED_CAUSE, ...(config === 'C' ? { servedBy: adaptersC.servedBy(corpus, c) } : {}) });
     const base = report.buildHoldoutResult({
       snapshotId: snapshot.snapshotId, generation: sealMeta[corpus].generation, corpus, config, sealPlaintextSha256: sealMeta[corpus].seal.plaintextSha256,
       thresholdsCommit, runAt: now.toISOString(), runIndex: hybridProtocol.CONFIGS.indexOf(config) + 1, machineId: machine,
-      classes: report.classesBlock({ corpus, results: Object.fromEntries(metricsLib.classesFor(corpus).map((c) => [c, unreached])) }),
+      classes: report.classesBlock({ corpus, results: Object.fromEntries(metricsLib.classesFor(corpus).map((c) => [c, unreached(c)])) }),
     });
     files.push([slot, { ...base, protocol }]);
   }
@@ -332,6 +335,7 @@ function executeRun({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = 
           });
           const validity = config === 'C' ? rawValidityOf(idx.map((i) => answers[i])) : null;
           if (validity) classResults[c].rawValidity = validity;
+          if (config === 'C') classResults[c].servedBy = adaptersC.servedBy(corpus, c);
         }
         configResults[config] = report.configResult({
           ...(config === 'A' && corpus === 'guidance' ? { sameAs: 'B' } : {}),
@@ -444,4 +448,4 @@ function run(ctx) {
   return { exitCode, codes, lines, ...extra };
 }
 
-module.exports = { flags, WARMUPS, RUNS, PRIMARY, parseSelection, measureLatency, componentsOf, execute, run, defaultDeps };
+module.exports = { flags, WARMUPS, RUNS, PRIMARY, parseSelection, measureLatency, componentsOf, rawValidityOf, execute, run, defaultDeps };

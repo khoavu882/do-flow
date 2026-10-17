@@ -176,7 +176,7 @@ test('F4 control: bridge failure paths report their real elapsed time too', () =
 test('mapCodeResponse reports raw, rejected and delivered candidate counts', () => {
   const mapped = adaptersC.mapCodeResponse({ exit: 0, response: okBody }, 3);
   assert.equal(mapped.wallMs, 3);
-  assert.deepEqual(mapped.rawValidity, { raw: 3, delivered: 1, rejected: 2, gaps: 2 });
+  assert.deepEqual(mapped.rawValidity, { raw: 3, delivered: 1, rejected: 2, gaps: 2, semanticReached: 0 });
 });
 
 test('describeIndexBuild reports measured cost, and an unreached build with its cause rather than zeros', () => {
@@ -232,7 +232,7 @@ test('F5: the C index build cost and per-class raw/rejected/delivered counts rea
   const code = out.report.corpora.code.configs;
   assert.equal(code.C.index.state, 'reached');
   assert.equal(code.C.index.buildMs, 321); assert.equal(code.C.index.chunks, 9); assert.equal(code.C.index.diskBytes, 2048);
-  assert.deepEqual(code.C.classes['conceptual-discovery'].rawValidity, { answered: 3, raw: 12, rejected: 9, delivered: 3 });
+  assert.deepEqual(code.C.classes['conceptual-discovery'].rawValidity, { answered: 3, raw: 12, rejected: 9, delivered: 3, semanticReached: 0 });
   assert.equal(code.C.classes['conceptual-discovery'].latency.p50Ms, 7, 'the measured C wall time reaches the latency block');
   assert.equal(code.A.index.buildMs, 5, 'A index block is unchanged');
   assert.equal(code.B.index, undefined); assert.equal(code.A.classes['conceptual-discovery'].rawValidity, undefined);
@@ -439,7 +439,15 @@ test('R6: a C holdout run over every class clears the holdout privacy check and 
   report.assertNoTaskDetail({ aggregates: out.aggregates, gate: out.gate, indexes: out.indexes }, 'holdout stdout');
   const c = JSON.parse(fs.readFileSync(path.join(w.results, 'holdout-1-g7-code-C.json'), 'utf8'));
   for (const cls of require('../../bench/retrieval/lib/metrics.js').classesFor('code')) assert.equal(c.classes[cls].n, 1, `code C ${cls} measured`);
-  assert.deepEqual(c.classes['exact-lookup'].rawValidity, { answered: 1, raw: 4, rejected: 3, delivered: 1 });
+  assert.deepEqual(c.classes['exact-lookup'].rawValidity, { answered: 1, raw: 4, rejected: 3, delivered: 1, semanticReached: 0 });
+  // H1: every C class row names where it was served; A and B rows carry no such label.
+  assert.deepEqual(Object.fromEntries(Object.entries(c.classes).filter(([, row]) => row.applicable).map(([cls, row]) => [cls, row.servedBy])), {
+    'exact-lookup': 'coordinator', 'conceptual-discovery': 'coordinator', 'impact-refactor': 'delegated-A', 'verification-failure': 'delegated-A',
+    'stale-index': 'delegated-B', 'dirty-tree': 'delegated-B', 'unavailable-provider': 'delegated-B', 'oversized-context': 'delegated-B' });
+  const guidanceC = JSON.parse(fs.readFileSync(path.join(w.results, 'holdout-1-g7-guidance-C.json'), 'utf8'));
+  for (const row of Object.values(guidanceC.classes)) if (row.applicable) assert.equal(row.servedBy, 'delegated-B');
+  const codeB = JSON.parse(fs.readFileSync(path.join(w.results, 'holdout-1-g7-code-B.json'), 'utf8'));
+  for (const row of Object.values(codeB.classes)) assert.equal(row.servedBy, undefined);
   assert.deepEqual(out.gate.rows.map((row) => row.id), gate.REQUIRED_THRESHOLDS);
   assert.deepEqual(out.gate.rows.filter((row) => row.verdict === 'UNREACHED').map((row) => row.id), ['T-005', 'T-006']);
   assert.equal(fs.readdirSync(w.results).filter((f) => f.endsWith('.reserved.json')).length, 1, 'the reservation stays as the consumption record');
@@ -467,6 +475,7 @@ test('R6 one-shot: a failure after evaluation starts writes no partial result, c
     report.assertNoTaskDetail(body, name);
     assert.equal(body.protocol, protocol.ID);
     for (const row of Object.values(body.classes)) if (row.applicable) assert.deepEqual([row.state, row.metrics], ['unreached', undefined], `${name} carries no measurement`);
+    for (const row of Object.values(body.classes)) if (row.applicable) assert.equal(Boolean(row.servedBy), body.config === 'C', `${name} labels a C row only`);
     assert.doesNotMatch(JSON.stringify(body), /failed"|guidance\.bm25/, 'the error text stays out of the file');
   }
   assert.equal(fs.readdirSync(w.results).filter((f) => f.endsWith('.reserved.json')).length, 1);
@@ -482,4 +491,95 @@ test('R6 one-shot: an adapter fault mid-evaluation also closes every slot, and a
   const dev = devWorld(t);
   assert.equal(runHybrid(dev, runDeps(() => ({ ok: true }))).exitCode, 0);
   assert.equal(fs.existsSync(path.join(dev.repo, 'bench/retrieval/results')), false);
+});
+
+// H1 (review X1): C's delegated paths honour an injected fault exactly as the configuration they run as.
+test('H1: a code unavailable-provider task with native.rg disabled is unreached for C exactly as for B; servedBy names each route', (t) => {
+  const root = tempDir(t, 'doflow-hybrid-c-disable-');
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src/a.ts'), 'const thing = 1; // where is thing\n');
+  const task = { id: 'DC-001', corpus: 'code', class: 'unavailable-provider', literal: 'where is thing', setup: { disable: ['native.rg'] } };
+  const common = { corpus: 'code', exportRoot: root, admittedPaths: ['src/a.ts'], protocol: protocol.ID };
+  const outcome = (answer) => ({ result: answer.result, freshness: answer.freshness, candidates: answer.candidates, providers: answer.providers });
+  const b = dispatcher.runConfig({ ...common, task, config: 'B' });
+  const c = dispatcher.runConfig({ ...common, task, config: 'C' });
+  assert.equal(b.result, 'UNREACHED');
+  assert.deepEqual(outcome(c), outcome(b), 'C changes its outcome exactly as B does');
+  const enabled = dispatcher.runConfig({ ...common, task: { ...task, setup: undefined }, config: 'C' });
+  assert.equal(enabled.result, 'RETRIEVED', 'control: without the fault the same task retrieves through B\'s path');
+  const guidance = adaptersC.runC({ corpus: 'guidance', task: { class: 'stale-index', query: 'q', setup: { disable: ['guidance.bm25'] } }, exportRoot: root });
+  assert.deepEqual([guidance.result, guidance.providers[0].id, guidance.providers[0].cause], ['UNREACHED', 'guidance.bm25', 'disabled by setup.disable']);
+  assert.deepEqual(['exact-lookup', 'conceptual-discovery', 'impact-refactor', 'verification-failure', 'unavailable-provider'].map((cls) => adaptersC.servedBy('code', cls)),
+    ['coordinator', 'coordinator', 'delegated-A', 'delegated-A', 'delegated-B']);
+  assert.equal(adaptersC.servedBy('guidance', 'exact-lookup'), 'delegated-B');
+});
+
+// H4 (review X12): semanticReached counts answers whose semantic leg answered, from the real coordinator's attempt state.
+test('H4: semanticReached counts a reached semantic leg and not an unreached or faulted one', async (t) => {
+  const { executeCodeRetrieval } = require('../../src/runtime/knowledge/code-retrieval.ts');
+  const root = fs.realpathSync(tempDir(t, 'doflow-hybrid-c-semantic-'));
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src/a.ts'), 'export function parseThing() { return 1; }\n');
+  const ask = (semanticQuery, profile = 'hybrid', query = 'where is the parse thing') => executeCodeRetrieval({ root, scopes: ['src/a.ts'], query, top: 10, profile,
+    modelPath: path.join(root, 'model'), providers: { semanticQuery } });
+  const reached = adaptersC.mapCodeResponse(await ask(async () => ({ ok: true, freshness: 'FRESH', candidates: [] })));
+  const unreached = adaptersC.mapCodeResponse(await ask(async () => ({ ok: false, reason: 'provider-unavailable', freshness: 'UNKNOWN', candidates: [] })));
+  const faulted = adaptersC.mapCodeResponse(await ask(async () => { throw new Error('injected semantic fault'); }));
+  const exact = adaptersC.mapCodeResponse(await ask(async () => { throw new Error('exact must not call semantic'); }, 'lexical-only', '"parseThing"'));
+  assert.deepEqual([reached, unreached, faulted, exact].map((a) => a.rawValidity.semanticReached), [1, 0, 0, 0]);
+  assert.equal(reached.effectiveProfile, 'hybrid'); assert.equal(faulted.effectiveProfile, 'lexical-only');
+  const row = run.rawValidityOf([reached, unreached, faulted]);
+  assert.deepEqual([row.answered, row.semanticReached], [3, 1]);
+  report.assertNoTaskDetail({ classes: { 'conceptual-discovery': { rawValidity: row } } });
+});
+
+// H2 (review X11): absolute rows name what they leave out; relative `corpus: '*'` rows need every covered corpus.
+test('H2: an absolute gate row lists every excluded C class with its reason and keeps its verdict rule', () => {
+  const thresholds = { thresholds: [{ id: 'T-001', metric: 'falseAbsence', corpus: '*', class: '*', comparator: '==', value: 0 }] };
+  const measured = { applicable: true, n: 10, underpowered: false, state: 'measured', metrics: { falseAbsence: { value: 0, n: 10, count: 0 } } };
+  const aggregates = {
+    code: { B: { 'exact-lookup': { ...measured, underpowered: true } }, C: { 'exact-lookup': measured, 'conceptual-discovery': { ...measured, underpowered: true, metrics: { falseAbsence: { value: 0.2, n: 2, count: 2 } } },
+      'stale-index': { applicable: true, n: 3, underpowered: false, state: 'unreached' } } },
+    guidance: { C: { 'impact-refactor': { applicable: false, reason: 'n/a' }, 'exact-lookup': { ...measured, metrics: {} } } },
+  };
+  const t001 = (aggs) => gate.evaluate({ thresholds, aggregates: aggs }).rows.find((r) => r.id === 'T-001');
+  const row = t001(aggregates);
+  assert.equal(row.verdict, 'PASS'); assert.equal(row.observations, 1, 'which classes count is unchanged');
+  assert.deepEqual(row.excluded, [
+    { corpus: 'code', class: 'conceptual-discovery', reason: 'underpowered' }, { corpus: 'code', class: 'stale-index', reason: 'unreached' },
+    { corpus: 'guidance', class: 'impact-refactor', reason: 'not-applicable' }, { corpus: 'guidance', class: 'exact-lookup', reason: 'metric-absent' }]);
+  assert.deepEqual(t001({ code: aggregates.code }).excluded.at(-1), { corpus: 'guidance', class: '*', reason: 'missing' });
+  assert.deepEqual(t001({}).excluded, [{ corpus: 'code', class: '*', reason: 'missing' }, { corpus: 'guidance', class: '*', reason: 'missing' }]);
+  report.assertNoTaskDetail(row, 'gate row');
+});
+
+test('H2: a corpus:* relative row passes only when every covered corpus contributes, and an observed failure still fails', () => {
+  const thresholds = { thresholds: [{ id: 'T-003', metric: 'successAt1', corpus: '*', class: 'exact-lookup', comparator: '>=', value: 0, relativeTo: 'B' }] };
+  const est = { underpowered: false };
+  const agg = (corpora) => Object.fromEntries(corpora.map((c) => [c, { B: { 'exact-lookup': est }, C: { 'exact-lookup': est } }]));
+  const cmp = (diff) => [{ metric: 'successAt1', class: 'exact-lookup', a: 'B', b: 'C', diff, ci95: [-0.1, 0.1] }];
+  const t003 = (aggregates, comparisons) => gate.evaluate({ thresholds, aggregates, comparisons }).rows.find((r) => r.id === 'T-003');
+  assert.equal(t003(agg(['code', 'guidance']), { code: cmp(0), guidance: cmp(0) }).verdict, 'PASS');
+  const codeOnly = t003(agg(['code']), { code: cmp(0) });
+  assert.equal(codeOnly.verdict, 'UNRESOLVED', 'one corpus cannot pass a threshold that covers both');
+  assert.deepEqual(codeOnly.missingCorpora, ['guidance']);
+  const weak = t003({ ...agg(['code']), guidance: { B: { 'exact-lookup': { underpowered: true } }, C: { 'exact-lookup': est } } }, { code: cmp(0), guidance: cmp(0) });
+  assert.deepEqual([weak.verdict, weak.missingCorpora], ['UNRESOLVED', ['guidance']]);
+  assert.equal(t003(agg(['code']), { code: cmp(0.5) }).verdict, 'FAIL', 'C 0.5 below B on code fails whatever guidance shows');
+});
+
+// H3 (review X10): a hybrid holdout run cannot be narrowed to one class, because it consumes the whole generation.
+test('H3: --class on a hybrid-c-v1 holdout run is refused with exit 2 before any slot is reserved', (t) => {
+  const w = holdoutWorld(t);
+  const deps = Object.fromEntries(Object.entries(holdoutDeps()).filter(([, v]) => v !== undefined));
+  let error;
+  try {
+    run.execute({ args: { protocol: protocol.ID, split: 'holdout', config: 'A,B,C', corpus: 'all', class: 'exact-lookup' }, snapshotPath: w.snapshotPath,
+      repoRoot: w.repo, tmp: w.tmp, env: { DOFLOW_HOLDOUT_KEY: PASS }, home: w.repo, deps });
+  } catch (caught) { error = caught; }
+  assert.ok(error, 'the run is refused');
+  assert.match(error.message, /--class is not accepted with --protocol hybrid-c-v1 --split holdout/);
+  assert.equal(error.exitCode, 2);
+  assert.equal(fs.existsSync(w.results), false, 'no reservation, release record or result file was written');
+  assert.equal(run.parseSelection({ protocol: protocol.ID, class: 'exact-lookup' }).cls, 'exact-lookup', 'a dev hybrid run may still narrow by class');
 });

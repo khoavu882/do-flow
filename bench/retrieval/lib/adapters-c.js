@@ -30,12 +30,14 @@ function mapCodeResponse(result, wallMs = 0) {
   const rejected = (body.gaps || []).filter((g) => g.source === 'live-validation').length;
   const providers = (body.attempts || []).map((attempt) => ({ id: attempt.provider,
     state: attempt.complete ? 'reached' : 'unreached', ...(attempt.reason ? { cause: attempt.reason } : {}) }));
+  // The coordinator records a semantic attempt complete only when the semantic provider answered (code-retrieval.ts).
+  const semanticReached = (body.attempts || []).some((attempt) => attempt.provider === 'semble.search' && attempt.complete) ? 1 : 0;
   const resultStatus = result.exit !== 0 ? 'UNREACHED' : candidates.length ? 'RETRIEVED'
     : providers.length && providers.every((provider) => provider.state === 'unreached') ? 'UNREACHED' : 'EMPTY';
   return { result: resultStatus, freshness: (body.attempts || []).some((a) => a.provider === 'semble.search')
     ? ((body.attempts.find((a) => a.provider === 'semble.search') || {}).indexState || 'UNKNOWN') : 'NOT_APPLICABLE',
   candidates, providers, payloadBytes: candidates.reduce((sum, c) => sum + c.snippetBytes, 0), wallMs,
-  rawValidity: { raw: candidates.length + rejected, delivered: candidates.length, rejected, gaps: (body.gaps || []).length }, effectiveProfile: body.effectiveProfile || 'lexical-only' };
+  rawValidity: { raw: candidates.length + rejected, delivered: candidates.length, rejected, gaps: (body.gaps || []).length, semanticReached }, effectiveProfile: body.effectiveProfile || 'lexical-only' };
 }
 
 /** The C index-build cost block for the report: measured when the build succeeded, unreached with its cause when not. */
@@ -62,23 +64,41 @@ function buildCodeIndex({ exportRoot, admittedPaths, modelPath = process.env.SEM
   catch { return { ok: false, reason: 'invalid-index-response' }; }
 }
 
+/**
+ * Where C serves a class (DEC-004, DEC-024): the production coordinator for code exact and conceptual,
+ * A's path for the graph-routed code classes (IC-009), B's path for everything else.
+ */
+function servedBy(corpus, cls) {
+  if (corpus === 'code' && (cls === 'exact-lookup' || cls === 'conceptual-discovery')) return 'coordinator';
+  if (corpus === 'code' && (cls === 'impact-refactor' || cls === 'verification-failure')) return 'delegated-A';
+  return 'delegated-B';
+}
+
 /** The code classes C answers through A's own path (IC-009: impact/refactor keeps A's graph route). */
 function delegatesToA(task) {
-  return task.class === 'impact-refactor' || task.class === 'verification-failure';
+  return servedBy('code', task.class) === 'delegated-A';
 }
+
+/** The provider B's path serves per corpus; the same ids adapters.js checks against `setup.disable` for B. */
+const B_PROVIDER = { code: 'native.rg', guidance: 'guidance.bm25' };
 
 /** C reuses the shipped coordinator in a child process so the benchmark's sync runner stays compatible. */
 function runC({ corpus, task, exportRoot, indexRoot = exportRoot, capabilities, bins = {}, semble, scratchDir, admittedPaths, executeCodeRetrieval, spawn = spawnSync }) {
-  if (corpus === 'guidance') return adaptersB.runB({ corpus, task, exportRoot, bins });
-  if (delegatesToA(task)) {
-    const answer = adaptersA.runA({ task, exportRoot, indexRoot, capabilities, bins, semble, scratchDir, admittedPaths });
-    return answer;
+  const route = servedBy(corpus, task.class);
+  const disabled = (task.setup && task.setup.disable) || [];
+  // A delegated class honours an injected fault exactly as the configuration it runs as: B checks
+  // `setup.disable` before it queries (adapters.js runConfig); A checks it per provider in its chain (runA).
+  if (route === 'delegated-B') {
+    if (disabled.includes(B_PROVIDER[corpus])) {
+      return { result: 'UNREACHED', freshness: corpus === 'guidance' ? 'UNKNOWN' : 'NOT_APPLICABLE', candidates: [],
+        providers: [{ id: B_PROVIDER[corpus], state: 'unreached', cause: 'disabled by setup.disable' }], payloadBytes: 0, wallMs: 0 };
+    }
+    return adaptersB.runB({ corpus, task, exportRoot, bins, admittedPaths });
   }
-  if (!['exact-lookup', 'conceptual-discovery'].includes(task.class)) return adaptersB.runB({ corpus, task, exportRoot, bins, admittedPaths });
+  if (route === 'delegated-A') return adaptersA.runA({ task, exportRoot, indexRoot, capabilities, bins, semble, scratchDir, admittedPaths });
   // An unbound IC-001 request declares exact intent by quoting (IC-002); the classifier strips exactly
   // one quote pair, so a multiword literal stays one fixed string instead of routing conceptual.
   const query = task.class === 'exact-lookup' ? `"${task.literal}"` : task.query;
-  const disabled = (task.setup && task.setup.disable) || [];
   const options = { root: exportRoot, scopes: admittedPaths, query, top: 10,
     profile: task.class === 'exact-lookup' ? 'lexical-only' : 'hybrid',
     ...(process.env.SEMBLE_MODEL_PATH ? { modelPath: process.env.SEMBLE_MODEL_PATH } : {}) };
@@ -99,4 +119,4 @@ function runC({ corpus, task, exportRoot, indexRoot = exportRoot, capabilities, 
   return mapCodeResponse(result, wallMs());
 }
 
-module.exports = { BRIDGE, mapCodeResponse, describeIndexBuild, buildCodeIndex, delegatesToA, runC };
+module.exports = { BRIDGE, mapCodeResponse, describeIndexBuild, buildCodeIndex, servedBy, delegatesToA, runC };
