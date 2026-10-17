@@ -404,5 +404,5 @@ function holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, firstCr
 }
 
 module.exports = {
-  acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError, runLockPath, formatRunLockMessage,
+  acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError, runLockPath, formatRunLockMessage, defaultIsAlive,
 };

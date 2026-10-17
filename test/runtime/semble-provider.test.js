@@ -262,3 +262,48 @@ test('one Semble pin: bridge VERSION, provider SEMBLE_VERSION and the hybrid-c-v
   assert.deepEqual(findings(bridge.replace(`VERSION = "${SEMBLE_VERSION}"`, 'VERSION = "9.9.9"'), protocol.TOOL_PINS), ['bridge']);
   assert.deepEqual(findings(bridge, { ...protocol.TOOL_PINS, semble: '9.9.9' }), ['protocol']);
 });
+
+// H8 (review X5): a stale semantic lock is reclaimed only when its owner pid is dead on this host.
+const os = require('node:os');
+const crypto = require('node:crypto');
+const { acquireSemanticLock } = require('../../src/runtime/knowledge/semble-provider.ts');
+const deadPid = () => require('node:child_process').spawnSync(process.execPath, ['-e', '']).pid;
+function plantLock(paths, owner) {
+  fs.mkdirSync(paths.state, { recursive: true });
+  fs.writeFileSync(paths.lock, typeof owner === 'string' ? owner : `${JSON.stringify(owner)}\n`);
+}
+
+test('H8: a semantic lock whose owner is dead on this host is reclaimed; live, own-process, other-host and unreadable locks are respected', async t => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-semantic-lock-'));
+  const state = path.join(root, '.doflow', 'index', 'code', 'semble', 'x');
+  const paths = { root, state, lock: path.join(state, 'operation.lock') };
+  const stale = { pid: deadPid(), hostname: os.hostname(), token: crypto.randomUUID() };
+  plantLock(paths, stale);
+  const release = await acquireSemanticLock(paths);
+  const owner = JSON.parse(fs.readFileSync(paths.lock, 'utf8'));
+  assert.equal(owner.pid, process.pid); assert.notEqual(owner.token, stale.token);
+  assert.deepEqual(fs.readdirSync(state), ['operation.lock'], 'no claim file is left behind');
+  release(); assert.equal(fs.existsSync(paths.lock), false);
+  const respected = {
+    live: { pid: process.ppid, hostname: os.hostname(), token: crypto.randomUUID() },
+    'this process': { pid: process.pid, hostname: os.hostname(), token: crypto.randomUUID() },
+    'another host': { pid: deadPid(), hostname: 'elsewhere.invalid', token: crypto.randomUUID() },
+    'pid-only record': `${deadPid()}\n`,
+  };
+  for (const [label, held] of Object.entries(respected)) {
+    plantLock(paths, held); const before = fs.readFileSync(paths.lock, 'utf8');
+    await assert.rejects(acquireSemanticLock(paths), (error) => error.reason === 'lock-contention' && error.cause.includes(paths.lock), label);
+    assert.equal(fs.readFileSync(paths.lock, 'utf8'), before, `${label}: the lock is left as it was`);
+  }
+  plantLock(paths, stale);
+  await assert.rejects(acquireSemanticLock(paths, { isAlive: () => true }), /lock-contention/, 'liveness, not age, decides');
+});
+
+test('H8: a query after a crashed operation reclaims its stale lock instead of failing on contention', async t => {
+  const f = fixture(t); assert.equal((await runSembleLifecycle({ ...f.options, action: 'build' })).ok, true);
+  const paths = semanticStatePaths(f.inventory);
+  plantLock(paths, { pid: deadPid(), hostname: os.hostname(), token: crypto.randomUUID() });
+  const result = await runSembleQuery({ ...f.options, query: 'answer' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(fs.existsSync(paths.lock), false);
+});

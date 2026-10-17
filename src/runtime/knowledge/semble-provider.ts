@@ -7,6 +7,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { spawn, spawnSync } = require('node:child_process');
+const { defaultIsAlive } = require('../../state/run-lock.ts');
 const SEMBLE_VERSION = '0.7.0';
 const SEMBLE_LIMITS = Object.freeze({ files: 2000, fileBytes: 1048576, sourceBytes: 67108864,
   chunks: 50000, artifactBytes: 268435456, modelBytes: 536870912, outputBytes: 2097152,
@@ -229,12 +230,45 @@ function inspectArtifacts(index: string, inventory: any, paths: any, model: any,
   for (const [file, entry] of admitted as any) if (digest(regularBytes(path.join(paths.mirror, file), limits.fileBytes)) !== entry.fileHash) throw fault('mirror-hash-mismatch', 'STALE');
   return { chunks: chunks.length, artifactBytes: tree.bytes, artifactIdentity: digest(JSON.stringify(tree.files.map((f: any) => [f.path, digest(regularBytes(path.join(index, f.path), limits.artifactBytes))]))) };
 }
-async function acquireSemanticLock(paths: any): Promise<any> {
+// The semantic lock records {pid, hostname, token}. A lock whose owner pid is dead on this host (run-lock.ts's liveness
+// rule: process.kill(pid, 0)) is reclaimed under a claim file named for its token, created `wx`: the claim winner re-reads
+// the lock and removes it only while it still carries the judged token, so a live or newer lock is never removed. A lock
+// from another host, from this process, or without a readable record is never reclaimed.
+// Ceiling: a reclaimer killed between creating and removing its claim leaves `operation.lock.claim.<token>`, and that
+// lock then waits for a manual removal, which the contention cause names.
+const LOCK_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function readLockOwner(lock: string): any {
+  try {
+    const owner = JSON.parse(regularBytes(lock, 4096).toString('utf8'));
+    return owner && Number.isInteger(owner.pid) && typeof owner.hostname === 'string' && LOCK_TOKEN.test(owner.token) ? owner : null;
+  } catch { return null; }
+}
+function reclaimStaleLock(lock: string, owner: any, hostname: string): boolean {
+  const claim = `${lock}.claim.${owner.token}`;
+  try { fs.writeFileSync(claim, `${JSON.stringify({ pid: process.pid, hostname })}\n`, { flag: 'wx', mode: 0o600 }); }
+  catch (error: any) { if (error.code === 'EEXIST') return false; throw error; }
+  try {
+    if (readLockOwner(lock)?.token !== owner.token) return false;
+    fs.unlinkSync(lock); return true;
+  } finally { try { fs.unlinkSync(claim); } catch {} }
+}
+async function acquireSemanticLock(paths: any, { isAlive = defaultIsAlive, hostname = os.hostname(), waitMs = 100 }: any = {}): Promise<any> {
   safeDirectories(paths.root, paths.state, true);
-  const deadline = Date.now() + 100;
+  const token = crypto.randomUUID();
+  const deadline = Date.now() + waitMs;
   while (true) {
-    try { const fd = fs.openSync(paths.lock, 'wx'); fs.writeFileSync(fd, `${process.pid}\n`); return () => { fs.closeSync(fd); fs.unlinkSync(paths.lock); }; }
-    catch (error: any) { if (error.code !== 'EEXIST') throw error; if (Date.now() >= deadline) throw fault('lock-contention'); await new Promise(resolve => setTimeout(resolve, 10)); }
+    try {
+      const fd = fs.openSync(paths.lock, 'wx', 0o600); fs.writeFileSync(fd, `${JSON.stringify({ pid: process.pid, hostname, token })}\n`);
+      return () => { fs.closeSync(fd); if (readLockOwner(paths.lock)?.token === token) fs.unlinkSync(paths.lock); };
+    } catch (error: any) { if (error.code !== 'EEXIST') throw error; }
+    const owner = readLockOwner(paths.lock);
+    if (owner && owner.hostname === hostname && owner.pid !== process.pid && !isAlive(owner.pid) && reclaimStaleLock(paths.lock, owner, hostname)) continue;
+    if (Date.now() >= deadline) {
+      throw fault('lock-contention', 'UNKNOWN', `another semantic index operation holds ${paths.lock}${owner ? ` (pid ${owner.pid} on ${owner.hostname})` : ''}; `
+        + 'run the command again when it finishes. A lock whose process has exited on this host is reclaimed automatically; '
+        + `otherwise remove ${paths.lock} (and any ${path.basename(paths.lock)}.claim.* beside it) only after confirming no semantic build, refresh or query is running.`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
   }
 }
 function cleanupTemporary(paths: any): void {

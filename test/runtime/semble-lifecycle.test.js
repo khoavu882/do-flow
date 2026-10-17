@@ -82,3 +82,30 @@ test('symlink artifact and oversized chunk pool rejected before loader; abandone
   const args = path.join(paths.index, 'semantic_index/arguments.json'); fs.unlinkSync(args); fs.symlinkSync(path.join(f.modelPath, 'config.json'), args);
   assert.equal((await runSembleQuery({ ...options, query: 'answer' })).reason, 'unsafe-artifact');
 });
+
+// H7 (review X6): the in-progress marker write never follows a link out of the state directory.
+test('H7: a planted in-progress marker symlink is refused and the file it points at is untouched; a stale regular marker is replaced', async t => {
+  const f = fixture(t); const options = f.options(); const paths = semanticStatePaths(options.inventory);
+  fs.mkdirSync(paths.state, { recursive: true });
+  const outside = path.join(f.base, 'outside.txt'); fs.writeFileSync(outside, 'keep me\n');
+  fs.symlinkSync(outside, paths.marker);
+  const built = await runSembleLifecycle({ ...options, action: 'build' });
+  assert.deepEqual([built.ok, built.reason], [false, 'unsafe-state-file'], JSON.stringify(built));
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'keep me\n', 'the outside file is untouched');
+  assert.equal(fs.lstatSync(paths.marker).isSymbolicLink(), true, 'the planted link is refused, not written through');
+  fs.unlinkSync(paths.marker); fs.writeFileSync(paths.marker, '{"stale":true}');
+  assert.equal((await runSembleLifecycle({ ...f.options(), action: 'build' })).ok, true, 'a regular marker left by a failed mutation is replaced');
+  assert.equal(fs.existsSync(paths.marker), false);
+});
+
+// H8 (review X5): contention is repaired by waiting, never by "run a build", which needs the same lock.
+test('H8: lifecycle lock contention names the holder and the wait, not a build', async t => {
+  const f = fixture(t); const options = f.options(); const paths = semanticStatePaths(options.inventory);
+  fs.mkdirSync(paths.state, { recursive: true });
+  fs.writeFileSync(paths.lock, `${JSON.stringify({ pid: process.ppid, hostname: require('node:os').hostname(), token: require('node:crypto').randomUUID() })}\n`);
+  const built = await runSembleLifecycle({ ...options, action: 'build' });
+  assert.equal(built.reason, 'lock-contention');
+  assert.doesNotMatch(built.repair, /build/);
+  assert.match(built.repair, /Wait for the other semantic index operation to finish/);
+  assert.ok(built.cause.includes(paths.lock) && built.cause.includes(`pid ${process.ppid}`), built.cause);
+});

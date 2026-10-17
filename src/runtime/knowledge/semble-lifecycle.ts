@@ -7,6 +7,21 @@ const { SEMBLE_VERSION, SEMBLE_LIMITS, semanticStatePaths, fault, digest, safeDi
   inspectModel, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock,
   cleanupTemporary, executeBridge, readCompleted, scanTree, resolveSembleInterpreter, checkSembleVersion } = require('./semble-provider.ts');
 
+/**
+ * The in-progress marker never follows a link out of the state directory. A failed mutation leaves a regular
+ * marker behind on purpose, so a regular file is replaced; anything else (a symlink, a directory) is refused.
+ * The create is `wx` (O_CREAT|O_EXCL), which fails on any existing path, a symlink included, so a link planted
+ * between the unlink and the create is refused too rather than written through.
+ */
+function writeMarker(marker: string, body: string): void {
+  let found: any = null;
+  try { found = fs.lstatSync(marker); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+  if (found && !found.isFile()) throw fault('unsafe-state-file');
+  if (found) fs.unlinkSync(marker);
+  try { fs.writeFileSync(marker, body, { flag: 'wx', mode: 0o600 }); }
+  catch (error: any) { if (error.code === 'EEXIST') throw fault('unsafe-state-file'); throw error; }
+}
+
 /** Explicit operations only. A failed mutation deliberately keeps its in-progress marker. */
 async function runSembleLifecycle(options: any): Promise<any> {
   const started = Date.now(); const limits = { ...SEMBLE_LIMITS, ...options.limits };
@@ -45,7 +60,7 @@ async function runSembleLifecycle(options: any): Promise<any> {
       fs.writeFileSync(dest, readSource(inventory, entry, limits), { flag: 'wx' });
     }
     checkSources(inventory, limits); checkDeadline();
-    fs.writeFileSync(paths.marker, JSON.stringify({ schemaVersion: 1, action, startedAt: new Date().toISOString() }), { flag: 'w' });
+    writeMarker(paths.marker, JSON.stringify({ schemaVersion: 1, action, startedAt: new Date().toISOString() }));
     if (action === 'build') {
       // A repair build explicitly discards incompatible cache; never let from_path silently reuse it.
       for (const dir of [paths.mirror, paths.cache]) if (fs.existsSync(dir)) { scanTree(dir, limits.artifactBytes); fs.rmSync(dir, { recursive: true }); }
@@ -91,7 +106,9 @@ async function runSembleLifecycle(options: any): Promise<any> {
     const reason = error.reason || 'lifecycle-error';
     return { ok: false, action, complete: false, freshness: error.freshness || 'UNKNOWN', reason, ...(typeof error.cause === 'string' ? { cause: error.cause } : {}),
       added, changed, deleted, skipped: inventory?.skipped?.length || 0, bytes: changedBytes, elapsedMs: Date.now() - started,
-      repair: 'Run an explicit bounded build with a verified local model after correcting the cause.' };
+      // A build needs the same lock, so contention is never repaired by "run a build".
+      repair: reason === 'lock-contention' ? 'Wait for the other semantic index operation to finish, then run this command again (see cause).'
+        : 'Run an explicit bounded build with a verified local model after correcting the cause.' };
   } finally { try { if (staging) fs.rmSync(staging, { recursive: true, force: true }); } catch {} try { if (release) release(); } catch {} }
 }
 module.exports = { runSembleLifecycle };
