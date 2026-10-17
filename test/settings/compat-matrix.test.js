@@ -199,7 +199,7 @@ test('C10: a user prune=off is off for every root; the storage verb reports prun
   }
   const r = f.run(['storage', '--action', 'prune']);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), `storage: pruning is off (${userFile}); nothing removed`);
+  assert.equal(r.stdout.trim(), `storage: pruning is off (${userFile}); nothing removed\nnote: ${userFile} is deprecated; set "storage.prune" in ${path.join(f.configDir, 'settings.json')} (read through 2.x)`);
 });
 
 test('C11: user off with project on is on for project roots (project file) and off for user roots', (t) => {

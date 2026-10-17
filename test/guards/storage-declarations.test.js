@@ -300,7 +300,7 @@ function runScenario() {
     });
     const summaryWriteClaim = 'doflow_summary_write "$2" local main "" 2026-10-14T10:00:00Z g26-writer auto main main "a summary"\ndoflow_summary_claim "$2" local main g26-session g26-session\nrm -f "$DF_SUMMARY_CLAIMED"';
     const grantWriteClaim = 'd="$STATE_DIR/grants/local/w-1"\nmkdir -p "$d"\nprintf -- "---\\nsummary_id: s-20261014T100500Z-G26aaa\\nfrom_lineage: main\\n---\\n\\na grant\\n" >"$d/s-20261014T100500Z-G26aaa.md"\ndoflow_grant_claim local w-1 g26-session 16384\nrm -f "$DF_GRANT_CLAIMED"';
-    const seedOldAdvice = "const fs=require('node:fs'),path=require('node:path');const d=path.join(process.argv[1],'advice','picks');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'2000-01-01.jsonl'),'{}\\n');";
+    const seedOldAdvice = "const fs=require('node:fs'),path=require('node:path');for(const root of process.argv.slice(1)){const d=path.join(root,'advice','picks');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'2000-01-01.jsonl'),'{}\\n');}";
     // The real registry makes every harness ineligible (DEC-017), so no `worker --action run` step can
     // write `worker-runs` or `worker-output`: one run is inserted in process with a fake descriptor's
     // recipe, and one line goes through the supervisor's own output sink (081 IC-031, DEC-039).
@@ -364,7 +364,7 @@ fs.mkdirSync(worktree, { recursive: true });`;
       ['project update', cli('update', project, ...target), 0],
       ['global install', cli('install', '-g', ...target, '--mcp', 'none'), 0],
       ['global update', cli('update', '-g', ...target), 0],
-      ['seed old advice partition', node('-e', seedOldAdvice, roots['project-state']), 0],
+      ['seed old advice partitions', node('-e', seedOldAdvice, roots['project-state'], roots['user-state']), 0],
       ['seed worker run and output', node('-e', seedWorkerRun, roots['project-state']), 0],
       // `empty-bin` does not exist, so every harness is `not-on-path` and no process but Node starts:
       // no real harness binary runs (081 IC-031, IC-032). `/usr/bin/env` is absent on win32 (RK8).

@@ -212,6 +212,7 @@ registries](#installation-registries) for the same plain-JSON convention.
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
+| `core/registry/settings.json` | Every runtime settings key, its types, defaults, scopes, bindings, legacy files and consumers. `src/runtime/settings/registry.ts` reads it; G44 checks its consumers, reference defaults and documentation |
 | `core/registry/advice.json` | Advice kinds, prompts and criteria, loaded by `src/runtime/advice/registry.ts`. It stays outside the general `REGISTRY_FILES` list in `src/registry`: IC-003 makes a load failure turn advice off, whereas the general registry loader would make every install command fail (DEC-025) |
 
 Two contracts follow from these files and should not be re-expressed as flags. Readiness is a
@@ -499,18 +500,18 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-forty-nine test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-forty-two entries across thirty-eight test files and carries forty distinct G-numbers.
+fifty-one test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+forty-four entries across thirty-nine test files and carries forty-two distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G42 is the highest number in use, so a new guard takes the next
-one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
+historical rather than a convention; G44 is the highest number in use, so a new guard takes the next
+one above it instead of adding a fourth collision. The list is not the whole directory. The fourteen
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
 of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
 `harness-paths.test.js`, `cli-boundary.test.js`, `frozen-behaviour.test.js`,
-`provider-source-mode.test.js`, `context-docs.test.js`, `context-profile.test.js` and
-`context-silence.test.js`.
+`provider-source-mode.test.js`, `context-docs.test.js`, `context-profile.test.js`,
+`context-silence.test.js`, `context-budget.test.js`, `evals.test.js` and `scaffold.test.js`.
 
 - **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
 - **G2** (`paths.test.js`) — path reachability from `MCP_INDEX.md`-style generalizations.
@@ -772,6 +773,10 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   promotion gate cannot pass with missing thresholds or unreached paid T-005/T-006 (G43.1–G43.3).
   Package and runtime-projection conformance are exercised separately by the focused release and
   lifecycle tests.
+- **G44** (`settings.test.js`) — settings registry consumers and references resolve, the `Settings keys` table
+  matches defaults, scopes and environment names, config-home and lexical copies stay within their
+  checked rules, and the settings files remain declared storage stores (086 IC-014/015). The later-key
+  registration contract is exercised by `test/settings/register-key.test.js` (IC-016).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
