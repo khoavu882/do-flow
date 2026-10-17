@@ -499,13 +499,14 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-forty-nine test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-forty-two entries across thirty-eight test files and carries forty distinct G-numbers.
+fifty-one test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+forty-four entries across forty test files and carries forty-two distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G42 is the highest number in use, so a new guard takes the next
-one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
-files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
+historical rather than a convention; G44 is the highest number in use (provisional: 088 took the
+next free number when it added the guard, and the number is re-checked at merge because 086 also adds
+one), so a new guard takes the next one above it instead of adding a fourth collision. The list is
+not the whole directory. The eleven files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
 of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
 `harness-paths.test.js`, `cli-boundary.test.js`, `frozen-behaviour.test.js`,
@@ -772,6 +773,15 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   promotion gate cannot pass with missing thresholds or unreached paid T-005/T-006 (G43.1–G43.3).
   Package and runtime-projection conformance are exercised separately by the focused release and
   lifecycle tests.
+- **G44** (`telemetry-contract.test.js`, provisional number) - `core/registry/telemetry.json` is well
+  formed and its keys per kind equal the keys the `TelemetryWriter`, the bridge and observer `printf`
+  formats and the fixture lines carry, with `harness`, `status` and `risk` equal to their owning
+  registries (G44.1); no `node` process starts on a shell hook path, and the node files there are the
+  pinned three (G44.2); no network module or `fetch` under `src/runtime` outside the pinned advice
+  client (G44.3); no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze`
+  or `verify-baseline` (G44.4); the package has no runtime dependency and G30.2 is still enforced
+  (G44.5); and every telemetry store is a declared `runs/` subdirectory the ledger readers skip
+  (G44.6). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

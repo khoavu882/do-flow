@@ -355,6 +355,25 @@
       ]
     },
     {
+      "id": "runs-telemetry",
+      "root": "project-state",
+      "path": "runs/telemetry",
+      "entry": "file",
+      "match": "^[0-9]{4}-[0-9]{2}-[0-9]{2}\\.jsonl$",
+      "rule": "date-partition",
+      "bound": {
+        "maxAgeDays": 180
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "src/runtime/trace/telemetry.ts"
+      ]
+    },
+    {
       "id": "runs-user",
       "root": "user-state",
       "path": "runs",
