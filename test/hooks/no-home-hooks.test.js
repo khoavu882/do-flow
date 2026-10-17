@@ -16,7 +16,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 const { buildInstallMirror, encodeEnvelope } = require('../helper/hook-fixtures');
 
 const POSIX = process.platform !== 'win32';
@@ -197,15 +197,6 @@ test('stop-check with HOME unset: same output and status as with a HOME, nothing
   }
 });
 
-test('session-context (session-start) with HOME unset: exit 0 and nothing created', {
-  skip: !POSIX || !HAS_JQ,
-  todo: 'needs `[ -n "$SESSION_DIR" ] || exit 0` in policies/session-context.sh before its first state write (outside the B.2 write set)',
-}, (t) => {
-  const { none, cwd } = policyPair(t, 'session-context', 'SessionStart', { session_id: 'sess-1', cwd: null });
-  assert.deepEqual([none.status, none.stderr, none.stdout], [0, '', '']);
-  assert.deepEqual(fs.readdirSync(cwd), []);
-});
-
 test('kiro pre-bash-guard (installed shape) with HOME unset still denies rm -rf /, exactly as with a HOME', { skip: !POSIX || !HAS_JQ }, (t) => {
   const mirror = buildInstallMirror(path.join(tempDir(t, 'doflow-no-home-mirror-'), 'm'));
   const door = path.join(mirror, '.kiro', 'hooks', 'pre-bash-guard.sh');
@@ -236,13 +227,87 @@ for (const [harness, script] of ENTRY_POINTS) {
     assert.ok(none.untouched);
   });
 }
-for (const [harness, script, line] of [['claude', 'session-end.sh', 29], ['codex', 'session-end.impl.sh', 30]]) {
-  test(`${harness}/hooks/${script} with HOME unset: exit 0 and nothing created`, {
-    skip: !POSIX,
-    todo: `needs a guard on SESSIONS_LOG / STATE_DIR in ${harness}/hooks/${script} (line ${line} appends to an empty SESSIONS_LOG; outside the B.2 write set)`,
-  }, (t) => {
-    const r = bash(t, [path.join(HARNESSES, harness, 'hooks', script)], { DOFLOW_TELEMETRY: 'off' });
-    assert.deepEqual([r.status, r.stderr], [0, '']);
-    assert.ok(r.untouched);
+
+// ── session/state hooks in the installed shape (B.2b) ───────────────────────────────────────────
+// Each row runs one hook with a payload that reaches its state write: with a temp HOME the state
+// lands under <HOME>/.config/doflow (the control: the row really exercises the state path); with HOME
+// unset, and with HOME unset and a relative XDG_CONFIG_HOME, the hook exits 0, prints what it prints
+// with a HOME, writes nothing to stderr and creates nothing in the cwd.
+
+let MIRROR = null;
+/** One install-shaped mirror for this file (built on first use, removed with the suite). */
+function mirror() {
+  if (MIRROR === null) MIRROR = buildInstallMirror(path.join(suiteTempDir('doflow-no-home-mirror-'), 'm'));
+  return MIRROR;
+}
+const SESSIONS = 'session-env/sessions/s1';
+const STATE_HOOKS = [
+  { door: '.claude/hooks/session-start.sh', native: (cwd) => ({ session_id: 's1', cwd, hook_event_name: 'SessionStart' }), wrote: `${SESSIONS}/git-context.json` },
+  { door: '.claude/hooks/subagent-audit.sh', native: () => ({ session_id: 's1', hook_event_name: 'SubagentStart', agent_type: 'worker', agent_id: 'a1' }), wrote: `${SESSIONS}/subagent-audit.log` },
+  { door: '.claude/hooks/session-end.sh', native: (cwd) => ({ session_id: 's1', cwd }), wrote: 'sessions.log' },
+  { door: '.codex/hooks/session-end.impl.sh', native: (cwd) => ({ session_id: 's1', cwd }), wrote: 'sessions.log' },
+  { door: '.gemini/hooks/session-end.impl.sh', native: (cwd) => ({ session_id: 's1', cwd }), wrote: 'sessions.log' },
+  { door: '.claude/hooks/post-compact.sh', native: (cwd) => ({ session_id: 's1', cwd, trigger: 'manual', compact_summary: 'the summary' }), wrote: 'session-env/summaries' },
+  { door: '.claude/hooks/post-tool-failure.sh', native: () => ({ session_id: 's1', hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_response: { error: 'x' } }), wrote: `${SESSIONS}/tool-failures.log` },
+  { door: '.claude/hooks/permission-audit.sh', native: () => ({ session_id: 's1', hook_event_name: 'PermissionRequest', tool_name: 'Bash' }), wrote: `${SESSIONS}/permission-audit.log` },
+  { door: '.claude/hooks/skill-config-audit.sh', native: () => ({ session_id: 's1', hook_event_name: 'ConfigChange' }), wrote: `${SESSIONS}/skill-config-audit.log` },
+  { door: '.claude/hooks/post-edit-lint.sh', native: () => ({ session_id: 's1', tool_name: 'Edit', tool_input: { file_path: '/tmp/doflow-no-home-a.js' } }), wrote: `${SESSIONS}/edited-files.txt` },
+  { door: '.gemini/hooks/post-edit-lint.sh', native: () => ({ session_id: 's1', tool_name: 'write_file', tool_input: { file_path: '/tmp/doflow-no-home-a.js' } }), wrote: `${SESSIONS}/edited-files.txt` },
+  { door: '.codex/hooks/post-edit-lint.impl.sh', native: () => ({ session_id: 's1', tool_name: 'Edit', tool_input: { file_path: '/tmp/doflow-no-home-a.js' } }), wrote: `${SESSIONS}/edited-files.txt` },
+];
+
+for (const row of STATE_HOOKS) {
+  test(`${row.door.slice(1)} with no config home: exit 0, same stdout as with a HOME, no stderr, nothing created`, { skip: !POSIX || !HAS_JQ }, (t) => {
+    const door = path.join(mirror(), row.door);
+    const run = (extra) => {
+      const cwd = tempDir(t, 'doflow-no-home-cwd-');
+      return bash(t, [door], { DOFLOW_TELEMETRY: 'off', ...extra }, { input: JSON.stringify(row.native(cwd)), cwd });
+    };
+    const home = tempDir(t, 'doflow-no-home-home-');
+    const withHome = run({ HOME: home });
+    assert.equal(withHome.status, 0, withHome.stderr);
+    assert.ok(fs.existsSync(path.join(home, '.config', 'doflow', row.wrote)), `control: with a HOME the hook writes ${row.wrote}`);
+    for (const extra of [{}, { XDG_CONFIG_HOME: 'rel-xdg' }]) {
+      const none = run(extra);
+      assert.deepEqual([none.status, none.stderr, none.stdout], [0, '', withHome.stdout], JSON.stringify(extra));
+      assert.ok(none.untouched, `nothing created in the cwd ${JSON.stringify(extra)}`);
+    }
   });
 }
+
+test('negative control: an installed session-end.sh without its no-home guard fails with HOME unset', { skip: !POSIX || !HAS_JQ }, (t) => {
+  const copy = path.join(tempDir(t, 'doflow-no-home-unguarded-'), 'm');
+  buildInstallMirror(copy);
+  const file = path.join(copy, '.claude', 'hooks', 'session-end.sh');
+  const text = fs.readFileSync(file, 'utf8');
+  const guard = 'if [[ -z "$STATE_DIR" ]]; then\n  start_storage_upkeep\n  exit 0\nfi\n';
+  assert.equal(text.split(guard).length, 2, 'session-end.sh has one no-home guard');
+  fs.writeFileSync(file, text.replace(guard, ''));
+  const cwd = tempDir(t, 'doflow-no-home-cwd-');
+  const r = bash(t, [file], { DOFLOW_TELEMETRY: 'off' }, { input: JSON.stringify({ session_id: 's1', cwd }), cwd });
+  assert.notEqual(r.status, 0, 'the append to an empty SESSIONS_LOG stops the hook');
+});
+
+test('stop-check with an absolute XDG_CONFIG_HOME and HOME unset lints the queued files without reading HOME', { skip: !POSIX || !HAS_JQ }, (t) => {
+  const xdg = tempDir(t, 'doflow-no-home-xdg-');
+  const queue = path.join(xdg, 'doflow', SESSIONS, 'edited-files.txt');
+  fs.mkdirSync(path.dirname(queue), { recursive: true });
+  fs.writeFileSync(queue, '/tmp/doflow-no-home-missing.txt\n');
+  const cwd = tempDir(t, 'doflow-no-home-cwd-');
+  const input = encodeEnvelope('claude', 'Stop', 'stop-check', JSON.stringify({ session_id: 's1', cwd, last_assistant_message: 'done' }));
+  const r = bash(t, [path.join(POLICIES, 'stop-check.sh')], { DOFLOW_AGENT: 'claude', DOFLOW_TELEMETRY: 'off', XDG_CONFIG_HOME: xdg }, { input, cwd });
+  assert.deepEqual([r.status, r.stderr], [0, '']);
+  assert.ok(!fs.existsSync(queue), 'the queue was taken');
+  assert.ok(r.untouched);
+});
+
+test('stop-check with no config home still denies an unfinished-work marker each time, keeping no state', { skip: !POSIX || !HAS_JQ }, (t) => {
+  const cwd = tempDir(t, 'doflow-no-home-cwd-');
+  const input = encodeEnvelope('claude', 'Stop', 'stop-check', JSON.stringify({ session_id: 's1', cwd, last_assistant_message: 'Here it is:\n```js\n// TODO: finish this\n```' }));
+  for (let i = 0; i < 2; i += 1) {
+    const r = bash(t, [path.join(POLICIES, 'stop-check.sh')], { DOFLOW_AGENT: 'claude', DOFLOW_TELEMETRY: 'off' }, { input, cwd });
+    assert.equal(r.status, 2, `call ${i + 1}: the decision is reached`);
+    assert.match(r.stderr, /unfinished-work marker/);
+  }
+  assert.deepEqual(fs.readdirSync(cwd), []);
+});

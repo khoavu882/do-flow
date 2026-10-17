@@ -136,6 +136,7 @@ doflow_identity() {
     # src/runtime/config-home.ts is applied inline (an absolute XDG_CONFIG_HOME, else an absolute
     # HOME + /.config); with no config home there is no store and the unit is not bound (086 IC-010).
     sessions="${SESSION_DIR:-}"
+    # doflow-config-home v1 inline copy: no marked block here, identity.sh defines only its four functions (086 B.2).
     if [ -z "$sessions" ]; then
       case "${XDG_CONFIG_HOME:-}" in
         /*) sessions="$XDG_CONFIG_HOME/doflow/session-env/sessions" ;;

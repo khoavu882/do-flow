@@ -57,6 +57,8 @@ DF_ACTION=skip
 doflow_emission_rule compact-meta.meta "$DF_ID_ROLE:$DF_ID_KIND"
 [[ "$DF_ACTION" == write ]] || exit 0
 
+# No config home (lib.sh leaves the state paths empty): no session store to write (086 IC-010).
+[[ -n "$PROJECTS_DIR" ]] || exit 0
 PROJECT_DIR=$(ensure_project_dir "$CWD")
 META_TMP=""
 _cleanup() { rm -f "$META_TMP" 2>/dev/null || true; }

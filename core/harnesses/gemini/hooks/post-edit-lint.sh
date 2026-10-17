@@ -29,6 +29,8 @@ TOOL_NAME=$(json_field "$INPUT" ".tool_name")
 
 [[ "$TOOL_NAME" != "write_file" && "$TOOL_NAME" != "replace" ]] && exit 0
 [[ -z "$SESSION_ID" ]] && exit 0
+# No config home (lib.sh leaves the state paths empty): no session store to write (086 IC-010).
+[[ -n "$SESSION_DIR" ]] || exit 0
 
 FILE_PATH=$(json_field "$INPUT" ".tool_input.file_path")
 [[ -z "$FILE_PATH" ]] && exit 0

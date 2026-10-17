@@ -5,11 +5,42 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const os = require('node:os');
+const { createScratch } = require('../helper/scratch-env');
 const { suiteTempDir } = require('../helper/tmp');
 
 const ROOT = path.resolve(__dirname, '../..');
 const BRIDGE = path.join(ROOT, 'core/harnesses/shared/hooks/bridge/bridge.sh');
 const JQ = spawnSync('jq', ['--version']);
+
+// 086 B.2b: every child process runs under a scratch HOME and XDG_CONFIG_HOME (explicit env), so no
+// hook it starts can append to the developer's ~/.config/doflow. childEnv builds that env and fails
+// the test if HOME or XDG_CONFIG_HOME still names the developer's home.
+const SCRATCH_HOME = createScratch('doflow-bridge-library-home-');
+function assertScratchHome(env) {
+  const real = os.homedir();
+  const realConfig = path.join(real, '.config');
+  for (const key of ['HOME', 'XDG_CONFIG_HOME']) {
+    const value = env[key];
+    if (typeof value !== 'string' || !path.isAbsolute(value)) continue;
+    const resolved = path.resolve(value);
+    assert.ok(resolved !== real && resolved !== realConfig && !resolved.startsWith(realConfig + path.sep),
+      `${key} must be a scratch folder, not the developer's (${resolved})`);
+  }
+  return env;
+}
+function childEnv(extra = {}) {
+  const env = SCRATCH_HOME.env(extra);
+  for (const [key, value] of Object.entries(extra)) if (value === null) delete env[key];
+  return assertScratchHome(env);
+}
+
+test('negative control: a child env that keeps the developer\'s HOME or ~/.config is refused', () => {
+  assert.throws(() => assertScratchHome({ ...process.env, HOME: os.homedir() }), /HOME must be a scratch folder/);
+  assert.throws(() => assertScratchHome({ XDG_CONFIG_HOME: path.join(os.homedir(), '.config') }), /XDG_CONFIG_HOME must be a scratch folder/);
+  const env = childEnv();
+  assert.ok(env.HOME.startsWith(SCRATCH_HOME.dir) && env.XDG_CONFIG_HOME.startsWith(SCRATCH_HOME.dir), 'the default child env is the scratch one');
+});
 const BRIDGE_TEST = JQ.status === 0 ? test : test.skip;
 const POLICIES = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
 const FIXED = '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list';
@@ -28,11 +59,9 @@ function makeTree(policyBody) {
 }
 
 function run(dir, harness, event, policy, input = {}, args = [], env = []) {
-  const childEnv = { ...process.env, DOFLOW_FAILURE_CAPTURE: 'off', ...env };
-  for (const [key, value] of Object.entries(env)) if (value === null) delete childEnv[key];
   return spawnSync('bash', [path.join(dir, 'bridge/bridge.sh'), harness, event, policy, ...args], {
     cwd: dir, encoding: 'utf8', input: typeof input === 'string' ? input : JSON.stringify(input),
-    env: childEnv,
+    env: childEnv({ DOFLOW_FAILURE_CAPTURE: 'off', ...env }),
   });
 }
 
@@ -605,7 +634,7 @@ BRIDGE_TEST('Kiro agent camelCase events share IDE effects and rendering while t
 BRIDGE_TEST('sourced bridge survives set -euo pipefail; jq and node process counts, trace and decode edge cases', () => {
   const dir = makeTree();
   const errorDir = makeTree('#!/bin/bash\nprintf raw-secret >&2\nexit 2\n');
-  const sourced = spawnSync('bash', ['-c', `set -euo pipefail; . "${path.join(errorDir, 'bridge/bridge.sh')}"; if doflow_bridge claude PreToolUse pre-implementation-gate </dev/null; then code=0; else code=$?; fi; printf 'AFTER:%s' "$code"`], { encoding: 'utf8' });
+  const sourced = spawnSync('bash', ['-c', `set -euo pipefail; . "${path.join(errorDir, 'bridge/bridge.sh')}"; if doflow_bridge claude PreToolUse pre-implementation-gate </dev/null; then code=0; else code=$?; fi; printf 'AFTER:%s' "$code"`], { encoding: 'utf8', env: childEnv() });
   assert.equal(sourced.status, 0, sourced.stderr);
   assert.match(sourced.stdout, /permissionDecisionReason/);
   assert.match(sourced.stdout, /AFTER:0/);
@@ -641,7 +670,7 @@ exit 0
   }
   const config=path.join(noJqTree,'config');
   const noJq=spawnSync('bash',[path.join(noJqTree,'bridge/bridge.sh'),'claude','PreToolUse','pre-implementation-gate'],{
-    cwd:noJqTree,encoding:'utf8',input:'{}',env:{...process.env,PATH:noJqBin,DOFLOW_FAILURE_CAPTURE:'on',XDG_CONFIG_HOME:config},
+    cwd:noJqTree,encoding:'utf8',input:'{}',env:childEnv({PATH:noJqBin,DOFLOW_FAILURE_CAPTURE:'on',XDG_CONFIG_HOME:config}),
   });
   assert.equal(noJq.status,0,noJq.stderr);
   assert.equal(noJq.stdout,'','jq absent preserves front-door silent allow');

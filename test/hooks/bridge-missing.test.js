@@ -5,13 +5,44 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
+const os = require('node:os');
 const { tempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env');
 
 const ROOT = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(ROOT, 'test/fixtures/hooks');
 const HOOKS = path.join(ROOT, 'core/harnesses/shared/hooks');
 const RUNNER = path.join(HOOKS, 'stream-hook-runner.js');
 const REASON = (harness) => `[doflow] shared hooks lack the bridge; run: doflow update -t ${harness}`;
+
+// 086 B.2b: every child process runs under a scratch HOME and XDG_CONFIG_HOME (explicit env), so no
+// hook it starts can append to the developer's ~/.config/doflow. childEnv builds that env and fails
+// the test if HOME or XDG_CONFIG_HOME still names the developer's home.
+const SCRATCH_HOME = createScratch('doflow-bridge-missing-home-');
+function assertScratchHome(env) {
+  const real = os.homedir();
+  const realConfig = path.join(real, '.config');
+  for (const key of ['HOME', 'XDG_CONFIG_HOME']) {
+    const value = env[key];
+    if (typeof value !== 'string' || !path.isAbsolute(value)) continue;
+    const resolved = path.resolve(value);
+    assert.ok(resolved !== real && resolved !== realConfig && !resolved.startsWith(realConfig + path.sep),
+      `${key} must be a scratch folder, not the developer's (${resolved})`);
+  }
+  return env;
+}
+function childEnv(extra = {}) {
+  const env = SCRATCH_HOME.env(extra);
+  for (const [key, value] of Object.entries(extra)) if (value === null) delete env[key];
+  return assertScratchHome(env);
+}
+
+test('negative control: a child env that keeps the developer\'s HOME or ~/.config is refused', () => {
+  assert.throws(() => assertScratchHome({ ...process.env, HOME: os.homedir() }), /HOME must be a scratch folder/);
+  assert.throws(() => assertScratchHome({ XDG_CONFIG_HOME: path.join(os.homedir(), '.config') }), /XDG_CONFIG_HOME must be a scratch folder/);
+  const env = childEnv();
+  assert.ok(env.HOME.startsWith(SCRATCH_HOME.dir) && env.XDG_CONFIG_HOME.startsWith(SCRATCH_HOME.dir), 'the default child env is the scratch one');
+});
 
 function nativeFixture(relativePath) {
   const row = JSON.parse(fs.readFileSync(path.join(FIXTURES, relativePath), 'utf8'));
@@ -68,6 +99,7 @@ test('every current front door renders its IC-036 fallback with the bridge remov
     const result = spawnSync('bash', [script], {
       input,
       encoding: 'utf8',
+      env: childEnv(),
     });
     // A removed bridge can exit before spawnSync finishes writing stdin; only EPIPE is expected.
     assert.ok(result.error === undefined || result.error.code === 'EPIPE', `${row.harness}/${row.door} starts`);
@@ -106,7 +138,7 @@ test('Antigravity runner treats a missing bridge as out of step under both fault
   const reason = '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity';
 
   for (const profile of ['compat-1', 'strict-1']) {
-    const env = { ...process.env, DOFLOW_FAULT_PROFILE: profile };
+    const env = childEnv({ DOFLOW_FAULT_PROFILE: profile });
     const gate = spawnSync(process.execPath, [runner, 'PreToolUse'], {
       input: JSON.stringify({ toolCall: { name: 'write_to_file', args: { AbsolutePath: 'src/a.js' } } }),
       encoding: 'utf8', env,
