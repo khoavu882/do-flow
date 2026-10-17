@@ -2,17 +2,16 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 
 const BIN = path.resolve(__dirname, '../../bin/doflow.js');
 
 function fixture(t) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-retrieve-cli-')));
+  const root = tempDir(t, 'doflow-code-retrieve-cli-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src/auth.js'), 'function parseToken() { return true; }\n');
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return root;
 }
 

@@ -2,14 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 const { LIVE_LIMITS, validateCodeCandidates, projectEvidenceCandidates } = require('../../src/runtime/knowledge/code-validation.ts');
 
 test('always live-reads source, rejects stale or out-of-corpus candidates and projects score-free evidence', t => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-validation-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-code-validation-');
   fs.writeFileSync(path.join(root, 'main.js'), 'one\ntrusted source\nthree\n');
   const inventory = admitCodeCorpus({ root, files: ['main.js'] });
   const [entry] = inventory.files;
@@ -26,8 +25,7 @@ test('always live-reads source, rejects stale or out-of-corpus candidates and pr
 });
 
 test('candidates on one file share one live read and charge the aggregate budget once', t => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-validation-reuse-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-code-validation-reuse-');
   const body = Array.from({ length: 20 }, (_, i) => `line ${i + 1} ${'x'.repeat(40)}`).join('\n') + '\n';
   fs.writeFileSync(path.join(root, 'big.js'), body);
   fs.writeFileSync(path.join(root, 'small.js'), 'tail\n');

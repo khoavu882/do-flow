@@ -1149,8 +1149,7 @@
       "moments": [],
       "writers": [
         "src/runtime/knowledge/semble-provider.ts",
-        "src/runtime/knowledge/semble-lifecycle.ts",
-        "src/runtime/knowledge/semble-bridge.py"
+        "src/runtime/knowledge/semble-lifecycle.ts"
       ],
       "source": {
         "file": "src/runtime/knowledge/semble-provider.ts",

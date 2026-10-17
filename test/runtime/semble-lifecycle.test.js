@@ -2,21 +2,21 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { execFileSync } = require('node:child_process');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 const { runSembleQuery, semanticStatePaths } = require('../../src/runtime/knowledge/semble-provider.ts');
 const { runSembleLifecycle } = require('../../src/runtime/knowledge/semble-lifecycle.ts');
 function fixture(t) {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'semble-lifecycle-')));
+  const base = tempDir(t, 'doflow-semble-lifecycle-');
   const root = path.join(base, 'project'); fs.mkdirSync(root);
   const modelPath = path.join(base, 'model'); fs.mkdirSync(modelPath);
   for (const file of ['config.json', 'tokenizer.json', 'model.safetensors']) fs.writeFileSync(path.join(modelPath, file), '{}');
   fs.writeFileSync(path.join(root, 'a.py'), 'answer = 42\n'); fs.writeFileSync(path.join(root, 'z.py'), 'result = 42\n');
   const pkg = path.join(base, 'python'); execFileSync('python3', [path.join(__dirname, 'fixtures/semble-provider-fake.py'), pkg]);
   const prior = process.env.PYTHONPATH; process.env.PYTHONPATH = pkg;
-  t.after(() => { if (prior === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = prior; delete process.env.FAKE_PROVIDER_MODE; fs.rmSync(base, { recursive: true, force: true }); });
+  t.after(() => { if (prior === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = prior; delete process.env.FAKE_PROVIDER_MODE });
   const inventory = () => admitCodeCorpus({ root, files: fs.readdirSync(root).filter(file => file.endsWith('.py')) });
   return { base, root, modelPath, inventory, options: () => ({ inventory: inventory(), modelPath, python: 'python3' }) };
 }

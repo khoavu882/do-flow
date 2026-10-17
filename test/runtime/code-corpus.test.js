@@ -2,13 +2,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { admitCodeCorpus, readCorpusFile, fingerprintCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 
 function project(t) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-corpus-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-code-corpus-');
   fs.mkdirSync(path.join(root, 'src', 'nested'), { recursive: true });
   fs.mkdirSync(path.join(root, 'gen'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'a.js'), 'export const answer = 42;\n');

@@ -2,15 +2,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { execFileSync } = require('node:child_process');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 const { runSembleQuery, semanticStatePaths, digest } = require('../../src/runtime/knowledge/semble-provider.ts');
 const { runSembleLifecycle } = require('../../src/runtime/knowledge/semble-lifecycle.ts');
 
 function fixture(t) {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'semble-provider-')));
+  const base = tempDir(t, 'doflow-semble-provider-');
   const root = path.join(base, 'project'); fs.mkdirSync(root);
   const modelPath = path.join(base, 'model'); fs.mkdirSync(modelPath);
   for (const file of ['config.json', 'tokenizer.json', 'model.safetensors']) fs.writeFileSync(path.join(modelPath, file), '{}');
@@ -19,7 +19,7 @@ function fixture(t) {
   const pkg = path.join(base, 'python');
   execFileSync('python3', [path.join(__dirname, 'fixtures/semble-provider-fake.py'), pkg]);
   const prior = process.env.PYTHONPATH; process.env.PYTHONPATH = pkg;
-  t.after(() => { if (prior === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = prior; delete process.env.FAKE_PROVIDER_MODE; delete process.env.FAKE_OUTSIDE_PATH; fs.rmSync(base, { recursive: true, force: true }); });
+  t.after(() => { if (prior === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = prior; delete process.env.FAKE_PROVIDER_MODE; delete process.env.FAKE_OUTSIDE_PATH });
   const inventory = admitCodeCorpus({ root, files: ['a.py', 'z.py'] });
   return { base, root, modelPath, inventory, options: { inventory, modelPath, python: 'python3' } };
 }
@@ -76,7 +76,7 @@ test('audit policy blocks network and writes outside state; time/output/stats fa
 
 test('bridge spy receives bounded top-k and exact public API flags under offline/cache controls', async t => {
   const f = fixture(t); await runSembleLifecycle({ ...f.options, action: 'build' });
-  const paths = semanticStatePaths(f.inventory); const temp = fs.mkdtempSync(path.join(paths.state, 'query-'));
+  const paths = semanticStatePaths(f.inventory); const temp = path.join(paths.state, 'query-spy'); fs.mkdirSync(temp);
   const { executeBridge, SEMBLE_LIMITS } = require('../../src/runtime/knowledge/semble-provider.ts');
   const result = await executeBridge({ action: 'query', query: 'answer', indexPath: paths.index, poolSize: 2, allowedWriteRoots: [temp] }, { limits: SEMBLE_LIMITS, python: 'python3' }, paths, temp);
   assert.equal(result.ok, true);
@@ -155,7 +155,7 @@ test('F2: grammar extraction into the library cache does not trip the statistics
 test('F2: files vanishing mid-walk are skipped only on live sinks, never mapped to a resource limit', async t => {
   const f = fixture(t); await runSembleLifecycle({ ...f.options, action: 'build' });
   const { scanTree } = require('../../src/runtime/knowledge/semble-provider.ts');
-  const dir = fs.mkdtempSync(path.join(f.base, 'sink-')); fs.writeFileSync(path.join(dir, 'kept'), 'k'); fs.writeFileSync(path.join(dir, 'gone'), 'g');
+  const dir = path.join(f.base, 'sink-scan'); fs.mkdirSync(dir); fs.writeFileSync(path.join(dir, 'kept'), 'k'); fs.writeFileSync(path.join(dir, 'gone'), 'g');
   const real = fs.lstatSync;
   t.mock.method(fs, 'lstatSync', (p, ...rest) => { if (path.basename(String(p)) === 'gone') throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return real(p, ...rest); });
   assert.deepEqual(scanTree(dir, 10, 8, { transient: true }).files.map(x => x.path), ['kept']);

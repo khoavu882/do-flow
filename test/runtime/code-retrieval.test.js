@@ -2,8 +2,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 const { searchCodeLexical } = require('../../src/runtime/knowledge/code-lexical.ts');
 const { executeCodeRetrieval } = require('../../src/runtime/knowledge/code-retrieval.ts');
@@ -17,10 +17,9 @@ const router = { capabilities: {
 } };
 
 function fixture(t) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-retrieval-')));
+  const root = tempDir(t, 'doflow-code-retrieval-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src/auth.js'), 'function parseToken(value) {\n  return refreshCredentials(value);\n}\n');
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const inventory = admitCodeCorpus({ root, files: ['src/auth.js'] });
   return { root, inventory };
 }

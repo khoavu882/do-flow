@@ -2,8 +2,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 const { classifyCodeQuery, searchCodeLexical } = require('../../src/runtime/knowledge/code-lexical.ts');
 
@@ -14,8 +14,7 @@ test('classifies exact identifiers and quoted literals separately from concepts'
 });
 
 test('searches only admitted files and returns deterministic exact and conceptual candidates', t => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-lexical-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-code-lexical-');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.mkdirSync(path.join(root, 'graphify-out'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'reset.js'), 'function resetPassword(user) {\n  notify(user);\n}\n');
@@ -31,8 +30,7 @@ test('searches only admitted files and returns deterministic exact and conceptua
 });
 
 test('a NUL-containing admitted file is a counted coverage gap, never a lexical provider fault', async t => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-lexical-binary-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-code-lexical-binary-');
   fs.writeFileSync(path.join(root, 'keys.js'), 'const key = `a\0b`; // findMeLiteral\n');
   fs.writeFileSync(path.join(root, 'main.js'), 'function findMeLiteral() {}\n');
   const inventory = admitCodeCorpus({ root, files: ['keys.js', 'main.js'] });
@@ -56,8 +54,7 @@ test('a NUL-containing admitted file is a counted coverage gap, never a lexical 
 });
 
 test('a real bound hit still marks the lexical outcome incomplete', t => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-lexical-bound-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-code-lexical-bound-');
   fs.writeFileSync(path.join(root, 'many.js'), 'hit\nhit\nhit\n');
   const inventory = admitCodeCorpus({ root, files: ['many.js'] });
   const result = searchCodeLexical({ inventory, query: 'hit', maxCandidates: 2 });
