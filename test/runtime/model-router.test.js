@@ -106,7 +106,7 @@ test('review family exclusion drops same-family providers and labels cross-famil
   assert.equal(resolution.candidates.find((candidate) => candidate.id === 'mixed-catalogue').familyRelation, 'overlaps-author');
   const mixedUnknown = resolution.candidates.find((candidate) => candidate.id === 'mixed-unknown');
   assert.equal(mixedUnknown.familyVerified, false);
-  assert.equal(mixedUnknown.familyRelation, 'unverified');
+  assert.equal(mixedUnknown.familyRelation, 'overlaps-author');
   const unknown = resolution.candidates.find((candidate) => candidate.id === 'unknown-family');
   assert.deepEqual(unknown.families, ['unknown']);
   assert.equal(unknown.familyVerified, false, 'unknown is retained without being claimed as cross-family');
@@ -206,12 +206,14 @@ test('model-role normalizes requested families and rejects unknown or empty fami
   const typo = invokeModelRole({ role: 'review', excludeFamilies: ['claud'], repoRoot: REPO });
   assert.equal(typo.code, 2);
   assert.match(typo.stderr, /claud/);
-  assert.match(typo.stderr, /claude, unknown/);
+  assert.match(typo.stderr, /known families:/);
+  assert.doesNotMatch(typo.stderr.match(/known families: ([^\n]*)/)?.[1] ?? '', /\bunknown\b/);
 
   const noMatch = invokeModelRole({ role: 'review', excludeFamilies: ['openai'], repoRoot: REPO });
   assert.equal(noMatch.code, 2);
   assert.match(noMatch.stderr, /openai/);
-  assert.match(noMatch.stderr, /claude, unknown/);
+  assert.match(noMatch.stderr, /known families:/);
+  assert.doesNotMatch(noMatch.stderr.match(/known families: ([^\n]*)/)?.[1] ?? '', /\bunknown\b/);
 
   const blankArgs = parseArgs(['model-role', '--role', 'review', '--exclude-family=,']);
   assert.deepEqual(blankArgs.excludeFamily, []);
@@ -222,8 +224,20 @@ test('model-role normalizes requested families and rejects unknown or empty fami
   const normalized = invokeModelRole({ role: 'review', excludeFamilies: [' Claude '], repoRoot: REPO });
   assert.equal(normalized.code, 0);
   assert.match(normalized.stdout, /claude same-family \(excluded\)/);
-  const unknownIsValid = invokeModelRole({ role: 'review', excludeFamilies: ['unknown'], repoRoot: REPO });
-  assert.equal(unknownIsValid.code, 0);
+});
+
+test('--exclude-family unknown is rejected as missing knowledge and omitted from known families', () => {
+  const unknown = invokeModelRole({ role: 'review', excludeFamilies: ['unknown'], repoRoot: REPO });
+  assert.equal(unknown.code, 2);
+  assert.match(unknown.stderr, /unknown cannot be excluded because it names missing knowledge/i);
+  assert.doesNotMatch(unknown.stderr.match(/known families: ([^\n]*)/)?.[1] ?? '', /\bunknown\b/);
+});
+
+test('direct model-role resolution rejects an empty excluded-family list as usage input', () => {
+  assert.throws(
+    () => resolveModelRole({ registry, roleId: 'review', excludeFamilies: [] }),
+    /--exclude-family requires at least one family name/,
+  );
 });
 
 test('provider and family exclusions compose and JSON identifies ids dropped by each path', (t) => {

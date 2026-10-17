@@ -44,14 +44,15 @@ function normalizeFamilyList(value: any): string[] {
   return [...new Set(values.flatMap((entry) => String(entry ?? '').split(',').map((family) => family.trim().toLowerCase()).filter(Boolean)))];
 }
 
-// families is a hand-kept stopgap; row 105's facts registry (agent-docs/DOFLOW-DELIVERY-STATE.md row 105) supersedes it and this field is removed then.
+// families is a hand-kept stopgap; the model-facts registry (roadmap row 105) supersedes it and this field is removed then.
 /** An unknown family is not evidence that a provider can review outside the author's family. */
 function familyInfo(families: any, excludedFamilies: Set<string>): { families: string[], familyVerified: boolean, familyRelation: string, sameFamily: boolean } {
   const declared = Array.isArray(families) ? families : [];
   const hasUnknown = declared.length === 0
     || declared.some((family) => typeof family !== 'string' || !/^[a-z][a-z0-9-]*$/.test(family) || family === 'unknown');
-  const familyRelation = hasUnknown ? 'unverified'
-    : declared.some((family) => excludedFamilies.has(family)) ? 'overlaps-author' : 'cross-family';
+  const overlapsAuthor = declared.some((family) => typeof family === 'string'
+    && family !== 'unknown' && /^[a-z][a-z0-9-]*$/.test(family) && excludedFamilies.has(family));
+  const familyRelation = overlapsAuthor ? 'overlaps-author' : hasUnknown ? 'unverified' : 'cross-family';
   const sameFamily = declared.length > 0 && declared.every((family) => typeof family === 'string' && excludedFamilies.has(family));
   return {
     families: [...declared],
@@ -76,7 +77,11 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [], 
   }
   const excluded = new Set(exclude);
   const familyMode = excludeFamilies !== undefined && excludeFamilies !== null;
-  const excludedFamilies = new Set(familyMode ? normalizeFamilyList(excludeFamilies) : []);
+  const normalizedFamilies = familyMode ? normalizeFamilyList(excludeFamilies) : [];
+  if (familyMode && normalizedFamilies.length === 0) {
+    throw new Error('--exclude-family requires at least one family name');
+  }
+  const excludedFamilies = new Set(normalizedFamilies);
   const candidates: any[] = [];
   const familyExcluded: string[] = [];
   for (const [index, provider] of (registry.modelProviders || []).entries()) {
@@ -169,11 +174,15 @@ function handleModelRoleCommand({ role, exclude, excludeFamilies, json = false, 
     const excludedProviderIds = Array.isArray(exclude) ? exclude : String(exclude ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
     const requestedFamilies = excludeFamilies === undefined || excludeFamilies === null ? null : normalizeFamilyList(excludeFamilies);
     if (requestedFamilies !== null) {
-      const knownFamilies = [...new Set((registry.modelProviders || []).flatMap((provider: any) => provider.families || []))].sort();
+      const knownFamilies = [...new Set((registry.modelProviders || []).flatMap((provider: any) => provider.families || []))]
+        .filter((family): family is string => typeof family === 'string' && family !== 'unknown').sort();
       const knownSet = new Set(knownFamilies);
       const unknownFamilies = requestedFamilies.filter((family) => !knownSet.has(family));
       if (requestedFamilies.length === 0) {
         return usageError('model-role', `--exclude-family requires at least one family name; known families: ${knownFamilies.join(', ') || '(none)'}`, json);
+      }
+      if (requestedFamilies.includes('unknown')) {
+        return usageError('model-role', `unknown cannot be excluded because it names missing knowledge; known families: ${knownFamilies.join(', ') || '(none)'}`, json);
       }
       if (unknownFamilies.length) {
         return usageError('model-role', `unknown family name${unknownFamilies.length === 1 ? '' : 's'}: ${unknownFamilies.join(', ')}; known families: ${knownFamilies.join(', ') || '(none)'}`, json);
