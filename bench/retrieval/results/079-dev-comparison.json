@@ -2,22 +2,27 @@
   "schemaVersion": 1,
   "kind": "079-dev-comparison",
   "provenance": {
-    "decision": "079 D.1 dev measurement; no tuning, no source change",
-    "sourceCommit": "d78a638d (worktree HEAD for src/bench at run time; later commit e01ea345 touches holdout only)",
+    "decision": "079 D.1b dev measurement on repaired tree; no tuning, no source change, no workaround",
+    "measuredTreeSha": "49613d599a0ba70014c58e5499b9cf5b078651ba",
+    "treeStatus": "clean (git status --short empty before and after)",
     "snapshotId": 1,
     "pinnedCommit": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
     "protocol": "hybrid-c-v1",
     "split": "dev",
     "tasksSha256": "54cd15ffd5d4051dc08b900d99eb7496e34a7187521d1fa5879b9c9d9a5a601e",
-    "command": "PATH=<wrapper dir with python3 -> semble 0.6.1 venv>:$PATH HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 SEMBLE_MODEL_PATH=<dereferenced copy of cached minishlab/potion-code-16M-v2> node bench/runner.js retrieval hybrid-c --snapshot <scratch copy of snapshot.json> --out <scratch>/dev-raw.json",
-    "deviations": [
-      "The committed snapshot.json pins rtk 0.50.0; the machine has rtk 0.52.0, so the unmodified verb exits 4 (tool drift) before measuring. The run used a scratch copy of snapshot.json that differs only in the rtk versionLine (0.50.0 -> 0.52.0). A routes that call rtk therefore ran on 0.52.0.",
-      "The cached HF snapshot directory holds symlinks to blobs and is rejected by the production model inspector (unsafe-artifact). SEMBLE_MODEL_PATH is a symlink-dereferenced local copy of the same files; nothing was downloaded.",
-      "python3 on PATH has no semble; a wrapper script exec-ing the Semble 0.6.1 tool venv python was placed first on PATH (production default interpreter is python3, no option is passed by the bench)."
-    ],
-    "noisy": "Other agents were running on the machine; every wall-clock figure is noisy and carries no budget verdict."
+    "tools": {
+      "semble": "0.7.0",
+      "rtk": "1.0.1",
+      "graphify": "0.9.92"
+    },
+    "command": "SEMBLE_MODEL_PATH=~/.cache/huggingface/hub/models--minishlab--potion-code-16M-v2/snapshots/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b HF_HUB_OFFLINE=1 /usr/bin/time -l node bench/runner.js retrieval hybrid-c --out <scratch>/dev-raw.json (unmodified snapshot.json, no python wrapper, no model copy)",
+    "deviations": [],
+    "harnessWall": {
+      "note": "noisy, other processes present",
+      "realSeconds": 344.65,
+      "maxRssBytesOfNodeProcess": 832929792
+    }
   },
-  "sameSnapshotAndExport": true,
   "comparisons": {
     "code": [
       {
@@ -390,12 +395,12 @@
         "a": "A",
         "b": "C",
         "n": 10,
-        "diff": 0.2,
+        "diff": 0.1,
         "ci95": [
           0,
-          0.5
+          0.3
         ],
-        "pRandomization": 0.49255074492550743
+        "pRandomization": 1
       },
       {
         "metric": "fileRecallAt10",
@@ -403,9 +408,9 @@
         "a": "B",
         "b": "C",
         "n": 10,
-        "diff": 0,
+        "diff": -0.1,
         "ci95": [
-          0,
+          -0.3,
           0
         ],
         "pRandomization": 1
@@ -767,10 +772,10 @@
         "a": "A",
         "b": "B",
         "n": 3,
-        "diff": 0,
+        "diff": -0.3333333333333333,
         "ci95": [
           -1,
-          1
+          0
         ],
         "pRandomization": 1
       },
@@ -780,10 +785,10 @@
         "a": "A",
         "b": "C",
         "n": 3,
-        "diff": 0,
+        "diff": -0.3333333333333333,
         "ci95": [
           -1,
-          1
+          0
         ],
         "pRandomization": 1
       },
@@ -1437,19 +1442,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.75,
-      "recallAt5": 1,
       "recallAt10": 1,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.8541666666666666,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 21,
       "latencyMs": {
-        "p50": 28.136833,
-        "p95": 31.108334,
+        "p50": 26.014792,
+        "p95": 29.864875,
         "noisy": true
-      },
-      "tokensEstP50": 21
+      }
     },
     {
       "corpus": "code",
@@ -1459,19 +1461,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0,
-      "recallAt5": 0,
       "recallAt10": 0,
       "fileRecallAt10": 0.5,
-      "mrrAt10": 0,
-      "locatorValidity": 0.48,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "locatorValidity": 0.51,
+      "rawValidity": null,
+      "tokensEstP50": 1325,
       "latencyMs": {
-        "p50": 996.159,
-        "p95": 1104.323125,
+        "p50": 489.418958,
+        "p95": 536.819916,
         "noisy": true
-      },
-      "tokensEstP50": 1325
+      }
     },
     {
       "corpus": "code",
@@ -1480,12 +1479,18 @@
       "n": 10,
       "state": "unreached",
       "unreachedCount": 10,
+      "cause": "No unique node match",
+      "recallAt1": null,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": null,
+      "rawValidity": null,
+      "tokensEstP50": 0,
       "latencyMs": {
-        "p50": 339.546709,
-        "p95": 415.399041,
+        "p50": 316.191084,
+        "p95": 338.066542,
         "noisy": true
-      },
-      "tokensEstP50": 0
+      }
     },
     {
       "corpus": "code",
@@ -1494,20 +1499,17 @@
       "n": 3,
       "state": "measured",
       "unreachedCount": 0,
-      "recallAt1": 0.3333333333333333,
-      "recallAt5": 0.6666666666666666,
+      "recallAt1": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.5,
-      "locatorValidity": 0.5,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "locatorValidity": 0.5333333333333333,
+      "rawValidity": null,
+      "tokensEstP50": 1317,
       "latencyMs": {
-        "p50": 1369.303083,
-        "p95": 2297.247667,
+        "p50": 481.065375,
+        "p95": 565.572792,
         "noisy": true
-      },
-      "tokensEstP50": 1317
+      }
     },
     {
       "corpus": "code",
@@ -1517,19 +1519,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.6666666666666666,
-      "recallAt5": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.6666666666666666,
       "locatorValidity": 0.5,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 931,
       "latencyMs": {
-        "p50": 1404.357084,
-        "p95": 2687.570916,
+        "p50": 496.350083,
+        "p95": 550.611792,
         "noisy": true
-      },
-      "tokensEstP50": 931
+      }
     },
     {
       "corpus": "code",
@@ -1539,19 +1538,16 @@
       "state": "measured",
       "unreachedCount": 1,
       "recallAt1": 0.3333333333333333,
-      "recallAt5": 0.3333333333333333,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 0.6666666666666666,
-      "mrrAt10": 0.375,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 223,
       "latencyMs": {
-        "p50": 81.611666,
-        "p95": 122.270417,
+        "p50": 60.909459,
+        "p95": 80.332541,
         "noisy": true
-      },
-      "tokensEstP50": 223
+      }
     },
     {
       "corpus": "code",
@@ -1560,20 +1556,17 @@
       "n": 3,
       "state": "measured",
       "unreachedCount": 0,
-      "recallAt1": 0.6666666666666666,
-      "recallAt5": 0.6666666666666666,
-      "recallAt10": 0.6666666666666666,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 0.3333333333333333,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.6666666666666666,
       "locatorValidity": 0.5,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 1359,
       "latencyMs": {
-        "p50": 966.140916,
-        "p95": 1206.336125,
+        "p50": 468.235291,
+        "p95": 504.649292,
         "noisy": true
-      },
-      "tokensEstP50": 1371
+      }
     },
     {
       "corpus": "code",
@@ -1583,19 +1576,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0,
-      "recallAt5": 0,
       "recallAt10": 0,
       "fileRecallAt10": 0,
-      "mrrAt10": 0,
       "locatorValidity": null,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 11,
       "latencyMs": {
-        "p50": 40.300292,
-        "p95": 48.914917,
+        "p50": 34.818625,
+        "p95": 38.768125,
         "noisy": true
-      },
-      "tokensEstP50": 11
+      }
     },
     {
       "corpus": "code",
@@ -1605,19 +1595,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.75,
-      "recallAt5": 1,
       "recallAt10": 1,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.8541666666666666,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 21,
       "latencyMs": {
-        "p50": 19.170416,
-        "p95": 22.243166,
+        "p50": 18.591833,
+        "p95": 20.026958,
         "noisy": true
-      },
-      "tokensEstP50": 21
+      }
     },
     {
       "corpus": "code",
@@ -1627,19 +1614,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0,
-      "recallAt5": 0,
       "recallAt10": 0,
       "fileRecallAt10": 0.3,
-      "mrrAt10": 0,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 228,
       "latencyMs": {
-        "p50": 116.925417,
-        "p95": 156.779125,
+        "p50": 123.314208,
+        "p95": 159.782333,
         "noisy": true
-      },
-      "tokensEstP50": 228
+      }
     },
     {
       "corpus": "code",
@@ -1649,19 +1633,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.2,
-      "recallAt5": 0.2,
       "recallAt10": 0.5,
       "fileRecallAt10": 0.6,
-      "mrrAt10": 0.2353968253968254,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 231,
       "latencyMs": {
-        "p50": 64.089666,
-        "p95": 102.931458,
+        "p50": 58.522958,
+        "p95": 92.11925,
         "noisy": true
-      },
-      "tokensEstP50": 231
+      }
     },
     {
       "corpus": "code",
@@ -1671,19 +1652,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.3333333333333333,
-      "recallAt5": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.4444444444444444,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 233,
       "latencyMs": {
-        "p50": 85.662292,
-        "p95": 132.841792,
+        "p50": 61.837875,
+        "p95": 78.10575,
         "noisy": true
-      },
-      "tokensEstP50": 233
+      }
     },
     {
       "corpus": "code",
@@ -1693,19 +1671,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.6666666666666666,
-      "recallAt5": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.6666666666666666,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 356,
       "latencyMs": {
-        "p50": 98.76175,
-        "p95": 144.389334,
+        "p50": 73.131375,
+        "p95": 76.98675,
         "noisy": true
-      },
-      "tokensEstP50": 356
+      }
     },
     {
       "corpus": "code",
@@ -1715,19 +1690,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.3333333333333333,
-      "recallAt5": 0.3333333333333333,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 0.6666666666666666,
-      "mrrAt10": 0.375,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 223,
       "latencyMs": {
-        "p50": 87.859667,
-        "p95": 122.516541,
+        "p50": 67.368167,
+        "p95": 72.038708,
         "noisy": true
-      },
-      "tokensEstP50": 223
+      }
     },
     {
       "corpus": "code",
@@ -1737,19 +1709,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.3333333333333333,
-      "recallAt5": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.5,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 194,
       "latencyMs": {
-        "p50": 105.445042,
-        "p95": 124.330208,
+        "p50": 93.418666,
+        "p95": 105.335125,
         "noisy": true
-      },
-      "tokensEstP50": 194
+      }
     },
     {
       "corpus": "code",
@@ -1759,19 +1728,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0,
-      "recallAt5": 0,
       "recallAt10": 0,
       "fileRecallAt10": 0,
-      "mrrAt10": 0,
       "locatorValidity": null,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 11,
       "latencyMs": {
-        "p50": 30.932834,
-        "p95": 36.534791,
+        "p50": 28.033583,
+        "p95": 29.741833,
         "noisy": true
-      },
-      "tokensEstP50": 11
+      }
     },
     {
       "corpus": "code",
@@ -1779,21 +1745,23 @@
       "class": "exact-lookup",
       "n": 10,
       "state": "measured",
-      "unreachedCount": 2,
+      "unreachedCount": 0,
       "recallAt1": 0.5,
-      "recallAt5": 0.875,
       "recallAt10": 0.875,
       "fileRecallAt10": 0.875,
-      "mrrAt10": 0.6458333333333333,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 0.8,
-      "latencyMs": {
-        "p50": 0,
-        "p95": 0,
-        "noisy": true
+      "rawValidity": {
+        "tasks": 10,
+        "raw": 66,
+        "rejected": 0,
+        "delivered": 66
       },
-      "tokensEstP50": 125
+      "tokensEstP50": 125,
+      "latencyMs": {
+        "p50": 230.991916,
+        "p95": 301.756458,
+        "noisy": true
+      }
     },
     {
       "corpus": "code",
@@ -1803,19 +1771,21 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0,
-      "recallAt5": 0,
       "recallAt10": 0,
-      "fileRecallAt10": 0.3,
-      "mrrAt10": 0,
+      "fileRecallAt10": 0.4,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
-      "latencyMs": {
-        "p50": 0,
-        "p95": 0,
-        "noisy": true
+      "rawValidity": {
+        "tasks": 10,
+        "raw": 100,
+        "rejected": 0,
+        "delivered": 100
       },
-      "tokensEstP50": 208
+      "tokensEstP50": 800,
+      "latencyMs": {
+        "p50": 1010.216916,
+        "p95": 1055.421958,
+        "noisy": true
+      }
     },
     {
       "corpus": "code",
@@ -1824,12 +1794,18 @@
       "n": 10,
       "state": "unreached",
       "unreachedCount": 10,
+      "cause": "No unique node match",
+      "recallAt1": null,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": null,
+      "rawValidity": null,
+      "tokensEstP50": 0,
       "latencyMs": {
-        "p50": 338.257667,
-        "p95": 395.015958,
+        "p50": 313.919333,
+        "p95": 360.20075,
         "noisy": true
-      },
-      "tokensEstP50": 0
+      }
     },
     {
       "corpus": "code",
@@ -1839,19 +1815,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.3333333333333333,
-      "recallAt5": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.4444444444444444,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 233,
       "latencyMs": {
-        "p50": 81.849167,
-        "p95": 138.607375,
+        "p50": 62.644292,
+        "p95": 77.826416,
         "noisy": true
-      },
-      "tokensEstP50": 233
+      }
     },
     {
       "corpus": "code",
@@ -1861,19 +1834,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.6666666666666666,
-      "recallAt5": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.6666666666666666,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 356,
       "latencyMs": {
-        "p50": 90.203125,
-        "p95": 142.764167,
+        "p50": 72.798334,
+        "p95": 76.194625,
         "noisy": true
-      },
-      "tokensEstP50": 356
+      }
     },
     {
       "corpus": "code",
@@ -1883,19 +1853,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.3333333333333333,
-      "recallAt5": 0.3333333333333333,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 0.6666666666666666,
-      "mrrAt10": 0.375,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 223,
       "latencyMs": {
-        "p50": 89.391542,
-        "p95": 107.237375,
+        "p50": 66.1325,
+        "p95": 72.7765,
         "noisy": true
-      },
-      "tokensEstP50": 223
+      }
     },
     {
       "corpus": "code",
@@ -1905,19 +1872,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.3333333333333333,
-      "recallAt5": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "mrrAt10": 0.5,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 194,
       "latencyMs": {
-        "p50": 104.526667,
-        "p95": 123.831959,
+        "p50": 95.796291,
+        "p95": 105.6335,
         "noisy": true
-      },
-      "tokensEstP50": 194
+      }
     },
     {
       "corpus": "code",
@@ -1927,19 +1891,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0,
-      "recallAt5": 0,
       "recallAt10": 0,
       "fileRecallAt10": 0,
-      "mrrAt10": 0,
       "locatorValidity": null,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 11,
       "latencyMs": {
-        "p50": 40.609292,
-        "p95": 49.373875,
+        "p50": 35.53775,
+        "p95": 37.515125,
         "noisy": true
-      },
-      "tokensEstP50": 11
+      }
     },
     {
       "corpus": "guidance",
@@ -1949,17 +1910,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.875,
-      "recallAt5": 1,
-      "mrrAt5": 0.9375,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 234,
       "latencyMs": {
-        "p50": 3.641209,
-        "p95": 4.302125,
+        "p50": 3.122792,
+        "p95": 3.35975,
         "noisy": true
-      },
-      "tokensEstP50": 234
+      }
     },
     {
       "corpus": "guidance",
@@ -1969,23 +1929,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.1,
-      "recallAt5": 0.3,
-      "mrrAt5": 0.15333333333333332,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 235,
       "latencyMs": {
-        "p50": 3.701625,
-        "p95": 4.642083,
+        "p50": 3.155875,
+        "p95": 3.379625,
         "noisy": true
-      },
-      "tokensEstP50": 235
-    },
-    {
-      "corpus": "guidance",
-      "config": "A",
-      "class": "impact-refactor",
-      "applicable": false
+      }
     },
     {
       "corpus": "guidance",
@@ -1995,17 +1948,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 1,
-      "recallAt5": 1,
-      "mrrAt5": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 241,
       "latencyMs": {
-        "p50": 5.422833,
-        "p95": 7.057042,
+        "p50": 5.402542,
+        "p95": 7.659375,
         "noisy": true
-      },
-      "tokensEstP50": 241
+      }
     },
     {
       "corpus": "guidance",
@@ -2015,23 +1967,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.6666666666666666,
-      "recallAt5": 1,
-      "mrrAt5": 0.8333333333333334,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 232,
       "latencyMs": {
-        "p50": 5.409,
-        "p95": 6.274083,
+        "p50": 5.332792,
+        "p95": 6.212958,
         "noisy": true
-      },
-      "tokensEstP50": 232
-    },
-    {
-      "corpus": "guidance",
-      "config": "A",
-      "class": "unavailable-provider",
-      "applicable": false
+      }
     },
     {
       "corpus": "guidance",
@@ -2041,23 +1986,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 1,
-      "recallAt5": 1,
-      "mrrAt5": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 251,
       "latencyMs": {
-        "p50": 3.786291,
-        "p95": 4.480458,
+        "p50": 3.34025,
+        "p95": 3.960292,
         "noisy": true
-      },
-      "tokensEstP50": 251
-    },
-    {
-      "corpus": "guidance",
-      "config": "A",
-      "class": "verification-failure",
-      "applicable": false
+      }
     },
     {
       "corpus": "guidance",
@@ -2067,17 +2005,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.875,
-      "recallAt5": 1,
-      "mrrAt5": 0.9375,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 234,
       "latencyMs": {
-        "p50": 3.641209,
-        "p95": 4.302125,
+        "p50": 3.122792,
+        "p95": 3.35975,
         "noisy": true
-      },
-      "tokensEstP50": 234
+      }
     },
     {
       "corpus": "guidance",
@@ -2087,23 +2024,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.1,
-      "recallAt5": 0.3,
-      "mrrAt5": 0.15333333333333332,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 235,
       "latencyMs": {
-        "p50": 3.701625,
-        "p95": 4.642083,
+        "p50": 3.155875,
+        "p95": 3.379625,
         "noisy": true
-      },
-      "tokensEstP50": 235
-    },
-    {
-      "corpus": "guidance",
-      "config": "B",
-      "class": "impact-refactor",
-      "applicable": false
+      }
     },
     {
       "corpus": "guidance",
@@ -2113,17 +2043,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 1,
-      "recallAt5": 1,
-      "mrrAt5": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 241,
       "latencyMs": {
-        "p50": 5.422833,
-        "p95": 7.057042,
+        "p50": 5.402542,
+        "p95": 7.659375,
         "noisy": true
-      },
-      "tokensEstP50": 241
+      }
     },
     {
       "corpus": "guidance",
@@ -2133,23 +2062,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.6666666666666666,
-      "recallAt5": 1,
-      "mrrAt5": 0.8333333333333334,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 232,
       "latencyMs": {
-        "p50": 5.409,
-        "p95": 6.274083,
+        "p50": 5.332792,
+        "p95": 6.212958,
         "noisy": true
-      },
-      "tokensEstP50": 232
-    },
-    {
-      "corpus": "guidance",
-      "config": "B",
-      "class": "unavailable-provider",
-      "applicable": false
+      }
     },
     {
       "corpus": "guidance",
@@ -2159,23 +2081,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 1,
-      "recallAt5": 1,
-      "mrrAt5": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 251,
       "latencyMs": {
-        "p50": 3.786291,
-        "p95": 4.480458,
+        "p50": 3.34025,
+        "p95": 3.960292,
         "noisy": true
-      },
-      "tokensEstP50": 251
-    },
-    {
-      "corpus": "guidance",
-      "config": "B",
-      "class": "verification-failure",
-      "applicable": false
+      }
     },
     {
       "corpus": "guidance",
@@ -2185,17 +2100,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.875,
-      "recallAt5": 1,
-      "mrrAt5": 0.9375,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 234,
       "latencyMs": {
-        "p50": 3.735167,
-        "p95": 4.285792,
+        "p50": 3.160416,
+        "p95": 3.460875,
         "noisy": true
-      },
-      "tokensEstP50": 234
+      }
     },
     {
       "corpus": "guidance",
@@ -2205,23 +2119,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.1,
-      "recallAt5": 0.3,
-      "mrrAt5": 0.15333333333333332,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 235,
       "latencyMs": {
-        "p50": 3.551,
-        "p95": 4.640167,
+        "p50": 3.137584,
+        "p95": 3.341042,
         "noisy": true
-      },
-      "tokensEstP50": 235
-    },
-    {
-      "corpus": "guidance",
-      "config": "C",
-      "class": "impact-refactor",
-      "applicable": false
+      }
     },
     {
       "corpus": "guidance",
@@ -2231,17 +2138,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 1,
-      "recallAt5": 1,
-      "mrrAt5": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 241,
       "latencyMs": {
-        "p50": 5.623167,
-        "p95": 6.698917,
+        "p50": 5.595083,
+        "p95": 6.236958,
         "noisy": true
-      },
-      "tokensEstP50": 241
+      }
     },
     {
       "corpus": "guidance",
@@ -2251,23 +2157,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.6666666666666666,
-      "recallAt5": 1,
-      "mrrAt5": 0.8333333333333334,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 232,
       "latencyMs": {
-        "p50": 5.613334,
-        "p95": 7.128541,
+        "p50": 5.364208,
+        "p95": 6.16425,
         "noisy": true
-      },
-      "tokensEstP50": 232
-    },
-    {
-      "corpus": "guidance",
-      "config": "C",
-      "class": "unavailable-provider",
-      "applicable": false
+      }
     },
     {
       "corpus": "guidance",
@@ -2277,23 +2176,16 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 1,
-      "recallAt5": 1,
-      "mrrAt5": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
       "locatorValidity": 1,
-      "falseAbsence": 0,
-      "statusMatch": 1,
+      "rawValidity": null,
+      "tokensEstP50": 251,
       "latencyMs": {
-        "p50": 3.574125,
-        "p95": 4.347,
+        "p50": 3.287083,
+        "p95": 3.6155,
         "noisy": true
-      },
-      "tokensEstP50": 251
-    },
-    {
-      "corpus": "guidance",
-      "config": "C",
-      "class": "verification-failure",
-      "applicable": false
+      }
     }
   ],
   "componentsByConfig": {
@@ -2307,7 +2199,7 @@
         },
         {
           "id": "graphify.query",
-          "version": "graphify 0.9.71",
+          "version": "graphify 0.9.92",
           "state": "unreached",
           "cause": "No unique node match"
         },
@@ -2318,12 +2210,12 @@
         },
         {
           "id": "rtk",
-          "version": "rtk 0.52.0",
+          "version": "rtk 1.0.1",
           "state": "reached"
         },
         {
           "id": "semble.search",
-          "version": "0.6.1",
+          "version": "0.7.0",
           "state": "reached"
         },
         {
@@ -2359,7 +2251,7 @@
         },
         {
           "id": "graphify.query",
-          "version": "graphify 0.9.71",
+          "version": "graphify 0.9.92",
           "state": "unreached",
           "cause": "No unique node match"
         },
@@ -2370,14 +2262,13 @@
         },
         {
           "id": "rtk",
-          "version": "rtk 0.52.0",
+          "version": "rtk 1.0.1",
           "state": "reached"
         },
         {
           "id": "semble.search",
-          "version": "0.6.1",
-          "state": "unreached",
-          "cause": "index-in-progress"
+          "version": "0.7.0",
+          "state": "reached"
         },
         {
           "id": "setup.command",
@@ -2412,205 +2303,44 @@
   },
   "indexCostsFromRun": {
     "codeA": {
-      "buildMs": 16888.879208,
-      "incrementalMs": 16909.292084,
-      "diskBytes": 25841815,
-      "peakRssMB": 1052.15625
+      "buildMs": 10976.175792,
+      "incrementalMs": 9754.204958,
+      "diskBytes": 21903713,
+      "peakRssMB": 597
     },
-    "codeB": null,
-    "codeC": "not emitted by the hybrid-c-v1 run output (buildCodeIndex result is discarded in run.js)"
-  },
-  "harnessFindings": [
-    "C answers carry wallMs 0 (adapters-c.js mapCodeResponse), so C latency in the run output is 0 ms p50/p95 and is not a measurement.",
-    "rawValidity (delivered / live-validation rejected / gaps) is built by adapters-c.js but never reaches the run output; raw/rejected/delivered below come from a side script calling the same runC/mapCodeResponse.",
-    "C semantic route unreached in the harness run: semble.search cause index-in-progress after the explicit build failed with provider-resource-limit."
-  ],
-  "cSideMeasurements": {
-    "note": "Side script over the same pinned export and 20 code exact/conceptual dev tasks using the harness adapters. Wall-clock is noisy. Diagnostic block is NOT a harness result: one option changed (semanticLimits.statsBytes 64 KiB -> 8 MiB on the explicit build) to show the downstream behaviour.",
-    "shipped": {
-      "label": "C as shipped (harness buildCodeIndex + runC)",
-      "indexCost": {
-        "response": {
-          "ok": false,
-          "reason": "provider-resource-limit",
-          "complete": false,
-          "elapsedMs": 820,
-          "added": 564
-        },
-        "wallMs": 1017
-      },
-      "byClass": {
-        "exact-lookup": {
-          "tasks": 10,
-          "unreached": 2,
-          "semanticReached": 0,
-          "rawCandidates": 304,
-          "rejected": 242,
-          "delivered": 62,
-          "locatorValidity": {
-            "value": 1,
-            "n": 8
-          },
-          "recallAt10": {
-            "value": 0.875,
-            "n": 8
-          },
-          "recallAt1": {
-            "value": 0.5,
-            "n": 8
-          },
-          "fileRecallAt10": {
-            "value": 0.875,
-            "n": 8
-          },
-          "mrrAt10": {
-            "value": 0.6458333333333333,
-            "n": 8
-          },
-          "wallMsP50": 248,
-          "wallMsP95": 273,
-          "causes": [
-            "native.rg:provider-error"
-          ]
-        },
-        "conceptual-discovery": {
-          "tasks": 10,
-          "unreached": 0,
-          "semanticReached": 0,
-          "rawCandidates": 863,
-          "rejected": 770,
-          "delivered": 93,
-          "locatorValidity": {
-            "value": 1,
-            "n": 10
-          },
-          "recallAt10": {
-            "value": 0,
-            "n": 10
-          },
-          "recallAt1": {
-            "value": 0,
-            "n": 10
-          },
-          "fileRecallAt10": {
-            "value": 0.3,
-            "n": 10
-          },
-          "mrrAt10": {
-            "value": 0,
-            "n": 10
-          },
-          "wallMsP50": 423,
-          "wallMsP95": 450,
-          "causes": [
-            "native.rg:provider-error",
-            "semble.search:index-in-progress"
-          ]
-        }
-      },
-      "noisy": true
-    },
-    "diagnostic": {
-      "label": "C diagnostic: build with semanticLimits.statsBytes=8 MiB override; NOT a harness result",
-      "indexCost": {
-        "response": {
-          "ok": true,
-          "complete": true,
-          "elapsedMs": 4565,
-          "chunks": 10547,
-          "added": 564,
-          "artifactBytes": 25097234
-        },
-        "wallMs": 4670,
-        "stateDiskKiB": 32128
-      },
-      "byClass": {
-        "exact-lookup": {
-          "tasks": 10,
-          "unreached": 2,
-          "semanticReached": 0,
-          "rawCandidates": 304,
-          "rejected": 242,
-          "delivered": 62,
-          "locatorValidity": {
-            "value": 1,
-            "n": 8
-          },
-          "recallAt10": {
-            "value": 0.875,
-            "n": 8
-          },
-          "recallAt1": {
-            "value": 0.5,
-            "n": 8
-          },
-          "fileRecallAt10": {
-            "value": 0.875,
-            "n": 8
-          },
-          "mrrAt10": {
-            "value": 0.6458333333333333,
-            "n": 8
-          },
-          "wallMsP50": 147,
-          "wallMsP95": 165,
-          "causes": [
-            "native.rg:provider-error"
-          ]
-        },
-        "conceptual-discovery": {
-          "tasks": 10,
-          "unreached": 0,
-          "semanticReached": 10,
-          "rawCandidates": 310,
-          "rejected": 212,
-          "delivered": 98,
-          "locatorValidity": {
-            "value": 1,
-            "n": 10
-          },
-          "recallAt10": {
-            "value": 0,
-            "n": 10
-          },
-          "recallAt1": {
-            "value": 0,
-            "n": 10
-          },
-          "fileRecallAt10": {
-            "value": 0.4,
-            "n": 10
-          },
-          "mrrAt10": {
-            "value": 0,
-            "n": 10
-          },
-          "wallMsP50": 1189,
-          "wallMsP95": 1314,
-          "causes": [
-            "native.rg:provider-error"
-          ]
-        }
-      },
-      "noisy": true
-    },
-    "loaderCostsDiagnostic": {
-      "buildElapsedMs": 4671,
+    "codeC": {
+      "state": "reached",
+      "buildMs": 4521,
       "chunks": 10547,
-      "artifactBytes": 25097234,
-      "stateDiskKiB": 32128,
-      "semanticSourceReadBytesPerConceptualQuery": 6474977,
-      "lexicalReadBytesPerQuery": 6474977,
-      "liveReadBytesPerQueryRange": [
-        102361,
-        261947
-      ],
-      "conceptualQueryWallMsRange": [
-        1031,
-        1326
-      ],
-      "processMaxRssBytes": 407044096,
-      "note": "loader reads all indexed source for statistics on every query (IC-004); RSS is the whole node run incl. build, noisy"
+      "diskBytes": 23532513,
+      "peakRssMB": {
+        "unmeasured": "the index builder reports no resident-set size"
+      },
+      "freshness": "FRESH"
     }
+  },
+  "cSideMeasurements": {
+    "note": "Own script outside the repo (scratchpad d1b/rss.js), /usr/bin/time -l, NOISY, node-process RSS only (child python RSS not separately reported). Export = harness materialiseExport of the pinned commit, scopes = manifest code paths.",
+    "build": {
+      "wallMs": 4422,
+      "chunks": 10547,
+      "maxRssBytes": 307200000,
+      "peakFootprintBytes": 171646704
+    },
+    "queries20": {
+      "n": 20,
+      "tasks": "first 20 dev code exact+conceptual",
+      "p50Ms": 859,
+      "p95Ms": 934,
+      "maxMs": 964,
+      "maxRssBytes": 301694976,
+      "peakFootprintBytes": 255441968
+    }
+  },
+  "impactRefactorInvestigation": {
+    "cause": "run order, not graph staleness or flake",
+    "evidence": "In the hybrid-c-v1 run, adapters-c buildCodeIndex (C) writes .doflow/index/code/semble/*/mirror copies of every admitted source file into the export tree BEFORE config A buildIndexes runs graphify update on the same tree. Reproduction with the real functions on a fresh export: A-first gives graphify affected 10/10 reached (7944 nodes); C-build-first gives 0/10, all No unique node match (15715 nodes, 26191 references to .doflow/index in graph.json). Standalone graphify update + affected on a plain git archive of the pinned commit resolves the same symbols.",
+    "script": "scratchpad d1b/graphrepro.js",
+    "fixApplied": false
   }
 }

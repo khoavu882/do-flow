@@ -2,20 +2,26 @@
   "schemaVersion": 1,
   "kind": "079-dev-corrected",
   "provenance": {
-    "decision": "079 D.1 dev measurement; no tuning, no source change",
-    "sourceCommit": "d78a638d (worktree HEAD for src/bench at run time; later commit e01ea345 touches holdout only)",
+    "decision": "079 D.1b dev measurement on repaired tree; no tuning, no source change, no workaround",
+    "measuredTreeSha": "49613d599a0ba70014c58e5499b9cf5b078651ba",
+    "treeStatus": "clean (git status --short empty before and after)",
     "snapshotId": 1,
     "pinnedCommit": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
     "protocol": "hybrid-c-v1",
     "split": "dev",
     "tasksSha256": "54cd15ffd5d4051dc08b900d99eb7496e34a7187521d1fa5879b9c9d9a5a601e",
-    "command": "PATH=<wrapper dir with python3 -> semble 0.6.1 venv>:$PATH HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 SEMBLE_MODEL_PATH=<dereferenced copy of cached minishlab/potion-code-16M-v2> node bench/runner.js retrieval hybrid-c --snapshot <scratch copy of snapshot.json> --out <scratch>/dev-raw.json",
-    "deviations": [
-      "The committed snapshot.json pins rtk 0.50.0; the machine has rtk 0.52.0, so the unmodified verb exits 4 (tool drift) before measuring. The run used a scratch copy of snapshot.json that differs only in the rtk versionLine (0.50.0 -> 0.52.0). A routes that call rtk therefore ran on 0.52.0.",
-      "The cached HF snapshot directory holds symlinks to blobs and is rejected by the production model inspector (unsafe-artifact). SEMBLE_MODEL_PATH is a symlink-dereferenced local copy of the same files; nothing was downloaded.",
-      "python3 on PATH has no semble; a wrapper script exec-ing the Semble 0.6.1 tool venv python was placed first on PATH (production default interpreter is python3, no option is passed by the bench)."
-    ],
-    "noisy": "Other agents were running on the machine; every wall-clock figure is noisy and carries no budget verdict."
+    "tools": {
+      "semble": "0.7.0",
+      "rtk": "1.0.1",
+      "graphify": "0.9.92"
+    },
+    "command": "SEMBLE_MODEL_PATH=~/.cache/huggingface/hub/models--minishlab--potion-code-16M-v2/snapshots/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b HF_HUB_OFFLINE=1 /usr/bin/time -l node bench/runner.js retrieval hybrid-c --out <scratch>/dev-raw.json (unmodified snapshot.json, no python wrapper, no model copy)",
+    "deviations": [],
+    "harnessWall": {
+      "note": "noisy, other processes present",
+      "realSeconds": 344.65,
+      "maxRssBytesOfNodeProcess": 832929792
+    }
   },
   "report": {
     "schemaVersion": 1,
@@ -37,7 +43,7 @@
               },
               {
                 "id": "graphify.query",
-                "version": "graphify 0.9.71",
+                "version": "graphify 0.9.92",
                 "state": "unreached",
                 "cause": "No unique node match"
               },
@@ -48,12 +54,12 @@
               },
               {
                 "id": "rtk",
-                "version": "rtk 0.52.0",
+                "version": "rtk 1.0.1",
                 "state": "reached"
               },
               {
                 "id": "semble.search",
-                "version": "0.6.1",
+                "version": "0.7.0",
                 "state": "reached"
               },
               {
@@ -63,10 +69,10 @@
               }
             ],
             "index": {
-              "buildMs": 16888.879208,
-              "incrementalMs": 16909.292084,
-              "diskBytes": 25841815,
-              "peakRssMB": 1052.15625
+              "buildMs": 10976.175792,
+              "incrementalMs": 9754.204958,
+              "diskBytes": 21903713,
+              "peakRssMB": 597
             },
             "classes": {
               "exact-lookup": {
@@ -173,9 +179,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 28.136833,
-                  "p95Ms": 31.108334,
-                  "maxMs": 39.768
+                  "p50Ms": 26.014792,
+                  "p95Ms": 29.864875,
+                  "maxMs": 32.017542
                 },
                 "context": {
                   "payloadBytesP50": 83,
@@ -199,10 +205,10 @@
                     "count": 0
                   },
                   "fileRecallAt1": {
-                    "value": 0.1,
+                    "value": 0,
                     "ci95": [
                       0,
-                      0.3
+                      0
                     ],
                     "n": 10
                   },
@@ -223,10 +229,10 @@
                     "n": 10
                   },
                   "locatorValidity": {
-                    "value": 0.48,
+                    "value": 0.51,
                     "ci95": [
-                      0.45,
-                      0.5
+                      0.5,
+                      0.53
                     ],
                     "n": 10
                   },
@@ -281,13 +287,13 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 996.159,
-                  "p95Ms": 1104.323125,
-                  "maxMs": 1406.334375
+                  "p50Ms": 489.418958,
+                  "p95Ms": 536.819916,
+                  "maxMs": 547.136041
                 },
                 "context": {
                   "payloadBytesP50": 5300,
-                  "payloadBytesP95": 6878,
+                  "payloadBytesP95": 6815,
                   "tokensEstP50": 1325,
                   "tokensBasis": "estimated:bytes/4",
                   "compressedBytesP50": 5300
@@ -303,9 +309,9 @@
                 "metrics": {},
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 339.546709,
-                  "p95Ms": 415.399041,
-                  "maxMs": 447.284041
+                  "p50Ms": 316.191084,
+                  "p95Ms": 338.066542,
+                  "maxMs": 349.259584
                 },
                 "context": {
                   "payloadBytesP50": 0,
@@ -328,7 +334,7 @@
                     "count": 0
                   },
                   "fileRecallAt1": {
-                    "value": 0.3333333333333333,
+                    "value": 0.6666666666666666,
                     "ci95": [
                       0,
                       1
@@ -352,15 +358,15 @@
                     "n": 3
                   },
                   "locatorValidity": {
-                    "value": 0.5,
+                    "value": 0.5333333333333333,
                     "ci95": [
                       0.5,
-                      0.5
+                      0.6
                     ],
                     "n": 3
                   },
                   "mrrAt10": {
-                    "value": 0.5,
+                    "value": 0.6666666666666666,
                     "ci95": [
                       0,
                       1
@@ -368,7 +374,7 @@
                     "n": 3
                   },
                   "ndcgAt10": {
-                    "value": 0.5436432511904857,
+                    "value": 0.6666666666666666,
                     "ci95": [
                       0,
                       1
@@ -376,7 +382,7 @@
                     "n": 3
                   },
                   "recallAt1": {
-                    "value": 0.3333333333333333,
+                    "value": 0.6666666666666666,
                     "ci95": [
                       0,
                       1
@@ -410,13 +416,13 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 1369.303083,
-                  "p95Ms": 2297.247667,
-                  "maxMs": 2380.226958
+                  "p50Ms": 481.065375,
+                  "p95Ms": 565.572792,
+                  "maxMs": 574.275791
                 },
                 "context": {
                   "payloadBytesP50": 5268,
-                  "payloadBytesP95": 5527,
+                  "payloadBytesP95": 5514,
                   "tokensEstP50": 1317,
                   "tokensBasis": "estimated:bytes/4",
                   "compressedBytesP50": 5268
@@ -518,9 +524,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 1404.357084,
-                  "p95Ms": 2687.570916,
-                  "maxMs": 2824.415166
+                  "p50Ms": 496.350083,
+                  "p95Ms": 550.611792,
+                  "maxMs": 566.541333
                 },
                 "context": {
                   "payloadBytesP50": 3724,
@@ -626,9 +632,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 81.611666,
-                  "p95Ms": 122.270417,
-                  "maxMs": 149.952375
+                  "p50Ms": 60.909459,
+                  "p95Ms": 80.332541,
+                  "maxMs": 81.290459
                 },
                 "context": {
                   "payloadBytesP50": 892,
@@ -684,7 +690,7 @@
                     "n": 3
                   },
                   "mrrAt10": {
-                    "value": 0.6666666666666666,
+                    "value": 0.3333333333333333,
                     "ci95": [
                       0,
                       1
@@ -692,7 +698,7 @@
                     "n": 3
                   },
                   "mustIncludeMet": {
-                    "value": 0.6666666666666666,
+                    "value": 0.3333333333333333,
                     "ci95": [
                       0,
                       1
@@ -700,7 +706,7 @@
                     "n": 3
                   },
                   "ndcgAt10": {
-                    "value": 0.6666666666666666,
+                    "value": 0.3333333333333333,
                     "ci95": [
                       0,
                       1
@@ -708,7 +714,7 @@
                     "n": 3
                   },
                   "recallAt1": {
-                    "value": 0.6666666666666666,
+                    "value": 0.3333333333333333,
                     "ci95": [
                       0,
                       1
@@ -716,7 +722,7 @@
                     "n": 3
                   },
                   "recallAt10": {
-                    "value": 0.6666666666666666,
+                    "value": 0.3333333333333333,
                     "ci95": [
                       0,
                       1
@@ -724,7 +730,7 @@
                     "n": 3
                   },
                   "recallAt5": {
-                    "value": 0.6666666666666666,
+                    "value": 0.3333333333333333,
                     "ci95": [
                       0,
                       1
@@ -742,16 +748,16 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 966.140916,
-                  "p95Ms": 1206.336125,
-                  "maxMs": 1733.760041
+                  "p50Ms": 468.235291,
+                  "p95Ms": 504.649292,
+                  "maxMs": 505.34875
                 },
                 "context": {
-                  "payloadBytesP50": 5482,
+                  "payloadBytesP50": 5434,
                   "payloadBytesP95": 5686,
-                  "tokensEstP50": 1371,
+                  "tokensEstP50": 1359,
                   "tokensBasis": "estimated:bytes/4",
-                  "compressedBytesP50": 5482
+                  "compressedBytesP50": 5434
                 }
               },
               "verification-failure": {
@@ -856,9 +862,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 40.300292,
-                  "p95Ms": 48.914917,
-                  "maxMs": 50.249417
+                  "p50Ms": 34.818625,
+                  "p95Ms": 38.768125,
+                  "maxMs": 40.114292
                 },
                 "context": {
                   "payloadBytesP50": 42,
@@ -994,9 +1000,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 19.170416,
-                  "p95Ms": 22.243166,
-                  "maxMs": 23.464958
+                  "p50Ms": 18.591833,
+                  "p95Ms": 20.026958,
+                  "maxMs": 20.082833
                 },
                 "context": {
                   "payloadBytesP50": 83,
@@ -1101,9 +1107,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 116.925417,
-                  "p95Ms": 156.779125,
-                  "maxMs": 167.428875
+                  "p50Ms": 123.314208,
+                  "p95Ms": 159.782333,
+                  "maxMs": 164.466833
                 },
                 "context": {
                   "payloadBytesP50": 911,
@@ -1224,9 +1230,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 64.089666,
-                  "p95Ms": 102.931458,
-                  "maxMs": 105.936583
+                  "p50Ms": 58.522958,
+                  "p95Ms": 92.11925,
+                  "maxMs": 106.071583
                 },
                 "context": {
                   "payloadBytesP50": 921,
@@ -1331,9 +1337,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 85.662292,
-                  "p95Ms": 132.841792,
-                  "maxMs": 148.935042
+                  "p50Ms": 61.837875,
+                  "p95Ms": 78.10575,
+                  "maxMs": 78.510708
                 },
                 "context": {
                   "payloadBytesP50": 930,
@@ -1438,9 +1444,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 98.76175,
-                  "p95Ms": 144.389334,
-                  "maxMs": 220.34525
+                  "p50Ms": 73.131375,
+                  "p95Ms": 76.98675,
+                  "maxMs": 77.320792
                 },
                 "context": {
                   "payloadBytesP50": 1421,
@@ -1545,9 +1551,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 87.859667,
-                  "p95Ms": 122.516541,
-                  "maxMs": 184.634166
+                  "p50Ms": 67.368167,
+                  "p95Ms": 72.038708,
+                  "maxMs": 72.385958
                 },
                 "context": {
                   "payloadBytesP50": 892,
@@ -1660,9 +1666,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 105.445042,
-                  "p95Ms": 124.330208,
-                  "maxMs": 195.939792
+                  "p50Ms": 93.418666,
+                  "p95Ms": 105.335125,
+                  "maxMs": 106.456708
                 },
                 "context": {
                   "payloadBytesP50": 775,
@@ -1773,9 +1779,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 30.932834,
-                  "p95Ms": 36.534791,
-                  "maxMs": 36.818166
+                  "p50Ms": 28.033583,
+                  "p95Ms": 29.741833,
+                  "maxMs": 30.001042
                 },
                 "context": {
                   "payloadBytesP50": 42,
@@ -1796,7 +1802,7 @@
               },
               {
                 "id": "graphify.query",
-                "version": "graphify 0.9.71",
+                "version": "graphify 0.9.92",
                 "state": "unreached",
                 "cause": "No unique node match"
               },
@@ -1807,14 +1813,13 @@
               },
               {
                 "id": "rtk",
-                "version": "rtk 0.52.0",
+                "version": "rtk 1.0.1",
                 "state": "reached"
               },
               {
                 "id": "semble.search",
-                "version": "0.6.1",
-                "state": "unreached",
-                "cause": "index-in-progress"
+                "version": "0.7.0",
+                "state": "reached"
               },
               {
                 "id": "setup.command",
@@ -1822,13 +1827,23 @@
                 "state": "reached"
               }
             ],
+            "index": {
+              "state": "reached",
+              "buildMs": 4521,
+              "chunks": 10547,
+              "diskBytes": 23532513,
+              "peakRssMB": {
+                "unmeasured": "the index builder reports no resident-set size"
+              },
+              "freshness": "FRESH"
+            },
             "classes": {
               "exact-lookup": {
                 "applicable": true,
                 "n": 10,
                 "underpowered": false,
                 "state": "measured",
-                "unreachedCount": 2,
+                "unreachedCount": 0,
                 "metrics": {
                   "falseAbsence": {
                     "value": 0,
@@ -1909,9 +1924,9 @@
                     "n": 8
                   },
                   "statusMatch": {
-                    "value": 0.8,
+                    "value": 1,
                     "ci95": [
-                      0.5,
+                      1,
                       1
                     ],
                     "n": 10
@@ -1927,15 +1942,21 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 0,
-                  "p95Ms": 0,
-                  "maxMs": 0
+                  "p50Ms": 230.991916,
+                  "p95Ms": 301.756458,
+                  "maxMs": 302.138875
                 },
                 "context": {
                   "payloadBytesP50": 499,
                   "payloadBytesP95": 880,
                   "tokensEstP50": 125,
                   "tokensBasis": "estimated:bytes/4"
+                },
+                "rawValidity": {
+                  "tasks": 10,
+                  "raw": 66,
+                  "rejected": 0,
+                  "delivered": 66
                 }
               },
               "conceptual-discovery": {
@@ -1960,10 +1981,10 @@
                     "n": 10
                   },
                   "fileRecallAt10": {
-                    "value": 0.3,
+                    "value": 0.4,
                     "ci95": [
-                      0,
-                      0.6
+                      0.1,
+                      0.7
                     ],
                     "n": 10
                   },
@@ -2034,15 +2055,21 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 0,
-                  "p95Ms": 0,
-                  "maxMs": 0
+                  "p50Ms": 1010.216916,
+                  "p95Ms": 1055.421958,
+                  "maxMs": 1061.564667
                 },
                 "context": {
-                  "payloadBytesP50": 829,
-                  "payloadBytesP95": 1021,
-                  "tokensEstP50": 208,
+                  "payloadBytesP50": 3199,
+                  "payloadBytesP95": 7339,
+                  "tokensEstP50": 800,
                   "tokensBasis": "estimated:bytes/4"
+                },
+                "rawValidity": {
+                  "tasks": 10,
+                  "raw": 100,
+                  "rejected": 0,
+                  "delivered": 100
                 }
               },
               "impact-refactor": {
@@ -2055,9 +2082,9 @@
                 "metrics": {},
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 338.257667,
-                  "p95Ms": 395.015958,
-                  "maxMs": 433.104667
+                  "p50Ms": 313.919333,
+                  "p95Ms": 360.20075,
+                  "maxMs": 365.033458
                 },
                 "context": {
                   "payloadBytesP50": 0,
@@ -2162,9 +2189,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 81.849167,
-                  "p95Ms": 138.607375,
-                  "maxMs": 144.9825
+                  "p50Ms": 62.644292,
+                  "p95Ms": 77.826416,
+                  "maxMs": 79.44875
                 },
                 "context": {
                   "payloadBytesP50": 930,
@@ -2269,9 +2296,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 90.203125,
-                  "p95Ms": 142.764167,
-                  "maxMs": 237.233125
+                  "p50Ms": 72.798334,
+                  "p95Ms": 76.194625,
+                  "maxMs": 81.552042
                 },
                 "context": {
                   "payloadBytesP50": 1421,
@@ -2376,9 +2403,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 89.391542,
-                  "p95Ms": 107.237375,
-                  "maxMs": 109.324791
+                  "p50Ms": 66.1325,
+                  "p95Ms": 72.7765,
+                  "maxMs": 74.389042
                 },
                 "context": {
                   "payloadBytesP50": 892,
@@ -2491,9 +2518,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 104.526667,
-                  "p95Ms": 123.831959,
-                  "maxMs": 177.747917
+                  "p50Ms": 95.796291,
+                  "p95Ms": 105.6335,
+                  "maxMs": 107.217292
                 },
                 "context": {
                   "payloadBytesP50": 775,
@@ -2604,9 +2631,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 40.609292,
-                  "p95Ms": 49.373875,
-                  "maxMs": 49.852417
+                  "p50Ms": 35.53775,
+                  "p95Ms": 37.515125,
+                  "maxMs": 37.968625
                 },
                 "context": {
                   "payloadBytesP50": 42,
@@ -2990,12 +3017,12 @@
             "a": "A",
             "b": "C",
             "n": 10,
-            "diff": 0.2,
+            "diff": 0.1,
             "ci95": [
               0,
-              0.5
+              0.3
             ],
-            "pRandomization": 0.49255074492550743
+            "pRandomization": 1
           },
           {
             "metric": "fileRecallAt10",
@@ -3003,9 +3030,9 @@
             "a": "B",
             "b": "C",
             "n": 10,
-            "diff": 0,
+            "diff": -0.1,
             "ci95": [
-              0,
+              -0.3,
               0
             ],
             "pRandomization": 1
@@ -3367,10 +3394,10 @@
             "a": "A",
             "b": "B",
             "n": 3,
-            "diff": 0,
+            "diff": -0.3333333333333333,
             "ci95": [
               -1,
-              1
+              0
             ],
             "pRandomization": 1
           },
@@ -3380,10 +3407,10 @@
             "a": "A",
             "b": "C",
             "n": 3,
-            "diff": 0,
+            "diff": -0.3333333333333333,
             "ci95": [
               -1,
-              1
+              0
             ],
             "pRandomization": 1
           },
@@ -3622,9 +3649,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.641209,
-                  "p95Ms": 4.302125,
-                  "maxMs": 4.326333
+                  "p50Ms": 3.122792,
+                  "p95Ms": 3.35975,
+                  "maxMs": 3.564625
                 },
                 "context": {
                   "payloadBytesP50": 935,
@@ -3755,9 +3782,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.701625,
-                  "p95Ms": 4.642083,
-                  "maxMs": 4.943709
+                  "p50Ms": 3.155875,
+                  "p95Ms": 3.379625,
+                  "maxMs": 3.408166
                 },
                 "context": {
                   "payloadBytesP50": 938,
@@ -3892,9 +3919,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 5.422833,
-                  "p95Ms": 7.057042,
-                  "maxMs": 9.236917
+                  "p50Ms": 5.402542,
+                  "p95Ms": 7.659375,
+                  "maxMs": 8.816042
                 },
                 "context": {
                   "payloadBytesP50": 962,
@@ -4025,9 +4052,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 5.409,
-                  "p95Ms": 6.274083,
-                  "maxMs": 10.17075
+                  "p50Ms": 5.332792,
+                  "p95Ms": 6.212958,
+                  "maxMs": 10.222
                 },
                 "context": {
                   "payloadBytesP50": 928,
@@ -4170,9 +4197,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.786291,
-                  "p95Ms": 4.480458,
-                  "maxMs": 4.489875
+                  "p50Ms": 3.34025,
+                  "p95Ms": 3.960292,
+                  "maxMs": 4.023792
                 },
                 "context": {
                   "payloadBytesP50": 1002,
@@ -4326,9 +4353,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.641209,
-                  "p95Ms": 4.302125,
-                  "maxMs": 4.326333
+                  "p50Ms": 3.122792,
+                  "p95Ms": 3.35975,
+                  "maxMs": 3.564625
                 },
                 "context": {
                   "payloadBytesP50": 935,
@@ -4459,9 +4486,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.701625,
-                  "p95Ms": 4.642083,
-                  "maxMs": 4.943709
+                  "p50Ms": 3.155875,
+                  "p95Ms": 3.379625,
+                  "maxMs": 3.408166
                 },
                 "context": {
                   "payloadBytesP50": 938,
@@ -4596,9 +4623,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 5.422833,
-                  "p95Ms": 7.057042,
-                  "maxMs": 9.236917
+                  "p50Ms": 5.402542,
+                  "p95Ms": 7.659375,
+                  "maxMs": 8.816042
                 },
                 "context": {
                   "payloadBytesP50": 962,
@@ -4729,9 +4756,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 5.409,
-                  "p95Ms": 6.274083,
-                  "maxMs": 10.17075
+                  "p50Ms": 5.332792,
+                  "p95Ms": 6.212958,
+                  "maxMs": 10.222
                 },
                 "context": {
                   "payloadBytesP50": 928,
@@ -4874,9 +4901,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.786291,
-                  "p95Ms": 4.480458,
-                  "maxMs": 4.489875
+                  "p50Ms": 3.34025,
+                  "p95Ms": 3.960292,
+                  "maxMs": 4.023792
                 },
                 "context": {
                   "payloadBytesP50": 1002,
@@ -5030,9 +5057,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.735167,
-                  "p95Ms": 4.285792,
-                  "maxMs": 4.354
+                  "p50Ms": 3.160416,
+                  "p95Ms": 3.460875,
+                  "maxMs": 3.466084
                 },
                 "context": {
                   "payloadBytesP50": 935,
@@ -5163,9 +5190,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.551,
-                  "p95Ms": 4.640167,
-                  "maxMs": 4.853167
+                  "p50Ms": 3.137584,
+                  "p95Ms": 3.341042,
+                  "maxMs": 3.422041
                 },
                 "context": {
                   "payloadBytesP50": 938,
@@ -5300,9 +5327,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 5.623167,
-                  "p95Ms": 6.698917,
-                  "maxMs": 6.781
+                  "p50Ms": 5.595083,
+                  "p95Ms": 6.236958,
+                  "maxMs": 6.320375
                 },
                 "context": {
                   "payloadBytesP50": 962,
@@ -5433,9 +5460,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 5.613334,
-                  "p95Ms": 7.128541,
-                  "maxMs": 7.414959
+                  "p50Ms": 5.364208,
+                  "p95Ms": 6.16425,
+                  "maxMs": 7.181166
                 },
                 "context": {
                   "payloadBytesP50": 928,
@@ -5578,9 +5605,9 @@
                 },
                 "latency": {
                   "runs": 30,
-                  "p50Ms": 3.574125,
-                  "p95Ms": 4.347,
-                  "maxMs": 4.383709
+                  "p50Ms": 3.287083,
+                  "p95Ms": 3.6155,
+                  "maxMs": 3.643416
                 },
                 "context": {
                   "payloadBytesP50": 1002,
@@ -6392,20 +6419,20 @@
         "result": "RETRIEVED",
         "freshness": "UNKNOWN",
         "metrics": {
-          "compressedBytes": 5706,
+          "compressedBytes": 5501,
           "falseAbsence": 0,
           "fileRecallAt1": 0,
           "fileRecallAt10": 0,
           "fileRecallAt5": 0,
-          "locatorValidity": 0.5,
+          "locatorValidity": 0.6,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 5706,
+          "payloadBytes": 5501,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 1427
+          "tokensEst": 1376
         }
       },
       {
@@ -6420,7 +6447,7 @@
           "fileRecallAt1": 0,
           "fileRecallAt10": 1,
           "fileRecallAt5": 1,
-          "locatorValidity": 0.4,
+          "locatorValidity": 0.5,
           "mrrAt10": 0,
           "ndcgAt10": 0,
           "payloadBytes": 5336,
@@ -6489,7 +6516,7 @@
           "fileRecallAt1": 0,
           "fileRecallAt10": 0,
           "fileRecallAt5": 0,
-          "locatorValidity": 0.4,
+          "locatorValidity": 0.5,
           "mrrAt10": 0,
           "ndcgAt10": 0,
           "payloadBytes": 6083,
@@ -6509,7 +6536,7 @@
         "metrics": {
           "compressedBytes": 4046,
           "falseAbsence": 0,
-          "fileRecallAt1": 1,
+          "fileRecallAt1": 0,
           "fileRecallAt10": 1,
           "fileRecallAt5": 1,
           "locatorValidity": 0.5,
@@ -6599,7 +6626,7 @@
         "result": "RETRIEVED",
         "freshness": "UNKNOWN",
         "metrics": {
-          "compressedBytes": 6878,
+          "compressedBytes": 6815,
           "falseAbsence": 0,
           "fileRecallAt1": 0,
           "fileRecallAt10": 0,
@@ -6607,12 +6634,12 @@
           "locatorValidity": 0.5,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 6878,
+          "payloadBytes": 6815,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 1720
+          "tokensEst": 1704
         }
       },
       {
@@ -6885,20 +6912,20 @@
         "result": "RETRIEVED",
         "freshness": "UNKNOWN",
         "metrics": {
-          "compressedBytes": 5527,
+          "compressedBytes": 5514,
           "falseAbsence": 0,
           "fileRecallAt1": 0,
           "fileRecallAt10": 1,
           "fileRecallAt5": 1,
-          "locatorValidity": 0.5,
+          "locatorValidity": 0.6,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 5527,
+          "payloadBytes": 5514,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 1382
+          "tokensEst": 1379
         }
       },
       {
@@ -6910,14 +6937,14 @@
         "metrics": {
           "compressedBytes": 5254,
           "falseAbsence": 0,
-          "fileRecallAt1": 0,
+          "fileRecallAt1": 1,
           "fileRecallAt10": 1,
           "fileRecallAt5": 1,
           "locatorValidity": 0.5,
-          "mrrAt10": 0.5,
-          "ndcgAt10": 0.6309297535714574,
+          "mrrAt10": 1,
+          "ndcgAt10": 1,
           "payloadBytes": 5254,
-          "recallAt1": 0,
+          "recallAt1": 1,
           "recallAt10": 1,
           "recallAt5": 1,
           "statusMatch": 1,
@@ -7092,21 +7119,21 @@
         "result": "RETRIEVED",
         "freshness": "UNKNOWN",
         "metrics": {
-          "compressedBytes": 5482,
+          "compressedBytes": 5434,
           "falseAbsence": 0,
           "fileRecallAt1": 1,
           "fileRecallAt10": 1,
           "fileRecallAt5": 1,
           "locatorValidity": 0.5,
-          "mrrAt10": 1,
-          "mustIncludeMet": 1,
-          "ndcgAt10": 1,
-          "payloadBytes": 5482,
-          "recallAt1": 1,
-          "recallAt10": 1,
-          "recallAt5": 1,
+          "mrrAt10": 0,
+          "mustIncludeMet": 0,
+          "ndcgAt10": 0,
+          "payloadBytes": 5434,
+          "recallAt1": 0,
+          "recallAt10": 0,
+          "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 1371
+          "tokensEst": 1359
         }
       },
       {
@@ -8314,13 +8341,13 @@
           "locatorValidity": 1,
           "mrrAt10": 0.5,
           "ndcgAt10": 0.6309297535714574,
-          "payloadBytes": 571,
+          "payloadBytes": 791,
           "recallAt1": 0,
           "recallAt10": 1,
           "recallAt5": 1,
           "statusMatch": 1,
           "successAt1": 0,
-          "tokensEst": 143
+          "tokensEst": 198
         }
       },
       {
@@ -8337,13 +8364,13 @@
           "locatorValidity": 1,
           "mrrAt10": 1,
           "ndcgAt10": 1,
-          "payloadBytes": 685,
+          "payloadBytes": 796,
           "recallAt1": 1,
           "recallAt10": 1,
           "recallAt5": 1,
           "statusMatch": 1,
           "successAt1": 1,
-          "tokensEst": 172
+          "tokensEst": 199
         }
       },
       {
@@ -8383,13 +8410,13 @@
           "locatorValidity": 1,
           "mrrAt10": 1,
           "ndcgAt10": 1,
-          "payloadBytes": 750,
+          "payloadBytes": 794,
           "recallAt1": 1,
           "recallAt10": 1,
           "recallAt5": 1,
           "statusMatch": 1,
           "successAt1": 1,
-          "tokensEst": 188
+          "tokensEst": 199
         }
       },
       {
@@ -8419,7 +8446,7 @@
         "id": "DC-009",
         "corpus": "code",
         "config": "C",
-        "result": "UNREACHED",
+        "result": "EMPTY",
         "freshness": "NOT_APPLICABLE",
         "metrics": {
           "falseAbsence": 0,
@@ -8433,7 +8460,7 @@
           "recallAt1": null,
           "recallAt10": null,
           "recallAt5": null,
-          "statusMatch": 0,
+          "statusMatch": 1,
           "successAt1": null,
           "tokensEst": 0
         }
@@ -8442,7 +8469,7 @@
         "id": "DC-010",
         "corpus": "code",
         "config": "C",
-        "result": "UNREACHED",
+        "result": "EMPTY",
         "freshness": "NOT_APPLICABLE",
         "metrics": {
           "falseAbsence": 0,
@@ -8456,7 +8483,7 @@
           "recallAt1": null,
           "recallAt10": null,
           "recallAt5": null,
-          "statusMatch": 0,
+          "statusMatch": 1,
           "successAt1": null,
           "tokensEst": 0
         }
@@ -8466,7 +8493,7 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
@@ -8475,12 +8502,12 @@
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 510,
+          "payloadBytes": 2528,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 128
+          "tokensEst": 632
         }
       },
       {
@@ -8488,7 +8515,7 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
@@ -8497,12 +8524,12 @@
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 920,
+          "payloadBytes": 2746,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 230
+          "tokensEst": 687
         }
       },
       {
@@ -8510,7 +8537,7 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
@@ -8519,12 +8546,12 @@
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 829,
+          "payloadBytes": 3428,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 208
+          "tokensEst": 857
         }
       },
       {
@@ -8532,7 +8559,7 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
@@ -8541,12 +8568,12 @@
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 744,
+          "payloadBytes": 5815,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 186
+          "tokensEst": 1454
         }
       },
       {
@@ -8554,7 +8581,7 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
@@ -8563,12 +8590,12 @@
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 928,
+          "payloadBytes": 7339,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 232
+          "tokensEst": 1835
         }
       },
       {
@@ -8576,21 +8603,21 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
-          "fileRecallAt10": 0,
-          "fileRecallAt5": 0,
+          "fileRecallAt10": 1,
+          "fileRecallAt5": 1,
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 617,
+          "payloadBytes": 2940,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 155
+          "tokensEst": 735
         }
       },
       {
@@ -8598,7 +8625,7 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
@@ -8607,12 +8634,12 @@
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 829,
+          "payloadBytes": 4202,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 208
+          "tokensEst": 1051
         }
       },
       {
@@ -8620,7 +8647,7 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
@@ -8629,12 +8656,12 @@
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 974,
+          "payloadBytes": 3310,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 244
+          "tokensEst": 828
         }
       },
       {
@@ -8642,21 +8669,21 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
           "fileRecallAt10": 1,
-          "fileRecallAt5": 1,
+          "fileRecallAt5": 0,
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 804,
+          "payloadBytes": 3199,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 201
+          "tokensEst": 800
         }
       },
       {
@@ -8664,7 +8691,7 @@
         "corpus": "code",
         "config": "C",
         "result": "RETRIEVED",
-        "freshness": "UNKNOWN",
+        "freshness": "FRESH",
         "metrics": {
           "falseAbsence": 0,
           "fileRecallAt1": 0,
@@ -8673,12 +8700,12 @@
           "locatorValidity": 1,
           "mrrAt10": 0,
           "ndcgAt10": 0,
-          "payloadBytes": 1021,
+          "payloadBytes": 3154,
           "recallAt1": 0,
           "recallAt10": 0,
           "recallAt5": 0,
           "statusMatch": 1,
-          "tokensEst": 256
+          "tokensEst": 789
         }
       },
       {
