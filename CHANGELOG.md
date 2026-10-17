@@ -15,9 +15,17 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.0-beta.6] - 2026-10-18
+
 ### Added
 - `doflow config list [--json] [--show-origin] [-g]` displays the effective settings and their origins.
 - Layered settings add user `settings.json`, project `.doflow/settings.json` and `.doflow/settings.local.json`, plus registry `core/registry/settings.json`.
+- Feature 105 adds `doflow-run model-role --exclude-family` to filter declared model families and label candidates
+  `cross-family`, `overlaps-author` or `unverified`; usage errors list known families and JSON reports dropped ids as `familyExcluded`. Registry `families` remains a stopgap.
+- Feature 088 adds telemetry contract v1 in `core/registry/telemetry.json`; `DOFLOW_TELEMETRY=off` disables telemetry writes. The shared bridge
+  writes hook lines; verification writes `verify.*` lines, and trace ids are carried on run records.
+- `doflow-run trace spans` projects spans from the run ledger, telemetry and 080 records; paired-perf options
+  were added under `bench/perf`, and guard G45 checks the contract. Phases E–H remain deferred; G-O1 worker-run parts were unreached.
 
 ### Changed
 - **This release's config home follows one rule everywhere.** `XDG_CONFIG_HOME` when it is an absolute path, else `$HOME/.config` when `HOME` is an absolute path, else there is no config home. A relative or empty value is ignored and the account's home folder is never consulted. In 2.0 Node read the account's home when `HOME` was unset and the shell scripts aborted with `HOME: unbound variable`; with `HOME` unset or relative there is now no config home in Node and in shell alike.
