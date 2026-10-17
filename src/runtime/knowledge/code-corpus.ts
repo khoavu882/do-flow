@@ -87,14 +87,23 @@ function globExpression(glob: string): string {
   return out;
 }
 
-function matchesScope(rel: string, scopes: any[]): boolean {
-  return !scopes.length || scopes.some((raw: any) => {
-    if (typeof raw !== 'string') return false;
+/** Normalize the scopes once per admission; a plain scope matches itself or any path under it. */
+function scopeMatcher(scopes: any[]): (rel: string) => boolean {
+  if (!scopes.length) return () => true;
+  const plain = new Set<string>();
+  const globs: RegExp[] = [];
+  for (const raw of scopes) {
+    if (typeof raw !== 'string') continue;
     const scope = raw.replace(/^\.\//, '').replace(/\/$/, '');
-    if (!scope || scope === '.' || scope === '**') return true;
-    if (!/[?*]/.test(scope)) return rel === scope || rel.startsWith(`${scope}/`);
-    return new RegExp(`^${globExpression(scope)}$`).test(rel);
-  });
+    if (!scope || scope === '.' || scope === '**') return () => true;
+    if (!/[?*]/.test(scope)) plain.add(scope);
+    else globs.push(new RegExp(`^${globExpression(scope)}$`));
+  }
+  return (rel: string) => {
+    if (plain.has(rel)) return true;
+    for (let i = rel.indexOf('/'); i > 0; i = rel.indexOf('/', i + 1)) if (plain.has(rel.slice(0, i))) return true;
+    return globs.some((glob) => glob.test(rel));
+  };
 }
 
 function parseIgnore(text: string, base: string): any[] {
@@ -134,6 +143,7 @@ function admitCodeCorpus(options: any = {}): any {
   for (const [name, value] of Object.entries(limits)) if (!Number.isSafeInteger(value) || Number(value) < 1) throw new Error(`invalid corpus limit ${name}`);
   const root = fsImpl.realpathSync(path.resolve(options.root || process.cwd()));
   const scopes = Array.isArray(options.scopes) ? options.scopes : [];
+  const inScope = scopeMatcher(scopes);
   const started = now();
   const deadline = options.deadline ?? started + limits.timeoutMs;
   const skipped: any[] = [];
@@ -205,7 +215,7 @@ function admitCodeCorpus(options: any = {}): any {
     if (now() > deadline) { reject('', 'deadline'); break; }
     const rel = relativeCodePath(raw);
     if (!rel) { reject(String(raw), 'invalid-path'); continue; }
-    if (rel.split('/').some((p: string) => EXCLUDED.has(p)) || !matchesScope(rel, scopes)) continue;
+    if (rel.split('/').some((p: string) => EXCLUDED.has(p)) || !inScope(rel)) continue;
     const dir = path.posix.dirname(rel);
     const rules = rulesFor(dir === '.' ? '' : dir);
     // Git itself owns gitignore semantics for its inventory; sembleignore always applies.

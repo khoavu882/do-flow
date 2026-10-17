@@ -62,3 +62,15 @@ test('a real bound hit still marks the lexical outcome incomplete', t => {
   assert.equal(result.coverage.complete, false);
   assert.equal(result.coverage.skippedByReason['candidate-limit'] >= 1, true);
 });
+
+// R4 (c): the whole-file precheck skips files without the literal but keeps every matching line and filename hit.
+test('R4c: exact search reports every literal line, filename-only hits and skips nothing that matches', t => {
+  const root = tempDir(t, 'doflow-code-lexical-exact-');
+  const files = { 'src/a.js': 'one\nfunction loadRegistry() {}\nloadRegistry\nfunction loadRegistry\n', 'src/none.js': 'function other() {}\n', 'src/loadRegistry': 'no literal here\n' };
+  for (const [f, body] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), body); }
+  const inventory = admitCodeCorpus({ root, files: Object.keys(files) });
+  const lines = (query) => searchCodeLexical({ inventory, query }).candidates.map(c => `${c.locator.file}:${c.locator.line}`);
+  assert.deepEqual(lines('"function loadRegistry"'), ['src/a.js:2', 'src/a.js:4']);
+  assert.deepEqual(lines('loadRegistry'), ['src/a.js:2', 'src/a.js:3', 'src/a.js:4', 'src/loadRegistry:1']);
+  assert.deepEqual(lines('"absent literal"'), []);
+});

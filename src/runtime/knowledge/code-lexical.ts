@@ -50,9 +50,10 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
     const text = read.content.toString('utf8');
     if (text.includes('\0')) { unsearched.push({ path: entry.path, reason: 'binary-source' }); continue; }
     searchedFiles += 1;
-    const lines = text.split('\n');
     if (routed.queryClass === 'exact') {
       const literal = routed.literal ?? routed.query;
+      // A file whose text lacks the literal has no matching line; skip splitting it.
+      const lines = text.includes(literal) ? text.split('\n') : [];
       let contentHit = false;
       for (let index = 0; index < lines.length; index += 1) {
         if (now() > deadline) { failures(entry.path, 'deadline'); break; }
@@ -66,7 +67,7 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
     } else {
       const hits = new Map<string, any>();
       let total = 0;
-      const lower = lines.map((line: string) => line.toLowerCase());
+      const lower = text.split('\n').map((line: string) => line.toLowerCase());
       for (const term of terms) {
         for (let index = 0; index < lower.length; index += 1) {
           if (now() > deadline) { failures(entry.path, 'deadline'); break; }

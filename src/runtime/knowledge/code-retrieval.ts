@@ -1,12 +1,14 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { resolveRetrievalBinding, appendRetrievalAttempt } = require('../retrieval-record.ts');
 const { CapabilityRouter } = require('../capability-router.ts');
 const { admitCodeCorpus } = require('./code-corpus.ts');
 const { classifyCodeQuery, searchCodeLexical } = require('./code-lexical.ts');
-const { runSembleQuery } = require('./semble-provider.ts');
-const { runSembleLifecycle } = require('./semble-lifecycle.ts');
+// Loaded on first use only: an exact or unbound request never imports the semantic provider, its
+// lifecycle (lock, Python bridge) or the task ledger (IC-002).
+const retrievalRecord = () => require('../retrieval-record.ts');
+const sembleProvider = () => require('./semble-provider.ts');
+const sembleLifecycle = () => require('./semble-lifecycle.ts');
 const { fuseRankedCandidates } = require('./hybrid.ts');
 const { validateCodeCandidates } = require('./code-validation.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
@@ -55,7 +57,7 @@ function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, route
     } else if (!candidates.length) { status = 'UNREACHED'; reason = 'timeout'; }
     if (status) {
       const list = registeredProviders(router, capability);
-      stored = appendRetrievalAttempt({ projectRoot, taskId, intent, provider, status, reason, indexState,
+      stored = retrievalRecord().appendRetrievalAttempt({ projectRoot, taskId, intent, provider, status, reason, indexState,
         slug, attemptRef: binding.attemptRef, expectedCapability: need.capability,
         expectedPrimaryProvider: need.provider, registeredProviders: list });
     }
@@ -140,7 +142,7 @@ async function executeCodeRetrieval(options: any = {}) {
     try {
       const inventory = (providers.admitCodeCorpus || admitCodeCorpus)({ root: searchRoot, scopes: options.scopes, limits: options.corpusLimits });
       if (!inventory.complete) return { exit: 1, response: { schemaVersion: 1, scope: 'code', action: options.indexAction, ...inventory, complete: false, error: 'incomplete-corpus' } };
-      const run = providers.lifecycle || runSembleLifecycle;
+      const run = providers.lifecycle || sembleLifecycle().runSembleLifecycle;
       const result = await run({ inventory, modelPath: options.modelPath, action: options.indexAction, limits: options.semanticLimits });
       return { exit: result.ok ? 0 : 1, response: { schemaVersion: 1, scope: 'code', ...result } };
     } catch (error: any) {
@@ -157,7 +159,7 @@ async function executeCodeRetrieval(options: any = {}) {
     const classifier = providers.classifyCodeQuery || classifyCodeQuery;
     classification = classifier(query, { intent });
     if (taskId) {
-      binding = resolveRetrievalBinding({ projectRoot, taskId, intent, slug });
+      binding = retrievalRecord().resolveRetrievalBinding({ projectRoot, taskId, intent, slug });
       if (!binding.ok) return responseError(2, 'invalid-task-binding', { summary: binding.message });
       need = binding.need;
       const requiredCapability = CAPABILITY[classification.queryClass];
@@ -227,7 +229,7 @@ async function executeCodeRetrieval(options: any = {}) {
       const modelPath = options.modelPath || process.env.SEMBLE_MODEL_PATH || null;
       if (!modelPath) semResult = { ok: false, reason: 'local-model-required', freshness: 'UNKNOWN', candidates: [] };
       else {
-        try { semResult = await (providers.semanticQuery || runSembleQuery)({ inventory, query, top: 200, modelPath, limits: options.semanticLimits }); }
+        try { semResult = await (providers.semanticQuery || sembleProvider().runSembleQuery)({ inventory, query, top: 200, modelPath, limits: options.semanticLimits }); }
         catch (error: any) { semResult = { ok: false, reason: 'provider-error', freshness: 'UNKNOWN', cause: error?.message || String(error), candidates: [] }; }
       }
       const semFreshness = validFreshness(semResult.freshness);

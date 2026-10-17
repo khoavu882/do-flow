@@ -155,3 +155,49 @@ test('bounds cause control: real lexical faults stay provider-error, deadlines s
   assert.deepEqual(result.response.attempts.map((a) => a.reason), ['provider-error', 'provider-unavailable', 'provider-error']);
   assert.deepEqual(result.response.gaps.map((g) => `${g.source}:${g.reason}`), ['lexical:provider-error', 'semantic:provider-unavailable', 'fallback:provider-error']);
 });
+
+// R4 (c): an exact request in a fresh process loads no semantic provider/lifecycle module, spawns
+// nothing but the git inventory and creates no semantic state (the lock lives under .doflow/index).
+const PROBE = String.raw`'use strict';
+const cp = require('node:child_process'); const fs = require('node:fs'); const path = require('node:path');
+const spawned = [];
+for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync']) {
+  const original = cp[name]; cp[name] = function (cmd, ...rest) { spawned.push(path.basename(String(cmd))); return original.call(this, cmd, ...rest); };
+}
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+const { executeCodeRetrieval } = require(input.modulePath);
+executeCodeRetrieval(input.options).then((out) => process.stdout.write(JSON.stringify({ queryClass: out.response.queryClass,
+  results: (out.response.results || []).length, attempts: out.response.attempts, spawned,
+  loaded: Object.keys(require.cache).map((k) => path.basename(k)).filter((k) => /^semble-/.test(k)),
+  state: fs.existsSync(path.join(input.options.root, '.doflow')) })));`;
+
+function probe(t, query, profile) {
+  const root = fs.realpathSync(tempDir(t, 'doflow-code-exact-probe-'));
+  const model = fs.realpathSync(tempDir(t, 'doflow-code-exact-model-'));
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.writeFileSync(path.join(root, 'src/auth.js'), 'function parseToken(value) {\n  return refreshCredentials(value);\n}\n');
+  const modulePath = path.resolve(__dirname, '../../src/runtime/knowledge/code-retrieval.ts');
+  const run = require('node:child_process').spawnSync(process.execPath, ['-e', PROBE], { encoding: 'utf8',
+    input: JSON.stringify({ modulePath, options: { root, query, profile, modelPath: model, top: 5 } }), env: { ...process.env, SEMBLE_MODEL_PATH: model } });
+  assert.equal(run.status, 0, run.stderr);
+  return JSON.parse(run.stdout);
+}
+
+test('R4c: exact under a hybrid request with a model path loads no Semble module, spawns only git and creates no semantic state', (t) => {
+  for (const query of ['parseToken', '"function parseToken"']) {
+    const out = probe(t, query, 'hybrid');
+    assert.equal(out.queryClass, 'exact');
+    assert.equal(out.results, 1);
+    assert.deepEqual(out.loaded, [], 'semble-provider.ts / semble-lifecycle.ts are never imported');
+    assert.deepEqual([...new Set(out.spawned)], ['git'], 'no Python bridge or interpreter probe');
+    assert.equal(out.state, false, 'no .doflow index state or semantic lock');
+    assert.deepEqual(out.attempts.map((a) => a.provider), ['native.rg']);
+  }
+});
+
+test('R4c control: a conceptual hybrid request does import the Semble provider (the probe detects semantic loading)', (t) => {
+  const out = probe(t, 'where are user credentials refreshed', 'hybrid');
+  assert.equal(out.queryClass, 'conceptual');
+  assert.ok(out.loaded.includes('semble-provider.ts'), JSON.stringify(out.loaded));
+  assert.ok(out.attempts.some((a) => a.provider === 'semble.search'));
+});

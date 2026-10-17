@@ -39,3 +39,19 @@ test('admission rejects symlink members and read verifies identity and bounded b
   assert.equal(readCorpusFile(root, { path: 'src/a.js' }, { maxBytes: 1 }).reason, 'read-byte-limit');
   assert.equal(readCorpusFile(root, { path: '../outside-code-corpus' }).reason, 'invalid-path');
 });
+
+// R4 (c): scopes are normalized once per admission; plain scopes match the path or a directory above it.
+test('R4c: scope matching keeps its file, directory, glob, normalization and match-all semantics', t => {
+  const root = tempDir(t, 'doflow-code-corpus-scope-');
+  const files = ['src/a.js', 'src/ab.js', 'src/nested/b.js', 'srcx/c.js', 'lib/d.ts', 'top.js'];
+  for (const f of files) { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), 'x\n'); }
+  const admit = (scopes) => admitCodeCorpus({ root, files, scopes, hashFiles: false }).files.map(f => f.path).sort();
+  assert.deepEqual(admit(['src']), ['src/a.js', 'src/ab.js', 'src/nested/b.js'], 'a directory scope never matches a sibling prefix (srcx)');
+  assert.deepEqual(admit(['./src/nested/', 'src/a.js']), ['src/a.js', 'src/nested/b.js']);
+  assert.deepEqual(admit(['src/a']), [], 'a plain scope is not a string prefix');
+  assert.deepEqual(admit(['**/*.ts', 'top.js']), ['lib/d.ts', 'top.js']);
+  assert.deepEqual(admit([42, 'lib']), ['lib/d.ts'], 'a non-string scope matches nothing');
+  assert.deepEqual(admit([42]), []);
+  for (const all of [['.'], ['**'], ['./'], ['lib', '.']]) assert.deepEqual(admit(all), [...files].sort(), JSON.stringify(all));
+  assert.deepEqual(admit([]), [...files].sort());
+});
