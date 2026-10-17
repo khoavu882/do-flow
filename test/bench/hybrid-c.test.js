@@ -13,6 +13,10 @@ const preconditions = require('../../bench/retrieval/lib/verbs/holdout-precondit
 const protocol = require('../../bench/retrieval/lib/hybrid-protocol.js');
 const gate = require('../../bench/retrieval/lib/hybrid-gate.js');
 const seal = require('../../bench/retrieval/lib/seal.js');
+const verifyVerb = require('../../bench/retrieval/lib/verbs/verify.js');
+const tasksLib = require('../../bench/retrieval/lib/tasks.js');
+const environment = require('../../bench/retrieval/lib/environment.js');
+const snap = require('../../bench/retrieval/lib/snapshot.js');
 
 const PASS = 'a sufficiently long test-only passphrase';
 const git = (root, ...args) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.test', '-C', root, ...args], { encoding: 'utf8' }).trim();
@@ -130,4 +134,112 @@ test('gate output is aggregate-only and never converts absent paid measurements 
   comparisons: { code: [{ metric: 'fileRecallAt10', class: 'conceptual-discovery', a: 'C', b: 'B', diff: 0.2, ci95: [0.05, 0.4] }] } });
   assert.equal(compared.rows.find((row) => row.id === 'T-002').verdict, 'PASS');
   assert.equal(compared.verdict, 'UNRESOLVED', 'missing required threshold rows keep the overall gate unresolved');
+});
+
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const okBody = { effectiveProfile: 'hybrid', attempts: [{ provider: 'native.rg', complete: true }],
+  gaps: [{ source: 'live-validation', reason: 'stale' }, { source: 'live-validation', reason: 'moved' }],
+  results: [{ locator: { file: 'src/a.ts', line: 4, endLine: 5 }, provider: 'native.rg', snippet: 'live' }] };
+
+test('F4: C wallMs is the measured coordinator time, not a constant 0', () => {
+  const answer = adaptersC.runC({ corpus: 'code', task: { class: 'conceptual-discovery', query: 'q' }, exportRoot: '/repo', admittedPaths: ['src/a.ts'],
+    executeCodeRetrieval: () => { sleep(25); return { exit: 0, response: okBody }; } });
+  assert.ok(answer.wallMs >= 20 && answer.wallMs < 5000, `wallMs ${answer.wallMs} must cover the 25 ms coordinator call`);
+  assert.equal(adaptersC.mapCodeResponse({ exit: 0, response: okBody }).wallMs, 0, 'a bare mapping measures nothing; runC supplies the clock');
+});
+
+test('F4 control: bridge failure paths report their real elapsed time too', () => {
+  const task = { class: 'conceptual-discovery', query: 'q' };
+  const slow = (out) => () => { sleep(25); return out; };
+  const common = { corpus: 'code', task, exportRoot: '/repo', admittedPaths: ['src/a.ts'] };
+  const crashed = adaptersC.runC({ ...common, spawn: slow({ status: 1, stdout: '' }) });
+  const garbled = adaptersC.runC({ ...common, spawn: slow({ status: 0, stdout: 'not json' }) });
+  for (const answer of [crashed, garbled]) { assert.equal(answer.result, 'UNREACHED'); assert.ok(answer.wallMs >= 20, `wallMs ${answer.wallMs}`); }
+  assert.match(crashed.providers[0].cause, /exited 1/);
+  assert.match(garbled.providers[0].cause, /invalid JSON/);
+});
+
+test('mapCodeResponse reports raw, rejected and delivered candidate counts', () => {
+  const mapped = adaptersC.mapCodeResponse({ exit: 0, response: okBody }, 3);
+  assert.equal(mapped.wallMs, 3);
+  assert.deepEqual(mapped.rawValidity, { raw: 3, delivered: 1, rejected: 2, gaps: 2 });
+});
+
+test('describeIndexBuild reports measured cost, and an unreached build with its cause rather than zeros', () => {
+  assert.deepEqual(adaptersC.describeIndexBuild({ ok: true, elapsedMs: 120, chunks: 7, artifactBytes: 4096, freshness: 'FRESH' }, 999),
+    { state: 'reached', buildMs: 120, chunks: 7, diskBytes: 4096, peakRssMB: { unmeasured: 'the index builder reports no resident-set size' }, freshness: 'FRESH' });
+  assert.equal(adaptersC.describeIndexBuild({ ok: true, chunks: 1, artifactBytes: 1 }, 42).buildMs, 42, 'falls back to the measured wall time');
+  const failed = adaptersC.describeIndexBuild({ ok: false, reason: 'local-model-required' }, 5);
+  assert.equal(failed.state, 'unreached'); assert.equal(failed.cause, 'local-model-required');
+  assert.deepEqual(failed.buildMs, { unmeasured: 'local-model-required' });
+  assert.deepEqual(failed.diskBytes, { unmeasured: 'local-model-required' });
+  assert.equal(adaptersC.describeIndexBuild({ ok: false, error: 'lifecycle-error', cause: 'boom' }, 5).cause, 'lifecycle-error: boom');
+});
+
+const gitIn = (dir, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();
+function devWorld(t) {
+  const repo = tempDir(t, 'doflow-hybrid-c-run-');
+  gitIn(repo, 'init', '-q');
+  const files = { 'src/a.ts': Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n') + '\n', 'core/shared/guidance/g.md': '## Alpha\nalpha body\n' };
+  for (const [f, body] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true }); fs.writeFileSync(path.join(repo, f), body); }
+  gitIn(repo, 'add', '-A'); gitIn(repo, 'commit', '-q', '-m', 'c');
+  const outDir = path.join(repo, 'bench', 'retrieval');
+  const snapshot = snap.writeInitial({ commit: gitIn(repo, 'rev-parse', 'HEAD'), seed: 20261012, repoRoot: repo, outDir, tools: [], env: { node: 'v', os: 'o', arch: 'a' } });
+  const manifest = snap.loadManifest(path.join(outDir, 'manifest.json'));
+  const mk = (id, corpus, i) => ({ id, split: 'dev', corpus, class: 'conceptual-discovery', query: `where is thing ${i}`,
+    qrels: [corpus === 'code' ? { id: 'q1', path: 'src/a.ts', startLine: 1, endLine: 2, rel: 2 } : { id: 'q1', path: 'core/shared/guidance/g.md', startLine: 1, endLine: 2, heading: 'Alpha', rel: 2 }],
+    expect: { result: ['RETRIEVED'] }, truthSource: ['x:1'], author: 'worker:t' });
+  const tasks = [...[1, 2, 3].map((i) => mk(`DC-00${i}`, 'code', i)), mk('DG-001', 'guidance', 0)];
+  const tokenize = (x) => String(x).toLowerCase().split(/[^a-z0-9]+/).filter((y) => y.length >= 2);
+  const { taskFile } = tasksLib.fillTaskFile({ schemaVersion: 1, snapshotId: 1, split: 'dev', tasks }, { snapshot, manifest, repoRoot: repo, tokenize });
+  for (const task of taskFile.tasks) task.queryOverlap = 0.1;
+  fs.mkdirSync(path.join(outDir, 'tasks'), { recursive: true });
+  fs.writeFileSync(path.join(outDir, 'tasks', 'dev.json'), seal.toFileText(taskFile));
+  return { repo, snapshotPath: path.join(outDir, 'snapshot.json'), tmp: path.join(tempDir(t, 'doflow-hybrid-c-tmp-'), 'work') };
+}
+function runDeps(buildCodeIndex, withValidity = true) {
+  return { buildCodeIndex, verifySnapshot: verifyVerb.verifySnapshot, materialiseExport: environment.materialiseExport, preconditions: () => ({ check: () => ({ ok: true }) }),
+    buildIndexes: () => ({ buildMs: 5, incrementalMs: 1, diskBytes: 10, peakRssMB: { unmeasured: 'x' } }), latency: { warmups: 1, runs: 6 },
+    runConfig: ({ config, corpus, task }) => {
+      const q = task.qrels[0];
+      const cand = { path: q.path, startLine: q.startLine, endLine: q.endLine, heading: corpus === 'code' ? null : 'Alpha', rank: 1, provider: 'p', snippet: 'abcd', snippetBytes: 4 };
+      return { result: 'RETRIEVED', freshness: 'NOT_APPLICABLE', candidates: [cand], providers: [{ id: 'p', state: 'reached' }], payloadBytes: 4,
+        wallMs: config === 'C' ? 7 : 1, ...(config === 'C' && corpus === 'code' && withValidity ? { rawValidity: { raw: 4, delivered: 1, rejected: 3, gaps: 3 } } : {}) };
+    } };
+}
+const runHybrid = (w, deps) => run.execute({ args: { protocol: protocol.ID, split: 'dev', corpus: 'all' }, snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, deps });
+
+test('F5: the C index build cost and per-class raw/rejected/delivered counts reach the report', (t) => {
+  const w = devWorld(t);
+  const built = [];
+  const out = runHybrid(w, runDeps((x) => { built.push(x); return { ok: true, elapsedMs: 321, chunks: 9, artifactBytes: 2048, freshness: 'FRESH' }; }));
+  assert.equal(out.exitCode, 0);
+  assert.equal(built.length, 1);
+  const code = out.report.corpora.code.configs;
+  assert.equal(code.C.index.state, 'reached');
+  assert.equal(code.C.index.buildMs, 321); assert.equal(code.C.index.chunks, 9); assert.equal(code.C.index.diskBytes, 2048);
+  assert.deepEqual(code.C.classes['conceptual-discovery'].rawValidity, { tasks: 3, raw: 12, rejected: 9, delivered: 3 });
+  assert.equal(code.C.classes['conceptual-discovery'].latency.p50Ms, 7, 'the measured C wall time reaches the latency block');
+  assert.equal(code.A.index.buildMs, 5, 'A index block is unchanged');
+  assert.equal(code.B.index, undefined); assert.equal(code.A.classes['conceptual-discovery'].rawValidity, undefined);
+  assert.equal(out.report.corpora.guidance.configs.C.index, undefined);
+  assert.doesNotMatch(JSON.stringify(code.C.index) + JSON.stringify(code.C.classes['conceptual-discovery'].rawValidity), /DC-0|where is thing|src\/a\.ts/);
+});
+
+test('F5 control: a failed C build is unreached with its cause, and unreported validity is omitted, not zeroed', (t) => {
+  const w = devWorld(t);
+  const out = runHybrid(w, runDeps(() => ({ ok: false, reason: 'local-model-required' }), false));
+  const c = out.report.corpora.code.configs.C;
+  assert.equal(c.index.state, 'unreached'); assert.equal(c.index.cause, 'local-model-required');
+  assert.deepEqual(c.index.buildMs, { unmeasured: 'local-model-required' });
+  assert.equal(c.classes['conceptual-discovery'].rawValidity, undefined);
+});
+
+test('F5 control: legacy A,B runs never build or report a C index', (t) => {
+  const w = devWorld(t);
+  let called = false;
+  const out = run.execute({ args: { split: 'dev', corpus: 'all' }, snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, deps: runDeps(() => { called = true; return { ok: true }; }) });
+  assert.equal(called, false);
+  assert.equal(out.report.corpora.code.configs.C, undefined);
+  assert.equal(out.report.protocol, undefined);
 });

@@ -113,6 +113,14 @@ function measureLatency({ tasks, configs, call, seed, corpus, cls, warmups, runs
   return samples;
 }
 
+/** Aggregate raw/rejected/delivered candidate counts over C answers that reported them; null when none did (no zero stands in for unreached). */
+function rawValidityOf(answers) {
+  const reported = answers.map((a) => a.rawValidity).filter(Boolean);
+  if (reported.length === 0) return null;
+  const sum = (key) => reported.reduce((n, v) => n + (v[key] || 0), 0);
+  return { tasks: reported.length, raw: sum('raw'), rejected: sum('rejected'), delivered: sum('delivered') };
+}
+
 function summaryLines(corpora, split) {
   const lines = [];
   for (const [corpus, result] of Object.entries(corpora)) {
@@ -211,9 +219,12 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
     const semble = { env: require('../../runner.js').childEnv({ SEMBLE_CACHE_DIR: path.join(tmp, 'semble-cache') }) };
     const workDir = path.join(tmp, 'copies');
     const manifestPaths = Object.fromEntries(['code', 'guidance'].map((c) => [c, manifest.entries.filter((e) => e.corpus === c).map((e) => e.path)]));
+    let codeIndex;
     if (configs.includes('C') && corpora.includes('code') && tasksByCorpus.code.length > 0) {
       // C's local index build is explicit protocol setup and uses the pinned export plus manifest paths.
-      deps.buildCodeIndex({ exportRoot: exported.treeRoot, admittedPaths: manifestPaths.code, semble });
+      const started = process.hrtime.bigint();
+      const built = deps.buildCodeIndex({ exportRoot: exported.treeRoot, admittedPaths: manifestPaths.code, semble });
+      codeIndex = adaptersC.describeIndexBuild(built, Number(process.hrtime.bigint() - started) / 1e6);
     }
     const call = (config, corpus, task) => deps.runConfig({ config, corpus, task, exportRoot: exported.treeRoot, snapshot, workDir, semble, scratchDir: path.join(tmp, 'scratch'), repoRoot,
       admittedPaths: corpus === 'code' ? manifestPaths.code : undefined, protocol });
@@ -266,11 +277,14 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
             latencyMs: samples,
             unreachedCount: classTasks.filter((t) => t.result === 'UNREACHED').length,
           });
+          const validity = config === 'C' ? rawValidityOf(idx.map((i) => answers[i])) : null;
+          if (validity) classResults[c].rawValidity = validity;
         }
         configResults[config] = report.configResult({
           ...(config === 'A' && corpus === 'guidance' ? { sameAs: 'B' } : {}),
           components: componentsOf(answers, snapshot),
           ...(config === 'A' && corpus === 'code' && index ? { index } : {}),
+          ...(config === 'C' && corpus === 'code' && codeIndex ? { index: codeIndex } : {}),
           classes: report.classesBlock({ corpus, results: classResults }),
         });
         if (split === 'dev') {
@@ -321,7 +335,7 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
     const aggregates = Object.fromEntries(Object.entries(holdoutResults).map(([k, v]) => [k, Object.fromEntries(Object.entries(v.configResults).map(([c, r]) => [c, r.classes]))]));
     const gate = protocol ? hybridGate.evaluate({ aggregates, comparisons: Object.fromEntries(Object.entries(holdoutResults).map(([k, v]) => [k, v.comparisons])),
       thresholds: loadThresholds(repoRoot), protocol }) : undefined;
-    return { exitCode: 0, lines, results: written, aggregates, ...(gate ? { gate } : {}) };
+    return { exitCode: 0, lines, results: written, aggregates, ...(codeIndex ? { indexes: { C: codeIndex } } : {}), ...(gate ? { gate } : {}) };
   } finally {
     exported.cleanup();
   }
@@ -368,12 +382,13 @@ function run(ctx) {
   let out;
   try { out = execute({ args: ctx.args, snapshotPath: ctx.snapshotPath, repoRoot: ctx.repoRoot, tmp: ctx.tmp, keepTmp: ctx.keepTmp }); }
   finally { if (lease) lease.release(); }
-  const { exitCode, codes, lines, report: body, results, aggregates, error, gate } = out;
+  const { exitCode, codes, lines, report: body, results, aggregates, error, gate, indexes } = out;
   const extra = {};
   if (error) extra.error = error;
   if (body) extra.report = body;
   if (results) { extra.results = results; extra.aggregates = aggregates; }
   if (gate) extra.gate = gate;
+  if (indexes) extra.indexes = indexes;
   if (body && !ctx.json && !ctx.args.out) return { exitCode, codes, lines: [...lines, JSON.stringify(body, null, 2)], ...extra };
   return { exitCode, codes, lines, ...extra };
 }
