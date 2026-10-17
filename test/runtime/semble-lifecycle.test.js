@@ -18,7 +18,7 @@ function fixture(t) {
   const prior = process.env.PYTHONPATH; process.env.PYTHONPATH = pkg;
   t.after(() => { if (prior === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = prior; delete process.env.FAKE_PROVIDER_MODE; fs.rmSync(base, { recursive: true, force: true }); });
   const inventory = () => admitCodeCorpus({ root, files: fs.readdirSync(root).filter(file => file.endsWith('.py')) });
-  return { base, root, modelPath, inventory, options: () => ({ inventory: inventory(), modelPath }) };
+  return { base, root, modelPath, inventory, options: () => ({ inventory: inventory(), modelPath, python: 'python3' }) };
 }
 
 test('explicit refresh preserves stable mirror and unchanged mtimes; hash changes/add/delete counted', async t => {

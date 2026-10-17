@@ -6,6 +6,24 @@ const path = require('node:path');
 const ID = 'hybrid-c-v1';
 const CONFIGS = ['A', 'B', 'C'];
 const CORPORA = ['code', 'guidance'];
+/** DEC-017: hybrid-c-v1 re-measures A/B/C on these tool versions (`--version` first lines). They replace the
+ * snapshot's pins for these ids in this protocol only; snapshot.json and the legacy A/B verdict stay as measured. */
+const TOOL_PINS = Object.freeze({ semble: '0.7.0', graphify: 'graphify 0.9.92', rtk: 'rtk 1.0.1' });
+
+/** Re-grade a `verifySnapshot` outcome against TOOL_PINS: manifest/commit failures (3) stand, tool drift (4) is recomputed. */
+function applyToolPins(verified) {
+  if (!verified.snapshot || !verified.result || verified.result.tools.length === 0) return verified;
+  const pinned = (id) => Object.prototype.hasOwnProperty.call(TOOL_PINS, id);
+  const tools = verified.result.tools.map((row) => (pinned(row.id)
+    ? { ...row, expected: TOOL_PINS[row.id], ok: row.state === 'present' && row.actual === TOOL_PINS[row.id] } : row));
+  const drift = tools.filter((row) => !row.ok);
+  const messages = [...String(verified.message || '').split('; ').filter((m) => m && !m.startsWith('tool ')),
+    ...drift.map((row) => `tool ${row.id}: pinned "${row.expected}", found "${row.actual}"`)];
+  const codes = [...(verified.codes || []).filter((code) => code !== 4), ...(drift.length ? [4] : [])];
+  const snapshot = { ...verified.snapshot, tools: verified.snapshot.tools.map((tool) => (pinned(tool.id) ? { ...tool, versionLine: TOOL_PINS[tool.id] } : tool)) };
+  return { ...verified, exitCode: codes.includes(3) ? 3 : codes.includes(4) ? 4 : 0, codes, message: messages.join('; ') || undefined,
+    result: { ...verified.result, tools }, snapshot };
+}
 
 /** Serialize all holdout protocols for one snapshot while evaluation runs. */
 function acquireInvocationLock({ repoRoot, snapshotId }) {
@@ -68,4 +86,4 @@ function releaseBeforeEvaluation({ repoRoot, reservation }) {
   } finally { fs.rmdirSync(lock); }
 }
 
-module.exports = { ID, CONFIGS, CORPORA, acquireInvocationLock, reserveSixSlots, releaseBeforeEvaluation };
+module.exports = { ID, CONFIGS, CORPORA, TOOL_PINS, applyToolPins, acquireInvocationLock, reserveSixSlots, releaseBeforeEvaluation };

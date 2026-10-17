@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { SEMBLE_VERSION, SEMBLE_LIMITS, semanticStatePaths, fault, digest, safeDirectories, regularBytes,
   inspectModel, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock,
-  cleanupTemporary, executeBridge, readCompleted, scanTree } = require('./semble-provider.ts');
+  cleanupTemporary, executeBridge, readCompleted, scanTree, resolveSembleInterpreter, checkSembleVersion } = require('./semble-provider.ts');
 
 /** Explicit operations only. A failed mutation deliberately keeps its in-progress marker. */
 async function runSembleLifecycle(options: any): Promise<any> {
@@ -16,6 +16,7 @@ async function runSembleLifecycle(options: any): Promise<any> {
   try {
     if (action !== 'build' && action !== 'refresh') throw fault('invalid-index-action');
     validateInventory(inventory, limits); const model = inspectModel(options.modelPath, limits);
+    const python = options.python || resolveSembleInterpreter().python; checkSembleVersion(python); // preflight: before any lock or mutation
     const paths = semanticStatePaths(inventory); release = await acquireSemanticLock(paths); cleanupTemporary(paths);
     let previous: any = null;
     if (action === 'refresh') {
@@ -64,8 +65,8 @@ async function runSembleLifecycle(options: any): Promise<any> {
     const temp = path.join(staging, 'provider'); fs.mkdirSync(temp);
     const savePath = path.join(staging, 'index');
     const result = await executeBridge({ action, mirror: paths.mirror, modelPath: model.path, savePath, indexPath: paths.index,
-      allowedWriteRoots: [staging, paths.cache] }, { ...options, limits: { ...limits, lifecycleMs: Math.max(1, limits.lifecycleMs - (Date.now() - started)) } }, paths, temp);
-    if (!result.ok) throw fault(result.reason || 'provider-error');
+      allowedWriteRoots: [staging, paths.cache] }, { ...options, python, limits: { ...limits, lifecycleMs: Math.max(1, limits.lifecycleMs - (Date.now() - started)) } }, paths, temp);
+    if (!result.ok) throw fault(result.reason || 'provider-error', 'UNKNOWN', typeof result.cause === 'string' ? result.cause : undefined);
     if (!result.runtimeIdentity || typeof result.runtimeIdentity !== 'object') throw fault('provider-runtime-identity-unavailable');
     const artifacts = inspectArtifacts(savePath, inventory, paths, model, limits);
     checkSources(inventory, limits); checkDeadline();
@@ -88,7 +89,7 @@ async function runSembleLifecycle(options: any): Promise<any> {
       bytes: changedBytes, elapsedMs: Date.now() - started, chunks: artifacts.chunks, artifactBytes: artifacts.artifactBytes };
   } catch (error: any) {
     const reason = error.reason || 'lifecycle-error';
-    return { ok: false, action, complete: false, freshness: error.freshness || 'UNKNOWN', reason,
+    return { ok: false, action, complete: false, freshness: error.freshness || 'UNKNOWN', reason, ...(typeof error.cause === 'string' ? { cause: error.cause } : {}),
       added, changed, deleted, skipped: inventory?.skipped?.length || 0, bytes: changedBytes, elapsedMs: Date.now() - started,
       repair: 'Run an explicit bounded build with a verified local model after correcting the cause.' };
   } finally { try { if (staging) fs.rmSync(staging, { recursive: true, force: true }); } catch {} try { if (release) release(); } catch {} }

@@ -243,3 +243,43 @@ test('F5 control: legacy A,B runs never build or report a C index', (t) => {
   assert.equal(out.report.corpora.code.configs.C, undefined);
   assert.equal(out.report.protocol, undefined);
 });
+
+// A verify outcome as this machine produces it against the 074 snapshot pins (semble 0.6.1, graphify 0.9.71, rtk 0.50.0).
+function driftedVerify(w, actual = { semble: '0.7.0', graphify: 'graphify 0.9.92', rtk: 'rtk 1.0.1' }) {
+  const legacy = { semble: '0.6.1', graphify: 'graphify 0.9.71', rtk: 'rtk 0.50.0', jq: 'jq-1.7.1' };
+  return () => {
+    const real = verifyVerb.verifySnapshot({ snapshotPath: w.snapshotPath, repoRoot: w.repo });
+    const tools = Object.entries(legacy).map(([id, expected]) => ({ id, expected, actual: actual[id] || expected, state: 'present', ok: (actual[id] || expected) === expected }));
+    const drift = tools.filter((row) => !row.ok);
+    return { ...real, exitCode: drift.length ? 4 : 0, codes: drift.length ? [4] : [], message: drift.map((row) => `tool ${row.id}: pinned "${row.expected}", found "${row.actual}"`).join('; ') || undefined,
+      result: { ...real.result, tools }, snapshot: { ...real.snapshot, tools: Object.entries(legacy).map(([id, versionLine]) => ({ id, versionCommand: [id, '--version'], versionLine, state: 'present' })) } };
+  };
+}
+
+test('hybrid-c-v1 grades semble/graphify/rtk against its own DEC-017 pins; the legacy A/B verdict is unchanged', (t) => {
+  assert.deepEqual(protocol.TOOL_PINS, { semble: '0.7.0', graphify: 'graphify 0.9.92', rtk: 'rtk 1.0.1' });
+  const w = devWorld(t);
+  const deps = { ...runDeps(() => ({ ok: true, elapsedMs: 1, chunks: 1, artifactBytes: 1, freshness: 'FRESH' })), verifySnapshot: driftedVerify(w) };
+  const hybrid = runHybrid(w, deps);
+  assert.equal(hybrid.exitCode, 0, hybrid.lines && hybrid.lines.join('\n'));
+  assert.equal(hybrid.report.protocol, protocol.ID);
+  const legacy = run.execute({ args: { split: 'dev', corpus: 'all' }, snapshotPath: w.snapshotPath, repoRoot: w.repo, tmp: w.tmp, deps });
+  assert.equal(legacy.exitCode, 4, 'legacy A/B still refuses on the 074 pins');
+  assert.match(legacy.error, /tool rtk: pinned "rtk 0\.50\.0", found "rtk 1\.0\.1"/);
+  const graded = protocol.applyToolPins(driftedVerify(w)());
+  assert.deepEqual(graded.snapshot.tools.map((tool) => `${tool.id} ${tool.versionLine}`), ['semble 0.7.0', 'graphify graphify 0.9.92', 'rtk rtk 1.0.1', 'jq jq-1.7.1']);
+});
+
+test('hybrid-c-v1 pin controls: an off-pin tool still refuses with exit 4, and manifest drift keeps exit 3', (t) => {
+  const w = devWorld(t);
+  const old = protocol.applyToolPins(driftedVerify(w, { semble: '0.7.0', graphify: 'graphify 0.9.92' })());
+  assert.equal(old.exitCode, 4);
+  assert.equal(old.message, 'tool rtk: pinned "rtk 1.0.1", found "rtk 0.50.0"');
+  const missing = driftedVerify(w)();
+  const manifest = protocol.applyToolPins({ ...missing, exitCode: 3, codes: [3], message: 'manifest does not match the pinned commit' });
+  assert.equal(manifest.exitCode, 3); assert.equal(manifest.message, 'manifest does not match the pinned commit');
+  const absent = protocol.applyToolPins({ ...missing, result: { ...missing.result, tools: missing.result.tools.map((row) => (row.id === 'semble' ? { ...row, actual: 'absent', state: 'absent' } : row)) } });
+  assert.equal(absent.exitCode, 4); assert.match(absent.message, /tool semble: pinned "0\.7\.0", found "absent"/);
+  const deps = { ...runDeps(() => ({ ok: true })), verifySnapshot: driftedVerify(w, { semble: '0.7.0', graphify: 'graphify 0.9.92', rtk: 'rtk 0.99.0' }) };
+  assert.equal(runHybrid(w, deps).exitCode, 4);
+});

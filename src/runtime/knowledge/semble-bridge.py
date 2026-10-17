@@ -54,8 +54,12 @@ def install_policy(roots):
 
 def run(request):
     install_policy(request["allowedWriteRoots"])
-    if importlib.metadata.version("semble") != VERSION:
-        return {"ok": False, "reason": "provider-version-mismatch"}
+    try:
+        found = importlib.metadata.version("semble")
+    except importlib.metadata.PackageNotFoundError:
+        return {"ok": False, "reason": "provider-unavailable", "cause": f"semble is not installed for {sys.executable}"}
+    if found != VERSION:
+        return {"ok": False, "reason": "provider-version-mismatch", "cause": f"{sys.executable} has semble {found[:32]}; the bridge pins {VERSION}"}
     from semble.index import SembleIndex
     from semble.types import ContentType
     if request["action"] == "query":

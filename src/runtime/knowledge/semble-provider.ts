@@ -2,15 +2,41 @@
 
 // Optional pinned external provider. No imports, model loads or writes occur until invoked.
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const SEMBLE_VERSION = '0.6.1';
 const SEMBLE_LIMITS = Object.freeze({ files: 2000, fileBytes: 1048576, sourceBytes: 67108864,
   chunks: 50000, artifactBytes: 268435456, modelBytes: 536870912, outputBytes: 2097152,
   statsBytes: 65536, libraryBytes: 134217728, queryMs: 10000, lifecycleMs: 120000, changedFiles: 500, changedBytes: 16777216 });
 const digest = (value: any): string => crypto.createHash('sha256').update(value).digest('hex');
-function fault(reason: string, freshness = 'UNKNOWN'): any { return Object.assign(new Error(reason), { reason, freshness }); }
+function fault(reason: string, freshness = 'UNKNOWN', cause?: string): any { return Object.assign(new Error(reason), { reason, freshness, ...(cause ? { cause } : {}) }); }
+// Semble's own interpreter, found without a PATH wrapper: the `semble` launcher (PATH, then ~/.local/bin/semble) and the
+// absolute interpreter its shebang names. The bridge then proves offline that this interpreter imports the pinned version.
+// Ceiling: only a plain absolute shebang (uv/pipx layout); `env` indirection, arguments or a native launcher are unavailable.
+function resolveSembleInterpreter({ env = process.env, home = os.homedir() }: any = {}): any {
+  const dirs = String(env.PATH || '').split(path.delimiter).filter((dir: string) => path.isAbsolute(dir));
+  const launcher = [...dirs.map((dir: string) => path.join(dir, 'semble')), path.join(home, '.local', 'bin', 'semble')]
+    .find((file: string) => { try { return fs.statSync(file).isFile(); } catch { return false; } });
+  if (!launcher) throw fault('provider-unavailable', 'UNKNOWN', 'no semble launcher on PATH or in ~/.local/bin');
+  const head = Buffer.alloc(1024); const fd = fs.openSync(launcher, 'r');
+  let count = 0; try { count = fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); }
+  const shebang = /^#!(\/\S+)[ \t]*\r?$/.exec(head.subarray(0, count).toString('utf8').split('\n')[0]);
+  if (!shebang || path.basename(shebang[1]) === 'env') throw fault('provider-unavailable', 'UNKNOWN', `${launcher} does not name an absolute interpreter`);
+  let usable = false; try { fs.accessSync(shebang[1], fs.constants.X_OK); usable = fs.statSync(shebang[1]).isFile(); } catch {}
+  if (!usable) throw fault('provider-unavailable', 'UNKNOWN', `interpreter ${shebang[1]} named by ${launcher} is not executable`);
+  return { python: shebang[1], launcher };
+}
+// Lifecycle preflight: the interpreter's installed Semble metadata must be the pin before any lock or mutation. No
+// import, network or write happens here; the bridge re-checks the same pin under its audit policy on every call.
+function checkSembleVersion(python: string): void {
+  const run = spawnSync(python, ['-c', 'import importlib.metadata as m, sys; sys.stdout.write(m.version("semble"))'], { cwd: path.dirname(python),
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }, encoding: 'utf8', timeout: 5000, maxBuffer: 4096 });
+  if (run.error || run.status !== 0) throw fault('provider-unavailable', 'UNKNOWN', `semble is not installed for ${python}`);
+  const found = String(run.stdout).trim().slice(0, 32);
+  if (found !== SEMBLE_VERSION) throw fault('provider-version-mismatch', 'UNKNOWN', `${python} has semble ${found}; the bridge pins ${SEMBLE_VERSION}`);
+}
 function semanticStatePaths(inventory: any): any {
   const state = path.join(inventory.root, '.doflow', 'index', 'code', 'semble', digest(`${inventory.root}\n${inventory.scopeIgnoreDigest}`));
   const mirror = path.join(state, 'mirror');
@@ -178,7 +204,7 @@ function executeBridge(request: any, options: any, paths: any, sandbox: string):
       SEMBLE_CACHE_LOCATION: request.action === 'query' ? temp : paths.cache, HF_HOME: library, HUGGINGFACE_HUB_CACHE: library,
       TRANSFORMERS_CACHE: library, XDG_CACHE_HOME: library, SEMBLE_GRAMMARS_CACHE_DIR: path.join(library, 'grammars'), TORCH_HOME: library,
       TMPDIR: library, TEMP: library, TMP: library, TOKENIZERS_PARALLELISM: 'false' };
-    const child = spawn(options.python || 'python3', [options.bridgePath || path.join(__dirname, 'semble-bridge.py')], { cwd: paths.state, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    const child = spawn(options.python, [options.bridgePath || path.join(__dirname, 'semble-bridge.py')], { cwd: paths.state, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
     let stdout = ''; let outputBytes = 0; let failure: string | null = null; let done = false;
     const stop = (reason: string) => { if (!failure) failure = reason; child.kill('SIGKILL'); };
     const timer = setTimeout(() => stop('provider-timeout'), deadline);
@@ -213,6 +239,7 @@ async function runSembleQuery(options: any): Promise<any> {
   let release: any; let temp: string | undefined;
   try {
     validateInventory(inventory, limits); const model = inspectModel(options.modelPath, limits); const paths = semanticStatePaths(inventory);
+    const python = options.python || resolveSembleInterpreter().python;
     release = await acquireSemanticLock(paths); cleanupTemporary(paths);
     const manifest = readCompleted(paths, inventory, model, limits);
     checkSources(inventory, limits);
@@ -220,8 +247,8 @@ async function runSembleQuery(options: any): Promise<any> {
     if (artifacts.artifactIdentity !== manifest.artifactIdentity) throw fault('index-artifacts-changed');
     temp = fs.mkdtempSync(path.join(paths.state, 'query-'));
     const result = await executeBridge({ action: 'query', query: options.query, indexPath: paths.index, modelPath: model.path,
-      poolSize: artifacts.chunks, allowedWriteRoots: [temp] }, { ...options, limits }, paths, temp);
-    if (!result.ok) throw fault(result.reason || 'provider-error');
+      poolSize: artifacts.chunks, allowedWriteRoots: [temp] }, { ...options, python, limits }, paths, temp);
+    if (!result.ok) throw fault(result.reason || 'provider-error', 'UNKNOWN', typeof result.cause === 'string' ? result.cause : undefined);
     if (!result.runtimeIdentity || JSON.stringify(result.runtimeIdentity) !== JSON.stringify(manifest.runtimeIdentity)) throw fault('provider-runtime-identity-mismatch', 'STALE');
     if (!Array.isArray(result.candidates) || result.candidates.length > 200) throw fault('invalid-provider-output');
     const admitted = new Map(inventory.files.map((f: any) => [f.path, f]));
@@ -234,8 +261,9 @@ async function runSembleQuery(options: any): Promise<any> {
     if (inspectModel(options.modelPath, limits).identity !== model.identity) throw fault('model-changed', 'STALE');
     return { ok: true, provider: 'semble.search', version: SEMBLE_VERSION, model, generation: manifest.generation, freshness: 'FRESH', candidates: result.candidates,
       accounting: { indexedChunks: artifacts.chunks, sourceReadBytes: inventory.files.reduce((n: number, f: any) => n + f.sizeBytes, 0), artifactBytes: artifacts.artifactBytes } };
-  } catch (error: any) { return { ok: false, provider: 'semble.search', version: SEMBLE_VERSION, freshness: error.freshness || 'UNKNOWN', reason: error.reason || 'provider-unavailable', candidates: [] }; }
+  } catch (error: any) { return { ok: false, provider: 'semble.search', version: SEMBLE_VERSION, freshness: error.freshness || 'UNKNOWN', reason: error.reason || 'provider-unavailable',
+    ...(typeof error.cause === 'string' ? { cause: error.cause } : {}), candidates: [] }; }
   finally { try { if (temp) fs.rmSync(temp, { recursive: true, force: true }); } catch {} try { if (release) release(); } catch {} }
 }
-module.exports = { SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, semanticStatePaths, digest, fault, inside, safeDirectories,
+module.exports = { SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, resolveSembleInterpreter, checkSembleVersion, semanticStatePaths, digest, fault, inside, safeDirectories,
   regularBytes, scanTree, inspectModel, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };

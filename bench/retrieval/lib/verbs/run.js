@@ -160,7 +160,8 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
   const deps = { ...defaultDeps(), ...(rawDeps || {}) };
   const selection = parseSelection(args);
   const { configs, corpora, split, cls, protocol } = selection;
-  const verified = deps.verifySnapshot({ snapshotPath, repoRoot });
+  const checked = deps.verifySnapshot({ snapshotPath, repoRoot });
+  const verified = protocol ? hybridProtocol.applyToolPins(checked) : checked;
   if (verified.exitCode !== 0) return { exitCode: verified.exitCode, codes: verified.codes, lines: [`run: ${verified.message}`], error: verified.message };
   const snapshot = verified.snapshot;
   const manifest = snapshotLib.loadManifest(path.resolve(repoRoot, snapshot.manifestPath));

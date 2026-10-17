@@ -21,7 +21,7 @@ function fixture(t) {
   const prior = process.env.PYTHONPATH; process.env.PYTHONPATH = pkg;
   t.after(() => { if (prior === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = prior; delete process.env.FAKE_PROVIDER_MODE; delete process.env.FAKE_OUTSIDE_PATH; fs.rmSync(base, { recursive: true, force: true }); });
   const inventory = admitCodeCorpus({ root, files: ['a.py', 'z.py'] });
-  return { base, root, modelPath, inventory, options: { inventory, modelPath } };
+  return { base, root, modelPath, inventory, options: { inventory, modelPath, python: 'python3' } };
 }
 
 test('public bridge builds then queries bounded semantic top-k, preserves provider order and never saves query index', async t => {
@@ -78,7 +78,7 @@ test('bridge spy receives bounded top-k and exact public API flags under offline
   const f = fixture(t); await runSembleLifecycle({ ...f.options, action: 'build' });
   const paths = semanticStatePaths(f.inventory); const temp = fs.mkdtempSync(path.join(paths.state, 'query-'));
   const { executeBridge, SEMBLE_LIMITS } = require('../../src/runtime/knowledge/semble-provider.ts');
-  const result = await executeBridge({ action: 'query', query: 'answer', indexPath: paths.index, poolSize: 2, allowedWriteRoots: [temp] }, { limits: SEMBLE_LIMITS }, paths, temp);
+  const result = await executeBridge({ action: 'query', query: 'answer', indexPath: paths.index, poolSize: 2, allowedWriteRoots: [temp] }, { limits: SEMBLE_LIMITS, python: 'python3' }, paths, temp);
   assert.equal(result.ok, true);
   const calls = fs.readFileSync(path.join(temp, 'library', 'calls.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.deepEqual(calls.map(c => c.action), ['load', 'search']);
@@ -105,12 +105,12 @@ test('F1: Hugging Face snapshot links into its own blob stores are admitted with
   const model = inspectModel(hf.snapshot);
   assert.equal(model.identity, inspectModel(f.modelPath).identity, 'same bytes and names as a dereferenced copy');
   assert.equal(model.bytes, 6);
-  const built = await runSembleLifecycle({ inventory: f.inventory, modelPath: hf.snapshot, action: 'build' });
+  const built = await runSembleLifecycle({ ...f.options, modelPath: hf.snapshot, action: 'build' });
   assert.equal(built.ok, true, JSON.stringify(built));
-  const result = await runSembleQuery({ inventory: f.inventory, modelPath: hf.snapshot, query: 'answer' });
+  const result = await runSembleQuery({ ...f.options, modelPath: hf.snapshot, query: 'answer' });
   assert.equal(result.ok, true, JSON.stringify(result));
   // Target-size caps still apply to linked blobs.
-  assert.equal((await runSembleQuery({ inventory: f.inventory, modelPath: hf.snapshot, query: 'answer', limits: { modelBytes: 5 } })).reason, 'resource-limit');
+  assert.equal((await runSembleQuery({ ...f.options, modelPath: hf.snapshot, query: 'answer', limits: { modelBytes: 5 } })).reason, 'resource-limit');
 });
 
 test('F1 negative controls: links escaping the blob stores, to directories, dangling, or outside HF layout stay unsafe', t => {
@@ -166,4 +166,56 @@ test('F2: files vanishing mid-walk are skipped only on live sinks, never mapped 
     const result = await runSembleQuery({ ...f.options, query: 'answer' });
     assert.equal(result.ok, true, JSON.stringify(result));
   }
+});
+
+test('interpreter discovery: the semble launcher shebang names the bridge interpreter, no PATH wrapper needed', async t => {
+  const f = fixture(t); const { resolveSembleInterpreter } = require('../../src/runtime/knowledge/semble-provider.ts');
+  const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim();
+  const bin = path.join(f.base, 'bin'); fs.mkdirSync(bin);
+  const launcher = path.join(bin, 'semble'); fs.writeFileSync(launcher, `#!${python}\nimport sys\n`, { mode: 0o755 });
+  const home = path.join(f.base, 'home'); fs.mkdirSync(home);
+  assert.deepEqual(resolveSembleInterpreter({ env: { PATH: bin }, home }), { python, launcher });
+  // PATH miss falls back to ~/.local/bin/semble.
+  fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true }); fs.copyFileSync(launcher, path.join(home, '.local', 'bin', 'semble'));
+  assert.equal(resolveSembleInterpreter({ env: { PATH: path.join(f.base, 'empty') }, home }).python, python);
+  // Production default: no `python` option, PATH holds only the launcher directory (python3 is not on it).
+  const { python: _explicit, ...options } = f.options;
+  const prior = process.env.PATH; process.env.PATH = bin; t.after(() => { process.env.PATH = prior; });
+  assert.equal((await runSembleLifecycle({ ...options, action: 'build' })).ok, true);
+  const result = await runSembleQuery({ ...options, query: 'answer' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test('interpreter discovery negative controls: missing launcher, env shebang, missing interpreter, wrong or absent Semble', async t => {
+  const f = fixture(t); const { resolveSembleInterpreter } = require('../../src/runtime/knowledge/semble-provider.ts');
+  const bin = path.join(f.base, 'bin'); fs.mkdirSync(bin); const home = path.join(f.base, 'home'); fs.mkdirSync(home);
+  const cause = (env) => { try { resolveSembleInterpreter({ env, home }); return 'resolved'; } catch (error) { return `${error.reason}: ${error.cause}`; } };
+  assert.match(cause({ PATH: bin }), /^provider-unavailable: no semble launcher/);
+  fs.writeFileSync(path.join(bin, 'semble'), '#!/usr/bin/env python3\n', { mode: 0o755 });
+  assert.match(cause({ PATH: bin }), /^provider-unavailable: .* does not name an absolute interpreter/);
+  fs.writeFileSync(path.join(bin, 'semble'), `#!${path.join(f.base, 'gone', 'python3')}\n`, { mode: 0o755 });
+  assert.match(cause({ PATH: bin }), /^provider-unavailable: interpreter .* is not executable/);
+  // A missing launcher fails the lifecycle before any lock or mutation.
+  const { python: _explicit, ...options } = f.options;
+  const prior = process.env.PATH; process.env.PATH = path.join(f.base, 'empty');
+  const priorHome = process.env.HOME; process.env.HOME = home;
+  t.after(() => { process.env.PATH = prior; process.env.HOME = priorHome; });
+  const refused = await runSembleLifecycle({ ...options, action: 'build' });
+  assert.equal(refused.reason, 'provider-unavailable'); assert.match(refused.cause, /no semble launcher/);
+  assert.equal(fs.existsSync(semanticStatePaths(f.inventory).state), false);
+  process.env.PATH = prior; process.env.HOME = priorHome;
+  // The bridge proves the pinned version and reports what it found.
+  assert.equal((await runSembleLifecycle({ ...f.options, action: 'build' })).ok, true);
+  const dist = path.join(process.env.PYTHONPATH, 'semble-0.6.1.dist-info');
+  fs.writeFileSync(path.join(dist, 'METADATA'), 'Name: semble\nVersion: 0.7.0\n');
+  const mismatch = await runSembleQuery({ ...f.options, query: 'answer' });
+  assert.equal(mismatch.reason, 'provider-version-mismatch'); assert.match(mismatch.cause, /has semble 0\.7\.0; the bridge pins 0\.6\.1/);
+  const paths = semanticStatePaths(f.inventory); const manifest = fs.readFileSync(paths.manifest, 'utf8');
+  const preflight = await runSembleLifecycle({ ...f.options, action: 'build' });
+  assert.equal(preflight.reason, 'provider-version-mismatch'); assert.match(preflight.cause, /has semble 0\.7\.0; the bridge pins 0\.6\.1/);
+  assert.equal(fs.existsSync(paths.marker), false, 'a wrong version is refused before the in-progress marker');
+  assert.equal(fs.readFileSync(paths.manifest, 'utf8'), manifest, 'the published generation is untouched');
+  fs.rmSync(dist, { recursive: true });
+  const absent = await runSembleQuery({ ...f.options, python: execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim(), query: 'answer' });
+  assert.equal(absent.reason, 'provider-unavailable'); assert.match(absent.cause, /semble is not installed/);
 });
