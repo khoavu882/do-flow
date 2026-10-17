@@ -92,13 +92,40 @@ function listDir(fsImpl: any, dir: string, re: RegExp): string[] {
   try { return fsImpl.readdirSync(dir).filter((name: string) => re.test(name)).sort(); } catch { return []; }
 }
 
+/** Larger than any real partition or store; a bigger file is a gap, not a read. */
+const MAX_STORE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * The text of a regular file, or null for anything else. A store directory is the project's, but a
+ * FIFO, socket, device, directory or symlink can be planted in it, and a plain read of a FIFO with no
+ * writer blocks the verb forever. So: lstat and skip what is not a regular file; open
+ * O_RDONLY|O_NOFOLLOW|O_NONBLOCK so a swap after the lstat fails instead of blocking or following;
+ * fstat the descriptor and check size before reading it.
+ */
+function readRegular(fsImpl: any, file: string): string | null {
+  try {
+    if (!fsImpl.lstatSync(file).isFile()) return null;
+    const { O_RDONLY, O_NOFOLLOW = 0, O_NONBLOCK = 0 } = nodeFs.constants;
+    const fd = fsImpl.openSync(file, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    try {
+      const stat = fsImpl.fstatSync(fd);
+      if (!stat.isFile() || stat.size > MAX_STORE_BYTES) return null;
+      return fsImpl.readFileSync(fd, 'utf8');
+    } finally {
+      fsImpl.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
 /** Each line of each partition as `{ locator, value }`, or a gap when it does not parse. */
 function readLines(fsImpl: any, dir: string, rel: string, gaps: any[], kind: string): any[] {
   const out: any[] = [];
   for (const name of listDir(fsImpl, dir, PARTITION)) {
     const file = `${rel}/${name}`;
-    let text: string;
-    try { text = fsImpl.readFileSync(path.join(dir, name), 'utf8'); } catch { gaps.push({ locator: file, reason: 'unparseable', kind }); continue; }
+    const text = readRegular(fsImpl, path.join(dir, name));
+    if (text === null) { gaps.push({ locator: file, reason: 'unparseable', kind }); continue; }
     text.split('\n').forEach((line, index) => {
       if (line.trim() === '') return;
       const locator = `${file}:${index + 1}`;
@@ -114,7 +141,9 @@ function readStores(fsImpl: any, stateDir: string, rel: string, gaps: any[], kin
   for (const name of listDir(fsImpl, path.join(stateDir, rel), STORE_FILE)) {
     const file = `${rel}/${name}`;
     try {
-      const value = JSON.parse(fsImpl.readFileSync(path.join(stateDir, rel, name), 'utf8'));
+      const text = readRegular(fsImpl, path.join(stateDir, rel, name));
+      if (text === null) throw new Error('not a readable regular file');
+      const value = JSON.parse(text);
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('not an object');
       out.push({ file, value });
     } catch { gaps.push({ locator: file, reason: 'unparseable', kind }); }

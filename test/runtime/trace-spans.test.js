@@ -338,6 +338,10 @@ test('the verb never writes: no fs write call and no file or mtime change', (t) 
   const WRITES = ['writeFileSync', 'appendFileSync', 'mkdirSync', 'renameSync', 'rmSync', 'unlinkSync', 'openSync', 'writeSync', 'copyFileSync', 'symlinkSync', 'linkSync', 'chmodSync', 'utimesSync', 'truncateSync', 'rmdirSync', 'mkdtempSync'];
   const calls = [];
   const spy = new Proxy(fs, { get(target, name) {
+    if (name === 'openSync') {
+      // A read-only open (spans opens store files O_RDONLY) is a read; any other flag is a write.
+      return (...args) => { if (typeof args[1] !== 'number' || (args[1] & fs.constants.O_ACCMODE) !== fs.constants.O_RDONLY) calls.push(name); return target.openSync(...args); };
+    }
     if (WRITES.includes(name)) return (...args) => { calls.push(name); return target[name](...args); };
     return target[name];
   } });
@@ -381,4 +385,81 @@ test('CLI: other `trace` calls and `stats` are unchanged and never load the span
   const r = spawnSync(process.execPath, ['-r', probe, BIN, 'trace', 'spans', dir], { cwd: dir, encoding: 'utf8',
     env: { HOME: dir, PATH: process.env.PATH, TMPDIR: process.env.TMPDIR || '/tmp', FORCE_COLOR: '0' } });
   assert.match(r.stderr, /SPANS_LOADED=true/);
+});
+
+// ── C.2d: a non-regular store file never blocks, throws or is followed ───────────────────────────
+
+const POSIX = process.platform !== 'win32';
+/** sha256 of the JSON view over `seed(t)`, taken with the reader as it was before C.2d. */
+const GOLDEN_SHA = 'a338b303f7f02546f72bc9fc2ea6b266012b7f75a6b4a966c740bdc02d9138ef';
+
+/** Runs the projection in a child that is killed after 3 s: a hang is a failure, not a stall. */
+function viewInChild(dir) {
+  const code = `const { projectSpans } = require(${JSON.stringify(SPANS_FILE)});
+process.stdout.write(JSON.stringify(projectSpans({ projectRoot: process.argv[1], env: {} })));`;
+  const result = spawnSync(process.execPath, ['-e', code, dir], { timeout: 3000, killSignal: 'SIGKILL', encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(result.error, undefined, `the child did not exit by itself: ${result.error && result.error.code}`);
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+function mkfifo(file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const made = spawnSync('mkfifo', [file]);
+  assert.equal(made.status, 0, `mkfifo failed: ${made.stderr}`);
+}
+
+/** The view with one extra non-regular entry: same spans as the plain view, one more located gap. */
+function assertOnlyGap(t, withEntry, locator, kind) {
+  const plain = view(seed(t).dir);
+  assert.deepEqual(withEntry.traces, plain.traces);
+  assert.deepEqual(withEntry.ungrouped, plain.ungrouped);
+  const extra = withEntry.gaps.filter((gap) => !plain.gaps.some((known) => known.locator === gap.locator && known.reason === gap.reason));
+  assert.deepEqual(extra, [{ locator, reason: 'unparseable', kind }]);
+}
+
+test('C.2d: the golden output over normal stores is unchanged', (t) => {
+  const { dir } = seed(t);
+  const sha = crypto.createHash('sha256').update(JSON.stringify(view(dir))).digest('hex');
+  assert.equal(sha, GOLDEN_SHA);
+});
+
+for (const [name, rel, kind] of [
+  ['telemetry partition', 'runs/telemetry/2026-09-02.jsonl', 'telemetry'],
+  ['ledger partition', 'runs/2026-09-02.jsonl', 'ledger'],
+  ['task-run store', 'task-attempts/fifo.json', 'task-run'],
+  ['worker store', 'worker-runs/fifo.json', 'worker'],
+  ['orchestration store', 'orchestration/fifo.json', 'orchestration'],
+]) {
+  test(`C.2d: a FIFO with no reader as a ${name} returns promptly and is one located gap`, { skip: !POSIX }, (t) => {
+    const { dir, state } = seed(t);
+    mkfifo(path.join(state, rel));
+    assertOnlyGap(t, viewInChild(dir), rel, kind);
+  });
+
+  test(`C.2d: a directory named like a ${name} is one located gap`, (t) => {
+    const { dir, state } = seed(t);
+    fs.mkdirSync(path.join(state, rel), { recursive: true });
+    assertOnlyGap(t, view(dir), rel, kind);
+  });
+
+  test(`C.2d: a symlink to a regular file as a ${name} is not followed and is one located gap`, { skip: !POSIX }, (t) => {
+    const { dir, state } = seed(t);
+    const outside = path.join(tempDir(t, 'doflow-trace-spans-out-'), 'outside');
+    const body = rel.endsWith('.jsonl')
+      ? `${JSON.stringify({ timestamp: at('12:00:00'), kind: 'verify.tier', run: 'r1', lineage: 'l1', status: 'PASS' })}\n`
+      : JSON.stringify({ version: 1, runs: {} });
+    fs.writeFileSync(outside, body);
+    fs.mkdirSync(path.dirname(path.join(state, rel)), { recursive: true });
+    fs.symlinkSync(outside, path.join(state, rel));
+    assertOnlyGap(t, view(dir), rel, kind);
+  });
+}
+
+test('C.2d: a store file over the size bound is one located gap, not a read', (t) => {
+  const { dir, state } = seed(t);
+  const big = path.join(state, 'runs', '2026-09-02.jsonl');
+  fs.writeFileSync(big, '');
+  fs.truncateSync(big, 65 * 1024 * 1024); // sparse: no disk used
+  assertOnlyGap(t, view(dir), 'runs/2026-09-02.jsonl', 'ledger');
 });
