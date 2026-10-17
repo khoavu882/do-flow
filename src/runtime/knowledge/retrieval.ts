@@ -147,6 +147,9 @@ function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs }: { co
  * home install; the index is kept beside the corpus chosen. */
 function handleRetrieveCommand(options: any = {}): any {
   const { query, top, json = false, stateRoot } = options;
+  if (options.scope !== undefined && options.scope !== 'guidance' && options.scope !== 'code') {
+    return usageError('retrieve', `--scope must be guidance or code, got '${options.scope}'`, json);
+  }
   if (options.scope === 'code' || options.indexAction !== undefined) {
     if (options.scope !== 'code') return usageError('retrieve', '--index-action requires --scope code', json);
     return handleCodeRetrieveCommand(options);
@@ -179,10 +182,11 @@ function handleRetrieveCommand(options: any = {}): any {
   }
 }
 
-/** Additive code path. The guidance branch above retains its existing output and exit behavior. */
+/** Additive code path. The guidance branch above retains its existing output and exit behavior. The search root is
+ * `root` or cwd, never `stateRoot`: in a linked worktree the state root is the main checkout's feature store. */
 function handleCodeRetrieveCommand(options: any): any {
   const { executeCodeRetrieval } = require('./code-retrieval.ts');
-  return executeCodeRetrieval({ ...options, root: options.root || options.stateRoot || process.cwd() }).then((outcome: any) => {
+  return executeCodeRetrieval({ ...options, root: options.root || process.cwd() }).then((outcome: any) => {
     const response = outcome.response;
     if (options.json) console.log(JSON.stringify(response, null, 2));
     else if (!response.ok) console.error(`[ERROR] retrieve: ${response.error}${response.cause ? ` (${response.cause})` : ''}${response.summary ? ` — ${response.summary}` : ''}`);
