@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const { resolveSetting } = require('./config.ts');
+const { loadSettings } = require('../settings/resolve.ts');
 const { checkEndpoint } = require('./endpoint-guard.ts');
 const { strengthOf } = require('./strength.ts');
 const { validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
@@ -242,16 +243,19 @@ function createAdviceClient({
     }
   }
 
-  async function inspect({ endpoint, model, provider: providerId = 'ollama', file, minVersion, timeoutMs }: any = {}) {
+  async function inspect({ endpoint, model, provider: providerId, file, minVersion, timeoutMs }: any = {}) {
     const unavailable = (state: any, message: any, version: any = null, versionOk = false) => ({
       endpoint: { state, version, versionOk, message: message ?? null },
       models: [],
       model: { installed: false, decisionCapable: false },
     });
     try {
-      const provider = adviceRegistry?.providers?.find((entry: any) => entry.id === providerId);
+      const effectiveProviderId = providerId
+        ?? resolveSetting({ adviceRegistry, roots, fsImpl }).provider
+        ?? loadSettings({ global: true, env: {}, fsImpl }).get('advice.provider', 'global').value;
+      const provider = adviceRegistry?.providers?.find((entry: any) => entry.id === effectiveProviderId);
       const adapter = provider && ADAPTERS[provider.adapter];
-      if (!provider || !adapter) return unavailable('refused', `provider '${providerId}' is unavailable`);
+      if (!provider || !adapter) return unavailable('refused', `provider '${effectiveProviderId}' is unavailable`);
       const probeLimit = Number.isFinite(timeoutMs) ? timeoutMs : adviceRegistry.probeTimeoutMs;
       const budgetMs = Number.isFinite(adviceRegistry.doctorBudgetMs) ? adviceRegistry.doctorBudgetMs : probeLimit * 4;
       const startedAt = Date.now();

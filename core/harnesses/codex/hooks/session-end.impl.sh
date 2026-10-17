@@ -24,6 +24,27 @@ CWD=$(json_field "$INPUT" ".cwd")
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# Start storage cleanup without changing the hook's output, status, or latency.
+start_storage_upkeep() {
+  (
+    SHARED_POLICY_LIB="$(dirname "$0")/../../.doflow/shared/hooks/policies/lib.sh"
+    if [[ ! -f "$SHARED_POLICY_LIB" ]]; then
+      SHARED_POLICY_LIB="$(dirname "$0")/../../shared/hooks/policies/lib.sh"
+    fi
+    if [[ -f "$SHARED_POLICY_LIB" ]]; then
+      source "$SHARED_POLICY_LIB"
+      storage_upkeep_async "$CWD"
+    fi
+  ) >/dev/null 2>&1 || true
+}
+
+# No config home (lib.sh leaves the state paths empty): no session store to write, but the
+# storage upkeep still starts (086 IC-010).
+if [[ -z "$STATE_DIR" ]]; then
+  start_storage_upkeep
+  exit 0
+fi
+
 # ── 1. Log session end ────────────────────────────────────────────────────────
 
 mkdir -p "$(dirname "$SESSIONS_LOG")"
@@ -60,16 +81,7 @@ if [[ -n "$SESSION_ID" ]]; then
   rm -rf "$SESSION_PATH" 2>/dev/null || true
 fi
 
-(
-  SHARED_POLICY_LIB="$(dirname "$0")/../../.doflow/shared/hooks/policies/lib.sh"
-  if [[ ! -f "$SHARED_POLICY_LIB" ]]; then
-    SHARED_POLICY_LIB="$(dirname "$0")/../../shared/hooks/policies/lib.sh"
-  fi
-  if [[ -f "$SHARED_POLICY_LIB" ]]; then
-    source "$SHARED_POLICY_LIB"
-    storage_upkeep_async "$CWD"
-  fi
-) >/dev/null 2>&1 || true
+start_storage_upkeep
 
 # ── 4. Trim sessions.log (lock-guarded) ───────────────────────────────────────
 

@@ -59,15 +59,19 @@ const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = req
 const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
 const { handleStorageCommand } = require('../runtime/storage/cli.ts');
+const NO_UPKEEP = new Set(['storage', 'config']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
+// Settings support is needed only when the read-only config verb runs.
+function handleConfigCommand(options: any): any { return require('../runtime/settings/cli.ts').handleConfigCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
 const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature, resolveFeature } = require('../runtime/task-scope.ts');
 const { listCheckouts } = require('../runtime/checkouts.ts');
 const { featureSlugFor } = require('../runtime/implementation-gate.ts');
 const { handleBriefToolsCommand } = require('../runtime/brief-tools.ts');
-const { handleAdviseCommand } = require('../runtime/advice/cli.ts');
+// Advice writers load settings/write.ts, so keep that surface off installer and other verb paths.
+function handleAdviseCommand(options: any): any { return require('../runtime/advice/cli.ts').handleAdviseCommand(options); }
 const { REPO_ROOT, buildAdapterRegistry } = require('./shared.ts');
 
 /** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
@@ -250,6 +254,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // the process home directory inside the lifecycle view (design R7) and is not an argument.
     case 'inventory': return handleInventoryCommand({ json: o.json, global: o.global, targets: o.targets, repoRoot: REPO_ROOT, projectRoot: path.resolve(o.positional[0] || '.') });
     case 'storage': return handleStorageCommand({ action: o.actionGiven ? o.action : 'report', json: o.json, global: o.global, projectRoot: evidenceRoot(o) });
+    case 'config': return handleConfigCommand({ json: o.json, global: o.global, showOrigin: o.showOrigin, positional: o.positional, repoRoot: REPO_ROOT });
     // No REPO_ROOT: the scaffold's repo root is the *caller's* repo, reported by the resolver,
     // because the plan's `files:` paths are relative to it. Passing the DoFlow install here
     // would detect the wrong language and mirror the wrong tree.
@@ -307,7 +312,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
 async function dispatchRuntimeCommand(o: any): Promise<any> {
   const moment: any = {};
   const result = await dispatchRuntimeCommandInner(o, moment);
-  if (o.cmd !== 'storage') upkeepAfterVerb({ projectRoot: moment.projectRoot });
+  if (!NO_UPKEEP.has(o.cmd)) upkeepAfterVerb({ projectRoot: moment.projectRoot });
   return result;
 }
 

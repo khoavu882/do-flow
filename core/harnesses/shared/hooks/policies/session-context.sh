@@ -64,6 +64,13 @@ CWD=$(json_field "$INPUT" ".cwd")
 # Guard: if we can't determine the session, nothing to do
 [[ -z "$SESSION_ID" ]] && exit 0
 
+# No config home (lib.sh leaves the state paths empty): no session store to write, but the
+# storage upkeep still starts (086 IC-010).
+if [[ -z "$SESSION_DIR" ]]; then
+  storage_upkeep_async "$CWD"
+  exit 0
+fi
+
 SESSION_PATH=$(ensure_session_dir "$SESSION_ID")
 
 # Clean up stale injected flag from a prior crashed session

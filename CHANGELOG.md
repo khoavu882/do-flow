@@ -15,6 +15,30 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `doflow config list [--json] [--show-origin] [-g]` displays the effective settings and their origins.
+- Layered settings add user `settings.json`, project `.doflow/settings.json` and `.doflow/settings.local.json`, plus registry `core/registry/settings.json`.
+
+### Changed
+- **This release's config home follows one rule everywhere.** `XDG_CONFIG_HOME` when it is an absolute path, else `$HOME/.config` when `HOME` is an absolute path, else there is no config home. A relative or empty value is ignored and the account's home folder is never consulted. In 2.0 Node read the account's home when `HOME` was unset and the shell scripts aborted with `HOME: unbound variable`; with `HOME` unset or relative there is now no config home in Node and in shell alike.
+- A relative `XDG_CONFIG_HOME` is ignored and `$HOME/.config` decides. In 2.0 the shell scripts and some Node code read the relative path against the working directory; users who had one will find their session state under `$HOME/.config/doflow/session-env` from now on, and the old folder is no longer read.
+- With no config home the hooks no longer exit: `lib.sh` in the shared policies and in each harness continues, session hooks (`session-start`, `user-prompt-submit`, `stop-check`) skip their state work and exit 0, and a guard hook such as Kiro's `pre-bash-guard` reaches its own decision.
+- `doflow advise --action configure` exits 2 with a usage message, and writes nothing, when there is no config home.
+- Failure capture reads `failure.capture` from `<config home>/settings.json`. The dispatcher, the shell policies, the JS hook runner and Node apply one text rule: any value other than `"on"` means off, and a settings file that is unreadable or not a regular file means off. See [Config home](docs/reference.md#config-home).
+- In this release, a linked worktree with no settings files in its own `.doflow/` reads project settings from the main checkout, including legacy `decision-model.json` and `prune` files. A worktree with its own settings continues to use them.
+- `advise --action configure` and `failure --action capture --set on|off` write `settings.json`; legacy `decision-model.json` and `failures/off` remain untouched.
+- Settings written by this release are not read by earlier betas or 2.0.x, which keep reading `decision-model.json` and `failures/off`.
+- `doflow config list` redacts URL query values and user information in displayed settings, including opaque and malformed endpoint forms.
+- A linked worktree writer targets the inherited main-checkout settings layer and reports that location without silently changing inheritance.
+- Stop-check with no state allows the turn instead of repeating a prior block.
+- `failure --action capture --set off` preserves malformed settings in a mode-0600 backup before replacing them; `--set on` resolves DoFlow-owned lexical duplicates, preserves an existing `failures/off` sentinel and reports `effective: off`.
+
+### Fixed
+- Settings JSON parse errors report the byte offset only; the file contents are not included in errors.
+
+### Deprecated
+- `decision-model.json`, the one-line `prune` files and the `failures/off` sentinel remain readable through 2.x. `doflow config list` identifies each legacy source with a deprecation note and the corresponding `settings.json` key.
+
 ## [2.0.0] - 2026-10-14
 
 First stable 2.x release. It consolidates 2.0.0-beta.1 to 2.0.0-beta.4 (the TypeScript runtime, the perf budgets and retrieval benchmark, and the packed JavaScript npm package) with context delivery (075) and evidence attempts (076). Upgrading from 1.24.1 needs Node `^22.18.0 || >=24.3.0`; see the 2.0.0-beta.3 entry for the Node floor and the `.js` to `.ts` runtime rename.

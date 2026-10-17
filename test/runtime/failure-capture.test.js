@@ -87,8 +87,12 @@ describe('failure home (IC-011)', () => {
     assert.equal(failureHome({ HOME: '/h' }), '/h/.config/doflow/failures');
     assert.equal(failureHome({ XDG_CONFIG_HOME: '', HOME: '/h' }), '/h/.config/doflow/failures');
   });
-  test('a relative XDG_CONFIG_HOME skips capture even when HOME is usable', () => {
-    assert.equal(failureHome({ XDG_CONFIG_HOME: 'cfg', HOME: '/h' }), null);
+  test('a relative XDG_CONFIG_HOME is ignored and a usable HOME supplies the home (086 DD-7)', () => {
+    assert.equal(failureHome({ XDG_CONFIG_HOME: 'cfg', HOME: '/h' }), '/h/.config/doflow/failures');
+  });
+  test('a relative XDG_CONFIG_HOME with no usable HOME skips capture', () => {
+    assert.equal(failureHome({ XDG_CONFIG_HOME: 'cfg' }), null);
+    assert.equal(failureHome({ XDG_CONFIG_HOME: 'cfg', HOME: 'rel/h' }), null);
   });
   test('an unset, empty or relative HOME skips capture', () => {
     assert.equal(failureHome({}), null);
@@ -106,7 +110,7 @@ describe('capture switch (IC-014)', () => {
 
   test('on by default, and stat-ing the sentinel creates no folder', () => {
     const home = homeOf(ctx.env);
-    assert.deepEqual(captureSwitch(home, ctx.env), { effective: 'on', sentinel: false, env: null });
+    assert.deepEqual(captureSwitch(home, ctx.env), { effective: 'on', sentinel: false, env: null, settings: null });
     assert.equal(fs.existsSync(home), false);
   });
   for (const value of ['off', 'OFF', '0', 'false', 'No', ' off ']) {
@@ -128,8 +132,35 @@ describe('capture switch (IC-014)', () => {
     fs.writeFileSync(path.join(home, 'off'), '2026-10-03T00:00:00.000Z\n');
     const env = { ...ctx.env, DOFLOW_FAILURE_CAPTURE: 'on' };
     assert.equal(captureIsOff(home, env), true);
-    assert.deepEqual(captureSwitch(home, env), { effective: 'off', sentinel: true, env: 'on' });
+    assert.deepEqual(captureSwitch(home, env), { effective: 'off', sentinel: true, env: 'on', settings: null });
   });
+  test('settings.json: a failure.capture value other than "on" turns capture off; "on" and a missing key do not (IC-005)', () => {
+    const home = homeOf(ctx.env);
+    const settings = path.join(path.dirname(home), 'settings.json');
+    fs.mkdirSync(path.dirname(settings), { recursive: true });
+    for (const [text, settingsValue, effective] of [
+      ['{"failure.capture":"off"}', 'off', 'off'],
+      ['{"failure.capture":"banana"}', 'off', 'off'],
+      ['{\r\n  "failure.capture": "on"\r\n}', 'on', 'on'],
+      ['{"schema":1}', null, 'on'],
+    ]) {
+      fs.writeFileSync(settings, text);
+      assert.deepEqual(captureSwitch(home, ctx.env), { effective, sentinel: false, env: null, settings: settingsValue }, text);
+      assert.equal(captureIsOff(home, ctx.env), effective === 'off', text);
+    }
+    // the environment still only turns capture off, never on over settings.json
+    fs.writeFileSync(settings, '{"failure.capture":"off"}');
+    const env = { ...ctx.env, DOFLOW_FAILURE_CAPTURE: 'on' };
+    assert.equal(captureIsOff(home, env), true);
+    assert.equal(captureSwitch(home, env).effective, 'off');
+    // a folder where the file belongs is off; no file at all is on
+    fs.rmSync(settings);
+    assert.equal(captureIsOff(home, ctx.env), false);
+    fs.mkdirSync(settings);
+    assert.equal(captureIsOff(home, ctx.env), true);
+    assert.equal(fs.existsSync(home), false, 'reading settings.json creates no failure folder');
+  });
+
   test('while off nothing is written and no folder is created, for either source', () => {
     const viaEnv = { ...ctx.env, DOFLOW_FAILURE_CAPTURE: 'off' };
     assert.equal(captureError(new TypeError('x'), { command: 'decision' }, viaEnv), false);

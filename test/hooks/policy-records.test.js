@@ -5,7 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const os = require('node:os');
 const { tempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env');
 const { encodeEnvelope } = require('../helper/hook-fixtures');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -13,6 +15,35 @@ const POLICY_DIR = path.join(ROOT, 'core/harnesses/shared/hooks/policies');
 const FIXTURE_DIR = path.join(ROOT, 'test/fixtures/hooks/policy-golden');
 const POLICIES = ['stop-check', 'session-context', 'user-prompt-submit', 'subagent-audit'];
 const BASH = '/bin/bash';
+
+// 086 B.2b: every child process runs under a scratch HOME and XDG_CONFIG_HOME (explicit env), so no
+// hook it starts can append to the developer's ~/.config/doflow. childEnv builds that env and fails
+// the test if HOME or XDG_CONFIG_HOME still names the developer's home.
+const SCRATCH_HOME = createScratch('doflow-policy-records-home-');
+function assertScratchHome(env) {
+  const real = os.homedir();
+  const realConfig = path.join(real, '.config');
+  for (const key of ['HOME', 'XDG_CONFIG_HOME']) {
+    const value = env[key];
+    if (typeof value !== 'string' || !path.isAbsolute(value)) continue;
+    const resolved = path.resolve(value);
+    assert.ok(resolved !== real && resolved !== realConfig && !resolved.startsWith(realConfig + path.sep),
+      `${key} must be a scratch folder, not the developer's (${resolved})`);
+  }
+  return env;
+}
+function childEnv(extra = {}) {
+  const env = SCRATCH_HOME.env(extra);
+  for (const [key, value] of Object.entries(extra)) if (value === null) delete env[key];
+  return assertScratchHome(env);
+}
+
+test('negative control: a child env that keeps the developer\'s HOME or ~/.config is refused', () => {
+  assert.throws(() => assertScratchHome({ ...process.env, HOME: os.homedir() }), /HOME must be a scratch folder/);
+  assert.throws(() => assertScratchHome({ XDG_CONFIG_HOME: path.join(os.homedir(), '.config') }), /XDG_CONFIG_HOME must be a scratch folder/);
+  const env = childEnv();
+  assert.ok(env.HOME.startsWith(SCRATCH_HOME.dir) && env.XDG_CONFIG_HOME.startsWith(SCRATCH_HOME.dir), 'the default child env is the scratch one');
+});
 
 function run(policy, input, { records = false, configHome, policyDir = POLICY_DIR, env = {} } = {}) {
   let policyInput = input;
@@ -26,7 +57,7 @@ function run(policy, input, { records = false, configHome, policyDir = POLICY_DI
   const options = {
     input: policyInput,
     encoding: 'utf8',
-    env: { ...process.env, ...(records ? { DOFLOW_DECISION_FD: '3' } : {}), ...(configHome ? { XDG_CONFIG_HOME: configHome } : {}), ...env },
+    env: childEnv({ ...(records ? { DOFLOW_DECISION_FD: '3' } : {}), ...(configHome ? { XDG_CONFIG_HOME: configHome } : {}), ...env }),
   };
   if (records) options.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
   const result = spawnSync(BASH, [path.join(policyDir, `${policy}.sh`)], options);
@@ -198,7 +229,7 @@ describe('B.2 policy decision records', () => {
 
   test('sourced policy decisions remain safe under set -euo pipefail', () => {
     const script = `set -euo pipefail; bash '${path.join(POLICY_DIR, 'session-context.sh')}' <<'JSON'\n{"session_id":""}\nJSON\n`;
-    const result = spawnSync(BASH, ['-c', script], { encoding: 'utf8' });
+    const result = spawnSync(BASH, ['-c', script], { encoding: 'utf8', env: childEnv() });
     assert.equal(result.status, 0, result.stderr);
   });
 });

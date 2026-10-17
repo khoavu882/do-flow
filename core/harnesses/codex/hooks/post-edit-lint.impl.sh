@@ -24,6 +24,8 @@ TOOL_NAME=$(json_field "$INPUT" ".tool_name")
 
 # Guard: if we can't determine the session, nothing to do
 [[ -z "$SESSION_ID" ]] && exit 0
+# No config home (lib.sh leaves the state paths empty): no session store to write (086 IC-010).
+[[ -n "$SESSION_DIR" ]] || exit 0
 
 SESSION_PATH=$(ensure_session_dir "$SESSION_ID")
 

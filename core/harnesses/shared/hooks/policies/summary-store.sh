@@ -2,7 +2,8 @@
 # summary-store.sh — Canonical Policy Library: scoped compact summaries, grants and the legacy
 # adopter (feature 078, IC-010, IC-011 store write, IC-012, IC-014; DEC-003, DEC-012, DEC-014).
 #
-# Layout under STATE_DIR (${XDG_CONFIG_HOME:-$HOME/.config}/doflow/session-env):
+# Layout under STATE_DIR (lib.sh: <config home>/doflow/session-env; empty with no config home, and
+# then there is no store: peeks find nothing, writes, claims and adopts return 1):
 #   summaries/<worktreeKey>/<run>/<lineage>/summary.md            one pending summary per scope
 #   summaries/<worktreeKey>/<run>/<lineage>/.summary.XXXXXX       write temporary
 #   summaries/<worktreeKey>/<run>/<lineage>/.claimed.<unitId>     claim temporary
@@ -23,9 +24,10 @@ _doflow_ss_summary_id_ok() { [[ ${1:-} =~ ^s-[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$ 
 # A unit id (L.<run>.<lineage>.<attempt> or a harness session id) is one path segment.
 _doflow_ss_unit_ok() { [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; }
 
+# _doflow_ss_root: _DF_SS_ROOT = lib.sh's STATE_DIR; returns 1 when it is empty (no config home).
 _doflow_ss_root() {
-  _DF_SS_ROOT="${STATE_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/doflow/session-env}"
-  return 0
+  _DF_SS_ROOT="${STATE_DIR:-}"
+  [ -n "$_DF_SS_ROOT" ]
 }
 
 # _doflow_ss_key <dir>: _DF_SS_KEY = cwd_hash <dir>, remembered for the last directory asked.
@@ -50,7 +52,7 @@ doflow_summary_scope() {
   DF_SUMMARY_SCOPE=""
   _doflow_ss_id_ok "${2:-}" && _doflow_ss_id_ok "${3:-}" && [ "$3" != solo ] || return 1
   _doflow_ss_key "${1:-}" || return 1
-  _doflow_ss_root
+  _doflow_ss_root || return 1
   DF_SUMMARY_SCOPE="$_DF_SS_ROOT/summaries/$_DF_SS_KEY/$2/$3"
   return 0
 }
@@ -243,7 +245,7 @@ doflow_grant_peek() {
   DF_GRANT_BYTES=""
   _doflow_ss_id_ok "$run" && _doflow_ss_id_ok "$lineage" || return 0
   [[ $max =~ ^[1-9][0-9]{0,9}$ ]] || return 0
-  _doflow_ss_root
+  _doflow_ss_root || return 0
   dir="$_DF_SS_ROOT/grants/$run/$lineage"
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 0
   # Glob expansion is sorted (C collation here), and summary ids sort by time.
@@ -313,7 +315,7 @@ doflow_summary_adopt_legacy() {
   [ -n "$cwd" ] || return 1
   [ -n "$worktree" ] || worktree=$cwd
   _doflow_ss_key "$cwd" || return 1
-  _doflow_ss_root
+  _doflow_ss_root || return 1
   projects="${PROJECTS_DIR:-$_DF_SS_ROOT/projects}"
   old="$projects/$_DF_SS_KEY/last-compact-summary.md"
   [ -f "$old" ] && [ ! -L "$old" ] || return 1

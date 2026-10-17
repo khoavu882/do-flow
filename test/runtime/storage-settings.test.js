@@ -68,10 +68,13 @@ test('roots resolve project, global, and absolute XDG config paths', (t) => {
   assert.equal(absoluteRoots['config-home'], path.join(absolute, 'doflow'));
 });
 
-test('roots ignore a relative XDG config path', (t) => {
+test('roots ignore a relative XDG config path and use $HOME/.config; no usable HOME leaves no config home (086 DD-7)', (t) => {
   const s = setup(t);
   const roots = resolveRoots({ registry: s.registry, projectRoot: s.project, env: { HOME: s.home, XDG_CONFIG_HOME: 'relative-xdg' } });
-  assert.equal(roots['config-home'], null);
+  assert.equal(roots['config-home'], path.join(s.home, '.config', 'doflow'));
+  const none = resolveRoots({ registry: s.registry, projectRoot: s.project, env: { XDG_CONFIG_HOME: 'relative-xdg' } });
+  assert.equal(none['config-home'], null);
+  assert.equal(none['user-state'], null, 'no HOME variable: no home root, no account-home fallback');
 });
 
 test('IC-006 P0: a symbolic link in a DoFlow-owned path component refuses the store', { skip: process.platform === 'win32' }, (t) => {

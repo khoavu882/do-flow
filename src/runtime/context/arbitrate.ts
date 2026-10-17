@@ -544,6 +544,8 @@ function emitContext(options: EmitOptions): EmitResult {
   const budget = emitBudget(options.maxBytes, env);
   const max = budget.maxBytes;
   const root = stateDir(env);
+  // IC-010: with no config home there is no session store, so no bootstrap slot, ledger or claim to keep.
+  if (root === null) return { decision: { emit: false, reason: 'silent:no-home', actions: {}, claims: [], ledger: null }, text: null, pack: null, committed: false };
   const dir = path.join(root, 'sessions', unit);
   const slot = path.join(dir, 'injected');
   const ledger = readLedger(path.join(dir, 'emitted'));

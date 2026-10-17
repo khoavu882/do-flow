@@ -84,7 +84,8 @@ TRANSCRIPT_PATH=$(json_field "$INPUT" ".transcript_path")
 
 # ── 1. Lint dispatch (only when we have a session-scoped edited-files queue) ──
 
-if [ -n "$SESSION_ID" ]; then
+# With no config home (SESSION_DIR empty) there is no queue to read; the stub check below still runs.
+if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
   SESSION_PATH=$(ensure_session_dir "$SESSION_ID")
   EDITED_FILES="$SESSION_PATH/edited-files.txt"
   PROC_FILE="$SESSION_PATH/edited-files.txt.proc"
@@ -104,12 +105,14 @@ if [ -n "$SESSION_ID" ]; then
     # The resolver for the leak-scan verb. Absent install -> the scan is
     # skipped, like every other tool below: this hook has never required
     # anything to be present.
+    # HOME may be unset (an absolute XDG_CONFIG_HOME alone gives a config home): its candidates drop out.
     DOFLOW_RUN=""
+    claude_dir="${CLAUDE_CONFIG_DIR:-${HOME:+$HOME/.claude}}"
     for candidate in \
-      "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bin/doflow-run" \
-      "$HOME/.doflow/scripts/doflow/bin/doflow-run"
+      "${claude_dir:+$claude_dir/scripts/doflow/bin/doflow-run}" \
+      "${HOME:+$HOME/.doflow/scripts/doflow/bin/doflow-run}"
     do
-      [ -x "$candidate" ] && { DOFLOW_RUN="$candidate"; break; }
+      [ -n "$candidate" ] && [ -x "$candidate" ] && { DOFLOW_RUN="$candidate"; break; }
     done
 
     while IFS= read -r path; do
@@ -274,10 +277,15 @@ if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
   # Block a given message once: the continuation that follows is judged on new text, and a
   # harness with no stop_hook_active would otherwise be blocked on this one forever. State is
   # per session, or per transcript when the harness sends no session_id; any failure here
-  # leaves the block in force only for this call.
+  # leaves the block in force only for this call. With no config home there is no state store, so
+  # this policy cannot remember a block and allows the stop.
+  [ -n "$SESSION_DIR" ] || exit 0
   GUARD_KEY="$SESSION_ID"
   [ -z "$GUARD_KEY" ] && GUARD_KEY="t$(printf '%s' "$TRANSCRIPT_PATH" | cksum | cut -d' ' -f1)"
-  GUARD_FILE="$(ensure_session_dir "$GUARD_KEY" 2>/dev/null)/stop-last-blocked" || GUARD_FILE=""
+  GUARD_FILE=""
+  if [ -n "$SESSION_DIR" ]; then
+    GUARD_FILE="$(ensure_session_dir "$GUARD_KEY" 2>/dev/null)/stop-last-blocked" || GUARD_FILE=""
+  fi
   MESSAGE_SUM=$(printf '%s' "$LAST_ASSISTANT_CONTENT" | cksum 2>/dev/null) || MESSAGE_SUM=""
   if [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && [ "$(cat "$GUARD_FILE" 2>/dev/null)" = "$MESSAGE_SUM" ]; then
     exit 0

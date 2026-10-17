@@ -25,13 +25,13 @@
  */
 
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { runProbe, PROBE_TIMEOUT_MS } = require('../health.ts');
 const { updateTaskState, readTaskState } = require('../task-state.ts');
 const { stateDir } = require('../context/identity.ts');
+const { configHome } = require('../config-home.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { spawnBounded } = require('./process-tree.ts');
@@ -162,8 +162,10 @@ function probeEnv(env: any, identity: any, root: string) {
 
 /** True when `S/sessions/<unit>/bound` is a regular, non-empty file. Never follows a link. */
 function bindingObserved(env: any, unit: string): boolean {
+  const root = stateDir(env);
+  if (root === null) return false;
   try {
-    const stat = fs.lstatSync(path.join(stateDir(env), 'sessions', unit, 'bound'));
+    const stat = fs.lstatSync(path.join(root, 'sessions', unit, 'bound'));
     return stat.isFile() && stat.size > 0;
   } catch {
     return false;
@@ -182,10 +184,11 @@ function samePath(a: string, b: string): boolean {
 /** True when the last 500 lines of `sessions.log` hold a START line at or after `startedAtMs`,
  * truncated to the second, for `cwd`. */
 function sessionStartLogged(env: any, cwd: string, startedAtMs: number): boolean {
-  const config = env?.XDG_CONFIG_HOME || path.join(env?.HOME || os.homedir(), '.config');
+  const { dir } = configHome(env ?? {});
+  if (dir === null) return false;
   let text: string;
   try {
-    text = fs.readFileSync(path.join(config, 'doflow', 'sessions.log'), 'utf8');
+    text = fs.readFileSync(path.join(dir, 'sessions.log'), 'utf8');
   } catch {
     return false;
   }

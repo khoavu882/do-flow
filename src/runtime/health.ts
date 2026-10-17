@@ -767,9 +767,12 @@ const FRESHNESS_MARK: Record<string, any> = Object.freeze({
 async function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest }: any = {}) {
   const report: any = buildHealthReport({ repoRoot, projectRoot, ...rest });
   const { buildAdviceDoctor, printAdviceDoctor } = require('./advice/doctor.ts');
+  const { buildSettingsReport, printSettingsReport } = require('./settings/cli.ts');
   const adviceSections = await buildAdviceDoctor({ repoRoot, projectRoot, fsImpl: rest.fsImpl });
+  const settings = buildSettingsReport({ repoRoot, projectRoot, env: rest.env, fsImpl: rest.fsImpl });
   report.decisionModel = adviceSections.decisionModel;
   report.advice = adviceSections.advice;
+  report.settings = settings;
 
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -828,6 +831,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
 
   printMcpSections(report.mcp);
   printAdviceDoctor(adviceSections);
+  printSettingsReport(settings);
 
   if (report.warnings.length) {
     console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly');

@@ -699,7 +699,6 @@
         "core/harnesses/shared/hooks/stream-hook-runner.js",
         "core/shared/scripts/doflow/bin/doflow-run",
         "src/runtime/failure/capture.ts",
-        "src/runtime/failure/cli.ts",
         "src/runtime/failure/store.ts"
       ],
       "source": {
@@ -902,15 +901,15 @@
       "root": "project-doflow",
       "path": "",
       "entry": "file",
-      "match": "^(?:prompt-nudge|prune|decision-model\\.json)$",
+      "match": "^(?:prompt-nudge|prune|decision-model\\.json|settings\\.json|settings\\.local\\.json)$",
       "rule": "existing",
       "bound": {
-        "text": "one line each, user-authored; decision-model.json is one JSON object, written by hand or by advise --action configure"
+        "text": "prompt-nudge and prune are one line each; decision-model.json, settings.json and settings.local.json are JSON objects; settings.json files are written atomically by settings writers"
       },
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.ts"
+        "src/runtime/settings/write.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
@@ -922,15 +921,15 @@
       "root": "config-home",
       "path": "",
       "entry": "file",
-      "match": "^(?:prompt-nudge|prune|decision-model\\.json)$",
+      "match": "^(?:prompt-nudge|prune|decision-model\\.json|settings\\.json)$",
       "rule": "existing",
       "bound": {
-        "text": "one line each, user-authored; decision-model.json is one JSON object, written by hand or by advise --action configure"
+        "text": "prompt-nudge and prune are one line each; decision-model.json and settings.json are JSON objects; settings.json is written atomically by settings writers"
       },
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.ts"
+        "src/runtime/settings/write.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",

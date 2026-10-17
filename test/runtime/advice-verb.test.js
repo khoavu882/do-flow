@@ -8,6 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { spawnFakeServer } = require('../helper/fake-decision-server');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { emitDeprecatedNotes } = require('../../src/runtime/advice/cli.ts');
 
 const RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
@@ -18,6 +19,8 @@ function fixture(t, { setting = null } = {}) {
   fs.mkdirSync(project);
   const userFile = path.join(scratch.xdg, 'doflow', 'decision-model.json');
   const projectFile = path.join(project, '.doflow', 'decision-model.json');
+  const userSettingsFile = path.join(scratch.xdg, 'doflow', 'settings.json');
+  const projectSettingsFile = path.join(project, '.doflow', 'settings.json');
   const servers = [];
   t.after(async () => {
     for (const server of servers) await server.close();
@@ -25,15 +28,28 @@ function fixture(t, { setting = null } = {}) {
   });
   if (setting) writeJson(userFile, setting);
   return {
-    scratch, project, userFile, projectFile,
+    scratch, project, userFile, projectFile, userSettingsFile, projectSettingsFile,
     env: () => scratch.env({ DOFLOW_CLI: BIN }),
-    run: (args) => spawnSync('/bin/bash', [RUN, 'advise', ...args], { cwd: project, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' }),
+    run: (args, { cwd = project } = {}) => spawnSync('/bin/bash', [RUN, 'advise', ...args], { cwd, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' }),
     startServer: async (routes = {}) => {
       const server = await spawnFakeServer({ routes, dir: scratch.dir });
       servers.push(server);
       return server;
     },
   };
+}
+
+function linkProjectWorktree(main, worktree) {
+  const commonGit = path.join(main, '.git');
+  const gitdir = path.join(commonGit, 'worktrees', 'linked');
+  fs.mkdirSync(gitdir, { recursive: true });
+  fs.mkdirSync(path.join(worktree, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(commonGit, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(commonGit, 'config'), '[core]\n\trepositoryformatversion = 0\n\tbare = false\n');
+  fs.writeFileSync(path.join(worktree, '.git'), `gitdir: ${gitdir}\n`);
+  fs.writeFileSync(path.join(gitdir, 'gitdir'), `${path.join(worktree, '.git')}\n`);
+  fs.writeFileSync(path.join(gitdir, 'commondir'), '../..\n');
+  return worktree;
 }
 
 function writeJson(file, value) {
@@ -187,32 +203,127 @@ test('IC-021 configure writes user/project forms and off performs no server chec
   assert.equal(configured.status, 0, configured.stderr);
   const json = JSON.parse(configured.stdout);
   assert.equal(json.setting.state, 'on');
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.userFile, 'utf8')), {
-    schema: 1, enabled: true, provider: 'ollama', endpoint: server.origin, model: 'clef-flash',
+  assert.equal(json.written, f.userSettingsFile);
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.userSettingsFile, 'utf8')), {
+    schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': server.origin, 'advice.model': 'clef-flash',
   });
 
   // A closed endpoint makes accidental inspection fail; --off must succeed without opening a socket.
-  writeJson(f.userFile, userSetting('http://127.0.0.1:9'));
+  writeJson(f.userSettingsFile, {
+    schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama',
+    'advice.endpoint': 'http://127.0.0.1:9', 'advice.model': 'clef-flash',
+  });
   const off = f.run(['--action', 'configure', '--off', '--json']);
   assert.equal(off.status, 0, off.stderr);
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.userFile, 'utf8')), {
-    schema: 1, enabled: false, provider: 'ollama', endpoint: 'http://127.0.0.1:9', model: 'clef-flash',
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.userSettingsFile, 'utf8')), {
+    schema: 1, 'advice.enabled': false, 'advice.provider': 'ollama',
+    'advice.endpoint': 'http://127.0.0.1:9', 'advice.model': 'clef-flash',
   });
 
   const reenabled = f.run(['--action', 'configure', '--model', 'clef-flash', '--endpoint', server.origin, '--json']);
   assert.equal(reenabled.status, 0, reenabled.stderr);
   const projectOn = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json']);
   assert.equal(projectOn.status, 0, projectOn.stderr);
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectFile, 'utf8')), { schema: 1, model: 'clef-flash' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectSettingsFile, 'utf8')), { schema: 1, 'advice.model': 'clef-flash' });
   const projectOff = f.run(['--action', 'configure', '--project', '--off', '--json']);
   assert.equal(projectOff.status, 0, projectOff.stderr);
-  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectFile, 'utf8')), { schema: 1, enabled: false });
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectSettingsFile, 'utf8')), {
+    schema: 1, 'advice.enabled': false, 'advice.model': 'clef-flash',
+  });
 
   const userOff = f.run(['--action', 'configure', '--off']);
   assert.equal(userOff.status, 0, userOff.stderr);
   const projectWhileOff = f.run(['--action', 'configure', '--project', '--model', 'clef-flash']);
   assert.equal(projectWhileOff.status, 1);
   assert.match(projectWhileOff.stderr, /turn the decision model on at user level first/);
+});
+
+test('project configure in an inheriting worktree writes the main layer and keeps its disable', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  const worktree = linkProjectWorktree(f.project, path.join(f.scratch.dir, 'linked'));
+  writeJson(f.userFile, userSetting(server.origin));
+  writeJson(f.projectSettingsFile, { schema: 1, 'advice.enabled': false });
+
+  const configured = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json'], { cwd: worktree });
+  assert.equal(configured.status, 0, `${configured.stderr}\n${configured.stdout}`);
+  assert.match(configured.stderr, /decision-model\.json is deprecated; set "advice\.enabled"/);
+  const json = JSON.parse(configured.stdout);
+  assert.equal(json.written, f.projectSettingsFile);
+  assert.equal(json.inheritedFromMainCheckout, true);
+  assert.equal(json.setting.state, 'off');
+  assert.equal(json.setting.reason, 'project-disabled');
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.projectSettingsFile, 'utf8')),
+    { schema: 1, 'advice.enabled': false, 'advice.model': 'clef-flash' });
+  assert.equal(fs.existsSync(path.join(worktree, '.doflow', 'settings.json')), false);
+
+  const text = f.run(['--action', 'configure', '--project', '--model', 'clef-flash'], { cwd: worktree });
+  assert.equal(text.status, 0, text.stderr);
+  assert.ok(text.stdout.includes(`wrote ${f.projectSettingsFile} (inherited from the main checkout)`), text.stdout);
+});
+
+test('advise writes a legacy deprecation note to stderr without changing JSON stdout', async (t) => {
+  const legacy = fixture(t);
+  const server = await legacy.startServer();
+  writeJson(legacy.userFile, userSetting(server.origin));
+  const advised = legacy.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
+  assert.equal(advised.status, 0, advised.stderr);
+  assert.equal(JSON.parse(advised.stdout).status, 'answered');
+  assert.match(advised.stderr, /note: .*decision-model\.json is deprecated; set "advice\.enabled" in .*settings\.json \(read through 2\.x\)/);
+  assert.doesNotMatch(advised.stdout, /decision-model\.json is deprecated/);
+
+  const current = fixture(t);
+  writeJson(current.userSettingsFile, {
+    schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama',
+    'advice.endpoint': server.origin, 'advice.model': 'clef-flash',
+  });
+  const clean = current.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.equal(clean.stderr, '', 'control: a current settings file has no deprecation note');
+});
+
+test('advise keeps a deprecated note when its wording changes', () => {
+  const source = '/tmp/doflow-advice-note/decision-model.json';
+  const output = [];
+  const originalError = console.error;
+  console.error = (line) => output.push(String(line));
+  try {
+    emitDeprecatedNotes({
+      adviceRegistry: {},
+      roots: { 'config-home': '/tmp/doflow-advice-note/doflow', 'project-doflow': null },
+    }, () => ({
+      files: [{ path: source, layer: 'user' }],
+      notes: [{ code: 'deprecated', key: 'advice.enabled', source, text: 'Legacy settings remain supported.' }],
+      get: () => ({ value: true, state: 'ok', origin: { via: null, legacy: true, source } }),
+    }));
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(output, ['note: Legacy settings remain supported.']);
+});
+
+test('configure at user level with no config home exits 2 naming HOME or XDG_CONFIG_HOME, writes nothing and throws no TypeError (086 DD-7)', (t) => {
+  const f = fixture(t);
+  const tree = (dir) => fs.readdirSync(dir, { recursive: true }).sort();
+  for (const [name, extra] of [['HOME and XDG unset', {}], ['relative HOME and XDG', { HOME: 'rel-home', XDG_CONFIG_HOME: 'rel-xdg' }]]) {
+    for (const args of [['--off'], ['--model', 'clef-flash']]) {
+      const env = f.env();
+      delete env.HOME;
+      delete env.XDG_CONFIG_HOME;
+      Object.assign(env, extra);
+      const before = tree(f.scratch.dir);
+      const r = spawnSync(process.execPath, [BIN, 'advise', '--action', 'configure', ...args], { cwd: f.project, env, encoding: 'utf8' });
+      const label = `${name} ${args.join(' ')}`;
+      assert.equal(r.status, 2, `${label}: ${r.stderr}`);
+      assert.match(r.stderr, /doflow advise:.*an absolute HOME or XDG_CONFIG_HOME/, label);
+      assert.doesNotMatch(r.stderr, /TypeError/, label);
+      assert.deepEqual(tree(f.scratch.dir), before, `${label}: nothing was written`);
+    }
+  }
+  // control: with a config home the same command writes as before
+  const ok = f.run(['--action', 'configure', '--off']);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(fs.existsSync(f.userSettingsFile), true);
 });
 
 for (const failure of [

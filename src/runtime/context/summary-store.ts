@@ -5,7 +5,8 @@
 //
 // The TypeScript twin of `policies/summary-store.sh`: the same layout, record format, rename
 // claims, 65536-byte bounded reads and grant-fits rule, so a summary written by either side is
-// claimed by the other. Layout under stateDir() (`${XDG_CONFIG_HOME:-$HOME/.config}/doflow/session-env`):
+// claimed by the other. Layout under stateDir() (`<config home>/doflow/session-env`; with no config home
+// there is no store and every read finds nothing):
 //   summaries/<worktreeKey>/<run>/<lineage>/summary.md            one pending summary per scope
 //   summaries/<worktreeKey>/<run>/<lineage>/.summary.XXXXXX       write temporary
 //   summaries/<worktreeKey>/<run>/<lineage>/.claimed.<unitId>     claim temporary
@@ -175,11 +176,13 @@ function removeQuietly(file: string): void {
 
 /**
  * `doflow_summary_scope`: summaries/<worktreeKey>/<run>/<lineage> under stateDir(), or null when run
- * or lineage is not an id, the lineage is `solo` (no scope directory) or the worktree is empty.
+ * or lineage is not an id, the lineage is `solo` (no scope directory), the worktree is empty or there
+ * is no config home.
  */
 function summaryScope(worktree: string, run: string, lineage: string, env: Env = process.env): string | null {
   if (!idOk(run) || !idOk(lineage) || lineage === 'solo' || !worktree) return null;
-  return path.join(stateDir(env), 'summaries', cwdHash(worktree), run, lineage);
+  const root = stateDir(env);
+  return root === null ? null : path.join(root, 'summaries', cwdHash(worktree), run, lineage);
 }
 
 type OwnSummary = 'none' | 'pending' | 'own-write';
@@ -248,7 +251,9 @@ function peekGrant(run: string, lineage: string, maxBytes: number | string, env:
   if (!idOk(run) || !idOk(lineage)) return none;
   const max = String(maxBytes);
   if (!MAX_BYTES_PATTERN.test(max)) return none;
-  const dir = path.join(stateDir(env), 'grants', run, lineage);
+  const root = stateDir(env);
+  if (root === null) return none;
+  const dir = path.join(root, 'grants', run, lineage);
   let names: string[];
   try {
     if (!fs.lstatSync(dir).isDirectory()) return none;
@@ -291,7 +296,9 @@ function peekGrant(run: string, lineage: string, maxBytes: number | string, env:
 function claimGrant(run: string, lineage: string, unitId: string, summaryId: string, env: Env = process.env): { grant: GrantState; id: string | null; claimed: string | null; origin: string | null } {
   const none = { grant: 'none' as GrantState, id: null, claimed: null, origin: null };
   if (!idOk(run) || !idOk(lineage) || !UNIT_PATTERN.test(unitId) || !SUMMARY_ID_PATTERN.test(summaryId)) return none;
-  const origin = path.join(stateDir(env), 'grants', run, lineage, `${summaryId}.md`);
+  const root = stateDir(env);
+  if (root === null) return none;
+  const origin = path.join(root, 'grants', run, lineage, `${summaryId}.md`);
   if (!regularFile(origin)) return none;
   const claimed = path.join(path.dirname(origin), `.claimed.${unitId}.${summaryId}`);
   try {
@@ -325,8 +332,9 @@ function releaseClaim(claimed: string, origin: string): boolean {
  * not a symlink, else null. This and adoptLegacy() are the TypeScript side's only use of the name.
  */
 function legacySummary(cwd: string, env: Env = process.env): string | null {
-  if (!cwd) return null;
-  const old = path.join(stateDir(env), 'projects', cwdHash(cwd), 'last-compact-summary.md');
+  const root = stateDir(env);
+  if (!cwd || root === null) return null;
+  const old = path.join(root, 'projects', cwdHash(cwd), 'last-compact-summary.md');
   return regularFile(old) ? old : null;
 }
 
@@ -426,6 +434,8 @@ function grantSummary(options: GrantOptions): { summaryId: string; path: string;
     throw new SummaryStoreError('usage', '--to-run local --to-lineage main is the default main scope, not a launched recipient');
   }
   if (!MAX_BYTES_PATTERN.test(max)) throw new SummaryStoreError('usage', '--max-bytes must be a positive integer');
+  const root = stateDir(env);
+  if (root === null) throw new SummaryStoreError('usage', 'no config home resolves (set HOME or an absolute XDG_CONFIG_HOME), so there is no session store to grant into');
   const scope = summaryScope(fromWorktree, fromRun, fromLineage, env);
   if (scope === null) throw new SummaryStoreError('usage', 'the source scope needs a worktree, a run id and a non-solo lineage id');
 
@@ -450,7 +460,7 @@ function grantSummary(options: GrantOptions): { summaryId: string; path: string;
     throw new SummaryStoreError('over-budget', `the granted summary exceeds the ${max}-byte budget`);
   }
 
-  const dir = path.join(stateDir(env), 'grants', options.toRun, options.toLineage);
+  const dir = path.join(root, 'grants', options.toRun, options.toLineage);
   const target = path.join(dir, `${summaryId}.md`);
   if (fs.existsSync(target) || isLink(target)) throw new SummaryStoreError('grant-exists', `grant ${summaryId} already present for ${options.toRun}/${options.toLineage}`);
 
@@ -569,8 +579,9 @@ function scopeContext(worktree: string, run: string, lineage: string, env: Env =
   }
 
   const grants: ScopeGrant[] = [];
-  const dir = path.join(stateDir(env), 'grants', run, lineage);
-  for (const name of listNames(dir)) {
+  const root = stateDir(env);
+  const dir = path.join(root ?? '', 'grants', run, lineage);
+  for (const name of root === null ? [] : listNames(dir)) {
     if (!name.endsWith('.md')) continue;
     const summaryId = name.slice(0, -3);
     const file = path.join(dir, name);

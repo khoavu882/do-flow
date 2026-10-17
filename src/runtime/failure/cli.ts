@@ -12,9 +12,11 @@
  */
 
 const fs = require('node:fs');
+const path = require('node:path');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { maskLine, printSafe } = require('../mask.ts');
-const { failureHome, captureSwitch, sentinelPath } = require('./home.ts');
+const { failureHome, captureSwitchDetailed } = require('./home.ts');
+const { writeLayer, backupLayerFile } = require('../settings/write.ts');
 const { rotateIfDue } = require('./capture.ts');
 const store = require('./store.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
@@ -119,19 +121,33 @@ function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date(
 
 // ── capture ────────────────────────────────────────────────────────────────────────────────────
 
-function captureState({ set, env = process.env, now = new Date() }: any = {}): any {
+function captureState({ set, env = process.env }: any = {}): any {
   if (set !== undefined && set !== 'on' && set !== 'off') throw new FailureUsageError(`--set must be on or off (got '${set}')`);
   const home = failureHome(env);
-  if (home !== null && set === 'off') {
-    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(sentinelPath(home), `${now.toISOString()}\n`, { mode: 0o600 });
-  } else if (home !== null && set === 'on') {
-    fs.rmSync(sentinelPath(home), { force: true });
+  let settingsFile: string | null = null;
+  if (home !== null && set !== undefined) {
+    const file = path.join(path.dirname(home), 'settings.json');
+    settingsFile = file;
+    const written = writeLayer({ file, set: { 'failure.capture': set }, scrubKeys: set === 'on' ? ['failure.capture'] : [] });
+    if (!written.ok && set === 'off' && written.code === 'unparseable') {
+      const backup = backupLayerFile(file);
+      if (!backup.ok) return refusal('capture', 'write-failed', backup.detail);
+      console.error(printSafe(`note: malformed settings preserved at ${backup.file}`));
+      const recovered = writeLayer({ file, set: { 'failure.capture': set }, force: true });
+      if (!recovered.ok) return refusal('capture', 'write-failed', recovered.detail);
+    } else if (!written.ok) {
+      return refusal('capture', 'write-failed', written.detail);
+    }
   }
-  const state = captureSwitch(home, env);
+  const state = captureSwitchDetailed(home, env);
+  if (settingsFile && state.decidedBy === 'core/registry/settings.json') state.decidedBy = settingsFile;
+  for (const note of state.deprecatedNotes) console.error(printSafe(`note: ${note}`));
   // With no failure home nothing is captured, whatever the switch says.
   const result: any = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, sentinel: state.sentinel, env: state.env };
   if (home === null) result.home = null;
+  else if (set !== undefined) {
+    result.decidedBy = state.decidedBy;
+  }
   return result;
 }
 
@@ -147,7 +163,7 @@ function lines(result: any): string[] {
     return [...out, ...result.next.map((n: string) => `next: ${n}`)];
   }
   if (result.action === 'settle') return [`${result.fp} settled as ${result.as}${result.followup ? `, follow-up ${result.followup.id}` : ''}`];
-  return [`capture ${result.effective}${result.sentinel ? ' (switched off on this machine)' : ''}${result.env ? ` (DOFLOW_FAILURE_CAPTURE=${result.env})` : ''}`];
+  return [`capture ${result.effective}${result.sentinel ? ' (switched off on this machine)' : ''}${result.env ? ` (DOFLOW_FAILURE_CAPTURE=${result.env})` : ''}${result.decidedBy ? ` (decided by ${result.decidedBy})` : ''}`];
 }
 
 /**

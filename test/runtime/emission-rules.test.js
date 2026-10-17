@@ -24,7 +24,7 @@ function runGenerator(root, ...args) {
 /** A minimal copy of the generator, its imports and the committed table, so a test can edit either side. */
 function sandbox(t) {
   const root = tempDir(t, 'doflow-emission-rules-');
-  for (const rel of ['src/helper/repo-root.ts', 'src/runtime/context/arbitrate.ts', 'src/runtime/context/identity.ts', GENERATOR_REL, TABLE_REL]) {
+  for (const rel of ['src/helper/repo-root.ts', 'src/runtime/context/arbitrate.ts', 'src/runtime/context/identity.ts', 'src/runtime/config-home.ts', GENERATOR_REL, TABLE_REL]) {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.copyFileSync(path.join(REPO, rel), path.join(root, rel));
   }

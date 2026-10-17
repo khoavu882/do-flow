@@ -182,11 +182,42 @@ test('stream-hook-runner capture: runner-exception with HOME unset and no XDG_CO
   assert.equal(a.stdout, '{"decision":"allow"}\n');
 });
 
-test('stream-hook-runner capture: a relative XDG_CONFIG_HOME is skipped', () => {
+// 086 C23 (IC-003 case 9): a relative XDG_CONFIG_HOME is ignored, so a usable HOME decides.
+test('stream-hook-runner capture: a relative XDG_CONFIG_HOME is ignored and the line lands under $HOME/.config', () => {
   const m = capMachine('relxdg');
   const r = runRunner(m, RUNNER, ['PreToolUse'], 'null', { env: { XDG_CONFIG_HOME: 'rel/cfg' } });
   assert.equal(r.status, 0);
-  assert.equal(fs.existsSync(path.join(m.cwd, 'rel')), false);
+  assert.equal(fs.existsSync(path.join(m.cwd, 'rel')), false, 'never read against the working directory');
+  const events = path.join(m.home, '.config', 'doflow', 'failures', 'events.jsonl');
+  assert.deepEqual(fs.readFileSync(events, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).kind), ['runner-exception']);
+});
+
+test('stream-hook-runner capture: a relative XDG_CONFIG_HOME with HOME unset has no config home, output identical', () => {
+  const on = capMachine('relxdg-nohome');
+  const off = capMachine('relxdg-nohome-off');
+  const go = (m, extra) => {
+    const env = { ...process.env, XDG_CONFIG_HOME: 'rel/cfg', DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: 'antigravity', ...extra };
+    delete env.HOME;
+    const r = spawnSync(process.execPath, [RUNNER, 'PreToolUse'], { cwd: m.cwd, env, input: 'null', encoding: 'utf8' });
+    return [r.status, r.stdout, r.stderr];
+  };
+  const a = go(on, {});
+  assert.deepEqual(a, go(off, { DOFLOW_FAILURE_CAPTURE: 'off' }));
+  assert.deepEqual(fs.readdirSync(on.cwd), [], 'nothing created in the working directory');
+});
+
+test('stream-hook-runner capture: failure.capture "off" in settings.json beside the failure home turns capture off', () => {
+  const m = capMachine('settings-off');
+  fs.mkdirSync(path.join(m.xdg, 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(m.xdg, 'doflow', 'settings.json'), '{"schema":1,"failure.capture":"off"}\n');
+  runRunner(m, RUNNER, ['PreToolUse'], 'null');
+  assert.equal(fs.existsSync(m.failures), false);
+  // control: "on" leaves capture on
+  const c = capMachine('settings-on');
+  fs.mkdirSync(path.join(c.xdg, 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(c.xdg, 'doflow', 'settings.json'), '{"schema":1,"failure.capture":"on"}\n');
+  runRunner(c, RUNNER, ['PreToolUse'], 'null');
+  assert.equal(capLines(c).length, 1);
 });
 
 test('stream-hook-runner capture: an unwritable store is silent', () => {

@@ -10,8 +10,8 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { configHome } = require('../config-home.ts');
 
 /** DEC-024: a launched unit id `L.<run>.<lineage>.<attempt>` stays inside the 128-character session-dirs match. */
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
@@ -45,10 +45,10 @@ interface ResolveOptions {
 
 let roleWarned = false;
 
-/** `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/session-env`, the root `policies/lib.sh` names STATE_DIR. */
-function stateDir(env: Env = process.env): string {
-  const config = env.XDG_CONFIG_HOME || path.join(env.HOME || os.homedir(), '.config');
-  return path.join(config, 'doflow', 'session-env');
+/** `<config home>/doflow/session-env`, the root `policies/lib.sh` names STATE_DIR; null with no config home (IC-010), and the callers then skip session state. */
+function stateDir(env: Env = process.env): string | null {
+  const { dir } = configHome(env);
+  return dir === null ? null : path.join(dir, 'session-env');
 }
 
 /** `(cd "$p" && pwd -P)`: the physical path of an existing directory, or null. */
@@ -104,7 +104,9 @@ function readWorktree(raw: string | undefined, cwd: string): string {
  * inherited session (L1-04).
  */
 function bindUnit(env: Env, unitId: string, sessionId: string): boolean {
-  const dir = path.join(stateDir(env), 'sessions', unitId);
+  const root = stateDir(env);
+  if (root === null) return false;
+  const dir = path.join(root, 'sessions', unitId);
   const file = path.join(dir, 'bound');
   try {
     fs.mkdirSync(dir, { recursive: true });

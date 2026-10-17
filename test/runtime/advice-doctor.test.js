@@ -253,14 +253,16 @@ test('doctor inspection probe timeout and exhausted budget fail open', async (t)
   assert.deepEqual(budgetServer.requests, []);
 });
 
-test('both sections are between consultations and warnings/findings without affecting health result', (t) => {
+test('doctor settings section joins the advice sections without affecting health result', (t) => {
   const f = fixture(t);
   const base = f.run(true); const text = f.run();
   assert.equal(base.status, text.status);
   const report = JSON.parse(base.stdout);
+  assert.equal(report.settings.configHome.dir, path.join(f.scratch.xdg, 'doflow'));
   assert.deepEqual(report.findings, JSON.parse(f.run(true).stdout).findings);
   assert.deepEqual(report.warnings, JSON.parse(f.run(true).stdout).warnings);
-  const order = ['[MCP Consultations]', '[Decision Model]', '[Advice Agreement]', '[Warnings]', '[Findings]']
+  const order = ['[MCP Consultations]', '[Decision Model]', '[Advice Agreement]', '[Settings]', '[Warnings]', '[Findings]']
     .map((header) => text.stdout.indexOf(header)).filter((index) => index >= 0);
+  assert.ok(text.stdout.includes('[Settings]'));
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
 });
