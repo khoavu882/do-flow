@@ -206,16 +206,59 @@ test('interpreter discovery negative controls: missing launcher, env shebang, mi
   process.env.PATH = prior; process.env.HOME = priorHome;
   // The bridge proves the pinned version and reports what it found.
   assert.equal((await runSembleLifecycle({ ...f.options, action: 'build' })).ok, true);
-  const dist = path.join(process.env.PYTHONPATH, 'semble-0.6.1.dist-info');
-  fs.writeFileSync(path.join(dist, 'METADATA'), 'Name: semble\nVersion: 0.7.0\n');
+  const dist = path.join(process.env.PYTHONPATH, 'semble-0.7.0.dist-info');
+  fs.writeFileSync(path.join(dist, 'METADATA'), 'Name: semble\nVersion: 0.6.1\n');
   const mismatch = await runSembleQuery({ ...f.options, query: 'answer' });
-  assert.equal(mismatch.reason, 'provider-version-mismatch'); assert.match(mismatch.cause, /has semble 0\.7\.0; the bridge pins 0\.6\.1/);
+  assert.equal(mismatch.reason, 'provider-version-mismatch'); assert.match(mismatch.cause, /has semble 0\.6\.1; the bridge pins 0\.7\.0/);
   const paths = semanticStatePaths(f.inventory); const manifest = fs.readFileSync(paths.manifest, 'utf8');
   const preflight = await runSembleLifecycle({ ...f.options, action: 'build' });
-  assert.equal(preflight.reason, 'provider-version-mismatch'); assert.match(preflight.cause, /has semble 0\.7\.0; the bridge pins 0\.6\.1/);
+  assert.equal(preflight.reason, 'provider-version-mismatch'); assert.match(preflight.cause, /has semble 0\.6\.1; the bridge pins 0\.7\.0/);
   assert.equal(fs.existsSync(paths.marker), false, 'a wrong version is refused before the in-progress marker');
   assert.equal(fs.readFileSync(paths.manifest, 'utf8'), manifest, 'the published generation is untouched');
   fs.rmSync(dist, { recursive: true });
   const absent = await runSembleQuery({ ...f.options, python: execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim(), query: 'answer' });
   assert.equal(absent.reason, 'provider-unavailable'); assert.match(absent.cause, /semble is not installed/);
+});
+
+test('Semble 0.7.0 BM25 npz is validated before the loader: archive, members, sizes, doc_order and cache_version', async t => {
+  const f = fixture(t); assert.equal((await runSembleLifecycle({ ...f.options, action: 'build' })).ok, true);
+  const paths = semanticStatePaths(f.inventory);
+  const npzFile = path.join(paths.index, 'bm25_index', 'index.npz'); const metaFile = path.join(paths.index, 'metadata.json');
+  const original = fs.readFileSync(npzFile); const meta = fs.readFileSync(metaFile, 'utf8');
+  process.env.FAKE_PROVIDER_MODE = 'network'; // a loader call would surface as provider-load-or-operation-error
+  const query = async () => (await runSembleQuery({ ...f.options, query: 'answer' })).reason;
+  const centralEntries = (buf) => { const end = buf.length - 22; let at = buf.readUInt32LE(end + 16); const out = [];
+    for (let i = 0; i < buf.readUInt16LE(end + 10); i++) { out.push(at); at += 46 + buf.readUInt16LE(at + 28) + buf.readUInt16LE(at + 30) + buf.readUInt16LE(at + 32); } return out; };
+  const withNpz = async (mutate) => { const buf = Buffer.from(original); fs.writeFileSync(npzFile, mutate(buf) || buf); const reason = await query(); fs.writeFileSync(npzFile, original); return reason; };
+  // Archive damage and member identity.
+  assert.equal(await withNpz((b) => b.subarray(0, b.length - 10)), 'invalid-bm25-archive', 'truncated');
+  assert.equal(await withNpz((b) => { b[centralEntries(b)[0] - 5] ^= 0xff; }), 'invalid-bm25-archive', 'garbled member bytes (CRC)');
+  assert.equal(await withNpz((b) => Buffer.from(b.toString('latin1').replaceAll('tfs.npy', 'tfx.npy'), 'latin1')), 'invalid-bm25-archive', 'wrong member names');
+  // Zip-bomb shapes: a compressed member, or a member claiming more bytes than the archive holds.
+  assert.equal(await withNpz((b) => { b.writeUInt16LE(8, centralEntries(b)[3] + 10); }), 'invalid-bm25-archive', 'deflate member');
+  assert.equal(await withNpz((b) => { const at = centralEntries(b)[3]; b.writeUInt32LE(0x7fffffff, at + 20); b.writeUInt32LE(0x7fffffff, at + 24); }), 'invalid-bm25-archive', 'oversized member claim');
+  // doc_order that disagrees with the chunk ids, written by the same numpy-layout writer.
+  const ids = JSON.parse(fs.readFileSync(path.join(paths.index, 'chunks.json'), 'utf8')).map((c) => `${c.file_path}:0`);
+  execFileSync('python3', ['-c', 'import json, sys; sys.path.insert(0, sys.argv[1]); from semble.index import save_bm25; save_bm25(sys.argv[2], json.loads(sys.argv[3]))',
+    process.env.PYTHONPATH, npzFile, JSON.stringify(ids.slice().reverse())]);
+  assert.equal(await query(), 'inconsistent-artifacts', 'doc_order mismatch');
+  fs.writeFileSync(npzFile, original);
+  for (const version of [1, 3]) {
+    fs.writeFileSync(metaFile, JSON.stringify({ ...JSON.parse(meta), cache_version: version }));
+    assert.equal(await query(), 'incompatible-index', `cache_version ${version}`);
+  }
+  fs.writeFileSync(metaFile, meta);
+  assert.equal(await query(), 'provider-load-or-operation-error', 'the intact index reaches the loader (which then hits the network trap)');
+});
+
+test('one Semble pin: bridge VERSION, provider SEMBLE_VERSION and the hybrid-c-v1 protocol pin cannot diverge', () => {
+  const { SEMBLE_VERSION } = require('../../src/runtime/knowledge/semble-provider.ts');
+  const protocol = require('../../bench/retrieval/lib/hybrid-protocol.js');
+  const bridgeOf = (src) => (/^VERSION = "([^"]+)"/m.exec(src) || [])[1];
+  const findings = (bridge, pins) => [...(bridgeOf(bridge) !== SEMBLE_VERSION ? ['bridge'] : []), ...(pins.semble !== SEMBLE_VERSION ? ['protocol'] : [])];
+  const bridge = fs.readFileSync(path.join(__dirname, '../../src/runtime/knowledge/semble-bridge.py'), 'utf8');
+  assert.deepEqual(findings(bridge, protocol.TOOL_PINS), []);
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../../bench/retrieval/lib/hybrid-protocol.js'), 'utf8'), /\d+\.\d+\.\d+'\s*,\s*graphify/, 'no second semble literal');
+  assert.deepEqual(findings(bridge.replace(`VERSION = "${SEMBLE_VERSION}"`, 'VERSION = "9.9.9"'), protocol.TOOL_PINS), ['bridge']);
+  assert.deepEqual(findings(bridge, { ...protocol.TOOL_PINS, semble: '9.9.9' }), ['protocol']);
 });

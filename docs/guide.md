@@ -146,9 +146,9 @@ lookups always use the bounded lexical path. A conceptual query can request the 
 profile, which combines lexical candidates with a local Semble index and falls back to lexical
 retrieval when Semble is unavailable or the index is stale.
 
-Prepare the optional provider before invoking it: install Semble 0.6.1 and its required Python
-dependencies in the Python environment selected by `python3`, and keep a compatible model already
-present on disk. Set `SEMBLE_MODEL_PATH` to that absolute model directory, or pass `--model-path`.
+Prepare the optional provider before invoking it: install Semble 0.7.0 and its required Python
+dependencies in the environment of the `semble` launcher (found on PATH, then in `~/.local/bin`),
+and keep a compatible model already present on disk. Set `SEMBLE_MODEL_PATH` to that absolute model directory, or pass `--model-path`.
 DoFlow does not download models or install Python packages. Provider calls set the model libraries'
 offline flags and redirect their caches and temporary statistics into a bounded, project-local
 temporary directory.

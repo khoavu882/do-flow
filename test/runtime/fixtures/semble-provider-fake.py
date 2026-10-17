@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import struct
 import sys
+import zipfile
 from types import SimpleNamespace
 
 
@@ -16,7 +17,7 @@ def log(action, **values):
 def side_effects():
     mode = os.environ.get('FAKE_PROVIDER_MODE')
     if mode == 'grammar-extract':
-        # Real 0.6.1 extracts a ~456 KiB tree-sitter library into the redirected library cache.
+        # Real 0.7.0 extracts a ~456 KiB tree-sitter library into the redirected library cache.
         target = Path(os.environ['SEMBLE_GRAMMARS_CACHE_DIR']) / 'macos-arm64'
         target.mkdir(parents=True, exist_ok=True)
         (target / 'libtree_sitter_javascript.dylib').write_bytes(b'g' * 466944)
@@ -32,6 +33,25 @@ def side_effects():
             probe.write_bytes(b'p')
             probe.unlink()
             n += 1
+
+
+def npy(descr, values):
+    # numpy .npy v1: magic, header dict padded to 64 bytes, raw little-endian values.
+    header = repr({'descr': descr, 'fortran_order': False, 'shape': (len(values),)})
+    header += ' ' * ((64 - (10 + len(header) + 1) % 64) % 64) + '\n'
+    body = bytes(values) if descr == '|u1' else struct.pack('<%d%s' % (len(values), 'q' if descr == '<i8' else 'i'), *values)
+    return b'\x93NUMPY\x01\x00' + struct.pack('<H', len(header)) + header.encode() + body
+
+
+def save_bm25(target, ids):
+    # The layout numpy.savez writes for Semble 0.7.0: a stored zip with zip64 local extras, members in this order.
+    packed = lambda strings: list(('\0'.join([*strings, ''])).encode())
+    members = {'doc_order': npy('|u1', packed(ids)), 'terms': npy('|u1', packed(['term'])), 'offsets': npy('<i8', [0, len(ids)]),
+               'docs': npy('<i4', list(range(len(ids)))), 'tfs': npy('<i4', [1] * len(ids)), 'doc_lengths': npy('<i4', [1] * len(ids))}
+    with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_STORED) as archive:
+        for name, data in members.items():
+            with archive.open(name + '.npy', 'w', force_zip64=True) as member:
+                member.write(data)
 
 
 class SembleIndex:
@@ -81,10 +101,10 @@ class SembleIndex:
         (target / 'bm25_index').mkdir()
         (target / 'semantic_index').mkdir()
         files = {c['file_path']: {'mtime_ns': (Path(self.root) / c['file_path']).stat().st_mtime_ns, 'start': i, 'count': 1} for i,c in enumerate(self.chunks)}
-        (target / 'metadata.json').write_text(json.dumps({'root_path': self.root, 'model_path': self.model, 'cache_version': 1, 'chunk_size': 750, 'content_type': ['code'], 'files': files, 'time': __import__('time').time()}))
+        (target / 'metadata.json').write_text(json.dumps({'root_path': self.root, 'model_path': self.model, 'cache_version': 2, 'chunk_size': 750, 'content_type': ['code'], 'files': files, 'time': __import__('time').time()}))
         (target / 'chunks.json').write_text(json.dumps(self.chunks))
         ids = [f'{c["file_path"]}:0' for c in self.chunks]
-        (target / 'bm25_index' / 'index.json').write_text(json.dumps({'documents': {i: {'term': 1} for i in ids}, 'doc_order': ids}))
+        save_bm25(target / 'bm25_index' / 'index.npz', ids)
         (target / 'semantic_index' / 'arguments.json').write_text('{"metric":"cosine"}')
         header = repr({'descr': '<f4', 'fortran_order': False, 'shape': (len(self.chunks), 2)})
         header += ' ' * ((64 - (10 + len(header) + 1) % 64) % 64) + '\n'
@@ -96,8 +116,8 @@ if __name__ == '__main__':
     (dest / 'semble' / '__init__.py').write_text('')
     (dest / 'semble' / 'index.py').write_text(Path(__file__).read_text())
     (dest / 'semble' / 'types.py').write_text('from enum import Enum\nclass ContentType(str, Enum):\n    CODE = "code"\n')
-    metadata = dest / 'semble-0.6.1.dist-info'; metadata.mkdir()
-    (metadata / 'METADATA').write_text('Name: semble\nVersion: 0.6.1\n')
+    metadata = dest / 'semble-0.7.0.dist-info'; metadata.mkdir()
+    (metadata / 'METADATA').write_text('Name: semble\nVersion: 0.7.0\n')
     for package in ('numpy', 'model2vec', 'tokenizers', 'huggingface-hub', 'safetensors', 'vicinity'):
         metadata = dest / (package.replace('-', '_') + '-1.0.dist-info'); metadata.mkdir()
         (metadata / 'METADATA').write_text(f'Name: {package}\nVersion: 1.0\n')

@@ -53,8 +53,7 @@ test('candidates on one file share one live read and charge the aggregate budget
 });
 
 test('IC-007 default aggregate live-read cap is 1 MiB and stays a hard bound', t => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-validation-cap-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = fs.realpathSync(require('../helper/tmp').tempDir(t, 'doflow-code-validation-cap-'));
   const names = ['a.js', 'b.js', 'c.js', 'd.js', 'e.js'];
   // 300 KiB each: three fit under 1 MiB (a 256 KiB cap admits none), the rest exceed the remainder.
   for (const name of names) fs.writeFileSync(path.join(root, name), `// ${name}\n${'y'.repeat(300 * 1024 - 10)}\n`);

@@ -2,13 +2,14 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { SEMBLE_VERSION } = require('../../../src/runtime/knowledge/semble-provider.ts');
 
 const ID = 'hybrid-c-v1';
 const CONFIGS = ['A', 'B', 'C'];
 const CORPORA = ['code', 'guidance'];
 /** DEC-017: hybrid-c-v1 re-measures A/B/C on these tool versions (`--version` first lines). They replace the
  * snapshot's pins for these ids in this protocol only; snapshot.json and the legacy A/B verdict stay as measured. */
-const TOOL_PINS = Object.freeze({ semble: '0.7.0', graphify: 'graphify 0.9.92', rtk: 'rtk 1.0.1' });
+const TOOL_PINS = Object.freeze({ semble: SEMBLE_VERSION, graphify: 'graphify 0.9.92', rtk: 'rtk 1.0.1' });
 
 /** Re-grade a `verifySnapshot` outcome against TOOL_PINS: manifest/commit failures (3) stand, tool drift (4) is recomputed. */
 function applyToolPins(verified) {

@@ -20,7 +20,7 @@ const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
 
 function providerFindings(bridge) {
   const findings = [];
-  if (!/VERSION\s*=\s*['"]0\.6\.1['"]/.test(bridge)) findings.push('G43.1: bridge does not pin Semble 0.6.1');
+  if (!/VERSION\s*=\s*['"]0\.7\.0['"]/.test(bridge)) findings.push('G43.1: bridge does not pin Semble 0.7.0');
   if (!/index\.search\([^\n]*top_k\s*=\s*200[^\n]*alpha\s*=\s*1\.0[^\n]*rerank\s*=\s*False/.test(bridge)) findings.push('G43.1: query is not bounded dense-only public search');
   if (!/Preserve the returned order/.test(bridge)) findings.push('G43.1: bridge does not preserve provider-native order');
   if (!/sys\.addaudithook\(audit\)/.test(bridge) || !/socket\./.test(bridge) || !/provider-write-outside-state/.test(bridge)) findings.push('G43.1: bridge lacks network and write-boundary policy');
@@ -73,7 +73,7 @@ test('G43.1: pinned provider boundary is public, bounded, offline and query-read
 test('G43.1 control: provider API, ordering, network, write and query mutation violations are named', () => {
   const bridge = read('src/runtime/knowledge/semble-bridge.py');
   for (const [mutate, expected] of [
-    [(s) => s.replace('VERSION = "0.6.1"', 'VERSION = "0.7.0"'), /pin Semble/],
+    [(s) => s.replace('VERSION = "0.7.0"', 'VERSION = "0.6.1"'), /pin Semble/],
     [(s) => s.replace('SembleIndex.load_from_disk(Path(request["indexPath"]))', 'SembleIndex.from_path(Path(request["indexPath"]))'), /public read API/],
     [(s) => s.replace('top_k=200, alpha=1.0, rerank=False', 'top_k=500, alpha=0.5, rerank=True'), /bounded dense-only/],
     [(s) => s.replace('        # Public scores are provider-native distinct ranks; sorting them cannot\n        # recover dense ties hidden inside Semble. Preserve the returned order.\n', ''), /preserve provider-native order/],

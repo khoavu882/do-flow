@@ -171,7 +171,7 @@ analyzer set, which belongs to a skill rather than to the runtime and is fixture
 Code retrieval is an additive path in `src/runtime/knowledge/`; the existing guidance search keeps
 its BM25 index and output. `doflow retrieve --scope code` admits one bounded project corpus, routes
 exact lookups to live lexical search, and defaults conceptual searches to lexical-only. The
-opt-in `hybrid` profile adds Semble 0.6.1 only for conceptual queries. Its Python bridge is a
+opt-in `hybrid` profile adds Semble 0.7.0 only for conceptual queries. Its Python bridge is a
 separate subprocess using the public API and a prebuilt project-local index; model files and Python
 packages must already exist locally. Provider calls run with offline flags and a disposable bounded
 cache/statistics sink. Index build and refresh are explicit commands; a failed mutation reports
@@ -764,7 +764,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `'config'`, `'--no-verify'`, `'checkout'` or `'merge'` (G42.6).
 - **G43** (`hybrid-retrieval.test.js`) — the separate `hybrid-c-v1` protocol preserves A/B
   history; its six aggregate slots are reserved before holdout decryption and released only on a
-  failed pre-evaluation check; the Semble 0.6.1 bridge uses bounded public dense search, preserves
+  failed pre-evaluation check; the Semble 0.7.0 bridge uses bounded public dense search, preserves
   provider order, denies network and confines writes, and never rebuilds during query; and the
   promotion gate cannot pass with missing thresholds or unreached paid T-005/T-006 (G43.1–G43.3).
   Package and runtime-projection conformance are exercised separately by the focused release and

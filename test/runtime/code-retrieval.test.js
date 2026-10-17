@@ -126,8 +126,7 @@ test('explicit index action calls lifecycle only and rejects simultaneous query'
 });
 
 test('a lexical bound hit is reported with its bounds cause, never as provider-error', async (t) => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-retrieval-bound-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = fs.realpathSync(require('../helper/tmp').tempDir(t, 'doflow-code-retrieval-bound-'));
   fs.writeFileSync(path.join(root, 'many.js'), Array.from({ length: 205 }, (_, i) => `parseToken(${i});`).join('\n') + '\n');
   const inventory = admitCodeCorpus({ root, files: ['many.js'] });
   const result = await executeCodeRetrieval({ query: 'parseToken', root, providers: { router, inventory } });

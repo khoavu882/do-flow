@@ -1,4 +1,4 @@
-"""Semble 0.6.1 public API adapter. One bounded JSON request per process.
+"""Semble 0.7.0 public API adapter. One bounded JSON request per process.
 
 The audit policy denies network and child processes even on model loader retry paths.
 It also confines Python writes to the invocation's declared project-local cache/staging.
@@ -12,7 +12,7 @@ import platform
 from pathlib import Path
 import sys
 
-VERSION = "0.6.1"
+VERSION = "0.7.0"  # must equal SEMBLE_VERSION in semble-provider.ts (tested)
 RUNTIME_PACKAGES = ("numpy", "model2vec", "tokenizers", "huggingface-hub", "safetensors", "vicinity")
 
 

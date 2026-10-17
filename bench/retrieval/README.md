@@ -31,7 +31,7 @@ content do not enter result files or the gate report. Comparisons are computed f
 and consume no additional result slot.
 
 For development comparisons, prepare an isolated export of the pinned snapshot, a local Semble
-0.6.1 Python environment with its required dependencies, and a compatible model already on disk.
+0.7.0 Python environment with its required dependencies, and a compatible model already on disk.
 Set `SEMBLE_MODEL_PATH` to that model directory before choosing the development run. The adapter
 does not install packages or fetch models. Hybrid stays opt-in, and the promotion record remains
 incomplete until repeated provider conformance and every required gate are established; paid

@@ -5,8 +5,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const zlib = require('node:zlib');
 const { spawn, spawnSync } = require('node:child_process');
-const SEMBLE_VERSION = '0.6.1';
+const SEMBLE_VERSION = '0.7.0';
 const SEMBLE_LIMITS = Object.freeze({ files: 2000, fileBytes: 1048576, sourceBytes: 67108864,
   chunks: 50000, artifactBytes: 268435456, modelBytes: 536870912, outputBytes: 2097152,
   statsBytes: 65536, libraryBytes: 134217728, queryMs: 10000, lifecycleMs: 120000, changedFiles: 500, changedBytes: 16777216 });
@@ -134,15 +135,75 @@ function checkSources(inventory: any, limits: any): void {
   const next = fingerprintCorpus(inventory);
   if (!next.complete || next.identity !== inventory.identity || next.scopeIgnoreDigest !== inventory.scopeIgnoreDigest) throw fault('corpus-changed', 'STALE');
 }
+// Semble 0.7.0 saves BM25 as `bm25_index/index.npz`: numpy's stored (uncompressed) zip of six 1-D .npy members.
+// Parse it here without NumPy so a garbled, compressed, oversized or inconsistent archive is refused before the loader.
+const BM25_MEMBERS: Record<string, string> = { 'doc_order.npy': '|u1', 'terms.npy': '|u1', 'offsets.npy': '<i8', 'docs.npy': '<i4', 'tfs.npy': '<i4', 'doc_lengths.npy': '<i4' };
+function npzMembers(buffer: Buffer): Map<string, Buffer> {
+  const bad = () => fault('invalid-bm25-archive');
+  const end = buffer.length - 22; // numpy writes no archive comment, so the end record closes the file
+  if (end < 0 || buffer.readUInt32LE(end) !== 0x06054b50) throw bad();
+  const count = buffer.readUInt16LE(end + 10); const size = buffer.readUInt32LE(end + 12); const directory = buffer.readUInt32LE(end + 16); let cursor = directory;
+  if (buffer.readUInt16LE(end + 4) !== 0 || buffer.readUInt16LE(end + 8) !== count || count !== Object.keys(BM25_MEMBERS).length || directory + size !== end) throw bad();
+  const members = new Map<string, Buffer>(); let dataEnd = 0;
+  for (let i = 0; i < count; i++) {
+    if (cursor + 46 > end || buffer.readUInt32LE(cursor) !== 0x02014b50) throw bad();
+    const flags = buffer.readUInt16LE(cursor + 8); const method = buffer.readUInt16LE(cursor + 10); const crc = buffer.readUInt32LE(cursor + 16);
+    const stored = buffer.readUInt32LE(cursor + 20); const length = buffer.readUInt32LE(cursor + 24); const local = buffer.readUInt32LE(cursor + 42);
+    const nameLength = buffer.readUInt16LE(cursor + 28); const next = cursor + 46 + nameLength + buffer.readUInt16LE(cursor + 30) + buffer.readUInt16LE(cursor + 32);
+    const name = buffer.subarray(cursor + 46, cursor + 46 + nameLength).toString('latin1');
+    // Stored only: a member can never claim more bytes than the archive holds (no decompression bomb).
+    if (next > end || (flags & 1) || method !== 0 || stored !== length || !(name in BM25_MEMBERS) || members.has(name) || local < dataEnd || local + 30 + nameLength > directory) throw bad();
+    if (buffer.readUInt32LE(local) !== 0x04034b50 || buffer.readUInt16LE(local + 8) !== 0 || buffer.readUInt16LE(local + 26) !== nameLength
+      || buffer.subarray(local + 30, local + 30 + nameLength).toString('latin1') !== name) throw bad();
+    const start = local + 30 + nameLength + buffer.readUInt16LE(local + 28); dataEnd = start + length;
+    if (dataEnd > directory) throw bad();
+    const data = buffer.subarray(start, dataEnd);
+    if (zlib.crc32(data) !== crc) throw bad();
+    members.set(name, data); cursor = next;
+  }
+  if (cursor !== end) throw bad();
+  return members;
+}
+function npyVector(data: Buffer, descr: string): any {
+  const bad = () => fault('invalid-bm25-archive');
+  if (data.length < 10 || data.subarray(0, 6).toString('hex') !== '934e554d5059' || ![1, 2, 3].includes(data[6]) || data[7] !== 0) throw bad();
+  const start = data[6] === 1 ? 10 : 12; if (data.length < start) throw bad();
+  const headerLength = data[6] === 1 ? data.readUInt16LE(8) : data.readUInt32LE(8);
+  const header = data.subarray(start, start + headerLength).toString('latin1');
+  const shape = /['"]shape['"]\s*:\s*\(\s*(\d+)\s*,\s*\)/.exec(header); const width = +descr.slice(2);
+  if (start + headerLength > data.length || !header.includes(`'descr': '${descr}'`) || !/['"]fortran_order['"]\s*:\s*False/.test(header) || !shape
+    || data.length !== start + headerLength + (+shape[1] * width)) throw bad();
+  const body = data.subarray(start + headerLength); const length = +shape[1];
+  return { length, body, at: (i: number) => (width === 8 ? Number(body.readBigInt64LE(i * 8)) : width === 4 ? body.readInt32LE(i * 4) : body[i]) };
+}
+function unpackStrings(vector: any): string[] {
+  const text = vector.body.toString('utf8');
+  if (vector.length && !text.endsWith('\0')) throw fault('invalid-bm25-archive');
+  return vector.length ? text.slice(0, -1).split('\0') : [];
+}
+// Mirrors Semble 0.7.0 BM25 `_check_consistent` and adds the document count; returns doc_order for the chunk-id cross-check.
+function inspectBm25(buffer: Buffer): string[] {
+  const members = npzMembers(buffer);
+  const v: any = Object.fromEntries(Object.entries(BM25_MEMBERS).map(([name, descr]) => [name.slice(0, -4), npyVector(members.get(name) as Buffer, descr)]));
+  const docOrder = unpackStrings(v.doc_order); const terms = unpackStrings(v.terms); const n = docOrder.length;
+  let ok = new Set(docOrder).size === n && v.doc_lengths.length === n && v.offsets.length === terms.length + 1 && v.offsets.at(0) === 0
+    && v.offsets.at(v.offsets.length - 1) === v.docs.length && v.tfs.length === v.docs.length;
+  for (let i = 1; ok && i < v.offsets.length; i++) ok = v.offsets.at(i) >= v.offsets.at(i - 1);
+  for (let i = 0; ok && i < v.docs.length; i++) ok = v.docs.at(i) >= 0 && v.docs.at(i) < n;
+  if (!ok) throw fault('inconsistent-bm25-postings');
+  return docOrder;
+}
 function inspectArtifacts(index: string, inventory: any, paths: any, model: any, limits: any): any {
   safeDirectories(paths.state, index); safeDirectories(paths.state, paths.mirror);
   const tree = scanTree(index, limits.artifactBytes, 32);
-  const expected = ['bm25_index/index.json', 'chunks.json', 'metadata.json', 'semantic_index/arguments.json', 'semantic_index/vectors.npy'];
+  const expected = ['bm25_index/index.npz', 'chunks.json', 'metadata.json', 'semantic_index/arguments.json', 'semantic_index/vectors.npy'];
   if (JSON.stringify(tree.files.map((f: any) => f.path).sort()) !== JSON.stringify(expected.sort())) throw fault('incomplete-index');
   const json = (name: string) => JSON.parse(regularBytes(path.join(index, name), limits.artifactBytes).toString('utf8'));
-  const metadata = json('metadata.json'); const chunks = json('chunks.json'); const bm25 = json('bm25_index/index.json');
-  if (metadata.root_path !== paths.mirror || metadata.model_path !== model.path || metadata.cache_version !== 1 || metadata.chunk_size !== 750 || JSON.stringify(metadata.content_type) !== '["code"]') throw fault('incompatible-index');
-  if (!Array.isArray(chunks) || chunks.length > limits.chunks || !Array.isArray(bm25.doc_order) || bm25.doc_order.length !== chunks.length || new Set(bm25.doc_order).size !== chunks.length) throw fault('invalid-chunk-pool');
+  const metadata = json('metadata.json'); const chunks = json('chunks.json');
+  if (metadata.root_path !== paths.mirror || metadata.model_path !== model.path || metadata.cache_version !== 2 || metadata.chunk_size !== 750 || JSON.stringify(metadata.content_type) !== '["code"]') throw fault('incompatible-index');
+  if (!Array.isArray(chunks) || chunks.length > limits.chunks) throw fault('invalid-chunk-pool');
+  const docOrder = inspectBm25(regularBytes(path.join(index, 'bm25_index/index.npz'), limits.artifactBytes));
+  if (docOrder.length !== chunks.length) throw fault('invalid-chunk-pool');
   // Check NPY header without loading NumPy; reject shape/size bombs before its allocator runs.
   const vectors = regularBytes(path.join(index, 'semantic_index/vectors.npy'), limits.artifactBytes);
   if (vectors.length < 10 || vectors.subarray(0, 6).toString('hex') !== '934e554d5059' || vectors[6] !== 1 || vectors[7] !== 0) throw fault('invalid-vector-header');
@@ -161,7 +222,7 @@ function inspectArtifacts(index: string, inventory: any, paths: any, model: any,
     }
     offset += value.count;
   }
-  if (offset !== chunks.length || JSON.stringify(ids) !== JSON.stringify(bm25.doc_order) || JSON.stringify(Object.keys(bm25.documents || {}).sort()) !== JSON.stringify(ids.slice().sort())) throw fault('inconsistent-artifacts');
+  if (offset !== chunks.length || JSON.stringify(ids) !== JSON.stringify(docOrder)) throw fault('inconsistent-artifacts');
   // All metadata paths are admitted; constructor source reads can never escape this copied mirror.
   const mirror = scanTree(paths.mirror, limits.sourceBytes, limits.files);
   if (JSON.stringify(mirror.files.map((f: any) => f.path).sort()) !== JSON.stringify([...admitted.keys()].sort())) throw fault('mirror-membership-mismatch');
@@ -184,7 +245,7 @@ function cleanupTemporary(paths: any): void {
   }
 }
 // Per-invocation disposable sandbox: `stats/` is Semble's statistics sink (query SEMBLE_CACHE_LOCATION, 64 KiB);
-// `library/` takes every redirected library cache/temp location. Semble 0.6.1 extracts sha-verified tree-sitter
+// `library/` takes every redirected library cache/temp location. Semble 0.7.0 (semble-grammars 0.1.2) extracts sha-verified tree-sitter
 // grammars from its own bundled archive there (77 libraries, 79.6 MB uncompressed on macos-arm64), so it is
 // bounded by `libraryBytes` instead of the statistics cap.
 function bridgeSandbox(sandbox: string): any {
@@ -203,7 +264,7 @@ function executeBridge(request: any, options: any, paths: any, sandbox: string):
     const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1', PYTHONHASHSEED: '0', OMP_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1', MKL_NUM_THREADS: '1', HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1', HF_DATASETS_OFFLINE: '1',
       SEMBLE_CACHE_LOCATION: request.action === 'query' ? temp : paths.cache, HF_HOME: library, HUGGINGFACE_HUB_CACHE: library,
       TRANSFORMERS_CACHE: library, XDG_CACHE_HOME: library, SEMBLE_GRAMMARS_CACHE_DIR: path.join(library, 'grammars'), TORCH_HOME: library,
-      TMPDIR: library, TEMP: library, TMP: library, TOKENIZERS_PARALLELISM: 'false' };
+      TMPDIR: library, TEMP: library, TMP: library, TOKENIZERS_PARALLELISM: 'false', SEMBLE_INDEX_WORKERS: '0' };
     const child = spawn(options.python, [options.bridgePath || path.join(__dirname, 'semble-bridge.py')], { cwd: paths.state, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
     let stdout = ''; let outputBytes = 0; let failure: string | null = null; let done = false;
     const stop = (reason: string) => { if (!failure) failure = reason; child.kill('SIGKILL'); };
@@ -259,6 +320,7 @@ async function runSembleQuery(options: any): Promise<any> {
     }
     checkSources(inventory, limits);
     if (inspectModel(options.modelPath, limits).identity !== model.identity) throw fault('model-changed', 'STALE');
+    // sourceReadBytes is the admitted corpus size; Semble 0.7.0's loader only stats sources, so it over-counts provider reads.
     return { ok: true, provider: 'semble.search', version: SEMBLE_VERSION, model, generation: manifest.generation, freshness: 'FRESH', candidates: result.candidates,
       accounting: { indexedChunks: artifacts.chunks, sourceReadBytes: inventory.files.reduce((n: number, f: any) => n + f.sizeBytes, 0), artifactBytes: artifacts.artifactBytes } };
   } catch (error: any) { return { ok: false, provider: 'semble.search', version: SEMBLE_VERSION, freshness: error.freshness || 'UNKNOWN', reason: error.reason || 'provider-unavailable',
@@ -266,4 +328,4 @@ async function runSembleQuery(options: any): Promise<any> {
   finally { try { if (temp) fs.rmSync(temp, { recursive: true, force: true }); } catch {} try { if (release) release(); } catch {} }
 }
 module.exports = { SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, resolveSembleInterpreter, checkSembleVersion, semanticStatePaths, digest, fault, inside, safeDirectories,
-  regularBytes, scanTree, inspectModel, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };
+  regularBytes, scanTree, inspectModel, inspectBm25, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };
