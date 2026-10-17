@@ -77,6 +77,19 @@ function evidenceRoot(o: any): string {
   return o.global ? os.homedir() : path.resolve(o.positional[0] || '.');
 }
 
+/** `trace spans [<project>]` (088 IC-011): the view name takes the first positional slot, so the
+ * project root is the one after it. Every other call is `evidenceRoot(o)`. */
+function traceViewRoot(o: any): string {
+  return o.cmd === 'trace' && o.positional[0] === 'spans' && !o.global ? path.resolve(o.positional[1] || '.') : evidenceRoot(o);
+}
+
+/** `trace`: the ledger trajectory, unchanged, or the `spans` view, whose module loads only for that
+ * view so `trace` and `stats` read nothing new (NFR-010). */
+function handleTraceViewCommand(o: any): number {
+  if (o.positional[0] !== 'spans') return handleTraceCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+  return require('../runtime/trace/spans.ts').handleTraceSpans({ positional: o.positional.slice(1), run: o.run, json: o.json, global: o.global });
+}
+
 /**
  * The task class the caller named, or exit 2 naming the valid set.
  *
@@ -195,7 +208,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   // and lifecycle's shared main-worktree store are deliberately different scopes.
   try {
     if (['trace', 'stats', 'discover'].includes(o.cmd)) {
-      moment.projectRoot = path.dirname(resolveRunsLocation({ start: evidenceRoot(o), global: o.global }).configDir);
+      moment.projectRoot = path.dirname(resolveRunsLocation({ start: traceViewRoot(o), global: o.global }).configDir);
     } else if (['followup', 'lifecycle', 'goal', 'task-attempt', 'worker', 'dispatch'].includes(o.cmd)) {
       moment.projectRoot = lifecycleProjectRoot(evidenceRoot(o));
     } else {
@@ -239,7 +252,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // a view invoked from a subdirectory reads the runs that were actually recorded.
     // Exit codes follow design §4.2 and are set by the handler itself: 0 = answered, 1 = a
     // finding the caller must act on.
-    case 'trace': return handleTraceCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+    case 'trace': return handleTraceViewCommand(o);
     case 'stats': return handleStatsCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
     case 'indicators': return handleIndicatorsCommand({ json: o.json, projectRoot: evidenceRoot(o) });
     case 'discover': return handleDiscoverCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
