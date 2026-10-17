@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "kind": "079-dev-comparison",
   "provenance": {
-    "decision": "079 D.1b dev measurement on repaired tree; no tuning, no source change, no workaround",
-    "measuredTreeSha": "49613d599a0ba70014c58e5499b9cf5b078651ba",
+    "decision": "079 D.1c final dev measurement on the tree to be frozen; no tuning, no source change, no workaround (tuning freeze applies to this exact SHA)",
+    "measuredTreeSha": "05eb0deafdc5b43caf2f7ff530294e87f6e0f3c5",
     "treeStatus": "clean (git status --short empty before and after)",
     "snapshotId": 1,
     "pinnedCommit": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
@@ -15,12 +15,12 @@
       "rtk": "1.0.1",
       "graphify": "0.9.92"
     },
-    "command": "SEMBLE_MODEL_PATH=~/.cache/huggingface/hub/models--minishlab--potion-code-16M-v2/snapshots/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b HF_HUB_OFFLINE=1 /usr/bin/time -l node bench/runner.js retrieval hybrid-c --out <scratch>/dev-raw.json (unmodified snapshot.json, no python wrapper, no model copy)",
+    "command": "SEMBLE_MODEL_PATH=~/.cache/huggingface/hub/models--minishlab--potion-code-16M-v2/snapshots/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b HF_HUB_OFFLINE=1 /usr/bin/time -l node bench/runner.js retrieval hybrid-c --out <scratch>/dev-raw.json (unmodified snapshot.json)",
     "deviations": [],
     "harnessWall": {
-      "note": "noisy, other processes present",
-      "realSeconds": 344.65,
-      "maxRssBytesOfNodeProcess": 832929792
+      "note": "noisy",
+      "realSeconds": 255.39,
+      "maxRssBytesOfNodeProcess": 386236416
     }
   },
   "comparisons": {
@@ -44,12 +44,12 @@
         "a": "A",
         "b": "C",
         "n": 8,
-        "diff": 0.25,
+        "diff": 0,
         "ci95": [
           0,
-          0.625
+          0
         ],
-        "pRandomization": 0.5009499050094991
+        "pRandomization": 1
       },
       {
         "metric": "recallAt1",
@@ -57,12 +57,12 @@
         "a": "B",
         "b": "C",
         "n": 8,
-        "diff": 0.25,
+        "diff": 0,
         "ci95": [
           0,
-          0.625
+          0
         ],
-        "pRandomization": 0.5009499050094991
+        "pRandomization": 1
       },
       {
         "metric": "recallAt5",
@@ -83,10 +83,10 @@
         "a": "A",
         "b": "C",
         "n": 8,
-        "diff": 0.125,
+        "diff": 0,
         "ci95": [
           0,
-          0.375
+          0
         ],
         "pRandomization": 1
       },
@@ -96,10 +96,10 @@
         "a": "B",
         "b": "C",
         "n": 8,
-        "diff": 0.125,
+        "diff": 0,
         "ci95": [
           0,
-          0.375
+          0
         ],
         "pRandomization": 1
       },
@@ -122,10 +122,10 @@
         "a": "A",
         "b": "C",
         "n": 8,
-        "diff": 0.125,
+        "diff": 0,
         "ci95": [
           0,
-          0.375
+          0
         ],
         "pRandomization": 1
       },
@@ -135,10 +135,10 @@
         "a": "B",
         "b": "C",
         "n": 8,
-        "diff": 0.125,
+        "diff": 0,
         "ci95": [
           0,
-          0.375
+          0
         ],
         "pRandomization": 1
       },
@@ -161,12 +161,12 @@
         "a": "A",
         "b": "C",
         "n": 8,
-        "diff": 0.20833333333333334,
+        "diff": 0,
         "ci95": [
           0,
-          0.5
+          0
         ],
-        "pRandomization": 0.49605039496050396
+        "pRandomization": 1
       },
       {
         "metric": "mrrAt10",
@@ -174,12 +174,12 @@
         "a": "B",
         "b": "C",
         "n": 8,
-        "diff": 0.20833333333333334,
+        "diff": 0,
         "ci95": [
           0,
-          0.5
+          0
         ],
-        "pRandomization": 0.49605039496050396
+        "pRandomization": 1
       },
       {
         "metric": "successAt1",
@@ -200,12 +200,12 @@
         "a": "A",
         "b": "C",
         "n": 8,
-        "diff": 0.25,
+        "diff": 0,
         "ci95": [
           0,
-          0.5
+          0
         ],
-        "pRandomization": 0.5000499950005
+        "pRandomization": 1
       },
       {
         "metric": "successAt1",
@@ -213,12 +213,12 @@
         "a": "B",
         "b": "C",
         "n": 8,
-        "diff": 0.25,
+        "diff": 0,
         "ci95": [
           0,
-          0.5
+          0
         ],
-        "pRandomization": 0.5000499950005
+        "pRandomization": 1
       },
       {
         "metric": "recallAt1",
@@ -381,26 +381,26 @@
         "class": "conceptual-discovery",
         "a": "A",
         "b": "B",
+        "n": 10,
+        "diff": 0.3,
+        "ci95": [
+          0,
+          0.6
+        ],
+        "pRandomization": 0.24077592240775922
+      },
+      {
+        "metric": "fileRecallAt10",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
         "n": 10,
         "diff": 0.2,
         "ci95": [
           0,
           0.5
         ],
-        "pRandomization": 0.49255074492550743
-      },
-      {
-        "metric": "fileRecallAt10",
-        "class": "conceptual-discovery",
-        "a": "A",
-        "b": "C",
-        "n": 10,
-        "diff": 0.1,
-        "ci95": [
-          0,
-          0.3
-        ],
-        "pRandomization": 1
+        "pRandomization": 0.48785121487851213
       },
       {
         "metric": "fileRecallAt10",
@@ -577,12 +577,12 @@
         "a": "A",
         "b": "B",
         "n": 10,
-        "diff": 0,
+        "diff": -0.7,
         "ci95": [
-          0,
-          0
+          -0.9,
+          -0.5
         ],
-        "pRandomization": 1
+        "pRandomization": 0.0037996200379962005
       },
       {
         "metric": "missedDependencies",
@@ -603,12 +603,12 @@
         "a": "B",
         "b": "C",
         "n": 10,
-        "diff": 0,
+        "diff": 0.7,
         "ci95": [
-          0,
-          0
+          0.5,
+          0.9
         ],
-        "pRandomization": 1
+        "pRandomization": 0.0037996200379962005
       },
       {
         "metric": "statusMatch",
@@ -1445,11 +1445,12 @@
       "recallAt10": 1,
       "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 21,
       "latencyMs": {
-        "p50": 26.014792,
-        "p95": 29.864875,
+        "p50": 26.5005,
+        "p95": 28.376125,
         "noisy": true
       }
     },
@@ -1462,13 +1463,14 @@
       "unreachedCount": 0,
       "recallAt1": 0,
       "recallAt10": 0,
-      "fileRecallAt10": 0.5,
-      "locatorValidity": 0.51,
+      "fileRecallAt10": 0.6,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
-      "tokensEstP50": 1325,
+      "tokensEstP50": 1292,
       "latencyMs": {
-        "p50": 489.418958,
-        "p95": 536.819916,
+        "p50": 430.270667,
+        "p95": 469.417167,
         "noisy": true
       }
     },
@@ -1477,18 +1479,18 @@
       "config": "A",
       "class": "impact-refactor",
       "n": 10,
-      "state": "unreached",
-      "unreachedCount": 10,
-      "cause": "No unique node match",
-      "recallAt1": null,
-      "recallAt10": null,
-      "fileRecallAt10": null,
-      "locatorValidity": null,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": 0.5,
       "rawValidity": null,
-      "tokensEstP50": 0,
+      "tokensEstP50": 147,
       "latencyMs": {
-        "p50": 316.191084,
-        "p95": 338.066542,
+        "p50": 209.629959,
+        "p95": 231.267709,
         "noisy": true
       }
     },
@@ -1502,12 +1504,13 @@
       "recallAt1": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "locatorValidity": 0.5333333333333333,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
-      "tokensEstP50": 1317,
+      "tokensEstP50": 1211,
       "latencyMs": {
-        "p50": 481.065375,
-        "p95": 565.572792,
+        "p50": 428.980209,
+        "p95": 479.539875,
         "noisy": true
       }
     },
@@ -1521,12 +1524,13 @@
       "recallAt1": 0.6666666666666666,
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
-      "locatorValidity": 0.5,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
-      "tokensEstP50": 931,
+      "tokensEstP50": 1106,
       "latencyMs": {
-        "p50": 496.350083,
-        "p95": 550.611792,
+        "p50": 446.017167,
+        "p95": 500.555041,
         "noisy": true
       }
     },
@@ -1541,11 +1545,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 0.6666666666666666,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 223,
       "latencyMs": {
-        "p50": 60.909459,
-        "p95": 80.332541,
+        "p50": 64.236542,
+        "p95": 81.869458,
         "noisy": true
       }
     },
@@ -1557,14 +1562,15 @@
       "state": "measured",
       "unreachedCount": 0,
       "recallAt1": 0.3333333333333333,
-      "recallAt10": 0.3333333333333333,
+      "recallAt10": 1,
       "fileRecallAt10": 1,
-      "locatorValidity": 0.5,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
-      "tokensEstP50": 1359,
+      "tokensEstP50": 1312,
       "latencyMs": {
-        "p50": 468.235291,
-        "p95": 504.649292,
+        "p50": 423.159625,
+        "p95": 467.206667,
         "noisy": true
       }
     },
@@ -1579,11 +1585,12 @@
       "recallAt10": 0,
       "fileRecallAt10": 0,
       "locatorValidity": null,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 11,
       "latencyMs": {
-        "p50": 34.818625,
-        "p95": 38.768125,
+        "p50": 38.709708,
+        "p95": 41.842292,
         "noisy": true
       }
     },
@@ -1598,11 +1605,12 @@
       "recallAt10": 1,
       "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 21,
       "latencyMs": {
-        "p50": 18.591833,
-        "p95": 20.026958,
+        "p50": 18.366,
+        "p95": 20.337916,
         "noisy": true
       }
     },
@@ -1617,11 +1625,12 @@
       "recallAt10": 0,
       "fileRecallAt10": 0.3,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 228,
       "latencyMs": {
-        "p50": 123.314208,
-        "p95": 159.782333,
+        "p50": 123.129959,
+        "p95": 153.463875,
         "noisy": true
       }
     },
@@ -1636,11 +1645,12 @@
       "recallAt10": 0.5,
       "fileRecallAt10": 0.6,
       "locatorValidity": 1,
+      "allDependenciesFound": 0,
       "rawValidity": null,
       "tokensEstP50": 231,
       "latencyMs": {
-        "p50": 58.522958,
-        "p95": 92.11925,
+        "p50": 53.865,
+        "p95": 86.877166,
         "noisy": true
       }
     },
@@ -1655,11 +1665,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 233,
       "latencyMs": {
-        "p50": 61.837875,
-        "p95": 78.10575,
+        "p50": 62.006833,
+        "p95": 78.382541,
         "noisy": true
       }
     },
@@ -1674,11 +1685,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 356,
       "latencyMs": {
-        "p50": 73.131375,
-        "p95": 76.98675,
+        "p50": 72.055334,
+        "p95": 75.636833,
         "noisy": true
       }
     },
@@ -1693,11 +1705,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 0.6666666666666666,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 223,
       "latencyMs": {
-        "p50": 67.368167,
-        "p95": 72.038708,
+        "p50": 67.274708,
+        "p95": 72.304959,
         "noisy": true
       }
     },
@@ -1712,11 +1725,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 194,
       "latencyMs": {
-        "p50": 93.418666,
-        "p95": 105.335125,
+        "p50": 97.686041,
+        "p95": 108.578208,
         "noisy": true
       }
     },
@@ -1731,11 +1745,12 @@
       "recallAt10": 0,
       "fileRecallAt10": 0,
       "locatorValidity": null,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 11,
       "latencyMs": {
-        "p50": 28.033583,
-        "p95": 29.741833,
+        "p50": 30.267625,
+        "p95": 33.239334,
         "noisy": true
       }
     },
@@ -1746,20 +1761,21 @@
       "n": 10,
       "state": "measured",
       "unreachedCount": 0,
-      "recallAt1": 0.5,
-      "recallAt10": 0.875,
-      "fileRecallAt10": 0.875,
+      "recallAt1": 0.75,
+      "recallAt10": 1,
+      "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": {
         "tasks": 10,
-        "raw": 66,
+        "raw": 31,
         "rejected": 0,
-        "delivered": 66
+        "delivered": 31
       },
-      "tokensEstP50": 125,
+      "tokensEstP50": 21,
       "latencyMs": {
-        "p50": 230.991916,
-        "p95": 301.756458,
+        "p50": 107.855167,
+        "p95": 122.252583,
         "noisy": true
       }
     },
@@ -1774,6 +1790,7 @@
       "recallAt10": 0,
       "fileRecallAt10": 0.4,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": {
         "tasks": 10,
         "raw": 100,
@@ -1782,8 +1799,8 @@
       },
       "tokensEstP50": 800,
       "latencyMs": {
-        "p50": 1010.216916,
-        "p95": 1055.421958,
+        "p50": 929.448583,
+        "p95": 985.764666,
         "noisy": true
       }
     },
@@ -1792,18 +1809,18 @@
       "config": "C",
       "class": "impact-refactor",
       "n": 10,
-      "state": "unreached",
-      "unreachedCount": 10,
-      "cause": "No unique node match",
-      "recallAt1": null,
-      "recallAt10": null,
-      "fileRecallAt10": null,
-      "locatorValidity": null,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": 0.5,
       "rawValidity": null,
-      "tokensEstP50": 0,
+      "tokensEstP50": 147,
       "latencyMs": {
-        "p50": 313.919333,
-        "p95": 360.20075,
+        "p50": 212.064208,
+        "p95": 226.428167,
         "noisy": true
       }
     },
@@ -1818,11 +1835,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 233,
       "latencyMs": {
-        "p50": 62.644292,
-        "p95": 77.826416,
+        "p50": 61.513375,
+        "p95": 78.282041,
         "noisy": true
       }
     },
@@ -1837,11 +1855,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 356,
       "latencyMs": {
-        "p50": 72.798334,
-        "p95": 76.194625,
+        "p50": 72.856375,
+        "p95": 79.991417,
         "noisy": true
       }
     },
@@ -1856,11 +1875,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 0.6666666666666666,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 223,
       "latencyMs": {
-        "p50": 66.1325,
-        "p95": 72.7765,
+        "p50": 67.013875,
+        "p95": 74.275917,
         "noisy": true
       }
     },
@@ -1875,11 +1895,12 @@
       "recallAt10": 0.6666666666666666,
       "fileRecallAt10": 1,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 194,
       "latencyMs": {
-        "p50": 95.796291,
-        "p95": 105.6335,
+        "p50": 97.263875,
+        "p95": 107.678,
         "noisy": true
       }
     },
@@ -1894,11 +1915,12 @@
       "recallAt10": 0,
       "fileRecallAt10": 0,
       "locatorValidity": null,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 11,
       "latencyMs": {
-        "p50": 35.53775,
-        "p95": 37.515125,
+        "p50": 39.014542,
+        "p95": 42.777917,
         "noisy": true
       }
     },
@@ -1913,11 +1935,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 234,
       "latencyMs": {
-        "p50": 3.122792,
-        "p95": 3.35975,
+        "p50": 3.506667,
+        "p95": 4.152333,
         "noisy": true
       }
     },
@@ -1932,11 +1955,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 235,
       "latencyMs": {
-        "p50": 3.155875,
-        "p95": 3.379625,
+        "p50": 3.390333,
+        "p95": 4.100916,
         "noisy": true
       }
     },
@@ -1951,11 +1975,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 241,
       "latencyMs": {
-        "p50": 5.402542,
-        "p95": 7.659375,
+        "p50": 5.463125,
+        "p95": 8.091958,
         "noisy": true
       }
     },
@@ -1970,11 +1995,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 232,
       "latencyMs": {
-        "p50": 5.332792,
-        "p95": 6.212958,
+        "p50": 5.640833,
+        "p95": 6.689792,
         "noisy": true
       }
     },
@@ -1989,11 +2015,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 251,
       "latencyMs": {
-        "p50": 3.34025,
-        "p95": 3.960292,
+        "p50": 3.64675,
+        "p95": 4.119791,
         "noisy": true
       }
     },
@@ -2008,11 +2035,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 234,
       "latencyMs": {
-        "p50": 3.122792,
-        "p95": 3.35975,
+        "p50": 3.506667,
+        "p95": 4.152333,
         "noisy": true
       }
     },
@@ -2027,11 +2055,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 235,
       "latencyMs": {
-        "p50": 3.155875,
-        "p95": 3.379625,
+        "p50": 3.390333,
+        "p95": 4.100916,
         "noisy": true
       }
     },
@@ -2046,11 +2075,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 241,
       "latencyMs": {
-        "p50": 5.402542,
-        "p95": 7.659375,
+        "p50": 5.463125,
+        "p95": 8.091958,
         "noisy": true
       }
     },
@@ -2065,11 +2095,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 232,
       "latencyMs": {
-        "p50": 5.332792,
-        "p95": 6.212958,
+        "p50": 5.640833,
+        "p95": 6.689792,
         "noisy": true
       }
     },
@@ -2084,11 +2115,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 251,
       "latencyMs": {
-        "p50": 3.34025,
-        "p95": 3.960292,
+        "p50": 3.64675,
+        "p95": 4.119791,
         "noisy": true
       }
     },
@@ -2103,11 +2135,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 234,
       "latencyMs": {
-        "p50": 3.160416,
-        "p95": 3.460875,
+        "p50": 3.474625,
+        "p95": 3.861958,
         "noisy": true
       }
     },
@@ -2122,11 +2155,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 235,
       "latencyMs": {
-        "p50": 3.137584,
-        "p95": 3.341042,
+        "p50": 3.349583,
+        "p95": 3.801709,
         "noisy": true
       }
     },
@@ -2141,11 +2175,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 241,
       "latencyMs": {
-        "p50": 5.595083,
-        "p95": 6.236958,
+        "p50": 5.655916,
+        "p95": 6.391292,
         "noisy": true
       }
     },
@@ -2160,11 +2195,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 232,
       "latencyMs": {
-        "p50": 5.364208,
-        "p95": 6.16425,
+        "p50": 5.690458,
+        "p95": 7.201958,
         "noisy": true
       }
     },
@@ -2179,11 +2215,12 @@
       "recallAt10": null,
       "fileRecallAt10": null,
       "locatorValidity": 1,
+      "allDependenciesFound": null,
       "rawValidity": null,
       "tokensEstP50": 251,
       "latencyMs": {
-        "p50": 3.287083,
-        "p95": 3.6155,
+        "p50": 3.610917,
+        "p95": 4.023583,
         "noisy": true
       }
     }
@@ -2200,8 +2237,7 @@
         {
           "id": "graphify.query",
           "version": "graphify 0.9.92",
-          "state": "unreached",
-          "cause": "No unique node match"
+          "state": "reached"
         },
         {
           "id": "native.rg",
@@ -2252,8 +2288,7 @@
         {
           "id": "graphify.query",
           "version": "graphify 0.9.92",
-          "state": "unreached",
-          "cause": "No unique node match"
+          "state": "reached"
         },
         {
           "id": "native.rg",
@@ -2303,16 +2338,16 @@
   },
   "indexCostsFromRun": {
     "codeA": {
-      "buildMs": 10976.175792,
-      "incrementalMs": 9754.204958,
-      "diskBytes": 21903713,
-      "peakRssMB": 597
+      "buildMs": 5613.239165999999,
+      "incrementalMs": 4458.685167,
+      "diskBytes": 7413210,
+      "peakRssMB": 314.703125
     },
     "codeC": {
       "state": "reached",
-      "buildMs": 4521,
+      "buildMs": 3886,
       "chunks": 10547,
-      "diskBytes": 23532513,
+      "diskBytes": 23532515,
       "peakRssMB": {
         "unmeasured": "the index builder reports no resident-set size"
       },
@@ -2320,27 +2355,37 @@
     }
   },
   "cSideMeasurements": {
-    "note": "Own script outside the repo (scratchpad d1b/rss.js), /usr/bin/time -l, NOISY, node-process RSS only (child python RSS not separately reported). Export = harness materialiseExport of the pinned commit, scopes = manifest code paths.",
+    "note": "Own scripts outside the repo, /usr/bin/time -l, NOISY, node-process RSS only (child python RSS not separately reported). Export = harness materialiseExport of the pinned commit, scopes = manifest code paths.",
     "build": {
-      "wallMs": 4422,
+      "wallMs": 4635,
       "chunks": 10547,
-      "maxRssBytes": 307200000,
-      "peakFootprintBytes": 171646704
+      "maxRssBytes": 309362688,
+      "peakFootprintBytes": 166534992
     },
     "queries20": {
       "n": 20,
-      "tasks": "first 20 dev code exact+conceptual",
-      "p50Ms": 859,
-      "p95Ms": 934,
-      "maxMs": 964,
-      "maxRssBytes": 301694976,
-      "peakFootprintBytes": 255441968
+      "tasks": "first 20 dev code exact+conceptual, warm index",
+      "p50Ms": 808,
+      "p95Ms": 841,
+      "maxMs": 852,
+      "maxRssBytes": 308232192,
+      "peakFootprintBytes": 262028456
+    },
+    "cli": {
+      "command": "node bin/doflow.js retrieve --scope code --query validateCapabilityProviders --json",
+      "runs": 30,
+      "nonzeroExit": 0,
+      "p50Ms": 140,
+      "p95Ms": 154,
+      "minMs": 136,
+      "maxMs": 161,
+      "noisy": true,
+      "note": "process wall incl. node start, one fixed query, lexical-only effective profile"
     }
   },
   "impactRefactorInvestigation": {
-    "cause": "run order, not graph staleness or flake",
-    "evidence": "In the hybrid-c-v1 run, adapters-c buildCodeIndex (C) writes .doflow/index/code/semble/*/mirror copies of every admitted source file into the export tree BEFORE config A buildIndexes runs graphify update on the same tree. Reproduction with the real functions on a fresh export: A-first gives graphify affected 10/10 reached (7944 nodes); C-build-first gives 0/10, all No unique node match (15715 nodes, 26191 references to .doflow/index in graph.json). Standalone graphify update + affected on a plain git archive of the pinned commit resolves the same symbols.",
-    "script": "scratchpad d1b/graphrepro.js",
+    "result": "reached for A, B and C (10/10 each); no graphify No unique node match in the harness run",
+    "evidence": "R4 isolates C index tree from A graph tree. Historic cause (run order: C mirror copies polluting A graph) still reproducible with the old order in scratchpad d1c/graphrepro.js on the current tree: A-first 10/10 reached, 7944 nodes, 0 .doflow/index refs; C-first 0/10 unreached, 15715 nodes, 26191 refs.",
     "fixApplied": false
   }
 }
