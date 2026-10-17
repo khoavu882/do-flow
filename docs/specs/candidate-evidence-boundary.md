@@ -44,7 +44,10 @@ candidate data. Provider snippets are ignored for verification: the runtime read
 source file, checks containment, membership, range and file identity, and uses only that bounded
 live read for delivered content. Index identity and the later live `sourceVersion` remain separate.
 
-Evidence projection creates one item per contributing provider and keeps only the registered
+The evidence projection function `projectEvidenceCandidates` (`src/runtime/knowledge/code-validation.ts`)
+is a library function with no production caller; only tests call it. Evidence for a code candidate
+remains an explicit caller action (`evidence add`), and the candidate response never writes evidence
+(follow-up FU-rkt8hs). When called, the projection creates one item per contributing provider and keeps only the registered
 provider, capability, declared need, locator, measured source version and validated content. It
 drops ranks, scores, fused ranking values, origin arrays and untrusted provider snippets. Query and
 active task-attempt references are stamped from the stored retrieval plan and attempt, never taken

@@ -178,9 +178,12 @@ cache/statistics sink. Index build and refresh are explicit commands; a failed m
 incomplete state and a repair instruction rather than rebuilding during search.
 
 Candidates remain untrusted until `code-validation.ts` reads and checks the live source span. The
-validated evidence adapter projects only locator, provider, capability, need, source version and
-live-read content, separately for each contributing provider. Scores, ranks, untrusted provider
-snippets and arbitrary metadata do not cross the evidence boundary. Task-bound retrieval appends
+evidence projection function `projectEvidenceCandidates` (a library function in
+`code-validation.ts` with no production caller; only tests call it) projects only locator, provider,
+capability, need, source version and live-read content, separately for each contributing provider.
+Scores, ranks, untrusted provider snippets and arbitrary metadata do not cross the evidence
+boundary. Evidence for a code candidate remains an explicit caller action (`evidence add`); the
+candidate response never writes evidence (follow-up FU-rkt8hs tracks wiring the projection). Task-bound retrieval appends
 attempts through the existing locked retrieval record service. An empty answer only describes the
 attempted scope and cannot establish repository-wide absence.
 

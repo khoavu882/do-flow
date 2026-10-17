@@ -168,6 +168,15 @@ Hybrid remains an experimental, incomplete promotion: lexical-only is the defaul
 provider conformance and the full retrieval gate pass. The paid task-success and token-cost checks
 remain unreached without separate authorization.
 
+An unknown `--scope` value exits 2 and lists `guidance` and `code`. The search root is `--root`, or the current
+directory when it is omitted; task state (`--task-id`, `--slug`) stays in the feature store root, so in a linked
+worktree the search reads that worktree's files while records go to the main checkout. When both providers answer, a conceptual hybrid search
+returns one result per file: lexical and Semble each vote for their first requested-top files, and the delivered
+span is the widest span either returned (`origins[].locator` shows each provider's span). When files were left out
+of the corpus (an oversized file, a file-count limit, an unstaged delete or rename), the response lists a gap with
+source `admission`, a cause and a count, and the search is marked incomplete. An index operation that stopped
+leaving a lock behind is cleared automatically when the process that held it has exited on this host.
+
 ## Research before committing to a design
 
 Keep current or uncertain external knowledge separate from implementation work.
