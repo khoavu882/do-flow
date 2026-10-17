@@ -279,3 +279,111 @@ test('R5 control: exact still refuses symlinks, symlinked directories, escapes, 
   assert.deepEqual(lex.candidates.map((c) => c.locator.file), ['src/a.js']);
   assert.deepEqual(lex.rejections.map((r) => r.reason).sort(), ['invalid-path', 'symlink']);
 });
+
+// DEC-025 through the production coordinator: conceptual hybrid fuses by file with D = requested top.
+function grainWorld(t, count, lines = 30) {
+  const root = fs.realpathSync(tempDir(t, 'doflow-code-retrieval-grain-'));
+  const names = Array.from({ length: count }, (_, i) => `src/f${String(i + 1).padStart(3, '0')}.js`);
+  fs.mkdirSync(path.join(root, 'src'));
+  for (const name of names) fs.writeFileSync(path.join(root, name), Array.from({ length: lines }, (_, i) => `// ${name} ${i + 1}`).join('\n') + '\n');
+  const inventory = admitCodeCorpus({ root, files: names });
+  const hash = Object.fromEntries(inventory.files.map((f) => [f.path, f.fileHash]));
+  return { root, names, inventory, hash };
+}
+const injectedLexical = (w, names, line = 6) => () => ({ complete: true, rejections: [], coverage: { complete: true }, accounting: {},
+  candidates: names.map((file) => ({ locator: { file, line, endLine: line }, sourceVersion: { gitCommit: null, fileHash: w.hash[file], isDirty: null } })) });
+const injectedSemantic = (w, names, { endLine = 20 } = {}) => async () => ({ ok: true, freshness: 'FRESH',
+  candidates: names.map((file) => ({ locator: { file, line: 1, endLine }, score: 1, indexedSourceIdentity: w.hash[file] })) });
+const conceptual = (w, top, providers, profile = 'hybrid') => executeCodeRetrieval({ query: 'where are tokens refreshed', root: w.root, top, profile,
+  modelPath: '/fake/model', providers: { router, inventory: w.inventory, ...providers } }).then((r) => r.response);
+const stripRefs = (results) => JSON.parse(JSON.stringify(results, (key, value) => (key === 'retrievalAttemptRef' ? 'ref' : value)));
+
+test('DEC-025 coordinator 12-file probe: hybrid top 10 reaches 10 distinct files with both origins (HEAD: 5)', async (t) => {
+  const w = grainWorld(t, 12);
+  const response = await conceptual(w, 10, { lexicalSearch: injectedLexical(w, w.names), semanticQuery: injectedSemantic(w, w.names) });
+  assert.equal(response.effectiveProfile, 'hybrid');
+  assert.deepEqual(response.results.map((r) => r.locator.file), w.names.slice(0, 10));
+  assert.ok(response.results.every((r) => r.locator.line === 1 && r.locator.endLine === 20 && r.origins.length === 2));
+  assert.deepEqual(response.gaps, []);
+});
+
+test('DEC-025 top-k and 200-examined bounds hold at file grain; one live read per examined file', async (t) => {
+  const w = grainWorld(t, 300, 3);
+  // Every semantic hash is stale, so each merged or semantic-only file is rejected and examination runs to the cap.
+  const response = await conceptual(w, 25, { lexicalSearch: injectedLexical(w, w.names.slice(0, 150), 2),
+    semanticQuery: async () => ({ ok: true, freshness: 'FRESH', candidates: w.names.map((file) => ({ locator: { file, line: 1, endLine: 3 }, indexedSourceIdentity: '0'.repeat(64) })) }) });
+  assert.equal(response.results.length, 0, 'no lexical span slips through on its own slot (HEAD delivers them)');
+  assert.equal(response.coverage.live.examinedCandidates, 200);
+  assert.equal(response.gaps.filter((g) => g.source === 'live-validation' && g.reason === 'source-changed').length, 200);
+  assert.deepEqual(response.gaps.find((g) => g.source === 'fusion'), { source: 'fusion', reason: 'candidate-limit', count: 100 });
+  const size = fs.statSync(path.join(w.root, w.names[0])).size;
+  assert.ok(w.inventory.files.every((f) => f.sizeBytes === size));
+  assert.equal(response.accounting.liveReadBytes, 200 * size, 'one read per examined file');
+  const capped = await conceptual(w, 25, { lexicalSearch: injectedLexical(w, w.names.slice(0, 150), 2), semanticQuery: injectedSemantic(w, w.names, { endLine: 3 }) });
+  assert.equal(capped.results.length, 25);
+  assert.equal(new Set(capped.results.map((r) => r.locator.file)).size, 25);
+});
+
+test('DEC-025 a stale semantic origin on an agreed file rejects that file as source-changed, counted, with no refill past the window', async (t) => {
+  const w = grainWorld(t, 3);
+  const response = await conceptual(w, 2, { lexicalSearch: injectedLexical(w, w.names),
+    semanticQuery: async () => ({ ok: true, freshness: 'FRESH', candidates: w.names.map((file) => ({ locator: { file, line: 1, endLine: 20 },
+      indexedSourceIdentity: file === w.names[0] ? '0'.repeat(64) : w.hash[file] })) }) });
+  assert.deepEqual(response.results.map((r) => r.locator.file), [w.names[1], w.names[2]]);
+  assert.deepEqual(response.gaps, [{ source: 'live-validation', reason: 'source-changed' }]);
+});
+
+test('DEC-025 an invalid secondary origin is a live-validation-origin gap; bench rawValidity is unchanged', async (t) => {
+  const w = grainWorld(t, 2);
+  const response = await conceptual(w, 5, { lexicalSearch: injectedLexical(w, w.names, 999), semanticQuery: injectedSemantic(w, w.names) });
+  assert.equal(response.results.length, 2);
+  assert.deepEqual(response.gaps.map((g) => `${g.source}:${g.reason}:${g.provider}`), ['live-validation-origin:line-out-of-range:native.rg', 'live-validation-origin:line-out-of-range:native.rg']);
+  assert.equal(response.coverage.complete, false);
+  const { mapCodeResponse } = require('../../bench/retrieval/lib/adapters-c.js');
+  const mapped = mapCodeResponse({ exit: 0, response });
+  assert.deepEqual([mapped.rawValidity.raw, mapped.rawValidity.delivered, mapped.rawValidity.rejected], [2, 2, 0]);
+});
+
+test('DEC-025 exact keeps span grain: two matching lines in one file stay two results and Semble is never invoked', async (t) => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-code-retrieval-exact-grain-'));
+  fs.writeFileSync(path.join(root, 'a.js'), 'parseToken(1);\nother();\nparseToken(2);\n');
+  const inventory = admitCodeCorpus({ root, files: ['a.js'] });
+  let semanticCalls = 0;
+  const { response } = await executeCodeRetrieval({ query: 'parseToken', root, top: 5, profile: 'hybrid', modelPath: '/fake/model',
+    providers: { router, inventory, semanticQuery: async () => { semanticCalls += 1; return { ok: true, freshness: 'FRESH', candidates: [] }; } } });
+  assert.equal(semanticCalls, 0);
+  assert.deepEqual(response.results.map((r) => [r.id, r.locator.line]), [[JSON.stringify([inventory.identity, 'a.js', 1, 1]), 1], [JSON.stringify([inventory.identity, 'a.js', 3, 3]), 3]]);
+  assert.ok(response.results.every((r) => r.origins.every((o) => !('locator' in o))), 'exact origins are unchanged');
+});
+
+test('DEC-025 lexical-only conceptual output is unchanged: span ids, one slot per lexical span, no origin locators', async (t) => {
+  const w = grainWorld(t, 4);
+  const base = injectedLexical(w, w.names)();
+  const extra = { locator: { file: w.names[0], line: 9, endLine: 9 }, sourceVersion: { fileHash: w.hash[w.names[0]] } };
+  const response = await conceptual(w, 10, { lexicalSearch: () => ({ ...base, candidates: [...base.candidates, extra] }) }, 'lexical-only');
+  const spans = [...w.names.map((f) => [f, 6]), [w.names[0], 9]];
+  assert.deepEqual(response.results.map((r) => r.id), spans.map(([f, l]) => JSON.stringify([w.inventory.identity, f, l, l])), 'two spans on one file keep two slots');
+  assert.deepEqual(response.results.map((r) => r.rrfScore), spans.map((_, i) => 1 / (61 + i)));
+  assert.ok(response.results.every((r) => r.origins.length === 1 && !('locator' in r.origins[0])));
+});
+
+test('DEC-025 empty semantic answer: hybrid profile, results identical to lexical-only, no false absence', async (t) => {
+  const w = grainWorld(t, 4);
+  const lexicalSearch = injectedLexical(w, w.names);
+  const hybrid = await conceptual(w, 10, { lexicalSearch, semanticQuery: async () => ({ ok: true, freshness: 'FRESH', candidates: [] }) });
+  const lexical = await conceptual(w, 10, { lexicalSearch }, 'lexical-only');
+  assert.equal(hybrid.effectiveProfile, 'hybrid');
+  assert.deepEqual(stripRefs(hybrid.results), stripRefs(lexical.results));
+  assert.equal(hybrid.absenceEstablished, false);
+});
+
+test('DEC-025 semantic fault fallback: lexical-only profile, attempt order kept, same delivered order and spans as lexical-only', async (t) => {
+  const w = grainWorld(t, 4);
+  const lexicalSearch = injectedLexical(w, [...w.names].reverse());
+  const fault = await conceptual(w, 10, { lexicalSearch, semanticQuery: async () => ({ ok: false, reason: 'provider-unavailable', freshness: 'UNKNOWN', candidates: [] }) });
+  const lexical = await conceptual(w, 10, { lexicalSearch }, 'lexical-only');
+  assert.equal(fault.effectiveProfile, 'lexical-only');
+  assert.deepEqual(fault.attempts.map((a) => a.provider), ['native.rg', 'semble.search', 'native.rg']);
+  assert.deepEqual(fault.results.map((r) => [r.id, r.locator]), lexical.results.map((r) => [r.id, r.locator]));
+  assert.equal(fault.absenceEstablished, false);
+});

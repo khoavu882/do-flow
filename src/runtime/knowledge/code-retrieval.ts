@@ -265,7 +265,9 @@ async function executeCodeRetrieval(options: any = {}) {
       }
     }
 
-    const fused = fuseRankedCandidates({ rankedLists: coalesceProviderLists(rankedLists), projectRoot: searchRoot, corpusIdentity: inventory.identity, k: 60 });
+    // Conceptual fuses by file with each provider voting for its first `top` distinct files; exact keeps span grain (DEC-025).
+    const grain = classification.queryClass === 'conceptual' ? { grain: 'file', depth: topN } : {};
+    const fused = fuseRankedCandidates({ rankedLists: coalesceProviderLists(rankedLists), projectRoot: searchRoot, corpusIdentity: inventory.identity, k: 60, ...grain });
     if (fused.rejected?.length) gaps.push({ source: 'fusion', reason: 'invalid-candidate', count: fused.rejected.length });
     if (fused.candidates.length > 200) gaps.push({ source: 'fusion', reason: 'candidate-limit', count: fused.candidates.length - 200 });
     const validate = providers.validateCandidates || validateCodeCandidates;
@@ -278,6 +280,8 @@ async function executeCodeRetrieval(options: any = {}) {
     accounting.liveReadBytes = live.accounting?.readBytes || 0;
     accounting.deliveredCandidates = live.results?.length || 0;
     for (const rejected of live.rejected || []) gaps.push({ source: 'live-validation', reason: rejected.reason });
+    // A dropped non-delivered origin is a distinct gap source: the delivered candidate stands (IC-007).
+    for (const rejected of live.rejectedOrigins || []) gaps.push({ source: 'live-validation-origin', reason: rejected.reason, provider: rejected.provider });
     const effectiveProfile = profile === 'hybrid' && classification.queryClass === 'conceptual' && semanticExecuted && semanticComplete && lexicalExecuted
       ? 'hybrid' : 'lexical-only';
     return { exit: 0, response: { ok: true, schemaVersion: 1, scope: 'code', root: searchRoot,

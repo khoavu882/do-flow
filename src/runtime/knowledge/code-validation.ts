@@ -19,6 +19,7 @@ function validateCodeCandidates({ inventory, candidates, topN = 10, limits: supp
   const deadline = now() + limits.timeoutMs;
   const results: any[] = [];
   const rejected: any[] = [];
+  const rejectedOrigins: any[] = [];
   let readBytes = 0;
   let examined = 0;
   let complete = Boolean(inventory.complete);
@@ -50,6 +51,21 @@ function validateCodeCandidates({ inventory, candidates, topN = 10, limits: supp
     if (text.includes('\0')) { reject(candidate, 'binary-source'); continue; }
     const lines = text.split('\n');
     if (loc.endLine > lines.length) { reject(candidate, 'line-out-of-range'); continue; }
+    // Origin locators (file-grain fusion, DEC-025) are provider-reported: range-check each on this same read and
+    // drop an invalid one with its cause, keeping the validated delivered span.
+    let origins = candidate.origins;
+    if (Array.isArray(origins) && origins.some((o: any) => o?.locator)) {
+      origins = origins.filter((origin: any) => {
+        const ol = origin?.locator;
+        if (!ol) return true;
+        const reason = ol.file !== loc.file || !Number.isInteger(ol.line) || !Number.isInteger(ol.endLine) || ol.line < 1 || ol.endLine < ol.line
+          ? 'invalid-locator' : ol.endLine > lines.length ? 'line-out-of-range' : null;
+        if (!reason) return true;
+        rejectedOrigins.push({ locator: ol, provider: origin.provider ?? null, retrievalAttemptRef: origin.retrievalAttemptRef ?? null, reason });
+        complete = false;
+        return false;
+      });
+    }
     const endLine = Math.min(loc.endLine, loc.line + limits.maxSnippetLines - 1);
     let snippet = lines.slice(loc.line - 1, endLine).join('\n');
     let byteTruncated = false;
@@ -64,10 +80,10 @@ function validateCodeCandidates({ inventory, candidates, topN = 10, limits: supp
       snippet = bounded; byteTruncated = true;
     }
     const { snippet: suppliedSnippet, liveRead: suppliedRead, ...safeCandidate } = candidate;
-    results.push({ ...safeCandidate, snippet, sourceVersion: { gitCommit: candidate.sourceVersion?.gitCommit ?? null, fileHash: read.fileHash, isDirty: candidate.sourceVersion?.isDirty ?? null },
+    results.push({ ...safeCandidate, ...(origins === candidate.origins ? {} : { origins }), snippet, sourceVersion: { gitCommit: candidate.sourceVersion?.gitCommit ?? null, fileHash: read.fileHash, isDirty: candidate.sourceVersion?.isDirty ?? null },
       liveRead: { startLine: loc.line, endLine: byteTruncated ? loc.line + snippet.split('\n').length - 1 : endLine, totalFileLines: lines.length, bytesRead: read.bytesRead, snippetBytes: Buffer.byteLength(snippet, 'utf8'), truncated: byteTruncated || endLine < loc.endLine } });
   }
-  return { results, rejected, complete, coverage: { complete, examinedCandidates: examined, rejectedCandidates: rejected.length }, accounting: { readBytes, deliveredCandidates: results.length, examinedCandidates: examined } };
+  return { results, rejected, ...(rejectedOrigins.length ? { rejectedOrigins } : {}), complete, coverage: { complete, examinedCandidates: examined, rejectedCandidates: rejected.length }, accounting: { readBytes, deliveredCandidates: results.length, examinedCandidates: examined } };
 }
 
 /** Explicit score-free adapter input. The existing ledger stamps query/task attempt refs. */

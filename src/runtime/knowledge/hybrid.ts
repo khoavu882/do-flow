@@ -173,11 +173,66 @@ function normalizeCodeCandidates(items: any[], { projectRoot = process.cwd(), pr
   return { candidates, rejected };
 }
 
-/** One full-span vote per provider, all origins retained, full precision until presentation. */
-function fuseRankedCandidates({ rankedLists, projectRoot = process.cwd(), corpusIdentity = '', k = 60 }: any): any {
+function addOrigins(bucket: any[], origins: any[]) {
+  for (const origin of origins) {
+    const serialized = JSON.stringify(origin);
+    if (!bucket.some((o: any) => JSON.stringify(o) === serialized)) bucket.push(origin);
+  }
+}
+
+/** RRF terms summed in ascending-rank order, so equal rank multisets give bit-identical scores (DEC-016). */
+function rrfSum(ranks: number[], k: number): number {
+  return [...ranks].sort((a, b) => a - b).reduce((sum, rank) => sum + 1 / (k + rank), 0);
+}
+
+/**
+ * File-grain fusion for conceptual requests with more than one voting provider (IC-006, DEC-025). A provider's
+ * rank for a file is its dense rank over distinct files; it votes only within its first `depth` files. Voted
+ * files order by capped RRF, then full-depth RRF, then path; files outside every provider's depth form an
+ * unscored tail ordered by smallest provider rank, then path. The delivered locator is the widest of each
+ * provider's first-ranked span on the file (ties: better provider rank, smaller line, endLine, provider id),
+ * always a span some provider returned.
+ */
+function fuseByFile(providerLists: Map<string, any[]>, { corpusIdentity, k, depth, compareText }: any): any[] {
+  const files = new Map<string, { votes: any[]; origins: any[] }>();
+  for (const [provider, list] of providerLists) {
+    let rank = 0;
+    for (const item of list) {
+      const file = item.locator.file;
+      if (!files.has(file)) files.set(file, { votes: [], origins: [] });
+      const entry = files.get(file)!;
+      if (!entry.votes.some((vote: any) => vote.provider === provider)) { rank += 1; entry.votes.push({ provider, rank, item }); }
+      const locator = { file, line: item.locator.line, endLine: item.locator.endLine };
+      addOrigins(entry.origins, item.origins.map((origin: any) => ({ ...origin, locator })));
+    }
+  }
+  const width = (vote: any) => vote.item.locator.endLine - vote.item.locator.line;
+  const fused = [...files.entries()].map(([file, { votes, origins }]) => {
+    const ranks = votes.map((vote: any) => vote.rank);
+    const [delivered] = [...votes].sort((a: any, b: any) => width(b) - width(a) || a.rank - b.rank
+      || a.item.locator.line - b.item.locator.line || a.item.locator.endLine - b.item.locator.endLine || compareText(a.provider, b.provider));
+    return { candidate: { ...delivered.item, id: JSON.stringify([corpusIdentity, file]), locator: { ...delivered.item.locator }, origins,
+      rrfScore: rrfSum(ranks.filter((rank: number) => rank <= depth), k) },
+    file, full: rrfSum(ranks, k), best: Math.min(...ranks) };
+  });
+  fused.sort((a: any, b: any) => {
+    const voted = Number(b.candidate.rrfScore > 0) - Number(a.candidate.rrfScore > 0);
+    if (voted) return voted;
+    if (a.candidate.rrfScore > 0) return b.candidate.rrfScore - a.candidate.rrfScore || b.full - a.full || compareText(a.file, b.file);
+    return a.best - b.best || compareText(a.file, b.file);
+  });
+  return fused.map((entry: any) => entry.candidate);
+}
+
+/**
+ * One vote per provider and identity, all origins retained, full precision until presentation. Span grain
+ * (exact requests, single-provider lists) keeps `(corpus identity, file, line, endLine)`; `grain: 'file'`
+ * with two or more voting providers fuses by file with vote depth `depth` (IC-006, DEC-025).
+ */
+function fuseRankedCandidates({ rankedLists, projectRoot = process.cwd(), corpusIdentity = '', k = 60, grain = 'span', depth = Infinity }: any): any {
   const { compareText } = require('./code-corpus.ts');
   const providerLists = new Map<string, any[]>();
-  const origins = new Map<string, any[]>();
+  const items: any[] = [];
   const rejected: any[] = [];
   for (let listIndex = 0; listIndex < rankedLists.length; listIndex += 1) {
     const list = rankedLists[listIndex];
@@ -186,16 +241,20 @@ function fuseRankedCandidates({ rankedLists, projectRoot = process.cwd(), corpus
         queryRef: list.queryRef, retrievalAttemptRef: list.retrievalAttemptRef });
     rejected.push(...normalized.rejected);
     for (const item of normalized.candidates) {
-      const provider = item.provider;
-      if (!providerLists.has(provider)) providerLists.set(provider, []);
-      providerLists.get(provider)!.push(item);
-      if (!origins.has(item.id)) origins.set(item.id, []);
-      const bucket = origins.get(item.id)!;
-      for (const origin of item.origins) {
-        const serialized = JSON.stringify(origin);
-        if (!bucket.some((o: any) => JSON.stringify(o) === serialized)) bucket.push(origin);
-      }
+      if (!providerLists.has(item.provider)) providerLists.set(item.provider, []);
+      providerLists.get(item.provider)!.push(item);
+      items.push(item);
     }
+  }
+  if (grain === 'file' && providerLists.size > 1) {
+    const candidates = fuseByFile(providerLists, { corpusIdentity, k, depth, compareText });
+    candidates.forEach((candidate: any, index: number) => { candidate.rank = index + 1; });
+    return { candidates, rejected };
+  }
+  const origins = new Map<string, any[]>();
+  for (const item of items) {
+    if (!origins.has(item.id)) origins.set(item.id, []);
+    addOrigins(origins.get(item.id)!, item.origins);
   }
   const uniqueProviderLists = [...providerLists.values()].map((list: any[]) => {
     const seen = new Set<string>();
