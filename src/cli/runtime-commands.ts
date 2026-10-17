@@ -50,7 +50,7 @@ const { handleRouteCommand } = require('../runtime/capability-router.ts');
 const { handleContextPackCommand } = require('../runtime/context-pack.ts');
 const { handleRetrievalPlanCommand } = require('../runtime/retrieval-plan.ts');
 const { handleOutcomeCommand } = require('../runtime/outcome.ts');
-const { handleVerifyCommand } = require('../runtime/verification/engine.ts');
+const { handleVerifyCommand, verifyStateRoot } = require('../runtime/verification/engine.ts');
 const { handleLeakScanCommand } = require('../runtime/leak-scan.ts');
 const { handleRecoverCommand } = require('../runtime/recovery.ts');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate.ts');
@@ -211,6 +211,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
       moment.projectRoot = path.dirname(resolveRunsLocation({ start: traceViewRoot(o), global: o.global }).configDir);
     } else if (['followup', 'lifecycle', 'goal', 'task-attempt', 'worker', 'dispatch'].includes(o.cmd)) {
       moment.projectRoot = lifecycleProjectRoot(evidenceRoot(o));
+    } else if (o.cmd === 'verify') {
+      moment.projectRoot = verifyStateRoot({ start: evidenceRoot(o) }).projectRoot; // the store verify writes, never a cwd fragment
     } else {
       moment.projectRoot = storeRoot;
     }

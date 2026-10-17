@@ -19,11 +19,10 @@ const { resolveRunsLocation } = require('../trace/ledger.ts');
  * by declaring keys, not by changing this module. Fields whose source does not exist yet are null:
  * `level` until G.1, `v0` until G.2, `check_key` and `shared` until E.2.
  *
- * Where: the nearest `.doflow` above `start` that holds `state/runs` (or `DOFLOW_CONFIG_DIR`). A
- * failing check leaves a cwd-rooted `.doflow/state/verification/logs` fragment
- * (contract-runner.ts `logDir`), and the plain walk would stop there and write nothing; requiring
- * `state/runs` walks past it. With no project store nothing is written: no global fallback, so the
- * lines stay under the project's state (NFR-006), as the bridge's hook lines do.
+ * Where: `DOFLOW_CONFIG_DIR` when set, even over a nearer store; else the nearest `.doflow` above
+ * `start` that holds `state/runs`, so a `.doflow` without a ledger (one left by an older runtime's
+ * cwd-rooted verification logs) is walked past. With no project store nothing is written: no global
+ * fallback, so the lines stay under the project's state (NFR-006), as the bridge's hook lines do.
  */
 
 type Env = Record<string, string | undefined>;

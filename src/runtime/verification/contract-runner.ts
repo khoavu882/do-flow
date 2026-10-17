@@ -114,6 +114,8 @@ class VerificationContractRunner {
    * @param {string} [options.cwd] directory the checks run in; defaults to the current one
    * @param {number} [options.defaultTimeoutMs=60000]
    * @param {Function} [options.exec] injection seam for tests; same contract as `spawnSync`
+   * @param {string} [options.logDir] where full check logs go; the verify verb passes its resolved
+   *   store's (engine.ts `verifyStateRoot`), so `<cwd>/.doflow` is only the unconfigured default
    */
   constructor(options: any = {}) {
     const opts = typeof options === 'string' ? { cwd: options } : options;
