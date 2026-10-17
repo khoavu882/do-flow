@@ -12,6 +12,7 @@ const { spawnSync } = require('node:child_process');
 const { childEnv } = require('../runner.js');
 const adaptersA = require('./adapters-a.js');
 const adaptersB = require('./adapters-b.js');
+const adaptersC = require('./adapters-c.js');
 const snapshotLib = require('./snapshot.js');
 
 const B_PROVIDER = { code: 'native.rg', guidance: 'guidance.bm25' };
@@ -73,9 +74,10 @@ function normalize(answer, kMax) {
  */
 function runConfig({
   config, corpus, task, exportRoot, snapshot, workDir, indexDir, bins, capabilities, semble, scratchDir,
-  repoRoot = snapshotLib.REPO_ROOT, impl = { runA: adaptersA.runA, runB: adaptersB.runB, runVerification: adaptersA.runVerification },
+  admittedPaths, protocol,
+  repoRoot = snapshotLib.REPO_ROOT, impl = { runA: adaptersA.runA, runB: adaptersB.runB, runC: adaptersC.runC, runVerification: adaptersA.runVerification },
 }) {
-  if (config !== 'A' && config !== 'B') throw new Error(`unknown configuration "${config}"`);
+  if (!['A', 'B'].includes(config) && !(config === 'C' && protocol === 'hybrid-c-v1')) throw new Error(`unknown configuration "${config}"`);
   if (corpus === 'guidance' && config === 'A') return { sameAs: 'B' };
 
   const kMax = snapshot && snapshot.corpora ? snapshot.corpora[corpus].kMax : adaptersB.K_MAX[corpus];
@@ -96,9 +98,11 @@ function runConfig({
       const disabled = (task.setup && task.setup.disable) || [];
       if (disabled.includes(B_PROVIDER[corpus])) return normalize(unreachedB(corpus, 'disabled by setup.disable'), kMax);
       if (task.class === 'verification-failure') return impl.runVerification({ task, root, config: 'B', bins, scratchDir });
-      return normalize(impl.runB({ corpus, task, exportRoot: root, indexDir: index, bins }), kMax);
+      return normalize(impl.runB({ corpus, task, exportRoot: root, indexDir: index, bins, admittedPaths }), kMax);
     }
-    return normalize(impl.runA({ task, exportRoot: root, indexRoot: exportRoot, capabilities, bins, semble, scratchDir }), kMax);
+    if (config === 'C') return normalize(impl.runC({ corpus, task, exportRoot: root, indexRoot: exportRoot, capabilities, bins,
+      semble, scratchDir, admittedPaths }), kMax);
+    return normalize(impl.runA({ task, exportRoot: root, indexRoot: exportRoot, capabilities, bins, semble, scratchDir, admittedPaths }), kMax);
   } finally {
     if (patched) {
       fs.rmSync(root, { recursive: true, force: true });

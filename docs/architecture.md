@@ -166,6 +166,37 @@ runtime modules behind them — was deleted. The only Python left in `core/` is 
 analyzer set, which belongs to a skill rather than to the runtime and is fixtured separately by
 `test/code-review-fixtures.sh`.
 
+### Code retrieval boundary
+
+Code retrieval is an additive path in `src/runtime/knowledge/`; the existing guidance search keeps
+its BM25 index and output. `doflow retrieve --scope code` admits one bounded project corpus, routes
+exact lookups to live lexical search, and defaults conceptual searches to lexical-only. The
+opt-in `hybrid` profile adds Semble 0.7.0 only for conceptual queries. Its Python bridge is a
+separate subprocess using the public API and a prebuilt project-local index; model files and Python
+packages must already exist locally. Provider calls run with offline flags and a disposable bounded
+cache/statistics sink. Index build and refresh are explicit commands; a failed mutation reports
+incomplete state and a repair instruction rather than rebuilding during search.
+
+Candidates remain untrusted until `code-validation.ts` reads and checks the live source span. The
+evidence projection function `projectEvidenceCandidates` (a library function in
+`code-validation.ts` with no production caller; only tests call it) projects only locator, provider,
+capability, need, source version and live-read content, separately for each contributing provider.
+Scores, ranks, untrusted provider snippets and arbitrary metadata do not cross the evidence
+boundary. Evidence for a code candidate remains an explicit caller action (`evidence add`); the
+candidate response never writes evidence (follow-up FU-rkt8hs tracks wiring the projection). Task-bound retrieval appends
+attempts through the existing locked retrieval record service. An empty answer only describes the
+attempted scope and cannot establish repository-wide absence.
+
+The full `src/` tree is the source of `runtime.lib` for every harness and for the staged npm
+package (`package.json` includes `src/`). Therefore the Python bridge ships through the existing
+copy-tree projection and package staging path; it does not need a parallel asset declaration.
+`test/lifecycle/hybrid-runtime-assets.test.js` exercises that projection, and
+`test/release/hybrid-package.test.js` checks the staged file.
+
+Hybrid remains opt-in. Repeated real-provider conformance and all required same-snapshot gates are
+promotion requirements; paid outcome and token-cost measurements remain unreached without separate
+authorization. Until then lexical-only remains the default and the hybrid MVP is incomplete.
+
 ### Runtime registries
 
 The runtime reads its policy from the registry rather than hardcoding it — see [Installation
@@ -734,6 +765,13 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   references `escalate`, and IC-032's lease rule calls `verify-run.ts`'s exported `endVerification`
   (G42.5); and no dispatch module holds the literals `'push'`, `'fetch'`,
   `'config'`, `'--no-verify'`, `'checkout'` or `'merge'` (G42.6).
+- **G43** (`hybrid-retrieval.test.js`) — the separate `hybrid-c-v1` protocol preserves A/B
+  history; its six aggregate slots are reserved before holdout decryption and released only on a
+  failed pre-evaluation check; the Semble 0.7.0 bridge uses bounded public dense search, preserves
+  provider order, denies network and confines writes, and never rebuilds during query; and the
+  promotion gate cannot pass with missing thresholds or unreached paid T-005/T-006 (G43.1–G43.3).
+  Package and runtime-projection conformance are exercised separately by the focused release and
+  lifecycle tests.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

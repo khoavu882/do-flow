@@ -13,7 +13,7 @@ const path = require('node:path');
 const snapshotLib = require('./lib/snapshot.js');
 const { defaultTmpDir } = require('./lib/environment.js');
 
-const VERBS = ['verify', 'run', 'rerun', 'capture', 'seal', 'migrate'];
+const VERBS = ['verify', 'run', 'hybrid-c', 'rerun', 'capture', 'seal', 'migrate'];
 const VERBS_DIR = path.join(__dirname, 'lib', 'verbs');
 /** When several exit codes apply, the first in this list wins. */
 const PRIORITY = [2, 3, 4, 1];

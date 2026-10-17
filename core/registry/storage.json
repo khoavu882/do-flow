@@ -1134,6 +1134,27 @@
       "writers": [
         "src/state/run-lock.ts"
       ]
+    },
+    {
+      "id": "code-semantic-project",
+      "root": "project-doflow",
+      "path": "index/code",
+      "entry": "dir",
+      "match": "^semble$",
+      "rule": "existing",
+      "bound": {
+        "text": "Explicit bounded local semantic lifecycle; corpus/model manifests, ordinary mirror copies, provider cache, operation lock, in-progress marker and staging; query temporary stats/ sink capped at 64 KiB and library/ (provider grammar and library cache) capped at 128 MiB (libraryBytes), both removed in finally or on the next explicit operation; sourceReadBytes is an over-count of provider reads under Semble 0.7.0."
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/knowledge/semble-provider.ts",
+        "src/runtime/knowledge/semble-lifecycle.ts"
+      ],
+      "source": {
+        "file": "src/runtime/knowledge/semble-provider.ts",
+        "pattern": "semanticStatePaths"
+      }
     }
   ],
   "externalWriters": [

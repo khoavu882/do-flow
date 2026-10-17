@@ -134,11 +134,11 @@ function evidenceItemFromFlags(o: any): any {
 }
 
 /** Verbs that read or write per-task records, and so accept `--slug` (IC-002). */
-const TASK_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'context-pack', 'research-request', 'outcome', 'retrieval-plan']);
+const TASK_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'context-pack', 'research-request', 'outcome', 'retrieval-plan', 'retrieve']);
 
 /** Verbs whose task records live beside the feature folder when run from a linked worktree that
  * does not contain it. */
-const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'retrieval-plan']);
+const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'retrieval-plan', 'retrieve']);
 
 /**
  * The main checkout, when `o` runs one of FEATURE_STORE_VERBS in a linked worktree that lacks the
@@ -149,7 +149,7 @@ const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'retrieva
  */
 function featureStoreRoot(o: any, checkouts: any): { root: string; slug: string } | null {
   if (!FEATURE_STORE_VERBS.has(o.cmd) || o.global) return null;
-  if (!checkouts.isLinked) return null;
+  if (!checkouts?.isLinked) return null;
   let slug = o.slug || null;
   if (!slug) {
     try {
@@ -182,7 +182,11 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   // here so the verbs whose handlers build their own ledger (readiness, evidence) route the same
   // way as the ones that take `slug` directly. The orchestration journal is keyed by slug already.
   // Reset on every dispatch, so one invocation's slug can never carry into the next in-process call.
-  const checkouts = FEATURE_STORE_VERBS.has(o.cmd) && !o.global
+  // `retrieve` is a task-store verb only as bound code retrieval (--scope code with --task-id or --slug):
+  // guidance retrieval and unbound code retrieval record nothing in a feature store, so they keep the
+  // pre-079 dispatch (no checkout listing, no feature resolver, no store note).
+  const storeVerb = (verbs: Set<string>) => verbs.has(o.cmd) && (o.cmd !== 'retrieve' || (o.scope === 'code' && Boolean(o.taskId || o.slug)));
+  const checkouts = storeVerb(FEATURE_STORE_VERBS) && !o.global
     ? listCheckouts({ cwd: evidenceRoot(o) }) : null;
   const featureStore = featureStoreRoot(o, checkouts);
   const storeRoot = featureStore ? featureStore.root : evidenceRoot(o);
@@ -199,13 +203,13 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     }
   } catch { /* a failed upkeep lookup must not change the verb's answer */ }
   const storeSlug = featureStore ? featureStore.slug : o.slug;
-  setDefaultSlug(TASK_STORE_VERBS.has(o.cmd) ? storeSlug : null);
+  setDefaultSlug(storeVerb(TASK_STORE_VERBS) ? storeSlug : null);
   if (featureStore) {
     console.error(`doflow ${o.cmd}: note: feature '${storeSlug}' lives in the main checkout ${storeRoot}; this task's records are read and written there`);
   }
   // A well-formed slug that names no feature changes nothing (the records go to the shared task
   // store), but the caller typed it expecting an effect, so say so once, on stderr only.
-  if (!featureStore && TASK_STORE_VERBS.has(o.cmd) && typeof o.slug === 'string' && o.slug !== ''
+  if (!featureStore && storeVerb(TASK_STORE_VERBS) && typeof o.slug === 'string' && o.slug !== ''
     && slugNamesNoFeature({ projectRoot: evidenceRoot(o), slug: o.slug })) {
     console.error(`doflow ${o.cmd}: note: --slug '${o.slug}' names no feature; using the shared task store`);
   }
@@ -276,7 +280,11 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // 082 IC-001, IC-038: the dispatch loop shares the main-worktree store root with task-attempt.
     // `--status` is parsed under `attemptStatus` (retrieval-plan's key), so it is renamed here.
     case 'dispatch': return handleDispatchCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, by: o.by, reason: o.reason, concurrency: o.concurrency, mode: o.mode, verifyArgv: o.verifyArgv, verifySeconds: o.verifySeconds, attemptSeconds: o.attemptSeconds, reserveTokens: o.reserveTokens, budgetAttempts: o.budgetAttempts, budgetTokens: o.budgetTokens, spawnGrant: o.spawnGrant, harness: o.harness, need: o.need, maxSeconds: o.maxSeconds, dispatch: o.dispatch, status: o.attemptStatus, summary: o.summary, blocker: o.blocker, tokens: o.tokens, tokensBasis: o.tokensBasis, promptFile: o.promptFile, requestId: o.requestId, task: o.task, ack: o.ack, json: o.json, env: process.env, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
-    case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
+    // Code scope keeps two roots: the search root is --root or cwd (the invoking checkout), the state root is
+    // the feature store above. Guidance gets no stateRoot, exactly as before 079, so it resolves from cwd.
+    case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json, scope: o.scope,
+      profile: o.profile, root: o.root, indexAction: o.indexAction, modelPath: o.modelPath,
+      taskId: o.taskId, need: o.need, slug: storeSlug, stateRoot: o.scope === 'code' ? storeRoot : undefined, repoRoot: REPO_ROOT });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, json: o.json, repoRoot: REPO_ROOT });

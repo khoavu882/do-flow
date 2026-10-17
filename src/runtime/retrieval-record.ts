@@ -128,6 +128,75 @@ function resolveNeed(plan: any, intent: string, taskId: string): any {
   };
 }
 
+/** Resolve the plan's query binding and the task's active attempt in one reusable operation. */
+function resolveRetrievalBinding({ projectRoot, taskId, intent, slug = null, fsImpl = fs, attemptRoot = null }: any): any {
+  const plan = readPlan(projectRoot, taskId, slug, fsImpl);
+  const resolved = resolveNeed(plan, intent, taskId);
+  if (!resolved.ok) return resolved;
+  return {
+    ok: true,
+    plan,
+    queryRef: resolved.queryRef,
+    need: resolved.need,
+    attemptRef: activeAttemptRef(projectRoot, taskId, slug, fsImpl, attemptRoot),
+  };
+}
+
+/** Append one validated provider attempt under the retrieval-plan state lock. */
+function appendRetrievalAttempt({
+  projectRoot, taskId, intent, provider, status, reason, note = null, indexState,
+  slug = null, attemptRef = undefined, fsImpl = fs, expectedCapability = undefined,
+  expectedPrimaryProvider = undefined, registeredProviders = undefined,
+}: any): any {
+  const allowedIndexStates = ['FRESH', 'STALE', 'UNKNOWN', 'NOT_APPLICABLE'];
+  if (!allowedIndexStates.includes(indexState)) {
+    throw new Error(`attempt indexState '${indexState}' is invalid; expected one of ${allowedIndexStates.join(', ')}`);
+  }
+  const allowedReasons: Record<string, string[]> = {
+    EMPTY: ['empty-answer', 'index-stale', 'index-unverifiable'],
+    UNREACHED: ['provider-unavailable', 'policy-bypass', 'provider-error', 'timeout'],
+    UNVERIFIED: ['index-unverifiable'],
+  };
+  if (status === 'RETRIEVED') throw new Error('RETRIEVED is derived from evidence and cannot be appended as a provider attempt');
+  if (!Object.prototype.hasOwnProperty.call(allowedReasons, status) || !allowedReasons[status].includes(reason)) {
+    throw new Error(`attempt reason '${reason}' is not valid for status '${status}'`);
+  }
+  if (!Array.isArray(registeredProviders) || !registeredProviders.includes(provider)) {
+    throw new Error(`provider '${provider}' is not registered for this capability`);
+  }
+  if (note !== null && String(note).length > 160) throw new Error('attempt note is longer than 160 characters');
+
+  let savedAttempt: any = null;
+  const file = updatePlan(projectRoot, taskId, slug, (disk: any) => {
+    if (disk === null) throw new Error(`the retrieval plan for task ${taskId} was removed during the update; re-declare it`);
+    const current = disk;
+    const targetNeed = Array.isArray(current.needs) ? current.needs.find((need: any) => need.intent === intent) : null;
+    if (!targetNeed) throw new Error(`need '${intent}' missing from disk plan during update`);
+    if (expectedCapability !== undefined && targetNeed.capability !== expectedCapability) {
+      throw new Error(`need '${intent}' capability changed during update`);
+    }
+    if (expectedPrimaryProvider !== undefined && targetNeed.provider !== expectedPrimaryProvider) {
+      throw new Error(`need '${intent}' provider changed during update`);
+    }
+    if (provider === undefined || provider === null || String(provider).trim() === '') throw new Error('attempt provider is required');
+    if (!Array.isArray(targetNeed.attempts)) targetNeed.attempts = [];
+    const n = targetNeed.attempts.reduce((max: number, prior: any) => Math.max(max, Number.isInteger(prior?.n) ? prior.n : 0), 0) + 1;
+    const role = provider === targetNeed.provider ? 'primary' : 'fallback';
+    savedAttempt = {
+      n, provider, capability: targetNeed.capability, role, status, reason,
+      note: note !== undefined && note !== null ? String(note) : null,
+      indexState,
+      attemptRef: attemptRef === undefined ? activeAttemptRef(projectRoot, taskId, slug, fsImpl) : attemptRef,
+      evidenceIds: [],
+      recordedAt: new Date().toISOString(),
+      recordedBy: 'caller',
+    };
+    targetNeed.attempts.push(savedAttempt);
+    return current;
+  }, fsImpl);
+  return { file, attempt: savedAttempt };
+}
+
 /**
  * Reads the 070 active attempt ref for a task, returning `${taskId}#${token}` or null.
  *
@@ -216,6 +285,8 @@ module.exports = {
   moveCorruptPlanAside,
   mintPlanId,
   resolveNeed,
+  resolveRetrievalBinding,
+  appendRetrievalAttempt,
   activeAttemptRef,
   declaredIntentList,
   bindEvidence,

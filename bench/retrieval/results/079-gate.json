@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "protocol": "hybrid-c-v1",
+  "gate": "Conceptual retrieval improves within agreed quality/cost tolerances. Locators are valid; provider faults do not collapse the workflow or produce false absence claims.",
+  "rows": [
+    {
+      "id": "T-001",
+      "verdict": "PASS",
+      "observations": 13,
+      "comparator": "==",
+      "threshold": 0
+    },
+    {
+      "id": "T-002",
+      "verdict": "FAIL",
+      "observations": 1,
+      "ciLowerAboveZero": false
+    },
+    {
+      "id": "T-003",
+      "verdict": "PASS",
+      "observations": 2
+    },
+    {
+      "id": "T-004",
+      "verdict": "FAIL",
+      "observations": 12,
+      "comparator": ">=",
+      "threshold": 0.95
+    },
+    {
+      "id": "T-005",
+      "verdict": "UNREACHED",
+      "cause": "paid measurement requires separate authorization"
+    },
+    {
+      "id": "T-006",
+      "verdict": "UNREACHED",
+      "cause": "paid measurement requires separate authorization"
+    },
+    {
+      "id": "T-007",
+      "verdict": "PASS",
+      "observations": 13,
+      "comparator": "==",
+      "threshold": 1
+    },
+    {
+      "id": "T-008",
+      "verdict": "PASS",
+      "observations": 1
+    }
+  ],
+  "verdict": "FAIL",
+  "hybridMvp": "incomplete"
+}

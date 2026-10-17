@@ -23,7 +23,7 @@ health.probeFreshness = function spyProbeFreshness(providerId, options) {
 const {
   handleRetrievalPlanCommand,
 } = require('../../src/runtime/retrieval-plan.ts');
-const { readPlan } = require('../../src/runtime/retrieval-record.ts');
+const { readPlan, appendRetrievalAttempt } = require('../../src/runtime/retrieval-record.ts');
 
 function callVerb(options) {
   const lines = [];
@@ -53,6 +53,65 @@ function declareFixturePlan(root, taskId = 'task-attempt-1', need = ['locate-con
   assert.equal(res.code, 0, `declare must exit 0: ${res.out}`);
   return readPlan(root, taskId);
 }
+
+test('shared locked append returns the provider attempt identity and refuses a changed binding', (t) => {
+  const root = tempDir(t, 'doflow-attempt-helper-');
+  const taskId = 't-shared-append';
+  const plan = declareFixturePlan(root, taskId);
+  const need = plan.needs[0];
+  const first = appendRetrievalAttempt({
+    projectRoot: root, taskId, intent: need.intent, provider: need.provider,
+    status: 'UNREACHED', reason: 'provider-unavailable', indexState: 'UNKNOWN',
+    expectedCapability: need.capability, expectedPrimaryProvider: need.provider,
+    registeredProviders: [need.provider],
+  });
+  assert.equal(first.attempt.n, 1);
+  assert.equal(first.attempt.role, 'primary');
+  assert.equal(first.attempt.attemptRef, null);
+  const later = readPlan(root, taskId);
+  later.needs[0].attempts[0].n = 4;
+  fs.writeFileSync(require('../../src/runtime/retrieval-record.ts').planPath(root, taskId), JSON.stringify(later));
+  const second = appendRetrievalAttempt({
+    projectRoot: root, taskId, intent: need.intent, provider: need.provider,
+    status: 'UNREACHED', reason: 'provider-error', indexState: 'UNKNOWN',
+    expectedCapability: need.capability, expectedPrimaryProvider: need.provider,
+    registeredProviders: [need.provider],
+  });
+  assert.equal(second.attempt.n, 5, 'numbering remains monotonic if old attempts were pruned');
+  assert.throws(() => appendRetrievalAttempt({
+    projectRoot: root, taskId, intent: need.intent, provider: need.provider,
+    status: 'RETRIEVED', reason: 'provider-unavailable', indexState: 'UNKNOWN',
+    registeredProviders: [need.provider],
+  }), /derived from evidence and cannot be appended/);
+  assert.throws(() => appendRetrievalAttempt({
+    projectRoot: root, taskId, intent: need.intent, provider: need.provider,
+    status: 'UNREACHED', reason: 'provider-unavailable', indexState: 'UNKNOWN',
+    expectedCapability: need.capability, expectedPrimaryProvider: 'changed.provider',
+    registeredProviders: [need.provider],
+  }), /provider changed during update/);
+});
+
+test('shared append accepts only the closed index freshness vocabulary', (t) => {
+  const root = tempDir(t, 'doflow-attempt-index-state-');
+  const taskId = 't-index-state';
+  const plan = declareFixturePlan(root, taskId);
+  const need = plan.needs[0];
+  for (const indexState of ['FRESH', 'STALE', 'UNKNOWN', 'NOT_APPLICABLE']) {
+    const saved = appendRetrievalAttempt({
+      projectRoot: root, taskId, intent: need.intent, provider: need.provider,
+      status: 'UNREACHED', reason: 'provider-unavailable', indexState,
+      registeredProviders: [need.provider],
+    });
+    assert.equal(saved.attempt.indexState, indexState);
+  }
+  for (const indexState of [undefined, 'BROKEN']) {
+    assert.throws(() => appendRetrievalAttempt({
+      projectRoot: root, taskId, intent: need.intent, provider: need.provider,
+      status: 'UNREACHED', reason: 'provider-unavailable', indexState,
+      registeredProviders: [need.provider],
+    }), /indexState .* is invalid; expected one of FRESH, STALE, UNKNOWN, NOT_APPLICABLE/);
+  }
+});
 
 test('--status RETRIEVED exits 2 with refusal message (IC-012)', (t) => {
   const root = tempDir(t, 'doflow-attempt-retrieved-');

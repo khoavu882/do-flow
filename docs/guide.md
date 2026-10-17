@@ -138,6 +138,45 @@ Use diagnosis to establish the root cause or audit scope, then improve only the 
 
 For parallel task orchestration, `do-execute-plan` automatically isolates write-sets across specialist subagents.
 
+## Retrieve code from the project
+
+`doflow retrieve` keeps its existing guidance search when you pass only `--query`. Use
+`--scope code` to search the current project. Code retrieval is lexical-only by default; exact
+lookups always use the bounded lexical path. A conceptual query can request the optional hybrid
+profile, which combines lexical candidates with a local Semble index and falls back to lexical
+retrieval when Semble is unavailable or the index is stale.
+
+Prepare the optional provider before invoking it: install Semble 0.7.0 and its required Python
+dependencies in the environment of the `semble` launcher (found on PATH, then in `~/.local/bin`),
+and keep a compatible model already present on disk. Set `SEMBLE_MODEL_PATH` to that absolute model directory, or pass `--model-path`.
+DoFlow does not download models or install Python packages. Provider calls set the model libraries'
+offline flags and redirect their caches and temporary statistics into a bounded, project-local
+temporary directory.
+
+Build the code index explicitly, then opt into hybrid for conceptual searches:
+
+```bash
+doflow retrieve --scope code --index-action build --root . --model-path "$SEMBLE_MODEL_PATH" --json
+doflow retrieve --scope code --profile hybrid --query "where are task attempts appended?" --root . --json
+```
+
+Use `--index-action refresh` to update an existing compatible index. If a build or refresh reports
+an incomplete index, fix the reported cause and run an explicit bounded `build` to repair it; no
+query silently rebuilds or refreshes the index. Retrieval state stays under the project's
+`.doflow/index/code/semble/`. Provider faults leave lexical search available and report the gap.
+Hybrid remains an experimental, incomplete promotion: lexical-only is the default until repeated
+provider conformance and the full retrieval gate pass. The paid task-success and token-cost checks
+remain unreached without separate authorization.
+
+An unknown `--scope` value exits 2 and lists `guidance` and `code`. The search root is `--root`, or the current
+directory when it is omitted; task state (`--task-id`, `--slug`) stays in the feature store root, so in a linked
+worktree the search reads that worktree's files while records go to the main checkout. When both providers answer, a conceptual hybrid search
+returns one result per file: lexical and Semble each vote for their first requested-top files, and the delivered
+span is the widest span either returned (`origins[].locator` shows each provider's span). When files were left out
+of the corpus (an oversized file, a file-count limit, an unstaged delete or rename), the response lists a gap with
+source `admission`, a cause and a count, and the search is marked incomplete. An index operation that stopped
+leaving a lock behind is cleared automatically when the process that held it has exited on this host.
+
 ## Research before committing to a design
 
 Keep current or uncertain external knowledge separate from implementation work.

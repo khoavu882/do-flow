@@ -10,13 +10,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const sealLib = require('../seal.js');
 const snapshotLib = require('../snapshot.js');
+const hybridProtocol = require('../hybrid-protocol.js');
 
 const THRESHOLDS_PATH = 'bench/retrieval/thresholds.json';
 const MAX_RUNS = 6;
 const RUNS_PER_HOLDOUT_RUN = 2;
 const CONFIGS = ['A', 'B'];
 
-const fail = (precondition, message) => ({ ok: false, exitCode: 2, precondition, message });
+const fail = (precondition, message, reservation) => ({ ok: false, exitCode: 2, precondition, message, ...(reservation ? { reservation } : {}) });
 
 /** Every object carrying a `status` field, with a label: minN, thresholds[], rules[], costCaps, rerun. */
 function approvalEntries(thresholds) {
@@ -51,8 +52,19 @@ function resultFilesEver(repoRoot) {
 }
 
 function check({ args = {}, repoRoot, snapshot, thresholds, sealMeta = {}, env = process.env, home }) {
+  const hybrid = args.protocol === hybridProtocol.ID;
+  if (args.protocol && !hybrid) return fail('a', `unknown protocol ${args.protocol}`);
+  const resultsDir = path.join(repoRoot, 'bench', 'retrieval', 'results');
+  const priorHybridReservation = fs.existsSync(resultsDir) && fs.readdirSync(resultsDir).some((name) =>
+    name.startsWith(`.hybrid-c-v1-${snapshot.snapshotId}-g`) && name.endsWith('.reserved.json'));
+  if (!hybrid && priorHybridReservation) {
+    return fail('e', 'hybrid-c-v1 has reserved this snapshot generation; inspect its reservation and aggregates before recovery');
+  }
+  const configs = hybrid ? hybridProtocol.CONFIGS : CONFIGS;
+  const corpora = hybrid ? hybridProtocol.CORPORA : Object.keys(sealMeta);
   // (a) both configurations in one process
-  if (args.config !== undefined && args.config !== 'A,B') return fail('a', '--config must be A,B so both configurations run in one process');
+  if (args.config !== undefined && args.config !== (hybrid ? 'A,B,C' : 'A,B')) return fail('a', `--config must be ${hybrid ? 'A,B,C' : 'A,B'} so all configurations run in one process`);
+  if (hybrid && corpora.some((c) => !sealMeta[c])) return fail('a', 'hybrid-c-v1 requires both code and guidance holdouts');
 
   // (b) every threshold entry approved, with a date
   if (!thresholds) return fail('b', `${THRESHOLDS_PATH} is missing`);
@@ -63,34 +75,49 @@ function check({ args = {}, repoRoot, snapshot, thresholds, sealMeta = {}, env =
   if (!gitOk(repoRoot, ['ls-files', '--error-unmatch', THRESHOLDS_PATH])) return fail('c', `${THRESHOLDS_PATH} is not tracked`);
   if (!gitOk(repoRoot, ['diff', '--quiet', 'HEAD', '--', THRESHOLDS_PATH])) return fail('c', `${THRESHOLDS_PATH} differs from HEAD; commit it before the run`);
 
-  // (d) the key decrypts every envelope and the plaintext matches its seal
-  let key;
-  try { key = sealLib.resolveKey({ keyFile: args['key-file'], env, home, repoRoot }); } catch (error) { return fail('d', error.message); }
-  for (const [corpus, meta] of Object.entries(sealMeta)) {
-    try {
-      const { plaintextSha256 } = sealLib.decrypt(meta.envelope, key.passphrase, meta.label);
-      if (plaintextSha256 !== meta.seal.plaintextSha256) return fail('d', `plaintext of the ${corpus} holdout does not match its seal digest`);
-    } catch (error) {
-      return fail('d', error.message);
-    }
-  }
-
   // (e) no result for this snapshot, generation, corpus and configuration, on disk or in any ref
   const ever = resultFilesEver(repoRoot);
-  for (const [corpus, meta] of Object.entries(sealMeta)) {
-    for (const config of CONFIGS) {
+  for (const corpus of corpora) {
+    const meta = sealMeta[corpus];
+    if (!meta) continue;
+    for (const config of configs) {
       const name = `holdout-${snapshot.snapshotId}-g${meta.generation}-${corpus}-${config}.json`;
       if (ever.has(name)) return fail('e', `a result already exists for ${corpus} configuration ${config} in this generation (${name})`);
     }
   }
 
   // (f) this run must leave the generation at no more than six configuration runs
-  for (const meta of Object.values(sealMeta)) {
-    const re = new RegExp(`^holdout-${snapshot.snapshotId}-g${meta.generation}-(code|guidance)-[AB]\\.json$`);
+  for (const corpus of corpora) {
+    const meta = sealMeta[corpus];
+    if (!meta) continue;
+    const configClass = hybrid ? 'ABC' : 'AB';
+    const re = new RegExp(`^holdout-${snapshot.snapshotId}-g${meta.generation}-(code|guidance)-[${configClass}]\\.json$`);
     const used = [...ever].filter((n) => re.test(n)).length;
-    if (used + RUNS_PER_HOLDOUT_RUN > MAX_RUNS) return fail('f', `generation ${meta.generation} has ${used} configuration runs; this run would exceed ${MAX_RUNS}`);
+    const needed = hybrid ? 6 : RUNS_PER_HOLDOUT_RUN;
+    if (used + needed > MAX_RUNS) return fail('f', `generation ${meta.generation} has ${used} configuration runs; this run would exceed ${MAX_RUNS}`);
   }
-  return { ok: true };
+  // Reservation is durable before the first decrypt. It deliberately survives every later failure.
+  let reservation;
+  if (hybrid) {
+    try { reservation = hybridProtocol.reserveSixSlots({ repoRoot, snapshotId: snapshot.snapshotId, sealMeta, resultFiles: ever }); }
+    catch (error) { return fail('f', error.message); }
+  }
+  // (d) the key decrypts every envelope and the plaintext matches its seal
+  let key;
+  const failBeforeEvaluation = (message) => {
+    if (reservation) hybridProtocol.releaseBeforeEvaluation({ repoRoot, reservation });
+    return fail('d', message);
+  };
+  try { key = sealLib.resolveKey({ keyFile: args['key-file'], env, home, repoRoot }); } catch (error) { return failBeforeEvaluation(error.message); }
+  for (const corpus of corpora) {
+    const meta = sealMeta[corpus];
+    if (!meta) continue;
+    try {
+      const { plaintextSha256 } = sealLib.decrypt(meta.envelope, key.passphrase, meta.label);
+      if (plaintextSha256 !== meta.seal.plaintextSha256) return failBeforeEvaluation(`plaintext of the ${corpus} holdout does not match its seal digest`);
+    } catch (error) { return failBeforeEvaluation(error.message); }
+  }
+  return hybrid ? { ok: true, reservation } : { ok: true };
 }
 
 module.exports = { check, approvalEntries, THRESHOLDS_PATH, MAX_RUNS };

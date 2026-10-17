@@ -36,6 +36,24 @@ evidence of the first example below was recorded from:
 A reader who can see where a fact came from
 does not need to be told how sure to be.
 
+### Code retrieval candidates
+
+The code-scoped retrieval response uses an inclusive span `{file, line, endLine}` and may include
+all contributing provider origins, ranks, fused score and a provider snippet. Those fields remain
+candidate data. Provider snippets are ignored for verification: the runtime reads the admitted live
+source file, checks containment, membership, range and file identity, and uses only that bounded
+live read for delivered content. Index identity and the later live `sourceVersion` remain separate.
+
+The evidence projection function `projectEvidenceCandidates` (`src/runtime/knowledge/code-validation.ts`)
+is a library function with no production caller; only tests call it. Evidence for a code candidate
+remains an explicit caller action (`evidence add`), and the candidate response never writes evidence
+(follow-up FU-rkt8hs). When called, the projection creates one item per contributing provider and keeps only the registered
+provider, capability, declared need, locator, measured source version and validated content. It
+drops ranks, scores, fused ranking values, origin arrays and untrusted provider snippets. Query and
+active task-attempt references are stamped from the stored retrieval plan and attempt, never taken
+from candidate-supplied fields. Returning a candidate does not itself write evidence or derive a
+`RETRIEVED` attempt.
+
 ## Evidence
 
 Evidence is a recorded fact with a locator and content. It carries no field named in

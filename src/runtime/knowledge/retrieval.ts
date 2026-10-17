@@ -145,7 +145,15 @@ function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs }: { co
  * code from this install, knowledge from the project being worked on. The `.doflow` root is
  * $DOFLOW_CONFIG_DIR, else the nearest one above `stateRoot` that holds a guidance tree, else the
  * home install; the index is kept beside the corpus chosen. */
-function handleRetrieveCommand({ query, top, json = false, stateRoot }: { query?: any; top?: any; json?: boolean; stateRoot?: any } = {}): any {
+function handleRetrieveCommand(options: any = {}): any {
+  const { query, top, json = false, stateRoot } = options;
+  if (options.scope !== undefined && options.scope !== 'guidance' && options.scope !== 'code') {
+    return usageError('retrieve', `--scope must be guidance or code, got '${options.scope}'`, json);
+  }
+  if (options.scope === 'code' || options.indexAction !== undefined) {
+    if (options.scope !== 'code') return usageError('retrieve', '--index-action requires --scope code', json);
+    return handleCodeRetrieveCommand(options);
+  }
   const { configDir } = resolveRunsLocation({ start: stateRoot, containing: 'guidance' });
   const corpusDir = path.join(configDir, 'guidance');
   const indexDir = path.join(configDir, 'index', 'guidance');
@@ -174,6 +182,30 @@ function handleRetrieveCommand({ query, top, json = false, stateRoot }: { query?
   }
 }
 
+/** Additive code path. The guidance branch above retains its existing output and exit behavior. The search root is
+ * `root` or cwd, never `stateRoot`: in a linked worktree the state root is the main checkout's feature store. */
+function handleCodeRetrieveCommand(options: any): any {
+  const { executeCodeRetrieval } = require('./code-retrieval.ts');
+  return executeCodeRetrieval({ ...options, root: options.root || process.cwd() }).then((outcome: any) => {
+    const response = outcome.response;
+    if (options.json) console.log(JSON.stringify(response, null, 2));
+    else if (!response.ok) console.error(`[ERROR] retrieve: ${response.error}${response.cause ? ` (${response.cause})` : ''}${response.summary ? ` — ${response.summary}` : ''}`);
+    else if (response.action) console.log(`${response.complete ? '[OK]' : '[ERROR]'} ${response.action} code index${response.generation ? ` ${response.generation}` : ''}`);
+    else if (!response.results.length) console.log('[OK] No matching code found in the attempted scope. absenceEstablished=false');
+    else response.results.forEach((candidate: any, index: number) => {
+      console.log(`${index + 1}. ${candidate.locator.file}:${candidate.locator.line}-${candidate.locator.endLine}`);
+      if (candidate.snippet) console.log(`   ${candidate.snippet}`);
+    });
+    if (!options.json && response.gaps?.length) for (const gap of response.gaps) console.error(`[INFO] retrieve gap: ${gap.provider || gap.source || 'retrieval'} ${gap.reason}`);
+    return finishRuntime(outcome.exit);
+  }).catch((error: any) => {
+    captureCaught(error, 'retrieve', 1);
+    if (options.json) console.log(JSON.stringify({ ok: false, schemaVersion: 1, scope: 'code', error: 'retrieval-failed', cause: error.message }, null, 2));
+    else console.error(`[ERROR] retrieve: ${error.message}`);
+    return finishRuntime(1);
+  });
+}
+
 const {
   reciprocalRankFusion,
   normalizeLocator,
@@ -187,6 +219,7 @@ module.exports = {
   buildImportGraph,
   expandViaGraph,
   handleRetrieveCommand,
+  handleCodeRetrieveCommand,
   STOPWORDS,
   reciprocalRankFusion,
   normalizeLocator,
