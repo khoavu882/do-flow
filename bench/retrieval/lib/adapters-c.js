@@ -75,11 +75,12 @@ function runC({ corpus, task, exportRoot, indexRoot = exportRoot, capabilities, 
     return answer;
   }
   if (!['exact-lookup', 'conceptual-discovery'].includes(task.class)) return adaptersB.runB({ corpus, task, exportRoot, bins, admittedPaths });
-  const query = task.class === 'exact-lookup' ? task.literal : task.query;
+  // An unbound IC-001 request declares exact intent by quoting (IC-002); the classifier strips exactly
+  // one quote pair, so a multiword literal stays one fixed string instead of routing conceptual.
+  const query = task.class === 'exact-lookup' ? `"${task.literal}"` : task.query;
   const disabled = (task.setup && task.setup.disable) || [];
   const options = { root: exportRoot, scopes: admittedPaths, query, top: 10,
     profile: task.class === 'exact-lookup' ? 'lexical-only' : 'hybrid',
-    ...(task.class === 'exact-lookup' ? { intent: 'exact' } : {}),
     ...(process.env.SEMBLE_MODEL_PATH ? { modelPath: process.env.SEMBLE_MODEL_PATH } : {}) };
   const started = process.hrtime.bigint();
   const wallMs = () => Number(process.hrtime.bigint() - started) / 1e6;

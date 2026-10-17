@@ -69,7 +69,7 @@ test('C invokes production coordinator boundary with exact lexical and conceptua
   const common = { corpus: 'code', exportRoot: '/repo', admittedPaths: ['src/a.ts'], executeCodeRetrieval: coordinator };
   const exact = adaptersC.runC({ ...common, task: { class: 'exact-lookup', literal: 'odd literal' } });
   const conceptual = adaptersC.runC({ ...common, task: { class: 'conceptual-discovery', query: 'find parser callers' } });
-  assert.equal(requests[0].intent, 'exact'); assert.equal(requests[0].profile, 'lexical-only');
+  assert.equal(requests[0].query, '"odd literal"'); assert.equal(requests[0].profile, 'lexical-only');
   assert.equal(requests[1].profile, 'hybrid'); assert.deepEqual(requests[1].scopes, ['src/a.ts']);
   assert.equal(exact.candidates[0].path, 'src/a.ts'); assert.equal(conceptual.effectiveProfile, 'hybrid');
 });
@@ -328,3 +328,31 @@ test('R4a: C graph-routed classes delegate to A, so they run on the tree A index
   for (const cls of ['exact-lookup', 'conceptual-discovery']) assert.equal(adaptersC.delegatesToA({ class: cls }), false);
 });
 
+// R4 (b): a multiword exact literal must reach the production exact route, as B's `rg -F` does.
+function literalWorld(t) {
+  const root = tempDir(t, 'doflow-hybrid-c-literal-');
+  const files = {
+    'src/a.ts': 'export function other() {}\nconst x = loadRegistry;\n',
+    'src/b.ts': 'export function loadRegistry() {}\n',
+    'src/c.ts': 'function helper() { return loadRegistry(); }\nfunction more() {}\n',
+  };
+  for (const [f, body] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), body); }
+  return { root, paths: Object.keys(files) };
+}
+
+test('R4b: C exact-lookup sends a multiword literal through the real coordinator as one fixed string', (t) => {
+  const { root, paths } = literalWorld(t);
+  const answer = adaptersC.runC({ corpus: 'code', task: { class: 'exact-lookup', literal: 'function loadRegistry' }, exportRoot: root, admittedPaths: paths });
+  assert.equal(answer.result, 'RETRIEVED');
+  assert.deepEqual(answer.candidates.map((c) => `${c.path}:${c.startLine}`), ['src/b.ts:1'], 'only the line holding the literal, as B finds it');
+});
+
+test('R4b control: the coordinator ignores an `intent` option, so the old unquoted request routes a multiword literal conceptual', (t) => {
+  const { root, paths } = literalWorld(t);
+  const options = { root, scopes: paths, query: 'function loadRegistry', top: 10, profile: 'lexical-only', intent: 'exact' };
+  const modulePath = path.resolve(__dirname, '../../src/runtime/knowledge/code-retrieval.ts');
+  const run = require('node:child_process').spawnSync(process.execPath, ['-e', adaptersC.BRIDGE], { input: JSON.stringify({ modulePath, options }), encoding: 'utf8' });
+  const response = JSON.parse(run.stdout).response;
+  assert.equal(response.queryClass, 'conceptual');
+  assert.ok(response.results.length > 1, 'term matching returns lines without the literal');
+});
