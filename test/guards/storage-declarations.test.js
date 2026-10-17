@@ -264,7 +264,7 @@ function runScenario() {
   try {
     const built = spawnSync('bash', [path.join(REPO, 'test/hooks/build-install-mirror.sh'), mirror], { encoding: 'utf8' });
     assert.equal(built.status, 0, built.stderr);
-    const env = scratch.env({ DOFLOW_CLI, NODE_OPTIONS: `--require=${observer}`, G26_OBSERVED: observed });
+    const env = scratch.env({ DOFLOW_TELEMETRY: 'on', DOFLOW_CLI, NODE_OPTIONS: `--require=${observer}`, G26_OBSERVED: observed });
     const git = spawnSync('git', ['init', '-q'], { cwd: project, env, encoding: 'utf8' });
     assert.equal(git.status, 0, git.stderr);
     fs.writeFileSync(path.join(project, 'plan.md'), [

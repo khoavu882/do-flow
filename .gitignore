@@ -26,6 +26,8 @@ tasks/
 # Benchmark ground-truth task definitions under bench/retrieval/tasks/ are tracked
 !bench/retrieval/tasks/
 telemetry/
+# 088: committed telemetry contract fixtures (G44.1 reads them)
+!test/fixtures/telemetry/
 todos/
 
 # IDE integration (machine-specific)

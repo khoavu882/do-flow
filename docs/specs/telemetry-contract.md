@@ -1,8 +1,9 @@
 # Spec: telemetry contract v1
 
-Contract document for feature 088 (IC-001, IC-002, IC-018). The machine-readable form is
-`core/registry/telemetry.json`; this page is its prose mirror. When the two disagree the registry is
-right, and `test/guards/telemetry-contract.test.js` (G44, provisional number) is what notices.
+Contract document for feature 088 (IC-001, IC-002, IC-003, IC-004, IC-018). The machine-readable
+form is `core/registry/telemetry.json`; this page is its prose mirror. When the two disagree the
+registry is right, and `test/guards/telemetry-contract.test.js` (G44, provisional number) is what
+notices.
 
 Telemetry here means local metadata about DoFlow's own runs: how long a hook took, which tier of a
 verify run ran and how it ended. It is never content, it never leaves the machine, and it never
@@ -29,7 +30,8 @@ is a separate switch (`DOFLOW_VERIFY_V0`) and is independent of this one.
 
 ## Common keys
 
-Every line carries these, in this order, before its kind's own keys.
+Every line carries these. Key order carries no meaning: the Node writer puts them first, and the
+bridge writes hook lines in its own fixed order (see Hook lines).
 
 | Key | Type | Class | Source |
 |---|---|---|---|
@@ -45,7 +47,7 @@ Every line carries these, in this order, before its kind's own keys.
 
 | Kind | Written by | Keys beyond the common ones |
 |---|---|---|
-| `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh` | none declared yet; the hook-line keys arrive with the bridge writer |
+| `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `session`, `tool`, `tool_call_id` (see Hook lines) |
 | `verify.run` | `src/runtime/trace/telemetry.ts` | none declared yet |
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | none declared yet |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | none declared yet |
@@ -53,6 +55,38 @@ Every line carries these, in this order, before its kind's own keys.
 A key is added to a kind in the same change that writes it, with its `phase` (the merge that first
 writes it). Until then the writer drops every key it is handed for that kind. Changes to the contract
 are additive and `version` stays 1. No `gen_ai.*` name appears in v1.
+
+## Hook lines
+
+The shared bridge writes one `hook` line per invocation of an allowlisted surface, on the native and
+the `--emit decision` paths alike, after the verdict is known. The allowlist is the surfaces the
+paired perf run measures: `pre-bash-guard` on claude, codex, gemini, kiro, antigravity and pi, and
+`user-prompt-submit` on claude and codex. Any other surface writes nothing.
+
+| Key | Type | Class | Source |
+|---|---|---|---|
+| `harness`, `event`, `policy` | `enum:harness`, `enum:event`, `enum:policy` | T2 | the allowlist entry (Kiro's `preToolUse` is written `PreToolUse`) |
+| `verdict` | `enum:verdict` | T2 | the bridge's classified outcome |
+| `duration_ms` | `uint` or null | T1 | `EPOCHREALTIME` at bridge entry and at the write; null on bash below 5 (macOS `/bin/bash` 3.2) |
+| `session` | `token` or null | T0 | the decoded session id |
+| `tool` | `token` or null | T2 | the decoded tool name; null for an MCP tool, so an MCP server or tool name is never recorded |
+| `tool_call_id` | `token` or null | T0 | Pi `toolCallId`, Claude and Codex `tool_use_id`; else null |
+
+The line is `kind, harness, event, policy, verdict, duration_ms, timestamp, session, tool,
+tool_call_id, run, lineage, attempt`. Everything after `duration_ms` comes from a tuple that
+`envelope.jq` emits as its first line in `--arg mode encode` (only when that mode is passed
+explicitly): `{dft:1, date, timestamp, session, tool, tool_call_id, run, lineage, attempt}`, every
+value validated in jq. Every telemetry expression sits inside `try`, so a fault there yields
+`{dft:1}`, which writes nothing and leaves the envelope and the policy verdict untouched. Off emits
+`{dft:1}` too.
+
+The target is `<config>/state/runs/telemetry/<UTC date>.jsonl`, with `<config>` from
+`DOFLOW_CONFIG_DIR`, else the nearest `.doflow` at or above the working directory; there is no
+install or global fallback beyond that walk. Nothing is written unless `<config>/state` exists;
+`telemetry/` is created non-recursively (so only when `state/runs` exists), and the target is
+appended to only when it is absent or a regular file. A FIFO, a directory or an unwritable target
+writes nothing, never blocks, and changes no output or exit code. One `printf >>` per invocation,
+builtins only apart from that first `mkdir`.
 
 `recordFields` are not line keys: they are the identifiers a run record carries
 (`task-run.run.traceId`, `task-run.history.traceId`, `task-run.history.traceLink`,
@@ -138,7 +172,8 @@ is re-checked at merge):
 
 1. the registry is well formed, three vocabularies equal their owning registries, and the keys it
    declares per kind equal the keys the writer, the shell `printf` formats and the committed fixture
-   lines (`test/fixtures/telemetry/*.jsonl`) carry;
+   lines (`test/fixtures/telemetry/*.jsonl`) carry; `hook.jsonl` there is held equal to a real bridge
+   line's keys by `test/hooks/bridge-hook-line.test.js`;
 2. no `node` process starts on a shell hook path, and the node files there are the pinned three;
 3. no network module or `fetch` under `src/runtime` outside the pinned advice client;
 4. no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze` or

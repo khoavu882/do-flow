@@ -21,7 +21,16 @@
     "hook": {
       "store": "runs-telemetry",
       "writers": ["core/harnesses/shared/hooks/bridge/bridge.sh"],
-      "fields": {}
+      "fields": {
+        "harness": { "name": "doflow.hook.harness", "class": "T2", "type": "enum:harness", "phase": "P2" },
+        "event": { "name": "doflow.hook.event", "class": "T2", "type": "enum:event", "phase": "P2" },
+        "policy": { "name": "doflow.hook.policy", "class": "T2", "type": "enum:policy", "phase": "P2" },
+        "verdict": { "name": "doflow.hook.verdict", "class": "T2", "type": "enum:verdict", "phase": "P2" },
+        "duration_ms": { "name": "doflow.hook.duration_ms", "class": "T1", "type": "uint|null", "phase": "P2" },
+        "session": { "name": "doflow.hook.session", "class": "T0", "type": "token|null", "phase": "P2" },
+        "tool": { "name": "doflow.hook.tool", "class": "T2", "type": "token|null", "phase": "P2" },
+        "tool_call_id": { "name": "doflow.hook.tool_call_id", "class": "T0", "type": "token|null", "phase": "P2" }
+      }
     },
     "verify.run": {
       "store": "runs-telemetry",

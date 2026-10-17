@@ -359,8 +359,11 @@ test('G44.6: telemetry stores are declared runs/ subdirectories, and the ledger 
 // --- Self-tests: every check fails on a planted violation ----------------------------------------
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+/** The registry with no kind fields, so a planted field is the only one the self-tests see. */
+const bare = clone(registry);
+for (const spec of Object.values(bare.kinds)) spec.fields = {};
 const withField = (key, field) => {
-  const copy = clone(registry);
+  const copy = clone(bare);
   copy.kinds['verify.run'].fields[key] = field;
   return copy;
 };
@@ -370,7 +373,7 @@ test('G44.1 self-test: a registry that is missing a key a fixture line carries f
   const declared = withField('duration_ms', GOOD_FIELD);
   const lines = [{ source: 'fixture:1', kind: 'verify.run', keys: ['timestamp', 'kind', 'run', 'lineage', 'attempt', 'duration_ms'] }];
   assert.deepEqual(checkAllowlist(declared, lines), []);
-  const errors = checkAllowlist(registry, lines);
+  const errors = checkAllowlist(bare, lines);
   assert.deepEqual(errors, ["fixture:1: kind verify.run writes 'duration_ms', which core/registry/telemetry.json does not declare"]);
   assert.match(checkAllowlist(registry, [{ source: 'f:1', kind: 'span', keys: [] }]).join('\n'), /kind 'span' is not in core\/registry\/telemetry\.json/);
 });
@@ -380,7 +383,7 @@ test('G44.1 self-test: a declared key nothing writes fails, and a printf format 
   assert.match(checkAllowlist(declared, []).join('\n'), /kind verify\.run declares 'duration_ms', which no writer/);
   const format = "printf '{\"kind\":\"hook\",\"harness\":\"%s\",\"duration_ms\":%s,%s\\n' a b c >>\"$f\"\necho '{\"kind\":\"hook\",\"x\":1}'\n";
   assert.deepEqual(printfKeys(format), [{ kind: 'hook', keys: ['kind', 'harness', 'duration_ms'], line: 1 }]);
-  const errors = checkAllowlist(registry, printfKeys(format).map((hit) => ({ source: 'bridge.sh:1', kind: hit.kind, keys: hit.keys })));
+  const errors = checkAllowlist(bare, printfKeys(format).map((hit) => ({ source: 'bridge.sh:1', kind: hit.kind, keys: hit.keys })));
   assert.equal(errors.length, 2, errors.join('\n'));
   assert.match(errors[0], /kind hook writes 'harness'/);
 });
