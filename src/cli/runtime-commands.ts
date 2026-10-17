@@ -149,7 +149,7 @@ const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'retrieva
  */
 function featureStoreRoot(o: any, checkouts: any): { root: string; slug: string } | null {
   if (!FEATURE_STORE_VERBS.has(o.cmd) || o.global) return null;
-  if (!checkouts.isLinked) return null;
+  if (!checkouts?.isLinked) return null;
   let slug = o.slug || null;
   if (!slug) {
     try {
@@ -182,7 +182,10 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   // here so the verbs whose handlers build their own ledger (readiness, evidence) route the same
   // way as the ones that take `slug` directly. The orchestration journal is keyed by slug already.
   // Reset on every dispatch, so one invocation's slug can never carry into the next in-process call.
-  const checkouts = FEATURE_STORE_VERBS.has(o.cmd) && !o.global
+  // Unbound code retrieval (no --task-id, no --slug) records nothing in a feature store, so it skips the
+  // checkout listing and the feature resolver; either flag keeps the full routing.
+  const unboundCodeRetrieve = o.cmd === 'retrieve' && o.scope === 'code' && !o.taskId && !o.slug;
+  const checkouts = FEATURE_STORE_VERBS.has(o.cmd) && !o.global && !unboundCodeRetrieve
     ? listCheckouts({ cwd: evidenceRoot(o) }) : null;
   const featureStore = featureStoreRoot(o, checkouts);
   const storeRoot = featureStore ? featureStore.root : evidenceRoot(o);

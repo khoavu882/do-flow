@@ -41,3 +41,34 @@ test('invalid task binding exits 2 before code retrieval and guidance remains th
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /BM25 guidance search by default/);
 });
+
+// R5: unbound code retrieval in a linked worktree skips feature-store routing; --task-id or --slug keeps it.
+test('unbound retrieve --scope code in a linked worktree searches the worktree without feature-store routing; --slug keeps the routing', (t) => {
+  const base = fs.realpathSync(tempDir(t, 'doflow-code-retrieve-wt-'));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  delete env.FORCE_COLOR;
+  const git = (cwd, ...args) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  const main = path.join(base, 'm');
+  fs.mkdirSync(path.join(main, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(main, 'src', 'a.js'), 'const routedLiteral = 1;\n');
+  fs.writeFileSync(path.join(main, '.gitignore'), 'agent-docs/\n.doflow/\n');
+  git(main, 'init', '-q', '-b', 'main'); git(main, 'add', '-A'); git(main, 'commit', '-q', '-m', 'init');
+  for (const [rel, body] of [['intention/requirement.md', '# r\n'], ['design/design.md', '# d\n'], ['plan.md', '- [ ] A.1 x — owner: x; files: src/a.js\n']]) {
+    const file = path.join(main, 'agent-docs', 'doflow', '930-wt', rel); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, body);
+  }
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/930-wt', path.join(base, 'wt'));
+  const wt = path.join(base, 'wt');
+  fs.writeFileSync(path.join(wt, 'src', 'wt-only.js'), 'routedLiteral();\n');
+  const retrieve = (...extra) => spawnSync(process.execPath, [BIN, 'retrieve', '--scope', 'code', '--query', 'routedLiteral', ...extra, '--json'], { cwd: wt, env, encoding: 'utf8' });
+
+  const unbound = retrieve();
+  assert.equal(unbound.status, 0, unbound.stderr);
+  assert.doesNotMatch(unbound.stderr, /lives in the main checkout/);
+  const response = JSON.parse(unbound.stdout);
+  assert.equal(response.root, wt, 'the worktree is searched, not the main checkout');
+  assert.deepEqual(response.results.map((r) => r.locator.file).sort(), ['src/a.js', 'src/wt-only.js']);
+
+  const slugged = retrieve('--slug', '930-wt');
+  assert.equal(slugged.status, 0, slugged.stderr);
+  assert.match(slugged.stderr, /feature '930-wt' lives in the main checkout/, 'an explicit --slug keeps feature-store routing');
+});
