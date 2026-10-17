@@ -115,6 +115,99 @@ function utcDates() {
   return [now, now + 86400000].map((ms) => new Date(ms).toISOString().slice(0, 10));
 }
 
+const COUNTED_COMMANDS = ['bash', 'cat', 'date', 'dirname', 'jq', 'mkdir'];
+let forkShimSets = 0;
+
+function shellQuote(value) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function executableOnPath(name) {
+  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+    const candidate = path.join(dir || process.cwd(), name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch { /* try the next PATH entry */ }
+  }
+  assert.fail(`cannot count ${name}: executable was not found on PATH`);
+}
+
+function commandShims() {
+  const dir = scratch.path(`fork-count-shims-${forkShimSets += 1}`);
+  fs.mkdirSync(dir);
+  for (const name of COUNTED_COMMANDS) {
+    const target = executableOnPath(name);
+    const script = `#!/bin/bash\nprintf '%s\\n' ${shellQuote(name)} >> "$DOFLOW_FORK_LOG"\nexec ${shellQuote(target)} "$@"\n`;
+    fs.writeFileSync(path.join(dir, name), script, { mode: 0o755 });
+  }
+  return dir;
+}
+
+function runCounted(root, surface, native, mode, shimDir) {
+  const log = scratch.path(`fork-count-${surface.harness}-${surface.policy}-${mode}.log`);
+  fs.writeFileSync(log, '');
+  const result = run(root, surface, native, {
+    env: {
+      DOFLOW_TELEMETRY: mode,
+      DOFLOW_FORK_LOG: log,
+      PATH: `${shimDir}${path.delimiter}${process.env.PATH}`,
+    },
+  });
+  return {
+    result,
+    commands: fs.readFileSync(log, 'utf8').split('\n').filter(Boolean),
+  };
+}
+
+function commandCountDelta(off, on) {
+  const names = new Set([...off.commands, ...on.commands]);
+  return Object.fromEntries([...names].sort().flatMap((name) => {
+    const delta = on.commands.filter((command) => command === name).length
+      - off.commands.filter((command) => command === name).length;
+    return delta === 0 ? [] : [[name, delta]];
+  }));
+}
+
+function assertForkBudget(counts, label) {
+  const delta = counts.on.commands.length - counts.off.commands.length;
+  assert.ok(delta <= 1, `${label}: telemetry adds ${delta} external commands; budget is 1`);
+}
+
+function compareForkCounts(root, surface, native, shimDir) {
+  const off = runCounted(root, surface, native, 'off', shimDir);
+  const on = runCounted(root, surface, native, 'on', shimDir);
+  return { off, on, deltaByCommand: commandCountDelta(off, on) };
+}
+
+test('telemetry adds at most one external command on pre-bash-guard and user-prompt-submit', () => {
+  const shimDir = commandShims();
+  for (const key of ['claude:pre-bash-guard', 'claude:user-prompt-submit']) {
+    const surface = SURFACES[key];
+    const root = project();
+    const counts = compareForkCounts(root, surface, fixtureNative(surface), shimDir);
+    assertForkBudget(counts, key);
+    assert.deepEqual(counts.deltaByCommand, { mkdir: 1 }, `${key}: mkdir is the only added external command`);
+    assert.deepEqual(counts.on.result, counts.off.result, `${key}: telemetry leaves hook output unchanged`);
+    assert.equal(hookLines(path.join(root, '.doflow')).length, 1, `${key}: ON wrote one line`);
+  }
+});
+
+test('negative control: a planted date fork exceeds the one-command telemetry budget', () => {
+  const shimDir = commandShims();
+  const root = project();
+  const bridgePath = path.join(root, '.doflow/shared/hooks/bridge/bridge.sh');
+  const bridge = fs.readFileSync(bridgePath, 'utf8');
+  const append = 'f=$d/state/runs/telemetry/$day.jsonl';
+  assert.ok(bridge.includes(append), 'the scratch bridge has the hook-line append point');
+  fs.writeFileSync(bridgePath, bridge.replace(append, `date >/dev/null 2>&1 || true\n  ${append}`));
+
+  const surface = SURFACES['claude:pre-bash-guard'];
+  const counts = compareForkCounts(root, surface, fixtureNative(surface), shimDir);
+  assert.deepEqual(counts.deltaByCommand, { date: 1, mkdir: 1 }, 'the planted date is counted with mkdir');
+  assert.throws(() => assertForkBudget(counts, 'planted date negative control'), /adds 2 external commands; budget is 1/);
+});
+
 test('one allowlisted hook line per harness fixture, with the contract keys and no content', () => {
   const root = project();
   const env = { DOFLOW_RUN_ID: 'run-088', DOFLOW_LINEAGE_ID: 'lineage-088', DOFLOW_ATTEMPT: '2' };
