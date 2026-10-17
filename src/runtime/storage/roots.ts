@@ -3,16 +3,16 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { configHome } = require('../config-home.ts');
 
 function absolute(value: any): string | null { return typeof value === 'string' && path.isAbsolute(value) ? value : null; }
 
 /** Resolves IC-001's five physical roots; -g/global deliberately omits project roots. */
 function resolveRoots({ registry, projectRoot, global = false, env = process.env }: any = {}): Record<string, string | null> {
-  const home = absolute(env.HOME) || os.homedir();
-  const xdgBase = env.XDG_CONFIG_HOME === undefined || env.XDG_CONFIG_HOME === ''
-    ? path.join(home, '.config') : absolute(env.XDG_CONFIG_HOME);
+  // No home variable means no home base and no config home: nothing falls back to the account home (DD-7).
+  const home = absolute(env.HOME);
+  const xdgBase = configHome(env).base;
   const project = global ? null : absolute(projectRoot);
   const bases: Record<string, string | null> = { project, home, 'xdg-config': xdgBase };
   return Object.fromEntries(Object.entries(registry.roots).map(([id, root]: [string, any]) => {

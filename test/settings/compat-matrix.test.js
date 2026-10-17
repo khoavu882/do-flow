@@ -316,7 +316,7 @@ test('C17: no sentinel and env unset is capture on, through both readers and the
   const env = f.env();
   const home = failureHome(env);
   assert.equal(home, f.failuresDir);
-  assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: null });
+  assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: null, settings: null });
   assert.equal(captureIsOff(home, env), false);
   const r = f.run(['failure', '--action', 'capture']);
   assert.equal(r.status, 0, r.stderr);
@@ -343,7 +343,7 @@ test('C19: env off, 0, false or no in any case and padded is capture off with no
   for (const value of ['off', '0', 'false', 'no', 'OFF', 'False', ' No ', '  0\t']) {
     const env = f.env({ DOFLOW_FAILURE_CAPTURE: value });
     const home = failureHome(env);
-    assert.deepEqual(captureSwitch(home, env), { effective: 'off', sentinel: false, env: value }, JSON.stringify(value));
+    assert.deepEqual(captureSwitch(home, env), { effective: 'off', sentinel: false, env: value, settings: null }, JSON.stringify(value));
     assert.equal(captureIsOff(home, env), true, JSON.stringify(value));
   }
   const r = f.run(['failure', '--action', 'capture'], { env: { DOFLOW_FAILURE_CAPTURE: 'false' } });
@@ -356,7 +356,7 @@ test('C20: env on or any other word with no sentinel is capture on; the env cann
   for (const value of ['on', '1', 'true', 'yes', 'banana', 'offf']) {
     const env = f.env({ DOFLOW_FAILURE_CAPTURE: value });
     const home = failureHome(env);
-    assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: value }, value);
+    assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: value, settings: null }, value);
     assert.equal(captureIsOff(home, env), false, value);
   }
   f.writeSentinel();
@@ -415,7 +415,7 @@ const NODE_PROBE = `
   const registry = loadStorageRegistry({ repoRoot: repo });
   const roots = resolveRoots({ registry, projectRoot: process.cwd(), env: process.env });
   const home = failureHome(process.env);
-  const out = { homedir: os.homedir(), configHome: roots['config-home'], failureHome: home, switch: captureSwitch(home, process.env) };
+  const out = { homedir: os.homedir(), configHome: roots['config-home'], userState: roots['user-state'], failureHome: home, switch: captureSwitch(home, process.env) };
   if (process.env.PROBE_READ === '1') {
     out.advice = resolveSetting({ adviceRegistry: loadAdviceRegistry({ repoRoot: repo }).registry, roots });
     out.prune = readPruneSetting({ registry, roots, rootId: 'user-state' });
@@ -423,50 +423,59 @@ const NODE_PROBE = `
   process.stdout.write(JSON.stringify(out));
 `;
 
-// flips in B.1/C.5 (086)
-test('2.0-pin: C22 (HOME unset, XDG unset): the config home is the account home path, capture is skipped', { skip: !POSIX }, (t) => {
+test('C22 (HOME unset, XDG unset), 2.1: there is no config home, no failure home and no home root; nothing falls back to the account home', { skip: !POSIX }, (t) => {
   const f = fx(t);
-  // HOME is unset, so Node names the real account home: compute and compare paths, read nothing.
+  // HOME is unset: compute and compare, read nothing (Node would otherwise name the real account home).
   const out = f.node(NODE_PROBE, { env: { HOME: undefined, XDG_CONFIG_HOME: undefined } });
-  assert.equal(path.isAbsolute(out.homedir), true);
-  assert.equal(out.configHome, path.join(out.homedir, '.config', 'doflow'));
+  assert.equal(path.isAbsolute(out.homedir), true, 'the account home exists and is not used');
+  assert.equal(out.configHome, null);
+  assert.equal(out.userState, null);
   assert.equal(out.failureHome, null);
-  assert.deepEqual(out.switch, { effective: 'on', sentinel: false, env: null }, 'captureSwitch(null) reads on; the failure verb maps a null home to off');
+  assert.deepEqual(out.switch, { effective: 'on', sentinel: false, env: null, settings: null }, 'captureSwitch(null) reads on; the failure verb maps a null home to off');
 });
 
-// flips in B.1/C.5 (086)
-test('2.0-pin: C22 (HOME relative, XDG unset): user advice and prune files are read from <cwd>/<HOME>/.config/doflow', { skip: !POSIX }, (t) => {
+test('C22 (HOME relative, XDG unset), 2.1: the relative HOME is ignored; user advice and prune files are not read from <cwd>/<HOME>', { skip: !POSIX }, (t) => {
   const f = fx(t);
   const configDir = path.join(f.project, 'rel-home', '.config', 'doflow');
   write(path.join(configDir, 'decision-model.json'), userDecision());
   write(path.join(configDir, 'prune'), 'off\n');
   const out = f.node(NODE_PROBE, { env: { HOME: 'rel-home', XDG_CONFIG_HOME: undefined, PROBE_READ: '1' } });
-  assert.equal(out.configHome, path.join('rel-home', '.config', 'doflow'), 'a relative path, resolved against the cwd');
-  assert.equal(out.advice.state, 'on');
-  assert.equal(out.advice.decidedBy.user, path.join('rel-home', '.config', 'doflow', 'decision-model.json'));
-  assert.equal(out.prune.setting, 'off');
+  assert.equal(out.configHome, null);
+  assert.equal(out.advice.reason, 'not-configured', 'the file exists at the relative path and is still not read');
+  assert.equal(out.prune.setting, 'on');
+  assert.equal(out.prune.decidedBy, null);
   assert.equal(out.failureHome, null);
-  // control: with an absolute HOME that holds no such files the same probe finds nothing
-  const clean = f.node(NODE_PROBE, { env: { PROBE_READ: '1' } });
-  assert.equal(clean.advice.reason, 'not-configured');
-  assert.equal(clean.prune.setting, 'on');
+  // control: an absolute HOME holding the same files reads them
+  write(path.join(f.home, '.config', 'doflow', 'decision-model.json'), userDecision());
+  write(path.join(f.home, '.config', 'doflow', 'prune'), 'off\n');
+  const clean = f.node(NODE_PROBE, { env: { XDG_CONFIG_HOME: undefined, PROBE_READ: '1' } });
+  assert.equal(clean.advice.state, 'on');
+  assert.equal(clean.prune.setting, 'off');
 });
 
-// flips in B.1/C.5 (086)
-test('2.0-pin: C23 (XDG relative): Node has no config home, advice is not-configured and capture is skipped', { skip: !POSIX }, (t) => {
+test('C23 (XDG relative, HOME absolute), 2.1: the relative XDG is ignored and the config home is $HOME/.config/doflow', { skip: !POSIX }, (t) => {
   const f = fx(t);
   const relDir = path.join(f.project, 'rel-xdg', 'doflow');
   write(path.join(relDir, 'decision-model.json'), userDecision());
   write(path.join(relDir, 'prune'), 'off\n');
-  const out = f.node(NODE_PROBE, { env: { XDG_CONFIG_HOME: 'rel-xdg', PROBE_READ: '1' } });
-  assert.equal(out.configHome, null);
-  assert.equal(out.failureHome, null);
+  const home = path.join(f.home, '.config', 'doflow');
+  let out = f.node(NODE_PROBE, { env: { XDG_CONFIG_HOME: 'rel-xdg', PROBE_READ: '1' } });
+  assert.equal(out.configHome, home);
+  assert.equal(out.failureHome, path.join(home, 'failures'));
   assert.equal(out.advice.reason, 'not-configured', 'the file exists at the relative path and is still not read');
   assert.equal(out.prune.setting, 'on');
   assert.equal(out.prune.decidedBy, null);
+  // capture is on under $HOME/.config/doflow
   const r = f.run(['failure', '--action', 'capture'], { env: { XDG_CONFIG_HOME: 'rel-xdg' } });
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, 'home: none (capture skipped)\ncapture: off\n');
+  assert.equal(r.stdout, 'capture on\n');
+  // control: files under $HOME/.config/doflow are read, the relative ones stay unread
+  write(path.join(home, 'decision-model.json'), userDecision());
+  write(path.join(home, 'prune'), 'off\n');
+  out = f.node(NODE_PROBE, { env: { XDG_CONFIG_HOME: 'rel-xdg', PROBE_READ: '1' } });
+  assert.equal(out.advice.state, 'on');
+  assert.equal(out.advice.decidedBy.user, path.join(home, 'decision-model.json'));
+  assert.equal(out.prune.setting, 'off');
   // control: the same files under an absolute XDG are read
   write(path.join(f.xdg, 'doflow', 'decision-model.json'), userDecision());
   assert.equal(f.node(NODE_PROBE, { env: { PROBE_READ: '1' } }).advice.state, 'on');

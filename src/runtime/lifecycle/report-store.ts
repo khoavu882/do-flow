@@ -6,7 +6,7 @@
  * The machine-local report body (IC-005, DEC-014). A report's text can hold a crash trace, a log or
  * pasted output, so it never enters the repository: the body is masked with the body profile (IC-012),
  * cut to at most 1 MiB and written once under the same per-machine home the failure store uses,
- * `<XDG_CONFIG_HOME or $HOME/.config>/doflow/reports/<projectKey>/<FU-id>.txt`, folder 0700 and file
+ * `<config home>/doflow/reports/<projectKey>/<FU-id>.txt`, folder 0700 and file
  * 0600. The project event carries only a reference, the size and a masked 2 KB excerpt.
  *
  * `projectKey` is the first 12 hex characters of the SHA-256 of the IC-001 root's real path, so two
@@ -20,6 +20,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const mask = require('../mask.ts');
+const { configHome } = require('../config-home.ts');
 
 /** A `--file` or `--stdin` source is read for at most this many bytes; the rest could not be kept anyway. */
 const MAX_READ_BYTES = 16 * 1024 * 1024;
@@ -38,17 +39,14 @@ const EXCERPT_BYTES = 2048;
 class ReportInputError extends Error {}
 
 /**
- * The folder holding every project's report bodies, or null when no home resolves. It resolves the
- * base the way IC-011 resolves the failure home (`XDG_CONFIG_HOME` when set, non-empty and absolute,
- * else `$HOME/.config` when `HOME` is absolute) and sits beside it, `doflow/reports`. The rule is
- * repeated here rather than required from the failure module, so the follow-up service still loads in
- * a build or an install where the failure modules cannot be loaded (IC-016).
+ * The folder holding every project's report bodies, or null when no config home resolves. It sits in
+ * the same config home as the failure home (`../config-home.ts`), `doflow/reports`, and takes that
+ * leaf helper rather than the failure module, so the follow-up service still loads in a build or an
+ * install where the failure modules cannot be loaded (IC-016).
  */
 function reportsHome(env: Record<string, string | undefined> = process.env): string | null {
-  const xdg = env.XDG_CONFIG_HOME;
-  if (typeof xdg === 'string' && xdg !== '') return path.isAbsolute(xdg) ? path.join(xdg, 'doflow', 'reports') : null;
-  const home = env.HOME;
-  return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.config', 'doflow', 'reports') : null;
+  const { dir } = configHome(env);
+  return dir === null ? null : path.join(dir, 'reports');
 }
 
 function realProjectRoot(root: string, fsImpl: any = nodeFs): string {

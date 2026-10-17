@@ -140,13 +140,23 @@ test('the project key is the first 12 hex characters of the SHA-256 of the root 
 
 test('with no resolvable home the body is not kept: bodyRef is null and the result says so', () => {
   const repo = newRepo();
-  for (const env of [{}, { HOME: 'relative/home' }, { XDG_CONFIG_HOME: 'relative/xdg', HOME: scratch.home }]) {
+  for (const env of [{}, { HOME: 'relative/home' }, { XDG_CONFIG_HOME: 'relative/xdg' }, { XDG_CONFIG_HOME: 'relative/xdg', HOME: 'relative/home' }]) {
     const out = reportFollowup({ root: repo.dir, statement: 'no home', input: { text: 'a body that stays on no machine' }, env });
     assert.equal(out.created[0].body, 'not-on-this-machine');
     assert.equal(readEvent(repo, out.events[0]).data.bodyRef, null);
     assert.match(out.next.join('\n'), /body was not kept/);
   }
   assert.equal(fs.existsSync(path.dirname(bodyFile(repo, 'FU-aaaaaa'))), false, 'no body folder for this project');
+});
+
+test('a relative XDG_CONFIG_HOME is ignored and the body is kept under $HOME/.config (086 DD-7)', () => {
+  const repo = newRepo();
+  const env = { XDG_CONFIG_HOME: 'relative/xdg', HOME: scratch.home };
+  const out = reportFollowup({ root: repo.dir, statement: 'relative xdg', input: { text: 'a body kept under HOME' }, env });
+  assert.notEqual(out.created[0].body, 'not-on-this-machine');
+  const kept = path.join(scratch.home, '.config', 'doflow', 'reports', keyOf(repo), `${out.created[0].id}.txt`);
+  assert.equal(fs.existsSync(kept), true);
+  assert.equal(fs.existsSync(path.join('relative', 'xdg')), false, 'nothing is written against the working directory');
 });
 
 test('when the event cannot be written the body file is removed again', () => {

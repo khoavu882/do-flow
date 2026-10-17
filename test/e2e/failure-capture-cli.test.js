@@ -86,7 +86,7 @@ function run(args, { fault, env: extra = {}, dropHome = false, setup } = {}) {
   const failures = path.join(env.XDG_CONFIG_HOME || '', 'doflow', 'failures');
   const file = path.join(failures, 'events.jsonl');
   const lines = fs.existsSync(file) && fs.statSync(file).isFile() ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr, lines, failures, xdg };
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr, lines, failures, xdg, home, cwd };
 }
 
 /** The same invocation with capture on and with capture off. */
@@ -281,10 +281,21 @@ describe('what capture must never change', () => {
     assertIdentical(pair);
   });
 
-  test('a relative XDG_CONFIG_HOME skips capture and leaves nothing behind', () => {
+  test('a relative XDG_CONFIG_HOME is ignored: capture lands under $HOME/.config and nothing is written against the cwd (086 DD-7)', () => {
     const result = run(['status', '--json'], { fault: type, env: { XDG_CONFIG_HOME: 'relative/cfg' } });
     assert.equal(result.status, 1);
     assert.equal(fs.existsSync(path.join(scratch.dir, 'relative')), false);
+    assert.equal(fs.existsSync(path.join(result.cwd, 'relative')), false);
+    const file = path.join(result.home, '.config', 'doflow', 'failures', 'events.jsonl');
+    const lines = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean) : [];
+    assert.equal(lines.length, 1, 'one line under $HOME/.config/doflow/failures');
+  });
+
+  test('a relative XDG_CONFIG_HOME with an empty HOME skips capture and leaves nothing behind', () => {
+    const result = run(['status', '--json'], { fault: type, env: { XDG_CONFIG_HOME: 'relative/cfg', HOME: '' } });
+    assert.equal(result.status, 1);
+    assert.equal(fs.existsSync(path.join(result.cwd, 'relative')), false);
+    assert.equal(fs.existsSync(path.join(result.home, '.config')), false);
   });
 
   test('the sentinel turns capture off over an env value of on', (t) => {
