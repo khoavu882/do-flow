@@ -215,6 +215,30 @@ test('IC-021 configure writes user/project forms and off performs no server chec
   assert.match(projectWhileOff.stderr, /turn the decision model on at user level first/);
 });
 
+test('configure at user level with no config home exits 2 naming HOME or XDG_CONFIG_HOME, writes nothing and throws no TypeError (086 DD-7)', (t) => {
+  const f = fixture(t);
+  const tree = (dir) => fs.readdirSync(dir, { recursive: true }).sort();
+  for (const [name, extra] of [['HOME and XDG unset', {}], ['relative HOME and XDG', { HOME: 'rel-home', XDG_CONFIG_HOME: 'rel-xdg' }]]) {
+    for (const args of [['--off'], ['--model', 'clef-flash']]) {
+      const env = f.env();
+      delete env.HOME;
+      delete env.XDG_CONFIG_HOME;
+      Object.assign(env, extra);
+      const before = tree(f.scratch.dir);
+      const r = spawnSync(process.execPath, [BIN, 'advise', '--action', 'configure', ...args], { cwd: f.project, env, encoding: 'utf8' });
+      const label = `${name} ${args.join(' ')}`;
+      assert.equal(r.status, 2, `${label}: ${r.stderr}`);
+      assert.match(r.stderr, /doflow advise:.*an absolute HOME or XDG_CONFIG_HOME/, label);
+      assert.doesNotMatch(r.stderr, /TypeError/, label);
+      assert.deepEqual(tree(f.scratch.dir), before, `${label}: nothing was written`);
+    }
+  }
+  // control: with a config home the same command writes as before
+  const ok = f.run(['--action', 'configure', '--off']);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(fs.existsSync(f.userFile), true);
+});
+
 for (const failure of [
   { name: 'endpoint refusal', endpoint: 'http://192.0.2.1:11434', args: [], expected: 'only loopback addresses are allowed' },
   { name: 'unreachable endpoint', endpoint: 'http://127.0.0.1:9', routes: null, args: [], expected: 'Ollama did not answer at http://127.0.0.1:9; start it yourself and re-run. Nothing was written.' },

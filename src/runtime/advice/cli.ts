@@ -152,6 +152,8 @@ async function handleConfigure(options: any, runtime: any) {
   if (project && (global || !options.projectRoot)) return usageError('advise', '--project requires a project root', json);
   if (adviceError || !adviceRegistry) return writeFailure(`advice registry is invalid: ${adviceError || 'missing registry'}`, json);
 
+  if (!project && !roots['config-home']) return usageError('advise', 'no config home resolves; set an absolute HOME or XDG_CONFIG_HOME, or use --project', json);
+
   const file = project
     ? path.join(roots['project-doflow'], 'decision-model.json')
     : path.join(roots['config-home'], 'decision-model.json');
