@@ -54,6 +54,12 @@ downloads/
 .codex
 .claude
 .doflow
+# Keep the empty telemetry store in the committed hook benchmark fixture.
+!bench/perf/fixtures/hook-bridge-project/.doflow/
+!bench/perf/fixtures/hook-bridge-project/.doflow/state/
+!bench/perf/fixtures/hook-bridge-project/.doflow/state/runs/
+!bench/perf/fixtures/hook-bridge-project/.doflow/state/runs/telemetry/
+!bench/perf/fixtures/hook-bridge-project/.doflow/state/runs/telemetry/.gitkeep
 .gemini
 .kiro
 .opencode
