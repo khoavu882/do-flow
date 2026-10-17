@@ -306,9 +306,9 @@ async function runSembleQuery(options: any): Promise<any> {
     checkSources(inventory, limits);
     const artifacts = inspectArtifacts(paths.index, inventory, paths, model, limits);
     if (artifacts.artifactIdentity !== manifest.artifactIdentity) throw fault('index-artifacts-changed');
-    temp = fs.mkdtempSync(path.join(paths.state, 'query-'));
+    const queryTemp: string = fs.mkdtempSync(path.join(paths.state, 'query-')); temp = queryTemp;
     const result = await executeBridge({ action: 'query', query: options.query, indexPath: paths.index, modelPath: model.path,
-      poolSize: artifacts.chunks, allowedWriteRoots: [temp] }, { ...options, python, limits }, paths, temp);
+      poolSize: artifacts.chunks, allowedWriteRoots: [queryTemp] }, { ...options, python, limits }, paths, queryTemp);
     if (!result.ok) throw fault(result.reason || 'provider-error', 'UNKNOWN', typeof result.cause === 'string' ? result.cause : undefined);
     if (!result.runtimeIdentity || JSON.stringify(result.runtimeIdentity) !== JSON.stringify(manifest.runtimeIdentity)) throw fault('provider-runtime-identity-mismatch', 'STALE');
     if (!Array.isArray(result.candidates) || result.candidates.length > 200) throw fault('invalid-provider-output');

@@ -44,6 +44,10 @@ interface Buffer extends Uint8Array {
   toString(encoding?: string, start?: number, end?: number): string;
   equals(other: Uint8Array): boolean;
   subarray(begin?: number, end?: number): Buffer;
+  readUInt16LE(offset?: number): number;
+  readUInt32LE(offset?: number): number;
+  readInt32LE(offset?: number): number;
+  readBigInt64LE(offset?: number): bigint;
 }
 declare var Buffer: {
   alloc(size: number): Buffer;
@@ -57,6 +61,8 @@ declare var Buffer: {
 // Timers and WHATWG URL, as the migrated .ts modules use them (opaque handle; parsed URL fields only).
 declare function setTimeout(callback: (...args: any[]) => void, ms?: number, ...args: any[]): any;
 declare function clearTimeout(handle: any): void;
+declare function setInterval(callback: (...args: any[]) => void, ms?: number, ...args: any[]): any;
+declare function clearInterval(handle: any): void;
 declare var URL: {
   new (input: string, base?: string): { protocol: string; username: string; password: string; hostname: string; [key: string]: any };
 };

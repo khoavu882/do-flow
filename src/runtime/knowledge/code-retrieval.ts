@@ -11,19 +11,19 @@ const { fuseRankedCandidates } = require('./hybrid.ts');
 const { validateCodeCandidates } = require('./code-validation.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
-const CAPABILITY = Object.freeze({ exact: 'code.exact-search', conceptual: 'code.semantic-search' });
+const CAPABILITY: Record<string, string> = Object.freeze({ exact: 'code.exact-search', conceptual: 'code.semantic-search' });
 const INDEX_STATES = new Set(['FRESH', 'STALE', 'UNKNOWN', 'NOT_APPLICABLE']);
 
-function responseError(exit, error, details = {}) {
+function responseError(exit: any, error: any, details: any = {}) {
   return { exit, response: { ok: false, schemaVersion: 1, scope: 'code', error, ...details } };
 }
 
-function registeredProviders(router, capability) {
+function registeredProviders(router: any, capability: any) {
   const providers = router?.capabilities?.[capability]?.providers;
   return Array.isArray(providers) ? providers.map((p) => p.id).filter(Boolean) : [];
 }
 
-function failureReason(reason, freshness) {
+function failureReason(reason: any, freshness: any) {
   if (reason === 'lock-contention' || reason === 'index-in-progress' || reason === 'index-source-mismatch' || reason === 'corpus-changed') return 'policy-bypass';
   if (reason === 'provider-timeout' || reason === 'lifecycle-timeout' || reason === 'deadline') return 'timeout';
   if (freshness === 'STALE') return 'policy-bypass';
@@ -33,17 +33,17 @@ function failureReason(reason, freshness) {
 
 // A lexical stop at a configured bound is partial coverage with that bound as its cause, not a provider fault.
 const LEXICAL_BOUNDS = new Set(['candidate-limit', 'output-byte-limit', 'read-byte-limit']);
-function lexicalOutcome(result) {
+function lexicalOutcome(result: any) {
   if (result.complete) return { failure: null, bound: null };
-  const reasons = (result.rejections || []).map((r) => r.reason);
+  const reasons = (result.rejections || []).map((r: any) => r.reason);
   if (reasons.includes('deadline')) return { failure: 'provider-timeout', bound: null };
-  if (reasons.length && reasons.every((r) => LEXICAL_BOUNDS.has(r))) return { failure: null, bound: reasons[0] };
+  if (reasons.length && reasons.every((r: any) => LEXICAL_BOUNDS.has(r))) return { failure: null, bound: reasons[0] };
   return { failure: 'provider-error', bound: null };
 }
 
-function validFreshness(value) { return INDEX_STATES.has(value) ? value : 'UNKNOWN'; }
+function validFreshness(value: any) { return INDEX_STATES.has(value) ? value : 'UNKNOWN'; }
 
-function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider, capability, id, candidates, indexState, failure, bound = null, complete }) {
+function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider, capability, id, candidates, indexState, failure, bound = null, complete }: any) {
   let stored = null;
   if (binding) {
     let status; let reason;
@@ -64,8 +64,8 @@ function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, route
     complete: Boolean(complete), ...(failure || bound ? { reason: failure || bound } : {}), ...(stored ? { recordedAttempt: stored.attempt } : {}) };
 }
 
-function toCandidateList(candidates, { provider, capability, queryRef, retrievalAttemptRef, indexed = false }) {
-  return candidates.map((item, index) => ({
+function toCandidateList(candidates: any, { provider, capability, queryRef, retrievalAttemptRef, indexed = false }: any) {
+  return candidates.map((item: any, index: number) => ({
     ...item,
     provider,
     capability,
@@ -77,13 +77,13 @@ function toCandidateList(candidates, { provider, capability, queryRef, retrieval
 }
 
 /** Coalesce repeated attempts by one provider without granting another RRF vote. */
-function coalesceProviderLists(lists) {
+function coalesceProviderLists(lists: any) {
   const providers = new Map();
   for (const list of lists) {
     const provider = list.provider;
     if (!providers.has(provider)) providers.set(provider, new Map());
     const spans = providers.get(provider);
-    (list.candidates || []).forEach((candidate, index) => {
+    (list.candidates || []).forEach((candidate: any, index: number) => {
       const loc = candidate.locator || {};
       const key = JSON.stringify([loc.file, loc.line, loc.endLine]);
       const origin = { provider, capability: list.capability, queryRef: list.queryRef ?? null,
@@ -94,7 +94,7 @@ function coalesceProviderLists(lists) {
       else {
         const prior = spans.get(key);
         prior.rank = Math.min(prior.rank, index + 1);
-        if (!prior.origins.some((item) => item.retrievalAttemptRef === origin.retrievalAttemptRef)) prior.origins.push(origin);
+        if (!prior.origins.some((item: any) => item.retrievalAttemptRef === origin.retrievalAttemptRef)) prior.origins.push(origin);
       }
     });
   }
@@ -110,7 +110,7 @@ function coalesceProviderLists(lists) {
 }
 
 /** Shared production coordinator used by CLI retrieve and benchmark C. It prints nothing. */
-async function executeCodeRetrieval(options = {}) {
+async function executeCodeRetrieval(options: any = {}) {
   const query = typeof options.query === 'string' ? options.query.trim() : '';
   const taskId = options.taskId || null;
   const rawNeed = options.need;
@@ -143,7 +143,7 @@ async function executeCodeRetrieval(options = {}) {
       const run = providers.lifecycle || runSembleLifecycle;
       const result = await run({ inventory, modelPath: options.modelPath, action: options.indexAction, limits: options.semanticLimits });
       return { exit: result.ok ? 0 : 1, response: { schemaVersion: 1, scope: 'code', ...result } };
-    } catch (error) {
+    } catch (error: any) {
       return { exit: 1, response: { schemaVersion: 1, scope: 'code', action: options.indexAction, complete: false,
         error: 'lifecycle-error', cause: error?.message || String(error), repair: 'Correct the cause and run an explicit bounded build or refresh.' } };
     }
@@ -165,14 +165,14 @@ async function executeCodeRetrieval(options = {}) {
         need: intent, declaredCapability: need.capability, requiredCapability, queryClass: classification.queryClass,
       });
     }
-  } catch (error) {
+  } catch (error: any) {
     return responseError(2, 'invalid-task-binding', { summary: error?.message || String(error) });
   }
 
   const capability = CAPABILITY[classification.queryClass];
   let router;
   try { router = providers.router || new CapabilityRouter({ repoRoot: options.repoRoot || REPO_ROOT }); }
-  catch (error) { return { exit: 1, response: { schemaVersion: 1, scope: 'code', error: 'registry-unavailable', cause: error?.message || String(error) } }; }
+  catch (error: any) { return { exit: 1, response: { schemaVersion: 1, scope: 'code', error: 'registry-unavailable', cause: error?.message || String(error) } }; }
   const registered = registeredProviders(router, capability);
   if (!registered.includes('native.rg')) return responseError(2, 'lexical-provider-not-registered', { capability });
   if (profile === 'hybrid' && classification.queryClass === 'conceptual' && !registered.includes('semble.search')) {
@@ -182,7 +182,7 @@ async function executeCodeRetrieval(options = {}) {
   try {
     const admit = providers.admitCodeCorpus || admitCodeCorpus;
     inventory = providers.inventory || admit({ root: searchRoot, scopes: options.scopes, limits: options.corpusLimits });
-  } catch (error) {
+  } catch (error: any) {
     return { exit: 1, response: { schemaVersion: 1, scope: 'code', queryClass: classification.queryClass,
       requestedProfile: profile, effectiveProfile: 'lexical-only', error: 'corpus-admission-failed', cause: error?.message || String(error) } };
   }
@@ -191,7 +191,7 @@ async function executeCodeRetrieval(options = {}) {
   const attempts = [];
   const gaps = [];
   const rankedLists = [];
-  const coverage = { corpusComplete: Boolean(inventory.complete), lexical: [], semantic: null, live: null, complete: Boolean(inventory.complete) };
+  const coverage = { corpusComplete: Boolean(inventory.complete), lexical: [] as any[], semantic: null, live: null, complete: Boolean(inventory.complete) };
   const accounting = { corpusFiles: inventory.files?.length || 0, corpusBytes: inventory.accounting?.sourceBytes || 0,
     semanticSourceReadBytes: 0, lexicalReadBytes: 0, liveReadBytes: 0, deliveredCandidates: 0 };
   let lexicalExecuted = false;
@@ -200,7 +200,7 @@ async function executeCodeRetrieval(options = {}) {
   const queryRef = binding?.queryRef ?? null;
   const makeId = () => 'ra-' + crypto.randomUUID();
   const lexical = providers.lexicalSearch || searchCodeLexical;
-  const runLexical = (id) => {
+  const runLexical = (id: any) => {
     const result = lexical({ ...options.lexicalLimits, inventory, query, classification, intent, maxCandidates: 200, queryRef,
       retrievalAttemptRef: id });
     return result;
@@ -210,7 +210,7 @@ async function executeCodeRetrieval(options = {}) {
     const lexicalId = makeId();
     let lexResult;
     try { lexResult = runLexical(lexicalId); }
-    catch (error) { lexResult = { candidates: [], complete: false, rejections: [{ reason: 'provider-error' }], accounting: {}, coverage: { complete: false } }; }
+    catch (error: any) { lexResult = { candidates: [], complete: false, rejections: [{ reason: 'provider-error' }], accounting: {}, coverage: { complete: false } }; }
     lexicalExecuted = true;
     accounting.lexicalReadBytes += lexResult.accounting?.readBytes || 0;
     coverage.lexical.push(lexResult.coverage || { complete: Boolean(lexResult.complete) });
@@ -228,7 +228,7 @@ async function executeCodeRetrieval(options = {}) {
       if (!modelPath) semResult = { ok: false, reason: 'local-model-required', freshness: 'UNKNOWN', candidates: [] };
       else {
         try { semResult = await (providers.semanticQuery || runSembleQuery)({ inventory, query, top: 200, modelPath, limits: options.semanticLimits }); }
-        catch (error) { semResult = { ok: false, reason: 'provider-error', freshness: 'UNKNOWN', cause: error?.message || String(error), candidates: [] }; }
+        catch (error: any) { semResult = { ok: false, reason: 'provider-error', freshness: 'UNKNOWN', cause: error?.message || String(error), candidates: [] }; }
       }
       const semFreshness = validFreshness(semResult.freshness);
       accounting.semanticSourceReadBytes += semResult.accounting?.sourceReadBytes || 0;
@@ -247,7 +247,7 @@ async function executeCodeRetrieval(options = {}) {
         const fallbackId = makeId();
         let fallback;
         try { fallback = runLexical(fallbackId); }
-        catch (error) { fallback = { candidates: [], complete: false, rejections: [{ reason: 'provider-error' }], accounting: {}, coverage: { complete: false } }; }
+        catch (error: any) { fallback = { candidates: [], complete: false, rejections: [{ reason: 'provider-error' }], accounting: {}, coverage: { complete: false } }; }
         accounting.lexicalReadBytes += fallback.accounting?.readBytes || 0;
         coverage.lexical.push(fallback.coverage || { complete: Boolean(fallback.complete), fallback: true });
         const fallbackCandidates = toCandidateList(fallback.candidates || [], { provider: 'native.rg', capability, queryRef, retrievalAttemptRef: fallbackId });
@@ -278,7 +278,7 @@ async function executeCodeRetrieval(options = {}) {
       queryClass: classification.queryClass, classificationBasis: classification.classificationBasis,
       requestedProfile: profile, effectiveProfile, queryRef, activeTaskAttemptRef: binding?.attemptRef ?? null,
       results: live.results || [], attempts, gaps, coverage, accounting, absenceEstablished: false } };
-  } catch (error) {
+  } catch (error: any) {
     return { exit: 1, response: { ok: false, schemaVersion: 1, scope: 'code', queryClass: classification.queryClass,
       requestedProfile: profile, effectiveProfile: 'lexical-only', error: 'retrieval-failed', cause: error?.message || String(error), attempts, gaps, coverage, accounting,
       absenceEstablished: false } };
