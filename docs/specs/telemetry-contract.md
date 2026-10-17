@@ -190,8 +190,9 @@ deleted after use, plus digests) is listed in `excludedStores` with that reason.
 
 `new TelemetryWriter({ registry, env, fsImpl, now, start })` and `write(records)`.
 
-- One `appendFileSync` of all lines per call, to the partition named for the UTC date of the first
-  written line. `telemetry/` is created non-recursively and only when `state/runs` already exists.
+- One open-and-write of all lines per call (`O_APPEND|O_NOFOLLOW|O_NONBLOCK`, after an `lstat` that skips
+  any existing target that is not a regular file: a FIFO, directory, socket, device or symlink), to the
+  partition named for the UTC date of the first written line. `telemetry/` is created non-recursively and only when `state/runs` already exists.
 - It never throws. A fault of any kind (unwritable directory, a directory where the file should be, a
   hostile record) writes nothing for the part it touches and changes no outcome.
 - A record with no registered `kind` writes nothing. A `verb` is not a `kind`.

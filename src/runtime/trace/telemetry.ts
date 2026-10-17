@@ -22,7 +22,8 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
  *   and its value passes that field's type; anything else is dropped by name or becomes null, and
  *   the dropped value is never echoed.
  *   NFR-005 / FR-002 — telemetry never changes an outcome. `write` never throws, writes one
- *   `appendFileSync` per call, and writes nothing at all when `DOFLOW_TELEMETRY=off`.
+ *   open-and-write per call, never blocks on a non-regular target, and writes nothing at all when
+ *   `DOFLOW_TELEMETRY=off`.
  */
 
 /** Same pattern as ledger.ts `SAFE_TOKEN` (not exported there); a test holds the two equal. */
@@ -100,7 +101,7 @@ class TelemetryWriter {
   }
 
   /**
-   * Appends the records, one line each, in one `appendFileSync` to the partition named for the UTC
+   * Appends the records, one line each, in one open-and-write to the partition named for the UTC
    * date of the first line. Never throws; a fault writes nothing.
    * @param {Array<{kind: string}>} records
    * @returns {void}
@@ -127,9 +128,33 @@ class TelemetryWriter {
       } catch (error: any) {
         if (error?.code !== 'EEXIST') throw error;
       }
-      this.fsImpl.appendFileSync(path.join(dir, `${first.slice(0, 10)}.jsonl`), `${lines.join('\n')}\n`, 'utf8');
+      this.append(path.join(dir, `${first.slice(0, 10)}.jsonl`), Buffer.from(`${lines.join('\n')}\n`, 'utf8'));
     } catch {
       // A telemetry fault changes no outcome (FR-002, NFR-005): there is nothing to report to.
+    }
+  }
+
+  /**
+   * Appends to a regular file and nothing else. A FIFO with no reader would block a plain open
+   * forever, so: lstat first and skip anything that exists and is not a regular file (FIFO,
+   * directory, socket, device, symlink); then open O_NONBLOCK|O_NOFOLLOW so a swap between the lstat
+   * and the open fails (ENXIO, ELOOP) instead of blocking or following; then fstat the descriptor.
+   */
+  append(file: string, data: Buffer): void {
+    let known: any = null;
+    try {
+      known = this.fsImpl.lstatSync(file);
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') return;
+    }
+    if (known && !known.isFile()) return;
+    const { O_WRONLY, O_APPEND, O_CREAT, O_NOFOLLOW = 0, O_NONBLOCK = 0 } = nodeFs.constants;
+    const fd = this.fsImpl.openSync(file, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0o666);
+    try {
+      if (!this.fsImpl.fstatSync(fd).isFile()) return;
+      for (let done = 0; done < data.length;) done += this.fsImpl.writeSync(fd, data, done);
+    } finally {
+      this.fsImpl.closeSync(fd);
     }
   }
 

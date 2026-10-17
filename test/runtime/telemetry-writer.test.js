@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
+const { spawnSync } = require('node:child_process');
 const { telemetryOff, TelemetryWriter } = require('../../src/runtime/trace/telemetry.ts');
 
 const NOW = new Date('2026-10-17T08:30:15.123Z');
@@ -59,7 +60,7 @@ function readLines(dir, name = '2026-10-17.jsonl') {
 
 /** Counts every call that reaches the file system, forwarding to the real one. */
 function countingFs() {
-  const calls = { appendFileSync: [], mkdirSync: [] };
+  const calls = { openSync: [], mkdirSync: [] };
   const wrapped = { ...fs };
   for (const name of Object.keys(calls)) {
     wrapped[name] = (...args) => { calls[name].push(args); return fs[name](...args); };
@@ -131,7 +132,7 @@ test('A.1 writer: requires kind; a record with only verb, an unknown kind or a p
   const { root, dir } = project(t);
   const c = countingFs();
   writer(root, { fsImpl: c.fsImpl }).write([{ verb: 'trace' }, { kind: 'nope' }, { kind: '__proto__' }, { kind: 'constructor' }, { kind: 7 }, null, 'text', []]);
-  assert.equal(c.calls.appendFileSync.length, 0);
+  assert.equal(c.calls.openSync.length, 0);
   assert.equal(fs.existsSync(dir), false, 'nothing was created either');
 });
 
@@ -146,7 +147,7 @@ test('A.1 writer: DOFLOW_TELEMETRY=off writes nothing and creates nothing', (t) 
   const { root, dir } = project(t);
   const c = countingFs();
   writer(root, { env: { ...VALID, DOFLOW_TELEMETRY: 'off' }, fsImpl: c.fsImpl }).write([{ kind: 'verify.run', source: 'verb' }]);
-  assert.equal(c.calls.appendFileSync.length, 0);
+  assert.equal(c.calls.openSync.length, 0);
   assert.equal(c.calls.mkdirSync.length, 0);
   assert.equal(fs.existsSync(dir), false);
 });
@@ -157,7 +158,7 @@ test('A.1 writer: telemetry on when the variable is unset or anything but off', 
   assert.equal(readLines(dir).length, 1);
 });
 
-test('A.1 writer: one appendFileSync per call, one line per record, file named for the first record UTC date', (t) => {
+test('A.1 writer: one open-and-write per call, one line per record, file named for the first record UTC date', (t) => {
   const { root, dir } = project(t);
   const c = countingFs();
   writer(root, { fsImpl: c.fsImpl }).write([
@@ -165,8 +166,8 @@ test('A.1 writer: one appendFileSync per call, one line per record, file named f
     { kind: 'verify.tier', timestamp: '2026-10-18T00:00:00.001Z' },
     { kind: 'verify.tier' },
   ]);
-  assert.equal(c.calls.appendFileSync.length, 1);
-  assert.equal(c.calls.appendFileSync[0][0], path.join(dir, '2026-10-17.jsonl'));
+  assert.equal(c.calls.openSync.length, 1);
+  assert.equal(c.calls.openSync[0][0], path.join(dir, '2026-10-17.jsonl'));
   const lines = readLines(dir);
   assert.deepEqual(lines.map((line) => line.timestamp), ['2026-10-17T23:59:59.999Z', '2026-10-18T00:00:00.001Z', NOW_ISO]);
   assert.deepEqual(fs.readdirSync(dir), ['2026-10-17.jsonl']);
@@ -215,7 +216,7 @@ test('A.1 writer: creates only telemetry/, non-recursively, and only when state/
   const c = countingFs();
   writer(root, { fsImpl: c.fsImpl }).write([{ kind: 'verify.tier' }]);
   assert.equal(fs.existsSync(path.join(root, '.doflow', 'state', 'runs')), false, 'no runs/ was invented');
-  assert.equal(c.calls.appendFileSync.length, 0);
+  assert.equal(c.calls.openSync.length, 0);
 
   const { root: ready, dir } = project(t);
   const d = countingFs();
@@ -267,4 +268,100 @@ test('A.1 writer: a hostile record costs only itself', (t) => {
   const { root, dir } = project(t);
   writer(root).write([{ kind: 'verify.tier' }, { get kind() { throw new Error('getter'); } }, { kind: 'verify.run', count: 2 }]);
   assert.deepEqual(readLines(dir).map((line) => line.kind), ['verify.tier', 'verify.run']);
+});
+
+// --- A.1c: a non-regular target never blocks, never throws and is never followed -----------------
+
+const TELEMETRY_MODULE = path.join(__dirname, '..', '..', 'src', 'runtime', 'trace', 'telemetry.ts');
+const POSIX = process.platform !== 'win32';
+
+/** Runs one write in a child process that is killed after 3 s: a hang is a failure, not a stall. */
+function writeInChild(root, extraEnv = {}) {
+  const code = `const { TelemetryWriter } = require(${JSON.stringify(TELEMETRY_MODULE)});
+new TelemetryWriter({ env: { ...process.env }, start: process.argv[1], now: () => new Date('${NOW_ISO}') }).write([{ kind: 'verify.tier' }]);`;
+  return spawnSync(process.execPath, ['-e', code, root], { timeout: 3000, killSignal: 'SIGKILL', env: { ...process.env, ...extraEnv }, encoding: 'utf8' });
+}
+
+function mkfifo(file) {
+  const made = spawnSync('mkfifo', [file]);
+  assert.equal(made.status, 0, `mkfifo failed: ${made.stderr}`);
+}
+
+test('A.1c writer: a FIFO target with no reader returns promptly and does not hang', { skip: !POSIX }, (t) => {
+  const { root, dir } = project(t);
+  fs.mkdirSync(dir);
+  mkfifo(path.join(dir, '2026-10-17.jsonl'));
+  const result = writeInChild(root);
+  assert.equal(result.error, undefined, `the child did not exit by itself: ${result.error && result.error.code}`);
+  assert.equal(result.signal, null);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('A.1c writer: a FIFO target with a reader attached is still skipped, nothing is sent down the pipe', { skip: !POSIX }, (t) => {
+  const { root, dir } = project(t);
+  fs.mkdirSync(dir);
+  const fifo = path.join(dir, '2026-10-17.jsonl');
+  mkfifo(fifo);
+  const reader = fs.openSync(fifo, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+  try {
+    const result = writeInChild(root);
+    assert.equal(result.error, undefined, `the child did not exit by itself: ${result.error && result.error.code}`);
+    assert.equal(result.status, 0, result.stderr);
+    let received = 0;
+    try { received = fs.readSync(reader, Buffer.alloc(4096)); } catch (error) { assert.equal(error.code, 'EAGAIN'); }
+    assert.equal(received, 0, 'no byte reached the reader');
+  } finally {
+    fs.closeSync(reader);
+  }
+});
+
+test('A.1c writer: a symlink target is not followed, the file it points at is untouched', { skip: !POSIX }, (t) => {
+  const { root, dir } = project(t);
+  fs.mkdirSync(dir);
+  const outside = path.join(tempDir(t, 'doflow-telemetry-writer-out-'), 'victim.jsonl');
+  fs.writeFileSync(outside, 'keep\n');
+  fs.symlinkSync(outside, path.join(dir, '2026-10-17.jsonl'));
+  assert.doesNotThrow(() => writer(root).write([{ kind: 'verify.tier' }]));
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'keep\n');
+});
+
+test('A.1c writer: a dangling symlink target creates nothing at its destination', { skip: !POSIX }, (t) => {
+  const { root, dir } = project(t);
+  fs.mkdirSync(dir);
+  const outside = path.join(tempDir(t, 'doflow-telemetry-writer-out-'), 'new.jsonl');
+  fs.symlinkSync(outside, path.join(dir, '2026-10-17.jsonl'));
+  assert.doesNotThrow(() => writer(root).write([{ kind: 'verify.tier' }]));
+  assert.equal(fs.existsSync(outside), false);
+});
+
+test('A.1c writer: a directory target and an unwritable directory are skipped without a throw', (t) => {
+  const dirTarget = project(t);
+  fs.mkdirSync(path.join(dirTarget.dir, '2026-10-17.jsonl'), { recursive: true });
+  assert.doesNotThrow(() => writer(dirTarget.root).write([{ kind: 'verify.tier' }]));
+  assert.ok(fs.statSync(path.join(dirTarget.dir, '2026-10-17.jsonl')).isDirectory());
+  if (!POSIX || process.getuid?.() === 0) return;
+  const locked = project(t);
+  fs.mkdirSync(locked.dir);
+  fs.chmodSync(locked.dir, 0o500);
+  try {
+    assert.doesNotThrow(() => writer(locked.root).write([{ kind: 'verify.tier' }]));
+    assert.deepEqual(fs.readdirSync(locked.dir), []);
+  } finally {
+    fs.chmodSync(locked.dir, 0o700);
+  }
+});
+
+test('A.1c writer: a regular file is appended to, line after line, and a swapped-in FIFO is caught after open', (t) => {
+  const { root, dir } = project(t);
+  writer(root).write([{ kind: 'verify.tier' }]);
+  writer(root).write([{ kind: 'verify.run' }]);
+  assert.deepEqual(readLines(dir).map((line) => line.kind), ['verify.tier', 'verify.run']);
+
+  // The race between lstat and open: lstat says "absent", open finds something that is not a file.
+  const fake = { ...fs, lstatSync: () => { const error = new Error('ENOENT'); error.code = 'ENOENT'; throw error; },
+    fstatSync: () => ({ isFile: () => false }) };
+  const written = [];
+  fake.writeSync = (...args) => { written.push(args); return 0; };
+  writer(root, { fsImpl: fake }).write([{ kind: 'verify.tier' }]);
+  assert.equal(written.length, 0, 'nothing is written to a descriptor that is not a regular file');
 });
