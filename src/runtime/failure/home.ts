@@ -16,7 +16,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { configHome } = require('../config-home.ts');
-const { readLexicalCapture } = require('../settings/lexical.ts');
 
 const OFF_VALUES = new Set(['off', '0', 'false', 'no']);
 
@@ -31,6 +30,15 @@ const sentinelPath = (home: string): string => path.join(home, 'off');
 const eventsPath = (home: string): string => path.join(home, 'events.jsonl');
 /** `settings.json` sits in the config home, one level above the failure home. */
 const settingsPath = (home: string): string => path.join(path.dirname(home), 'settings.json');
+
+/**
+ * The lexical read of `<config home>/settings.json`. The rule module is required on the first call,
+ * not at load: every verb loads this file through failure/capture.ts, and only a capture decision
+ * needs the rule (086 B.4a; a `.ts` module costs about 1 ms to load).
+ */
+function settingsCapture(home: string): 'on' | 'off' | null {
+  return require('../settings/lexical.ts').readLexicalCapture(settingsPath(home));
+}
 
 /** The value of `DOFLOW_FAILURE_CAPTURE` when it is set to anything, else null. */
 function envSetting(env: any = process.env): string | null {
@@ -52,7 +60,7 @@ function captureSwitch(home: string | null, env: any = process.env): { effective
   let settings: 'on' | 'off' | null = null;
   if (home) {
     try { sentinel = fs.statSync(sentinelPath(home)).isFile(); } catch { sentinel = false; }
-    settings = readLexicalCapture(settingsPath(home));
+    settings = settingsCapture(home);
   }
   const setting = envSetting(env);
   const envOff = setting !== null && OFF_VALUES.has(setting.trim().toLowerCase());
@@ -64,7 +72,7 @@ function captureIsOff(home: string, env: any = process.env): boolean {
   const setting = envSetting(env);
   if (setting !== null && OFF_VALUES.has(setting.trim().toLowerCase())) return true;
   try { if (fs.statSync(sentinelPath(home)).isFile()) return true; } catch { /* no sentinel */ }
-  return readLexicalCapture(settingsPath(home)) === 'off';
+  return settingsCapture(home) === 'off';
 }
 
 module.exports = { failureHome, captureSwitch, captureIsOff, sentinelPath, eventsPath, envSetting };
