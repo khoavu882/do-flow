@@ -283,3 +283,48 @@ test('hybrid-c-v1 pin controls: an off-pin tool still refuses with exit 4, and m
   const deps = { ...runDeps(() => ({ ok: true })), verifySnapshot: driftedVerify(w, { semble: '0.7.0', graphify: 'graphify 0.9.92', rtk: 'rtk 0.99.0' }) };
   assert.equal(runHybrid(w, deps).exitCode, 4);
 });
+
+// R4 (a): C's index state must never enter A's graph/semble input, whatever order the setup runs in.
+function isolationDeps({ cIndexInto } = {}) {
+  const seen = { order: [], graphInput: [], configRoots: [] };
+  const stateOf = (root) => fs.existsSync(path.join(root, '.doflow', 'index'));
+  const base = runDeps((x) => {
+    seen.order.push('C-build');
+    const target = cIndexInto ? cIndexInto(x.exportRoot) : x.exportRoot;
+    fs.mkdirSync(path.join(target, '.doflow', 'index', 'code', 'semble', 's', 'mirror', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(target, '.doflow', 'index', 'code', 'semble', 's', 'mirror', 'src', 'a.ts'), 'mirror copy\n');
+    seen.cRoot = x.exportRoot;
+    return { ok: true, elapsedMs: 1, chunks: 1, artifactBytes: 1, freshness: 'FRESH' };
+  });
+  return { seen, deps: { ...base,
+    buildIndexes: (x) => { seen.order.push('A-graph'); seen.graphInput.push({ root: x.exportRoot, contaminated: stateOf(x.exportRoot) }); return base.buildIndexes(x); },
+    runConfig: (x) => { seen.configRoots.push({ config: x.config, corpus: x.corpus, root: x.exportRoot, contaminated: stateOf(x.exportRoot) }); return base.runConfig(x); } } };
+}
+
+test('R4a: with C built first, A graph input and A/B query roots exclude .doflow/index; C queries its own indexed tree', (t) => {
+  const w = devWorld(t);
+  const { seen, deps } = isolationDeps();
+  const out = runHybrid(w, deps);
+  assert.equal(out.exitCode, 0, out.lines && out.lines.join('\n'));
+  assert.deepEqual(seen.order, ['C-build', 'A-graph'], 'the C build still runs before A graph setup');
+  assert.equal(seen.graphInput.length, 1);
+  assert.equal(seen.graphInput[0].contaminated, false, 'A graph input has no C index state');
+  assert.notEqual(seen.graphInput[0].root, seen.cRoot);
+  const code = seen.configRoots.filter((r) => r.corpus === 'code');
+  for (const r of code.filter((x) => x.config !== 'C')) assert.equal(r.contaminated, false, `${r.config} query root has no C index state`);
+  for (const r of code.filter((x) => x.config === 'C')) { assert.equal(r.root, seen.cRoot); assert.equal(r.contaminated, true); }
+  assert.ok(code.some((r) => r.config === 'C'));
+});
+
+test('R4a control: the probe reports contamination when C index state lands in the tree A indexes', (t) => {
+  const w = devWorld(t);
+  const { seen, deps } = isolationDeps({ cIndexInto: (cRoot) => path.join(path.dirname(cRoot), 'tree') });
+  assert.equal(runHybrid(w, deps).exitCode, 0);
+  assert.equal(seen.graphInput[0].contaminated, true, 'a shared-tree C build would reach A graph input');
+});
+
+test('R4a: C graph-routed classes delegate to A, so they run on the tree A indexed', () => {
+  for (const cls of ['impact-refactor', 'verification-failure']) assert.equal(adaptersC.delegatesToA({ class: cls }), true);
+  for (const cls of ['exact-lookup', 'conceptual-discovery']) assert.equal(adaptersC.delegatesToA({ class: cls }), false);
+});
+

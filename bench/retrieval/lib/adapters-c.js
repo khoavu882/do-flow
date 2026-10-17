@@ -62,10 +62,15 @@ function buildCodeIndex({ exportRoot, admittedPaths, modelPath = process.env.SEM
   catch { return { ok: false, reason: 'invalid-index-response' }; }
 }
 
+/** The code classes C answers through A's own path (IC-009: impact/refactor keeps A's graph route). */
+function delegatesToA(task) {
+  return task.class === 'impact-refactor' || task.class === 'verification-failure';
+}
+
 /** C reuses the shipped coordinator in a child process so the benchmark's sync runner stays compatible. */
 function runC({ corpus, task, exportRoot, indexRoot = exportRoot, capabilities, bins = {}, semble, scratchDir, admittedPaths, executeCodeRetrieval, spawn = spawnSync }) {
   if (corpus === 'guidance') return adaptersB.runB({ corpus, task, exportRoot, bins });
-  if (task.class === 'impact-refactor' || task.class === 'verification-failure') {
+  if (delegatesToA(task)) {
     const answer = adaptersA.runA({ task, exportRoot, indexRoot, capabilities, bins, semble, scratchDir, admittedPaths });
     return answer;
   }
@@ -93,4 +98,4 @@ function runC({ corpus, task, exportRoot, indexRoot = exportRoot, capabilities, 
   return mapCodeResponse(result, wallMs());
 }
 
-module.exports = { BRIDGE, mapCodeResponse, describeIndexBuild, buildCodeIndex, runC };
+module.exports = { BRIDGE, mapCodeResponse, describeIndexBuild, buildCodeIndex, delegatesToA, runC };

@@ -221,13 +221,19 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
     const workDir = path.join(tmp, 'copies');
     const manifestPaths = Object.fromEntries(['code', 'guidance'].map((c) => [c, manifest.entries.filter((e) => e.corpus === c).map((e) => e.path)]));
     let codeIndex;
+    let cTreeRoot;
     if (configs.includes('C') && corpora.includes('code') && tasksByCorpus.code.length > 0) {
-      // C's local index build is explicit protocol setup and uses the pinned export plus manifest paths.
+      // C's index state (.doflow/index, with a mirror of every admitted file) lives under its root, so C
+      // gets its own copy of the pinned export: A's graphify and semble never index C's state, in any order.
+      cTreeRoot = path.join(path.dirname(exported.treeRoot), 'tree-c');
+      adapters.copyExport(exported.treeRoot, cTreeRoot);
       const started = process.hrtime.bigint();
-      const built = deps.buildCodeIndex({ exportRoot: exported.treeRoot, admittedPaths: manifestPaths.code, semble });
+      const built = deps.buildCodeIndex({ exportRoot: cTreeRoot, admittedPaths: manifestPaths.code, semble });
       codeIndex = adaptersC.describeIndexBuild(built, Number(process.hrtime.bigint() - started) / 1e6);
     }
-    const call = (config, corpus, task) => deps.runConfig({ config, corpus, task, exportRoot: exported.treeRoot, snapshot, workDir, semble, scratchDir: path.join(tmp, 'scratch'), repoRoot,
+    // C's graph-routed classes run A's path, so they read A's tree and graph.
+    const rootFor = (config, corpus, task) => (config === 'C' && corpus === 'code' && cTreeRoot && !adaptersC.delegatesToA(task) ? cTreeRoot : exported.treeRoot);
+    const call = (config, corpus, task) => deps.runConfig({ config, corpus, task, exportRoot: rootFor(config, corpus, task), snapshot, workDir, semble, scratchDir: path.join(tmp, 'scratch'), repoRoot,
       admittedPaths: corpus === 'code' ? manifestPaths.code : undefined, protocol });
 
     const corporaOut = {};
