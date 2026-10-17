@@ -37,7 +37,7 @@ const REAL_IDS = Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'pi', '
 
 /** Plan §1: the 080 and 081 files no IC amends, byte-identical to 0a474666. */
 const UNCHANGED_FILES = Object.freeze([
-  'package.json',
+  // package.json: version and scripts change with every release cut (beta.6 added release:preflight); no longer frozen at 0a474666
   'src/runtime/task-attempts.ts',
   // task-run.ts: edited by 088 B.1 (trace ids); no longer frozen at 0a474666
   'src/runtime/task-state.ts',
