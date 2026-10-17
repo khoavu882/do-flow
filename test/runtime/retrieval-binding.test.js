@@ -7,7 +7,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { handleRetrievalPlanCommand } = require('../../src/runtime/retrieval-plan.ts');
-const { readPlan, planPath } = require('../../src/runtime/retrieval-record.ts');
+const { readPlan, planPath, resolveRetrievalBinding } = require('../../src/runtime/retrieval-record.ts');
 const { bindEvidence } = require('../../src/runtime/retrieval-record.ts');
 const { deriveOutcome } = require('../../src/runtime/retrieval-record.ts');
 const retrievalPlan = require('../../src/runtime/retrieval-plan.ts');
@@ -32,6 +32,20 @@ function add(root, taskId, evidence) {
   ledger.save(taskId);
   return id;
 }
+
+test('reusable retrieval binding resolves only a declared query and includes the active attempt ref', (t) => {
+  const root = tempDir(t, 'doflow-retrieval-binding-helper-');
+  const plan = declare(root, 't-helper-binding', ['trace-dependency']);
+  const resolved = resolveRetrievalBinding({ projectRoot: root, taskId: 't-helper-binding', intent: 'trace-dependency' });
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.plan.planId, plan.planId);
+  assert.equal(resolved.queryRef, plan.needs[0].queryRef);
+  assert.equal(resolved.need.intent, 'trace-dependency');
+  assert.equal(resolved.attemptRef, null);
+  const missing = resolveRetrievalBinding({ projectRoot: root, taskId: 't-helper-binding', intent: 'unplanned-need' });
+  assert.equal(missing.ok, false);
+  assert.match(missing.message, /is not a declared need/);
+});
 
 test('query refs bind same-provider evidence to separate needs', (t) => {
   const root = tempDir(t, 'doflow-retrieval-bindings-');

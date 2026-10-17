@@ -11,7 +11,7 @@ const path = require('node:path');
  * @param {{ k?: number }} [options]
  * @returns {Array<{ id: string, rrfScore: number }>}
  */
-function reciprocalRankFusion(rankedLists: any[][], { k = 60 }: { k?: number } = {}): any[] {
+function reciprocalRankFusion(rankedLists: any[][], { k = 60, fullPrecision = false }: { k?: number; fullPrecision?: boolean } = {}): any[] {
   const scores = new Map<string, number>();
   const items = new Map<string, any>();
 
@@ -26,9 +26,7 @@ function reciprocalRankFusion(rankedLists: any[][], { k = 60 }: { k?: number } =
       if (!id) continue;
       const rrf = 1 / (k + rank + 1);
       scores.set(id, (scores.get(id) || 0) + rrf);
-      if (!items.has(id)) {
-        items.set(id, item);
-      }
+      if (!items.has(id)) items.set(id, item);
     }
   }
 
@@ -37,7 +35,7 @@ function reciprocalRankFusion(rankedLists: any[][], { k = 60 }: { k?: number } =
     fused.push({
       ...items.get(id),
       id,
-      rrfScore: Number(rrfScore.toFixed(6)),
+      rrfScore: fullPrecision ? rrfScore : Number(rrfScore.toFixed(6)),
     });
   }
 
@@ -142,8 +140,78 @@ function fuseHybridResults({
   return candidates;
 }
 
+/** Strict code candidates are separate from the legacy guidance locator string convention. */
+function normalizeCodeCandidates(items: any[], { projectRoot = process.cwd(), provider, capability, corpusIdentity = '', queryRef = null, retrievalAttemptRef = null }: any = {}): any {
+  const { relativeCodePath } = require('./code-corpus.ts');
+  const candidates: any[] = [];
+  const rejected: any[] = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    let raw: any = item?.locator || item?.path || item?.file;
+    let loc: any;
+    if (typeof raw === 'string') {
+      const match = /^(.*?):(\d+)(?::(\d+))?$/.exec(raw);
+      if (match) loc = { file: match[1], line: Number(match[2]), endLine: Number(match[3] || match[2]) };
+      else loc = { file: raw, line: item.startLine ?? item.line ?? 1, endLine: item.endLine ?? item.startLine ?? item.line ?? 1 };
+    } else if (raw && typeof raw === 'object') {
+      loc = { file: raw.file, line: raw.line ?? raw.startLine ?? 1, endLine: raw.endLine ?? raw.line ?? raw.startLine ?? 1 };
+    }
+    if (loc && typeof loc.file === 'string' && path.isAbsolute(loc.file)) loc.file = path.relative(projectRoot, loc.file);
+    const file = relativeCodePath(loc?.file);
+    if (!file || !Number.isInteger(loc.line) || !Number.isInteger(loc.endLine) || loc.line < 1 || loc.endLine < loc.line) {
+      rejected.push({ locator: raw ?? null, reason: 'invalid-locator' }); continue;
+    }
+    loc.file = file;
+    const id = JSON.stringify([corpusIdentity, file, loc.line, loc.endLine]);
+    const actualProvider = item.provider || provider;
+    const actualCapability = item.capability || capability;
+    const origin = { provider: actualProvider, capability: actualCapability, queryRef: item.queryRef ?? queryRef,
+      retrievalAttemptRef: item.retrievalAttemptRef ?? retrievalAttemptRef,
+      originalRank: candidates.length + 1, sourceVersion: item.sourceVersion ?? null };
+    const origins = item.origins?.length ? item.origins.map((o: any) => ({ ...origin, ...o })) : [origin];
+    candidates.push({ ...item, schemaVersion: 1, id, locator: loc, provider: actualProvider, capability: actualCapability, origins });
+  }
+  return { candidates, rejected };
+}
+
+/** One full-span vote per provider, all origins retained, full precision until presentation. */
+function fuseRankedCandidates({ rankedLists, projectRoot = process.cwd(), corpusIdentity = '', k = 60 }: any): any {
+  const { compareText } = require('./code-corpus.ts');
+  const providerLists = new Map<string, any[]>();
+  const origins = new Map<string, any[]>();
+  const rejected: any[] = [];
+  for (let listIndex = 0; listIndex < rankedLists.length; listIndex += 1) {
+    const list = rankedLists[listIndex];
+    const normalized = normalizeCodeCandidates(Array.isArray(list) ? list : list.candidates,
+      { projectRoot, corpusIdentity, provider: list.provider || 'list-' + listIndex, capability: list.capability,
+        queryRef: list.queryRef, retrievalAttemptRef: list.retrievalAttemptRef });
+    rejected.push(...normalized.rejected);
+    for (const item of normalized.candidates) {
+      const provider = item.provider;
+      if (!providerLists.has(provider)) providerLists.set(provider, []);
+      providerLists.get(provider)!.push(item);
+      if (!origins.has(item.id)) origins.set(item.id, []);
+      const bucket = origins.get(item.id)!;
+      for (const origin of item.origins) {
+        const serialized = JSON.stringify(origin);
+        if (!bucket.some((o: any) => JSON.stringify(o) === serialized)) bucket.push(origin);
+      }
+    }
+  }
+  const uniqueProviderLists = [...providerLists.values()].map((list: any[]) => {
+    const seen = new Set<string>();
+    return list.filter((item: any) => { if (seen.has(item.id)) return false; seen.add(item.id); return true; });
+  });
+  const candidates = reciprocalRankFusion(uniqueProviderLists, { k, fullPrecision: true }).map((item: any) => ({ ...item, origins: origins.get(item.id) }));
+  candidates.sort((a: any, b: any) => b.rrfScore - a.rrfScore || compareText(a.locator.file, b.locator.file)
+    || a.locator.line - b.locator.line || a.locator.endLine - b.locator.endLine);
+  candidates.forEach((candidate: any, index: number) => { candidate.rank = index + 1; });
+  return { candidates, rejected };
+}
+
 module.exports = {
   reciprocalRankFusion,
   normalizeLocator,
+  normalizeCodeCandidates,
+  fuseRankedCandidates,
   fuseHybridResults,
 };

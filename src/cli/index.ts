@@ -310,7 +310,10 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--tier', 'tier'],                  // brief-tools: the task line's tier (light | standard | frontier)
   ['--harness', 'harness'],            // brief-tools: the harness the brief is for
   ['--policy', 'policy'],              // enforcement: lifecycle policy id
-  ['--profile', 'profile'],             // enforcement: coverage profile filter
+  ['--profile', 'profile'],             // enforcement profile; retrieve --scope code: lexical-only|hybrid
+  ['--root', 'root'],                    // retrieve --scope code: project root (never harness-home)
+  ['--index-action', 'indexAction'],    // retrieve --scope code: explicit build|refresh
+  ['--model-path', 'modelPath'],         // retrieve --scope code: verified existing local Semble model
   ['--heading-level', 'headingLevel'], // brief-tools: 2 (default) or 3
   ['--tasks', 'tasks'],               // brief-tools: comma-separated plan task ids for tier advice
   ['--plan-path', 'planPath'],         // verify: a feature plan.md whose doflow-verification
@@ -467,7 +470,7 @@ Commands:
   task-attempt         Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts (--action, --slug)
   worker               Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task (--action)
   dispatch             Run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume (--action)
-  retrieve             BM25 search over the installed guidance tree (--query)
+  retrieve             BM25 guidance search by default; use --scope code for scoped project retrieval (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
   advise               Route decision questions to the configured local model (--action)
   brief-tools          Tier, tools and report-format block for a dispatch brief (--owner)
@@ -518,7 +521,7 @@ Options:
 
 Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack, outcome --action record
-      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise
+      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
                        verify: report|contract · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
@@ -556,6 +559,9 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --capability, --locator, --content,
       --absence                             evidence --action add (one item)
       --need <intent>                       evidence --action add (bind evidence to retrieval needs)
+      --scope code --profile lexical-only|hybrid,
+      --root <project>, --index-action build|refresh,
+      --model-path <local-dir>              retrieve code scope (guidance remains the default)
       --batch <file|->                      evidence --action add (a stage's JSON batch)
       --evidence-id, --replaced-by          evidence --action supersede (retire one item, point
                                             forward to the item that replaces it)

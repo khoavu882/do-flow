@@ -1134,6 +1134,28 @@
       "writers": [
         "src/state/run-lock.ts"
       ]
+    },
+    {
+      "id": "code-semantic-project",
+      "root": "project-doflow",
+      "path": "index/code",
+      "entry": "dir",
+      "match": "^semble$",
+      "rule": "existing",
+      "bound": {
+        "text": "Explicit bounded local semantic lifecycle; corpus/model manifests, ordinary mirror copies, provider cache, operation lock, in-progress marker and staging; query temporary stats/cache sinks capped at 64 KiB and removed in finally or next explicit operation."
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/knowledge/semble-provider.ts",
+        "src/runtime/knowledge/semble-lifecycle.ts",
+        "src/runtime/knowledge/semble-bridge.py"
+      ],
+      "source": {
+        "file": "src/runtime/knowledge/semble-provider.ts",
+        "pattern": "semanticStatePaths"
+      }
     }
   ],
   "externalWriters": [

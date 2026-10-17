@@ -18,9 +18,12 @@ const report = require('../report.js');
 const environment = require('../environment.js');
 const adapters = require('../adapters.js');
 const adaptersA = require('../adapters-a.js');
+const adaptersC = require('../adapters-c.js');
 const verifyVerb = require('./verify.js');
+const hybridProtocol = require('../hybrid-protocol.js');
+const hybridGate = require('../hybrid-gate.js');
 
-const flags = { config: 'value', corpus: 'value', split: 'value', class: 'value', out: 'value', 'key-file': 'value' };
+const flags = { config: 'value', corpus: 'value', split: 'value', class: 'value', out: 'value', 'key-file': 'value', protocol: 'value' };
 
 const WARMUPS = 3;
 const RUNS = 30;
@@ -35,18 +38,23 @@ const TOOL_OF_PROVIDER = { 'native.rg': 'rg', fd: 'fd', 'semble.search': 'semble
 class Refused extends sealLib.SealError {}
 
 function parseSelection(args) {
+  const hybrid = args.protocol === hybridProtocol.ID;
+  if (args.protocol && !hybrid) throw new Refused(`--protocol must be ${hybridProtocol.ID}`);
   const split = args.split || 'dev';
   if (!['dev', 'holdout'].includes(split)) throw new Refused('--split must be dev or holdout');
   if (split === 'holdout') {
     if (!args.config) throw new Refused('--config must be given explicitly with --split holdout');
     if (!args.corpus) throw new Refused('--corpus must be given explicitly with --split holdout');
   }
-  const configs = String(args.config || 'A,B').split(',').map((s) => s.trim());
-  if (!configs.every((c) => c === 'A' || c === 'B') || new Set(configs).size !== configs.length) throw new Refused('--config must be A, B or A,B');
+  const configs = String(args.config || (hybrid ? 'A,B,C' : 'A,B')).split(',').map((s) => s.trim());
+  if (!configs.every((c) => (hybrid ? ['A', 'B', 'C'] : ['A', 'B']).includes(c)) || new Set(configs).size !== configs.length
+    || (hybrid && configs.join(',') !== 'A,B,C')) throw new Refused(`--config must be ${hybrid ? 'A,B,C' : 'A, B or A,B'}`);
   const corpus = args.corpus || 'all';
   if (!['code', 'guidance', 'all'].includes(corpus)) throw new Refused('--corpus must be code, guidance or all');
   if (args.class && !metricsLib.CLASSES.includes(args.class)) throw new Refused(`--class must be one of ${metricsLib.CLASSES.join(', ')}`);
-  return { configs: ['A', 'B'].filter((c) => configs.includes(c)), corpora: corpus === 'all' ? ['code', 'guidance'] : [corpus], split, cls: args.class };
+  if (hybrid && split === 'holdout' && corpus !== 'all') throw new Refused('hybrid-c-v1 holdout must reserve both corpora with --corpus all');
+  return { configs: (hybrid ? ['A', 'B', 'C'] : ['A', 'B']).filter((c) => configs.includes(c)), corpora: corpus === 'all' ? ['code', 'guidance'] : [corpus], split, cls: args.class,
+    ...(hybrid ? { protocol: hybridProtocol.ID } : {}) };
 }
 
 function loadThresholds(repoRoot) {
@@ -128,6 +136,7 @@ function defaultDeps() {
   return {
     runConfig: adapters.runConfig,
     buildIndexes: adaptersA.buildIndexes,
+    buildCodeIndex: adaptersC.buildCodeIndex,
     materialiseExport: environment.materialiseExport,
     verifySnapshot: verifyVerb.verifySnapshot,
     preconditions: () => require('./holdout-preconditions.js'),
@@ -142,7 +151,7 @@ function defaultDeps() {
 function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = process.env, home, deps: rawDeps, now = new Date() }) {
   const deps = { ...defaultDeps(), ...(rawDeps || {}) };
   const selection = parseSelection(args);
-  const { configs, corpora, split, cls } = selection;
+  const { configs, corpora, split, cls, protocol } = selection;
   const verified = deps.verifySnapshot({ snapshotPath, repoRoot });
   if (verified.exitCode !== 0) return { exitCode: verified.exitCode, codes: verified.codes, lines: [`run: ${verified.message}`], error: verified.message };
   const snapshot = verified.snapshot;
@@ -157,7 +166,7 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
     sealMeta = loadSealMeta(repoRoot, corpora);
     const gate = deps.preconditions().check({ args, repoRoot, snapshot, thresholds: loadThresholds(repoRoot), sealMeta, env, home });
     if (!gate.ok) return { exitCode: gate.exitCode, lines: [`run: holdout precondition (${gate.precondition}) failed: ${gate.message}`], error: gate.message };
-    key = sealLib.resolveKey({ keyFile: args['key-file'], env, home, repoRoot });
+    key = gate.key || sealLib.resolveKey({ keyFile: args['key-file'], env, home, repoRoot });
   }
 
   // Tasks.
@@ -201,7 +210,13 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
     };
     const semble = { env: require('../../runner.js').childEnv({ SEMBLE_CACHE_DIR: path.join(tmp, 'semble-cache') }) };
     const workDir = path.join(tmp, 'copies');
-    const call = (config, corpus, task) => deps.runConfig({ config, corpus, task, exportRoot: exported.treeRoot, snapshot, workDir, semble, scratchDir: path.join(tmp, 'scratch'), repoRoot });
+    const manifestPaths = Object.fromEntries(['code', 'guidance'].map((c) => [c, manifest.entries.filter((e) => e.corpus === c).map((e) => e.path)]));
+    if (configs.includes('C') && corpora.includes('code') && tasksByCorpus.code.length > 0) {
+      // C's local index build is explicit protocol setup and uses the pinned export plus manifest paths.
+      deps.buildCodeIndex({ exportRoot: exported.treeRoot, admittedPaths: manifestPaths.code, semble });
+    }
+    const call = (config, corpus, task) => deps.runConfig({ config, corpus, task, exportRoot: exported.treeRoot, snapshot, workDir, semble, scratchDir: path.join(tmp, 'scratch'), repoRoot,
+      admittedPaths: corpus === 'code' ? manifestPaths.code : undefined, protocol });
 
     const corporaOut = {};
     const perTask = [];
@@ -214,7 +229,7 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
         const probe = manifest.entries.find((e) => e.corpus === 'code' && /^src\/.*\.(ts|js)$/.test(e.path));
         index = deps.buildIndexes({ exportRoot: exported.treeRoot, semble, patchFile: probe ? path.join(exported.treeRoot, probe.path) : undefined });
       }
-      for (const config of ['B', 'A']) {
+      for (const config of ['B', 'A', 'C']) {
         if (!configs.includes(config)) continue;
         const answers = tasks.map((task) => {
           if (config === 'A' && corpus === 'guidance') return byConfig.B ? byConfig.B.answers[tasks.indexOf(task)] : call('B', corpus, task);
@@ -267,7 +282,7 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
       }
 
       const comparisons = [];
-      if (configs.length === 2) {
+      if (configs.length >= 2) {
         for (const c of metricsLib.classesFor(corpus)) {
           const idx = tasks.map((t, i) => (t.class === c ? i : -1)).filter((i) => i >= 0);
           if (idx.length === 0) continue;
@@ -278,11 +293,12 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
             ...(c === 'impact-refactor' ? ['missedDependencies'] : []),
             ...(metricsLib.kindOf(c) === 'outcome' ? OUTCOME_PRIMARY : []),
           ];
-          for (const metric of names) {
-            const a = idx.map((i) => scoredByConfig.A[i].metrics[metric]);
-            const b = idx.map((i) => scoredByConfig.B[i].metrics[metric]);
+          for (const metric of names) for (let left = 0; left < configs.length; left++) for (let right = left + 1; right < configs.length; right++) {
+            const a = idx.map((i) => scoredByConfig[configs[left]][i].metrics[metric]);
+            const b = idx.map((i) => scoredByConfig[configs[right]][i].metrics[metric]);
             if (a.every((v) => v === undefined) && b.every((v) => v === undefined)) continue;
-            comparisons.push(stats.compare({ metric, cls: c, corpus, seed: snapshot.seed, aValues: a.map((v) => (v === undefined ? null : v)), bValues: b.map((v) => (v === undefined ? null : v)) }));
+            const comparison = stats.compare({ metric, cls: c, corpus, seed: snapshot.seed, aValues: a.map((v) => (v === undefined ? null : v)), bValues: b.map((v) => (v === undefined ? null : v)) });
+            comparisons.push(configs.length === 2 ? comparison : { ...comparison, a: configs[left], b: configs[right] });
           }
         }
       }
@@ -293,22 +309,25 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
     lines.push(...summaryLines(corporaOut, split));
     if (split === 'dev') {
       const body = {
-        schemaVersion: 1, snapshotId: snapshot.snapshotId, commit: snapshot.commit, split: 'dev', tasksSha256,
+        schemaVersion: 1, snapshotId: snapshot.snapshotId, commit: snapshot.commit, split: 'dev', ...(protocol ? { protocol } : {}), tasksSha256,
         corpora: corporaOut, perTask,
       };
       if (args.out) { fs.mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true }); fs.writeFileSync(args.out, sealLib.toFileText(body)); lines.push(`wrote ${args.out}`); }
       return { exitCode: 0, lines, report: body };
     }
 
-    const written = writeHoldout({ holdoutResults, sealMeta, snapshot, repoRoot, configs, now });
+    const written = writeHoldout({ holdoutResults, sealMeta, snapshot, repoRoot, configs, now, protocol });
     lines.push(...written.map((f) => `wrote ${f}`));
-    return { exitCode: 0, lines, results: written, aggregates: Object.fromEntries(Object.entries(holdoutResults).map(([k, v]) => [k, Object.fromEntries(Object.entries(v.configResults).map(([c, r]) => [c, r.classes]))])) };
+    const aggregates = Object.fromEntries(Object.entries(holdoutResults).map(([k, v]) => [k, Object.fromEntries(Object.entries(v.configResults).map(([c, r]) => [c, r.classes]))]));
+    const gate = protocol ? hybridGate.evaluate({ aggregates, comparisons: Object.fromEntries(Object.entries(holdoutResults).map(([k, v]) => [k, v.comparisons])),
+      thresholds: loadThresholds(repoRoot), protocol }) : undefined;
+    return { exitCode: 0, lines, results: written, aggregates, ...(gate ? { gate } : {}) };
   } finally {
     exported.cleanup();
   }
 }
 
-function writeHoldout({ holdoutResults, sealMeta, snapshot, repoRoot, configs, now }) {
+function writeHoldout({ holdoutResults, sealMeta, snapshot, repoRoot, configs, now, protocol }) {
   const dir = path.join(repoRoot, 'bench', 'retrieval', 'results');
   fs.mkdirSync(dir, { recursive: true });
   const thresholdsCommit = git(repoRoot, ['log', '-1', '--format=%H', '--', 'bench/retrieval/thresholds.json']);
@@ -319,10 +338,11 @@ function writeHoldout({ holdoutResults, sealMeta, snapshot, repoRoot, configs, n
     const existing = fs.readdirSync(dir).filter((f) => new RegExp(`^holdout-${snapshot.snapshotId}-g${generation}-(code|guidance)-[AB]\\.json$`).test(f)).length;
     configs.forEach((config, i) => {
       const file = report.holdoutResultName(snapshot.snapshotId, generation, corpus, config);
-      const body = report.buildHoldoutResult({
+      const base = report.buildHoldoutResult({
         snapshotId: snapshot.snapshotId, generation, corpus, config, sealPlaintextSha256: seal.plaintextSha256, thresholdsCommit,
         runAt: now.toISOString(), runIndex: existing + i + 1, machineId: machine, classes: result.configResults[config].classes,
       });
+      const body = protocol ? { ...base, protocol } : base;
       fs.writeFileSync(path.join(dir, file), sealLib.toFileText(body));
       written.push(path.join('bench', 'retrieval', 'results', file));
     });
@@ -330,18 +350,30 @@ function writeHoldout({ holdoutResults, sealMeta, snapshot, repoRoot, configs, n
       const file = report.comparisonName(snapshot.snapshotId, generation, corpus);
       fs.writeFileSync(path.join(dir, file), sealLib.toFileText(report.buildComparisonFile({ snapshotId: snapshot.snapshotId, generation, corpus, comparisons: result.comparisons })));
       written.push(path.join('bench', 'retrieval', 'results', file));
+    } else if (protocol && configs.length === 3) {
+      for (const [a, b] of [['A', 'B'], ['A', 'C'], ['B', 'C']]) {
+        const file = `holdout-${snapshot.snapshotId}-g${generation}-${corpus}-${a}-vs-${b}.json`;
+        const base = report.buildComparisonFile({ snapshotId: snapshot.snapshotId, generation, corpus,
+          comparisons: result.comparisons.filter((row) => row.a === a && row.b === b) });
+        fs.writeFileSync(path.join(dir, file), sealLib.toFileText({ ...base, protocol }));
+        written.push(path.join('bench', 'retrieval', 'results', file));
+      }
     }
   }
   return written;
 }
 
 function run(ctx) {
-  const out = execute({ args: ctx.args, snapshotPath: ctx.snapshotPath, repoRoot: ctx.repoRoot, tmp: ctx.tmp, keepTmp: ctx.keepTmp });
-  const { exitCode, codes, lines, report: body, results, aggregates, error } = out;
+  const lease = ctx.args.split === 'holdout' ? hybridProtocol.acquireInvocationLock({ repoRoot: ctx.repoRoot, snapshotId: ctx.snapshotId }) : null;
+  let out;
+  try { out = execute({ args: ctx.args, snapshotPath: ctx.snapshotPath, repoRoot: ctx.repoRoot, tmp: ctx.tmp, keepTmp: ctx.keepTmp }); }
+  finally { if (lease) lease.release(); }
+  const { exitCode, codes, lines, report: body, results, aggregates, error, gate } = out;
   const extra = {};
   if (error) extra.error = error;
   if (body) extra.report = body;
   if (results) { extra.results = results; extra.aggregates = aggregates; }
+  if (gate) extra.gate = gate;
   if (body && !ctx.json && !ctx.args.out) return { exitCode, codes, lines: [...lines, JSON.stringify(body, null, 2)], ...extra };
   return { exitCode, codes, lines, ...extra };
 }

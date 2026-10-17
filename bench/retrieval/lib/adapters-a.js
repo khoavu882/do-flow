@@ -100,8 +100,8 @@ function runGraphify({ task, indexRoot, bins }) {
   return { candidates };
 }
 
-function runRg({ task, exportRoot, bins }) {
-  const ans = runB({ corpus: 'code', task, exportRoot, bins });
+function runRg({ task, exportRoot, bins, admittedPaths }) {
+  const ans = runB({ corpus: 'code', task, exportRoot, bins, admittedPaths });
   if (ans.result === 'UNREACHED') return { unreached: ans.providers[0].cause, extraProviders: ans.providers.slice(1) };
   return { candidates: ans.candidates, extraProviders: ans.providers.filter((p) => p.id !== 'native.rg') };
 }
@@ -166,7 +166,7 @@ function freshnessOf(provider) {
  * per-task copy, patched); `indexRoot` is where the indexes were built (defaults to `exportRoot`), so
  * a stale-index task queries content older than the tree. `semble.env` carries `SEMBLE_CACHE_DIR`.
  */
-function runA({ task, exportRoot, indexRoot = exportRoot, capabilities, bins = {}, semble = { env: undefined }, scratchDir }) {
+function runA({ task, exportRoot, indexRoot = exportRoot, capabilities, bins = {}, semble = { env: undefined }, scratchDir, admittedPaths }) {
   const started = process.hrtime.bigint();
   const tools = { rg: bins.rg, semble: bins.semble || 'semble', graphify: bins.graphify || 'graphify', fd: bins.fd, rtk: bins.rtk || 'rtk' };
   if (task.class === 'verification-failure') return runVerification({ task, root: exportRoot, config: 'A', bins: tools, scratchDir });
@@ -184,7 +184,7 @@ function runA({ task, exportRoot, indexRoot = exportRoot, capabilities, bins = {
     if (disabled.has(provider.id)) { providers.push({ id: provider.id, state: 'unreached', cause: 'disabled by setup.disable' }); continue; }
     const runner = RUNNERS[provider.id];
     if (!runner) { providers.push({ id: provider.id, state: 'unreached', cause: 'no adapter for this provider' }); continue; }
-    const res = runner({ task, exportRoot, indexRoot, bins: tools, semble });
+    const res = runner({ task, exportRoot, indexRoot, bins: tools, semble, admittedPaths });
     providers.push(res.unreached !== undefined
       ? { id: provider.id, state: 'unreached', cause: res.unreached }
       : { id: provider.id, state: 'reached' });

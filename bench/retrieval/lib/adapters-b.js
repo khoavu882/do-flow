@@ -80,9 +80,10 @@ function answerOf({ result, freshness, candidates, providers, wallMs, extra }) {
   return { result, freshness, candidates, providers, payloadBytes: payloadOf(candidates), wallMs, ...extra };
 }
 
-function runCodeB(task, exportRoot, { bins, hasFd, listFiles }) {
+function runCodeB(task, exportRoot, { bins, hasFd, listFiles, admittedPaths }) {
   const providers = [];
-  const rgArgs = (extra, pattern) => ['-n', '--no-heading', '--color', 'never', ...extra, '-e', pattern, exportRoot];
+  const rgArgs = (extra, pattern) => ['-n', '--no-heading', '--color', 'never', ...extra, '-e', pattern,
+    ...(Array.isArray(admittedPaths) ? ['--', ...admittedPaths.map((p) => path.resolve(exportRoot, p))] : [exportRoot])];
   const failed = (run) => {
     const cause = run.ran ? `rg exited ${run.status}` : run.cause;
     providers.push({ id: 'native.rg', state: 'unreached', cause });
@@ -122,7 +123,12 @@ function runCodeB(task, exportRoot, { bins, hasFd, listFiles }) {
 
   // File-name step: fd when present, otherwise `rg --files` filtered by basename substring.
   const nameHits = new Map();
-  if (hasFd) {
+  if (Array.isArray(admittedPaths)) {
+    for (const term of terms) for (const rel of admittedPaths) {
+      if (path.posix.basename(toPosix(rel)).toLowerCase().includes(term)) nameHits.set(rel, (nameHits.get(rel) || 0) + 1);
+    }
+    providers.push({ id: 'fd', state: 'unreached', cause: 'manifest-scoped filename search' });
+  } else if (hasFd) {
     for (const term of terms) {
       const run = runTool(bins.fd, ['--type', 'f', '--glob', `*${term}*`, exportRoot]);
       if (run.ran && run.status === 0) {
@@ -181,7 +187,7 @@ function runGuidanceB(task, exportRoot, { indexDir }) {
  * Runs configuration B for one task against `exportRoot`. `indexDir` (guidance) defaults to a sibling
  * `index` directory of the export; `bins` and `hasFd` exist so a test can stand in a missing tool.
  */
-function runB({ corpus, task, exportRoot, indexDir, bins = {}, hasFd }) {
+function runB({ corpus, task, exportRoot, indexDir, bins = {}, hasFd, admittedPaths }) {
   const started = process.hrtime.bigint();
   const wall = () => Number(process.hrtime.bigint() - started) / 1e6;
   const tools = { rg: bins.rg || 'rg', fd: bins.fd || 'fd' };
@@ -203,7 +209,8 @@ function runB({ corpus, task, exportRoot, indexDir, bins = {}, hasFd }) {
     }
     return fileList;
   };
-  const r = runCodeB(task, exportRoot, { bins: tools, hasFd: fdPresent, listFiles });
+  const scopedListFiles = Array.isArray(admittedPaths) ? () => admittedPaths : listFiles;
+  const r = runCodeB(task, exportRoot, { bins: tools, hasFd: fdPresent, listFiles: scopedListFiles, admittedPaths });
   const result = r.unreached ? 'UNREACHED' : r.candidates.length > 0 ? 'RETRIEVED' : 'EMPTY';
   return answerOf({ result, freshness: 'NOT_APPLICABLE', candidates: r.candidates, providers: r.providers, wallMs: wall() });
 }
