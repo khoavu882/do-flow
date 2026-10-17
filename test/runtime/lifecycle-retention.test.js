@@ -13,6 +13,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { parseWindow, retentionWindow, selectExpired } = require('../../src/runtime/lifecycle/retention.ts');
+const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
 const { prepareStore, retainLocked, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
@@ -129,6 +130,26 @@ test('retentionWindow preserves an explicit setting and otherwise composes the p
   assert.deepEqual(retentionWindow({ env: scratch.env(), projectRoot: dir }), { state: 'off' });
   assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: '3' }), projectRoot: dir }), { state: 'on', hours: 3, ms: 3 * HOUR, source: 'env' });
   assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: 'bad' }), projectRoot: dir }), { state: 'invalid', raw: 'bad' });
+});
+
+test('retentionWindow uses the settings registry default and resolves an explicit project window', () => {
+  const dir = project('settings-window');
+  const env = scratch.env();
+  const prune = path.join(dir, '.doflow', 'prune');
+  fs.mkdirSync(path.dirname(prune), { recursive: true });
+  fs.writeFileSync(prune, 'on\n');
+  const defaultHours = loadSettings({ projectRoot: dir, env }).get('storage.retentionHours', 'project').meta.default;
+  assert.equal(defaultHours, 4320);
+  assert.deepEqual(retentionWindow({ env, projectRoot: dir }), {
+    state: 'on', hours: defaultHours, ms: defaultHours * HOUR, source: 'default',
+  });
+
+  const settings = path.join(dir, '.doflow', 'settings.json');
+  fs.mkdirSync(path.dirname(settings), { recursive: true });
+  fs.writeFileSync(settings, '{"schema":1,"storage.retentionHours":72}\n');
+  assert.deepEqual(retentionWindow({ env, projectRoot: dir }), {
+    state: 'on', hours: 72, ms: 72 * HOUR, source: 'project',
+  });
 });
 
 test('a missing or malformed registry disables automatic retention without breaking lifecycle reads', () => {
