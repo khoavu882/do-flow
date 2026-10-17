@@ -113,12 +113,15 @@ function measureLatency({ tasks, configs, call, seed, corpus, cls, warmups, runs
   return samples;
 }
 
-/** Aggregate raw/rejected/delivered candidate counts over C answers that reported them; null when none did (no zero stands in for unreached). */
+/**
+ * Aggregate raw/rejected/delivered candidate counts over C answers that reported them; null when none did (no zero stands in for unreached).
+ * `answered` counts those answers; it is not named `tasks`, which the holdout privacy check (report.js FORBIDDEN_KEYS) refuses anywhere.
+ */
 function rawValidityOf(answers) {
   const reported = answers.map((a) => a.rawValidity).filter(Boolean);
   if (reported.length === 0) return null;
   const sum = (key) => reported.reduce((n, v) => n + (v[key] || 0), 0);
-  return { tasks: reported.length, raw: sum('raw'), rejected: sum('rejected'), delivered: sum('delivered') };
+  return { answered: reported.length, raw: sum('raw'), rejected: sum('rejected'), delivered: sum('delivered') };
 }
 
 function summaryLines(corpora, split) {
@@ -348,40 +351,38 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
   }
 }
 
+/** Builds every result and comparison file of the run, each through report.js's privacy check, before writing any: one refused body leaves no partial generation on disk. */
 function writeHoldout({ holdoutResults, sealMeta, snapshot, repoRoot, configs, now, protocol }) {
   const dir = path.join(repoRoot, 'bench', 'retrieval', 'results');
-  fs.mkdirSync(dir, { recursive: true });
   const thresholdsCommit = git(repoRoot, ['log', '-1', '--format=%H', '--', 'bench/retrieval/thresholds.json']);
   const machine = report.machineId();
-  const written = [];
+  const files = [];
   for (const [corpus, result] of Object.entries(holdoutResults)) {
     const { generation, seal } = sealMeta[corpus];
-    const existing = fs.readdirSync(dir).filter((f) => new RegExp(`^holdout-${snapshot.snapshotId}-g${generation}-(code|guidance)-[AB]\\.json$`).test(f)).length;
+    const existing = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => new RegExp(`^holdout-${snapshot.snapshotId}-g${generation}-(code|guidance)-[AB]\\.json$`).test(f)).length : 0;
     configs.forEach((config, i) => {
-      const file = report.holdoutResultName(snapshot.snapshotId, generation, corpus, config);
       const base = report.buildHoldoutResult({
         snapshotId: snapshot.snapshotId, generation, corpus, config, sealPlaintextSha256: seal.plaintextSha256, thresholdsCommit,
         runAt: now.toISOString(), runIndex: existing + i + 1, machineId: machine, classes: result.configResults[config].classes,
       });
-      const body = protocol ? { ...base, protocol } : base;
-      fs.writeFileSync(path.join(dir, file), sealLib.toFileText(body));
-      written.push(path.join('bench', 'retrieval', 'results', file));
+      files.push([report.holdoutResultName(snapshot.snapshotId, generation, corpus, config), protocol ? { ...base, protocol } : base]);
     });
     if (configs.length === 2) {
-      const file = report.comparisonName(snapshot.snapshotId, generation, corpus);
-      fs.writeFileSync(path.join(dir, file), sealLib.toFileText(report.buildComparisonFile({ snapshotId: snapshot.snapshotId, generation, corpus, comparisons: result.comparisons })));
-      written.push(path.join('bench', 'retrieval', 'results', file));
+      files.push([report.comparisonName(snapshot.snapshotId, generation, corpus),
+        report.buildComparisonFile({ snapshotId: snapshot.snapshotId, generation, corpus, comparisons: result.comparisons })]);
     } else if (protocol && configs.length === 3) {
       for (const [a, b] of [['A', 'B'], ['A', 'C'], ['B', 'C']]) {
-        const file = `holdout-${snapshot.snapshotId}-g${generation}-${corpus}-${a}-vs-${b}.json`;
         const base = report.buildComparisonFile({ snapshotId: snapshot.snapshotId, generation, corpus,
           comparisons: result.comparisons.filter((row) => row.a === a && row.b === b) });
-        fs.writeFileSync(path.join(dir, file), sealLib.toFileText({ ...base, protocol }));
-        written.push(path.join('bench', 'retrieval', 'results', file));
+        files.push([`holdout-${snapshot.snapshotId}-g${generation}-${corpus}-${a}-vs-${b}.json`, { ...base, protocol }]);
       }
     }
   }
-  return written;
+  fs.mkdirSync(dir, { recursive: true });
+  return files.map(([file, body]) => {
+    fs.writeFileSync(path.join(dir, file), sealLib.toFileText(body));
+    return path.join('bench', 'retrieval', 'results', file);
+  });
 }
 
 function run(ctx) {

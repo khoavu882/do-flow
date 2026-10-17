@@ -17,6 +17,7 @@ const verifyVerb = require('../../bench/retrieval/lib/verbs/verify.js');
 const tasksLib = require('../../bench/retrieval/lib/tasks.js');
 const environment = require('../../bench/retrieval/lib/environment.js');
 const snap = require('../../bench/retrieval/lib/snapshot.js');
+const report = require('../../bench/retrieval/lib/report.js');
 
 const PASS = 'a sufficiently long test-only passphrase';
 const git = (root, ...args) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.test', '-C', root, ...args], { encoding: 'utf8' }).trim();
@@ -218,7 +219,7 @@ test('F5: the C index build cost and per-class raw/rejected/delivered counts rea
   const code = out.report.corpora.code.configs;
   assert.equal(code.C.index.state, 'reached');
   assert.equal(code.C.index.buildMs, 321); assert.equal(code.C.index.chunks, 9); assert.equal(code.C.index.diskBytes, 2048);
-  assert.deepEqual(code.C.classes['conceptual-discovery'].rawValidity, { tasks: 3, raw: 12, rejected: 9, delivered: 3 });
+  assert.deepEqual(code.C.classes['conceptual-discovery'].rawValidity, { answered: 3, raw: 12, rejected: 9, delivered: 3 });
   assert.equal(code.C.classes['conceptual-discovery'].latency.p50Ms, 7, 'the measured C wall time reaches the latency block');
   assert.equal(code.A.index.buildMs, 5, 'A index block is unchanged');
   assert.equal(code.B.index, undefined); assert.equal(code.A.classes['conceptual-discovery'].rawValidity, undefined);
@@ -355,4 +356,99 @@ test('R4b control: the coordinator ignores an `intent` option, so the old unquot
   const response = JSON.parse(run.stdout).response;
   assert.equal(response.queryClass, 'conceptual');
   assert.ok(response.results.length > 1, 'term matching returns lines without the literal');
+});
+
+// R6: the holdout writer's privacy check is the strict consumer of every C result shape. A run over a
+// sealed generation with a task in every class must clear it (the g2 run failed on rawValidity.tasks).
+const REAL_THRESHOLDS = fs.readFileSync(path.resolve(__dirname, '../../bench/retrieval/thresholds.json'), 'utf8');
+function holdoutWorld(t, generation = 7) {
+  const repo = tempDir(t, 'doflow-hybrid-c-holdout-run-');
+  gitIn(repo, 'init', '-q');
+  const files = { 'src/a.ts': Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n') + '\n', 'core/shared/guidance/g.md': '## Alpha\nalpha body\n',
+    'bench/retrieval/thresholds.json': REAL_THRESHOLDS };
+  for (const [f, body] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true }); fs.writeFileSync(path.join(repo, f), body); }
+  gitIn(repo, 'add', '-A'); gitIn(repo, 'commit', '-q', '-m', 'c');
+  const outDir = path.join(repo, 'bench', 'retrieval');
+  const snapshot = snap.writeInitial({ commit: gitIn(repo, 'rev-parse', 'HEAD'), seed: 20261012, repoRoot: repo, outDir, tools: [], env: { node: 'v', os: 'o', arch: 'a' } });
+  const manifest = snap.loadManifest(path.join(outDir, 'manifest.json'));
+  const q = (corpus, id = 'q1', startLine = 1) => (corpus === 'code' ? { id, path: 'src/a.ts', startLine, endLine: startLine + 1, rel: 2 }
+    : { id, path: 'core/shared/guidance/g.md', startLine: 1, endLine: 2, heading: 'Alpha', rel: 2 });
+  const extra = {
+    'exact-lookup': { literal: 'line 1' },
+    'impact-refactor': (c) => ({ dependencies: [{ ...q(c, 'q2', 3), rel: 1 }] }),
+    'stale-index': { setup: { patchText: 'diff --git a/x b/x\n' } },
+    'dirty-tree': { setup: { patchText: 'diff --git a/x b/x\n' } },
+    'unavailable-provider': { setup: { disable: ['semble.search'] } },
+    'oversized-context': { expect: { result: ['RETRIEVED'], budgetBytes: 100, mustInclude: ['q1'] } },
+    'verification-failure': { expect: { result: ['RETRIEVED'], mustSurvive: { exitCode: 1, lines: ['boom'] } }, setup: { command: ['false'] } },
+  };
+  const sealMeta = {};
+  for (const corpus of protocol.CORPORA) {
+    const tasks = require('../../bench/retrieval/lib/metrics.js').classesFor(corpus).map((cls, i) => {
+      const more = typeof extra[cls] === 'function' ? extra[cls](corpus) : (extra[cls] || {});
+      return { id: `H${corpus === 'code' ? 'C' : 'G'}-00${i + 1}`, split: 'holdout', corpus, class: cls, query: 'where is thing', qrels: [q(corpus)],
+        expect: { result: ['RETRIEVED'] }, truthSource: ['x:1'], author: 'worker:t', ...more };
+    });
+    const { taskFile } = tasksLib.fillTaskFile({ schemaVersion: 1, snapshotId: snapshot.snapshotId, split: 'holdout', tasks }, { snapshot, manifest, repoRoot: repo, tokenize: (x) => String(x).toLowerCase().split(/[^a-z0-9]+/).filter((y) => y.length >= 2) });
+    assert.deepEqual(tasksLib.validateTaskFile(taskFile, { split: 'holdout', snapshot, manifest, repoRoot: repo, corpus }), []);
+    const sealed = seal.sealTasks({ taskFile, passphrase: PASS, corpus, snapshotId: snapshot.snapshotId, generation, sealedBy: 'worker:t', classes: require('../../bench/retrieval/lib/metrics.js').CLASSES });
+    seal.writeSealed({ dir: path.join(outDir, 'holdout'), corpus, generation, envelopeText: sealed.envelopeText, sealText: sealed.sealText });
+    sealMeta[corpus] = sealed.seal;
+  }
+  return { repo, snapshotPath: path.join(outDir, 'snapshot.json'), tmp: path.join(tempDir(t, 'doflow-hybrid-c-holdout-tmp-'), 'work'), results: path.join(outDir, 'results') };
+}
+// Answers shaped as the real adapters return them: C's coordinator classes carry rawValidity (adapters-c mapCodeResponse).
+function holdoutDeps({ cAnswer } = {}) {
+  const base = runDeps(() => ({ ok: true, elapsedMs: 9, chunks: 3, artifactBytes: 64, freshness: 'FRESH' }));
+  return { ...base, preconditions: undefined, latency: { warmups: 1, runs: 2 },
+    runConfig: (x) => {
+      if (x.config === 'C' && cAnswer) { const own = cAnswer(x); if (own) return own; }
+      const answer = base.runConfig(x);
+      const coordinator = x.config === 'C' && x.corpus === 'code' && ['exact-lookup', 'conceptual-discovery'].includes(x.task.class);
+      const { rawValidity, ...rest } = answer;
+      return coordinator ? { ...rest, rawValidity: { raw: 4, delivered: 1, rejected: 3, gaps: 3 }, effectiveProfile: 'hybrid' } : rest;
+    } };
+}
+const runHoldout = (w, deps) => run.execute({ args: { protocol: protocol.ID, split: 'holdout', config: 'A,B,C', corpus: 'all' }, snapshotPath: w.snapshotPath, repoRoot: w.repo,
+  tmp: w.tmp, env: { DOFLOW_HOLDOUT_KEY: PASS }, home: w.repo, deps: Object.fromEntries(Object.entries(deps).filter(([, v]) => v !== undefined)) });
+const holdoutFiles = (w) => (fs.existsSync(w.results) ? fs.readdirSync(w.results).filter((f) => /^holdout-.*\.json$/.test(f)).sort() : []);
+
+test('R6: a C holdout run over every class clears the holdout privacy check and writes all six results and their comparisons', (t) => {
+  const w = holdoutWorld(t);
+  const out = runHoldout(w, holdoutDeps());
+  assert.equal(out.exitCode, 0, out.lines && out.lines.join('\n'));
+  const names = holdoutFiles(w);
+  for (const corpus of ['code', 'guidance']) {
+    for (const config of ['A', 'B', 'C']) assert.ok(names.includes(`holdout-1-g7-${corpus}-${config}.json`), `${corpus} ${config} written`);
+    for (const pair of ['A-vs-B', 'A-vs-C', 'B-vs-C']) assert.ok(names.includes(`holdout-1-g7-${corpus}-${pair}.json`), `${corpus} ${pair} written`);
+  }
+  for (const name of names) report.assertNoTaskDetail(JSON.parse(fs.readFileSync(path.join(w.results, name), 'utf8')), name);
+  report.assertNoTaskDetail({ aggregates: out.aggregates, gate: out.gate, indexes: out.indexes }, 'holdout stdout');
+  const c = JSON.parse(fs.readFileSync(path.join(w.results, 'holdout-1-g7-code-C.json'), 'utf8'));
+  for (const cls of require('../../bench/retrieval/lib/metrics.js').classesFor('code')) assert.equal(c.classes[cls].n, 1, `code C ${cls} measured`);
+  assert.deepEqual(c.classes['exact-lookup'].rawValidity, { answered: 1, raw: 4, rejected: 3, delivered: 1 });
+  assert.deepEqual(out.gate.rows.map((row) => row.id), gate.REQUIRED_THRESHOLDS);
+  assert.deepEqual(out.gate.rows.filter((row) => row.verdict === 'UNREACHED').map((row) => row.id), ['T-005', 'T-006']);
+  assert.equal(fs.readdirSync(w.results).filter((f) => f.endsWith('.reserved.json')).length, 1, 'the reservation stays as the consumption record');
+});
+
+test('R6 negative control: the pre-fix rawValidity shape fails the same holdout validation', () => {
+  const classes = { 'exact-lookup': { applicable: true, n: 10, metrics: {}, rawValidity: { tasks: 10, raw: 31, rejected: 0, delivered: 31 } } };
+  const build = (cls) => report.buildHoldoutResult({ snapshotId: 1, generation: 7, corpus: 'code', config: 'C', sealPlaintextSha256: 'x', thresholdsCommit: 'y',
+    runAt: 'z', runIndex: 1, machineId: 'm', classes: cls });
+  assert.throws(() => build(classes), /may not carry "tasks" \(at \.classes\.exact-lookup\.rawValidity\)/);
+  assert.doesNotThrow(() => build({ 'exact-lookup': { ...classes['exact-lookup'], rawValidity: { answered: 10, raw: 31, rejected: 0, delivered: 31 } } }));
+});
+
+test('R6 one-shot: a failure after evaluation starts writes no partial result, keeps the reservation, and a retry refuses', (t) => {
+  const w = holdoutWorld(t);
+  // The last corpus's C result carries a task id in a provider cause: every earlier configuration is valid.
+  assert.throws(() => runHoldout(w, holdoutDeps({ cAnswer: ({ task }) => (task.class === 'stale-index' && task.corpus === 'guidance'
+    ? { result: 'UNREACHED', freshness: 'UNKNOWN', candidates: [], providers: [{ id: 'guidance.bm25', state: 'unreached', cause: `${task.id} failed` }], payloadBytes: 0, wallMs: 1 } : null) })),
+  /holdout result may not carry a task id/);
+  assert.deepEqual(holdoutFiles(w), [], 'no configuration of the generation is written when any of the six fails validation');
+  assert.equal(fs.readdirSync(w.results).filter((f) => f.endsWith('.reserved.json')).length, 1);
+  const retry = runHoldout(w, holdoutDeps());
+  assert.equal(retry.exitCode, 2);
+  assert.match(retry.lines.join('\n'), /precondition \(f\).*already reserved/);
 });
