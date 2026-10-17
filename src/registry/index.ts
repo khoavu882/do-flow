@@ -283,8 +283,10 @@ function validateModelProvider(value: any, location: string, errors: string[]): 
   if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
   if (!MODEL_KINDS.has(value.kind)) issue(errors, location, `kind must be one of: ${[...MODEL_KINDS].join(', ')}`);
   if (!Array.isArray(value.families) || value.families.length === 0
-    || value.families.some((family: any) => typeof family !== 'string' || !family.trim())) {
-    issue(errors, location, 'families must be a non-empty array of non-empty strings');
+    || value.families.some((family: any) => typeof family !== 'string' || !/^[a-z][a-z0-9-]*$/.test(family))) {
+    issue(errors, location, 'families must be a non-empty array of lowercase identifiers');
+  } else if (new Set(value.families).size !== value.families.length) {
+    issue(errors, location, 'families must not contain duplicate identifiers');
   }
   if (!Array.isArray(value.evidence) || value.evidence.length === 0
     || value.evidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url))) {

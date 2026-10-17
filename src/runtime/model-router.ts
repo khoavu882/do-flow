@@ -41,19 +41,23 @@ function availableProviderIds({ fsImpl = fs }: { fsImpl?: any } = {}): string[] 
 
 function normalizeFamilyList(value: any): string[] {
   const values = Array.isArray(value) ? value : [value];
-  return [...new Set(values.flatMap((entry) => String(entry ?? '').split(',').map((family) => family.trim()).filter(Boolean)))];
+  return [...new Set(values.flatMap((entry) => String(entry ?? '').split(',').map((family) => family.trim().toLowerCase()).filter(Boolean)))];
 }
 
+// families is a hand-kept stopgap; row 105's facts registry (agent-docs/DOFLOW-DELIVERY-STATE.md row 105) supersedes it and this field is removed then.
 /** An unknown family is not evidence that a provider can review outside the author's family. */
-function familyInfo(families: any, excludedFamilies: Set<string>): { families: string[], familyVerified: boolean, sameFamily: boolean } {
+function familyInfo(families: any, excludedFamilies: Set<string>): { families: string[], familyVerified: boolean, familyRelation: string, sameFamily: boolean } {
   const declared = Array.isArray(families) ? families : [];
-  const knownFamilies = declared.filter((family) => typeof family === 'string' && family !== 'unknown');
-  const familyVerified = declared.length > 0
-    && declared.every((family) => typeof family === 'string' && family.trim() !== '' && family !== 'unknown');
+  const hasUnknown = declared.length === 0
+    || declared.some((family) => typeof family !== 'string' || !/^[a-z][a-z0-9-]*$/.test(family) || family === 'unknown');
+  const familyRelation = hasUnknown ? 'unverified'
+    : declared.some((family) => excludedFamilies.has(family)) ? 'overlaps-author' : 'cross-family';
+  const sameFamily = declared.length > 0 && declared.every((family) => typeof family === 'string' && excludedFamilies.has(family));
   return {
     families: [...declared],
-    familyVerified,
-    sameFamily: familyVerified && knownFamilies.length > 0 && knownFamilies.every((family) => excludedFamilies.has(family)),
+    familyVerified: familyRelation === 'cross-family',
+    familyRelation,
+    sameFamily,
   };
 }
 
@@ -74,10 +78,14 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [], 
   const familyMode = excludeFamilies !== undefined && excludeFamilies !== null;
   const excludedFamilies = new Set(familyMode ? normalizeFamilyList(excludeFamilies) : []);
   const candidates: any[] = [];
+  const familyExcluded: string[] = [];
   for (const [index, provider] of (registry.modelProviders || []).entries()) {
     if (excluded.has(provider.id)) continue;
     const family = familyInfo(provider.families, excludedFamilies);
-    if (familyMode && family.sameFamily) continue;
+    if (familyMode && family.sameFamily) {
+      familyExcluded.push(provider.id);
+      continue;
+    }
     const tiers = provider.tiers ?? [];
     candidates.push({
       id: provider.id,
@@ -87,7 +95,7 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [], 
       available: isAvailable ? Boolean(isAvailable(provider.id)) : null,
       servesPreferredTier: role.prefer ? tiers.includes(role.prefer) : null,
       servesFallbackTier: role.fallback ? tiers.includes(role.fallback) : null,
-      ...(familyMode ? { families: family.families, familyVerified: family.familyVerified } : {}),
+      ...(familyMode ? { families: family.families, familyRelation: family.familyRelation, familyVerified: family.familyVerified } : {}),
       _index: index,
     });
   }
@@ -111,7 +119,10 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [], 
   };
   // Keep the established result shape byte-for-byte for callers that do not request family
   // filtering. Family metadata is included whenever that comparison is requested.
-  if (familyMode) result.excludedFamilies = [...excludedFamilies];
+  if (familyMode) {
+    result.excludedFamilies = [...excludedFamilies];
+    result.familyExcluded = familyExcluded;
+  }
   return result;
 }
 
@@ -157,6 +168,17 @@ function handleModelRoleCommand({ role, exclude, excludeFamilies, json = false, 
   try {
     const excludedProviderIds = Array.isArray(exclude) ? exclude : String(exclude ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
     const requestedFamilies = excludeFamilies === undefined || excludeFamilies === null ? null : normalizeFamilyList(excludeFamilies);
+    if (requestedFamilies !== null) {
+      const knownFamilies = [...new Set((registry.modelProviders || []).flatMap((provider: any) => provider.families || []))].sort();
+      const knownSet = new Set(knownFamilies);
+      const unknownFamilies = requestedFamilies.filter((family) => !knownSet.has(family));
+      if (requestedFamilies.length === 0) {
+        return usageError('model-role', `--exclude-family requires at least one family name; known families: ${knownFamilies.join(', ') || '(none)'}`, json);
+      }
+      if (unknownFamilies.length) {
+        return usageError('model-role', `unknown family name${unknownFamilies.length === 1 ? '' : 's'}: ${unknownFamilies.join(', ')}; known families: ${knownFamilies.join(', ') || '(none)'}`, json);
+      }
+    }
     const resolution = resolveModelRole({
       registry,
       roleId: role,
@@ -170,7 +192,7 @@ function handleModelRoleCommand({ role, exclude, excludeFamilies, json = false, 
       for (const candidate of resolution.candidates) {
         const availability = candidate.available === null ? '?' : candidate.available ? 'yes' : 'no';
         const familyStatus = requestedFamilies === null ? ''
-          : ` ${candidate.familyVerified ? 'cross-family' : 'unverified'}`;
+          : ` ${candidate.familyRelation}`;
         console.log(`  ${candidate.available ? '*' : ' '} ${candidate.id} (${candidate.kind}, via ${candidate.backendCli ?? 'hosted'}) available=${availability}${resolution.policy.prefer && candidate.servesPreferredTier ? ` serves ${resolution.policy.prefer}` : ''}${familyStatus}`);
       }
       if (resolution.excluded.length) console.log(`Excluded: ${resolution.excluded.join(', ')}`);

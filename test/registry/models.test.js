@@ -55,8 +55,8 @@ test('provider claims without evidence, bad kinds, or duplicate ids fail validat
   assert.ok(duplicated.errors.some((error) => error.includes("duplicate id 'claude'")));
 });
 
-test('providers require a non-empty array of non-empty family names', () => {
-  for (const families of [undefined, [], [''], ['  '], ['claude', 4]]) {
+test('providers require unique lowercase family identifiers in a non-empty array', () => {
+  for (const families of [undefined, [], [''], ['  '], ['claude', 4], ['Claude'], ['not valid'], ['claude', 'claude']]) {
     const provider = { ...goodProviders[0] };
     if (families === undefined) delete provider.families;
     else provider.families = families;
@@ -64,6 +64,8 @@ test('providers require a non-empty array of non-empty family names', () => {
     assert.equal(result.ok, false, String(JSON.stringify(families)));
     assert.match(result.errors.join('\n'), /families/);
   }
+  const duplicate = validateRegistry({ ...EMPTY, modelProviders: [{ ...goodProviders[0], families: ['claude', 'claude'] }], modelRoles: [] }, { repoRoot: REPO });
+  assert.ok(duplicate.errors.some((error) => /families/.test(error) && /duplicate/.test(error)));
   const valid = validateRegistry({ ...EMPTY, modelProviders: [{ ...goodProviders[0], families: ['claude', 'unknown'] }], modelRoles: [] }, { repoRoot: REPO });
   assert.deepEqual(valid.errors, []);
 });

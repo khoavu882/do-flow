@@ -11,6 +11,25 @@ const path = require('node:path');
 const REPO = path.resolve(__dirname, '..', '..');
 const registry = loadRegistry({ repoRoot: REPO });
 
+function invokeModelRole(options) {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const previousExitCode = process.exitCode;
+  const stdout = [];
+  const stderr = [];
+  let code;
+  try {
+    console.log = (...args) => stdout.push(args.join(' '));
+    console.error = (...args) => stderr.push(args.join(' '));
+    code = handleModelRoleCommand(options);
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+    process.exitCode = previousExitCode;
+  }
+  return { code, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
+}
+
 test('every shipped role resolves against real providers, tiers bound in models.json', () => {
   for (const roleId of registry.modelRoles.map((r) => r.id)) {
     const resolution = resolveModelRole({ registry, roleId });
@@ -63,7 +82,8 @@ test('review with exclude drops the implementer and reports it, per different-fa
   assert.equal(resolution.policy.require, 'different-family');
 });
 
-test('review family exclusion drops same-family providers but keeps cross-family and unknown controls', () => {
+test('review family exclusion drops same-family providers and labels cross-family, overlap, and unknown controls', () => {
+  // Negative control: a cleanly cross-family provider remains eligible while same-family providers are dropped.
   const fixture = {
     modelRoles: [{ id: 'review', require: 'different-family' }],
     modelProviders: [
@@ -71,21 +91,30 @@ test('review family exclusion drops same-family providers but keeps cross-family
       { id: 'same-family', families: ['claude'] },
       { id: 'cross-family', families: ['openai'] },
       { id: 'mixed-catalogue', families: ['claude', 'openai'] },
+      { id: 'mixed-unknown', families: ['claude', 'unknown'] },
       { id: 'unknown-family', families: ['unknown'] },
     ],
   };
   const resolution = resolveModelRole({ registry: fixture, roleId: 'review', excludeFamilies: ['claude'] });
   assert.deepEqual(resolution.excludedFamilies, ['claude']);
-  assert.deepEqual(resolution.candidates.map((candidate) => candidate.id), ['cross-family', 'mixed-catalogue', 'unknown-family']);
+  assert.deepEqual(resolution.familyExcluded, ['author', 'same-family']);
+  assert.deepEqual(resolution.candidates.map((candidate) => candidate.id), ['cross-family', 'mixed-catalogue', 'mixed-unknown', 'unknown-family']);
   assert.equal(resolution.candidates.find((candidate) => candidate.id === 'cross-family').familyVerified, true);
+  assert.equal(resolution.candidates.find((candidate) => candidate.id === 'cross-family').familyRelation, 'cross-family');
   assert.deepEqual(resolution.candidates.find((candidate) => candidate.id === 'mixed-catalogue').families, ['claude', 'openai']);
-  assert.equal(resolution.candidates.find((candidate) => candidate.id === 'mixed-catalogue').familyVerified, true);
+  assert.equal(resolution.candidates.find((candidate) => candidate.id === 'mixed-catalogue').familyVerified, false);
+  assert.equal(resolution.candidates.find((candidate) => candidate.id === 'mixed-catalogue').familyRelation, 'overlaps-author');
+  const mixedUnknown = resolution.candidates.find((candidate) => candidate.id === 'mixed-unknown');
+  assert.equal(mixedUnknown.familyVerified, false);
+  assert.equal(mixedUnknown.familyRelation, 'unverified');
   const unknown = resolution.candidates.find((candidate) => candidate.id === 'unknown-family');
   assert.deepEqual(unknown.families, ['unknown']);
   assert.equal(unknown.familyVerified, false, 'unknown is retained without being claimed as cross-family');
+  assert.equal(unknown.familyRelation, 'unverified');
 });
 
 test('model-role callers without family filters retain the legacy JSON shape byte-for-byte', () => {
+  // Regression pin: this shape passes before the family-relation fix by design.
   const fixture = {
     modelRoles: [{ id: 'triage', prefer: 'cheap-fast', fallback: 'any-healthy' }],
     modelProviders: [{ id: 'custom', kind: 'hosted', displayName: 'Custom', tiers: ['cheap-fast'] }],
@@ -139,15 +168,11 @@ test('model-role accepts repeatable family flags and human output labels all fam
   }
   assert.equal(legacyJson.join('\n'), JSON.stringify(legacyResolution, null, 2), 'no-filter JSON is byte-identical');
 
-  let parsed;
-  const originalExit = process.exit;
-  try {
-    process.exit = (code) => { throw new Error(`parseArgs exited ${code}`); };
-    parsed = parseArgs(['model-role', '--role', 'review', '--exclude-family', 'author-family', '--exclude-family=other-family']);
-  } finally {
-    process.exit = originalExit;
-  }
+  const parsed = parseArgs(['model-role', '--role', 'review', '--exclude', 'claude,codex', '--exclude-family', 'author-family', '--exclude-family=other-family']);
+  assert.deepEqual(parsed.exclude, ['claude', 'codex']);
   assert.deepEqual(parsed.excludeFamily, ['author-family', 'other-family']);
+  const commaParsed = parseArgs(['model-role', '--role', 'review', '--exclude-family=author-family,other-family']);
+  assert.deepEqual(commaParsed.excludeFamily, ['author-family', 'other-family']);
 
   const lines = [];
   try {
@@ -158,7 +183,7 @@ test('model-role accepts repeatable family flags and human output labels all fam
   }
   const output = lines.join('\n');
   assert.match(output, /claude .*same-family/);
-  assert.match(output, /codex .*cross-family/);
+  assert.match(output, /codex .*overlaps-author/);
   assert.match(output, /copilot .*cross-family/);
   assert.match(output, /ollama .*unverified/);
 
@@ -171,7 +196,58 @@ test('model-role accepts repeatable family flags and human output labels all fam
   }
   const json = JSON.parse(jsonLines.join('\n'));
   assert.deepEqual(json.excludedFamilies, ['author-family']);
-  assert.ok(json.candidates.every((candidate) => Array.isArray(candidate.families) && typeof candidate.familyVerified === 'boolean'));
+  assert.deepEqual(json.familyExcluded, ['claude']);
+  assert.ok(json.candidates.every((candidate) => Array.isArray(candidate.families)
+    && ['cross-family', 'overlaps-author', 'unverified'].includes(candidate.familyRelation)
+    && typeof candidate.familyVerified === 'boolean'));
+});
+
+test('model-role normalizes requested families and rejects unknown or empty family lists as usage errors', () => {
+  const typo = invokeModelRole({ role: 'review', excludeFamilies: ['claud'], repoRoot: REPO });
+  assert.equal(typo.code, 2);
+  assert.match(typo.stderr, /claud/);
+  assert.match(typo.stderr, /claude, unknown/);
+
+  const noMatch = invokeModelRole({ role: 'review', excludeFamilies: ['openai'], repoRoot: REPO });
+  assert.equal(noMatch.code, 2);
+  assert.match(noMatch.stderr, /openai/);
+  assert.match(noMatch.stderr, /claude, unknown/);
+
+  const blankArgs = parseArgs(['model-role', '--role', 'review', '--exclude-family=,']);
+  assert.deepEqual(blankArgs.excludeFamily, []);
+  const blank = invokeModelRole({ role: 'review', excludeFamilies: blankArgs.excludeFamily, repoRoot: REPO });
+  assert.equal(blank.code, 2);
+  assert.match(blank.stderr, /at least one family/);
+
+  const normalized = invokeModelRole({ role: 'review', excludeFamilies: [' Claude '], repoRoot: REPO });
+  assert.equal(normalized.code, 0);
+  assert.match(normalized.stdout, /claude same-family \(excluded\)/);
+  const unknownIsValid = invokeModelRole({ role: 'review', excludeFamilies: ['unknown'], repoRoot: REPO });
+  assert.equal(unknownIsValid.code, 0);
+});
+
+test('provider and family exclusions compose and JSON identifies ids dropped by each path', (t) => {
+  const root = tempDir(t, 'doflow-model-role-family-combined-');
+  for (const dir of ['core', 'src', 'bin']) fs.cpSync(path.join(REPO, dir), path.join(root, dir), { recursive: true });
+  const modelsPath = path.join(root, 'core', 'registry', 'models.json');
+  const models = JSON.parse(fs.readFileSync(modelsPath, 'utf8'));
+  const families = { claude: ['author-family'], codex: ['author-family', 'other-family'], copilot: ['other-family'], ollama: ['unknown'] };
+  for (const provider of models.providers) provider.families = families[provider.id];
+  fs.writeFileSync(modelsPath, JSON.stringify(models, null, 2));
+
+  const result = invokeModelRole({
+    role: 'review',
+    exclude: ['copilot'],
+    excludeFamilies: ['author-family'],
+    json: true,
+    repoRoot: root,
+  });
+  assert.equal(result.code, 0);
+  const json = JSON.parse(result.stdout);
+  assert.deepEqual(json.excluded, ['copilot']);
+  assert.deepEqual(json.familyExcluded, ['claude']);
+  assert.ok(!json.candidates.some((candidate) => ['claude', 'copilot'].includes(candidate.id)));
+  assert.equal(json.candidates.find((candidate) => candidate.id === 'codex').familyRelation, 'overlaps-author');
 });
 
 test('unknown roles are rejected with the valid set; ids are never guessed', () => {
