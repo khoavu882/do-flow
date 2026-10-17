@@ -63,6 +63,10 @@ const ALLOWLIST = new Map([
     'user-run report and hook-run upkeep; no skill calls it',
   ],
   [
+    'config',
+    'user-run diagnostic; no skill calls it',
+  ],
+  [
     'doctor',
     'CLI-only health diagnostic and smoke check command (doflow doctor) for human operators and environment setup, not invoked by skill workflows',
   ],

@@ -409,6 +409,12 @@ test('G12: doflow --help documents every command the CLI accepts, and nothing it
     + `stopped describing reality — delete it:\n  ${stale.join('\n  ')}`);
 });
 
+test('config is a Node verb with list, origin, and JSON help', () => {
+  assert.ok(nodeVerbs().includes('config'), 'doflow-run must dispatch config to the Node CLI');
+  const cliText = fs.readFileSync(path.join(REPO, 'src', 'cli', 'index.ts'), 'utf8');
+  assert.match(cliText, /^  config\s+Show each setting's effective value and where it came from \(list \[--show-origin\] \[--json\]\)$/m);
+});
+
 // ------------------------------------------------------------ 6. no skill goes around the seam
 
 // FR-004's mechanical half for the *runtime library* case. C.4's guard covers inlined resolver

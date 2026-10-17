@@ -47,7 +47,7 @@ function install(root) {
 }
 
 /** Runs `doflow doctor` under an emptied environment so no real home, PATH tool or git config answers. */
-function doctor(t, args) {
+function doctor(t, args, extraEnv = {}) {
   return spawnSync(process.execPath, [CLI, 'doctor', ...args], {
     cwd: t.dir,
     encoding: 'utf8',
@@ -57,6 +57,7 @@ function doctor(t, args) {
       XDG_CONFIG_HOME: path.join(t.dir, 'xdg'),
       PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
       GIT_CONFIG_GLOBAL: '/dev/null',
+      ...extraEnv,
     },
   });
 }
@@ -108,6 +109,18 @@ test('doctor text: with no ledger rows the section says so and the run exits 0',
   const result = doctor(t, [t.proj]);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /\[Runtime Reach\]\n {2}No harness has DoFlow ledger rows in this project or in the home directory\./);
+});
+
+test('doctor reports ignored relative XDG and a deprecated file as warnings without changing its exit rule', (testContext) => {
+  const t = fixture(testContext);
+  const sentinel = path.join(t.home, '.config', 'doflow', 'failures', 'off');
+  write(sentinel, 'off\n');
+  const result = doctor(t, [t.proj], { XDG_CONFIG_HOME: 'relative/xdg' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /\[Settings\]/);
+  assert.match(result.stdout, /XDG_CONFIG_HOME.*ignored|ignored.*XDG_CONFIG_HOME/);
+  assert.ok(result.stdout.includes(sentinel));
+  assert.match(result.stdout, /deprecated/);
 });
 
 test('doctor -g reports global rows only, and N/A alone leaves the exit code at 0', (testContext) => {

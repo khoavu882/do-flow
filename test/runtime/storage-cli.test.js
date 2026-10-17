@@ -67,6 +67,24 @@ test('storage report JSON includes effective settings and all pass result fields
   } finally { scratch.remove(); }
 });
 
+test('storage report names deprecated prune only when a legacy prune file exists', () => {
+  const scratch = createScratch('doflow-storage-cli-');
+  try {
+    const project = path.join(scratch.dir, 'project'); fs.mkdirSync(project);
+    fs.rmSync(path.join(scratch.xdg, 'doflow', 'prune'));
+    const absent = run([], project, scratch.env());
+    assert.equal(absent.status, 0, absent.stderr);
+    assert.doesNotMatch(absent.stdout, /deprecated.*prune|prune.*deprecated/i);
+
+    const prune = path.join(project, '.doflow/prune');
+    fs.mkdirSync(path.dirname(prune), { recursive: true }); fs.writeFileSync(prune, 'on\n');
+    const present = run([], project, scratch.env());
+    assert.equal(present.status, 0, present.stderr);
+    assert.match(present.stdout, /deprecated.*prune|prune.*deprecated/i);
+    assert.ok(present.stdout.includes(prune));
+  } finally { scratch.remove(); }
+});
+
 test('storage report shows deciding paths and caps listed recovery names at twenty', () => {
   const scratch = createScratch('doflow-storage-cli-');
   try {

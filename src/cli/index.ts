@@ -77,6 +77,7 @@ function parseArgs(argv: string[]): any {
       case '--permissions': o.permissions = true; break;
       case '--statusline': o.statusline = true; break;
       case '--json': o.json = true; break;
+      case '--show-origin': o.showOrigin = true; break;
       case '--bare': o.bare = true; break;
       case '--no-record': o.noRecord = true; break;
       // context-emit: decide and render without taking a claim or writing a ledger line.
@@ -483,6 +484,7 @@ Commands:
   discover             Missed capability opportunities in recorded runs
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   storage              Report stored data and retention bounds (--action report|prune|upkeep)
+  config               Show each setting's effective value and where it came from (list [--show-origin] [--json])
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
