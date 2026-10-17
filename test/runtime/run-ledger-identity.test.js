@@ -8,10 +8,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { RunLedger, RUN_FIELDS, normalizeRunRecord } = require('../../src/runtime/trace/ledger.ts');
 const { ATTEMPT_PATTERN, ID_PATTERN, identityFields } = require('../../src/runtime/context/identity.ts');
 
+const REPO = path.resolve(__dirname, '../..');
+const BIN = path.join(REPO, 'bin', 'doflow.js');
 const NOW = new Date('2026-10-12T08:00:00.000Z');
 const VALID = Object.freeze({ DOFLOW_RUN_ID: 'r_082-a', DOFLOW_LINEAGE_ID: 'lin_1', DOFLOW_ATTEMPT: '3' });
 
@@ -109,4 +112,67 @@ test("A.3: append's return keys are unchanged apart from the three fields", (t) 
   assert.equal(path.basename(bare.file), '2026-10-12.jsonl');
   // A non-object event is still rejected the same way.
   assert.deepEqual(ledger(t, { ...VALID }).append('route'), { written: false, dropped: [], reason: 'event must be an object' });
+});
+
+test('PF.1b: a run-ledger append creates the telemetry subdirectory beside runs', (t) => {
+  const projectRoot = tempDir(t, 'doflow-run-ledger-telemetry-');
+  const runs = path.join(projectRoot, '.doflow', 'state', 'runs');
+  fs.mkdirSync(path.dirname(runs), { recursive: true });
+  const result = new RunLedger({ dir: runs, clock: () => NOW, env: {} }).append({ verb: 'route', outcome: 'ok' });
+
+  assert.equal(result.written, true);
+  assert.equal(fs.statSync(path.join(runs, 'telemetry')).isDirectory(), true);
+  assert.equal(fs.readFileSync(result.file, 'utf8'), `${JSON.stringify(result.record)}\n`);
+});
+
+test('PF.1b negative control: a read-only run parent leaves storage-upkeep output and exit unchanged', (t) => {
+  const scratch = tempDir(t, 'doflow-run-ledger-readonly-');
+  const home = path.join(scratch, 'home');
+  const xdg = path.join(scratch, 'xdg');
+  fs.mkdirSync(home);
+  fs.mkdirSync(xdg);
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, GIT_CONFIG_GLOBAL: '/dev/null' };
+  delete env.FORCE_COLOR;
+  for (const key of Object.keys(env)) if (key.startsWith('DOFLOW_')) delete env[key];
+
+  function project(name) {
+    const root = path.join(scratch, name);
+    const runs = path.join(root, '.doflow', 'state', 'runs');
+    fs.mkdirSync(runs, { recursive: true });
+    return { root, runs };
+  }
+
+  const writable = project('writable');
+  const readonly = project('readonly');
+  const preload = path.join(scratch, 'readonly-runs.cjs');
+  fs.writeFileSync(preload, `
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const runs = path.resolve(${JSON.stringify(readonly.runs)});
+    for (const name of ['mkdirSync', 'appendFileSync', 'writeFileSync', 'openSync', 'renameSync', 'linkSync']) {
+      const original = fs[name];
+      fs[name] = function(file, ...args) {
+        const target = typeof file === 'string' ? path.resolve(file) : '';
+        const inside = target === runs || target.startsWith(runs + path.sep);
+        if (inside && !(name === 'mkdirSync' && target === runs)) {
+          throw Object.assign(new Error('read-only run store'), { code: 'EACCES' });
+        }
+        return original.call(this, file, ...args);
+      };
+    }
+  `);
+
+  function run(root, locked) {
+    const args = locked ? ['-r', preload, BIN, 'storage', root, '--action', 'upkeep']
+      : [BIN, 'storage', root, '--action', 'upkeep'];
+    const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8', env, timeout: 30000 });
+    assert.equal(result.error, undefined, result.error?.message);
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+  }
+
+  const expected = run(writable.root, false);
+  assert.deepEqual(expected, { status: 0, stdout: '', stderr: '' });
+  assert.equal(fs.statSync(path.join(writable.runs, 'telemetry')).isDirectory(), true);
+  assert.deepEqual(run(readonly.root, true), expected);
+  assert.equal(fs.existsSync(path.join(readonly.runs, 'telemetry')), false);
 });

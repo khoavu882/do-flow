@@ -205,6 +205,16 @@ function enumerateHookSurfaces({
           unmeasured: 'no fixture',
         });
       }
+
+      if (harnessId === 'claude' && stem === 'pre-bash-guard') {
+        surfaces.push({
+          ...surface,
+          id: `${surfaceId}.first-write`,
+          variant: 'first-write',
+          budgeted: false,
+          setup: { ...surface.setup, omit: ['.doflow/state/runs/telemetry'] },
+        });
+      }
     }
   }
 
@@ -341,6 +351,7 @@ function runSurfaceProcess(surface, repoRoot, tempHome, spawnSyncFn = spawnSync)
         : path.join(repoRoot, surface.setup.fixture);
       if (!fs.existsSync(fixtureSrc)) throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
       fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
+      omitSetupPaths(tempProjectDir, surface.setup.omit);
       const gitInit = spawnSync('git', ['init', '-q', '-b', 'feat/perf'], { cwd: tempProjectDir, encoding: 'utf8' });
       if (gitInit.status !== 0) throw new Error(`fixture git init failed: ${gitInit.stderr || gitInit.error?.message || gitInit.status}`);
     } else if (surface.setup && surface.setup.kind === 'copy-fixture-project') {
@@ -352,6 +363,7 @@ function runSurfaceProcess(surface, repoRoot, tempHome, spawnSyncFn = spawnSync)
         throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
       }
       fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
+      omitSetupPaths(tempProjectDir, surface.setup.omit);
       let untrackedGeneratedDir = null;
       if (surface.setup.generate !== undefined) {
         const { dir, count } = surface.setup.generate || {};
@@ -482,6 +494,23 @@ function runSurfaceProcess(surface, repoRoot, tempHome, spawnSyncFn = spawnSync)
     if (tempHookHomeDir) {
       try { fs.rmSync(tempHookHomeDir, { recursive: true, force: true }); } catch { /* ignored */ }
     }
+  }
+}
+
+/** Removes named, project-relative paths from a copied fixture for explicit benchmark variants. */
+function omitSetupPaths(projectDir, omitted) {
+  if (omitted === undefined) return;
+  if (!Array.isArray(omitted)) throw new Error('fixture setup omit must be an array of relative paths');
+  for (const relativePath of omitted) {
+    if (typeof relativePath !== 'string' || relativePath === '' || path.isAbsolute(relativePath)) {
+      throw new Error('fixture setup omit paths must be non-empty relative paths');
+    }
+    const target = path.resolve(projectDir, relativePath);
+    const relative = path.relative(projectDir, target);
+    if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('fixture setup omit paths must stay inside the project');
+    }
+    fs.rmSync(target, { recursive: true, force: true });
   }
 }
 

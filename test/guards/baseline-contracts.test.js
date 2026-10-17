@@ -614,7 +614,17 @@ function m5BudgetProblems(budgets, { hookSurfaces }) {
   }
 
   const rowIds = new Set((budgets.rows || []).map((r) => r.surfaceId));
+  const firstWriteVariants = hookSurfaces.filter((surface) => surface.variant === 'first-write');
+  if (firstWriteVariants.length !== 1 || firstWriteVariants[0].id !== 'hook.claude.pre-bash-guard.first-write') {
+    p.push('hook surface enumeration: exactly hook.claude.pre-bash-guard.first-write may be a first-write variant');
+  }
   for (const h of hookSurfaces) {
+    if (h.budgeted === false) {
+      if (h.variant !== 'first-write' || h.id !== 'hook.claude.pre-bash-guard.first-write') {
+        p.push(`unapproved budgetless hook surface ${h.id}`);
+      }
+      continue;
+    }
     if (!rowIds.has(h.id)) {
       p.push(`budgets.json: hook surface ${h.id} has neither a row nor an unmeasured row`);
     }
@@ -673,6 +683,9 @@ function g33EnumerateHookSurfaces(opts = {}) {
 test('G33.10: budget rows carry required fields, at least 30 runs, ceilingMs matches formula, does not exceed intent, and all hook surfaces covered', () => {
   const budgets = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/perf/budgets.json'), 'utf8'));
   const { surfaces: hookSurfaces } = g33EnumerateHookSurfaces();
+  assert.deepEqual(hookSurfaces.filter((surface) => surface.budgeted === false).map((surface) => surface.id), [
+    'hook.claude.pre-bash-guard.first-write',
+  ]);
   assert.deepEqual(m5BudgetProblems(budgets, { hookSurfaces }), []);
 });
 
@@ -686,6 +699,15 @@ test('G33.10 control: hook surface enumeration does not depend on PATH and is id
   } finally {
     process.env.PATH = origPath;
   }
+});
+
+test('G33.10 control: an unapproved budgetless hook variant is reported', () => {
+  const budgets = JSON.parse(fs.readFileSync(path.join(REPO, 'bench/perf/budgets.json'), 'utf8'));
+  const { surfaces } = g33EnumerateHookSurfaces();
+  const firstWrite = surfaces.find((surface) => surface.id === 'hook.claude.pre-bash-guard.first-write');
+  const hookSurfaces = [...surfaces, { ...firstWrite, id: 'hook.codex.pre-bash-guard.first-write' }];
+  const problems = m5BudgetProblems(budgets, { hookSurfaces }).join('\n');
+  assert.match(problems, /unapproved budgetless hook surface hook\.codex\.pre-bash-guard\.first-write/);
 });
 
 test('G33.14: no proposal is approved without approvedOn and approvedBy: "user"', () => {
