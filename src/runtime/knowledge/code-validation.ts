@@ -22,6 +22,9 @@ function validateCodeCandidates({ inventory, candidates, topN = 10, limits: supp
   let readBytes = 0;
   let examined = 0;
   let complete = Boolean(inventory.complete);
+  // One live read per file per call: candidates on the same file share it (and its hash check) instead of
+  // re-reading and re-charging the aggregate budget once per matching line.
+  const reads = new Map<string, any>();
   const reject = (candidate: any, reason: string) => { rejected.push({ locator: candidate?.locator ?? null, reason }); complete = false; };
   for (const candidate of candidates) {
     if (results.length >= topN) break;
@@ -32,10 +35,14 @@ function validateCodeCandidates({ inventory, candidates, topN = 10, limits: supp
     if (!loc || !relativeCodePath(loc.file) || !Number.isInteger(loc.line) || !Number.isInteger(loc.endLine) || loc.line < 1 || loc.endLine < loc.line) { reject(candidate, 'invalid-locator'); continue; }
     const entry = inventory.files.find((f: any) => f.path === loc.file);
     if (!entry) { reject(candidate, 'outside-corpus'); continue; }
-    const remaining = limits.maxReadBytes - readBytes;
-    if (remaining <= 0) { reject(candidate, 'read-byte-limit'); break; }
-    const read = readAdmittedFile(inventory, entry, { fsImpl, now, deadline, maxBytes: Math.min(limits.maxFileBytes, remaining) });
-    readBytes += read.bytesRead;
+    let read = reads.get(entry.path);
+    if (!read) {
+      const remaining = limits.maxReadBytes - readBytes;
+      if (remaining <= 0) { reject(candidate, 'read-byte-limit'); break; }
+      read = readAdmittedFile(inventory, entry, { fsImpl, now, deadline, maxBytes: Math.min(limits.maxFileBytes, remaining) });
+      readBytes += read.bytesRead;
+      reads.set(entry.path, read); // budget and deadline only shrink, so a refusal stays a refusal
+    }
     if (!read.ok) { reject(candidate, read.reason); continue; }
     const searchedHashes = [candidate.sourceVersion?.fileHash, ...(candidate.origins || []).map((o: any) => o.sourceVersion?.fileHash || o.indexedSourceHash)].filter(Boolean);
     if (searchedHashes.some((hash: string) => hash !== read.fileHash)) { reject(candidate, 'source-changed'); continue; }

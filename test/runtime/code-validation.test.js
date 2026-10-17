@@ -24,3 +24,30 @@ test('always live-reads source, rejects stale or out-of-corpus candidates and pr
   assert.equal(validateCodeCandidates({ inventory, candidates: [{ ...candidate, sourceVersion: { fileHash: '0'.repeat(64) } }] }).rejected[0].reason, 'source-changed');
   assert.equal(validateCodeCandidates({ inventory, candidates: [{ ...candidate, locator: { file: '../outside', line: 1, endLine: 1 } }] }).rejected[0].reason, 'invalid-locator');
 });
+
+test('candidates on one file share one live read and charge the aggregate budget once', t => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-validation-reuse-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const body = Array.from({ length: 20 }, (_, i) => `line ${i + 1} ${'x'.repeat(40)}`).join('\n') + '\n';
+  fs.writeFileSync(path.join(root, 'big.js'), body);
+  fs.writeFileSync(path.join(root, 'small.js'), 'tail\n');
+  const inventory = admitCodeCorpus({ root, files: ['big.js', 'small.js'] });
+  const [big, small] = inventory.files;
+  const at = (entry, line) => ({ locator: { file: entry.path, line, endLine: line }, provider: 'native.rg', capability: 'code.exact-search', sourceVersion: { fileHash: entry.fileHash } });
+  const candidates = [at(big, 1), at(big, 5), at(big, 9), at(small, 1)];
+  // Budget fits big.js once plus small.js; per-candidate re-reads would exhaust it at the second candidate.
+  const limits = { maxReadBytes: big.sizeBytes + small.sizeBytes };
+  const result = validateCodeCandidates({ inventory, candidates, topN: 10, limits });
+  assert.deepEqual(result.rejected, []);
+  assert.deepEqual(result.results.map(r => `${r.locator.file}:${r.locator.line}`), ['big.js:1', 'big.js:5', 'big.js:9', 'small.js:1']);
+  assert.equal(result.accounting.readBytes, big.sizeBytes + small.sizeBytes);
+  assert.equal(result.results[1].snippet, `line 5 ${'x'.repeat(40)}`);
+  assert.equal(result.complete, true);
+  // A reused read still enforces per-candidate version identity.
+  const stale = validateCodeCandidates({ inventory, candidates: [at(big, 1), { ...at(big, 2), sourceVersion: { fileHash: '0'.repeat(64) } }], limits });
+  assert.deepEqual(stale.rejected.map(r => r.reason), ['source-changed']);
+  // The documented aggregate cap still binds when distinct files exceed it.
+  const capped = validateCodeCandidates({ inventory, candidates: [at(big, 1), at(small, 1)], limits: { maxReadBytes: big.sizeBytes } });
+  assert.deepEqual(capped.rejected.map(r => r.reason), ['read-byte-limit']);
+  assert.equal(capped.complete, false);
+});

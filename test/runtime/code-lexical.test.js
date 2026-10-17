@@ -29,3 +29,39 @@ test('searches only admitted files and returns deterministic exact and conceptua
   assert.equal(conceptual.queryClass, 'conceptual');
   assert.equal(conceptual.candidates[0].locator.file, 'src/reset.js');
 });
+
+test('a NUL-containing admitted file is a counted coverage gap, never a lexical provider fault', async t => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-lexical-binary-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, 'keys.js'), 'const key = `a\0b`; // findMeLiteral\n');
+  fs.writeFileSync(path.join(root, 'main.js'), 'function findMeLiteral() {}\n');
+  const inventory = admitCodeCorpus({ root, files: ['keys.js', 'main.js'] });
+  const result = searchCodeLexical({ inventory, query: 'findMeLiteral' });
+  assert.equal(result.complete, true, 'provider outcome stays complete');
+  assert.equal(result.coverage.complete, false, 'coverage stays honest');
+  assert.deepEqual(result.coverage.skippedByReason, { 'binary-source': 1 });
+  assert.deepEqual(result.coverage.skipped, [{ path: 'keys.js', reason: 'binary-source' }]);
+  assert.equal(result.coverage.searchedFiles, 1);
+  assert.deepEqual(result.candidates.map(c => c.locator.file), ['main.js']);
+  const { executeCodeRetrieval } = require('../../src/runtime/knowledge/code-retrieval.ts');
+  for (const query of ['findMeLiteral', 'doflowAbsentLiteral']) {
+    const { exit, response } = await executeCodeRetrieval({ root, query, top: 5, profile: 'lexical-only', providers: { inventory } });
+    assert.equal(exit, 0);
+    const lexical = response.attempts.filter(a => a.provider === 'native.rg');
+    assert.equal(lexical.length, 1);
+    assert.equal(response.gaps.some(g => g.provider === 'native.rg'), false, JSON.stringify(response.gaps));
+    assert.equal(response.coverage.complete, false);
+    assert.deepEqual(response.coverage.lexical[0].skippedByReason, { 'binary-source': 1 });
+  }
+});
+
+test('a real bound hit still marks the lexical outcome incomplete', t => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-lexical-bound-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, 'many.js'), 'hit\nhit\nhit\n');
+  const inventory = admitCodeCorpus({ root, files: ['many.js'] });
+  const result = searchCodeLexical({ inventory, query: 'hit', maxCandidates: 2 });
+  assert.equal(result.complete, false);
+  assert.equal(result.coverage.complete, false);
+  assert.equal(result.coverage.skippedByReason['candidate-limit'] >= 1, true);
+});

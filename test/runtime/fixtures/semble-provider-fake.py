@@ -13,6 +13,27 @@ def log(action, **values):
         stream.write(json.dumps({'action': action, **values}) + '\n')
 
 
+def side_effects():
+    mode = os.environ.get('FAKE_PROVIDER_MODE')
+    if mode == 'grammar-extract':
+        # Real 0.6.1 extracts a ~456 KiB tree-sitter library into the redirected library cache.
+        target = Path(os.environ['SEMBLE_GRAMMARS_CACHE_DIR']) / 'macos-arm64'
+        target.mkdir(parents=True, exist_ok=True)
+        (target / 'libtree_sitter_javascript.dylib').write_bytes(b'g' * 466944)
+    if mode == 'library-overflow':
+        (Path(os.environ['TMPDIR']) / 'blob').write_bytes(b'b' * 70000)
+    if mode == 'tmp-churn':
+        # Python tempfile/filelock probes: files appear and vanish while the parent walks the sandbox.
+        import time
+        stop = time.time() + 0.4
+        n = 0
+        while time.time() < stop:
+            probe = Path(os.environ['TMPDIR']) / f'probe-{n}'
+            probe.write_bytes(b'p')
+            probe.unlink()
+            n += 1
+
+
 class SembleIndex:
     def __init__(self, chunks, root, model):
         self.chunks = chunks
@@ -23,6 +44,7 @@ class SembleIndex:
     @classmethod
     def from_path(cls, root, *, model_path, content, show_progress_bar):
         log('from_path', root=str(root), model=model_path, content=[c.value for c in content], progress=show_progress_bar)
+        side_effects()
         chunks = []
         for file in sorted(root.rglob('*')):
             if file.is_file():
@@ -32,6 +54,7 @@ class SembleIndex:
     @classmethod
     def load_from_disk(cls, index):
         log('load', index=str(index))
+        side_effects()
         if os.environ.get('FAKE_PROVIDER_MODE') == 'network':
             import socket
             socket.create_connection(('example.com', 443))
@@ -41,7 +64,7 @@ class SembleIndex:
             import time
             time.sleep(2)
         if os.environ.get('FAKE_PROVIDER_MODE') == 'stats-overflow':
-            (Path(os.environ['HF_HOME']) / 'savings.jsonl').write_bytes(b'x' * 70000)
+            (Path(os.environ['SEMBLE_CACHE_LOCATION']) / 'savings.jsonl').write_bytes(b'x' * 70000)
         metadata = json.loads((index / 'metadata.json').read_text())
         return cls(json.loads((index / 'chunks.json').read_text()), metadata['root_path'], metadata['model_path'])
 

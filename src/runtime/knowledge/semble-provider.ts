@@ -8,7 +8,7 @@ const { spawn } = require('node:child_process');
 const SEMBLE_VERSION = '0.6.1';
 const SEMBLE_LIMITS = Object.freeze({ files: 2000, fileBytes: 1048576, sourceBytes: 67108864,
   chunks: 50000, artifactBytes: 268435456, modelBytes: 536870912, outputBytes: 2097152,
-  statsBytes: 65536, queryMs: 10000, lifecycleMs: 120000, changedFiles: 500, changedBytes: 16777216 });
+  statsBytes: 65536, libraryBytes: 134217728, queryMs: 10000, lifecycleMs: 120000, changedFiles: 500, changedBytes: 16777216 });
 const digest = (value: any): string => crypto.createHash('sha256').update(value).digest('hex');
 function fault(reason: string, freshness = 'UNKNOWN'): any { return Object.assign(new Error(reason), { reason, freshness }); }
 function semanticStatePaths(inventory: any): any {
@@ -41,26 +41,45 @@ function regularBytes(file: string, max: number): any {
     return buffer.subarray(0, count);
   } finally { fs.closeSync(fd); }
 }
-function scanTree(root: string, maxBytes: number, maxFiles = 10000): any {
+// `transient` (live provider sinks only) skips entries that vanish mid-walk; `linkRoots` (model only)
+// admits a symlink whose realpath is a regular file inside one of those roots, counted at its target size.
+function scanTree(root: string, maxBytes: number, maxFiles = 10000, { transient = false, linkRoots = [] as string[] } = {}): any {
   if (!fs.lstatSync(root).isDirectory() || fs.lstatSync(root).isSymbolicLink()) throw fault('unsafe-directory');
   let bytes = 0; let entries = 0; const files: any[] = [];
+  const gone = (error: any) => { if (!transient || error?.code !== 'ENOENT') throw error; };
   const walk = (dir: string) => {
-    for (const name of fs.readdirSync(dir).sort()) {
+    let names: string[] = [];
+    try { names = fs.readdirSync(dir).sort(); } catch (error: any) { gone(error); }
+    for (const name of names) {
       if (++entries > maxFiles * 4 + 32) throw fault('resource-limit');
-      const full = path.join(dir, name); const st = fs.lstatSync(full);
-      if (st.isSymbolicLink() || (!st.isFile() && !st.isDirectory())) throw fault('unsafe-artifact');
+      const full = path.join(dir, name); let st: any; let real: string | undefined;
+      try { st = fs.lstatSync(full); } catch (error: any) { gone(error); continue; }
+      if (st.isSymbolicLink()) {
+        if (!linkRoots.length) throw fault('unsafe-artifact');
+        try { real = fs.realpathSync(full); st = fs.lstatSync(real); } catch { throw fault('unsafe-artifact'); }
+        if (!st.isFile() || !linkRoots.some((r: string) => real !== r && inside(r, real as string))) throw fault('unsafe-artifact');
+      }
+      if (!st.isFile() && !st.isDirectory()) throw fault('unsafe-artifact');
       if (st.isDirectory()) walk(full);
-      else { bytes += st.size; files.push({ path: path.relative(root, full).split(path.sep).join('/'), sizeBytes: st.size });
+      else { bytes += st.size; files.push({ path: path.relative(root, full).split(path.sep).join('/'), sizeBytes: st.size, ...(real ? { real } : {}) });
         if (bytes > maxBytes || files.length > maxFiles) throw fault('resource-limit'); }
     }
   };
   walk(root); return { bytes, files };
 }
+// Hugging Face snapshot layout only: <hub>/models--<id>/snapshots/<rev>/* link into content-addressed blobs.
+function modelLinkRoots(modelPath: string): string[] {
+  const snapshots = path.dirname(modelPath); const repo = path.dirname(snapshots);
+  if (path.basename(snapshots) !== 'snapshots' || !/^models--[^/\\]+$/.test(path.basename(repo))) return [];
+  return [path.join(repo, 'blobs'), path.join(path.dirname(repo), 'blobs')].filter((dir: string) => {
+    try { return fs.lstatSync(dir).isDirectory() && fs.realpathSync(dir) === dir; } catch { return false; }
+  });
+}
 function inspectModel(modelPath: string, limits: any = SEMBLE_LIMITS): any {
   if (typeof modelPath !== 'string' || !path.isAbsolute(modelPath) || fs.realpathSync(modelPath) !== modelPath) throw fault('local-model-required');
-  const inventory = scanTree(modelPath, limits.modelBytes);
+  const inventory = scanTree(modelPath, limits.modelBytes, 10000, { linkRoots: modelLinkRoots(modelPath) });
   for (const required of ['config.json', 'tokenizer.json', 'model.safetensors']) if (!inventory.files.some((f: any) => f.path === required)) throw fault('local-model-incomplete');
-  const hashes = inventory.files.map((f: any) => [f.path, digest(regularBytes(path.join(modelPath, f.path), limits.modelBytes))]);
+  const hashes = inventory.files.map((f: any) => [f.path, digest(regularBytes(f.real || path.join(modelPath, f.path), limits.modelBytes))]);
   return { path: modelPath, identity: digest(JSON.stringify(hashes)), bytes: inventory.bytes };
 }
 function validateInventory(inventory: any, limits: any): void {
@@ -138,23 +157,41 @@ function cleanupTemporary(paths: any): void {
     scanTree(dir, SEMBLE_LIMITS.artifactBytes, 10000); fs.rmSync(dir, { recursive: true });
   }
 }
-function executeBridge(request: any, options: any, paths: any, temp: string): Promise<any> {
+// Per-invocation disposable sandbox: `stats/` is Semble's statistics sink (query SEMBLE_CACHE_LOCATION, 64 KiB);
+// `library/` takes every redirected library cache/temp location. Semble 0.6.1 extracts sha-verified tree-sitter
+// grammars from its own bundled archive there (77 libraries, 79.6 MB uncompressed on macos-arm64), so it is
+// bounded by `libraryBytes` instead of the statistics cap.
+function bridgeSandbox(sandbox: string): any {
+  const temp = path.join(sandbox, 'stats'); const library = path.join(sandbox, 'library');
+  for (const dir of [temp, library]) if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+  return { temp, library };
+}
+function checkSandbox(sinks: any, limits: any, transient = false): void {
+  scanTree(sinks.temp, limits.statsBytes, 128, { transient });
+  scanTree(sinks.library, limits.libraryBytes, 512, { transient });
+}
+function executeBridge(request: any, options: any, paths: any, sandbox: string): Promise<any> {
   const limits = options.limits; const deadline = request.action === 'query' ? limits.queryMs : limits.lifecycleMs;
+  const sinks = bridgeSandbox(sandbox); const { temp, library } = sinks;
   return new Promise(resolve => {
     const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1', PYTHONHASHSEED: '0', OMP_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1', MKL_NUM_THREADS: '1', HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1', HF_DATASETS_OFFLINE: '1',
-      SEMBLE_CACHE_LOCATION: request.action === 'query' ? temp : paths.cache, HF_HOME: temp, HUGGINGFACE_HUB_CACHE: temp,
-      TRANSFORMERS_CACHE: temp, XDG_CACHE_HOME: temp, TORCH_HOME: temp, TMPDIR: temp, TEMP: temp, TMP: temp, TOKENIZERS_PARALLELISM: 'false' };
+      SEMBLE_CACHE_LOCATION: request.action === 'query' ? temp : paths.cache, HF_HOME: library, HUGGINGFACE_HUB_CACHE: library,
+      TRANSFORMERS_CACHE: library, XDG_CACHE_HOME: library, SEMBLE_GRAMMARS_CACHE_DIR: path.join(library, 'grammars'), TORCH_HOME: library,
+      TMPDIR: library, TEMP: library, TMP: library, TOKENIZERS_PARALLELISM: 'false' };
     const child = spawn(options.python || 'python3', [options.bridgePath || path.join(__dirname, 'semble-bridge.py')], { cwd: paths.state, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
     let stdout = ''; let outputBytes = 0; let failure: string | null = null; let done = false;
     const stop = (reason: string) => { if (!failure) failure = reason; child.kill('SIGKILL'); };
     const timer = setTimeout(() => stop('provider-timeout'), deadline);
-    const poll = setInterval(() => { try { scanTree(temp, limits.statsBytes, 128); if (request.savePath && fs.existsSync(request.savePath)) scanTree(request.savePath, limits.artifactBytes, 32); } catch { stop('provider-resource-limit'); } }, 10);
+    // A live child creates and removes files while we walk; only a real overrun is a resource limit.
+    const sandboxFault = (error: any) => error?.reason === 'resource-limit' ? 'provider-resource-limit' : 'provider-unsafe-write';
+    const poll = setInterval(() => { try { checkSandbox(sinks, limits, true); if (request.savePath && fs.existsSync(request.savePath)) scanTree(request.savePath, limits.artifactBytes, 32, { transient: true }); } catch (error: any) { stop(sandboxFault(error)); } }, 10);
     const finish = (result: any) => { if (done) return; done = true; clearTimeout(timer); clearInterval(poll); resolve(result); };
     child.stdout.on('data', (chunk: any) => { outputBytes += chunk.length; if (outputBytes > limits.outputBytes) stop('provider-output-limit'); else stdout += chunk.toString('utf8'); });
     child.stderr.on('data', (chunk: any) => { outputBytes += chunk.length; if (outputBytes > limits.outputBytes) stop('provider-output-limit'); });
     child.on('error', () => finish({ ok: false, reason: 'provider-unavailable' }));
     child.on('close', (code: number) => {
       if (failure) return finish({ ok: false, reason: failure });
+      try { checkSandbox(sinks, limits); } catch (error: any) { return finish({ ok: false, reason: sandboxFault(error) }); }
       if (code !== 0) return finish({ ok: false, reason: 'provider-error' });
       try { const result = JSON.parse(stdout); if (result.version !== SEMBLE_VERSION || typeof result.ok !== 'boolean') throw Error(); finish(result); }
       catch { finish({ ok: false, reason: 'invalid-provider-output' }); }
@@ -184,7 +221,6 @@ async function runSembleQuery(options: any): Promise<any> {
     temp = fs.mkdtempSync(path.join(paths.state, 'query-'));
     const result = await executeBridge({ action: 'query', query: options.query, indexPath: paths.index, modelPath: model.path,
       poolSize: artifacts.chunks, allowedWriteRoots: [temp] }, { ...options, limits }, paths, temp);
-    scanTree(temp, limits.statsBytes, 128);
     if (!result.ok) throw fault(result.reason || 'provider-error');
     if (!result.runtimeIdentity || JSON.stringify(result.runtimeIdentity) !== JSON.stringify(manifest.runtimeIdentity)) throw fault('provider-runtime-identity-mismatch', 'STALE');
     if (!Array.isArray(result.candidates) || result.candidates.length > 200) throw fault('invalid-provider-output');
@@ -202,4 +238,4 @@ async function runSembleQuery(options: any): Promise<any> {
   finally { try { if (temp) fs.rmSync(temp, { recursive: true, force: true }); } catch {} try { if (release) release(); } catch {} }
 }
 module.exports = { SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, semanticStatePaths, digest, fault, inside, safeDirectories,
-  regularBytes, scanTree, inspectModel, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, cleanupTemporary, executeBridge, readCompleted };
+  regularBytes, scanTree, inspectModel, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };

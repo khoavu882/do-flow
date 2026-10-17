@@ -61,7 +61,7 @@ async function runSembleLifecycle(options: any): Promise<any> {
       const seconds = Math.max(Date.now() / 1000, previousMtime / 1000 + 2, (previous?.providerTime || 0) + 2);
       fs.utimesSync(dest, seconds, seconds);
     }
-    const temp = path.join(staging, 'stats'); fs.mkdirSync(temp);
+    const temp = path.join(staging, 'provider'); fs.mkdirSync(temp);
     const savePath = path.join(staging, 'index');
     const result = await executeBridge({ action, mirror: paths.mirror, modelPath: model.path, savePath, indexPath: paths.index,
       allowedWriteRoots: [staging, paths.cache] }, { ...options, limits: { ...limits, lifecycleMs: Math.max(1, limits.lifecycleMs - (Date.now() - started)) } }, paths, temp);

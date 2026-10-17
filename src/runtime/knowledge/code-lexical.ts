@@ -37,6 +37,9 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
   let complete = Boolean(inventory.complete);
   let readBytes = 0;
   let searchedFiles = 0;
+  // A binary-looking admitted file is a coverage gap (counted with its cause), not a provider fault:
+  // `complete` stays the provider outcome while `coverage.complete` reports every unsearched file.
+  const unsearched: any[] = [];
   const failures = (p: string, reason: string) => { complete = false; rejected.push({ path: p, reason }); };
   if (!Number.isInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 200 || !Number.isInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('invalid lexical output limits');
   for (const entry of inventory.files) {
@@ -44,9 +47,9 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
     const read = readCorpusFile(inventory.root, entry, { fsImpl, maxBytes: CORPUS_LIMITS.maxFileBytes, now, deadline });
     readBytes += read.bytesRead;
     if (!read.ok) { failures(entry.path, read.reason); continue; }
-    searchedFiles += 1;
     const text = read.content.toString('utf8');
-    if (text.includes('\0')) { failures(entry.path, 'binary-source'); continue; }
+    if (text.includes('\0')) { unsearched.push({ path: entry.path, reason: 'binary-source' }); continue; }
+    searchedFiles += 1;
     const lines = text.split('\n');
     if (routed.queryClass === 'exact') {
       const literal = routed.literal ?? routed.query;
@@ -92,8 +95,10 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
     outputBytes += size;
     candidates.push(candidate);
   }
+  const skipped = [...rejected, ...unsearched];
   return { candidates, queryClass: routed.queryClass, classificationBasis: routed.classificationBasis,
-    complete, coverage: { complete, searchedFiles, skipped: rejected },
+    complete, coverage: { complete: complete && unsearched.length === 0, searchedFiles, skipped, skippedFiles: skipped.length,
+      skippedByReason: skipped.reduce((counts: any, s: any) => ({ ...counts, [s.reason]: (counts[s.reason] || 0) + 1 }), {}) },
     accounting: { readBytes, outputBytes, rawCandidates: rows.length, elapsedMs: Math.max(0, now() - started) }, rejections: rejected };
 }
 
