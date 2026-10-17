@@ -124,3 +124,36 @@ test('explicit index action calls lifecycle only and rejects simultaneous query'
   assert.equal(invalid.exit, 2);
   assert.equal(calls, 1);
 });
+
+test('a lexical bound hit is reported with its bounds cause, never as provider-error', async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-retrieval-bound-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, 'many.js'), Array.from({ length: 205 }, (_, i) => `parseToken(${i});`).join('\n') + '\n');
+  const inventory = admitCodeCorpus({ root, files: ['many.js'] });
+  const result = await executeCodeRetrieval({ query: 'parseToken', root, providers: { router, inventory } });
+  assert.equal(result.exit, 0);
+  assert.equal(result.response.attempts[0].reason, 'candidate-limit');
+  assert.deepEqual(result.response.gaps.filter((g) => g.source === 'lexical'), [{ provider: 'native.rg', reason: 'candidate-limit', source: 'lexical' }]);
+  assert.equal(JSON.stringify(result.response).includes('provider-error'), false);
+  assert.equal(result.response.coverage.complete, false, 'a bound still leaves coverage partial');
+  assert.ok(result.response.results.length > 0);
+});
+
+test('bounds cause control: real lexical faults stay provider-error, deadlines stay timeouts, on both lexical paths', async (t) => {
+  const { lexicalOutcome } = require('../../src/runtime/knowledge/code-retrieval.ts');
+  const out = (...reasons) => lexicalOutcome({ complete: false, rejections: reasons.map((reason) => ({ reason })) });
+  assert.deepEqual(lexicalOutcome({ complete: true, rejections: [] }), { failure: null, bound: null });
+  assert.deepEqual(out('output-byte-limit'), { failure: null, bound: 'output-byte-limit' });
+  assert.deepEqual(out('read-byte-limit', 'candidate-limit'), { failure: null, bound: 'read-byte-limit' });
+  assert.deepEqual(out('symlink'), { failure: 'provider-error', bound: null });
+  assert.deepEqual(out('candidate-limit', 'source-changed'), { failure: 'provider-error', bound: null }, 'a fault beside a bound is still a fault');
+  assert.deepEqual(out('candidate-limit', 'deadline'), { failure: 'provider-timeout', bound: null });
+  assert.deepEqual(out(), { failure: 'provider-error', bound: null });
+  const f = fixture(t);
+  const faulty = () => ({ candidates: [], complete: false, rejections: [{ reason: 'not-regular-file' }], accounting: {}, coverage: { complete: false } });
+  const result = await executeCodeRetrieval({ query: 'refresh user credentials', root: f.root, profile: 'hybrid', modelPath: '/fake/model', providers: {
+    router, inventory: f.inventory, lexicalSearch: faulty,
+    semanticQuery: async () => ({ ok: false, reason: 'provider-unavailable', freshness: 'UNKNOWN', candidates: [] }) } });
+  assert.deepEqual(result.response.attempts.map((a) => a.reason), ['provider-error', 'provider-unavailable', 'provider-error']);
+  assert.deepEqual(result.response.gaps.map((g) => `${g.source}:${g.reason}`), ['lexical:provider-error', 'semantic:provider-unavailable', 'fallback:provider-error']);
+});

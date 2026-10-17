@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const { readCorpusFile, relativeCodePath } = require('./code-corpus.ts');
 
-const LIVE_LIMITS = Object.freeze({ maxFileBytes: 1024 * 1024, maxSnippetLines: 50, maxSnippetBytes: 16 * 1024, maxReadBytes: 256 * 1024, timeoutMs: 1000, maxCandidates: 200 });
+const LIVE_LIMITS = Object.freeze({ maxFileBytes: 1024 * 1024, maxSnippetLines: 50, maxSnippetBytes: 16 * 1024, maxReadBytes: 1024 * 1024, timeoutMs: 1000, maxCandidates: 200 });
 
 function readAdmittedFile(inventory: any, entry: any, options: any = {}): any {
   const rel = relativeCodePath(entry?.path);

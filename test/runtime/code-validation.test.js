@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
-const { validateCodeCandidates, projectEvidenceCandidates } = require('../../src/runtime/knowledge/code-validation.ts');
+const { LIVE_LIMITS, validateCodeCandidates, projectEvidenceCandidates } = require('../../src/runtime/knowledge/code-validation.ts');
 
 test('always live-reads source, rejects stale or out-of-corpus candidates and projects score-free evidence', t => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-validation-')));
@@ -50,4 +50,21 @@ test('candidates on one file share one live read and charge the aggregate budget
   const capped = validateCodeCandidates({ inventory, candidates: [at(big, 1), at(small, 1)], limits: { maxReadBytes: big.sizeBytes } });
   assert.deepEqual(capped.rejected.map(r => r.reason), ['read-byte-limit']);
   assert.equal(capped.complete, false);
+});
+
+test('IC-007 default aggregate live-read cap is 1 MiB and stays a hard bound', t => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'code-validation-cap-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const names = ['a.js', 'b.js', 'c.js', 'd.js', 'e.js'];
+  // 300 KiB each: three fit under 1 MiB (a 256 KiB cap admits none), the rest exceed the remainder.
+  for (const name of names) fs.writeFileSync(path.join(root, name), `// ${name}\n${'y'.repeat(300 * 1024 - 10)}\n`);
+  const inventory = admitCodeCorpus({ root, files: names });
+  const candidates = inventory.files.map((entry) => ({ locator: { file: entry.path, line: 1, endLine: 1 }, provider: 'native.rg',
+    capability: 'code.exact-search', sourceVersion: { fileHash: entry.fileHash } }));
+  const result = validateCodeCandidates({ inventory, candidates, topN: 10 });
+  assert.equal(LIVE_LIMITS.maxReadBytes, 1024 * 1024);
+  assert.deepEqual(result.results.map((r) => r.locator.file), ['a.js', 'b.js', 'c.js']);
+  assert.deepEqual(result.rejected.map((r) => `${r.locator.file}:${r.reason}`), ['d.js:read-byte-limit', 'e.js:read-byte-limit']);
+  assert.ok(result.accounting.readBytes <= LIVE_LIMITS.maxReadBytes, `read ${result.accounting.readBytes} bytes past the cap`);
+  assert.equal(result.complete, false);
 });

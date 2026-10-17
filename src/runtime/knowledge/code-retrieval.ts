@@ -31,9 +31,19 @@ function failureReason(reason, freshness) {
   return 'provider-error';
 }
 
+// A lexical stop at a configured bound is partial coverage with that bound as its cause, not a provider fault.
+const LEXICAL_BOUNDS = new Set(['candidate-limit', 'output-byte-limit', 'read-byte-limit']);
+function lexicalOutcome(result) {
+  if (result.complete) return { failure: null, bound: null };
+  const reasons = (result.rejections || []).map((r) => r.reason);
+  if (reasons.includes('deadline')) return { failure: 'provider-timeout', bound: null };
+  if (reasons.length && reasons.every((r) => LEXICAL_BOUNDS.has(r))) return { failure: null, bound: reasons[0] };
+  return { failure: 'provider-error', bound: null };
+}
+
 function validFreshness(value) { return INDEX_STATES.has(value) ? value : 'UNKNOWN'; }
 
-function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider, capability, id, candidates, indexState, failure, complete }) {
+function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider, capability, id, candidates, indexState, failure, bound = null, complete }) {
   let stored = null;
   if (binding) {
     let status; let reason;
@@ -51,7 +61,7 @@ function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, route
     }
   }
   return { retrievalAttemptId: id, provider, capability, indexState, candidateCount: candidates.length,
-    complete: Boolean(complete), ...(failure ? { reason: failure } : {}), ...(stored ? { recordedAttempt: stored.attempt } : {}) };
+    complete: Boolean(complete), ...(failure || bound ? { reason: failure || bound } : {}), ...(stored ? { recordedAttempt: stored.attempt } : {}) };
 }
 
 function toCandidateList(candidates, { provider, capability, queryRef, retrievalAttemptRef, indexed = false }) {
@@ -206,10 +216,10 @@ async function executeCodeRetrieval(options = {}) {
     coverage.lexical.push(lexResult.coverage || { complete: Boolean(lexResult.complete) });
     const lexCandidates = toCandidateList(lexResult.candidates || [], { provider: 'native.rg', capability, queryRef, retrievalAttemptRef: lexicalId });
     rankedLists.push({ provider: 'native.rg', capability, queryRef, retrievalAttemptRef: lexicalId, candidates: lexCandidates });
-    const lexFailure = lexResult.complete ? null : (lexResult.rejections?.some((r) => r.reason === 'deadline') ? 'provider-timeout' : 'provider-error');
+    const lexOutcome = lexicalOutcome(lexResult);
     attempts.push(appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider: 'native.rg', capability,
-      id: lexicalId, candidates: lexCandidates, indexState: 'NOT_APPLICABLE', failure: lexFailure, complete: Boolean(lexResult.complete) }));
-    if (lexFailure) gaps.push({ provider: 'native.rg', reason: lexFailure, source: 'lexical' });
+      id: lexicalId, candidates: lexCandidates, indexState: 'NOT_APPLICABLE', ...lexOutcome, complete: Boolean(lexResult.complete) }));
+    if (lexOutcome.failure || lexOutcome.bound) gaps.push({ provider: 'native.rg', reason: lexOutcome.failure || lexOutcome.bound, source: 'lexical' });
 
     if (profile === 'hybrid' && classification.queryClass === 'conceptual') {
       const semanticId = makeId();
@@ -242,10 +252,10 @@ async function executeCodeRetrieval(options = {}) {
         coverage.lexical.push(fallback.coverage || { complete: Boolean(fallback.complete), fallback: true });
         const fallbackCandidates = toCandidateList(fallback.candidates || [], { provider: 'native.rg', capability, queryRef, retrievalAttemptRef: fallbackId });
         rankedLists.push({ provider: 'native.rg', capability, queryRef, retrievalAttemptRef: fallbackId, candidates: fallbackCandidates });
-        const fallbackFailure = fallback.complete ? null : (fallback.rejections?.some((r) => r.reason === 'deadline') ? 'provider-timeout' : 'provider-error');
+        const fallbackOutcome = lexicalOutcome(fallback);
         attempts.push(appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider: 'native.rg', capability,
-          id: fallbackId, candidates: fallbackCandidates, indexState: 'NOT_APPLICABLE', failure: fallbackFailure, complete: Boolean(fallback.complete) }));
-        if (fallbackFailure) gaps.push({ provider: 'native.rg', reason: fallbackFailure, source: 'fallback' });
+          id: fallbackId, candidates: fallbackCandidates, indexState: 'NOT_APPLICABLE', ...fallbackOutcome, complete: Boolean(fallback.complete) }));
+        if (fallbackOutcome.failure || fallbackOutcome.bound) gaps.push({ provider: 'native.rg', reason: fallbackOutcome.failure || fallbackOutcome.bound, source: 'fallback' });
       }
     }
 
@@ -275,4 +285,4 @@ async function executeCodeRetrieval(options = {}) {
   }
 }
 
-module.exports = { executeCodeRetrieval, coalesceProviderLists, CAPABILITY };
+module.exports = { executeCodeRetrieval, coalesceProviderLists, lexicalOutcome, CAPABILITY };
