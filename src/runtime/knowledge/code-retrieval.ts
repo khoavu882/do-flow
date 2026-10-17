@@ -183,7 +183,11 @@ async function executeCodeRetrieval(options: any = {}) {
   let inventory;
   try {
     const admit = providers.admitCodeCorpus || admitCodeCorpus;
-    inventory = providers.inventory || admit({ root: searchRoot, scopes: options.scopes, limits: options.corpusLimits });
+    // Exact never reads an index or a corpus digest (DEC-020): admit without per-file hashes, proving each directory
+    // once; lexical hashes what it reports and live validation re-hashes every delivered candidate. Conceptual and
+    // index paths keep full hashing.
+    inventory = providers.inventory || admit({ root: searchRoot, scopes: options.scopes, limits: options.corpusLimits,
+      ...(classification.queryClass === 'exact' ? { hashFiles: false, verifyDirsOnce: true } : {}) });
   } catch (error: any) {
     return { exit: 1, response: { schemaVersion: 1, scope: 'code', queryClass: classification.queryClass,
       requestedProfile: profile, effectiveProfile: 'lexical-only', error: 'corpus-admission-failed', cause: error?.message || String(error) } };

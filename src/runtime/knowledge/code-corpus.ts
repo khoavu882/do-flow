@@ -26,8 +26,31 @@ function sameFile(a: any, b: any): boolean {
   return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
 }
 
-/** Read a regular admitted path using a bounded descriptor, never an unbounded readFile. */
-function readCorpusFile(root: string, entry: any, { maxBytes = CORPUS_LIMITS.maxFileBytes, fsImpl = fs, now = Date.now, deadline = Infinity }: any = {}): any {
+/** lstat every component under root, refusing a symlink; returns the final component's lstat or a refusal reason. */
+function statComponents(root: string, pieces: string[], { fsImpl, now, deadline, verifiedDirs }: any): any {
+  let cursor = root;
+  let stat: any = null;
+  for (let i = 0; i < pieces.length; i += 1) {
+    if (now() > deadline) return 'deadline';
+    cursor = cursor.endsWith(path.sep) ? cursor + pieces[i] : cursor + path.sep + pieces[i]; // pieces are validated relativeCodePath segments
+    const directory = i < pieces.length - 1;
+    if (directory && verifiedDirs?.has(cursor)) continue;
+    stat = fsImpl.lstatSync(cursor);
+    if (stat.isSymbolicLink()) return 'symlink';
+    if (directory && verifiedDirs) verifiedDirs.add(cursor);
+  }
+  return stat;
+}
+
+/**
+ * Read a regular admitted path using a bounded descriptor, never an unbounded readFile.
+ * `verifiedDirs` is for one pass over a root the caller proved real: a directory already proven not to
+ * be a symlink is not re-proven, and the realpath checks become component checks (with no symlink
+ * component under a real root the path is its own realpath). The caller re-proves every directory in the
+ * set after its pass and drops what it read under one that changed (see searchCodeLexical).
+ * `hash: false` defers the digest to the caller, unless an admitted hash must be checked.
+ */
+function readCorpusFile(root: string, entry: any, { maxBytes = CORPUS_LIMITS.maxFileBytes, fsImpl = fs, now = Date.now, deadline = Infinity, hash = true, verifiedDirs = null }: any = {}): any {
   let fd: any = null;
   let bytesRead = 0;
   try {
@@ -35,14 +58,11 @@ function readCorpusFile(root: string, entry: any, { maxBytes = CORPUS_LIMITS.max
     if (!rel) return { ok: false, reason: 'invalid-path', bytesRead };
     const absolute = path.resolve(root, rel);
     if (!insideRoot(root, absolute)) return { ok: false, reason: 'outside-root', bytesRead };
-    let cursor = root;
-    for (const piece of rel.split('/')) {
-      if (now() > deadline) return { ok: false, reason: 'deadline', bytesRead };
-      cursor = path.join(cursor, piece);
-      if (fsImpl.lstatSync(cursor).isSymbolicLink()) return { ok: false, reason: 'symlink', bytesRead };
-    }
-    if (fsImpl.realpathSync(absolute) !== absolute) return { ok: false, reason: 'outside-root', bytesRead };
-    const before = fsImpl.lstatSync(absolute);
+    const pieces = rel.split('/');
+    const checked = statComponents(root, pieces, { fsImpl, now, deadline, verifiedDirs });
+    if (typeof checked === 'string') return { ok: false, reason: checked, bytesRead };
+    if (!verifiedDirs && fsImpl.realpathSync(absolute) !== absolute) return { ok: false, reason: 'outside-root', bytesRead };
+    const before = verifiedDirs ? checked : fsImpl.lstatSync(absolute);
     if (!before.isFile()) return { ok: false, reason: 'not-regular-file', bytesRead };
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || before.size > maxBytes) return { ok: false, reason: 'read-byte-limit', bytesRead };
     fd = fsImpl.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
@@ -57,11 +77,12 @@ function readCorpusFile(root: string, entry: any, { maxBytes = CORPUS_LIMITS.max
     }
     if (bytesRead > maxBytes) return { ok: false, reason: 'read-byte-limit', bytesRead };
     const after = fsImpl.fstatSync(fd);
-    if (!sameFile(opened, after) || !sameFile(after, fsImpl.lstatSync(absolute)) || fsImpl.realpathSync(absolute) !== absolute || bytesRead !== after.size) {
+    const contained = verifiedDirs ? true : fsImpl.realpathSync(absolute) === absolute;
+    if (!sameFile(opened, after) || !sameFile(after, fsImpl.lstatSync(absolute)) || !contained || bytesRead !== after.size) {
       return { ok: false, reason: 'source-changed', bytesRead };
     }
     const content = buffer.subarray(0, bytesRead);
-    const fileHash = digest(content);
+    const fileHash = hash || entry.fileHash ? digest(content) : null;
     if (entry.fileHash && entry.fileHash !== fileHash) return { ok: false, reason: 'source-changed', bytesRead };
     return { ok: true, content, fileHash, bytesRead, stat: after };
   } catch (error: any) {
@@ -144,6 +165,7 @@ function admitCodeCorpus(options: any = {}): any {
   const root = fsImpl.realpathSync(path.resolve(options.root || process.cwd()));
   const scopes = Array.isArray(options.scopes) ? options.scopes : [];
   const inScope = scopeMatcher(scopes);
+  const verifiedDirs = options.verifyDirsOnce ? new Set<string>() : null;
   const started = now();
   const deadline = options.deadline ?? started + limits.timeoutMs;
   const skipped: any[] = [];
@@ -223,8 +245,9 @@ function admitCodeCorpus(options: any = {}): any {
     if (ignored(rel, activeRules)) continue;
     const absolutePath = path.resolve(root, rel);
     try {
-      const stat = fsImpl.lstatSync(absolutePath);
-      if (!stat.isFile() || stat.isSymbolicLink() || fsImpl.realpathSync(absolutePath) !== absolutePath) { reject(rel, 'not-regular-file'); continue; }
+      // `verifiedDirs` (exact requests): containment under the real root is proven per component, each directory once.
+      const stat = verifiedDirs ? statComponents(root, rel.split('/'), { fsImpl, now: () => 0, deadline: Infinity, verifiedDirs }) : fsImpl.lstatSync(absolutePath);
+      if (stat === 'symlink' || !stat.isFile() || stat.isSymbolicLink() || (!verifiedDirs && fsImpl.realpathSync(absolutePath) !== absolutePath)) { reject(rel, 'not-regular-file'); continue; }
       if (files.length >= limits.maxFiles) { reject(rel, 'file-count-limit'); break; }
       if (stat.size > limits.maxFileBytes) { reject(rel, 'file-byte-limit'); continue; }
       if (sourceBytes + stat.size > limits.maxBytes) { reject(rel, 'corpus-byte-limit'); continue; }
@@ -251,4 +274,4 @@ function fingerprintCorpus(inventory: any, options: any = {}): any {
   return admitCodeCorpus({ ...inventory.options, root: inventory.root, ...options, hashFiles: true });
 }
 
-module.exports = { CORPUS_LIMITS, compareText, digest, relativeCodePath, insideRoot, readCorpusFile, admitCodeCorpus, fingerprintCorpus };
+module.exports = { CORPUS_LIMITS, compareText, digest, statComponents, relativeCodePath, insideRoot, readCorpusFile, admitCodeCorpus, fingerprintCorpus };

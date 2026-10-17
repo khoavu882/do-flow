@@ -1,6 +1,8 @@
 'use strict';
 
-const { readCorpusFile, compareText, CORPUS_LIMITS } = require('./code-corpus.ts');
+const fs = require('node:fs');
+const path = require('node:path');
+const { readCorpusFile, compareText, digest, CORPUS_LIMITS } = require('./code-corpus.ts');
 const STOPWORDS = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'of', 'to', 'in', 'on', 'for', 'with', 'as', 'by', 'at', 'from', 'is', 'are', 'was', 'were', 'be', 'been', 'it', 'its', 'this', 'that', 'these', 'those', 'do', 'does', 'did', 'how', 'what', 'when', 'which', 'who', 'why', 'not', 'no', 'yes', 'can']);
 
 function classifyCodeQuery(query: any, { intent }: any = {}): any {
@@ -42,29 +44,39 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
   const unsearched: any[] = [];
   const failures = (p: string, reason: string) => { complete = false; rejected.push({ path: p, reason }); };
   if (!Number.isInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 200 || !Number.isInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('invalid lexical output limits');
+  const exact = routed.queryClass === 'exact';
+  const literal = exact ? routed.literal ?? routed.query : '';
+  // The literal's UTF-8 bytes, searched in the raw buffer (a replacement char could come from invalid bytes, so not then).
+  const literalBytes = exact && !literal.includes('\uFFFD') ? Buffer.from(literal, 'utf8') : null;
+  // Exact search makes one pass over a root proven real once: each directory is proven once per pass, and
+  // only reported files are hashed; live validation re-reads and re-hashes every delivered one (IC-007).
+  let verifiedDirs: Set<string> | null = null;
+  if (exact) { try { if ((fsImpl || fs).realpathSync(inventory.root) === inventory.root) verifiedDirs = new Set<string>(); } catch { /* full per-file checks */ } }
   for (const entry of inventory.files) {
     if (now() > deadline) { failures(entry.path, 'deadline'); break; }
-    const read = readCorpusFile(inventory.root, entry, { fsImpl, maxBytes: CORPUS_LIMITS.maxFileBytes, now, deadline });
+    const read = readCorpusFile(inventory.root, entry, { fsImpl, maxBytes: CORPUS_LIMITS.maxFileBytes, now, deadline, hash: !exact, verifiedDirs });
     readBytes += read.bytesRead;
     if (!read.ok) { failures(entry.path, read.reason); continue; }
-    const text = read.content.toString('utf8');
-    if (text.includes('\0')) { unsearched.push({ path: entry.path, reason: 'binary-source' }); continue; }
+    if (read.content.includes(0)) { unsearched.push({ path: entry.path, reason: 'binary-source' }); continue; }
     searchedFiles += 1;
-    if (routed.queryClass === 'exact') {
-      const literal = routed.literal ?? routed.query;
-      // A file whose text lacks the literal has no matching line; skip splitting it.
-      const lines = text.includes(literal) ? text.split('\n') : [];
+    if (exact) {
+      const named = entry.path === literal || entry.path.split('/').pop() === literal;
+      // A file whose bytes lack the literal has no matching line; skip decoding and splitting it.
+      if (literalBytes && !named && !read.content.includes(literalBytes)) continue;
+      const lines = read.content.toString('utf8').split('\n');
+      const fileHash = read.fileHash || digest(read.content);
       let contentHit = false;
       for (let index = 0; index < lines.length; index += 1) {
         if (now() > deadline) { failures(entry.path, 'deadline'); break; }
         if (!lines[index].includes(literal)) continue;
-        rows.push({ path: entry.path, line: index + 1, fileHash: read.fileHash });
+        rows.push({ path: entry.path, line: index + 1, fileHash });
         contentHit = true;
         if (rows.length > maxCandidates) break;
       }
-      if (!contentHit && (entry.path === literal || entry.path.split('/').pop() === literal)) rows.push({ path: entry.path, line: 1, fileHash: read.fileHash });
+      if (!contentHit && named) rows.push({ path: entry.path, line: 1, fileHash });
       if (rows.length > maxCandidates) { failures(entry.path, 'candidate-limit'); break; }
     } else {
+      const text = read.content.toString('utf8');
       const hits = new Map<string, any>();
       let total = 0;
       const lower = text.split('\n').map((line: string) => line.toLowerCase());
@@ -79,6 +91,17 @@ function searchCodeLexical({ inventory, query, classification, intent, maxCandid
       }
       const name = terms.filter((term: string) => entry.path.split('/').pop().toLowerCase().includes(term)).length;
       if (hits.size || name) rows.push({ path: entry.path, hits, name, total, score: hits.size + name, fileHash: read.fileHash });
+    }
+  }
+  // After the pass, re-prove every directory it trusted; rows read under one that changed are dropped.
+  if (verifiedDirs) {
+    const changed: string[] = [];
+    for (const dir of verifiedDirs) { try { if ((fsImpl || fs).lstatSync(dir).isSymbolicLink()) changed.push(dir); } catch { changed.push(dir); } }
+    if (changed.length) {
+      const moved = new Set<string>();
+      for (const row of rows) if (changed.some((dir) => path.join(inventory.root, row.path).startsWith(dir + path.sep))) moved.add(row.path);
+      for (const p of moved) failures(p, 'source-changed');
+      for (let i = rows.length - 1; i >= 0; i -= 1) if (moved.has(rows[i].path)) rows.splice(i, 1);
     }
   }
   if (routed.queryClass === 'exact') rows.sort((a: any, b: any) => compareText(a.path, b.path) || a.line - b.line);
