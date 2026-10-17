@@ -59,10 +59,11 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   const registryEntries = fs.readdirSync(path.join(REPO, 'core', 'registry'))
     .filter((name) => /\.json$/.test(name));
   // `advice.json` is optional runtime data, not a shared install registry (063 DEC-025).
-  // 15: `settings.json` (086 DD-1) is the one registry of settings keys. Per-owner declarations in
+  // 16: `settings.json` (086 DD-1) is the one registry of settings keys. Per-owner declarations in
   // advice.json and storage.json were rejected, so one loader reads and renders every key once.
-  assert.equal(registryEntries.length, 15,
-    `core/registry holds ${registryEntries.length} files; expected the ratcheted 15`);
+  // `telemetry.json` (088) is the telemetry contract v1: one registry for every key a telemetry line may carry.
+  assert.equal(registryEntries.length, 16,
+    `core/registry holds ${registryEntries.length} files; expected the ratcheted 16`);
 
   // Stage 3 makes adapters thinner but never fewer: one directory per harness, plus the shared
   // copy-tree engine and the contract validator live as siblings.

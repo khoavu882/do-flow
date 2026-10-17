@@ -1855,6 +1855,10 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
+      "surfaceId": "hook.antigravity.pre-bash-guard",
+      "unmeasured": "088 A.2 bridge surface; no measurement yet, measured in D.4"
+    },
+    {
       "surfaceId": "hook.shared.capture-failure",
       "unmeasured": "measurement deferred to V.2"
     },

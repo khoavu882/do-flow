@@ -264,7 +264,7 @@ function runScenario() {
   try {
     const built = spawnSync('bash', [path.join(REPO, 'test/hooks/build-install-mirror.sh'), mirror], { encoding: 'utf8' });
     assert.equal(built.status, 0, built.stderr);
-    const env = scratch.env({ DOFLOW_CLI, NODE_OPTIONS: `--require=${observer}`, G26_OBSERVED: observed });
+    const env = scratch.env({ DOFLOW_TELEMETRY: 'on', DOFLOW_CLI, NODE_OPTIONS: `--require=${observer}`, G26_OBSERVED: observed });
     const git = spawnSync('git', ['init', '-q'], { cwd: project, env, encoding: 'utf8' });
     assert.equal(git.status, 0, git.stderr);
     fs.writeFileSync(path.join(project, 'plan.md'), [
@@ -333,6 +333,12 @@ const handoff = buildHandoff({ dispatchId, dispatchRunId, slug: 'g26-task', mode
   grant: null, worktree: { path: worktree, branch: 'doflow-attempt/g26-task/' + dispatchId, base: null }, report: null });
 writeEnvelope({ stateRoot, dispatchId, kind: 'handoff', value: handoff });
 fs.mkdirSync(worktree, { recursive: true });`;
+    // The telemetry store (088 IC-018): one line through the writer 088 ships. `state/runs` exists by
+    // now (the verbs above append to the run ledger), and the writer creates only `telemetry/`.
+    const writeTelemetry = `const fs=require('node:fs'),path=require('node:path');
+const { TelemetryWriter } = require(${JSON.stringify(path.join(REPO, 'src/runtime/trace/telemetry.ts'))});
+new TelemetryWriter({ start: process.argv[1], env: process.env }).write([{ kind: 'verify.tier' }]);
+if (!fs.readdirSync(path.join(process.argv[1], '.doflow', 'state', 'runs', 'telemetry')).length) process.exit(1);`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps = [
@@ -356,6 +362,7 @@ fs.mkdirSync(worktree, { recursive: true });`;
       ['followup report', verb('followup', '--action', 'report', '--statement', 'a problem', '--text', 'its body'), 0],
       ['lifecycle', verb('lifecycle'), 0],
       ['trace', verb('trace'), 0],
+      ['telemetry write', node('-e', writeTelemetry, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
       ['summary-store.sh grant claim', summaryStore(grantWriteClaim), 0],

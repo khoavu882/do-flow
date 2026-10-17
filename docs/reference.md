@@ -192,6 +192,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `dispatch-worktrees` | `.doflow/state/dispatch-worktrees` | attempt worktrees removed by dispatch cleanup; the integration worktree stays for the user to merge |
 | `task-delivery` | `.doflow/state/delivery` | prune finished work after 30 days |
 | `runs-project` | `.doflow/state/runs` | prune partitions older than 180 days |
+| `runs-telemetry` | `.doflow/state/runs/telemetry` | prune partitions older than 180 days |
 | `runs-user` | `~/.doflow/state/runs` | prune partitions older than 180 days |
 | `advice-picks-project` | `.doflow/state/advice/picks` | prune partitions older than 90 days |
 | `advice-picks-user` | `~/.doflow/state/advice/picks` | prune partitions older than 90 days |

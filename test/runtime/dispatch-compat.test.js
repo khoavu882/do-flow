@@ -39,7 +39,7 @@ const REAL_IDS = Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'pi', '
 const UNCHANGED_FILES = Object.freeze([
   'package.json',
   'src/runtime/task-attempts.ts',
-  'src/runtime/task-run.ts',
+  // task-run.ts: edited by 088 B.1 (trace ids); no longer frozen at 0a474666
   'src/runtime/task-state.ts',
   'src/runtime/task-graph.ts',
   'src/runtime/task-sources.ts',

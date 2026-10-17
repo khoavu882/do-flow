@@ -28,6 +28,50 @@ test('perf runner exports main and key helper functions', () => {
   assert.equal(typeof runner.isAnotherNodeTestRunning, 'function');
 });
 
+test('perf hook enumerator exposes one named claude pre-bash first-write variant', () => {
+  const { surfaces } = runner.enumerateHookSurfaces({ repoRoot: REPO_ROOT, isToolInstalledFn: () => true });
+  const steady = surfaces.find((surface) => surface.id === 'hook.claude.pre-bash-guard');
+  const firstWrite = surfaces.find((surface) => surface.id === 'hook.claude.pre-bash-guard.first-write');
+  assert.ok(steady);
+  assert.ok(firstWrite, 'the one-time mkdir cost has a separately selectable surface');
+  assert.equal(steady.setup.fixture, 'bench/perf/fixtures/hook-bridge-project');
+  assert.deepEqual(steady.setup.omit, undefined);
+  assert.equal(firstWrite.variant, 'first-write');
+  assert.equal(firstWrite.budgeted, false);
+  assert.deepEqual(firstWrite.setup, {
+    ...steady.setup,
+    omit: ['.doflow/state/runs/telemetry'],
+  });
+  assert.equal(surfaces.filter((surface) => surface.id.endsWith('.first-write')).length, 1);
+});
+
+test('perf runner omits declared paths from copied fixture projects and the negative control detects them', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-omit-');
+  const fixture = path.join(dir, 'fixture');
+  const telemetry = path.join(fixture, '.doflow', 'state', 'runs', 'telemetry');
+  fs.mkdirSync(telemetry, { recursive: true });
+  fs.writeFileSync(path.join(telemetry, '.gitkeep'), '');
+  const check = 'const fs=require("node:fs");process.exit(fs.existsSync(process.argv[1]) ? 3 : 0);';
+  const setup = {
+    kind: 'copy-fixture-project',
+    fixture,
+    git: false,
+    cwdProject: true,
+    omit: ['.doflow/state/runs/telemetry'],
+  };
+  const firstWrite = {
+    id: 'stub.first-write',
+    kind: 'cli',
+    setup,
+    argv: ['node', '-e', check, '{project}/.doflow/state/runs/telemetry'],
+  };
+  assert.equal(typeof runner.runSurfaceProcess(firstWrite, REPO_ROOT), 'number');
+  assert.throws(
+    () => runner.runSurfaceProcess({ ...firstWrite, id: 'stub.steady', setup: { ...setup, omit: undefined } }, REPO_ROOT),
+    /process exited with status 3/
+  );
+});
+
 test('perf runner exits 2 on missing or unknown verb, or unknown flag', () => {
   const { lines, io } = capture();
   assert.equal(runner.main([], io), 2);
@@ -379,7 +423,7 @@ test('perf runner executes front doors in an install mirror and fixture project 
 test('perf runner executes Antigravity and Pi surfaces using their corpus payloads', () => {
   const { surfaces } = runner.enumerateHookSurfaces({ repoRoot: REPO_ROOT, isToolInstalledFn: () => true });
   const selected = surfaces.filter((surface) => surface.id.startsWith('hook.antigravity.') || surface.id.startsWith('hook.pi.tool-call-'));
-  assert.equal(selected.length, 5);
+  assert.equal(selected.length, 6);
   for (const surface of selected) {
     assert.equal(typeof runner.runSurfaceProcess(surface, REPO_ROOT), 'number', surface.id);
   }

@@ -22,6 +22,7 @@ const { createOutputSink } = require('../worker/supervisor.ts');
 const { newRunId } = require('../worker/run-store.ts');
 const processTree = require('../worker/process-tree.ts');
 const { EvidenceLedger } = require('../evidence-ledger.ts');
+const { emitVerifyTelemetry } = require('../verification/telemetry-emit.ts');
 
 /** The same names as 081's `REPO_ENV` (`src/runtime/worker/worktree-check.ts:30`), which that
  * module does not export: inherited variables that would point git at another repository. */
@@ -166,6 +167,11 @@ async function runVerification({
   const stdout = await out.end();
   await err.end();
   const durationMs = Date.now() - startedAt;
+  // 088 C.1 (IC-006): one verify.run line, `source: dispatch`; it never throws and changes nothing here.
+  emitVerifyTelemetry({
+    report: { status: exitCode === 0 && !timedOut ? 'PASS' : 'FAIL', startedAt: new Date(startedAt).toISOString(), finishedAt: new Date(startedAt + durationMs).toISOString(), tiers: [] },
+    ctx: { source: 'dispatch', taskId, risk: null, exitCode }, env, start: root,
+  });
 
   const ledger = new EvidenceLedger({ repoRoot: root, slug });
   const evidenceId = ledger.addEvidence({

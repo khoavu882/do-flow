@@ -358,6 +358,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--spawn-grant', 'spawnGrant'],     // dispatch start: the spawn grant declaration as JSON
   ['--dispatch', 'dispatch'],          // dispatch submit: a d-<12 hex> dispatch id
   ['--child-of', 'childOf'],           // worker run: the granter's w-<12 hex> run id
+  ['--run', 'run'],                    // trace spans: keep one run key or run id (088 IC-011)
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -518,6 +519,7 @@ Options:
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
       --prune <N>      Keep the N newest backups after install or update (default 3; 0 keeps all)
       --days <N>       Run-ledger window in calendar days (trace, stats, discover)
+      --run <key|id>   trace spans: keep the traces of one run key or run id
       --slug <name>    Scaffold this feature instead of the branch-resolved active one
 
 Runtime verb arguments (accept --flag value or --flag=value):

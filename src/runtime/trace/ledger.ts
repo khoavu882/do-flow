@@ -390,6 +390,10 @@ class RunLedger {
     if (!record) return { written: false, dropped, reason };
     try {
       this.fsImpl.mkdirSync(this.dir, { recursive: true });
+      // Warm the hook telemetry store while the Node side already has the project state writable.
+      // The hook retains its own mkdir fallback; a telemetry directory fault must not affect the
+      // run-ledger append or the command being observed.
+      try { this.fsImpl.mkdirSync(path.join(this.dir, 'telemetry')); } catch { /* best effort */ }
       const file = path.join(this.dir, `${record.timestamp.slice(0, 10)}.jsonl`);
       this.fsImpl.appendFileSync(file, `${JSON.stringify(record)}\n`, 'utf8');
       return { written: true, file, record, dropped };

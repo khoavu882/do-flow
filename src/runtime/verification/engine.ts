@@ -22,6 +22,7 @@
  */
 
 const path = require('node:path');
+const os = require('node:os');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect.ts');
@@ -37,6 +38,8 @@ const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record.ts'
 const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate.ts');
 const { assertSafeTaskId } = require('../evidence-ledger.ts');
 const { upkeepAfterVerify } = require('../storage/upkeep.ts');
+const { emitVerifyTelemetry } = require('./telemetry-emit.ts');
+const { resolveRunsLocation } = require('../trace/ledger.ts');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -114,6 +117,7 @@ class VerificationEngine {
    * @param {Function} [options.exec] injection seam for shell execution; `spawnSync` contract
    * @param {Function} [options.clock] injection seam returning epoch milliseconds
    * @param {RecoveryManager} [options.recovery] overrides the per-risk-level manager
+   * @param {string} [options.logDir] where failing checks' full logs go (`verifyStateRoot`)
    */
   constructor(options: any = {}) {
     this.cwd = options.cwd || process.cwd();
@@ -128,7 +132,7 @@ class VerificationEngine {
       fsImpl: this.fsImpl,
     });
     this.policy = this.registry.policy || {};
-    this.runner = new VerificationContractRunner({ cwd: this.cwd, exec: this.exec });
+    this.runner = new VerificationContractRunner({ cwd: this.cwd, exec: this.exec, logDir: options.logDir });
     this.recoveryOverride = options.recovery || null;
   }
 
@@ -1260,6 +1264,38 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
  * @param {string} [options.baselineRef] commit or ref to measure change against (IC-022)
  * @returns {number} exit code
  */
+/**
+ * Where verification keeps its own state (check logs, the verify-moment upkeep): the store the
+ * ledger and doflow-run resolve (`resolve_config_dir`) — `DOFLOW_CONFIG_DIR`, else the nearest
+ * existing `.doflow` above `start`, else the install this runtime was copied into, else an existing
+ * `~/.doflow`. Only when none exists (a project never set up) is it `<start>/.doflow`, as before.
+ * A `.doflow` created under the working directory of a dispatch attempt worktree captured every
+ * later record from there and was deleted with the worktree (088 G-O1 D4).
+ * @param {Object} [options]
+ * @param {string} [options.start] the verify's working directory (default: cwd)
+ * @param {Object} [options.env=process.env]
+ * @param {string} [options.homeDir]
+ * @param {string|null} [options.installRoot] this runtime's package root
+ * @param {Object} [options.fsImpl]
+ * @returns {{configDir: string, projectRoot: string|null}} `projectRoot` is the directory holding
+ *   `configDir` when it is named `.doflow` (the root the storage upkeep takes), else null
+ */
+function verifyStateRoot({ start, env = process.env, homeDir = os.homedir(), installRoot = REPO_ROOT, fsImpl = nodeFs }: any = {}): { configDir: string; projectRoot: string | null } {
+  const from = path.resolve(start || process.cwd());
+  const isDir = (dir: string): boolean => { try { return fsImpl.statSync(dir).isDirectory(); } catch { return false; } };
+  const at = resolveRunsLocation({ start: from, env, homeDir, fsImpl });
+  let configDir = path.join(from, '.doflow');
+  if (at.origin === 'DOFLOW_CONFIG_DIR' || at.origin === 'project') configDir = at.configDir;
+  else {
+    const marker = `${path.sep}.doflow${path.sep}`;
+    const cut = installRoot ? `${path.resolve(installRoot)}${path.sep}`.indexOf(marker) : -1;
+    const install = cut >= 0 ? path.resolve(installRoot).slice(0, cut) + path.sep + '.doflow' : null;
+    if (install && isDir(install)) configDir = install;
+    else if (isDir(at.configDir)) configDir = at.configDir; // ~/.doflow
+  }
+  return { configDir, projectRoot: path.basename(configDir) === '.doflow' ? path.dirname(configDir) : null };
+}
+
 function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null }: {
   taskId?: any;
   action?: string;
@@ -1334,10 +1370,11 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     if (!declared) declared = { paths: [...recordedScope], origin: 'readiness-record', record: recordRel };
   }
 
+  const state = verifyStateRoot({ start: cwd });
   let engine: any;
   let contract: any;
   try {
-    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
+    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT, logDir: path.join(state.configDir, 'state', 'verification', 'logs') });
     // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
     // declared scope; with neither the change-scope tier is UNRESOLVED and says where it looked.
     const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared, baselineRef });
@@ -1425,8 +1462,11 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   }
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
-  upkeepAfterVerify({ projectRoot: cwd });
-  return finishRuntime(report.status === 'PASS' ? 0 : 1);
+  const exitCode = report.status === 'PASS' ? 0 : 1;
+  // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
+  emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode }, start: cwd });
+  upkeepAfterVerify({ projectRoot: state.projectRoot });
+  return finishRuntime(exitCode);
 }
 
 /** One line stating what the targeted tier selected, or why it ran the broad command instead. */
@@ -1457,5 +1497,6 @@ module.exports = {
   MAX_STREAM_CHARS,
   REGISTRY_FILENAME,
   handleVerifyCommand,
+  verifyStateRoot,
   validateVerificationInput,
 };

@@ -74,16 +74,64 @@ doflow_bridge_drops_tool_stderr() {
   doflow_bridge_drops_tool_streams "$1" "$2" "$3"
 }
 
+# One hook line (IC-004) for an allowlisted surface, from the encode tuple in DF_TUPLE, appended to
+# <config>/state/runs/telemetry/<UTC date>.jsonl. Builtins only on the path that writes; every step
+# returns 0, and nothing reaches stdout or stderr. Args: harness, normalised event, policy.
+doflow_bridge_hook_line() {
+  local d="" f="" day="" rest="" duration=null t1=""
+  [ "${DOFLOW_TELEMETRY:-}" != off ] || return 0
+  case "$DF_TUPLE" in ''|'{"dft":1}') return 0 ;; esac
+  case "$1:$3:$2" in
+    claude:pre-bash-guard:PreToolUse|codex:pre-bash-guard:PreToolUse|gemini:pre-bash-guard:BeforeTool|kiro:pre-bash-guard:PreToolUse|antigravity:pre-bash-guard:PreToolUse|pi:pre-bash-guard:tool_call|claude:user-prompt-submit:UserPromptSubmit|codex:user-prompt-submit:UserPromptSubmit) ;;
+    *) return 0 ;;
+  esac
+  if [ -n "${DOFLOW_CONFIG_DIR:-}" ]; then
+    d=$DOFLOW_CONFIG_DIR
+  else
+    d=${PWD:-}
+    case "$d" in /*) ;; *) return 0 ;; esac
+    while [ ! -d "$d/.doflow" ]; do
+      [ -n "$d" ] || return 0
+      d=${d%/*}
+    done
+    d=$d/.doflow
+  fi
+  [ -d "$d/state" ] || return 0
+  day=${DF_TUPLE:17:10}
+  case "$day" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) return 0 ;; esac
+  rest=${DF_TUPLE#\{\"dft\":1,\"date\":\"??????????\",}
+  case "$rest" in \"timestamp\":*\}) ;; *) return 0 ;; esac
+  if [ -n "$_df_t0" ]; then
+    t1=${EPOCHREALTIME:-}; t1=${t1/[.,]/}; _df_t0=${_df_t0/[.,]/}
+    case "$t1$_df_t0" in ''|*[!0-9]*) ;; *) duration=$(( (t1 - _df_t0) / 1000 )); [ "$duration" -ge 0 ] || duration=null ;; esac
+  fi
+  [ -d "$d/state/runs/telemetry" ] || mkdir "$d/state/runs/telemetry" 2>/dev/null || return 0
+  f=$d/state/runs/telemetry/$day.jsonl
+  [ ! -e "$f" ] || [ -f "$f" ] || return 0
+  { printf '{"kind":"hook","harness":"%s","event":"%s","policy":"%s","verdict":"%s","duration_ms":%s,%s\n' "$1" "$2" "$3" "$DF_BRIDGE_OUTCOME" "$duration" "$rest" >>"$f"; } 2>/dev/null || true
+  return 0
+}
+
 doflow_bridge() {
-  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 encode_failed=0
+  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 encode_failed=0 _df_t0=""
+  DF_TUPLE=""
+  if [ "${BASH_VERSINFO[0]:-0}" -ge 5 ] 2>/dev/null; then _df_t0=${EPOCHREALTIME:-}; fi
   . "$_DOFLOW_BRIDGE_DIR/respond.sh"
   doflow_bridge_native_event_var "$harness" "$event"; response_event=$DF_NE
   if [ "${4:-}" = --emit ]; then emit="${5:-native}"; fi
   payload="$(cat)"
   if command -v jq >/dev/null 2>&1; then
-    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_LINEAGE_ID="${DOFLOW_LINEAGE_ID:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" DOFLOW_WORKTREE="${DOFLOW_WORKTREE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode encode -f "$_DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" && {
+    encoded="$(printf '%s\n' "$payload" | DOFLOW_TASK_ID="${DOFLOW_TASK_ID:-}" DOFLOW_RUN_ID="${DOFLOW_RUN_ID:-}" DOFLOW_ATTEMPT="${DOFLOW_ATTEMPT:-}" DOFLOW_LINEAGE_ID="${DOFLOW_LINEAGE_ID:-}" DOFLOW_SESSION_ROLE="${DOFLOW_SESSION_ROLE:-}" DOFLOW_WORKTREE="${DOFLOW_WORKTREE:-}" jq -c --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode encode -f "$_DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" || encode_failed=1
+    # The telemetry tuple is the first line; without an envelope line after it there is no envelope.
+    case "$encoded" in
+      '{"dft"'*)
+        DF_TUPLE=${encoded%%$'\n'*}
+        case "$encoded" in *$'\n'*) encoded=${encoded#*$'\n'} ;; *) encoded="" ;; esac
+        ;;
+    esac
+    if [ "$encode_failed" -eq 0 ]; then
       case "$encoded" in \{*) payload="$encoded" ;; *) encode_failed=1 ;; esac
-    } || { encode_failed=1; }
+    fi
     if [ "$encode_failed" -eq 1 ]; then
       encoded="$(jq -cn --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode minimal -f "$_DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" || encoded=""
       case "$encoded" in \{*) payload="$encoded" ;; *) payload="{\"doflow_event\":{\"version\":1,\"harness\":\"$harness\",\"event\":\"$event\",\"operation\":\"tool\"}}" ;; esac
@@ -125,6 +173,7 @@ doflow_bridge() {
   if [ "$spawn_failed" -eq 1 ]; then DF_BRIDGE_OUTCOME=error; DF_BRIDGE_CODE=bridge-spawn; DF_BRIDGE_REASON=bridge-spawn; DF_BRIDGE_VERSION=0; DF_BRIDGE_POINT=bridge-spawn; fi
   if [ -n "$DF_BRIDGE_POINT" ] && [ "$DF_BRIDGE_POINT" != decision-mismatch ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-TERM ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-INT ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-PIPE ]; then doflow_bridge_failure "$policy" "$DF_BRIDGE_POINT"; fi
   doflow_bridge_effect "$harness" "$event" "$policy" "$DF_BRIDGE_OUTCOME"
+  doflow_bridge_hook_line "$harness" "$response_event" "$policy"
   if [ "$DF_BRIDGE_EFFECT" = block ] && [ "$DF_BRIDGE_OUTCOME" != deny ]; then reason="[$policy] DoFlow policy error; details: doflow-run failure list"; fi
   if [ "$DF_BRIDGE_OUTCOME" != deny ] && [ "$DF_BRIDGE_EFFECT" = proceed ]; then
     case "$harness:$response_event:$DF_BRIDGE_OUTCOME" in

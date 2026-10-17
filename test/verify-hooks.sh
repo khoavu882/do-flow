@@ -9,6 +9,8 @@
 # Returns exit 0 if all tests pass, exit 1 if any fail.
 
 set -euo pipefail
+# Hook lines (088) are written to the .doflow found above the cwd; tests default them off.
+export DOFLOW_TELEMETRY="${DOFLOW_TELEMETRY:-off}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Front doors resolve the Canonical Policy Library via a path relative to their installed

@@ -53,6 +53,9 @@ function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off' } = {}) {
         GIT_AUTHOR_EMAIL: 'test@example.com',
         GIT_COMMITTER_NAME: 'Test',
         GIT_COMMITTER_EMAIL: 'test@example.com',
+        // Hook lines (088) go to the .doflow found above the cwd, which for a spawn without a cwd is
+        // the checkout's own store; tests write them only when they opt in.
+        DOFLOW_TELEMETRY: 'off',
         ...extra,
       };
     },

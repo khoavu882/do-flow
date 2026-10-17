@@ -46,7 +46,8 @@ function spyFs(overrides) {
 function records(root) {
   const dir = path.join(root, 'runs');
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).flatMap(name => fs.readFileSync(path.join(dir, name), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse));
+  return fs.readdirSync(dir).filter(name => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name))
+    .flatMap(name => fs.readFileSync(path.join(dir, name), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse));
 }
 function capture(fn) {
   const out = [], err = [];

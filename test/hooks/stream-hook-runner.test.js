@@ -7,6 +7,10 @@ const { suiteTempDir } = require('../helper/tmp');
 const { resolveProjectRoot, delegateToPolicy, evaluateEvent, classifyPreToolUsePolicy } = require('../../core/harnesses/shared/hooks/stream-hook-runner');
 const antigravityAdapter = require('../../core/harnesses/shared/hooks/adapters/antigravity');
 
+// The in-process delegateToPolicy calls spawn the bridge with this process's environment and cwd;
+// hook lines (088) default off in tests so none lands in the .doflow found above the checkout.
+process.env.DOFLOW_TELEMETRY ??= 'off';
+
 test('stream-hook-runner: resolveProjectRoot resolves valid workspace paths', () => {
   const root = resolveProjectRoot([__dirname]);
   assert.ok(typeof root === 'string');
