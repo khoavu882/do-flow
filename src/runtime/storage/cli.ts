@@ -29,20 +29,13 @@ function handleStorageCommand({ action = 'report', json = false, global = false,
     return;
   }
   const roots = resolveRoots({ registry, projectRoot: global ? null : path.resolve(projectRoot), global, env });
-  const resolvePruneSetting = createPruneSettingsResolver({ roots, fsImpl });
+  let settingsView: any = null;
+  const resolvePruneSetting = createPruneSettingsResolver({ roots, fsImpl, onView: (view: any) => { settingsView = view; } });
   const projectSetting = resolvePruneSetting('project-state');
   const userSetting = resolvePruneSetting('user-state');
   let deprecationNotes: any[] = [];
   try {
-    const { loadSettingsRegistry } = require('../settings/registry.ts');
-    const loaded = loadSettingsRegistry({ repoRoot: REPO_ROOT, fsImpl });
-    if (loaded.ok) {
-      const { loadSettings } = require('../settings/resolve.ts');
-      const view = loadSettings({ projectRoot: global ? null : path.resolve(projectRoot), global, env,
-        fsImpl, registry: loaded.registry });
-      view.get('storage.prune', global ? 'global' : 'project');
-      deprecationNotes = view.notes.filter((note: any) => note.code === 'deprecated' && note.key === 'storage.prune');
-    }
+    if (settingsView) deprecationNotes = settingsView.notes.filter((note: any) => note.code === 'deprecated' && note.key === 'storage.prune');
   } catch { /* a settings fault does not change storage's fail-closed report */ }
   const setting = Object.fromEntries(Object.keys(roots).map(rootId => [rootId, resolvePruneSetting(rootId)]));
   const mode = action === 'prune' ? 'prune' : 'report';

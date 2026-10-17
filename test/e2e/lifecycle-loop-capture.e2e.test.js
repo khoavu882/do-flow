@@ -80,12 +80,14 @@ describe('Scenario: Capture turned off (US4, FR-009)', { skip: SKIP }, () => {
     assert.equal(fs.existsSync(off.failures), false, 'capture off creates no folder');
   });
 
-  test('a machine switched off with the sentinel records nothing, whatever the environment says', () => {
+  test('a machine switched off in settings records nothing, whatever the environment says', () => {
     const box = crashSandbox('off-sentinel');
     const control = crashSandbox('off-sentinel-control');
     const set = ok(box.project, ['failure', '--action', 'capture', '--set', 'off'], { xdg: box.xdg });
     assert.equal(set.effective, 'off');
-    assert.ok(fs.existsSync(path.join(box.failures, 'off')), 'the sentinel exists');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(box.xdg, 'doflow', 'settings.json'), 'utf8')),
+      { schema: 1, 'failure.capture': 'off' });
+    assert.equal(fs.existsSync(path.join(box.failures, 'off')), false, 'the writer leaves the legacy sentinel absent');
 
     const silent = crash(box, WORKFLOW_ARGS, FAULT_WORKFLOW, { env: { DOFLOW_FAILURE_CAPTURE: 'on' } });
     const recorded = crash(control, WORKFLOW_ARGS, FAULT_WORKFLOW);
@@ -95,7 +97,7 @@ describe('Scenario: Capture turned off (US4, FR-009)', { skip: SKIP }, () => {
     assert.equal(control.lines().length, 1);
     assert.equal(ok(box.project, ['failure', '--action', 'list'], { xdg: box.xdg }).capture, 'off');
 
-    // Switching it on again removes the sentinel and capture resumes.
+    // Switching the setting on again lets capture resume.
     assert.equal(ok(box.project, ['failure', '--action', 'capture', '--set', 'on'], { xdg: box.xdg }).effective, 'on');
     crash(box, WORKFLOW_ARGS, FAULT_WORKFLOW);
     assert.equal(box.lines().length, 1);

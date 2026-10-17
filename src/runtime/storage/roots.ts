@@ -22,7 +22,7 @@ function resolveRoots({ registry, projectRoot, global = false, env = process.env
 }
 
 /** Creates one IC-014 resolver for all roots in a command; a project view can also read global scope. */
-function createPruneSettingsResolver({ roots, fsImpl = fs }: any = {}): (rootId: string) => { setting: string; decidedBy: string | null } {
+function createPruneSettingsResolver({ roots, fsImpl = fs, onView }: any = {}): (rootId: string) => { setting: string; decidedBy: string | null } {
   const resolverEnv: Record<string, string> = {};
   if (roots['config-home']) resolverEnv.XDG_CONFIG_HOME = path.dirname(roots['config-home']);
   let view: any = null;
@@ -45,6 +45,7 @@ function createPruneSettingsResolver({ roots, fsImpl = fs }: any = {}): (rootId:
         // A settings registry fault fails closed for every root, as it did for each old call.
         view = null;
       }
+      if (typeof onView === 'function') onView(view);
     }
     if (!view) return { setting: 'off', decidedBy: null };
     try {
