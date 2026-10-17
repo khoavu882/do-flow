@@ -199,7 +199,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `install-projections-project-doflow` | `.doflow/{scripts,runtime,guidance,shared,templates,.install-manifest.json,doflow.lock}` | owned by the install ledger |
 | `knowledge-index-user-doflow` | `~/.doflow/index` | rewritten atomically, sha-keyed |
 | `knowledge-index-project-doflow` | `.doflow/index` | rewritten atomically, sha-keyed |
-| `code-semantic-project` | `.doflow/index/code/semble` | Explicit bounded local semantic lifecycle; corpus/model manifests, ordinary mirror copies, provider cache, operation lock, in-progress marker and staging; query temporary stats/cache sinks capped at 64 KiB and removed in finally or next explicit operation. |
+| `code-semantic-project` | `.doflow/index/code/semble` | Explicit bounded local semantic lifecycle; corpus/model manifests, ordinary mirror copies, provider cache, operation lock, in-progress marker and staging; query temporary stats/ sink capped at 64 KiB and library/ (provider grammar and library cache) capped at 128 MiB (libraryBytes), both removed in finally or on the next explicit operation; sourceReadBytes is an over-count of provider reads under Semble 0.7.0. |
 | `bench-worktrees` | `.doflow/worktrees` | removed per case by the bench runner, not shipped |
 | `user-settings-project-doflow` | `.doflow/{prompt-nudge,prune,decision-model.json}` | one line each, user-authored; decision-model.json is one JSON object, written by hand or by advise --action configure |
 | `user-settings-config-home` | `~/.config/doflow/{prompt-nudge,prune,decision-model.json}` | one line each, user-authored; decision-model.json is one JSON object, written by hand or by advise --action configure |
