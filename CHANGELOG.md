@@ -15,15 +15,22 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `doflow-run config list [--json] [--show-origin] [-g]` displays the effective settings and their origins.
+- Layered settings add user `settings.json`, project `.doflow/settings.json` and `.doflow/settings.local.json`, plus registry `core/registry/settings.json`.
+
 ### Changed
-- **The config home follows one rule everywhere.** `XDG_CONFIG_HOME` when it is an absolute path, else `$HOME/.config` when `HOME` is an absolute path, else there is no config home. A relative or empty value is ignored and the account's home folder is never consulted. In 2.0 Node read the account's home when `HOME` was unset and the shell scripts aborted with `HOME: unbound variable`; with `HOME` unset or relative there is now no config home in Node and in shell alike.
+- **This release's config home follows one rule everywhere.** `XDG_CONFIG_HOME` when it is an absolute path, else `$HOME/.config` when `HOME` is an absolute path, else there is no config home. A relative or empty value is ignored and the account's home folder is never consulted. In 2.0 Node read the account's home when `HOME` was unset and the shell scripts aborted with `HOME: unbound variable`; with `HOME` unset or relative there is now no config home in Node and in shell alike.
 - A relative `XDG_CONFIG_HOME` is ignored and `$HOME/.config` decides. In 2.0 the shell scripts and some Node code read the relative path against the working directory; users who had one will find their session state under `$HOME/.config/doflow/session-env` from now on, and the old folder is no longer read.
 - With no config home the hooks no longer exit: `lib.sh` in the shared policies and in each harness continues, session hooks (`session-start`, `user-prompt-submit`, `stop-check`) skip their state work and exit 0, and a guard hook such as Kiro's `pre-bash-guard` reaches its own decision.
 - `doflow advise --action configure` exits 2 with a usage message, and writes nothing, when there is no config home.
 - Failure capture reads `failure.capture` from `<config home>/settings.json`. The dispatcher, the shell policies, the JS hook runner and Node apply one text rule: any value other than `"on"` means off, and a settings file that is unreadable or not a regular file means off. See [Config home](docs/reference.md#config-home).
-- A linked worktree with no settings files in its own `.doflow/` now reads project settings from the main checkout, including legacy `decision-model.json` and `prune` files. A worktree with its own settings continues to use them.
+- In this release, a linked worktree with no settings files in its own `.doflow/` reads project settings from the main checkout, including legacy `decision-model.json` and `prune` files. A worktree with its own settings continues to use them.
 - Settings JSON parse errors report the byte offset only; the file contents are not included in errors.
 - The legacy `decision-model.json`, `prune` and `failures/off` sources remain readable through 2.x. `doflow config list` identifies each legacy source with a deprecation note and the corresponding `settings.json` key.
+- `advise --action configure` and `failure --action capture --set on|off` write `settings.json`; legacy `decision-model.json` and `failures/off` remain untouched.
+- `failure --action capture --set on` keeps an existing `failures/off` sentinel and reports `effective: off`, naming the sentinel.
+- Settings written by this release are not read by earlier betas or 2.0.x, which keep reading `decision-model.json` and `failures/off`.
 
 ## [2.0.0] - 2026-10-14
 

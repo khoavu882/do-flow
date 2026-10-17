@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createSettingsEnv } = require('../helper/settings-fixtures');
+const { captureSwitch } = require('../../src/runtime/failure/home.ts');
+const { ROWS, HOME_ROWS, FILE_ROWS, CORPUS_ROWS, rowEnv } = require('../settings/capture-agreement.test.js');
 
 function snapshot(root) {
   const rows = [];
@@ -21,6 +23,42 @@ function snapshot(root) {
   }
   visit(root);
   return rows.join('\n');
+}
+
+function captureRows() {
+  return [...ROWS, ...HOME_ROWS, ...FILE_ROWS, ...CORPUS_ROWS];
+}
+
+function captureExtra(row) {
+  const extra = {};
+  if (row.xdg === 'unset') extra.XDG_CONFIG_HOME = undefined;
+  if (row.xdg === 'relative') extra.XDG_CONFIG_HOME = 'rel-xdg';
+  if (row.noHome) extra.HOME = undefined;
+  if (row.word !== undefined) extra.DOFLOW_FAILURE_CAPTURE = row.word;
+  return extra;
+}
+
+function captureListCase(t, row, reader = captureSwitch) {
+  const setup = rowEnv(t, row);
+  const extra = captureExtra(row);
+  try {
+    const result = setup.f.run(['config', 'list', '--json'], { env: extra });
+    assert.ok([0, 1].includes(result.status), `${row.name}: ${result.stderr}`);
+    const actual = result.json.keys['failure.capture'].value;
+    const expected = setup.home === null ? 'off' : reader(setup.home, setup.env).effective;
+    return { actual, expected, name: row.name };
+  } finally { setup.done(); }
+}
+
+/** Deliberately models a capture switch that never reads settings.json. */
+function captureSwitchWithoutLexicalRead(home, env) {
+  const raw = env.DOFLOW_FAILURE_CAPTURE;
+  const envOff = typeof raw === 'string' && ['off', '0', 'false', 'no'].includes(raw.trim().toLowerCase());
+  let sentinel = false;
+  if (home) {
+    try { sentinel = fs.statSync(path.join(home, 'off')).isFile(); } catch { /* no sentinel */ }
+  }
+  return { effective: home && !envOff && !sentinel ? 'on' : 'off' };
 }
 
 test('config list text names effective settings, origins, candidates, and deprecated files', (t) => {
@@ -152,4 +190,39 @@ test('config exits 2 when the settings registry cannot be loaded', (t) => {
     console.error = originalError;
     process.exitCode = originalExitCode;
   }
+});
+
+test('Writers write the new file only: config list shows settings.json deciding', (t) => {
+  const f = createSettingsEnv(t);
+  const legacyAdvice = f.writeUserDecision({ schema: 1, enabled: true, provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'clef-flash' });
+  const legacyAdviceBytes = fs.readFileSync(legacyAdvice);
+  const sentinel = path.join(f.failuresDir, 'off');
+
+  const configured = f.run(['advise', '--action', 'configure', '--off', '--json']);
+  assert.equal(configured.status, 0, configured.stderr);
+  const capture = f.run(['failure', '--action', 'capture', '--set', 'off', '--json']);
+  assert.equal(capture.status, 0, capture.stderr);
+
+  const settings = f.userFile('settings.json');
+  assert.deepEqual(fs.readFileSync(legacyAdvice), legacyAdviceBytes);
+  assert.equal(fs.existsSync(sentinel), false);
+  const listed = f.run(['config', 'list', '--json']);
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.equal(listed.json.keys['advice.enabled'].value, false);
+  assert.equal(listed.json.keys['advice.enabled'].origin.source, settings);
+  assert.equal(listed.json.keys['failure.capture'].value, 'off');
+  assert.equal(listed.json.keys['failure.capture'].origin.source, settings);
+});
+
+test('config list JSON failure.capture agrees with captureSwitch on C17-C23 and lexical corpus rows', (t) => {
+  const mismatches = captureRows().map((row) => captureListCase(t, row)).filter((row) => row.actual !== row.expected);
+  assert.deepEqual(mismatches, []);
+});
+
+test('negative control: config list capture equality detects a captureSwitch that ignores lexical reads', (t) => {
+  const row = FILE_ROWS.find((item) => item.name === 'settings.json off' && item.xdg === 'absolute');
+  const result = captureListCase(t, row, captureSwitchWithoutLexicalRead);
+  assert.equal(result.actual, 'off');
+  assert.equal(result.expected, 'on');
+  assert.notEqual(result.actual, result.expected, 'ignoring settings.json must make the equality assertion fail');
 });

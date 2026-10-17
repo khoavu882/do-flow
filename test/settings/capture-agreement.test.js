@@ -264,6 +264,8 @@ function patchedHelper(t, from, to) {
 
 // ── tests ──────────────────────────────────────────────────────────────────────────────────────
 
+const DATA_ONLY_IMPORT = module.parent?.filename === path.resolve(__dirname, '../e2e/config-list.test.js');
+if (!DATA_ONLY_IMPORT) {
 test('the four capture readers give one on/off answer on every env and sentinel row (C17-C20)', { skip: !POSIX }, (t) => {
   assert.equal(Object.keys(READERS).length, 4);
   assert.equal(ROWS.length, 34);
@@ -362,3 +364,6 @@ test('negative control: a dispatcher block without the unsearchable-folder check
   assert.equal(lexOf(text), 'off');
   assert.equal(lexOf(text.replace(check, '')), '');
 });
+}
+
+module.exports = { ROWS, HOME_ROWS, FILE_ROWS, CORPUS_ROWS, rowEnv };
