@@ -68,13 +68,25 @@ test('negative control: the same worktree with its own settings stays own, for e
   }
 });
 
-test('a nested subdirectory resolves the same checkout as its root', (t) => {
-  const { main, linked } = worktreePair(t);
-  fs.mkdirSync(path.join(linked, 'a', 'b'), { recursive: true });
+test('the given root is authoritative: a nested folder with its own .doflow gets its layers, one without gets none', (t) => {
+  const { fx, main, linked } = worktreePair(t);
+  const noLayers = { layersFrom: null, checkout: 'own', files: [] };
+
+  // the probe case: <repo>/nested has its own .doflow (2.0 read it directly)
+  const nested = path.join(main, 'nested');
+  write(path.join(nested, '.doflow', 'settings.json'), {});
+  assert.deepEqual(projectLayerSource(nested), { layersFrom: path.join(nested, '.doflow'), checkout: 'own', files: filesOf(nested) });
+  // negative control: the repo root itself still answers with its own folder
+  assert.equal(projectLayerSource(main).layersFrom, path.join(main, '.doflow'));
+
+  // a nested folder without .doflow gets none, not the repo's
   fs.mkdirSync(path.join(main, 'c'), { recursive: true });
-  assert.deepEqual(projectLayerSource(path.join(linked, 'a', 'b')), projectLayerSource(linked));
-  assert.equal(projectLayerSource(path.join(linked, 'a', 'b')).checkout, 'main');
-  assert.deepEqual(projectLayerSource(path.join(main, 'c')), projectLayerSource(main));
+  assert.deepEqual(projectLayerSource(path.join(main, 'c')), noLayers);
+  // and inside a linked worktree it does not inherit the main checkout through the worktree's .git
+  fs.mkdirSync(path.join(linked, 'a', 'b'), { recursive: true });
+  assert.deepEqual(projectLayerSource(path.join(linked, 'a', 'b')), noLayers);
+  assert.equal(projectLayerSource(linked).checkout, 'main', 'negative control: the worktree root inherits');
+  assert.ok(fx);
 });
 
 test('a worktree whose commondir is missing, outside a .git, or not a regular file keeps its own', (t) => {
@@ -164,18 +176,22 @@ test('a malformed gitdir line keeps the worktree own, and never throws', (t) => 
   assert.equal(projectLayerSource(linked).checkout, 'main', 'restored');
 });
 
-test('.git missing everywhere: the starting folder is its own checkout; no path or null input is no layer', (t) => {
+test('no .git: the folder is its own checkout, with its .doflow if it has one; no path or null input is no layer', (t) => {
   const dir = tempDir(t, 'doflow-layers-nogit-');
-  fs.mkdirSync(path.join(dir, 'sub'), { recursive: true });
-  const bare = (p) => ({ layersFrom: path.join(p, '.doflow'), checkout: 'own', files: filesOf(p) });
-  assert.deepEqual(projectLayerSource(path.join(dir, 'sub'), { ...fs, lstatSync: (p, ...r) => { if (path.basename(p) === '.git') throw Object.assign(new Error('x'), { code: 'ENOENT' }); return fs.lstatSync(p, ...r); } }), bare(path.join(dir, 'sub')));
+  const sub = path.join(dir, 'sub');
+  fs.mkdirSync(sub, { recursive: true });
+  // hermetic: no .git is visible anywhere, whatever the temp folder sits under
+  const hidden = { ...fs, lstatSync: (p, ...r) => { if (path.basename(p) === '.git') throw Object.assign(new Error('x'), { code: 'ENOENT' }); return fs.lstatSync(p, ...r); } };
+  assert.deepEqual(projectLayerSource(sub, hidden), { layersFrom: null, checkout: 'own', files: [] });
+  fs.mkdirSync(path.join(sub, '.doflow'));
+  assert.deepEqual(projectLayerSource(sub, hidden), { layersFrom: path.join(sub, '.doflow'), checkout: 'own', files: filesOf(sub) }, 'negative control');
   for (const none of [null, undefined, '']) assert.deepEqual(projectLayerSource(none), { layersFrom: null, checkout: null, files: [] });
 });
 
 test('a filesystem that throws on every call yields no layer, never a throw', () => {
   const boom = () => { throw new Error('boom'); };
   const got = projectLayerSource('/some/where', { lstatSync: boom, statSync: boom, readFileSync: boom, realpathSync: boom });
-  assert.deepEqual(got, { layersFrom: path.join('/some/where', '.doflow'), checkout: 'own', files: filesOf('/some/where') });
+  assert.deepEqual(got, { layersFrom: null, checkout: 'own', files: [] });
 });
 
 test('a dispatch worktree under <root>/.doflow/state/dispatch-worktrees/<id> is a sandbox with its own folder', (t) => {
@@ -193,8 +209,9 @@ test('a dispatch worktree under <root>/.doflow/state/dispatch-worktrees/<id> is 
   const spy = countingFs();
   assert.deepEqual(projectLayerSource(sandbox, spy), { layersFrom: path.join(sandbox, '.doflow'), checkout: 'sandbox', files: filesOf(sandbox) });
   assert.equal(spy.counts.read, 0);
+  // the marker is looked for at the given folder only
   fs.mkdirSync(path.join(sandbox, 'deep'), { recursive: true });
-  assert.equal(projectLayerSource(path.join(sandbox, 'deep')).checkout, 'sandbox');
+  assert.equal(projectLayerSource(path.join(sandbox, 'deep')).layersFrom, null);
   // the main checkout, whose .doflow holds the sandbox, is still its own
   assert.equal(projectLayerSource(main).checkout, 'own');
 });

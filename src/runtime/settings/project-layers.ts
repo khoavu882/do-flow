@@ -11,9 +11,10 @@
  * verb). A sandbox (`.doflow-worktree-base`, which every dispatch worktree under
  * `<root>/.doflow/state/dispatch-worktrees/<id>` carries) stays isolated and uses only its own.
  *
- * Every fault yields the checkout's own `.doflow`, never a throw. A `.doflow` that is a symlink out of
- * its checkout is not followed: the own one yields no project layer, a main checkout's falls back to
- * the own. Pure data: the same tree gives the same answer, so the caller may memoize per process.
+ * The root is the caller's, authoritative: nothing walks up to a nearer `.git`, so a folder with its own
+ * `.doflow` inside a repository gets its own layers, as 2.0 read them. Every fault yields the checkout's
+ * own `.doflow`, never a throw. A `.doflow` that is a symlink out of its checkout is not followed: the own
+ * one yields no project layer, a main checkout's falls back to the own. Pure data: the same tree gives the same answer, so the caller may memoize per process.
  */
 
 const nodeFs = require('node:fs');
@@ -35,19 +36,6 @@ interface ProjectLayerSource {
 
 function lstatOrNull(p: string, fsImpl: any): any {
   try { return fsImpl.lstatSync(p); } catch { return null; }
-}
-
-/** The directory from `cwd` upward that holds `.git` (a folder or a file) or the sandbox marker. */
-function checkoutRoot(cwd: string, fsImpl: any): { root: string; git: any } | null {
-  let dir = path.resolve(cwd);
-  for (;;) {
-    const git = lstatOrNull(path.join(dir, '.git'), fsImpl);
-    if (git) return { root: dir, git };
-    if (lstatOrNull(path.join(dir, MARKER), fsImpl)) return { root: dir, git: null };
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
 }
 
 /** True when `<root>/.doflow` may serve as a layer folder: absent is fine (the files are absent
@@ -104,18 +92,20 @@ function located(root: string, checkout: Checkout, fsImpl: any): ProjectLayerSou
 }
 
 /**
- * @param cwd any directory inside a checkout
+ * @param projectRoot the checkout root, authoritative: the caller's own root, with no walk-up
  * @param fsImpl `lstatSync`, `statSync`, `readFileSync`, `realpathSync`
  * @returns the `.doflow` folder and the ordered layer files, with which checkout they belong to
  */
-function projectLayerSource(cwd: string | null | undefined, fsImpl: any = nodeFs): ProjectLayerSource {
-  if (!cwd) return { layersFrom: null, checkout: null, files: [] };
+function projectLayerSource(projectRoot: string | null | undefined, fsImpl: any = nodeFs): ProjectLayerSource {
+  if (!projectRoot) return { layersFrom: null, checkout: null, files: [] };
   try {
-    const found = checkoutRoot(cwd, fsImpl);
-    if (!found) return located(path.resolve(cwd), 'own', fsImpl);
-    const { root, git } = found;
+    const root = path.resolve(projectRoot);
+    const git = lstatOrNull(path.join(root, '.git'), fsImpl);
     if (git && git.isDirectory()) return located(root, 'own', fsImpl);
     if (lstatOrNull(path.join(root, MARKER), fsImpl)) return located(root, 'sandbox', fsImpl);
+    if (!git) {
+      return lstatOrNull(path.join(root, '.doflow'), fsImpl) ? located(root, 'own', fsImpl) : { layersFrom: null, checkout: 'own', files: [] };
+    }
     if (holdsSettings(root, fsImpl)) return located(root, 'own', fsImpl);
     const main = mainCheckoutOf(root, fsImpl);
     if (main && lstatOrNull(path.join(main, '.doflow'), fsImpl) && containedDoflow(main, fsImpl)) return located(main, 'main', fsImpl);
