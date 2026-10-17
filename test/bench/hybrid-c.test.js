@@ -132,9 +132,22 @@ test('gate output is aggregate-only and never converts absent paid measurements 
   assert.doesNotMatch(JSON.stringify(report), /HC-001|query|qrels|snippet/);
   const compared = gate.evaluate({ thresholds: { thresholds: [{ id: 'T-002', metric: 'fileRecallAt10', class: 'conceptual-discovery', corpus: 'code',
     comparator: '>=', value: 0.1, relativeTo: 'B', requireCiLowerAboveZero: true }] },
-  comparisons: { code: [{ metric: 'fileRecallAt10', class: 'conceptual-discovery', a: 'C', b: 'B', diff: 0.2, ci95: [0.05, 0.4] }] } });
+  comparisons: { code: [{ metric: 'fileRecallAt10', class: 'conceptual-discovery', a: 'C', b: 'B', diff: 0.2, ci95: [0.05, 0.4] }] },
+  aggregates: { code: { B: { 'conceptual-discovery': { underpowered: false } }, C: { 'conceptual-discovery': { underpowered: false } } } } });
   assert.equal(compared.rows.find((row) => row.id === 'T-002').verdict, 'PASS');
   assert.equal(compared.verdict, 'UNRESOLVED', 'missing required threshold rows keep the overall gate unresolved');
+});
+
+test('R6: RULE-003 holds for compared thresholds: an underpowered or unmeasured class never passes T-002', () => {
+  const thresholds = { thresholds: [{ id: 'T-002', metric: 'fileRecallAt10', class: 'conceptual-discovery', corpus: 'code',
+    comparator: '>=', value: 0.1, relativeTo: 'B', requireCiLowerAboveZero: true }] };
+  const comparisons = { code: [{ metric: 'fileRecallAt10', class: 'conceptual-discovery', a: 'B', b: 'C', diff: -0.2, ci95: [-0.4, -0.05] }] };
+  const row = (C, B) => gate.evaluate({ thresholds, comparisons, aggregates: { code: { B: { 'conceptual-discovery': B }, C: { 'conceptual-discovery': C } } } })
+    .rows.find((r) => r.id === 'T-002');
+  assert.deepEqual(row({ underpowered: false }, { underpowered: false }), { id: 'T-002', verdict: 'PASS', observations: 1, ciLowerAboveZero: true }, 'B-vs-C rows are sign-flipped to C minus B');
+  assert.equal(row({ underpowered: true }, { underpowered: false }).verdict, 'UNRESOLVED');
+  assert.equal(row({ underpowered: false, state: 'unreached' }, { underpowered: false }).verdict, 'UNRESOLVED');
+  assert.equal(row({ underpowered: false }, undefined).verdict, 'UNRESOLVED');
 });
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -440,15 +453,33 @@ test('R6 negative control: the pre-fix rawValidity shape fails the same holdout 
   assert.doesNotThrow(() => build({ 'exact-lookup': { ...classes['exact-lookup'], rawValidity: { answered: 10, raw: 31, rejected: 0, delivered: 31 } } }));
 });
 
-test('R6 one-shot: a failure after evaluation starts writes no partial result, keeps the reservation, and a retry refuses', (t) => {
+test('R6 one-shot: a failure after evaluation starts writes no partial result, closes all six slots unreached, keeps the reservation, and a retry refuses', (t) => {
   const w = holdoutWorld(t);
   // The last corpus's C result carries a task id in a provider cause: every earlier configuration is valid.
   assert.throws(() => runHoldout(w, holdoutDeps({ cAnswer: ({ task }) => (task.class === 'stale-index' && task.corpus === 'guidance'
     ? { result: 'UNREACHED', freshness: 'UNKNOWN', candidates: [], providers: [{ id: 'guidance.bm25', state: 'unreached', cause: `${task.id} failed` }], payloadBytes: 0, wallMs: 1 } : null) })),
   /holdout result may not carry a task id/);
-  assert.deepEqual(holdoutFiles(w), [], 'no configuration of the generation is written when any of the six fails validation');
+  const names = holdoutFiles(w);
+  assert.deepEqual(names, ['code-A', 'code-B', 'code-C', 'guidance-A', 'guidance-B', 'guidance-C'].map((s) => `holdout-1-g7-${s}.json`),
+    'every reserved slot is closed by an aggregate file; no comparison or measured partial result is written');
+  for (const name of names) {
+    const body = JSON.parse(fs.readFileSync(path.join(w.results, name), 'utf8'));
+    report.assertNoTaskDetail(body, name);
+    assert.equal(body.protocol, protocol.ID);
+    for (const row of Object.values(body.classes)) if (row.applicable) assert.deepEqual([row.state, row.metrics], ['unreached', undefined], `${name} carries no measurement`);
+    assert.doesNotMatch(JSON.stringify(body), /failed"|guidance\.bm25/, 'the error text stays out of the file');
+  }
   assert.equal(fs.readdirSync(w.results).filter((f) => f.endsWith('.reserved.json')).length, 1);
   const retry = runHoldout(w, holdoutDeps());
   assert.equal(retry.exitCode, 2);
-  assert.match(retry.lines.join('\n'), /precondition \(f\).*already reserved/);
+  assert.match(retry.lines.join('\n'), /precondition \(e\).*result already exists/);
+});
+
+test('R6 one-shot: an adapter fault mid-evaluation also closes every slot, and a dev run never writes holdout files', (t) => {
+  const w = holdoutWorld(t);
+  assert.throws(() => runHoldout(w, holdoutDeps({ cAnswer: ({ task, corpus }) => { if (corpus === 'code' && task.class === 'conceptual-discovery') throw new Error('injected'); return null; } })), /injected/);
+  assert.equal(holdoutFiles(w).length, 6);
+  const dev = devWorld(t);
+  assert.equal(runHybrid(dev, runDeps(() => ({ ok: true }))).exitCode, 0);
+  assert.equal(fs.existsSync(path.join(dev.repo, 'bench/retrieval/results')), false);
 });

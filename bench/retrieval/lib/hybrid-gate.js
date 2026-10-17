@@ -26,10 +26,16 @@ function evaluate({ aggregates = {}, comparisons = {}, thresholds = {}, protocol
     }
     if (threshold.relativeTo) {
       const rows = [];
+      // RULE-003 holds for compared classes too: both sides must be measured, applicable and not underpowered.
+      const established = (corpus, config, cls) => {
+        const row = (aggregates[corpus] || {})[config]?.[cls];
+        return Boolean(row) && row.applicable !== false && !row.underpowered && row.state !== 'unreached';
+      };
       for (const corpus of corpusRows) {
         const eligible = (comparisons[corpus] || []).filter((row) => row.metric === threshold.metric
           && (threshold.class === '*' || row.class === threshold.class)
-          && ((row.a === 'C' && row.b === threshold.relativeTo) || (row.b === 'C' && row.a === threshold.relativeTo)));
+          && ((row.a === 'C' && row.b === threshold.relativeTo) || (row.b === 'C' && row.a === threshold.relativeTo))
+          && established(corpus, 'C', row.class) && established(corpus, threshold.relativeTo, row.class));
         for (const row of eligible) {
           const sign = row.a === 'C' ? 1 : -1;
           const delta = Number(row.diff) * sign;
@@ -40,7 +46,7 @@ function evaluate({ aggregates = {}, comparisons = {}, thresholds = {}, protocol
           rows.push({ pass: pass && ciPass, delta, lower });
         }
       }
-      if (!rows.length) return { id: threshold.id, verdict: 'UNRESOLVED', cause: `no same-snapshot C versus ${threshold.relativeTo} comparison` };
+      if (!rows.length) return { id: threshold.id, verdict: 'UNRESOLVED', cause: `no same-snapshot C versus ${threshold.relativeTo} comparison on an established class` };
       return { id: threshold.id, verdict: rows.every((row) => row.pass) ? 'PASS' : 'FAIL', observations: rows.length,
         ...(threshold.requireCiLowerAboveZero ? { ciLowerAboveZero: rows.every((row) => row.lower !== null && row.lower > 0) } : {}) };
     }

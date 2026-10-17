@@ -159,7 +159,49 @@ function defaultDeps() {
  * Runs the selected configurations over the selected corpora and split. Returns
  * `{exitCode, codes?, lines, report?, results?, error?}`. `deps` lets a test inject adapters.
  */
-function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = process.env, home, deps: rawDeps, now = new Date() }) {
+function execute(options) {
+  const started = {};
+  let out;
+  try { out = executeRun(options, started); }
+  catch (error) {
+    try { closeReservedSlots({ ...started, repoRoot: options.repoRoot, now: options.now || new Date() }); }
+    catch (closeError) { throw new Error(`${error.message}; closing the reserved slots also failed: ${closeError.message}`); }
+    throw error;
+  }
+  if (out.exitCode !== 0) closeReservedSlots({ ...started, repoRoot: options.repoRoot, now: options.now || new Date() });
+  return out;
+}
+
+const SLOT_CLOSED_CAUSE = 'evaluation failed after it started; the slot is consumed (the error is withheld from holdout files)';
+
+/**
+ * IC-009: once a hybrid-c-v1 evaluation starts, every reserved slot is consumed, and a slot the run did not
+ * write is closed by an unreached aggregate file carrying a fixed cause, never the error text or task data.
+ */
+function closeReservedSlots({ reservation, sealMeta, snapshot, protocol, repoRoot, now }) {
+  if (!reservation || !reservation.slots) return;
+  const dir = path.join(repoRoot, 'bench', 'retrieval', 'results');
+  const machine = report.machineId();
+  const thresholdsCommit = git(repoRoot, ['log', '-1', '--format=%H', '--', 'bench/retrieval/thresholds.json']);
+  const files = [];
+  for (const slot of reservation.slots) {
+    if (fs.existsSync(path.join(dir, slot))) continue;
+    const match = /-(code|guidance)-([ABC])\.json$/.exec(slot);
+    if (!match) continue;
+    const [, corpus, config] = match;
+    const unreached = { applicable: true, state: 'unreached', cause: SLOT_CLOSED_CAUSE };
+    const base = report.buildHoldoutResult({
+      snapshotId: snapshot.snapshotId, generation: sealMeta[corpus].generation, corpus, config, sealPlaintextSha256: sealMeta[corpus].seal.plaintextSha256,
+      thresholdsCommit, runAt: now.toISOString(), runIndex: hybridProtocol.CONFIGS.indexOf(config) + 1, machineId: machine,
+      classes: report.classesBlock({ corpus, results: Object.fromEntries(metricsLib.classesFor(corpus).map((c) => [c, unreached])) }),
+    });
+    files.push([slot, { ...base, protocol }]);
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [slot, body] of files) fs.writeFileSync(path.join(dir, slot), sealLib.toFileText(body), { flag: 'wx' });
+}
+
+function executeRun({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = process.env, home, deps: rawDeps, now = new Date() }, started = {}) {
   const deps = { ...defaultDeps(), ...(rawDeps || {}) };
   const selection = parseSelection(args);
   const { configs, corpora, split, cls, protocol } = selection;
@@ -178,6 +220,7 @@ function execute({ args, snapshotPath, repoRoot, tmp, keepTmp = false, env = pro
     sealMeta = loadSealMeta(repoRoot, corpora);
     const gate = deps.preconditions().check({ args, repoRoot, snapshot, thresholds: loadThresholds(repoRoot), sealMeta, env, home });
     if (!gate.ok) return { exitCode: gate.exitCode, lines: [`run: holdout precondition (${gate.precondition}) failed: ${gate.message}`], error: gate.message };
+    if (gate.reservation) Object.assign(started, { reservation: gate.reservation, sealMeta, snapshot, protocol });
     key = gate.key || sealLib.resolveKey({ keyFile: args['key-file'], env, home, repoRoot });
   }
 
