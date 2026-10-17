@@ -132,9 +132,18 @@ doflow_identity() {
   # never followed, or `bound` still empty after one retry) is inherited too. With no session id the
   # unit is solo with an empty unit id and no capture.
   if [ "$DF_ID_KIND" = launched ]; then
-    sessions="${SESSION_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/doflow/session-env/sessions}"
-    dir="$sessions/$DF_ID_UNIT"
-    if [ -n "$session_id" ] && mkdir -p "$dir" 2>/dev/null; then
+    # The store is lib.sh's SESSION_DIR. Sourced without lib.sh, the config-home rule of
+    # src/runtime/config-home.ts is applied inline (an absolute XDG_CONFIG_HOME, else an absolute
+    # HOME + /.config); with no config home there is no store and the unit is not bound (086 IC-010).
+    sessions="${SESSION_DIR:-}"
+    if [ -z "$sessions" ]; then
+      case "${XDG_CONFIG_HOME:-}" in
+        /*) sessions="$XDG_CONFIG_HOME/doflow/session-env/sessions" ;;
+        *) case "${HOME:-}" in /*) sessions="$HOME/.config/doflow/session-env/sessions" ;; esac ;;
+      esac
+    fi
+    dir="${sessions:+$sessions/$DF_ID_UNIT}"
+    if [ -n "$session_id" ] && [ -n "$dir" ] && mkdir -p "$dir" 2>/dev/null; then
       case $- in *C*) had_c=1 ;; esac
       set -C
       { printf '%s\n' "$session_id" >"$dir/bound"; } 2>/dev/null && mine=1

@@ -19,26 +19,55 @@
 case ${BASH_SOURCE[0]} in */*) _DOFLOW_CAPTURE_FAILURE_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_CAPTURE_FAILURE_DIR=. ;; esac
 # The line holds only the policy name and the point name from DoFlow's own code, the working
 # directory, the harness name and the install version: never the tool call, its arguments or stdin.
-# It is a no-op when no failure home can be resolved (HOME unset, or XDG_CONFIG_HOME relative) and
-# while capture is off (the `off` sentinel file wins; DOFLOW_FAILURE_CAPTURE=off|0|false|no also
-# turns it off), the same rules the Node writer follows (IC-011, IC-014).
+# It is a no-op when there is no config home (neither XDG_CONFIG_HOME nor HOME is set to an absolute
+# path; doflow_config_home below) and while capture is off (DOFLOW_FAILURE_CAPTURE=off|0|false|no,
+# the `off` sentinel file, or a `failure.capture` value other than "on" in <config home>/settings.json,
+# read by doflow_lex_capture below), the same rules the Node writer follows (IC-011, IC-014, IC-005).
+# The two marked blocks are byte-identical to the ones in bin/doflow-run.
+
+# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+doflow_config_home() {
+  DOFLOW_HOME=""
+  case "${XDG_CONFIG_HOME:-}" in
+    /*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;;
+  esac
+  case "${HOME:-}" in
+    /*) DOFLOW_HOME="${HOME}/.config/doflow" ;;
+  esac
+  return 0
+}
+# END doflow-config-home v1
+
+# BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.js)
+doflow_lex_capture() {
+  local f="${1:-}" text="" rest="" d=""
+  local re='"failure\.capture"[[:space:]]*:[[:space:]]*("[^"]*"|[^,}"[:space:]]*)'
+  DOFLOW_LEX_CAPTURE=""
+  if [ ! -e "$f" ]; then
+    # Missing is no setting, unless the folder holding it cannot be searched (Node: EACCES is off).
+    d="${f%/*}"
+    if [ -n "$d" ] && [ "$d" != "$f" ] && [ -d "$d" ] && [ ! -x "$d" ]; then DOFLOW_LEX_CAPTURE="off"; fi
+    return 0
+  fi
+  if [ ! -f "$f" ] || [ ! -r "$f" ]; then DOFLOW_LEX_CAPTURE="off"; return 0; fi
+  IFS= read -r -d '' text < "$f" || true
+  rest="$text"
+  while [[ $rest =~ $re ]]; do
+    if [ "${BASH_REMATCH[1]}" = '"on"' ]; then DOFLOW_LEX_CAPTURE="${DOFLOW_LEX_CAPTURE:-on}"; else DOFLOW_LEX_CAPTURE="off"; fi
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done
+  return 0
+}
+# END doflow-settings-lexical v1
 
 doflow_capture_failure() {
   local policy="${1:-}" point="${2:-}"
   local LC_ALL=C   # byte-wise lengths and cuts; scoped to this function
   local home="" setting="" version="" harness="" project="" cwd="" hp="" at="" line="" here="" dir=""
 
-  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
-    case "$XDG_CONFIG_HOME" in
-      /*) home="$XDG_CONFIG_HOME/doflow/failures" ;;
-      *) return 0 ;;
-    esac
-  else
-    case "${HOME:-}" in
-      /*) home="$HOME/.config/doflow/failures" ;;
-      *) return 0 ;;
-    esac
-  fi
+  doflow_config_home
+  [ -n "$DOFLOW_HOME" ] || return 0
+  home="$DOFLOW_HOME/failures"
 
   # Case-insensitive, whitespace trimmed at the ends only: the same reading the Node writer has.
   setting="$(printf '%s' "${DOFLOW_FAILURE_CAPTURE:-}" | tr '[:upper:]' '[:lower:]')" || return 0
@@ -48,6 +77,8 @@ doflow_capture_failure() {
     off|0|false|no) return 0 ;;
   esac
   [ -f "$home/off" ] && return 0
+  doflow_lex_capture "$DOFLOW_HOME/settings.json"
+  [ "$DOFLOW_LEX_CAPTURE" = off ] && return 0
 
   [[ "$policy" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || policy="unknown"
   [[ "$point" =~ ^[A-Za-z][A-Za-z0-9._:-]{0,39}$ ]] || return 0

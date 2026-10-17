@@ -1,12 +1,17 @@
 'use strict';
 
-// Feature 086, task A.2: the four readers of `failure.capture` agree at 2.0. Capture is read by four
-// separate pieces of code: the bash dispatcher (bin/doflow-run, capture_failure_write), the bash
-// policy helper (policies/capture-failure.sh, doflow_capture_failure), the JS hook runner
-// (stream-hook-runner.js, captureHookFailure) and Node (failure/home.ts, captureIsOff). Each row of
-// the table below sets an environment and a sentinel, asks every reader whether capture is on, and
-// requires one answer, equal to the 2.0 value pinned by C17-C20 in compat-matrix.test.js. The three
-// writers answer by whether they append a line to the events file; Node answers with captureIsOff.
+// Feature 086: the four readers of `failure.capture` agree. Capture is read by four separate pieces
+// of code: the bash dispatcher (bin/doflow-run, capture_failure_write), the bash policy helper
+// (policies/capture-failure.sh, doflow_capture_failure), the JS hook runner (stream-hook-runner.js,
+// captureHookFailure) and Node (failure/home.ts, captureIsOff). Each row sets an environment, a
+// sentinel and a settings.json, asks every reader whether capture is on, and requires one answer
+// equal to the row's expected value. The three writers answer by whether they append a line to the
+// events file; Node answers with captureIsOff (or "skipped" when failureHome is null).
+//
+// A.2 pinned the env and sentinel rows (C17-C20, unchanged in 2.1). B.2 adds the home shapes of
+// IC-003 (C21-C23 at 2.1: a relative XDG_CONFIG_HOME is ignored and a usable HOME decides), the
+// settings.json file faults (unreadable, dangling link, folder, unsearchable folder, FIFO) and the
+// IC-004 corpus through the three non-Node readers (the Node column of the corpus is B.3's).
 //
 // policies/lib.sh holds no capture reader (it only resolves the config home), so the "policy path"
 // reader is capture-failure.sh, the helper the guard policies call.
@@ -22,15 +27,25 @@ const { createSettingsEnv, REPO } = require('../helper/settings-fixtures');
 const { failureHome, captureIsOff } = require('../../src/runtime/failure/home.ts');
 
 const POSIX = process.platform !== 'win32';
+const ROOT = POSIX && typeof process.getuid === 'function' && process.getuid() === 0;
 const BASH = '/bin/bash';
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const POLICY_HELPER = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'capture-failure.sh');
 const RUNNER = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js');
 
-/** The two functions of the dispatcher that make up its capture reader, cut from the shipped file. */
-function dispatcherFunctions() {
-  const lines = fs.readFileSync(DISPATCHER, 'utf8').split('\n');
-  const out = [];
+/** The lines from `# BEGIN <name>` to `# END <name>` in `lines`, inclusive. */
+function block(lines, name, file) {
+  const start = lines.findIndex((line) => line.startsWith(`# BEGIN ${name} `));
+  assert.notEqual(start, -1, `${file} has the ${name} block`);
+  const end = lines.findIndex((line, i) => i > start && line === `# END ${name}`);
+  assert.notEqual(end, -1, `${file}: the ${name} block ends`);
+  return lines.slice(start, end + 1);
+}
+
+/** The dispatcher's capture reader cut from `text`: its two marked blocks and its two functions. */
+function dispatcherFunctions(text = fs.readFileSync(DISPATCHER, 'utf8')) {
+  const lines = text.split('\n');
+  const out = [...block(lines, 'doflow-config-home v1', 'doflow-run'), '', ...block(lines, 'doflow-settings-lexical v1', 'doflow-run'), ''];
   for (const name of ['capture_failure_write', 'capture_failure']) {
     const start = lines.findIndex((line) => line === `${name}() {`);
     assert.notEqual(start, -1, `${name} is defined in doflow-run`);
@@ -41,9 +56,12 @@ function dispatcherFunctions() {
   return `CAPTURE_VERB=""\n${out.join('\n')}`;
 }
 
+// ── rows ───────────────────────────────────────────────────────────────────────────────────────
+
 // `word` undefined leaves DOFLOW_FAILURE_CAPTURE unset; `xdg` is 'absolute' (XDG_CONFIG_HOME set to
 // the fixture folder) or 'unset' (the home falls back to $HOME/.config); `sentinel` puts the
-// failures/off file where that row's readers look; `off` is the 2.0 answer (C17-C20).
+// failures/off file where that row's readers look; `off` is the expected answer (C17-C20, the same in
+// 2.0 and 2.1).
 const ROWS = [];
 for (const xdg of ['absolute', 'unset']) {
   ROWS.push({ name: 'unset, no sentinel', xdg, word: undefined, sentinel: false, off: false });
@@ -58,81 +76,242 @@ for (const xdg of ['absolute', 'unset']) {
   }
 }
 
+// IC-003 home shapes at 2.1. `relative-xdg`: XDG_CONFIG_HOME relative and HOME absolute (case 9,
+// C23 flipped: HOME decides). `relative-xdg, no HOME` (case 7) and `no HOME, no XDG` (case 1, C22):
+// no config home, capture skipped, nothing created anywhere.
+const HOME_ROWS = [
+  { name: 'relative XDG, absolute HOME: $HOME/.config decides (C23)', xdg: 'relative', off: false },
+  { name: 'relative XDG, absolute HOME, sentinel under $HOME/.config', xdg: 'relative', sentinel: true, off: true },
+  { name: 'relative XDG, absolute HOME, settings.json off under $HOME/.config', xdg: 'relative', settings: { text: '{"failure.capture":"off"}' }, off: true },
+  { name: 'relative XDG, HOME unset: no config home (case 7)', xdg: 'relative', noHome: true, off: true },
+  { name: 'HOME and XDG unset: no config home (case 1, C22)', xdg: 'unset', noHome: true, off: true },
+];
+
+// settings.json shapes that are not a readable regular file (IC-004 file cases, B.1 parity item).
+// `settings.text` is a regular file; `settings.kind` one of the faults. Expected: Node's answer.
+const FILE_ROWS = [];
+for (const xdg of ['absolute', 'unset']) {
+  FILE_ROWS.push({ name: 'settings.json on', xdg, settings: { text: '{"failure.capture":"on"}' }, off: false });
+  FILE_ROWS.push({ name: 'settings.json off', xdg, settings: { text: '{"failure.capture":"off"}' }, off: true });
+  FILE_ROWS.push({ name: 'settings.json off with env on (env cannot turn it on)', xdg, word: 'on', settings: { text: '{"failure.capture":"off"}' }, off: true });
+  FILE_ROWS.push({ name: 'settings.json without the key', xdg, settings: { text: '{"schema":1}' }, off: false });
+  FILE_ROWS.push({ name: 'a folder named settings.json is off', xdg, settings: { kind: 'folder' }, off: true });
+  FILE_ROWS.push({ name: 'a dangling settings.json link is no setting', xdg, settings: { kind: 'dangling' }, off: false });
+  FILE_ROWS.push({ name: 'a FIFO named settings.json is off and never opened', xdg, settings: { kind: 'fifo' }, off: true });
+  if (!ROOT) {
+    FILE_ROWS.push({ name: 'an unreadable settings.json holding "on" is off', xdg, settings: { kind: 'unreadable' }, off: true });
+    FILE_ROWS.push({ name: 'settings.json in a folder that cannot be searched is off', xdg, settings: { kind: 'parent' }, off: true });
+  }
+}
+
+// The IC-004 corpus (the strings of test/settings/lexical.test.js), each written as the bytes of
+// settings.json; `answer` is the lexical rule's result, and capture is off only for 'off'.
+const BOM = '\u00ef\u00bb\u00bf';
+const NBSP = '\u00c2\u00a0'; // U+00A0 as its two UTF-8 bytes, latin1 characters
+const CORPUS = [
+  ['pretty LF', '{\n  "schema": 1,\n  "failure.capture": "on"\n}\n', 'on'],
+  ['pretty LF off', '{\n  "schema": 1,\n  "failure.capture": "off"\n}\n', 'off'],
+  ['compact', '{"schema":1,"failure.capture":"on"}', 'on'],
+  ['wide spaces', '{"failure.capture"   :   "on"}', 'on'],
+  ['wide spaces off', '{"failure.capture"   :   "off"}', 'off'],
+  ['pair split over lines', '{"failure.capture"\n:\n"on"}', 'on'],
+  ['CRLF', '{\r\n  "schema": 1,\r\n  "failure.capture": "on"\r\n}\r\n', 'on'],
+  ['CRLF off', '{\r\n  "failure.capture": "off"\r\n}\r\n', 'off'],
+  ['tab, VT and FF as space', '{"failure.capture"\t:\u000b\u000c"off"}', 'off'],
+  ['BOM then on', `${BOM}{"failure.capture":"on"}`, 'on'],
+  ['BOM then off', `${BOM}{"failure.capture":"off"}`, 'off'],
+  ['OFF', '{"failure.capture":"OFF"}', 'off'],
+  ['ON is not on', '{"failure.capture":"ON"}', 'off'],
+  ['"off " with a space', '{"failure.capture":"off "}', 'off'],
+  ['bare true', '{"failure.capture":true}', 'off'],
+  ['empty value', '{"failure.capture":}', 'off'],
+  ['duplicate on then off', '{"failure.capture":"on","failure.capture":"off"}', 'off'],
+  ['duplicate off then on', '{"failure.capture":"off","failure.capture":"on"}', 'off'],
+  ['duplicate on then on', '{"failure.capture":"on","failure.capture":"on"}', 'on'],
+  ['another key whose value is the key text', '{"other":"failure.capture","failure.capture":"on"}', 'on'],
+  ['the key text alone is no setting', '{"other":"failure.capture"}', null],
+  ['escaped key text inside a string', '{"x":"\\"failure.capture\\":\\"off\\""}', null],
+  ['nested object is not the flat key', '{"failure":{"capture":"off"}}', null],
+  ['broken JSON still reads the pair', '{"failure.capture":"off" garbage ]]', 'off'],
+  ['junk after the closing quote (OI-1)', '{"failure.capture":"on"abc,}', 'on'],
+  ['unterminated on', '{"failure.capture":"on', 'off'],
+  ['NUL ends the text', '{"failure.capture":"on"}\0{"failure.capture":"off"}', 'on'],
+  ['non-breaking space is not space', `{"failure.capture"${NBSP}:"off"}`, null],
+  ['non-breaking space after the colon', `{"failure.capture":${NBSP}"on"}`, 'off'],
+];
+const CORPUS_ROWS = CORPUS.map(([name, text, answer]) => ({ name: `corpus: ${name}`, xdg: 'absolute', settings: { text }, off: answer === 'off' }));
+
+// ── fixtures ───────────────────────────────────────────────────────────────────────────────────
+
 /** A fresh fixture for one row: its environment, the failures home and the events file. */
 function rowEnv(t, row) {
   const f = createSettingsEnv(t, { prefix: 'doflow-capture-agreement-' });
-  const env = { PATH: process.env.PATH, HOME: f.home };
+  const env = { PATH: process.env.PATH };
+  if (!row.noHome) env.HOME = f.home;
   if (row.xdg === 'absolute') env.XDG_CONFIG_HOME = f.xdg;
+  if (row.xdg === 'relative') env.XDG_CONFIG_HOME = 'rel-xdg';
   if (row.word !== undefined) env.DOFLOW_FAILURE_CAPTURE = row.word;
   const home = failureHome(env);
-  assert.equal(home, row.xdg === 'absolute' ? f.failuresDir : path.join(f.home, '.config', 'doflow', 'failures'));
-  if (row.sentinel) {
+  const expectedHome = row.noHome ? null : row.xdg === 'absolute' ? f.failuresDir : path.join(f.home, '.config', 'doflow', 'failures');
+  assert.equal(home, expectedHome, 'the row resolves the failure home it means to');
+  const restore = [];
+  if (home && row.sentinel) {
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, 'off'), 'off\n');
   }
-  return { f, env, home, events: path.join(home, 'events.jsonl') };
+  if (home && row.settings) {
+    const config = path.dirname(home);
+    const file = path.join(config, 'settings.json');
+    fs.mkdirSync(config, { recursive: true });
+    const kind = row.settings.kind;
+    if (kind === undefined) fs.writeFileSync(file, Buffer.from(row.settings.text, 'latin1'));
+    else if (kind === 'folder') fs.mkdirSync(file);
+    else if (kind === 'dangling') fs.symlinkSync(path.join(config, 'nowhere.json'), file);
+    else if (kind === 'fifo') assert.equal(spawnSync('mkfifo', [file]).status, 0, 'mkfifo');
+    else if (kind === 'unreadable') {
+      fs.writeFileSync(file, '{"failure.capture":"on"}');
+      fs.chmodSync(file, 0o000);
+      restore.push(() => fs.chmodSync(file, 0o600));
+    } else if (kind === 'parent') {
+      fs.writeFileSync(file, '{"failure.capture":"on"}');
+      fs.chmodSync(config, 0o000);
+      restore.push(() => fs.chmodSync(config, 0o700));
+    } else throw new Error(`unknown settings kind ${kind}`);
+  }
+  return {
+    f, env, home, events: home && path.join(home, 'events.jsonl'),
+    done() { for (const undo of restore) undo(); },
+  };
 }
 
-const wrote = (events) => fs.existsSync(events) && fs.readFileSync(events, 'utf8').trim().length > 0;
+/** True when nothing was appended: no events file, or an empty one. Rows with no home check that nothing was created. */
+function noLine(setup) {
+  if (setup.home === null) {
+    assert.deepEqual(fs.readdirSync(setup.f.project), ['.doflow'], 'nothing created in the working directory');
+    assert.deepEqual(fs.readdirSync(setup.f.home), [], 'nothing created in the fixture home');
+    return true;
+  }
+  setup.done();
+  return !(fs.existsSync(setup.events) && fs.readFileSync(setup.events, 'utf8').trim().length > 0);
+}
 
-/** The readers. Each takes the row's setup and returns true when capture is OFF for it. */
+// ── readers ────────────────────────────────────────────────────────────────────────────────────
+
+/** The dispatcher reader over `text` (default: the shipped file). */
+function dispatcherReader(text) {
+  const script = `set -euo pipefail\n${dispatcherFunctions(text)}\ncapture_failure dispatcher probe-kind 2`;
+  return (setup) => {
+    const r = spawnSync(BASH, ['-c', script], { cwd: setup.f.project, env: setup.env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return noLine(setup);
+  };
+}
+
+/** The policy helper reader over the file `helper` (default: the shipped file). */
+function policyReader(helper = POLICY_HELPER) {
+  return (setup) => {
+    const r = spawnSync(BASH, ['-c', 'set -uo pipefail; . "$1"; doflow_capture_failure pre-bash-guard patterns-missing', 'x', helper],
+      { cwd: setup.f.project, env: setup.env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return noLine(setup);
+  };
+}
+
 const READERS = {
-  'bash dispatcher (doflow-run)'({ f, env, events }) {
-    const script = `set -euo pipefail\n${dispatcherFunctions()}\ncapture_failure dispatcher probe-kind 2`;
-    const r = spawnSync(BASH, ['-c', script], { cwd: f.project, env, encoding: 'utf8' });
-    assert.equal(r.status, 0, r.stderr);
-    return !wrote(events);
-  },
-  'bash policy helper (capture-failure.sh)'({ f, env, events }) {
-    const r = spawnSync(BASH, ['-c', 'set -uo pipefail; . "$1"; doflow_capture_failure pre-bash-guard patterns-missing', 'x', POLICY_HELPER],
-      { cwd: f.project, env, encoding: 'utf8' });
-    assert.equal(r.status, 0, r.stderr);
-    return !wrote(events);
-  },
-  'JS hook runner (stream-hook-runner.js)'({ f, env, events }) {
+  'bash dispatcher (doflow-run)': dispatcherReader(),
+  'bash policy helper (capture-failure.sh)': policyReader(),
+  'JS hook runner (stream-hook-runner.js)'(setup) {
     const code = `process.stdout.write(String(require(${JSON.stringify(RUNNER)}).captureHookFailure({ command: 'probe', kind: 'probe-kind' })))`;
-    const r = spawnSync(process.execPath, ['-e', code], { cwd: f.project, env, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, ['-e', code], { cwd: setup.f.project, env: setup.env, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
-    assert.equal(r.stdout === 'true', wrote(events), 'the runner reports a write exactly when a line is there');
-    return !wrote(events);
+    const off = noLine(setup);
+    assert.equal(r.stdout === 'true', !off, 'the runner reports a write exactly when a line is there');
+    return off;
   },
-  'Node captureIsOff (failure/home.ts)'({ env, home }) {
-    return captureIsOff(home, env);
+  'Node captureIsOff (failure/home.ts)'(setup) {
+    const off = setup.home === null ? true : captureIsOff(setup.home, setup.env);
+    setup.done();
+    return off;
   },
 };
+const { 'Node captureIsOff (failure/home.ts)': _node, ...SHELL_AND_RUNNER } = READERS;
 
 /** Runs every reader over every row (fresh fixture per reader and row); returns the disagreements. */
 function disagreements(readers, rows, t) {
   const found = [];
   for (const row of rows) {
     const answers = {};
-    for (const [name, read] of Object.entries(readers)) answers[name] = read(rowEnv(t, row));
+    for (const [name, read] of Object.entries(readers)) {
+      const setup = rowEnv(t, row);
+      try { answers[name] = read(setup); } finally { setup.done(); }
+    }
     const distinct = new Set(Object.values(answers));
     if (distinct.size !== 1 || !distinct.has(row.off)) found.push({ row: `${row.xdg} xdg: ${row.name}`, expected: row.off, answers });
   }
   return found;
 }
 
-test('the four capture readers give one on/off answer on every row, equal to the 2.0 value', { skip: !POSIX }, (t) => {
+/** A scratch copy of capture-failure.sh with `from` replaced by `to` inside its lexical block. */
+function patchedHelper(t, from, to) {
+  const text = fs.readFileSync(POLICY_HELPER, 'utf8');
+  const lines = text.split('\n');
+  const lex = block(lines, 'doflow-settings-lexical v1', 'capture-failure.sh').join('\n');
+  assert.ok(lex.includes(from), `the lexical block contains ${from}`);
+  const dir = createSettingsEnv(t, { prefix: 'doflow-capture-patched-' }).dir;
+  const file = path.join(dir, 'capture-failure.sh');
+  fs.writeFileSync(file, text.replace(lex, lex.split(from).join(to)));
+  return file;
+}
+
+// ── tests ──────────────────────────────────────────────────────────────────────────────────────
+
+test('the four capture readers give one on/off answer on every env and sentinel row (C17-C20)', { skip: !POSIX }, (t) => {
   assert.equal(Object.keys(READERS).length, 4);
+  assert.equal(ROWS.length, 34);
   const found = disagreements(READERS, ROWS, t);
   assert.deepEqual(found, [], `readers disagree: ${JSON.stringify(found, null, 1)}`);
 });
 
-test('control: the table has on, off and sentinel rows on both home shapes, so agreement is not trivial', () => {
+test('the four readers agree on the IC-003 home shapes at 2.1 (C21-C23)', { skip: !POSIX }, (t) => {
+  const found = disagreements(READERS, HOME_ROWS, t);
+  assert.deepEqual(found, [], `readers disagree: ${JSON.stringify(found, null, 1)}`);
+});
+
+test('the four readers agree on settings.json and its file faults (unreadable, dangling, folder, unsearchable folder, FIFO)', { skip: !POSIX }, (t) => {
+  const found = disagreements(READERS, FILE_ROWS, t);
+  assert.deepEqual(found, [], `readers disagree: ${JSON.stringify(found, null, 1)}`);
+});
+
+test('the dispatcher, the policy helper and the runner agree with the IC-004 corpus answers', { skip: !POSIX }, (t) => {
+  assert.equal(Object.keys(SHELL_AND_RUNNER).length, 3);
+  const found = disagreements(SHELL_AND_RUNNER, CORPUS_ROWS, t);
+  assert.deepEqual(found, [], `readers disagree: ${JSON.stringify(found, null, 1)}`);
+});
+
+test('the two bash readers carry byte-identical config-home and lexical blocks', () => {
+  for (const name of ['doflow-config-home v1', 'doflow-settings-lexical v1']) {
+    const a = block(fs.readFileSync(DISPATCHER, 'utf8').split('\n'), name, 'doflow-run');
+    const b = block(fs.readFileSync(POLICY_HELPER, 'utf8').split('\n'), name, 'capture-failure.sh');
+    assert.deepEqual(a, b, name);
+  }
+});
+
+test('control: the tables have on, off and sentinel rows on both home shapes, so agreement is not trivial', () => {
   for (const xdg of ['absolute', 'unset']) {
     assert.ok(ROWS.some((r) => r.xdg === xdg && r.off), `${xdg}: an off row`);
     assert.ok(ROWS.some((r) => r.xdg === xdg && !r.off), `${xdg}: an on row`);
     assert.ok(ROWS.some((r) => r.xdg === xdg && r.sentinel), `${xdg}: a sentinel row`);
+    assert.ok(FILE_ROWS.some((r) => r.xdg === xdg && r.off) && FILE_ROWS.some((r) => r.xdg === xdg && !r.off), `${xdg}: file rows both ways`);
   }
+  assert.ok(CORPUS_ROWS.some((r) => r.off) && CORPUS_ROWS.some((r) => !r.off), 'corpus rows both ways');
 });
 
 test('negative control: a reader that differs from the others makes the agreement check fail', { skip: !POSIX }, (t) => {
   // A deliberately wrong reader: the word is compared case-sensitively and without trimming.
-  const strict = ({ env, home }) => {
-    const word = env.DOFLOW_FAILURE_CAPTURE;
+  const strict = (setup) => {
+    const word = setup.env.DOFLOW_FAILURE_CAPTURE;
     if (word !== undefined && ['off', '0', 'false', 'no'].includes(word)) return true;
-    return fs.existsSync(path.join(home, 'off'));
+    return fs.existsSync(path.join(setup.home, 'off'));
   };
   const found = disagreements({ ...READERS, 'stub (case-sensitive)': strict }, ROWS, t);
   const names = found.map((x) => x.row);
@@ -143,4 +322,38 @@ test('negative control: a reader that differs from the others makes the agreemen
   for (const x of found) {
     assert.deepEqual(Object.keys(x.answers).filter((k) => x.answers[k] !== x.expected), ['stub (case-sensitive)'], x.row);
   }
+});
+
+test('negative control: a bash block with DD-3\'s original bare class [^,}[:space:]]* reads "on"abc as off and fails the corpus', { skip: !POSIX }, (t) => {
+  const helper = patchedHelper(t, '[^,}"[:space:]]*', '[^,}[:space:]]*');
+  const found = disagreements({ 'patched helper': policyReader(helper) }, CORPUS_ROWS, t);
+  assert.deepEqual(found.map((x) => x.row), ['absolute xdg: corpus: junk after the closing quote (OI-1)']);
+});
+
+// bash 3.2's regex has no \s (DD-3 probe): `\s*` matches only an empty run, so `"k": "on"` captures
+// the empty bare value after the colon (off) and `"k"   :   "off"` does not match at all (no setting).
+test('negative control: a bash block whose regex uses \\s fails the corpus on bash 3.2', { skip: !POSIX }, (t) => {
+  const helper = patchedHelper(t, '[[:space:]]*:[[:space:]]*', '\\s*:\\s*');
+  const found = disagreements({ 'patched helper': policyReader(helper) }, CORPUS_ROWS, t).map((x) => x.row);
+  assert.ok(found.includes('absolute xdg: corpus: pretty LF'), JSON.stringify(found));
+  assert.ok(found.includes('absolute xdg: corpus: wide spaces off'), JSON.stringify(found));
+  assert.ok(!found.includes('absolute xdg: corpus: compact'), 'a row without whitespace still agrees');
+});
+
+test('negative control: a dispatcher block without the unsearchable-folder check reads that row as on', { skip: !POSIX || ROOT }, (t) => {
+  const text = fs.readFileSync(DISPATCHER, 'utf8');
+  const check = '    if [ -n "$d" ] && [ "$d" != "$f" ] && [ -d "$d" ] && [ ! -x "$d" ]; then DOFLOW_LEX_CAPTURE="off"; fi\n';
+  assert.ok(text.includes(check));
+  // The capture write cannot land in an unsearchable folder anyway, so the row is checked on the
+  // lexical function itself: the shipped block says off, the stripped one says nothing.
+  const lexOf = (source) => {
+    const lines = source.split('\n');
+    const script = `set -euo pipefail\nexport LC_ALL=C\n${block(lines, 'doflow-settings-lexical v1', 'doflow-run').join('\n')}\ndoflow_lex_capture "$1"; printf '%s' "$DOFLOW_LEX_CAPTURE"`;
+    const setup = rowEnv(t, { xdg: 'absolute', settings: { kind: 'parent' } });
+    try {
+      return spawnSync(BASH, ['-c', script, 'x', path.join(path.dirname(setup.home), 'settings.json')], { encoding: 'utf8' }).stdout;
+    } finally { setup.done(); }
+  };
+  assert.equal(lexOf(text), 'off');
+  assert.equal(lexOf(text.replace(check, '')), '');
 });

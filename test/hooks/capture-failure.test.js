@@ -101,12 +101,27 @@ describe('pre-bash-guard patterns-missing', { skip: !HAS_JQ && 'jq is not instal
       assert.ok([0, 2].includes(a.status));
     }
   });
-  test('a relative XDG_CONFIG_HOME is skipped', () => {
+  // 086 C23 (IC-003 case 9): a relative XDG_CONFIG_HOME is ignored, so a usable HOME decides.
+  test('a relative XDG_CONFIG_HOME is ignored: the line lands in $HOME/.config/doflow/failures', () => {
     const m = machine('relxdg', { patterns: false });
     const r = run(m, 'pre-bash-guard.sh', bash('Bash', 'ls'), { env: { XDG_CONFIG_HOME: 'rel/cfg' } });
     assert.equal(r.status, 0);
-    assert.equal(fs.existsSync(path.join(m.cwd, 'rel')), false);
-    assert.equal(fs.existsSync(path.join(m.home, '.config')), false);
+    assert.equal(fs.existsSync(path.join(m.cwd, 'rel')), false, 'never read against the working directory');
+    assert.equal(fs.readFileSync(path.join(m.home, '.config', 'doflow', 'failures', 'events.jsonl'), 'utf8').split('\n').filter(Boolean).length, 1);
+  });
+  test('a relative XDG_CONFIG_HOME with HOME unset: no config home, skipped, output identical', () => {
+    const on = machine('relxdg-nohome-on', { patterns: false });
+    const off = machine('relxdg-nohome-off', { patterns: false });
+    const go = (m, extra) => {
+      const env = { ...process.env, XDG_CONFIG_HOME: 'rel/cfg', DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: '', ...extra };
+      delete env.HOME;
+      const r = spawnSync(BASH, [path.join(m.pol, 'pre-bash-guard.sh')], { cwd: m.cwd, env, input: bash('Bash', 'rm -rf /'), encoding: 'utf8' });
+      return [r.status, r.stdout, r.stderr];
+    };
+    const a = go(on, {});
+    assert.deepEqual(a, go(off, { DOFLOW_FAILURE_CAPTURE: 'off' }));
+    assert.equal(a[0], 2, 'the floor still denies');
+    assert.deepEqual(fs.readdirSync(on.cwd), [], 'nothing created in the working directory');
   });
   test('without XDG_CONFIG_HOME the line lands in $HOME/.config/doflow/failures', () => {
     const m = machine('homeconfig', { patterns: false });

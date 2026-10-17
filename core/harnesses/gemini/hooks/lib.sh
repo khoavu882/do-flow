@@ -17,13 +17,28 @@ set -euo pipefail
 
 # ── State directories ────────────────────────────────────────────────────────
 
-# XDG-compliant, agent-agnostic store shared by Claude Code, Codex, Gemini, etc.
-DOFLOW_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/doflow"
-STATE_DIR="$DOFLOW_HOME/session-env"
-SESSION_DIR="$STATE_DIR/sessions"
-PROJECTS_DIR="$STATE_DIR/projects"
+# XDG-compliant, agent-agnostic store shared by every harness DoFlow supports, under the config home
+# (doflow_config_home: an absolute XDG_CONFIG_HOME, else an absolute HOME + /.config, else none). With
+# no config home every state path below is empty, sourcing this file still never exits, and each state
+# function returns 0 at once: session work is skipped and a guard reaches its own decision (086 IC-010).
+# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+doflow_config_home() {
+  DOFLOW_HOME=""
+  case "${XDG_CONFIG_HOME:-}" in
+    /*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;;
+  esac
+  case "${HOME:-}" in
+    /*) DOFLOW_HOME="${HOME}/.config/doflow" ;;
+  esac
+  return 0
+}
+# END doflow-config-home v1
+doflow_config_home
+STATE_DIR="${DOFLOW_HOME:+$DOFLOW_HOME/session-env}"
+SESSION_DIR="${STATE_DIR:+$STATE_DIR/sessions}"
+PROJECTS_DIR="${STATE_DIR:+$STATE_DIR/projects}"
 # shellcheck disable=SC2034  # used by session-start.sh and session-end.sh which source this file
-SESSIONS_LOG="$DOFLOW_HOME/sessions.log"
+SESSIONS_LOG="${DOFLOW_HOME:+$DOFLOW_HOME/sessions.log}"
 
 # Identifies which agent is running. Override via env var for non-Claude agents.
 export DOFLOW_AGENT="${DOFLOW_AGENT:-unknown}"
@@ -245,6 +260,7 @@ has_uncommitted_changes() {
 # Safe to call multiple times (mkdir -p is idempotent).
 ensure_session_dir() {
   local session_id="$1"
+  [ -n "$SESSION_DIR" ] || return 0
   mkdir -p "$SESSION_DIR/$session_id"
   echo "$SESSION_DIR/$session_id"
 }
@@ -254,6 +270,7 @@ ensure_session_dir() {
 ensure_project_dir() {
   local cwd="$1"
   local hash
+  [ -n "$PROJECTS_DIR" ] || return 0
   hash=$(cwd_hash "$cwd")
   mkdir -p "$PROJECTS_DIR/$hash"
   echo "$PROJECTS_DIR/$hash"

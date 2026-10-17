@@ -315,6 +315,19 @@ describe('switch and home (IC-011, IC-014)', () => {
     dispatch(t, ['paths'], { env: { FAKE_EXIT: '139', DOFLOW_FAILURE_CAPTURE: 'on' } });
     assert.deepEqual(fs.readdirSync(t.failures), ['off']);
   });
+  test('failure.capture "off" in <config home>/settings.json turns capture off, "on" leaves it on (IC-005)', () => {
+    const off = tree('switch-settings-off');
+    fs.mkdirSync(path.dirname(off.failures), { recursive: true });
+    fs.writeFileSync(path.join(path.dirname(off.failures), 'settings.json'), '{\n  "schema": 1,\n  "failure.capture": "off"\n}\n');
+    const r = dispatch(off, ['paths'], { env: { FAKE_EXIT: '139', DOFLOW_FAILURE_CAPTURE: 'on' } });
+    assert.equal(r.status, 139);
+    assert.equal(fs.existsSync(off.failures), false);
+    const on = tree('switch-settings-on');
+    fs.mkdirSync(path.dirname(on.failures), { recursive: true });
+    fs.writeFileSync(path.join(path.dirname(on.failures), 'settings.json'), '{"schema":1,"failure.capture":"on"}');
+    dispatch(on, ['paths'], { env: { FAKE_EXIT: '139' } });
+    assert.equal(lines(on).length, 1);
+  });
   test('HOME unset and no XDG_CONFIG_HOME: skipped, output and status unchanged', () => {
     const t = tree('nohome');
     const env = { ...baseEnv(t), FAKE_EXIT: '139' };
@@ -327,12 +340,13 @@ describe('switch and home (IC-011, IC-014)', () => {
     assert.equal(a.status, 139);
     assert.equal(fs.existsSync(path.join(t.dir, '.config')), false);
   });
-  test('a relative XDG_CONFIG_HOME is skipped even when HOME is usable', () => {
+  // 086 C23 (IC-003 case 9): a relative XDG_CONFIG_HOME is ignored, so a usable HOME decides.
+  test('a relative XDG_CONFIG_HOME is ignored: the line lands in $HOME/.config/doflow/failures', () => {
     const t = tree('relxdg');
     const r = dispatch(t, ['paths'], { env: { FAKE_EXIT: '139', XDG_CONFIG_HOME: 'rel/cfg' } });
     assert.equal(r.status, 139);
-    assert.equal(fs.existsSync(path.join(t.cwd, 'rel')), false);
-    assert.equal(fs.existsSync(path.join(t.home, '.config')), false);
+    assert.equal(fs.existsSync(path.join(t.cwd, 'rel')), false, 'never read against the working directory');
+    assert.equal(fs.readFileSync(path.join(t.home, '.config', 'doflow', 'failures', 'events.jsonl'), 'utf8').split('\n').filter(Boolean).length, 1);
   });
   test('without XDG_CONFIG_HOME the home is $HOME/.config/doflow/failures', () => {
     const t = tree('homeconfig');

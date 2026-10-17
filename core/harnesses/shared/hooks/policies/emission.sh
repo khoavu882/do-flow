@@ -11,7 +11,8 @@
 # safe and safe under the caller's `set -euo pipefail`. The caller has sourced lib.sh (which sources
 # identity.sh), summary-store.sh and emission-rules.sh; a missing one is a fault.
 #
-# Store, under SESSION_DIR (lib.sh; session-env/sessions):
+# Store, under SESSION_DIR (lib.sh; session-env/sessions; empty with no config home, which prints
+# the silent response with reason silent:no-home):
 #   <unitId>/injected   one-shot bootstrap slot, created exclusively (set -C) by the first caller
 #   <unitId>/emitted    the IC-015 ledger: <ISO-8601 UTC>\t<kind>\t<key>\t<outcome>\t<caller>, one
 #                       line per (kind, key, outcome), appended only when that triple is absent
@@ -123,9 +124,9 @@ _doflow_em_actions() {
 # Reads DOFLOW_AGENT (harness; sessionTitle on every harness but codex, DEC-030),
 # DOFLOW_CONTEXT_MAX_BYTES (budget, default DF_RULES_MAX_BYTES_DEFAULT or 16384), SESSION_DIR and the
 # launcher variables through doflow_identity. Sets DF_ID_* (doflow_identity), DF_EMIT_REASON (emit,
-# refused:mandatory-over-budget, silent:already-bootstrapped, silent:unchanged or fault:<point>) and
-# DF_EMIT_NUDGE (rendered or empty); when the nudge was rendered it calls `nudge_mark <session>
-# nudged` and, when contract.sh is loaded, `doflow_decide advisory prompt-nudge`.
+# refused:mandatory-over-budget, silent:already-bootstrapped, silent:unchanged, silent:no-home or
+# fault:<point>) and DF_EMIT_NUDGE (rendered or empty); when the nudge was rendered it calls
+# `nudge_mark <session> nudged` and, when contract.sh is loaded, `doflow_decide advisory prompt-nudge`.
 doflow_emit_prompt() {
   local session="${1:-}" cwd="${2:-}" payload_title="${3:-}" nudge="${5:-}"
   local subagent=false nudge_state=none role kind bootstrapped=false own=none grant=none refused=false
@@ -163,7 +164,14 @@ doflow_emit_prompt() {
     _doflow_em_silent unit
     return 0
   fi
-  sessions="${SESSION_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/doflow/session-env/sessions}"
+  # IC-010: lib.sh's SESSION_DIR is empty with no config home; there is no store, so nothing is
+  # claimed, rendered or recorded (src/runtime/context/arbitrate.ts answers silent:no-home too).
+  sessions="${SESSION_DIR:-}"
+  if [ -z "$sessions" ]; then
+    DF_EMIT_REASON=silent:no-home
+    printf '{}\n'
+    return 0
+  fi
   dir="$sessions/$unit"
   max="${DOFLOW_CONTEXT_MAX_BYTES:-}"
   [[ $max =~ ^[1-9][0-9]{0,9}$ ]] || max="${DF_RULES_MAX_BYTES_DEFAULT:-16384}"
