@@ -30,6 +30,28 @@ function scrub(value: any, keys: Set<string>): any {
   return out;
 }
 
+function backupLayerFile(file: string, fsImpl = fs): any {
+  let contents;
+  try {
+    contents = fsImpl.readFileSync(file);
+  } catch (error: any) {
+    return invalid(file, `could not be preserved: ${error?.message || 'could not be read'}`);
+  }
+
+  for (let index = 0; ; index++) {
+    const backup = `${file}.bak${index === 0 ? '' : `.${index}`}`;
+    try {
+      fsImpl.writeFileSync(backup, contents, { flag: 'wx', mode: 0o600 });
+      fsImpl.chmodSync(backup, 0o600);
+      return { ok: true, file: backup };
+    } catch (error: any) {
+      if (error?.code === 'EEXIST') continue;
+      try { fsImpl.rmSync(backup, { force: true }); } catch { /* preserve the primary refusal */ }
+      return invalid(file, `could not be preserved: ${error?.message || 'could not be written'}`);
+    }
+  }
+}
+
 function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false, fsImpl = fs }: any = {}): any {
   if (typeof file !== 'string' || file.length === 0) {
     return { ok: false, reason: 'config-invalid', detail: 'file is required' };
@@ -122,4 +144,4 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
   }
 }
 
-module.exports = { writeLayer };
+module.exports = { writeLayer, backupLayerFile };

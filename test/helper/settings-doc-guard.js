@@ -69,6 +69,7 @@ function checkSettingsDocs(raw, text, registry) {
   const { error, rows } = docsRows(text);
   if (error) return [error];
   const errors = [];
+  if (/<config home>\/doflow\//.test(text)) errors.push('config home path duplicates the doflow segment');
   for (const [key, spec] of Object.entries(raw.keys)) {
     const row = rows.get(key);
     if (!row) { errors.push(`settings table is missing ${key}`); continue; }

@@ -8,6 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { spawnFakeServer } = require('../helper/fake-decision-server');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { emitDeprecatedNotes } = require('../../src/runtime/advice/cli.ts');
 
 const RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
@@ -279,6 +280,26 @@ test('advise writes a legacy deprecation note to stderr without changing JSON st
   const clean = current.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
   assert.equal(clean.status, 0, clean.stderr);
   assert.equal(clean.stderr, '', 'control: a current settings file has no deprecation note');
+});
+
+test('advise keeps a deprecated note when its wording changes', () => {
+  const source = '/tmp/doflow-advice-note/decision-model.json';
+  const output = [];
+  const originalError = console.error;
+  console.error = (line) => output.push(String(line));
+  try {
+    emitDeprecatedNotes({
+      adviceRegistry: {},
+      roots: { 'config-home': '/tmp/doflow-advice-note/doflow', 'project-doflow': null },
+    }, () => ({
+      files: [{ path: source, layer: 'user' }],
+      notes: [{ code: 'deprecated', key: 'advice.enabled', source, text: 'Legacy settings remain supported.' }],
+      get: () => ({ value: true, state: 'ok', origin: { via: null, legacy: true, source } }),
+    }));
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(output, ['note: Legacy settings remain supported.']);
 });
 
 test('configure at user level with no config home exits 2 naming HOME or XDG_CONFIG_HOME, writes nothing and throws no TypeError (086 DD-7)', (t) => {

@@ -299,6 +299,16 @@ test('G44 S2 control: a scratch settings table missing storage.prune is rejected
   assert.ok(errors.some((message) => message.includes('missing storage.prune')), errors.join('\n'));
 });
 
+test('G44 S2 control: doubled config-home paths are rejected', () => {
+  const raw = readJson(SETTINGS_FILE);
+  const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
+  assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
+  const docs = fs.readFileSync(path.join(REPO, 'docs/reference.md'), 'utf8');
+  const planted = docs.replace('### Settings keys', '<config home>/doflow/settings.json\n### Settings keys');
+  const errors = checkSettingsDocs(raw, planted, loaded.registry);
+  assert.ok(errors.some((message) => message.includes('config home path')), errors.join('\n'));
+});
+
 test('G44 S2 control: wrong Type and Legacy file cells are rejected', () => {
   const raw = readJson(SETTINGS_FILE);
   const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });

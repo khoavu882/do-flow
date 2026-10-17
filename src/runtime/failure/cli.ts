@@ -16,13 +16,12 @@ const path = require('node:path');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { maskLine, printSafe } = require('../mask.ts');
 const { failureHome, captureSwitchDetailed } = require('./home.ts');
-const { writeLayer } = require('../settings/write.ts');
+const { writeLayer, backupLayerFile } = require('../settings/write.ts');
 const { rotateIfDue } = require('./capture.ts');
 const store = require('./store.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
 const { appendEvents, readFold, randomChars, StoreUnsafeError, StoreLockedError } = require('../lifecycle/event-store.ts');
 const { prepareStore } = require('../lifecycle/store-upkeep.ts');
-const { isOffWord } = require('../settings/shared.ts');
 
 const ACTIONS = ['list', 'settle', 'capture'];
 const STATEMENT_MAX = 280;
@@ -125,10 +124,15 @@ function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date(
 function captureState({ set, env = process.env }: any = {}): any {
   if (set !== undefined && set !== 'on' && set !== 'off') throw new FailureUsageError(`--set must be on or off (got '${set}')`);
   const home = failureHome(env);
+  let settingsFile: string | null = null;
   if (home !== null && set !== undefined) {
     const file = path.join(path.dirname(home), 'settings.json');
+    settingsFile = file;
     const written = writeLayer({ file, set: { 'failure.capture': set }, scrubKeys: set === 'on' ? ['failure.capture'] : [] });
-    if (!written.ok && isOffWord(set) && written.code === 'unparseable') {
+    if (!written.ok && set === 'off' && written.code === 'unparseable') {
+      const backup = backupLayerFile(file);
+      if (!backup.ok) return refusal('capture', 'write-failed', backup.detail);
+      console.error(printSafe(`note: malformed settings preserved at ${backup.file}`));
       const recovered = writeLayer({ file, set: { 'failure.capture': set }, force: true });
       if (!recovered.ok) return refusal('capture', 'write-failed', recovered.detail);
     } else if (!written.ok) {
@@ -136,6 +140,7 @@ function captureState({ set, env = process.env }: any = {}): any {
     }
   }
   const state = captureSwitchDetailed(home, env);
+  if (settingsFile && state.decidedBy === 'core/registry/settings.json') state.decidedBy = settingsFile;
   for (const note of state.deprecatedNotes) console.error(printSafe(`note: ${note}`));
   // With no failure home nothing is captured, whatever the switch says.
   const result: any = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, sentinel: state.sentinel, env: state.env };

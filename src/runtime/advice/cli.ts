@@ -37,14 +37,33 @@ function loadRuntime({ projectRoot, global = false }: any = {}) {
   return { adviceRegistry, adviceError: advice.ok ? null : advice.detail, storage, roots, sources, projectLayers };
 }
 
-function emitDeprecatedNotes(runtime: any): void {
-  if (!runtime.adviceRegistry) return;
-  const setting = resolveSetting({ adviceRegistry: runtime.adviceRegistry, roots: runtime.roots, fsImpl: fs, includeDeprecated: true });
-  for (const note of setting.notes || []) {
-    if (/ is deprecated; set ".+" in .+ \(read through 2\.x\)$/.test(note)) console.error(`note: ${note}`);
-  }
+function emitDeprecatedNotes(runtime: any, loadSettingsImpl: any = loadSettings): void {
+  emitDeprecatedNotesByCode(runtime, loadSettingsImpl);
 }
 
+function emitDeprecatedNotesByCode(runtime: any, loadSettingsImpl: any = loadSettings): void {
+  if (!runtime.adviceRegistry) return;
+  const roots = runtime.roots || {};
+  const projectRoot = roots['project-doflow'] ? path.dirname(roots['project-doflow']) : null;
+
+  try {
+    const view = loadSettingsImpl({ projectRoot, fsImpl: fs });
+    const enabled = view.get('advice.enabled', 'global');
+    const canReadProject = enabled.value === true && enabled.state === 'ok' && enabled.origin.via === null;
+    for (const note of view.notes || []) {
+      if (note.code !== 'deprecated') continue;
+      const sourceLayer = view.files.find((file: any) => file.path === note.source)?.layer;
+      if (!note.key || !['user', 'project'].includes(sourceLayer)) continue;
+      if (sourceLayer === 'project' && !canReadProject) continue;
+      let resolution;
+      try { resolution = view.get(note.key, sourceLayer === 'user' ? 'global' : 'project'); } catch { continue; }
+      if (!resolution.origin.legacy || resolution.origin.source !== note.source) continue;
+      console.error('note: ' + note.text);
+    }
+  } catch {
+    // Advice remains usable when legacy-source reporting fails.
+  }
+}
 function emitResult(result: any, { json, kind }: any) {
   if (result.reason === 'over-limit') {
     return usageError('advise', result.detail || 'request exceeds an advice limit', json);
@@ -304,4 +323,4 @@ async function handleAdviseCommand(options: any = {}) {
   }
 }
 
-module.exports = { handleAdviseCommand };
+module.exports = { handleAdviseCommand, emitDeprecatedNotes };

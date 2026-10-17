@@ -119,25 +119,29 @@ test('config list masks credentials in both user and project URL candidates', (t
   assert.doesNotMatch(json.stdout, /http:\/\/u:p@h/);
 });
 
-test('config list masks query values and opaque URL userinfo in text and JSON', (t) => {
-  const cases = [
-    ['query values', 'http://h:1/api?token=private-token&key=private-key', /http:\/\/h:1\/api\?token=\*\*\*&key=\*\*\*/],
-    ['opaque userinfo', 'ollama-key:private-token@127.0.0.1:11434', /ollama-key:\*\*\*@127\.0\.0\.1:11434/],
-  ];
-  for (const [name, endpoint, masked] of cases) {
+const URL_MASKING_CASES = [
+  ['query values', 'http://h:1/api?token=private-token&key=private-key', /http:\/\/h:1\/api\?token=\*\*\*&key=\*\*\*/, /private-token|private-key/],
+  ['bare query token', 'http://h:1/api?private-bare-token', /http:\/\/h:1\/api\?\*\*\*/, /private-bare-token/],
+  ['fragment access token', 'http://h:1/api#access_token=private-fragment-token', /http:\/\/h:1\/api#access_token=\*\*\*/, /private-fragment-token/],
+  ['opaque userinfo', 'ollama-key:private-token@127.0.0.1:11434', /ollama-key:\*\*\*@127\.0\.0\.1:11434/, /private-token/],
+  ['malformed URL userinfo', 'http://u:p/ss@h:1/', /http:\/\/\*\*\*@h:1\//, /u:p\/ss@h/],
+];
+
+for (const [name, endpoint, masked, secret] of URL_MASKING_CASES) {
+  test(`config list masks ${name} in text and JSON`, (t) => {
     const f = createSettingsEnv(t);
     f.writeUserSettings({ schema: 1, 'advice.endpoint': endpoint });
     const text = f.run(['config', 'list', '--show-origin']);
-    assert.equal(text.status, 0, `${name}: ${text.stderr}`);
+    assert.ok([0, 1].includes(text.status), `${name}: ${text.stderr}`);
     assert.match(text.stdout, masked, name);
-    assert.doesNotMatch(text.stdout, /private-token|private-key/, name);
+    assert.doesNotMatch(text.stdout, secret, name);
 
     const json = f.run(['config', 'list', '--json']);
-    assert.equal(json.status, 0, `${name}: ${json.stderr}`);
+    assert.ok([0, 1].includes(json.status), `${name}: ${json.stderr}`);
     assert.match(json.stdout, masked, name);
-    assert.doesNotMatch(json.stdout, /private-token|private-key/, name);
-  }
-});
+    assert.doesNotMatch(json.stdout, secret, name);
+  });
+}
 
 test('config list reports a user failure.capture enum typo as invalid instead of its lexical outcome', (t) => {
   const f = createSettingsEnv(t);

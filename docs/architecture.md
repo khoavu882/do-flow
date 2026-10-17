@@ -49,15 +49,15 @@ are reported rather than imitated.
 | `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, the per-feature decision register and History compaction (`decision-register.ts`, `history-compactor.ts`), and provider health; `src/runtime/cli-result.ts` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.ts` dispatches to, and deliberately depends on nothing else in the tree |
 | `src/runtime/config-home.ts` | Resolves the one absolute XDG-or-HOME config home shared by Node and shell readers |
 | `src/runtime/settings/files.ts` | Reads and validates project and user settings files |
-| `src/runtime/settings/legacy.ts` | Reads legacy settings sources when the replacement key is absent |
+| `src/runtime/settings/legacy.ts` | Reads legacy settings files into resolver candidates |
 | `src/runtime/settings/resolve.ts` | Resolves effective values across registry defaults and settings layers |
 | `src/runtime/settings/write.ts` | Safely writes settings layers, replacing symlink targets rather than following them |
 | `src/runtime/settings/registry.ts` | Loads and validates the runtime settings registry |
-| `src/runtime/settings/shared.ts` | Shared lexical value parsing and URL masking for settings adapters |
+| `src/runtime/settings/shared.ts` | Shared off-word recognition and URL masking for settings adapters |
 | `src/runtime/settings/cli.ts` | Implements `doflow config list` and settings output |
 | `src/runtime/settings/lexical.ts` | Reads the compatibility lexical setting used by shell copies |
 | `src/runtime/settings/project-layers.ts` | Resolves project settings ownership across linked worktrees |
-| `src/runtime/settings/refs.ts` | Resolves registry default references and requirements |
+| `src/runtime/settings/refs.ts` | Resolves registry `defaultRef` and `valuesRef` declarations |
 | `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.ts`, `roots.ts`), the one definition of finished work (`work-status.ts`), the bounded pass and its rules (`engine.ts`, `rules.ts`), the silent cleanup moments (`upkeep.ts`) and the `storage` verb (`cli.ts`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |

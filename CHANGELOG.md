@@ -28,13 +28,13 @@ All notable changes to DoFlow are documented here. Format follows
 - In this release, a linked worktree with no settings files in its own `.doflow/` reads project settings from the main checkout, including legacy `decision-model.json` and `prune` files. A worktree with its own settings continues to use them.
 - `advise --action configure` and `failure --action capture --set on|off` write `settings.json`; legacy `decision-model.json` and `failures/off` remain untouched.
 - Settings written by this release are not read by earlier betas or 2.0.x, which keep reading `decision-model.json` and `failures/off`.
+- `doflow config list` redacts URL query values and user information in displayed settings, including opaque and malformed endpoint forms.
+- A linked worktree writer targets the inherited main-checkout settings layer and reports that location without silently changing inheritance.
+- Stop-check with no state allows the turn instead of repeating a prior block.
+- `failure --action capture --set off` preserves malformed settings in a mode-0600 backup before replacing them; `--set on` resolves DoFlow-owned lexical duplicates, preserves an existing `failures/off` sentinel and reports `effective: off`.
 
 ### Fixed
 - Settings JSON parse errors report the byte offset only; the file contents are not included in errors.
-- Failure masking now redacts URL query values and user information, including opaque URL forms.
-- A linked worktree writer targets the inherited main-checkout settings layer and reports that location without silently changing inheritance.
-- Stop-check with no state now allows the turn instead of repeating a prior block.
-- `failure --action capture --set off` can replace malformed settings; `--set on` resolves DoFlow-owned lexical duplicates and preserves an existing `failures/off` sentinel while reporting `effective: off`.
 
 ### Deprecated
 - `decision-model.json`, the one-line `prune` files and the `failures/off` sentinel remain readable through 2.x. `doflow config list` identifies each legacy source with a deprecation note and the corresponding `settings.json` key.
