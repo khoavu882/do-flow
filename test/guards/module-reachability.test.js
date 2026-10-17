@@ -57,10 +57,7 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
  * vouching for a module the moment its caller goes — which an allowlist entry would not.
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
  */
-const ALLOWLIST = new Set([
-  // 086 C.3; remove in C.4 when advice/config.ts consumes it
-  'src/runtime/settings/resolve.ts',
-]);
+const ALLOWLIST = new Set([]);
 
 /** Every runtime module file (`.js` or `.ts`) under a source/test root. The TypeScript migration
  * (see agent-docs/BRIEF_GOAL_DOFLOW.md) runs `.ts` directly through Node native type-stripping, so a

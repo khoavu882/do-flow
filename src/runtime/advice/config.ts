@@ -5,9 +5,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { resolveRoots } = require('../storage/roots.ts');
+const { loadSettings } = require('../settings/resolve.ts');
 
-const SETTING_FILE = 'decision-model.json';
-const PROJECT_NOTE = 'a project cannot enable the decision model or choose its endpoint';
 const KNOWN_KEYS = new Set(['schema', 'enabled', 'provider', 'endpoint', 'model']);
 
 function isObject(value: any): boolean {
@@ -26,65 +25,49 @@ function offResult(reason: string, decidedBy: any, notes: string[] = [], setting
   };
 }
 
-function readJson(file: string | null, fsImpl: any): { exists: boolean; value?: any; error?: any } {
-  if (!file) return { exists: false };
-  try {
-    return { exists: true, value: JSON.parse(fsImpl.readFileSync(file, 'utf8')) };
-  } catch (error: any) {
-    if (error?.code === 'ENOENT') return { exists: false };
-    return { exists: true, error };
-  }
+function projectLayer(layer: string): boolean {
+  return layer === 'project' || layer === 'local';
 }
 
-function parseUserSetting(value: any, adviceRegistry: any): any {
-  if (!isObject(value)) return { error: 'user setting must be a JSON object' };
-  if (value.schema !== 1) return { error: 'user setting schema must be 1' };
-  if (typeof value.enabled !== 'boolean') return { error: 'user setting enabled must be a boolean' };
-
-  const providers = Array.isArray(adviceRegistry?.providers) ? adviceRegistry.providers : [];
-  const providerId = value.provider === undefined ? 'ollama' : value.provider;
-  const provider = providers.find((item: any) => item?.id === providerId);
-  if (typeof providerId !== 'string' || !provider) return { error: `user setting provider '${providerId}' is not in advice.json providers` };
-
-  let endpoint = provider.defaultEndpoint;
-  if (value.endpoint !== undefined) {
-    if (typeof value.endpoint !== 'string' || !value.endpoint.trim()) return { error: 'user setting endpoint must be a URL string' };
-    try { new URL(value.endpoint); } catch { return { error: 'user setting endpoint must be a URL string' }; }
-    endpoint = value.endpoint;
+function errorNote(error: any): string {
+  if (error.legacy && error.layer === 'user') {
+    if (error.code === 'unreadable' || error.code === 'not-file'
+      || (error.code === 'unparseable' && error.reason.startsWith('not valid JSON'))) {
+      return `user setting at ${error.source} could not be read: ${error.reason}`;
+    }
+    return `${error.reason} (${error.source})`;
   }
-  if (typeof endpoint !== 'string' || !endpoint) return { error: `providers.${providerId}.defaultEndpoint is missing` };
-
-  if (value.model !== undefined && (typeof value.model !== 'string' || !value.model.trim())) {
-    return { error: 'user setting model must be a non-empty string' };
-  }
-  if (value.enabled && (typeof value.model !== 'string' || !value.model.trim())) {
-    return { error: 'user setting model is required when enabled is true' };
-  }
-
-  const notes = Object.keys(value)
-    .filter((key) => !KNOWN_KEYS.has(key))
-    .map((key) => `unknown user key '${key}' ignored`);
-  return {
-    value: { enabled: value.enabled, provider: providerId, endpoint, model: value.model ?? null },
-    notes,
-  };
+  if (projectLayer(error.layer)) return `project setting at ${error.source} ignored: ${error.reason}`;
+  return `user setting at ${error.source} is invalid${error.key ? ` for '${error.key}'` : ''}: ${error.reason}`;
 }
 
-function parseProjectSetting(value: any): any {
-  if (!isObject(value)) return { error: 'project setting must be a JSON object' };
-  if (value.schema !== 1) return { error: 'project setting schema must be 1' };
-  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') return { error: 'project setting enabled must be a boolean' };
-  if (value.model !== undefined && (typeof value.model !== 'string' || !value.model.trim())) return { error: 'project setting model must be a non-empty string' };
+function settingNotes(view: any, includeProject: boolean): string[] {
+  const notes = view.notes
+    .filter((note: any) => note.code !== 'deprecated')
+    .filter((note: any) => includeProject || !projectLayer(view.files.find((file: any) => file.path === note.source)?.layer))
+    .map((note: any) => note.text);
+  const seen = new Set<string>();
+  for (const error of view.errors) {
+    if (!includeProject && projectLayer(error.layer)) continue;
+    const key = error.legacy
+      ? `${error.layer}\0${error.source}`
+      : `${error.layer}\0${error.source}\0${error.key}\0${error.code}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    notes.push(errorNote(error));
+  }
+  return notes;
+}
 
-  const notes: string[] = [];
-  if (value.enabled === true) notes.push(`project key 'enabled' ignored: ${PROJECT_NOTE}`);
-  for (const key of ['endpoint', 'provider']) {
-    if (Object.hasOwn(value, key)) notes.push(`project key '${key}' ignored: ${PROJECT_NOTE}`);
-  }
-  for (const key of Object.keys(value)) {
-    if (!['schema', 'enabled', 'model', 'endpoint', 'provider'].includes(key)) notes.push(`unknown project key '${key}' ignored`);
-  }
-  return { value: { disabled: value.enabled === false, model: value.model ?? null }, notes };
+function modelSource(setting: any): string | null {
+  if (setting.value === null || setting.value === undefined) return null;
+  if (setting.origin.layer === 'user') return 'user';
+  return projectLayer(setting.origin.layer) ? 'project' : null;
+}
+
+function decidedSource(setting: any, layer: 'user' | 'project'): string | null {
+  if (layer === 'user') return setting.origin.layer === 'user' ? setting.origin.source : null;
+  return projectLayer(setting.origin.layer) ? setting.origin.source : null;
 }
 
 function resolveSetting({
@@ -96,57 +79,71 @@ function resolveSetting({
   env = process.env,
   fsImpl = fs,
 }: any = {}): any {
-  const notes: string[] = [];
   let resolvedRoots = roots;
   try {
     if (!resolvedRoots) resolvedRoots = resolveRoots({ registry: storageRegistry, projectRoot, global, env });
   } catch (error: any) {
     return offResult('config-invalid', { user: null, project: null }, [`storage roots could not be resolved: ${error.message}`]);
   }
-  const userFile = resolvedRoots?.['config-home'] ? path.join(resolvedRoots['config-home'], SETTING_FILE) : null;
-  const projectFile = resolvedRoots?.['project-doflow'] ? path.join(resolvedRoots['project-doflow'], SETTING_FILE) : null;
-  const decidedBy = { user: null, project: null };
-  const userRead = readJson(userFile, fsImpl);
-  if (!userRead.exists) return offResult('not-configured', decidedBy, notes);
-  if (userRead.error) {
-    return offResult('config-invalid', { user: userFile, project: null }, [`user setting at ${userFile} could not be read: ${userRead.error.message}`]);
+  const resolverEnv = { ...env };
+  if (resolvedRoots?.['config-home']) {
+    resolverEnv.XDG_CONFIG_HOME = path.dirname(resolvedRoots['config-home']);
+  } else {
+    delete resolverEnv.XDG_CONFIG_HOME;
+    delete resolverEnv.HOME;
   }
-  const user = parseUserSetting(userRead.value, adviceRegistry);
-  if (user.error) return offResult('config-invalid', { user: userFile, project: null }, [`${user.error} (${userFile})`]);
-  decidedBy.user = userFile;
-  notes.push(...user.notes);
+  const resolverProjectRoot = !global && resolvedRoots?.['project-doflow']
+    ? path.dirname(resolvedRoots['project-doflow'])
+    : null;
 
-  const base = { ...user.value, modelFrom: user.value.model ? 'user' : null };
-  if (!user.value.enabled) return offResult('user-disabled', decidedBy, notes, base);
-
-  const projectRead = readJson(projectFile, fsImpl);
-  if (projectRead.exists) {
-    if (projectRead.error) {
-      notes.push(`project setting at ${projectFile} ignored: ${projectRead.error.message}`);
-    } else {
-      const project = parseProjectSetting(projectRead.value);
-      if (project.error) {
-        notes.push(`project setting at ${projectFile} ignored: ${project.error}`);
-      } else {
-        notes.push(...project.notes);
-        if (project.value.disabled) {
-          decidedBy.project = projectFile;
-          return offResult('project-disabled', decidedBy, notes, base);
-        }
-        if (project.value.model) {
-          decidedBy.project = projectFile;
-          return {
-            state: 'on', reason: null, provider: base.provider, endpoint: base.endpoint,
-            model: project.value.model, decidedBy, modelFrom: 'project', notes,
-          };
-        }
-      }
+  let view: any;
+  try {
+    view = loadSettings({ projectRoot: resolverProjectRoot, global, env: resolverEnv, fsImpl });
+    const enabledGlobal = view.get('advice.enabled', 'global');
+    const canReadProject = !global && enabledGlobal.value === true
+      && enabledGlobal.state === 'ok' && enabledGlobal.origin.via === null;
+    const enabled = canReadProject ? view.get('advice.enabled', 'project') : enabledGlobal;
+    const provider = view.get('advice.provider', 'global');
+    const endpoint = view.get('advice.endpoint', 'global');
+    const modelGlobal = view.get('advice.model', 'global');
+    const model = canReadProject && enabled.value === true ? view.get('advice.model', 'project') : modelGlobal;
+    const decidedBy = {
+      user: decidedSource(enabledGlobal, 'user'),
+      project: decidedSource(enabled, 'project') || decidedSource(model, 'project'),
+    };
+    let reason: string | null = null;
+    if (enabled.state === 'invalid' || enabled.origin.via === 'fail-safe' || enabled.origin.via === 'cross-key') {
+      reason = 'config-invalid';
+    } else if (enabled.value !== true) {
+      if (enabled.origin.layer === 'default' || enabled.origin.via === 'no-config-home') reason = 'not-configured';
+      else if (projectLayer(enabled.origin.layer)) reason = 'project-disabled';
+      else reason = 'user-disabled';
     }
+
+    const notes = settingNotes(view, canReadProject);
+    if (reason === 'not-configured') return offResult(reason, decidedBy, notes);
+    if (reason === 'config-invalid' && (enabledGlobal.state === 'invalid'
+      || enabledGlobal.origin.via === 'fail-safe' || enabledGlobal.origin.via === 'cross-key')) {
+      return offResult(reason, decidedBy, notes);
+    }
+
+    const effectiveModel = reason === 'config-invalid' ? modelGlobal : model;
+    const effectiveModelFrom = modelSource(effectiveModel);
+    if (reason) {
+      return offResult(reason, decidedBy, notes, {
+        provider: provider.value,
+        endpoint: endpoint.value,
+        model: effectiveModel.value,
+        modelFrom: effectiveModelFrom,
+      });
+    }
+    return {
+      state: 'on', reason: null, provider: provider.value, endpoint: endpoint.value,
+      model: effectiveModel.value, decidedBy, modelFrom: effectiveModelFrom, notes,
+    };
+  } catch (error: any) {
+    return offResult('config-invalid', { user: null, project: null }, [`settings resolver could not be loaded: ${error.message}`]);
   }
-  return {
-    state: 'on', reason: null, provider: base.provider, endpoint: base.endpoint,
-    model: base.model, decidedBy, modelFrom: base.modelFrom, notes,
-  };
 }
 
 function writeSetting({ file, setting, level = 'user', force = false, fsImpl = fs }: any = {}): any {

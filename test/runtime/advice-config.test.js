@@ -7,6 +7,8 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
+const { loadSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
+const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { resolveSetting, writeSetting } = require('../../src/runtime/advice/config.ts');
 
@@ -67,6 +69,7 @@ test('IC-001 step 2: invalid user files fail closed with config-invalid', (t) =>
 
 test('IC-001 step 2: unreadable user file fails closed without throwing', (t) => {
   const paths = fixture(t);
+  writeJson(paths.userFile, userSetting());
   const fsImpl = Object.create(fs);
   fsImpl.readFileSync = (file, ...args) => {
     if (file === paths.userFile) throw Object.assign(new Error('unreadable fixture'), { code: 'EACCES' });
@@ -206,4 +209,62 @@ test('IC-021 writer handles project model and project off shapes', (t) => {
   result = writeSetting({ file: paths.projectFile, level: 'project', setting: { schema: 1, enabled: false } });
   assert.equal(result.ok, true, result.detail);
   assert.deepEqual(JSON.parse(fs.readFileSync(paths.projectFile, 'utf8')), { schema: 1, enabled: false, future: 'preserved' });
+});
+
+test('C4: decision-model JSON failures report offsets without file contents', (t) => {
+  const paths = fixture(t);
+  const userSecret = 'S3CR3T!';
+  fs.mkdirSync(path.dirname(paths.userFile), { recursive: true });
+  fs.writeFileSync(paths.userFile, `{"token":"${userSecret}"`);
+
+  let result = resolve(paths);
+  assert.equal(result.state, 'off');
+  assert.equal(result.reason, 'config-invalid');
+  assert.match(result.notes[0], /could not be read: not valid JSON at offset \d+/);
+  assert.doesNotMatch(result.notes.join('\n'), new RegExp(userSecret));
+
+  writeJson(paths.userFile, userSetting());
+  const projectSecret = 'P!';
+  fs.mkdirSync(path.dirname(paths.projectFile), { recursive: true });
+  fs.writeFileSync(paths.projectFile, projectSecret);
+  result = resolve(paths);
+  assert.equal(result.state, 'on');
+  assert.match(result.notes[0], /ignored: not valid JSON(?: at offset \d+)?/);
+  assert.doesNotMatch(result.notes.join('\n'), new RegExp(projectSecret));
+});
+
+test('C4: the default provider comes from the settings registry', (t) => {
+  const paths = fixture(t);
+  writeJson(paths.userFile, { schema: 1, enabled: true, model: 'registry-default-check' });
+
+  const loaded = loadSettingsRegistry({ repoRoot: REPO });
+  assert.equal(loaded.ok, true, loaded.detail);
+  const configHome = path.dirname(paths.roots['config-home']);
+  const view = loadSettings({
+    projectRoot: path.dirname(paths.roots['project-doflow']),
+    env: { HOME: path.dirname(configHome), XDG_CONFIG_HOME: configHome },
+    registry: loaded.registry,
+  });
+  const result = resolve(paths);
+  assert.equal(view.get('advice.provider', 'global').origin.layer, 'default');
+  assert.equal(result.provider, view.get('advice.provider', 'global').value);
+  assert.doesNotMatch(fs.readFileSync(path.join(REPO, 'src/runtime/advice/config.ts'), 'utf8'), /['"]ollama['"]/);
+});
+
+test('C4: a subdirectory projectRoot reads its own layer like the 2.0 direct path', (t) => {
+  const repository = tempDir(t, 'doflow-advice-repository-');
+  const nested = path.join(repository, 'packages', 'service');
+  const home = tempDir(t, 'doflow-advice-home-');
+  const env = { HOME: home, XDG_CONFIG_HOME: path.join(home, 'xdg') };
+  fs.mkdirSync(path.join(repository, '.git'), { recursive: true });
+  fs.mkdirSync(nested, { recursive: true });
+  writeJson(path.join(env.XDG_CONFIG_HOME, 'doflow', 'decision-model.json'), userSetting());
+  writeJson(path.join(repository, '.doflow', 'decision-model.json'), { schema: 1, enabled: false });
+  const projectFile = path.join(nested, '.doflow', 'decision-model.json');
+  writeJson(projectFile, { schema: 1, model: 'nested-project-model' });
+
+  const result = resolveSetting({ adviceRegistry: ADVICE, storageRegistry: STORAGE, projectRoot: nested, env });
+  assert.equal(result.state, 'on');
+  assert.equal(result.model, 'nested-project-model');
+  assert.deepEqual(result.decidedBy, { user: path.join(env.XDG_CONFIG_HOME, 'doflow', 'decision-model.json'), project: projectFile });
 });
