@@ -463,3 +463,82 @@ test('C.2d: a store file over the size bound is one located gap, not a read', (t
   fs.truncateSync(big, 65 * 1024 * 1024); // sparse: no disk used
   assertOnlyGap(t, view(dir), 'runs/2026-09-02.jsonl', 'ledger');
 });
+
+// ── D.1-fix: second-resolution lines and completed runs (G-O1 D3) ───────────────────────────────
+
+const KEY_D = 'eeee5555/r6/l6';
+const ID4 = '44444444444444444444444444444444';
+const ID5 = '55555555555555555555555555555555';
+const ms = (hms) => `${DAY}T${hms}Z`; // hms carries its own fraction, or none (second resolution)
+
+/** An 080 run for KEY_D that starts at `startAt` (ID4) and, when given, resumes at `resumeAt` (ID5). */
+function runD({ startAt = ms('12:00:00.302'), resumeAt = null } = {}) {
+  const [, run, lineage] = KEY_D.split('/');
+  const history = [{ at: startAt, action: 'start', by: 'orchestrator', reason: null, epoch: 1, traceId: ID4 }];
+  if (resumeAt) history.push({ at: resumeAt, action: 'resume', by: 'orchestrator', reason: null, digest: 'sha256:00', epoch: 2, cleared: [], traceId: ID5, traceLink: ID4 });
+  return { runKey: KEY_D, worktreeKey: 'eeee5555', run, lineage, worktree: '/w', createdAt: startAt, control: 'running', epoch: history.length, traceId: resumeAt ? ID5 : ID4, history };
+}
+
+/** An orchestration record for KEY_D started at 12:00:01; `end` adds a terminal entry at 12:10. */
+function orchD(taskId, end = null) {
+  const history = [
+    { at: ms('12:00:01.000'), action: 'start', detail: 'task-class=feature' },
+    { at: ms('12:05:00.000'), action: 'complete-stage', node: 'design', outcome: 'verified' },
+  ];
+  if (end === 'complete') history.push({ at: ms('12:10:00.000'), action: 'complete-stage', node: 'plan', outcome: 'verified' }, { at: ms('12:10:00.000'), action: 'complete-run' });
+  if (end === 'reject') history.push({ at: ms('12:10:00.000'), action: 'decide-gate', node: 'gate-a', detail: 'reject', note: null, forced: false });
+  return { version: 1, revision: 2, taskId, taskClass: 'feature', runKey: KEY_D, startedAt: ms('12:00:01.000'), history };
+}
+
+const lineD = (timestamp, extra = {}) => ({ timestamp, verb: 'dispatch', run: 'r6', lineage: 'l6', ...extra });
+const hookD = (timestamp) => ({ timestamp, kind: 'hook', run: 'r6', lineage: 'l6', attempt: null, harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's6', tool: 'Bash', tool_call_id: 'tc6' });
+
+function seedD(t, { run = runD(), ledger = [], telemetry = [], orchestration = {} } = {}) {
+  const extraStores = { 'task-attempts/d.json': { runs: { [KEY_D]: run }, tasks: {} } };
+  for (const [taskId, body] of Object.entries(orchestration)) extraStores[`orchestration/${taskId}.json`] = body;
+  return view(seed(t, { ledger, telemetry, workers: false, orchestration: false, extraStores }).dir);
+}
+
+test('D.1-fix: a second-resolution line stamped in the segment start second joins (doflow-run `dispatch start`)', (t) => {
+  const v = seedD(t, { ledger: [lineD(ms('12:00:00')), lineD(ms('12:00:00.100'))] });
+  assert.deepEqual(where(v, `${LEDGER}:1`), [`trace:${ID4}`], 'whole-second stamp of the start second');
+  // Negative control: a millisecond stamp before the start is still before it.
+  assert.deepEqual(where(v, `${LEDGER}:2`), ['gap:unmatched']);
+});
+
+test('D.1-fix: a second-resolution line before the segment start second is an unmatched gap', (t) => {
+  const v = seedD(t, { ledger: [lineD(ms('11:59:59'))] });
+  assert.deepEqual(where(v, `${LEDGER}:1`), ['gap:unmatched']);
+});
+
+test('D.1-fix: a second-resolution line in a second that two segments share is ambiguous, never a guess', (t) => {
+  const v = seedD(t, { run: runD({ resumeAt: ms('12:00:00.800') }), ledger: [lineD(ms('12:00:00')), lineD(ms('12:00:00.500')), lineD(ms('12:00:01'))] });
+  assert.deepEqual(where(v, `${LEDGER}:1`), ['gap:ambiguous'], 'the start-and-resume second');
+  assert.deepEqual(where(v, `${LEDGER}:2`), [`trace:${ID4}`], 'a millisecond stamp still places exactly');
+  assert.deepEqual(where(v, `${LEDGER}:3`), [`trace:${ID5}`], 'the next second is after the resume');
+});
+
+test('D.1-fix: a completed orchestration run closes the trace; a hook line after it is an unmatched gap', (t) => {
+  const v = seedD(t, { orchestration: { 'F-6': orchD('F-6', 'complete') }, telemetry: [hookD(ms('12:07:00.000')), hookD(ms('12:13:00.000'))] });
+  assert.deepEqual(traceOf(v, ID4).window, { from: ms('12:00:00.302'), to: ms('12:10:00.000') });
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${ID4}`], 'before completion');
+  assert.deepEqual(where(v, `${TELEMETRY}:2`), ['gap:unmatched'], 'three minutes after completion');
+  for (const n of [0, 1, 2, 3]) assert.deepEqual(where(v, `orchestration/F-6.json#${KEY_D}/${n}`), [`trace:${ID4}`], `orchestration entry ${n}`);
+  const root = traceOf(v, ID4).spans.find((s) => s.kind === 'run');
+  assert.deepEqual([root.end, root.durationMs], [ms('12:10:00.000'), 600000 - 302]);
+});
+
+test('D.1-fix: a rejected gate ends the orchestration run and closes the trace too', (t) => {
+  const v = seedD(t, { orchestration: { 'F-6': orchD('F-6', 'reject') }, telemetry: [hookD(ms('12:13:00.000'))] });
+  assert.equal(traceOf(v, ID4).window.to, ms('12:10:00.000'));
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:unmatched']);
+});
+
+test('D.1-fix negative controls: no orchestration, or one still running beside a completed one, leaves the trace open', (t) => {
+  const none = seedD(t, { telemetry: [hookD(ms('12:13:00.000'))] });
+  assert.equal(traceOf(none, ID4).window.to, null);
+  assert.deepEqual(where(none, `${TELEMETRY}:1`), [`trace:${ID4}`]);
+  const mixed = seedD(t, { orchestration: { 'F-6': orchD('F-6', 'complete'), 'F-7': orchD('F-7') }, telemetry: [hookD(ms('12:13:00.000'))] });
+  assert.equal(traceOf(mixed, ID4).window.to, null);
+  assert.deepEqual(where(mixed, `${TELEMETRY}:1`), [`trace:${ID4}`]);
+});

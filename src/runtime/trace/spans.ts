@@ -17,9 +17,14 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
  * (`orchestration/*.json`) and worker runs (`worker-runs/*.json`). There is no span store.
  *
  * A trace is one epoch segment of one 080 run: a `start` or `resume` history entry with a `traceId`
- * opens `[at, next resume or closing cancel)`. A record with a run identity joins the one segment
- * that holds it, or is a gap named by its locator: none holds it (`unmatched`) or more than one
- * does (`ambiguous`, e.g. one session identity under two worktrees). A segment without a trace id
+ * opens `[at, next resume or closing cancel)`. A segment whose orchestration runs (same `runKey`,
+ * started inside it) have all ended (`complete-run`, or a `reject` gate decision) also closes, at
+ * their last entry, inclusive: the 080 record itself has no completion marker. A record with a run
+ * identity joins the one segment that holds it, or is a gap named by its locator: none holds it
+ * (`unmatched`) or more than one does (`ambiguous`, e.g. one session identity under two worktrees).
+ * A line stamped to the whole second (doflow-run's ledger lines) is compared at that resolution:
+ * the segment start is floored to its second, so the `dispatch start` line of the run's own start
+ * second joins, and a second shared by two segments makes it `ambiguous`. A segment without a trace id
  * (a run recorded before 088, or with telemetry off) holds its records as `ungrouped`, as do
  * records with no identity, grouped by `session`, else by UTC day.
  *
@@ -31,7 +36,9 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
  * Accepted ceiling: a history `cancel` entry does not say whether it cancelled the run or one
  * attempt. The last cancel of a segment closes it only when no pause follows it and the run was
  * resumed after it or is cancelled now; any other reading leaves the segment open to the next
- * resume, and a misread shows up as located `unmatched` gaps, never as a wrong join.
+ * resume, and a misread shows up as located `unmatched` gaps, never as a wrong join. A dispatch run
+ * that completes without an orchestration run leaves its segment open: its completion is recorded
+ * only in the dispatch store, which this view does not read.
  */
 
 const PARTITION = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
@@ -44,6 +51,8 @@ const RUN_KEY = /^[A-Za-z0-9._:-]+\/[A-Za-z0-9._:-]+\/[A-Za-z0-9._:-]+$/;
 const RUN_ARG = /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9._:-]+){0,2}$/;
 /** UTC only: a timestamp without `Z` would parse in the local zone and break byte equality. */
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+/** A timestamp with no fraction: true only to the whole second. */
+const WHOLE_SECOND = /:\d{2}Z$/;
 const PRE_EVENTS = new Set(['PreToolUse', 'BeforeTool', 'tool_call']);
 const POST_EVENTS = new Set(['PostToolUse', 'PostToolUseFailure']);
 const LEDGER_ATTRS: Array<[string, string]> = [['verb', 'verb'], ['outcome', 'outcome'], ['capability', 'capability'],
@@ -166,7 +175,7 @@ function segmentsOf(file: string, runKey: string, run: any, items: any[]): any[]
     const from = entry ? iso(entry.at) : iso(run.createdAt);
     segments.push({ file, runKey, run: runId, lineage, index, traceId,
       traceLink: traceId && HEX32.test(entry.traceLink) ? entry.traceLink : null,
-      epoch: entry ? (Number.isInteger(entry.epoch) ? entry.epoch : null) : 0, from, to: null as string | null, entries: [] as number[] });
+      epoch: entry ? (Number.isInteger(entry.epoch) ? entry.epoch : null) : 0, from, to: null as string | null, closeMs: null as number | null, opener: null as any, entries: [] as number[] });
   };
   history.forEach((entry, index) => {
     const opens = entry && (entry.action === 'start' || entry.action === 'resume');
@@ -187,15 +196,42 @@ function segmentsOf(file: string, runKey: string, run: any, items: any[]): any[]
       const entry = history[i] || {};
       const start = iso(entry.at);
       const opener = i === seg.index;
-      items.push(item(opener ? 'run' : 'control', entry.action, `${file}#${runKey}/${i}`, {
+      const it = item(opener ? 'run' : 'control', entry.action, `${file}#${runKey}/${i}`, {
         start, end: opener ? seg.to : start, attrs: pick(entry, same(['action', 'epoch'])), place: { type: 'segment', seg },
-      }));
+      });
+      if (opener) seg.opener = it;
+      items.push(it);
     }
   });
   return segments;
 }
 
-const holds = (seg: any, t: number | null): boolean => t !== null && seg.fromMs <= t && (seg.toMs === null || t < seg.toMs);
+/** Whether `seg` holds `t`; `coarse` (a whole-second stamp) compares against the start's second. */
+const holds = (seg: any, t: number | null, coarse = false): boolean => t !== null
+  && (coarse ? Math.floor(seg.fromMs / 1000) * 1000 : seg.fromMs) <= t
+  && (seg.toMs === null || t < seg.toMs) && (seg.closeMs === null || t <= seg.closeMs);
+
+/**
+ * Closes each segment whose orchestration runs (its `runKey`, started inside it) have all ended, at
+ * the last entry among them, when that is inside the segment. One run still going keeps it open.
+ * @param {Object[]} segments
+ * @param {Array<{runKey: string, startMs: number|null, ended: boolean, last: string|null}>} runs
+ */
+function closeEnded(segments: any[], runs: any[]): void {
+  for (const seg of segments) {
+    const mine = runs.filter((o) => o.runKey === seg.runKey && holds(seg, o.startMs));
+    if (!mine.length || !mine.every((o) => o.ended && o.last !== null)) continue;
+    const last = mine.map((o) => o.last).sort((a, b) => (msOf(a) as number) - (msOf(b) as number)).pop();
+    const lastMs = msOf(last) as number;
+    if (lastMs < seg.fromMs || (seg.toMs !== null && lastMs >= seg.toMs)) continue;
+    seg.closeMs = lastMs;
+    seg.to = last;
+    if (seg.opener) {
+      seg.opener.end = last;
+      seg.opener.durationMs = seg.opener.start === null ? null : Math.max(0, lastMs - (msOf(seg.opener.start) as number));
+    }
+  }
+}
 
 // ── the projection ──────────────────────────────────────────────────────────────────────────────
 
@@ -251,10 +287,15 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     }
   }
 
+  const orchestrationRuns: any[] = [];
   for (const { file, value } of readStores(fsImpl, stateDir, 'orchestration', gaps, 'orchestration')) {
     const runKey = runKeyOf(value.runKey);
     const history: any[] = Array.isArray(value.history) ? value.history : [];
     let stageStart = iso(value.startedAt) ?? iso(history[0]?.at);
+    const ended = history.some((e) => e && (e.action === 'complete-run' || (e.action === 'decide-gate' && e.detail === 'reject')));
+    const stamps = history.map((e) => (e && typeof e === 'object' ? iso(e.at) : null)).filter((a): a is string => a !== null);
+    const last = stamps.sort((a, b) => (msOf(a) as number) - (msOf(b) as number)).pop() ?? null;
+    if (runKey) orchestrationRuns.push({ runKey, startMs: msOf(stageStart), ended, last });
     history.forEach((entry, i) => {
       if (!entry || typeof entry !== 'object') return;
       const at = iso(entry.at);
@@ -269,6 +310,8 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
       }
     });
   }
+
+  closeEnded(segments, orchestrationRuns);
 
   const runsDir = path.join(stateDir, 'runs');
   for (const { locator, value } of readLines(fsImpl, runsDir, 'runs', gaps, 'ledger')) {
@@ -308,17 +351,18 @@ function identityItem(kind: string, name: any, locator: string, raw: any, opts: 
 /** The segments that may hold `it`: one is a join, none `unmatched`, more `ambiguous`. */
 function candidates(it: any, segments: any[], aliases: any[]): any[] {
   const p = it.place;
+  const coarse = typeof it.start === 'string' && WHOLE_SECOND.test(it.start);
   const found = new Set<any>();
   if (p.type === 'identity') {
-    for (const seg of segments) if (seg.run === p.run && seg.lineage === p.lineage && holds(seg, p.at)) found.add(seg);
+    for (const seg of segments) if (seg.run === p.run && seg.lineage === p.lineage && holds(seg, p.at, coarse)) found.add(seg);
     for (const alias of aliases) {
       if (alias.run !== p.run || alias.lineage !== p.lineage) continue;
       for (const seg of segments) {
-        if (seg.runKey === alias.runKey && holds(seg, p.at)) { found.add(seg); it.link.viaWorker = alias.worker; }
+        if (seg.runKey === alias.runKey && holds(seg, p.at, coarse)) { found.add(seg); it.link.viaWorker = alias.worker; }
       }
     }
   } else if (p.type === 'runKey') {
-    for (const seg of segments) if (seg.runKey === p.runKey && holds(seg, p.at)) found.add(seg);
+    for (const seg of segments) if (seg.runKey === p.runKey && holds(seg, p.at, coarse)) found.add(seg);
   } else if (p.type === 'attempt') {
     for (const seg of segments) if (seg.file === p.file && seg.runKey === p.runKey && seg.epoch === p.epoch) found.add(seg);
   }
