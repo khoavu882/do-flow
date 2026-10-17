@@ -369,6 +369,7 @@ const RUNTIME_LIST_FLAGS = new Map([
   ['--need', 'need'],
   ['--path', 'paths'],                 // leak-scan: the files to scan, one per occurrence
   ['--exclude', 'exclude'],            // leak-scan: extra path segments to skip · lifecycle --action release: slugs left out
+  ['--exclude-family', 'excludeFamily'], // model-role: model family to exclude from review candidates
   ['--feature', 'feature'],            // lifecycle --action release: a feature slug to add, one per occurrence
   ['--item', 'item'],                  // goal --action add: a checklist item, one per occurrence · goal --action check: the one item id (C3)
   ['--blocker', 'blocker'],            // dispatch submit: one blocker line per occurrence, at most 20
@@ -422,13 +423,11 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
     if (!Number.isFinite(parsed) || parsed < 0) { console.error(`doflow: ${name} expects a non-negative integer, got '${value}'`); process.exit(2); }
     o[key] = parsed;
   } else if (RUNTIME_LIST_FLAGS.has(name)) {
-    // --exclude alone also accepts a comma-joined value (`--exclude bin,src,core`), not just the
-    // repeatable form (`--exclude bin --exclude src`) every other list flag uses — the two used to
-    // be parsed by two separate code paths (a dedicated switch case handling only the space
-    // spelling's comma-splitting, this generic path handling both spellings but never splitting),
-    // so `--exclude=bin,src` silently excluded nothing while `--exclude bin,src` worked. One path,
-    // both spellings, same behavior now.
-    const parts = name === '--exclude' ? value.split(',').map((s: string) => s.trim()).filter(Boolean) : [value];
+    // --exclude and --exclude-family both accept comma lists or repeated flags. Keep --exclude's
+    // existing trimming, empty-item filtering, and split behavior unchanged for its callers.
+    const parts = name === '--exclude' || name === '--exclude-family'
+      ? value.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : [value];
     (o[key] = o[key] || []).push(...parts);
   } else if (name === '--evidence-id' && o.cmd === 'research-request') {
     (o.evidenceIds = o.evidenceIds || []).push(value);
@@ -471,7 +470,7 @@ Commands:
   worker               Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task (--action)
   dispatch             Run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume (--action)
   retrieve             BM25 guidance search by default; use --scope code for scoped project retrieval (--query)
-  model-role           Resolve a model role to ranked provider candidates (--role)
+  model-role           Resolve a model role to ranked provider candidates (--role, --exclude-family)
   advise               Route decision questions to the configured local model (--action)
   brief-tools          Tier, tools and report-format block for a dispatch brief (--owner)
   route                Resolve an information need to a healthy provider (--intent)
