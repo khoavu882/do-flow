@@ -452,6 +452,23 @@ tag merged into HEAD or into the production branch, and the result carries a `wa
 underscore or dash (starting with a letter or digit, no `..`) is refused with exit 2 and
 `{"error":"invalid-slug",...}`, by `doflow-run git-state --branch-name` and by `doflow-run paths` alike.
 
+### Release checklist (beta cut)
+
+1. Run `npm run release:preflight`.
+2. Rehearse the package locally: set `scratch="$(mktemp -d)"`, run `npm run build:package`, then
+   `npm pack .pack --pack-destination "$scratch"`. Install the tarball separately for Node 22.18 and 24,
+   then run `doflow --version` in each:
+   - `npm install --prefix "$scratch/node22" "$scratch"/*.tgz`
+   - `PATH="$HOME/.npm/_npx/899bf9cc10daad37/node_modules/.bin:$PATH" "$scratch/node22/node_modules/.bin/doflow" --version`
+   - `npm install --prefix "$scratch/node24" "$scratch"/*.tgz`
+   - `PATH="$HOME/.npm/_npx/387698761821791d/node_modules/.bin:$PATH" "$scratch/node24/node_modules/.bin/doflow" --version`
+3. Cut and push `v2.0.0-beta.6` with `git tag v2.0.0-beta.6` and `git push origin v2.0.0-beta.6`.
+4. Watch the Release workflow, then check `npm view @khoavu882/doflow dist-tags`.
+5. To roll back a bad version, run `npm deprecate @khoavu882/doflow@2.0.0-beta.6 "Superseded by <good-version>"`,
+   then repoint `beta` with `npm dist-tag add @khoavu882/doflow@<good-version> beta`. Never unpublish a version.
+
+The npm `latest` dist-tag currently points to `2.0.0-beta.4`; moving it is the user's decision.
+
 ## Full Skill List
 
 The full installed skill set is: `do`, `do-brainstorm`, `do-code-review`, `do-constitution`, `do-design`, `do-diagnose`, `do-document`, `do-execute-plan`, `do-flow`, `do-git`, `do-implement`, `do-plan`, and `do-test`.
