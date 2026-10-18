@@ -525,6 +525,8 @@ const CASES = JSON.parse(fs.readFileSync(path.join(REPO, CASES_REL), 'utf8'));
 const FIELDS = ['RUN', 'ATTEMPT', 'LINEAGE', 'ROLE', 'WORKTREE', 'KIND', 'UNIT'];
 const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
 const UNKNOWN_ROLE = '[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker\n';
+// The five identity variables only. DOFLOW_WORKER_RUN (110) is a sixth launch variable, not identity:
+// neither identity.sh nor identity.ts reads it, and the test after G38.6 pins that.
 const IDENTITY_VARS = ['DOFLOW_RUN_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_LINEAGE_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
 
 /** `bash` and `ts` map an event key (case name, or `sequence #event`) to one result object. */
@@ -847,6 +849,24 @@ test('G38.6 control: a store setup applied on one side only is a finding for eac
   const { keys, bash, ts } = identityResults(tempDir(t, 'doflow-g38-identity-skew-'), { skipSetup: 'ts' });
   const findings = checkG38_6({ keys, bash, ts });
   assert.deepEqual(findings.map((f) => f.match(/: "(.*)" identity\.sh/)[1]), setupKeys, findings.join('\n'));
+});
+
+test('G38.6: DOFLOW_WORKER_RUN is not an identity variable; neither implementation reads it', (t) => {
+  const dir = tempDir(t, 'doflow-g38-worker-run-');
+  const config = path.join(dir, 'config');
+  const env = { DOFLOW_RUN_ID: 'r7', DOFLOW_LINEAGE_ID: 'w2', DOFLOW_ATTEMPT: '3', DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKTREE: dir };
+  const withRun = { ...env, DOFLOW_WORKER_RUN: 'w-0123456789ab' };
+  const { resolveIdentity } = require('../../src/runtime/context/identity.ts');
+  const sides = (e, tag) => {
+    const home = path.join(dir, `home-${tag}`);
+    fs.mkdirSync(home, { recursive: true });
+    return [bashEvent(config, home, e, 's-1', dir), tsEvent(resolveIdentity, config, home, e, 's-1', dir)];
+  };
+  const [bashA, tsA] = sides(env, 'a');
+  const [bashB, tsB] = sides(withRun, 'b');
+  assert.deepEqual(bashB, bashA, 'identity.sh ignores DOFLOW_WORKER_RUN');
+  assert.deepEqual(tsB, tsA, 'identity.ts ignores DOFLOW_WORKER_RUN');
+  assert.equal(tsA.kind, 'launched');
 });
 
 module.exports = { checkG38_1, checkG38_2, checkG38_3, checkG38_4, checkG38_5, checkG38_6 };

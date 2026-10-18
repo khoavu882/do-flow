@@ -3,7 +3,7 @@
 // Feature 081 B.3 (IC-003, IC-012; DEC-030, DEC-037, DEC-045): the real launcher.
 //
 // `launchEnv` names the worker in the caller's environment: the caller's variables are inherited
-// unchanged (DEC-045) and exactly the five DOFLOW_* identity variables are set. The run segment of
+// unchanged (DEC-045) and the five DOFLOW_* identity variables and DOFLOW_WORKER_RUN are set. The run segment of
 // the claim's run key is the worker's run, or, when that segment is the default `local`, the run
 // id without its `w-` prefix (DEC-037), so the worker always resolves to a launched identity and
 // its 078 unit `L.<run>.<lineage>.<token>` is unique to this run. A child run (082 IC-015) is
@@ -29,8 +29,11 @@ const { grantSummary } = require('../context/summary-store.ts');
 
 type Env = Record<string, string | undefined>;
 
-/** IC-012: the five variables a launch sets, in the order the run record lists them. */
-const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE']);
+/** IC-012: the variables a launch sets, in the order the run record lists them. The first five are the
+ * identity contract; `DOFLOW_WORKER_RUN` (110) carries the worker run id `w-<12 hex>` and nothing else,
+ * so the worker's telemetry can name its own run. It is not part of the stored identity. */
+const WORKER_RUN_VAR = 'DOFLOW_WORKER_RUN';
+const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', WORKER_RUN_VAR]);
 const PROMPT_ELEMENT = '{prompt}';
 const LAST_MESSAGE_FILE_ELEMENT = '{lastMessageFile}';
 /** IC-003 prompt limits in bytes. argv is one under Linux MAX_ARG_STRLEN, which counts the NUL (DEC-062). */
@@ -61,9 +64,11 @@ class LaunchUsageError extends Error {
   }
 }
 
-/** The caller's environment, unchanged, with exactly the five identity variables set. */
-function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string): Env {
-  return {
+/** The caller's environment, unchanged, with the five identity variables set and `DOFLOW_WORKER_RUN` set
+ * to `runId`. Without a `runId` the variable is removed, so a caller's own run id never reaches the worker. */
+function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, runId?: string): Env {
+  if (runId !== undefined && !RUN_ID.test(runId)) throw new LaunchUsageError('run-id-malformed', `launch: run id must match ${RUN_ID}: ${runId}`);
+  const out: Env = {
     ...env,
     DOFLOW_RUN_ID: identity.run,
     DOFLOW_LINEAGE_ID: identity.lineage,
@@ -71,6 +76,9 @@ function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string):
     DOFLOW_SESSION_ROLE: 'worker',
     DOFLOW_WORKTREE: execWorktree,
   };
+  if (runId !== undefined) out[WORKER_RUN_VAR] = runId;
+  else delete out[WORKER_RUN_VAR];
+  return out;
 }
 
 /** IC-012: the worker environment and identity from the claim's run key `<hash>/<run>/<lineage>`.
@@ -86,7 +94,7 @@ function launchEnv({ env, runKey, token, execWorktree, runId, runScoped = false 
   } else {
     identity = { run: claimRun, lineage, attempt: String(token), runSource: 'claim' };
   }
-  return { env: withIdentity(env, identity, execWorktree), identity };
+  return { env: withIdentity(env, identity, execWorktree, runId), identity };
 }
 
 /** The recipe argv with the `{prompt}` element replaced whole by `element`; a longer string is kept as written. */
@@ -160,12 +168,14 @@ interface LaunchOptions {
   edit?: boolean;
   /** IC-004: absolute path for the whole `{lastMessageFile}` argv element. */
   lastMessageFile?: string;
+  /** 110: the worker run id (`w-<12 hex>`), set as `DOFLOW_WORKER_RUN`; absent leaves the variable unset. */
+  runId?: string;
 }
 
 /** IC-012 steps 1 to 5. Resolves `{ child, env, launched: { reason, bytes } }` once the process has spawned. */
-function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile }: LaunchOptions): Promise<any> {
+function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile, runId }: LaunchOptions): Promise<any> {
   return new Promise((resolve, reject) => {
-    const workerEnv = withIdentity(env, identity, execWorktree);
+    const workerEnv = withIdentity(env, identity, execWorktree, runId);
     if (grant) grantSummary({ ...grant, toRun: identity.run, toLineage: identity.lineage, env });
     const emitted = emitContext({ event: 'launch', cwd: execWorktree, env: workerEnv, ...(taskId ? { taskId } : {}) });
     const reason: string = emitted.decision.reason;

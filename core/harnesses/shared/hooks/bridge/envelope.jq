@@ -61,7 +61,9 @@ def dft_tuple($native; $d):
      tool_call_id:dft_token(if $harness == "pi" then $native.toolCallId elif $harness == "claude" or $harness == "codex" then $native.tool_use_id else null end),
      run:(dft_id($ENV.DOFLOW_RUN_ID) | if . == "local" then null else . end),
      lineage:dft_id($ENV.DOFLOW_LINEAGE_ID),
-     attempt:($ENV.DOFLOW_ATTEMPT | if type == "string" and test("^[1-9][0-9]{0,3}$") then tonumber else null end)}) catch {dft:1}]
+     attempt:($ENV.DOFLOW_ATTEMPT | if type == "string" and test("^[1-9][0-9]{0,3}$") then tonumber else null end),
+     role:(if $ENV.DOFLOW_SESSION_ROLE == "main" or $ENV.DOFLOW_SESSION_ROLE == "worker" then $ENV.DOFLOW_SESSION_ROLE else null end),
+     worker_run:($ENV.DOFLOW_WORKER_RUN | if type == "string" and test("\\Aw-[0-9a-f]{12}\\z") then . else null end)}) catch {dft:1}]
   | if length == 1 then .[0] else {dft:1} end end;
 if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),harness:$harness,event:(event_name($event)),operation:event_operation($event)}} elif type != "object" then . else
   . as $native |

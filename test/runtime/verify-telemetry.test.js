@@ -35,7 +35,7 @@ const KINDS = ['verify.run', 'verify.tier', 'verify.check'];
 const COMMON = ['timestamp', 'kind', 'run', 'lineage', 'attempt'];
 /** IC-006, P2 column (FR-006). P3 keys arrive with E.2, P5 keys with G.1..G.4. */
 const P2 = {
-  'verify.run': ['verify_id', 'source', 'task', 'risk', 'status'],
+  'verify.run': ['verify_id', 'source', 'task', 'dispatch_run', 'risk', 'status'],
   'verify.tier': ['verify_id', 'tier', 'status', 'selection_basis', 'selected', 'total', 'fallback'],
   'verify.check': ['verify_id', 'tier', 'status'],
 };
@@ -298,13 +298,20 @@ test('a dispatch verification writes one verify.run with source dispatch and no 
   assert.equal(lines.length, 2);
   for (const line of lines) assert.deepEqual(Object.keys(line), expectedKeys('verify.run'));
   assert.deepEqual(lines.map((line) => [line.source, line.task, line.risk, line.status]), [['dispatch', 'A.1', null, 'PASS'], ['dispatch', 'A.1', null, 'FAIL']]);
+  assert.deepEqual(lines.map((line) => line.dispatch_run), [null, null]);
   assert.deepEqual([lines[0].run, lines[0].lineage, lines[0].attempt], ['p-0123456789ab', 'lin-verify', 1]);
   assert.notEqual(lines[0].verify_id, lines[1].verify_id);
   for (const [kind, canary] of Object.entries(CANARY)) assert.equal(bytes.includes(canary), false, `the ${kind} canary reached a record`);
 
+  const withId = await runVerification({ root, slug: 'feat-v', taskId: 'A.1', worktree, argv: argv(0), seconds: 30, env: base, dispatchRunId: 'p-f0ad33b51b70' });
+  assert.equal(withId.exitCode, 0);
+  const updatedLines = readTelemetry(root).lines;
+  assert.equal(updatedLines.length, 3);
+  assert.equal(updatedLines[2].dispatch_run, 'p-f0ad33b51b70');
+
   const off = await runVerification({ root, slug: 'feat-v', taskId: 'A.1', worktree, argv: argv(0), seconds: 30, env: { ...base, DOFLOW_TELEMETRY: 'off' } });
   assert.equal(off.exitCode, 0);
-  assert.equal(readTelemetry(root).lines.length, 2, 'off wrote nothing');
+  assert.equal(readTelemetry(root).lines.length, 3, 'off wrote nothing');
 });
 
 test('a fault anywhere in the emit never throws and writes nothing for the part it touches', (t) => {
