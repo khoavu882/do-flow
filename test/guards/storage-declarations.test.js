@@ -339,6 +339,11 @@ fs.mkdirSync(worktree, { recursive: true });`;
 const { TelemetryWriter } = require(${JSON.stringify(path.join(REPO, 'src/runtime/trace/telemetry.ts'))});
 new TelemetryWriter({ start: process.argv[1], env: process.env }).write([{ kind: 'verify.tier' }]);
 if (!fs.readdirSync(path.join(process.argv[1], '.doflow', 'state', 'runs', 'telemetry')).length) process.exit(1);`;
+    // The verification-v0 store (088 IC-018): write a failed-first state file through the writer engine.ts ships.
+    const writeVerificationV0 = `const fs=require('node:fs'),path=require('node:path');
+const { writeFailedFirstState } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/engine.ts'))});
+writeFailedFirstState({ configDir: path.join(process.argv[1], '.doflow'), taskId: 'g26-task', root: process.argv[1], checks: { 'broad-tests:test': { cmd: 'node -e 1', files: ['f.js'] } } });
+if (!fs.existsSync(path.join(process.argv[1], '.doflow', 'state', 'verification', 'v0', 'failed-first-g26-task.json'))) process.exit(1);`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps = [
@@ -363,6 +368,7 @@ if (!fs.readdirSync(path.join(process.argv[1], '.doflow', 'state', 'runs', 'tele
       ['lifecycle', verb('lifecycle'), 0],
       ['trace', verb('trace'), 0],
       ['telemetry write', node('-e', writeTelemetry, project), 0],
+      ['verification-v0 write', node('-e', writeVerificationV0, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
       ['summary-store.sh grant claim', summaryStore(grantWriteClaim), 0],

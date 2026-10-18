@@ -75,6 +75,25 @@
       ]
     },
     {
+      "id": "verification-v0",
+      "root": "project-state",
+      "path": "verification/v0",
+      "entry": "file",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 7
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/engine.ts"
+      ]
+    },
+    {
       "id": "task-evidence",
       "root": "project-state",
       "path": "evidence",

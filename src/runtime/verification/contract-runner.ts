@@ -153,6 +153,126 @@ function childCpuTicks(fsImpl: any = fs, platform: string = process.platform): n
   }
 }
 
+/**
+ * Test output failing files parser (088 G.3, IC-007).
+ * Extracts sorted unique repo-relative test file paths from TAP, spec, or pytest output.
+ * Drops non-test files, non-regular files (directories), files outside root, or parse faults.
+ * @param {unknown} text
+ * @param {Object} options
+ * @param {string} options.root project root
+ * @param {Object} options.convention convention object with isTest(path)
+ * @param {Object} [options.fsImpl=fs]
+ * @returns {Array<string>} sorted unique repo-relative paths
+ */
+function extractFailedFiles(
+  text: unknown,
+  {
+    root,
+    convention,
+    fsImpl = fs,
+  }: {
+    root?: string;
+    convention?: { isTest?: (file: string) => boolean };
+    fsImpl?: any;
+  } = {},
+): string[] {
+  if (typeof text !== 'string' || !root || !convention || typeof convention.isTest !== 'function') {
+    return [];
+  }
+
+  let realRoot: string;
+  try {
+    realRoot = fsImpl.realpathSync(root);
+  } catch {
+    realRoot = path.resolve(root);
+  }
+
+  const rawPaths = new Set<string>();
+
+  // 1. TAP: in a YAML block that follows a `not ok` line, ^\s*location:\s*'(.+):\d+:\d+'\s*$ (absolute, made relative to realpath(root))
+  const lines = text.split('\n');
+  let inNotOk = false;
+  let inYaml = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*not ok\b/.test(line)) {
+      inNotOk = true;
+      inYaml = false;
+    } else if (/^\s*ok\b/.test(line)) {
+      inNotOk = false;
+      inYaml = false;
+    } else if (inNotOk && /^\s*---\s*$/.test(line)) {
+      inYaml = true;
+    } else if (inYaml && /^\s*\.\.\.\s*$/.test(line)) {
+      inYaml = false;
+      inNotOk = false;
+    } else if (inNotOk && inYaml) {
+      const match = line.match(/^\s*location:\s*['"]?(.+?):\d+:\d+['"]?\s*$/);
+      if (match) {
+        rawPaths.add(match[1]);
+      }
+    }
+  }
+
+  // 2. Spec: after the `✖ failing tests:` line, ^\s*test at (.+):\d+:\d+\s*$ (relative to root)
+  let afterFailingTests = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/✖ failing tests:/.test(line)) {
+      afterFailingTests = true;
+      continue;
+    }
+    if (afterFailingTests) {
+      const match = line.match(/^\s*test at (.+?):\d+:\d+\s*$/);
+      if (match) {
+        rawPaths.add(match[1]);
+      }
+    }
+  }
+
+  // 3. Pytest: ^FAILED (\S+?)::
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^FAILED (\S+?)::/);
+    if (match) {
+      rawPaths.add(match[1]);
+    }
+  }
+
+  const validFiles = new Set<string>();
+
+  for (const raw of rawPaths) {
+    let relPath: string;
+    if (path.isAbsolute(raw)) {
+      relPath = path.relative(realRoot, raw);
+    } else {
+      relPath = path.normalize(raw);
+    }
+    if (path.isAbsolute(relPath) || relPath.startsWith('..')) {
+      continue;
+    }
+    const normalized = relPath.replace(/\\/g, '/');
+    const fullPath = path.join(realRoot, normalized);
+
+    let st: any;
+    try {
+      st = fsImpl.statSync(fullPath);
+    } catch {
+      continue;
+    }
+    if (!st || !st.isFile() || st.isDirectory()) {
+      continue;
+    }
+    if (!convention.isTest(normalized)) {
+      continue;
+    }
+    validFiles.add(normalized);
+  }
+
+  return [...validFiles].sort();
+}
+
 class VerificationContractRunner {
   cwd: string;
   defaultTimeoutMs: number;
@@ -162,6 +282,7 @@ class VerificationContractRunner {
   logWriteWarned?: boolean;
   platform: string;
   env: Record<string, string | undefined>;
+  convention?: any;
   _treeContext?: { head: string | null; tree: string | null };
   /** Check result → `{ startedAt, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
    * for every executed check; an in-run duplicate and a check with no command have no entry. */
@@ -187,6 +308,7 @@ class VerificationContractRunner {
     this.logDir = opts.logDir || path.join(this.cwd, '.doflow', 'state', 'verification', 'logs');
     this.platform = opts.platform || process.platform;
     this.env = opts.env || process.env;
+    this.convention = opts.convention || null;
     this._treeContext = undefined;
     this.metrics = new WeakMap();
   }
@@ -238,6 +360,14 @@ class VerificationContractRunner {
     if (result.status === 'FAIL') {
       const failedTests = extractFailedTests(full);
       if (failedTests.length > 0) result.failedTests = failedTests;
+      if (this.convention) {
+        const failedFiles = extractFailedFiles(full, {
+          root: this.cwd,
+          convention: this.convention,
+          fsImpl: this.fsImpl,
+        });
+        if (failedFiles.length > 0) result.failedFiles = failedFiles;
+      }
     }
     const truncated = (stdout || '').length > MAX_STREAM_CHARS || (stderr || '').length > MAX_STREAM_CHARS;
     if ((result.status === 'FAIL' || truncated) && full.trim() !== '') {
@@ -334,7 +464,7 @@ class VerificationContractRunner {
         resourceBasis,
         checkKey: checkKeyVal,
         shared: 'none',
-        failedFirst: null,
+        failedFirst: 'none',
       };
     };
 
@@ -477,6 +607,7 @@ module.exports = {
   MAX_STREAM_CHARS,
   MAX_FAILED_TESTS,
   extractFailedTests,
+  extractFailedFiles,
   parseTestCounts,
   childCpuTicks,
 };

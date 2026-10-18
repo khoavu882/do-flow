@@ -37,7 +37,7 @@ const COMMON = ['timestamp', 'kind', 'run', 'lineage', 'attempt'];
 const P3 = {
   'verify.run': ['verify_id', 'source', 'task', 'dispatch_run', 'risk', 'level', 'status', 'exit_code', 'duration_ms', 'checks_run', 'v0'],
   'verify.tier': ['verify_id', 'tier', 'status', 'selection_basis', 'selected', 'total', 'fallback', 'duration_ms'],
-  'verify.check': ['verify_id', 'tier', 'status', 'exit_code', 'duration_ms', 'tests', 'tests_failed', 'cpu_ms', 'resource_basis', 'check_key', 'shared'],
+  'verify.check': ['verify_id', 'tier', 'status', 'exit_code', 'duration_ms', 'tests', 'tests_failed', 'cpu_ms', 'resource_basis', 'check_key', 'shared', 'failed_first'],
 };
 const P2 = P3;
 const HEX16 = /^[0-9a-f]{16}$/;
@@ -126,7 +126,7 @@ test('the registry declares exactly the IC-006 P2 and P3 keys for the three veri
   for (const kind of KINDS) {
     const fields = REGISTRY.kinds[kind].fields;
     assert.deepEqual(Object.keys(fields), P3[kind], kind);
-    for (const [key, field] of Object.entries(fields)) assert.ok(['P2', 'P3', 'P5.1', 'P5.2'].includes(field.phase), `${kind}.${key}`);
+    for (const [key, field] of Object.entries(fields)) assert.ok(['P2', 'P3', 'P5.1', 'P5.2', 'P5.3'].includes(field.phase), `${kind}.${key}`);
   }
 });
 
@@ -168,6 +168,7 @@ for (const name of ['pass', 'fail']) {
     if (name === 'fail') assert.ok(checks.some((line) => line.tier === 'targeted-tests' && line.status === 'FAIL'));
     for (const check of checks) {
       assert.ok(['none', 'in-run'].includes(check.shared), `check.shared ${check.shared}`);
+      assert.ok(['none', 'pass', 'fail'].includes(check.failed_first), `check.failed_first ${check.failed_first}`);
       if (check.status !== 'NOT_RUN') {
         assert.ok(typeof check.duration_ms === 'number', 'duration_ms is number');
       }
@@ -267,7 +268,7 @@ test('check durations are monotonic, timestamps never go backwards, and a tier d
   assert.equal(run.checks_run, checks.length);
   assert.ok(run.duration_ms >= 0);
   assert.deepEqual([run.level, run.v0, run.exit_code], ['L2', 'on', 1]);
-  for (const check of checks) assert.deepEqual([check.check_key, check.shared], [null, 'none']);
+  for (const check of checks) assert.deepEqual([check.check_key, check.shared, check.failed_first], [null, 'none', 'none']);
 });
 
 test('the runner times an executed check in its metrics map and leaves an in-run duplicate unmeasured', () => {
@@ -502,13 +503,16 @@ test('buildVerifyRecords: NOT_RUN gives duration_ms null and checks_run counts e
   assert.equal(checkRecords[0].duration_ms, 150);
   assert.equal(checkRecords[0].shared, 'none');
   assert.equal(checkRecords[0].check_key, '0123456789abcdef');
+  assert.equal(checkRecords[0].failed_first, 'none');
 
   assert.equal(checkRecords[1].status, 'NOT_RUN');
   assert.equal(checkRecords[1].duration_ms, null, 'NOT_RUN check must have duration_ms null');
+  assert.equal(checkRecords[1].failed_first, null);
 
   assert.equal(checkRecords[2].status, 'FAIL');
   assert.equal(checkRecords[2].duration_ms, 0, 'deduplicated check has duration_ms 0');
   assert.equal(checkRecords[2].shared, 'in-run');
   assert.equal(checkRecords[2].check_key, '0123456789abcdef', 'deduplicated check gets executed check_key');
+  assert.equal(checkRecords[2].failed_first, 'none');
 });
 

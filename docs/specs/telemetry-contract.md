@@ -129,6 +129,7 @@ spawn settles, and no tier or check line. All lines of one run share `verify_id`
 | `verify.check` | `resource_basis` | `enum:resource_basis` or null | T2 | `proc-children`, `unreached-platform`, or `unreached-read` |
 | `verify.check` | `check_key` | `hex16` or null | T0 | 16-hex deterministic check key |
 | `verify.check` | `shared` | `enum:shared` or null | T2 | `none` for executed checks, `in-run` for deduplicated checks |
+| `verify.check` | `failed_first` | `enum:failed_first` or null | T2 | `none` for normal runs, `pass` or `fail` when failed-first ran; null when `NOT_RUN` |
 
 `timestamp` is the report's `startedAt` for the run line, the check's own start for a check line,
 and the first check's start for a tier line. Timing comes from the contract runner's `metrics`
@@ -142,7 +143,7 @@ created `state/runs` in it.
 A failing check leaves a `.doflow/state/verification/logs` fragment in the working directory, and
 the walk passes over it. With no project store nothing is written; there is no global fallback.
 
-Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` is declared with phase P5.2.
+Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` is declared with phase P5.2; `failed_first` is declared with phase P5.3.
 
 `recordFields` are not line keys: they are the identifiers a run record carries
 (`task-run.run.traceId`, `task-run.history.traceId`, `task-run.history.traceLink`,

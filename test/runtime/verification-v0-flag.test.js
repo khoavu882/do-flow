@@ -11,12 +11,15 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { v0Enabled, levelOf, v0Applies, loadVerificationRegistry } = require('../../src/runtime/verification/registry.ts');
 const { VerificationEngine, handleVerifyCommand } = require('../../src/runtime/verification/engine.ts');
 const { buildVerifyRecords, emitVerifyTelemetry } = require('../../src/runtime/verification/telemetry-emit.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+
+const sha16 = (x) => crypto.createHash('sha256').update(String(x)).digest('hex').slice(0, 16);
 
 function git(cwd, ...args) {
   const res = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, encoding: 'utf8' });
@@ -191,11 +194,13 @@ test('plain fixture: verdicts, check lists and exec order equal pre-088 engine (
     executedOn.push(cmd);
     return { status: 0, stdout: '', stderr: '' };
   };
+  const clock = () => 1792000000000;
   const engineOn = new VerificationEngine({
     cwd: fixture.root,
     repoRoot: REPO_ROOT,
     exec: execOn,
     v0: true,
+    clock,
   });
 
   const executedOff = [];
@@ -208,6 +213,7 @@ test('plain fixture: verdicts, check lists and exec order equal pre-088 engine (
     repoRoot: REPO_ROOT,
     exec: execOff,
     v0: false,
+    clock,
   });
 
   const compileOpts = {
@@ -221,8 +227,9 @@ test('plain fixture: verdicts, check lists and exec order equal pre-088 engine (
   const contractOn = engineOn.compileContract(compileOpts);
   const contractOff = engineOff.compileContract(compileOpts);
 
-  // Contracts compiled on vs off must be deepEqual
-  assert.deepEqual(contractOn, contractOff, 'contracts compiled with flag on vs off are deepEqual');
+  // Contracts compiled on vs off: flag on attaches testTargeted for V0, flag off omits it
+  const { testTargeted: _onTargeted, ...contractOnBase } = contractOn;
+  assert.deepEqual(contractOnBase, contractOff, 'contracts compiled with flag on vs off are deepEqual');
 
   const reportOn = engineOn.runContract(contractOn, { changedFiles: [] });
   const reportOff = engineOff.runContract(contractOff, { changedFiles: [] });
@@ -301,4 +308,134 @@ test('flag is read once per verify command (handleVerifyCommand), not per check;
     /AssertionError/,
     'negative control: reading flag per check fails single-read assertion'
   );
+});
+
+test('failed-first fixture: flag off (env or sentinel) equals pre-088 engine (no narrowed run, normal order)', (t) => {
+  const planOverrides = {
+    parse: 'node -e "process.exit(0)"',
+    build: 'node -e "process.exit(0)"',
+    typecheck: null,
+    lint: 'node -e "process.exit(0)"',
+  };
+  const fixture = createFixtureProject(t, { name: 'failed-first-flag', planOverrides });
+  fs.writeFileSync(
+    path.join(fixture.root, 'package.json'),
+    JSON.stringify({ name: 'fixture', scripts: { test: 'node --test test/*.test.js' } }, null, 2)
+  );
+  const testFile = path.join(fixture.root, 'test', 'sample.test.js');
+  fs.mkdirSync(path.join(fixture.root, 'test'), { recursive: true });
+  fs.writeFileSync(testFile, 'test("sample", () => {});\n');
+
+  // Seed a failed-first state file
+  const stateDir = path.join(fixture.configDir, 'state', 'verification', 'v0');
+  fs.mkdirSync(stateDir, { recursive: true });
+  const realRootSha = sha16(fs.realpathSync(fixture.root));
+  fs.writeFileSync(
+    path.join(stateDir, 'failed-first-T-1.json'),
+    JSON.stringify({
+      v: 1,
+      cwd: realRootSha,
+      checks: {
+        'targeted-tests:testTargeted': {
+          cmd: sha16('node --test test/sample.test.js'),
+          files: [sha16('test/sample.test.js')],
+        },
+      },
+    }, null, 2) + '\n',
+    { mode: 0o600 }
+  );
+
+  const executedOffEnv = [];
+  const execOffEnv = (cmd) => {
+    executedOffEnv.push(cmd);
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const engineOffEnv = new VerificationEngine({
+    cwd: fixture.root,
+    repoRoot: REPO_ROOT,
+    exec: execOffEnv,
+    v0: false, // Flag off via env/explicit
+  });
+
+  const executedOffSentinel = [];
+  const execOffSentinel = (cmd) => {
+    executedOffSentinel.push(cmd);
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  // Sentinel fixture
+  const sentinelFixture = createFixtureProject(t, { name: 'failed-first-sentinel', sentinel: true, planOverrides });
+  fs.writeFileSync(
+    path.join(sentinelFixture.root, 'package.json'),
+    JSON.stringify({ name: 'fixture', scripts: { test: 'node --test test/*.test.js' } }, null, 2)
+  );
+  fs.mkdirSync(path.join(sentinelFixture.root, 'test'), { recursive: true });
+  fs.writeFileSync(path.join(sentinelFixture.root, 'test', 'sample.test.js'), 'test("sample", () => {});\n');
+  const sentinelStateDir = path.join(sentinelFixture.configDir, 'state', 'verification', 'v0');
+  fs.mkdirSync(sentinelStateDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sentinelStateDir, 'failed-first-T-1.json'),
+    JSON.stringify({
+      v: 1,
+      cwd: sha16(fs.realpathSync(sentinelFixture.root)),
+      checks: {
+        'targeted-tests:testTargeted': {
+          cmd: sha16('node --test test/sample.test.js'),
+          files: [sha16('test/sample.test.js')],
+        },
+      },
+    }, null, 2) + '\n',
+    { mode: 0o600 }
+  );
+  const engineOffSentinel = new VerificationEngine({
+    cwd: sentinelFixture.root,
+    repoRoot: REPO_ROOT,
+    exec: execOffSentinel,
+    configDir: sentinelFixture.configDir,
+    v0: v0Enabled({}, sentinelFixture.configDir),
+  });
+
+  const executedOn = [];
+  const execOn = (cmd) => {
+    executedOn.push(cmd);
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const engineOn = new VerificationEngine({
+    cwd: fixture.root,
+    repoRoot: REPO_ROOT,
+    exec: execOn,
+    v0: true,
+  });
+
+  const compileOpts = {
+    taskId: 'T-1',
+    riskLevel: 'LOW',
+    projectRoot: fixture.root,
+    planPath: fixture.plan,
+    changedFiles: ['test/sample.test.js'],
+    scope: { allowedPaths: ['src/', 'test/'] },
+  };
+
+  const contract = engineOn.compileContract(compileOpts);
+  const reportOn = engineOn.runContract(contract, { changedFiles: ['test/sample.test.js'] });
+  const reportOffEnv = engineOffEnv.runContract(contract, { changedFiles: ['test/sample.test.js'] });
+  const reportOffSentinel = engineOffSentinel.runContract(contract, { changedFiles: ['test/sample.test.js'] });
+
+  // 1. With flag OFF (both env and sentinel), executions are equal and lack the extra narrowed run
+  assert.deepEqual(executedOffEnv, executedOffSentinel, 'env and sentinel produce identical execution list');
+  assert.deepEqual(
+    reportOffEnv.tiers.map((t) => [t.id, t.status]),
+    reportOffSentinel.tiers.map((t) => [t.id, t.status]),
+    'env and sentinel produce identical verdicts'
+  );
+  // Verify that flag OFF has NO failedFirst field
+  const checksOff = reportOffEnv.tiers.flatMap((t) => t.checks);
+  for (const c of checksOff) {
+    assert.equal(c.failedFirst, undefined, 'no failedFirst field when flag is off');
+  }
+
+  // 2. With flag ON, the narrowed run ran (executedOn has narrowed run first)
+  assert.ok(executedOn.length > executedOffEnv.length, 'flag on ran narrowed check plus full check');
+  const checkOn = reportOn.tiers.flatMap((t) => t.checks).find((c) => c.failedFirst);
+  assert.ok(checkOn && checkOn.failedFirst.ran, 'flag on ran failed-first');
+  assert.equal(checkOn.failedFirst.status, 'PASS');
 });

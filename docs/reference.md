@@ -180,6 +180,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | Store | Location | Bound |
 |---|---|---|
 | `verification-logs` | `.doflow/state/verification/logs` | keep newest 40; prune entries older than 30 days |
+| `verification-v0` | `.doflow/state/verification/v0` | prune inactive directories after 7 days |
 | `task-evidence` | `.doflow/state/evidence` | prune finished work after 30 days |
 | `task-readiness` | `.doflow/state/readiness` | prune finished work after 30 days |
 | `task-research` | `.doflow/state/research` | prune finished work after 30 days |

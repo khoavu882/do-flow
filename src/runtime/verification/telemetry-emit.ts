@@ -81,9 +81,11 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
       let testsFailed: number | null = null;
       let cpuMs: number | null = null;
       let resourceBasis: string | null = null;
+      let failedFirst: string | null = null;
 
       if (check && check.status === 'NOT_RUN') {
         durationMs = null;
+        failedFirst = null;
       } else if (timing) {
         checksRun += 1;
         if (Number.isFinite(timing.startedAt)) at = timing.startedAt;
@@ -95,13 +97,17 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         testsFailed = typeof timing.testsFailed === 'number' ? timing.testsFailed : null;
         cpuMs = typeof timing.cpuMs === 'number' ? timing.cpuMs : null;
         resourceBasis = timing.resourceBasis ?? null;
+        failedFirst = timing.failedFirst ?? (check?.failedFirst ? (check.failedFirst.status === 'FAIL' ? 'fail' : 'pass') : 'none');
         if (check && check.command && checkKey) {
           commandKeys.set(check.command, checkKey);
         }
       } else if (check && check.deduplicated) {
         durationMs = 0; // reused the result of an identical check earlier in this run (S-10)
         shared = 'in-run';
+        failedFirst = 'none';
         checkKey = (check.command && commandKeys.get(check.command)) ?? null;
+      } else if (check) {
+        failedFirst = check.failedFirst ? (check.failedFirst.status === 'FAIL' ? 'fail' : 'pass') : 'none';
       }
       if (durationMs !== null) tierMs = (tierMs ?? 0) + durationMs;
       if (tierStart === undefined) tierStart = at;
@@ -119,6 +125,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         resource_basis: resourceBasis,
         check_key: checkKey,
         shared,
+        failed_first: failedFirst,
       });
     }
     const selection = tier.selection || {};

@@ -2,7 +2,10 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseTestCounts } = require('../../src/runtime/verification/contract-runner.ts');
+const fs = require('node:fs');
+const path = require('node:path');
+const { parseTestCounts, extractFailedFiles } = require('../../src/runtime/verification/contract-runner.ts');
+const { tempDir } = require('../helper/tmp');
 
 const TAP_PASS = `TAP version 13
 # Subtest: test one
@@ -113,4 +116,124 @@ test('parseTestCounts returns null counts on non-string or unparseable input', (
   assert.deepEqual(parseTestCounts(null), { tests: null, testsFailed: null });
   assert.deepEqual(parseTestCounts(undefined), { tests: null, testsFailed: null });
   assert.deepEqual(parseTestCounts('random non test output'), { tests: null, testsFailed: null });
+});
+
+test('extractFailedFiles extracts files from TAP location:, spec test at, and pytest FAILED x::', (t) => {
+  const root = tempDir(t, 'doflow-output-parse-');
+  fs.mkdirSync(path.join(root, 'test'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'test', 'foo.test.js'), '// test foo\n');
+  fs.writeFileSync(path.join(root, 'test', 'bar.test.js'), '// test bar\n');
+  fs.writeFileSync(path.join(root, 'tests', 'test_baz.py'), '# test baz\n');
+
+  const conventionNode = {
+    isTest: (f) => f.startsWith('test/') && f.endsWith('.test.js'),
+  };
+  const conventionPy = {
+    isTest: (f) => f.startsWith('tests/') && f.endsWith('.py'),
+  };
+
+  // 1. TAP location: (absolute path)
+  const tapOutput = `TAP version 13
+# Subtest: test one
+not ok 1 - test one
+  ---
+  duration_ms: 1.5
+  location: '${path.join(root, 'test', 'foo.test.js')}:12:34'
+  ...
+1..1
+# tests 1
+# fail 1
+`;
+  assert.deepEqual(
+    extractFailedFiles(tapOutput, { root, convention: conventionNode }),
+    ['test/foo.test.js'],
+    'extracts TAP location'
+  );
+
+  // 2. Spec test at (relative to root)
+  const specOutput = `✔ test alpha (1.5ms)
+✖ test beta (2.1ms)
+  Error: assertion failed
+✖ failing tests:
+test at test/bar.test.js:20:10
+✖ test beta (2.1ms)
+  Error: assertion failed
+ℹ tests 2
+ℹ fail 1
+`;
+  assert.deepEqual(
+    extractFailedFiles(specOutput, { root, convention: conventionNode }),
+    ['test/bar.test.js'],
+    'extracts spec test at'
+  );
+
+  // 3. Pytest FAILED x::
+  const pytestOutput = `=================================== FAILURES ===================================
+FAILED tests/test_baz.py::test_case - AssertionError: assert 1 == 2
+========================= 1 failed, 0 passed in 0.05s ==========================
+`;
+  assert.deepEqual(
+    extractFailedFiles(pytestOutput, { root, convention: conventionPy }),
+    ['tests/test_baz.py'],
+    'extracts pytest FAILED x::'
+  );
+});
+
+test('extractFailedFiles drops directories, non-test files, files outside root, and faults', (t) => {
+  const root = tempDir(t, 'doflow-output-drop-');
+  fs.mkdirSync(path.join(root, 'test', 'somedir'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src', 'not_a_test.js'), 'module.exports = 1;\n');
+
+  const convention = {
+    isTest: (f) => f.startsWith('test/'),
+  };
+
+  // Directory location is dropped
+  const dirLocationOutput = `TAP version 13
+not ok 1 - dir test
+  ---
+  location: '${path.join(root, 'test', 'somedir')}:1:1'
+  ...
+`;
+  assert.deepEqual(
+    extractFailedFiles(dirLocationOutput, { root, convention }),
+    [],
+    'drops directory location'
+  );
+
+  // Non-test file is dropped by convention.isTest
+  const nonTestOutput = `TAP version 13
+not ok 1 - non test
+  ---
+  location: '${path.join(root, 'src', 'not_a_test.js')}:1:1'
+  ...
+`;
+  assert.deepEqual(
+    extractFailedFiles(nonTestOutput, { root, convention }),
+    [],
+    'drops non-test file'
+  );
+
+  // File outside root is dropped
+  const outsideRootOutput = `TAP version 13
+not ok 1 - outside
+  ---
+  location: '/outside/path/test/foo.test.js:1:1'
+  ...
+`;
+  assert.deepEqual(
+    extractFailedFiles(outsideRootOutput, { root, convention }),
+    [],
+    'drops file outside root'
+  );
+
+  // Parse faults return []
+  assert.deepEqual(extractFailedFiles('', { root, convention }), []);
+  assert.deepEqual(extractFailedFiles(null, { root, convention }), []);
+  assert.deepEqual(extractFailedFiles(undefined, { root, convention }), []);
+  assert.deepEqual(extractFailedFiles('not a test output', { root, convention }), []);
+  assert.deepEqual(extractFailedFiles('not a test output', { root: null, convention }), []);
+  assert.deepEqual(extractFailedFiles('not a test output', { root, convention: null }), []);
 });

@@ -106,6 +106,28 @@ function conventionFor(found: any): any {
 }
 
 /**
+ * Walks the test files for the toolchain described by `found`.
+ * Returns sorted unique repo-relative paths of regular files that satisfy `convention.isTest`.
+ * @param {Object} found the detected `testTargeted` entry
+ * @param {string} root project root
+ * @param {Object} [fsImpl]
+ * @returns {Array<string>}
+ */
+function testFilesFor(found: any, root: string, fsImpl: any = nodeFs): string[] {
+  const convention = conventionFor(found);
+  if (!convention) return [];
+  const files = new Set<string>();
+  for (const r of convention.roots) {
+    for (const file of walkFiles(fsImpl, root, r)) {
+      if (convention.isTest(file) && statOf(fsImpl, path.join(root, file))?.isFile()) {
+        files.add(file);
+      }
+    }
+  }
+  return [...files].sort();
+}
+
+/**
  * @param {Object} input
  * @param {Object} input.found the detected `testTargeted` entry (`source`, `testDirs`)
  * @param {{ files: Array<string>|null, reason?: string|null }} input.observation what the
@@ -126,10 +148,7 @@ function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platfor
   const convention = conventionFor(found);
   if (!convention) return null;
 
-  const total = new Set<string>();
-  for (const r of convention.roots) {
-    for (const file of walkFiles(fsImpl, root, r)) if (convention.isTest(file)) total.add(file);
-  }
+  const total = new Set<string>(testFilesFor(found, root, fsImpl));
   const totalCount = total.size;
   const fallback = (reason: string, selectedCount: number | null = 0) => ({
     pattern: null,
@@ -169,4 +188,4 @@ function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platfor
   };
 }
 
-module.exports = { selectChangedTests, quotePath, GUARD_DIR };
+module.exports = { selectChangedTests, quotePath, GUARD_DIR, testFilesFor, conventionFor };
