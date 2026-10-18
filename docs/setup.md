@@ -97,20 +97,9 @@ model or starts Ollama.
 
 ## Installation modes
 
-### Claude Code only
-
-Clone directly into the configuration directory when Claude is your only target:
-
-```bash
-git clone git@github.com:khoavu882/do-flow.git ~/.claude
-chmod +x ~/.claude/hooks/*.sh
-```
-
-Update this installation with `git pull` from `~/.claude`.
-
 ### CLI installation
 
-Use the CLI for multi-tool or project-scoped configuration. It is published as
+Install with the CLI, for one tool or several, at user or project scope. It is published as
 `@khoavu882/doflow` — the unscoped `doflow` name on npm is an unrelated package:
 
 ```bash
