@@ -5,7 +5,7 @@
 //
 // `handleWorkerCommand` validates IC-025's flags per action (a flag on an action that does not take
 // it is exit 2 `usage`), runs the action and maps its disposition to the exit contract: 0 for
-// `discovered`, `probed`, `described`, `selected`, `started`, `cancelled` and `status`; 1 with the
+// `discovered`, `probed`, `described`, `selected`, `started`, `cancelled`, `status` and `recorded`; 1 with the
 // JSON for `refused` and `none-eligible`; 2 with `{ ok: false, error }` for `usage`,
 // `store-unreadable` and `registry-invalid`.
 //
@@ -37,6 +37,7 @@ const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID } = require('./run-store.ts');
+const evidence = require('./evidence.ts');
 const { launchEnv, launchRecord, PROMPT_LIMITS } = require('./launch.ts');
 const { BASE_FILE } = require('../worktree.ts');
 const { SUPERVISOR_FILE, resultOfRun } = require('./supervisor.ts');
@@ -52,9 +53,11 @@ const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { readDispatch, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
 
+// IC-025's original action list remains exported for existing callers; IC-007 adds evidence below.
 const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel']);
+const VALID_ACTIONS = Object.freeze([...ACTIONS, 'evidence']);
 /** IC-025: the dispositions that exit 0; `refused` and `none-eligible` exit 1. */
-const EXIT_ZERO = Object.freeze(['discovered', 'probed', 'described', 'selected', 'started', 'cancelled', 'status']);
+const EXIT_ZERO = Object.freeze(['discovered', 'probed', 'described', 'selected', 'started', 'cancelled', 'status', 'recorded']);
 const ERROR_CODES = Object.freeze(['usage', 'store-unreadable', 'registry-invalid']);
 const TASK_ID = /^[A-Za-z]+\.\d+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
@@ -78,8 +81,8 @@ const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'G
 
 /** IC-025: the actions each flag may be given to; any other action is exit 2 `usage`. */
 const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object.freeze({
-  slug: { flag: '--slug', actions: ['run', 'status', 'cancel'] },
-  harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run'] },
+  slug: { flag: '--slug', actions: ['run', 'status', 'cancel', 'evidence'] },
+  harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run', 'evidence'] },
   edit: { flag: '--edit', actions: ['describe', 'select', 'run'] },
   childOf: { flag: '--child-of', actions: ['run'] },
   request: { flag: '--request', actions: ['run'] },
@@ -92,7 +95,9 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   promptFile: { flag: '--prompt-file', actions: ['run'] },
   timeoutSeconds: { flag: '--timeout-seconds', actions: ['run'] },
   wait: { flag: '--wait', actions: ['run'] },
-  workerRun: { flag: '--worker-run', actions: ['status', 'cancel'] },
+  workerRun: { flag: '--worker-run', actions: ['status', 'cancel', 'evidence'] },
+  checks: { flag: '--checks', actions: ['evidence'] },
+  out: { flag: '--out', actions: ['evidence'] },
   by: { flag: '--by', actions: ['cancel'] },
   reason: { flag: '--reason', actions: ['cancel'] },
 });
@@ -278,7 +283,7 @@ function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs
     nowMs,
   );
   const requirements = readiness.requirementsFor({ harness, worker }, facts, needs, coverage, edit);
-  return { requirements, ...readiness.eligibility(requirements) };
+  return { requirements, version: found.version, ...readiness.eligibility(requirements) };
 }
 
 /** IC-011 steps 0 to 12, then the supervisor spawn and the start poll. */
@@ -349,6 +354,7 @@ async function runAction(o: any) {
   const { identity } = launchEnv({ env, runKey: active.runKey, token, execWorktree, runId, runScoped: Boolean(childOf) });
   const record = {
     runId, task, token, harness, phase: 'starting', execWorktree, createdAt: clock().toISOString(), timeoutSeconds,
+    cliVersion: evaluated.version,
     caller: {
       cwd: path.resolve(cwd), runKey: key.runKey, run: key.identity.run, lineage: key.identity.lineage,
       attempt: key.identity.attempt || null, role: key.identity.role, lineageKind: key.identity.lineageKind,
@@ -504,6 +510,8 @@ function summaryLines(body: any): string[] {
   const parts = [body.disposition];
   if (body.harness && body.disposition === 'described') parts.push(body.harness, body.eligible ? 'eligible' : 'ineligible');
   if (body.runId) parts.push(body.runId);
+  if (body.path) parts.push(body.path);
+  if (Array.isArray(body.establishes) && body.establishes.length) parts.push(`establishes ${body.establishes.join(', ')}`);
   if (body.task) parts.push(`task ${body.task}`);
   if (body.token !== undefined) parts.push(`token ${body.token}`);
   if (body.state) parts.push(body.state);
@@ -519,14 +527,14 @@ function summaryLines(body: any): string[] {
  */
 async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
-  workerRun, by, reason, edit = false, childOf, request, execWorktree,
+  workerRun, checks, out, by, reason, edit = false, childOf, request, execWorktree,
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
   descriptors, registry, coverage, sleep = defaultSleep,
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
-    if (!given(action)) throw usage(`--action is required; valid: ${ACTIONS.join(' | ')}`);
-    if (!ACTIONS.includes(action)) throw usage(`unknown action '${action}'; valid: ${ACTIONS.join(' | ')}`);
-    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, by, reason, edit, childOf, request, execWorktree });
+    if (!given(action)) throw usage(`--action is required; valid: ${VALID_ACTIONS.join(' | ')}`);
+    if (!VALID_ACTIONS.includes(action)) throw usage(`unknown action '${action}'; valid: ${VALID_ACTIONS.join(' | ')}`);
+    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree });
     if (given(task) && !TASK_ID.test(String(task))) throw usage(`--task expects a plan task id such as A.1, got '${task}'`);
     if (given(token)) digits(token, '--token', 1);
     if (given(budgetTokens) && !given(modelCheck)) throw usage('--budget-tokens applies only with --model-check');
@@ -576,6 +584,27 @@ async function executeWorkerCommand({
         else body = { disposition: 'status', run: null, task: selector.task, token: selector.token };
         break;
       }
+      case 'evidence': {
+        if (!given(harness)) throw usage('--action evidence needs --harness');
+        if (!given(out)) throw usage('--action evidence needs --out');
+        const hasChecks = given(checks);
+        const hasWorkerRun = given(workerRun);
+        if (hasChecks === hasWorkerRun) throw usage('--action evidence needs exactly one of --checks or --worker-run');
+        const worker = workerBlock(reg, descriptors, String(harness));
+        const outFile = path.resolve(cwd, String(out));
+        if (hasChecks) {
+          body = evidence.recordCliChecks({
+            checksFile: path.resolve(cwd, String(checks)), harness: String(harness), worker, out: outFile,
+            cwd: root, env, now: clock, platform,
+          });
+        } else {
+          if (!RUN_ID.test(String(workerRun))) throw usage(`--worker-run expects 'w-' plus 12 lowercase hex characters, got '${workerRun}'`);
+          const feature = featureOf(slug, resolveSlug, cwd);
+          const run = readRuns(storeFileFor(root, feature))[String(workerRun)] ?? null;
+          body = evidence.recordLiveRun({ run, harness: String(harness), worker, out: outFile, cwd: root, now: clock });
+        }
+        break;
+      }
       default: {
         const feature = featureOf(slug, resolveSlug, cwd);
         const selector = runSelector(workerRun, task, token, 'cancel');
@@ -595,6 +624,10 @@ async function executeWorkerCommand({
     }
     return { exit: EXIT_ZERO.includes(body.disposition) ? 0 : 1, body };
   } catch (error: any) {
+    if (error instanceof evidence.WorkerEvidenceError) {
+      if (error.code === 'refused') return { exit: 1, body: { disposition: 'refused', reason: error.reason } };
+      if (error.code === 'usage') return { exit: 2, body: { ok: false, error: 'usage', reason: error.reason, message: error.message } };
+    }
     const code = typeof error?.code === 'string' ? error.code : null;
     if (code && ERROR_CODES.includes(code)) return { exit: 2, body: { ok: false, error: code, message: error.message } };
     // launch.ts's caller errors (run-key-malformed, prompt-too-large, recipe-incomplete) are usage.
@@ -606,7 +639,7 @@ async function executeWorkerCommand({
 /**
  * `doflow-run worker --action <action> ...` (IC-025). Prints the JSON with `json`, else one summary
  * line per harness or run, sets `process.exitCode` and resolves the exit code: 0 for the applied and
- * read dispositions, 1 for `refused` and `none-eligible`, 2 for `usage`, `store-unreadable` and
+ * read dispositions (including `recorded`), 1 for `refused` and `none-eligible`, 2 for `usage`, `store-unreadable` and
  * `registry-invalid`. Callers branch on the JSON, never on the exit code alone.
  */
 async function handleWorkerCommand(options: any = {}): Promise<number> {
@@ -618,4 +651,4 @@ async function handleWorkerCommand(options: any = {}): Promise<number> {
   return finishRuntime(exit);
 }
 
-module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, settledStatus, findRun, allowedExecArgv, ACTIONS, FLAG_ACTIONS, WorkerCommandError };
+module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, settledStatus, findRun, allowedExecArgv, ACTIONS, VALID_ACTIONS, FLAG_ACTIONS, WorkerCommandError };
