@@ -6,7 +6,7 @@ DoFlow keeps one source configuration and projects the parts each AI coding envi
 
 ```mermaid
 flowchart LR
-    Core[core/\ncanonical content] --> Installer[bin/doflow.js\ninstaller]
+    Core[core/\ncanonical content] --> Installer[doflow CLI\nbin/doflow.js, src/cli/]
     Installer --> Claude[Claude Code\nCLAUDE.md, hooks, MCP]
     Installer --> Codex[Codex\nAGENTS.md, skills]
     Installer --> Gemini[Gemini CLI\nGEMINI.md, skills]

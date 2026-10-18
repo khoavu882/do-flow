@@ -44,7 +44,7 @@ are reported rather than imitated.
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
 | `core/.plugin/` | GitHub Copilot CLI plugin manifest (skills-only); first in Copilot's documented manifest check order |
 | `bin/doflow.js` | The thin CLI entry point (exposed as the `doflow` command) — a forwarder into `src/cli`; it defines no handlers and no parser, so the binary path and the dispatcher seam (`doflow-run`) keep resolving here |
-| `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.ts`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.ts`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.ts`) — including `buildAdapterRegistry()`, the single construction of the adapter registry that install/update/remove/reconcile use. Fully TypeScript (see `agent-docs/BRIEF_GOAL_DOFLOW.md`); `bin/doflow.js` stays `.js` as the shebang entry and requires `../src/cli/index.ts` explicitly |
+| `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.ts`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.ts`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.ts`) — including `buildAdapterRegistry()`, the single construction of the adapter registry that install/update/remove/reconcile use. Fully TypeScript; `bin/doflow.js` stays `.js` as the shebang entry and requires `../src/cli/index.ts` explicitly |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
 | `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.ts` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.ts` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic; `src/adapters/mcp-entries.ts` holds the MCP entry ownership rules the Claude, Kiro, OpenCode, Copilot and Antigravity adapters share |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.ts`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.ts` with `src/adapters/codex/config.ts` instead of depending on that adapter |
@@ -63,8 +63,8 @@ are reported rather than imitated.
 | `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.ts`, `roots.ts`), the one definition of finished work (`work-status.ts`), the bounded pass and its rules (`engine.ts`, `rules.ts`), the silent cleanup moments (`upkeep.ts`) and the `storage` verb (`cli.ts`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
-| `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.ts`), managed-section merging (`marker-merge.ts`), interactive prompts (`prompt.ts`), `settings.json` merging (`settings-merge.ts`, `settings-scope.ts`), generic TOML parsing (`toml.ts`), destructive-command blocklist derivation (`guardrails.ts`), bash-helper resolution (`bash-helper.ts`), declared native path resolution (`harness-paths.ts`), and the single computation of the package root (`repo-root.ts`), which every layer shares and no layer should re-derive from its own depth. This layer is leading the TypeScript migration (see `agent-docs/BRIEF_GOAL_DOFLOW.md`); modules convert `.js` -> `.ts` leaf-first, and `src/helper/` is now fully TypeScript |
-| `src/install/` | Installer-domain operations: backup set (`backup-set.ts`), backup, restore, retention and listing (`backup.ts`), scope and target resolution (`context.ts`, `targets.ts`), manifest read/write (`manifest.ts`), external-tool detection and install (`tool-lifecycle.ts`), path resolution (`paths.ts`), and MCP server selection (`mcp.ts`). Fully TypeScript (see `agent-docs/BRIEF_GOAL_DOFLOW.md`) |
+| `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.ts`), managed-section merging (`marker-merge.ts`), interactive prompts (`prompt.ts`), `settings.json` merging (`settings-merge.ts`, `settings-scope.ts`), generic TOML parsing (`toml.ts`), destructive-command blocklist derivation (`guardrails.ts`), bash-helper resolution (`bash-helper.ts`), declared native path resolution (`harness-paths.ts`), and the single computation of the package root (`repo-root.ts`), which every layer shares and no layer should re-derive from its own depth. Like the rest of `src/`, it is TypeScript run by Node's native type-stripping, with no build step |
+| `src/install/` | Installer-domain operations: backup set (`backup-set.ts`), backup, restore, retention and listing (`backup.ts`), scope and target resolution (`context.ts`, `targets.ts`), manifest read/write (`manifest.ts`), external-tool detection and install (`tool-lifecycle.ts`), path resolution (`paths.ts`), and MCP server selection (`mcp.ts`). Fully TypeScript |
 | `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `test/guards/` for structural invariants about this repo's content |
 | `bench/` | Skill-evaluation corpus, TRACKED so the baseline is reproducible from a clean clone; only `bench/runs/` and `bench/reports/` are ignored. Outside the default test command, whose dispatch step makes paid model calls |
 | `docs/` | User-facing and contributor documentation site |
@@ -258,13 +258,13 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | `src/runtime/lifecycle/status.ts` | Feature status derived from git and release records, never written |
 | `src/runtime/lifecycle/overview.ts`, `release.ts` | `overview`, `init`, `status`; `release` and `merged` |
 | `src/runtime/lifecycle/cli.ts` | The `followup`, `lifecycle` and `goal` handlers: flag checks, text output, exit codes |
-| `src/runtime/failure/home.ts`, `classifier.js` | Where the failure home is and whether capture is on; the programming-error classifier |
-| `src/runtime/failure/capture.ts`, `store.js`, `cli.js` | The Node writer with rotation; the reader, fingerprints and settlements; the `failure` handler |
+| `src/runtime/failure/home.ts`, `classifier.ts` | Where the failure home is and whether capture is on; the programming-error classifier |
+| `src/runtime/failure/capture.ts`, `store.ts`, `cli.ts` | The Node writer with rotation; the reader, fingerprints and settlements; the `failure` handler |
 
 ### The store
 
 One directory, one file per change. Root rules, the write-once guarantee and the fold order are in the
-module headers of `root.js`, `event-store.js` and `fold.js`; the event types are:
+module headers of `root.ts`, `event-store.ts` and `fold.ts`; the event types are:
 
 | Type | `data` fields |
 |---|---|
@@ -302,7 +302,7 @@ feature finishes when a release record names it, or when its merge is contained 
 The Node runtime finds `do-git-state.sh` inside the package, else in the `bash` folder of the scripts
 installed beside its runtime (DEC-048), and reports `git-state-helper-missing` when neither exists. The
 runtime that is installed carries only `bin/`, `src/` and `core/registry/`, so a path under
-`core/shared/` does not exist there. `scope-bound.js` and `feature-resolve.ts` still use the older
+`core/shared/` does not exist there. `scope-bound.ts` and `feature-resolve.ts` still use the older
 pattern; that is recorded as a follow-up, not fixed here.
 
 ### Failure capture
@@ -359,7 +359,7 @@ command does.
   commit; do not trim an unrelated file to fit. The `dependency-change` rail has little headroom.
 - **G16** (`module-reachability.test.js`): every module in `src/runtime/lifecycle/`, `src/runtime/failure/`
   and `mask.ts` must be reached by a static `require()` literal. The failure modules are required
-  lazily (in `bin/doflow.js` inside a `try`, in `runtime-commands.js` inside a function), so the CLI runs
+  lazily (in `bin/doflow.js` inside a `try`, in `runtime-commands.ts` inside a function), so the CLI runs
   without them; keep the `require('<literal path>')` form when you add one.
 - **G17** (`verb-reachability.test.js`): each of the four verbs must be spelled `doflow-run <verb>` in
   a skill file; the `do` skill line does it, so no allowlist entry exists. Spell a new verb in a skill
@@ -451,7 +451,7 @@ Examples:
 
 - Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
 - Change a client destination or add a supported asset: edit `core/registry/assets.json`, then cover it in tests.
-- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.js`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter via `buildAdapterRegistry()` in `src/cli/shared.ts`, the one construction of the adapter registry. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
+- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.ts`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter via `buildAdapterRegistry()` in `src/cli/shared.ts`, the one construction of the adapter registry. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Add or change a runtime verb: edit the dispatcher's own table alongside the implementation — it is the single place the verb namespace is written down — then run the guards, which cross-check that table against the shell helpers and the CLI commands in both directions.
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.
@@ -501,8 +501,9 @@ d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" -mindepth 1 -maxdepth 1 -name 
 The debris check prints nothing when the suite left no temporary folder behind. It is not part of
 `npm test`, because a test cannot observe the whole run it belongs to.
 
-The docs build needs `mkdocs` and the Dracula theme, which `requirements.txt` pins and which nothing
-else in this repository installs. Without that step `mkdocs build` reports command-not-found, which
+The docs build needs `mkdocs`, the Dracula theme and `pymdown-extensions` (the `mermaid` fence in
+`mkdocs.yml` is a `pymdownx.superfences` custom fence), which `requirements.txt` pins, which the docs
+workflow installs from the same file, and which nothing else in this repository installs. Without that step `mkdocs build` reports command-not-found, which
 reads as "this check cannot run here" rather than "the dependency is not installed yet" — so the
 install line belongs beside the command, not in a contributor's memory.
 
@@ -513,11 +514,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-fifty-five test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-forty-eight entries across forty-four test files and carries forty-six distinct G-numbers.
+fifty-six test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+forty-nine entries across forty-five test files and carries forty-seven distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G48 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G49 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -593,10 +594,10 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G15** (`skill-seam.test.js`) — one path to the runtime entrypoint, one spelling of the resolver
   across the whole skill tree, and no skill reaching into the config directory for anything but that
   entrypoint.
-- **G16** (`module-reachability.test.js`) — every JavaScript module under `src/` is reachable from
+- **G16** (`module-reachability.test.js`) — every runtime module (`.js` or `.ts`) under `src/` is reachable from
   something outside `test/`: a static relative `require()` in `bin/`, `src/` or `bench/`, or a path
   named on one of the caller surfaces that invoke a module without requiring it (`package.json`
-  scripts, `core/shared/scripts`). It closes for `.js` modules the same gap G8 already closes for
+  scripts, `core/shared/scripts`). It closes for runtime modules the same gap G8 already closes for
   shipped scripts (this is how four now-deleted `src/runtime/` modules accumulated with no requirer
   anywhere before this guard existed) — and excluding `test/` closes the residual case, a module kept
   alive solely by its own test, which is how one dead module survived thirteen months. Its companion
@@ -824,6 +825,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   backticked `*.sh` name on the same line that exists in `core/harnesses/shared/hooks/policies/`; any script
   there counts, and the check does not read what the script enforces (G47.2).
 - **G48** (`registry-sources.test.js`) - registry source mode: the source tree requires every declared source and asset to exist (`require` mode), while a runtime-shaped tree (holding only `bin/`, `src/` and `core/registry/`) loads in `skip` mode without checking shared assets or native-projection sources, and fails in `require` mode.
+- **G49** (`docs-site.test.js`) - the published docs site stays true to the code: every `mkdocs.yml` nav page exists and is listed in `docs/llms.txt`, and every `llms.txt` link is a nav page; every Node range statement in `docs/quickstart.md` and `docs/setup.md` equals the range `package.json` declares in `engines.node`; no page claims a Node 18 or 20 floor except in a sentence (or table cell) that itself says the floor was raised; and whenever a page holds a `mermaid` fence, `mkdocs.yml` (YAML comments ignored) declares the mermaid custom fence and an `extra_javascript` script pins the mermaid library (`mermaid@<version>/dist/mermaid`) with a `sha384` integrity hash. Each check has a negative control that re-seeds the fault in a copy under `tempDir`.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

@@ -15,6 +15,19 @@ theme:
 plugins:
   - search
 
+# Mermaid: the dracula theme ships no diagram support, so each ```mermaid fence becomes
+# <div class="mermaid"> and javascripts/mermaid-init.js loads the pinned, integrity-checked mermaid
+# build on pages that hold one and renders it in the browser.
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
+
+extra_javascript:
+  - javascripts/mermaid-init.js
+
 nav:
   - Home: index.md
   - Overview: overview.md
