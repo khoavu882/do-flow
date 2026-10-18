@@ -154,6 +154,50 @@ test('git read errors fail closed for diff, packages, feature head and ancestry'
   assert.equal(evaluate(env.options.policy, 'feature', 'gate-b', noHead).decision, 'deny');
 });
 
+// The calling checkout may be develop itself: its HEAD is never the feature head.
+function branchGit(env, { branchExists = true } = {}) {
+  const branch = `refs/heads/feat/${row.slug}`;
+  return (binary, vector) => {
+    assert.equal(binary, 'git'); env.calls.push(vector);
+    if (vector[0] === 'rev-parse') {
+      const ref = vector[vector.length - 1];
+      if (ref === 'HEAD') return `${PARENT}\n`;
+      if (ref === branch && branchExists) return `${HEAD}\n`;
+      throw new Error(`unknown ref ${ref}`);
+    }
+    if (vector[0] === 'diff') return vector[3] === `${PARENT}...${HEAD}` ? 'M\0core/registry/gates.json\0' : '';
+    if (vector[0] === 'show') return '{}';
+    if (vector[0] === 'merge-base') return '';
+    throw new Error(`unexpected git read ${vector.join(' ')}`);
+  };
+}
+
+test('the feature head comes from the feature branch, never from the calling checkout HEAD', (t) => {
+  const env = setup(t);
+  const input = env.gather('gate-a', { featureHead: undefined, execFileSync: branchGit(env) });
+  assert.deepEqual(input.find((f) => f.name === 'heads').value, { developHead: PARENT, featureHead: HEAD });
+  assert.ok(env.calls.some((v) => v[0] === 'rev-parse' && v.includes(`refs/heads/feat/${row.slug}`)));
+  assert.ok(!env.calls.some((v) => v[0] === 'rev-parse' && v[v.length - 1] === 'HEAD'), 'HEAD is never consulted');
+  assert.ok(evaluate(env.options.policy, 'feature', 'gate-a', input).reasons.includes('protected-path:core/registry/gates.json'));
+  const named = env.gather('gate-a', { featureHead: undefined, featureBranch: 'feat/other', execFileSync: (binary, vector) => {
+    if (vector[0] === 'rev-parse') { assert.equal(vector[vector.length - 1], 'refs/heads/feat/other'); return `${HEAD}\n`; }
+    return branchGit(env)(binary, vector);
+  } });
+  assert.equal(named.find((f) => f.name === 'heads').value.featureHead, HEAD);
+});
+
+test('a missing feature branch makes the heads fact unreadable and the gate denies', (t) => {
+  const env = setup(t);
+  const absent = env.gather('gate-b', { featureHead: undefined, execFileSync: branchGit(env, { branchExists: false }) });
+  const heads = absent.find((f) => f.name === 'heads');
+  assert.equal(heads.unreadable, 'no-feature-branch');
+  assert.equal(heads.value.featureHead, null);
+  assert.equal(evaluate(env.options.policy, 'feature', 'gate-b', absent).decision, 'deny');
+  const noRow = env.gather('gate-b', { featureHead: undefined, row: { ...row, slug: undefined }, execFileSync: branchGit(env) });
+  assert.equal(noRow.find((f) => f.name === 'heads').unreadable, 'no-feature-branch');
+  assert.equal(evaluate(env.options.policy, 'feature', 'gate-b', noRow).decision, 'deny');
+});
+
 test('unreadable empty artifacts have a different input digest from readable empty artifacts', (t) => {
   const env = setup(t);
   const file = env.write(`agent-docs/doflow/${row.slug}/intention/requirement.md`, '');

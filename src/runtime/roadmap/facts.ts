@@ -269,7 +269,15 @@ function gatherGateFacts(options: any): GateFact[] {
     let unreadable: string | undefined;
     try {
       if (!developHead) developHead = execFileSync('git', ['rev-parse', '--verify', options.developBranch || 'develop'], execOptions).trim();
-      if (!featureHead) featureHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], execOptions).trim();
+      if (!featureHead) {
+        // The calling checkout's HEAD may be develop itself (a diff of develop against develop is
+        // empty), so the head is only ever the feature branch's tip.
+        const branch = options.featureBranch || (row.slug ? `feat/${row.slug}` : null);
+        try {
+          if (!branch) throw new Error('no feature branch');
+          featureHead = execFileSync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], execOptions).trim();
+        } catch { throw Object.assign(new Error('no feature branch'), { code: 'no-feature-branch' }); }
+      }
       if (!/^[0-9a-f]{40}$/.test(developHead) || !/^[0-9a-f]{40}$/.test(featureHead)) unreadable = 'invalid-head';
     } catch (error: any) { unreadable = failure(error); }
     add('heads', { developHead: developHead || null, featureHead: featureHead || null }, `${root}#heads`, undefined, unreadable);

@@ -73,7 +73,7 @@ function newFollowupId(taken: any) {
 
 function channelBy(channel: any) {
   const by = byFromChannel(channel || 'default');
-  if (!by) throw new FollowupUsageError(`unknown --channel '${channel}'. Valid: question, gate, prompt, default`);
+  if (!by) throw new FollowupUsageError(`unknown --channel '${channel}'. Valid: question, gate, prompt, resolution, default`);
   return by;
 }
 
