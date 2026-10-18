@@ -90,7 +90,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/verification/engine.ts"
+        "src/runtime/verification/engine.ts",
+        "src/runtime/verification/inflight.ts"
       ]
     },
     {

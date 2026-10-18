@@ -30,6 +30,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { telemetryOff } = require('../trace/telemetry.ts');
 const { checkKey, headCommit, treeDigest } = require('./check-key.ts');
+const { runInflight } = require('./inflight.ts');
+const { v0Applies } = require('./registry.ts');
 
 /** A failing check whose name contains one of these aborts the remaining checks: once the build is
  * broken, every later result describes the broken build rather than the change. */
@@ -283,6 +285,7 @@ class VerificationContractRunner {
   platform: string;
   env: Record<string, string | undefined>;
   convention?: any;
+  inflightContext?: { enabled: boolean; dir: string };
   _treeContext?: { head: string | null; tree: string | null };
   /** Check result → `{ startedAt, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
    * for every executed check; an in-run duplicate and a check with no command have no entry. */
@@ -311,6 +314,17 @@ class VerificationContractRunner {
     this.convention = opts.convention || null;
     this._treeContext = undefined;
     this.metrics = new WeakMap();
+    if (opts.context) this.beginContract(opts.context);
+  }
+
+  /** Explicit engine seam: call once per active V0 evaluation, including retries.
+   * No execution policy is inferred from the environment or leaked into compiled contracts. */
+  beginContract({ v0, registry, riskLevel, configDir }: any): void {
+    this._treeContext = undefined;
+    this.inflightContext = undefined;
+    if (v0 === true && v0Applies(registry, riskLevel) && typeof configDir === 'string') {
+      this.inflightContext = { enabled: true, dir: path.join(configDir, 'state', 'verification', 'v0') };
+    }
   }
 
   /**
@@ -412,7 +426,7 @@ class VerificationContractRunner {
     const t0Cpu = childCpuTicks(this.fsImpl, this.platform);
     let checkKeyVal: string | null = null;
     try {
-      if (!telemetryOff(this.env)) {
+      if (!telemetryOff(this.env) || this.inflightContext?.enabled) {
         if (this._treeContext === undefined) {
           const head = headCommit(this.cwd);
           const tree = treeDigest(this.cwd, { fsImpl: this.fsImpl });
@@ -432,9 +446,18 @@ class VerificationContractRunner {
       checkKeyVal = null;
     }
 
+    let sharing: any = { shared: 'none', sharedRef: null };
     let timing: any = null;
     const remember = (result: any) => {
-      if (timing) this.metrics.set(result, timing);
+      if (sharing.shared === 'follower') result.shared = { from: sharing.sharedRef };
+      if (timing) {
+        if (sharing.shared === 'follower') {
+          timing.durationMs = sharing.durationMs;
+          timing.cpuMs = null;
+          timing.resourceBasis = null;
+        }
+        this.metrics.set(result, timing);
+      }
       if (dedupeCache) dedupeCache.set(dedupeKey, result);
       return result;
     };
@@ -463,16 +486,18 @@ class VerificationContractRunner {
         cpuMs,
         resourceBasis,
         checkKey: checkKeyVal,
-        shared: 'none',
+        shared: sharing.shared,
+        sharedRef: sharing.sharedRef,
         failedFirst: 'none',
       };
     };
 
     let res: any;
     try {
-      res = this.exec(command, {
+      const execute = () => this.exec(command, {
         shell: true,
         cwd: this.cwd,
+        ...(this.inflightContext?.enabled ? { env: this.env } : {}),
         encoding: 'utf8',
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
@@ -481,6 +506,13 @@ class VerificationContractRunner {
         // past anything a check legitimately prints. Only the first 2,000 chars are ever kept.
         maxBuffer: 64 * 1024 * 1024,
       });
+      if (this.inflightContext?.enabled && checkKeyVal) {
+        sharing = runInflight({ dir: this.inflightContext.dir, key: checkKeyVal, timeoutMs,
+          execute, fsImpl: this.fsImpl });
+        res = sharing.result;
+      } else {
+        res = execute();
+      }
     } catch (error: any) {
       stop();
       // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a

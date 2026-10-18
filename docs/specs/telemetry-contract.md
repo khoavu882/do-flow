@@ -53,7 +53,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 | `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh`, `core/harnesses/claude/hooks/post-shell-observe.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `session`, `tool`, `tool_call_id`, `role`, `worker_run`, `test_class` (see Hook lines) |
 | `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `level`, `status`, `exit_code`, `duration_ms`, `checks_run` (see Verify lines) |
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
-| `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared` |
+| `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared`, `shared_ref`, `failed_first` |
 
 A key is added to a kind in the same change that writes it, with its `phase` (the merge that first
 writes it). Until then the writer drops every key it is handed for that kind. Changes to the contract
@@ -122,13 +122,14 @@ spawn settles, and no tier or check line. All lines of one run share `verify_id`
 | `verify.tier` | `selected`, `total` | `uint` or null | T1 | the selection's counts; null when unknown |
 | `verify.tier` | `duration_ms` | `uint` or null | T1 | sum of check durations in the tier (derived-sum) |
 | `verify.check` | `exit_code` | `uint` or null | T1 | the check process exit code |
-| `verify.check` | `duration_ms` | `uint` or null | T1 | check execution duration in milliseconds (null when `NOT_RUN`) |
+| `verify.check` | `duration_ms` | `uint` or null | T1 | check execution duration, or the follower's wait, in milliseconds (null when `NOT_RUN`) |
 | `verify.check` | `tests` | `uint` or null | T1 | total test count parsed from test output |
 | `verify.check` | `tests_failed` | `uint` or null | T1 | failed test count parsed from test output |
 | `verify.check` | `cpu_ms` | `uint` or null | T1 | child CPU time in milliseconds (Linux only, null on other platforms) |
 | `verify.check` | `resource_basis` | `enum:resource_basis` or null | T2 | `proc-children`, `unreached-platform`, or `unreached-read` |
 | `verify.check` | `check_key` | `hex16` or null | T0 | 16-hex deterministic check key |
-| `verify.check` | `shared` | `enum:shared` or null | T2 | `none` for executed checks, `in-run` for deduplicated checks |
+| `verify.check` | `shared` | `enum:shared` or null | T2 | `none` for unshared checks, `in-run` for checks reused within a run, `leader` or `follower` for overlapping V0 checks |
+| `verify.check` | `shared_ref` | `hex32` or null | T0 | random lock token for a leader or follower, else null |
 | `verify.check` | `failed_first` | `enum:failed_first` or null | T2 | `none` for normal runs, `pass` or `fail` when failed-first ran; null when `NOT_RUN` |
 
 `timestamp` is the report's `startedAt` for the run line, the check's own start for a check line,
@@ -143,7 +144,7 @@ created `state/runs` in it.
 A failing check leaves a `.doflow/state/verification/logs` fragment in the working directory, and
 the walk passes over it. With no project store nothing is written; there is no global fallback.
 
-Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` is declared with phase P5.2; `failed_first` is declared with phase P5.3.
+Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` is declared with phase P5.2; `failed_first` is declared with phase P5.3; `shared_ref` and leader/follower sharing are declared with phase P5.4. Followers are excluded from `checks_run`.
 
 `recordFields` are not line keys: they are the identifiers a run record carries
 (`task-run.run.traceId`, `task-run.history.traceId`, `task-run.history.traceLink`,

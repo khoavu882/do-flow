@@ -439,3 +439,67 @@ test('failed-first fixture: flag off (env or sentinel) equals pre-088 engine (no
   assert.ok(checkOn && checkOn.failedFirst.ran, 'flag on ran failed-first');
   assert.equal(checkOn.failedFirst.status, 'PASS');
 });
+
+// G.4: the explicit runner seam must remain inert when flag-off or outside L1/L2.
+test('dedup fixture: flag off and L3 execute unshared and create no inflight state', (t) => {
+  const { VerificationContractRunner } = require('../../src/runtime/verification/contract-runner.ts');
+  const root = tempDir(t, 'doflow-v0-dedup-off-');
+  const registry = loadVerificationRegistry();
+  for (const [v0, riskLevel] of [[false, 'LOW'], [true, 'HIGH'], [true, 'CRITICAL']]) {
+    const configDir = path.join(root, `${v0}-${riskLevel}`);
+    let executions = 0;
+    const runner = new VerificationContractRunner({ cwd: root, env: { DOFLOW_TELEMETRY: 'off' },
+      exec: () => { executions++; return { status: 0, stdout: '', stderr: '' }; },
+      context: { v0, registry, riskLevel, configDir } });
+    const a = runner.runCheck('first', 'true');
+    const b = runner.runCheck('second', 'true');
+    assert.equal(executions, 2);
+    assert.equal(a.shared, undefined);
+    assert.equal(b.shared, undefined);
+    assert.equal(runner._treeContext, undefined, 'flag off/L3 plus telemetry off never computes identity');
+    assert.equal(fs.existsSync(configDir), false, 'flag off/L3 creates no coordination state');
+  }
+});
+
+test('dedup fixture: engine V0 gate reaches runner once per contract without adding compiled contract keys', (t) => {
+  const root = tempDir(t, 'doflow-v0-dedup-engine-');
+  const engine = new VerificationEngine({ cwd: root, configDir: path.join(root, '.doflow'), v0: true,
+    exec: () => ({ status: 0, stdout: '', stderr: '' }) });
+  const contract = { version: 1, taskId: 'dedup', riskLevel: 'LOW', tiers: [{
+    id: 'parse', name: 'Parse', kind: 'deterministic', required: true, resolution: 'RESOLVED',
+    checks: [{ name: 'parse:syntax', command: 'true', timeoutMs: 1000 }],
+  }] };
+  const before = JSON.stringify(contract);
+  // The runner boundary supplies fixture identity after its per-contract reset, avoiding git writes.
+  let contexts = 0;
+  const begin = engine.runner.beginContract.bind(engine.runner);
+  engine.runner.beginContract = (context) => {
+    contexts++;
+    begin(context);
+    engine.runner._treeContext = { head: '1'.repeat(40), tree: 'tree' };
+  };
+  const report = engine.runContract(contract);
+  assert.equal(report.status, 'PASS');
+  assert.equal(JSON.stringify(contract), before);
+  assert.equal(contexts, 1, 'engine initializes runner context exactly once per contract');
+  assert.equal(engine.runner.metrics.get(report.tiers[0].checks[0]).shared, 'leader',
+    'engine must explicitly pass its V0/risk/config context to the runner');
+
+  for (const [v0, riskLevel, enabled] of [
+    [true, 'HIGH', false], [true, 'CRITICAL', false], [true, 'MEDIUM', true],
+    [false, 'LOW', false], [true, 'LOW', true],
+  ]) {
+    engine.v0 = v0;
+    engine.runner.env = { DOFLOW_TELEMETRY: 'off' };
+    const next = { ...contract, riskLevel };
+    const compiled = JSON.stringify(next);
+    const priorContexts = contexts;
+    const nextReport = engine.runContract(next);
+    assert.equal(nextReport.status, 'PASS');
+    assert.equal(JSON.stringify(next), compiled, 'runner context never becomes a contract key');
+    assert.equal(contexts, priorContexts + (enabled ? 1 : 0), 'only active V0 contracts call beginContract');
+    assert.equal(engine.runner.metrics.get(nextReport.tiers[0].checks[0]).shared,
+      enabled ? 'leader' : 'none', 'L3 and flag off cannot inherit prior sharing context');
+    assert.equal(Boolean(engine.runner.inflightContext?.enabled), enabled);
+  }
+});

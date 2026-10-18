@@ -344,6 +344,12 @@ if (!fs.readdirSync(path.join(process.argv[1], '.doflow', 'state', 'runs', 'tele
 const { writeFailedFirstState } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/engine.ts'))});
 writeFailedFirstState({ configDir: path.join(process.argv[1], '.doflow'), taskId: 'g26-task', root: process.argv[1], checks: { 'broad-tests:test': { cmd: 'node -e 1', files: ['f.js'] } } });
 if (!fs.existsSync(path.join(process.argv[1], '.doflow', 'state', 'verification', 'v0', 'failed-first-g26-task.json'))) process.exit(1);`;
+    // G.4: exercise the inflight writer independently of the engine's failed-first writer.
+    const writeInflight = `const fs=require('node:fs'),path=require('node:path');
+const { runInflight } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/inflight.ts'))});
+const dir=path.join(process.argv[1], '.doflow', 'state', 'verification', 'v0');
+const out=runInflight({dir,key:'0123456789abcdef',timeoutMs:1000,execute:()=>({status:0,stdout:'',stderr:''})});
+if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json')))process.exit(1);`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps = [
@@ -369,6 +375,7 @@ if (!fs.existsSync(path.join(process.argv[1], '.doflow', 'state', 'verification'
       ['trace', verb('trace'), 0],
       ['telemetry write', node('-e', writeTelemetry, project), 0],
       ['verification-v0 write', node('-e', writeVerificationV0, project), 0],
+      ['verification-v0 inflight write', node('-e', writeInflight, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
       ['summary-store.sh grant claim', summaryStore(grantWriteClaim), 0],

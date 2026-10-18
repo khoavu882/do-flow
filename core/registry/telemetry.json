@@ -84,6 +84,7 @@
         "resource_basis": { "name": "doflow.verify.check.resource_basis", "class": "T2", "type": "enum:resource_basis|null", "phase": "P3" },
         "check_key": { "name": "doflow.verify.check.check_key", "class": "T0", "type": "hex16|null", "phase": "P3" },
         "shared": { "name": "doflow.verify.check.shared", "class": "T2", "type": "enum:shared|null", "phase": "P3" },
+        "shared_ref": { "name": "doflow.verify.check.shared_ref", "class": "T0", "type": "hex32|null", "phase": "P5.4" },
         "failed_first": { "name": "doflow.verify.check.failed_first", "class": "T2", "type": "enum:failed_first|null", "phase": "P5.3" }
       }
     }

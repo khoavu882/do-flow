@@ -719,6 +719,17 @@ class VerificationEngine {
     const dedupeCache = new Map<string, any>();
 
     const v0Active = Boolean(this.v0 && v0Applies(this.registry, contract.riskLevel));
+    if (v0Active) {
+      this.runner.beginContract({
+        v0: this.v0,
+        registry: this.registry,
+        riskLevel: contract.riskLevel,
+        configDir: this.configDir,
+      });
+    } else {
+      // A reused engine must not carry L1/L2 sharing into an L3 or flag-off contract.
+      this.runner.inflightContext = undefined;
+    }
     let taskIdValid = false;
     if (typeof contract.taskId === 'string') {
       try {

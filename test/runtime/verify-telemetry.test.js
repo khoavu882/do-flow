@@ -37,7 +37,7 @@ const COMMON = ['timestamp', 'kind', 'run', 'lineage', 'attempt'];
 const P3 = {
   'verify.run': ['verify_id', 'source', 'task', 'dispatch_run', 'risk', 'level', 'status', 'exit_code', 'duration_ms', 'checks_run', 'v0'],
   'verify.tier': ['verify_id', 'tier', 'status', 'selection_basis', 'selected', 'total', 'fallback', 'duration_ms'],
-  'verify.check': ['verify_id', 'tier', 'status', 'exit_code', 'duration_ms', 'tests', 'tests_failed', 'cpu_ms', 'resource_basis', 'check_key', 'shared', 'failed_first'],
+  'verify.check': ['verify_id', 'tier', 'status', 'exit_code', 'duration_ms', 'tests', 'tests_failed', 'cpu_ms', 'resource_basis', 'check_key', 'shared', 'shared_ref', 'failed_first'],
 };
 const P2 = P3;
 const HEX16 = /^[0-9a-f]{16}$/;
@@ -126,7 +126,10 @@ test('the registry declares exactly the IC-006 P2 and P3 keys for the three veri
   for (const kind of KINDS) {
     const fields = REGISTRY.kinds[kind].fields;
     assert.deepEqual(Object.keys(fields), P3[kind], kind);
-    for (const [key, field] of Object.entries(fields)) assert.ok(['P2', 'P3', 'P5.1', 'P5.2', 'P5.3'].includes(field.phase), `${kind}.${key}`);
+    for (const [key, field] of Object.entries(fields)) {
+      if (key === 'shared_ref') assert.equal(field.phase, 'P5.4');
+      else assert.ok(['P2', 'P3', 'P5.1', 'P5.2', 'P5.3'].includes(field.phase), `${kind}.${key}`);
+    }
   }
 });
 
@@ -167,7 +170,9 @@ for (const name of ['pass', 'fail']) {
     assert.deepEqual(checks.map((line) => [line.tier, line.status]), reportChecks);
     if (name === 'fail') assert.ok(checks.some((line) => line.tier === 'targeted-tests' && line.status === 'FAIL'));
     for (const check of checks) {
-      assert.ok(['none', 'in-run'].includes(check.shared), `check.shared ${check.shared}`);
+      assert.ok(['none', 'in-run', 'leader', 'follower'].includes(check.shared), `check.shared ${check.shared}`);
+      if (check.shared === 'leader' || check.shared === 'follower') assert.match(check.shared_ref, /^[0-9a-f]{32}$/);
+      else assert.equal(check.shared_ref, null);
       assert.ok(['none', 'pass', 'fail'].includes(check.failed_first), `check.failed_first ${check.failed_first}`);
       if (check.status !== 'NOT_RUN') {
         assert.ok(typeof check.duration_ms === 'number', 'duration_ms is number');
@@ -516,3 +521,23 @@ test('buildVerifyRecords: NOT_RUN gives duration_ms null and checks_run counts e
   assert.equal(checkRecords[2].failed_first, 'none');
 });
 
+
+test('G.4 leader and follower telemetry pin shared/shared_ref, follower wait and execution count', () => {
+  const token = 'a'.repeat(32);
+  const leader = { name: 'leader', command: 'true', status: 'FAIL', exitCode: 7 };
+  const follower = { name: 'follower', command: 'true', status: 'FAIL', exitCode: 7, shared: { from: token } };
+  const metrics = new WeakMap([
+    [leader, { startedAt: 1000, durationMs: 1000, shared: 'leader', sharedRef: token }],
+    [follower, { startedAt: 1100, durationMs: 250, shared: 'follower', sharedRef: token }],
+  ]);
+  const records = buildVerifyRecords({ report: { status: 'FAIL', startedAt: new Date(1000).toISOString(),
+    finishedAt: new Date(2000).toISOString(), tiers: [{ id: 'parse', status: 'FAIL', checks: [leader, follower] }] },
+    metrics, ctx: { verifyId: '0123456789abcdef', source: 'verb', risk: 'LOW', v0: true } });
+  assert.equal(records[0].checks_run, 1, 'a follower waits; it does not execute');
+  const checks = records.filter((r) => r.kind === 'verify.check');
+  assert.deepEqual(checks.map((r) => [r.shared, r.shared_ref, r.duration_ms]),
+    [['leader', token, 1000], ['follower', token, 250]]);
+  assert.equal(checks[1].status, checks[0].status);
+  assert.equal(REGISTRY.kinds['verify.check'].fields.shared_ref.type, 'hex32|null');
+  assert.equal(REGISTRY.kinds['verify.check'].fields.shared_ref.phase, 'P5.4');
+});

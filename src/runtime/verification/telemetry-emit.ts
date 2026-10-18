@@ -77,6 +77,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
       let at = cursor;
       let checkKey: string | null = null;
       let shared: string | null = null;
+      let sharedRef: string | null = null;
       let tests: number | null = null;
       let testsFailed: number | null = null;
       let cpuMs: number | null = null;
@@ -87,12 +88,13 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         durationMs = null;
         failedFirst = null;
       } else if (timing) {
-        checksRun += 1;
+        if (timing.shared !== 'follower') checksRun += 1;
         if (Number.isFinite(timing.startedAt)) at = timing.startedAt;
         if (Number.isFinite(timing.durationMs)) durationMs = Math.round(timing.durationMs);
         if (at !== undefined) cursor = Math.max(cursor ?? at, at + (durationMs ?? 0));
         checkKey = timing.checkKey ?? null;
         shared = timing.shared ?? 'none';
+        sharedRef = timing.sharedRef ?? null;
         tests = typeof timing.tests === 'number' ? timing.tests : null;
         testsFailed = typeof timing.testsFailed === 'number' ? timing.testsFailed : null;
         cpuMs = typeof timing.cpuMs === 'number' ? timing.cpuMs : null;
@@ -125,6 +127,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         resource_basis: resourceBasis,
         check_key: checkKey,
         shared,
+        shared_ref: sharedRef,
         failed_first: failedFirst,
       });
     }

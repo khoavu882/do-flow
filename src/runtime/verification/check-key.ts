@@ -34,37 +34,35 @@ const { spawnSync } = require('node:child_process');
 const MAX_UNCOMMITTED_FILES = 500;
 const MAX_UNCOMMITTED_BYTES = 50 * 1024 * 1024; // 50 MB
 
-/**
- * P3 envExclude list (moves to core/registry/verification.json in P5.4, G.4).
- * Variables that vary between runs/attempts/lineages/roles without changing test outcomes.
- */
-const DEFAULT_ENV_EXCLUDE = Object.freeze([
-  'DOFLOW_RUN_ID',
-  'DOFLOW_LINEAGE_ID',
-  'DOFLOW_ATTEMPT',
-  'DOFLOW_TASK_ID',
-  'DOFLOW_SESSION_ROLE',
-  'DOFLOW_WORKTREE',
-  '_',
-  'OLDPWD',
-  'PWD',
-  'SHLVL',
-]);
+/** Registry-owned defaults; a load fault makes a check unkeyable at the caller. */
+function envExclude(): readonly string[] {
+  const { loadVerificationRegistry } = require('./registry.ts');
+  const exclude = loadVerificationRegistry().policy?.dedup?.envExclude;
+  if (!Array.isArray(exclude) || !exclude.every((key: unknown) => typeof key === 'string')) {
+    throw new Error('Invalid dedup environment exclusions');
+  }
+  return exclude;
+}
 
 /**
  * Computes sha256 of sorted NAME=VALUE lines minus excluded environment variables.
  * @param {Record<string, string | undefined>} [env=process.env]
- * @param {readonly string[]} [exclude=DEFAULT_ENV_EXCLUDE]
+ * @param {readonly string[]} [exclude=registry policy.dedup.envExclude]
  * @returns {string} sha256 hex digest
  */
 function envDigest(
   env: Record<string, string | undefined> = process.env,
-  exclude: readonly string[] = DEFAULT_ENV_EXCLUDE,
+  exclude: readonly string[] = envExclude(),
 ): string {
   const excludeSet = new Set(exclude);
   const lines: string[] = [];
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined || excludeSet.has(key)) continue;
+    // Raw NAME=VALUE lines must be unambiguous. Multiline environments run unshared
+    // rather than collide with a second environment containing an additional key.
+    if (key.includes('=') || key.includes('\n') || value.includes('\n')) {
+      throw new Error('Unkeyable environment');
+    }
     lines.push(`${key}=${value}`);
   }
   lines.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
@@ -125,16 +123,20 @@ function treeDigest(
       if (!token) continue;
       const status = token.slice(0, 2);
       const relPath = token.slice(3);
-      // For rename or copy (R or C), git -z follows with the original path
-      if (status.startsWith('R') || status.startsWith('C')) {
-        i += 1; // skip second path token
+      let entry = token;
+      // Both names are part of a rename/copy entry; dropping the source can give two
+      // different uncommitted trees the same digest when their destination bytes match.
+      if (/[RC]/.test(status)) {
+        const source = tokens[++i];
+        if (!source) return null;
+        entry += `\0${source}`;
       }
 
       // Exclude anything under .doflow/
       if (relPath === '.doflow' || relPath.startsWith('.doflow/') || relPath.includes('/.doflow/')) {
         continue;
       }
-      entries.push({ entry: token, relPath });
+      entries.push({ entry, relPath });
     }
 
     if (entries.length > MAX_UNCOMMITTED_FILES) {
@@ -151,7 +153,9 @@ function treeDigest(
       const fullPath = path.resolve(root, item.relPath);
       let fileHash = '';
       try {
+        if (typeof fsImpl.lstatSync === 'function' && fsImpl.lstatSync(fullPath).isSymbolicLink()) return null;
         const stat = fsImpl.statSync(fullPath);
+        if (!stat.isFile()) return null; // directory/submodule contents are not represented by porcelain
         if (stat.isFile()) {
           totalBytes += stat.size;
           if (totalBytes > MAX_UNCOMMITTED_BYTES) {
@@ -160,8 +164,9 @@ function treeDigest(
           const content = fsImpl.readFileSync(fullPath);
           fileHash = crypto.createHash('sha256').update(content).digest('hex');
         }
-      } catch {
-        // File may have been deleted or is inaccessible; leave fileHash empty
+      } catch (error: any) {
+        // A deletion has no content; an unreadable live file cannot be safely keyed.
+        if (error.code !== 'ENOENT' || !item.entry.slice(0, 2).includes('D')) return null;
       }
       hasher.update(item.entry, 'utf8');
       hasher.update('\0', 'utf8');
@@ -233,7 +238,8 @@ function checkKey({
     return null;
   }
 
-  const envDig = envDigest(env);
+  let envDig: string;
+  try { envDig = envDigest(env); } catch { return null; }
   const payload = [
     1,
     command,
@@ -251,7 +257,6 @@ function checkKey({
 }
 
 module.exports = {
-  DEFAULT_ENV_EXCLUDE,
   envDigest,
   headCommit,
   treeDigest,
