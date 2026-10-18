@@ -939,4 +939,23 @@ test('110 P7: hook with worker_run overrides a single T3 candidate when worker s
   assert.equal(hookSpan.attrs.join, undefined);
 });
 
+test('D4 observer duration: spans.ts reads tool_duration_ms on observer lines, falling back to duration_ms', (t) => {
+  const { dir } = seed(t, {
+    telemetry: [
+      { timestamp: at('11:15:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, tool_duration_ms: 189, session: 's-obs-1', tool: 'Bash', tool_call_id: 'tc-unpaired-1' },
+      { timestamp: at('11:16:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: 104, session: 's-obs-2', tool: 'Bash', tool_call_id: 'tc-unpaired-2' },
+      { timestamp: at('11:17:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, tool_duration_ms: 999, session: 's-obs-3', tool: 'Bash', tool_call_id: 'tc-unpaired-3' },
+    ],
+  });
+  const v = view(dir);
+  const spans = traceOf(v, ID2).spans;
+  const s1 = spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  const s2 = spans.find((s) => s.locator === `${TELEMETRY}:2`);
+  const s3 = spans.find((s) => s.locator === `${TELEMETRY}:3`);
+  assert.equal(s1.durationMs, 189, 'observer with tool_duration_ms uses tool_duration_ms');
+  assert.equal(s2.durationMs, 104, 'observer without tool_duration_ms falls back to duration_ms');
+  assert.equal(s3.durationMs, null, 'non-observer line does not read tool_duration_ms');
+});
+
+
 

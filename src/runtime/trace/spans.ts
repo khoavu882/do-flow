@@ -389,8 +389,12 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     const kind = value && typeof value === 'object' && !Array.isArray(value) ? value.kind : null;
     if (typeof kind !== 'string' || !Object.hasOwn(kinds, kind)) { gaps.push({ locator, reason: 'unparseable', kind: 'telemetry' }); continue; }
     const fields = Object.keys(kinds[kind].fields || {});
+    const isObserver = value.policy === 'post-shell-observe';
+    const durationMs = isObserver
+      ? (value.tool_duration_ms ?? value.duration_ms ?? null)
+      : (value.duration_ms ?? null);
     items.push(identityItem(kind, value.policy ?? value.tier ?? kind, locator, value, {
-      start: iso(value.timestamp), durationMs: value.duration_ms ?? null, attrs: pick(value, same(fields)), session: value.session,
+      start: iso(value.timestamp), durationMs, attrs: pick(value, same(fields)), session: value.session,
       link: { verifyId: HEX16.test(value.verify_id) ? value.verify_id : null, event: str(value.event), toolCall: str(value.tool_call_id) },
     }));
   }

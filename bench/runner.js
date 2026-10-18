@@ -1329,23 +1329,91 @@ function cmdVerifyBaseline(opts) {
     console.error(`missing manifest: unparseable ${manifestPath}`);
     return 2;
   }
-  if (Array.isArray(manifest.files)) {
-    for (const file of manifest.files) {
-      const fullPath = path.join(snapshotDir, file.path);
-      if (!fs.existsSync(fullPath)) {
-        console.error(`manifest sha256 mismatch: ${file.path}`);
-        return 1;
+  if (!manifest || typeof manifest !== 'object') {
+    console.error('bench verify-baseline: manifest must be an object');
+    return 2;
+  }
+  if (manifest.v !== 1) {
+    console.error(`bench verify-baseline: manifest version must be 1, got ${manifest.v}`);
+    return 2;
+  }
+  if (!manifest.commit || typeof manifest.commit !== 'string') {
+    console.error('bench verify-baseline: manifest commit is required');
+    return 2;
+  }
+  if (!Array.isArray(manifest.files)) {
+    console.error('bench verify-baseline: manifest files must be an array');
+    return 2;
+  }
+
+  const manifestPaths = new Set();
+  for (const file of manifest.files) {
+    if (!file || typeof file !== 'object' || typeof file.path !== 'string' || !file.path) {
+      console.error('bench verify-baseline: manifest file entry missing path');
+      return 2;
+    }
+    const fullPath = path.resolve(snapshotDir, file.path);
+    const rel = path.relative(snapshotDir, fullPath);
+    if (rel.startsWith('..') || path.isAbsolute(file.path)) {
+      console.error(`bench verify-baseline: path escapes snapshot directory: ${file.path}`);
+      return 2;
+    }
+    try {
+      const lstat = fs.lstatSync(fullPath);
+      if (lstat.isSymbolicLink()) {
+        console.error(`bench verify-baseline: symlink not permitted in snapshot: ${file.path}`);
+        return 2;
       }
-      const hash = crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
-      if (hash !== file.sha256) {
-        console.error(`manifest sha256 mismatch: ${file.path}`);
-        return 1;
+    } catch {
+      // Missing file will fail sha256 check below
+    }
+    if (!fs.existsSync(fullPath)) {
+      console.error(`manifest sha256 mismatch: ${file.path}`);
+      return 1;
+    }
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
+    if (hash !== file.sha256) {
+      console.error(`manifest sha256 mismatch: ${file.path}`);
+      return 1;
+    }
+    manifestPaths.add(rel.split(path.sep).join('/'));
+  }
+
+  const stateDir = path.join(snapshotDir, 'state');
+  if (fs.existsSync(stateDir)) {
+    const stateFiles = new Set();
+    function collectFiles(dir) {
+      const entries = fs.readdirSync(dir);
+      for (const entry of entries) {
+        const p = path.join(dir, entry);
+        const lstat = fs.lstatSync(p);
+        if (lstat.isSymbolicLink()) {
+          return `symlink not permitted in snapshot: ${path.relative(snapshotDir, p)}`;
+        }
+        if (lstat.isDirectory()) {
+          const err = collectFiles(p);
+          if (err) return err;
+        } else if (lstat.isFile()) {
+          stateFiles.add(path.relative(snapshotDir, p).split(path.sep).join('/'));
+        }
+      }
+      return null;
+    }
+    const symlinkErr = collectFiles(stateDir);
+    if (symlinkErr) {
+      console.error(`bench verify-baseline: ${symlinkErr}`);
+      return 2;
+    }
+    for (const sf of stateFiles) {
+      if (!manifestPaths.has(sf)) {
+        console.error(`bench verify-baseline: unlisted file in snapshot state: ${sf}`);
+        return 2;
       }
     }
   }
+
   const { buildBaseline, renderReportMarkdown } = require('../src/runtime/trace/baseline.ts');
   const { buildSpans } = require('../src/runtime/trace/spans.ts');
-  const stateDir = path.join(snapshotDir, 'state');
   const spansView = buildSpans({ stateDir, fsImpl: fs });
   const report = buildBaseline(spansView, manifest);
   const md = renderReportMarkdown(report);

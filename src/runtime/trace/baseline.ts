@@ -147,6 +147,17 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
       }
     }
 
+    const pairedTestKeys = new Set<string>();
+    for (const s of spanList) {
+      if (s.kind === 'test') {
+        const sess = s.session || s.attrs?.session;
+        const toolCall = s.attrs?.tool_call_id;
+        if (sess && toolCall) {
+          pairedTestKeys.add(`${sess}\n${toolCall}`);
+        }
+      }
+    }
+
     for (let i = 0; i < spanList.length; i++) {
       const s = spanList[i];
       const startMs = msOf(s.start);
@@ -169,7 +180,17 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
         activityIntervals.push([startMs, upperEnd]);
       }
 
-      const isOutsideVerbTest = s.kind === 'test' || (s.kind === 'hook' && typeof s.attrs?.test_class === 'string' && s.attrs.test_class.startsWith('test.'));
+      let isOutsideVerbTest = false;
+      if (s.kind === 'test') {
+        isOutsideVerbTest = true;
+      } else if (s.kind === 'hook' && typeof s.attrs?.test_class === 'string' && s.attrs.test_class.startsWith('test.')) {
+        const sess = s.session || s.attrs?.session;
+        const toolCall = s.attrs?.tool_call_id;
+        const isPaired = Boolean(sess && toolCall && pairedTestKeys.has(`${sess}\n${toolCall}`));
+        if (!isPaired) {
+          isOutsideVerbTest = true;
+        }
+      }
       const isVerifyRun = s.kind === 'verify.run';
       const isVerifyCheck = s.kind === 'verify.check';
 
@@ -279,8 +300,8 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
     const implementationMsUpper = Math.max(0, loopWallMsUpper - verificationWallMsUpper - idleGapsMs);
 
     // Ratio and Share
-    const ratioLower = loopWallMsLower > 0 ? verificationWallMsLower / loopWallMsLower : 0;
-    const ratioUpper = loopWallMsUpper > 0 ? verificationWallMsUpper / loopWallMsUpper : ratioLower;
+    const ratioLower = loopWallMsLower > 0 ? Number((verificationWallMsLower / loopWallMsLower).toPrecision(3)) : 0;
+    const ratioUpper = loopWallMsUpper > 0 ? Number((verificationWallMsUpper / loopWallMsUpper).toPrecision(3)) : ratioLower;
 
     // Duplicates
     let exactDuplicates = 0;
@@ -295,6 +316,8 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
 
     // Full suite runs
     const fullSuiteRuns = loopBroadTestsChecks + loopTestFull;
+
+    const isOpenWindow = !tr.window?.to;
 
     return {
       traceId: tr.traceId || null,
@@ -318,7 +341,7 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
         peakMemory: 'unreached',
         idleGapsMs,
       },
-      upperBound: {
+      upperBound: isOpenWindow ? null : {
         loopWallMs: loopWallMsUpper,
         verificationWallMs: verificationWallMsUpper,
         totalTestMs: totalTestMsUpper,
@@ -343,11 +366,11 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
   const aggFullSuite = goalLoops.map((g) => g.metrics.fullSuiteRuns);
   const aggIdleGaps = goalLoops.map((g) => g.metrics.idleGapsMs);
 
-  const aggLoopWallUpper = goalLoops.map((g) => g.upperBound.loopWallMs);
-  const aggVerifWallUpper = goalLoops.map((g) => g.upperBound.verificationWallMs);
-  const aggTotalTestUpper = goalLoops.map((g) => g.upperBound.totalTestMs);
-  const aggImplUpper = goalLoops.map((g) => g.upperBound.implementationMs);
-  const aggRatioUpper = goalLoops.map((g) => g.upperBound.ratio);
+  const aggLoopWallUpper = goalLoops.map((g) => g.upperBound?.loopWallMs ?? g.metrics.loopWallMs);
+  const aggVerifWallUpper = goalLoops.map((g) => g.upperBound?.verificationWallMs ?? g.metrics.verificationWallMs);
+  const aggTotalTestUpper = goalLoops.map((g) => g.upperBound?.totalTestMs ?? g.metrics.totalTestMs);
+  const aggImplUpper = goalLoops.map((g) => g.upperBound?.implementationMs ?? g.metrics.implementationMs);
+  const aggRatioUpper = goalLoops.map((g) => g.upperBound?.ratio ?? g.metrics.ratio);
 
   const numericCpuValues = goalLoops.filter((g) => typeof g.metrics.cpuMs === 'number').map((g) => g.metrics.cpuMs as number);
   const aggCpuMedian = numericCpuValues.length > 0 ? calcMedian(numericCpuValues) : 'unreached';
@@ -462,79 +485,134 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
     'candidate test duplicates treat all same-class repeats within a session as candidates due to absence of edit hook lines',
   ];
 
-  const aggregate = {
-    metrics: {
-      loopWallMs: {
-        median: calcMedian(aggLoopWall),
-        range: calcRange(aggLoopWall),
-        lower: calcMedian(aggLoopWall),
-        upper: calcMedian(aggLoopWallUpper),
-        basis: 'derived',
-      },
-      verificationWallMs: {
-        median: calcMedian(aggVerifWall),
-        range: calcRange(aggVerifWall),
-        lower: calcMedian(aggVerifWall),
-        upper: calcMedian(aggVerifWallUpper),
-        basis: 'derived',
-      },
-      totalTestMs: {
-        median: calcMedian(aggTotalTest),
-        range: calcRange(aggTotalTest),
-        lower: calcMedian(aggTotalTest),
-        upper: calcMedian(aggTotalTestUpper),
-        basis: 'derived',
-      },
-      implementationMs: {
-        median: calcMedian(aggImpl),
-        range: calcRange(aggImpl),
-        lower: calcMedian(aggImpl),
-        upper: calcMedian(aggImplUpper),
-        basis: 'derived',
-      },
-      ratio: {
-        median: calcMedian(aggRatio),
-        range: calcRange(aggRatio),
-        lower: calcMedian(aggRatio),
-        upper: calcMedian(aggRatioUpper),
-        basis: 'derived',
-      },
-      share: {
-        median: calcMedian(aggRatio),
-        range: calcRange(aggRatio),
-        lower: calcMedian(aggRatio),
-        upper: calcMedian(aggRatioUpper),
-        basis: 'derived',
-      },
-      duplicates: {
-        median: calcMedian(aggDuplicates),
-        range: calcRange(aggDuplicates),
-        basis: 'derived',
-      },
-      fullSuiteRuns: {
-        median: calcMedian(aggFullSuite),
-        range: calcRange(aggFullSuite),
-        basis: 'derived',
-      },
-      cpuMs: {
-        median: aggCpuMedian,
-        range: aggCpuRange,
-        basis: anyCpuRecorded ? 'recorded' : 'unreached',
-      },
-      peakMemory: {
-        median: 'unreached',
-        range: null,
-        basis: 'unreached',
-      },
-      idleGapsMs: {
-        median: calcMedian(aggIdleGaps),
-        range: calcRange(aggIdleGaps),
-        basis: 'derived',
-      },
-    },
-  };
+  let aggregate: any = null;
+  let observed: any = null;
 
-  const primaryMetrics = {
+  if (windowFilled) {
+    aggregate = {
+      metrics: {
+        loopWallMs: {
+          median: calcMedian(aggLoopWall),
+          range: calcRange(aggLoopWall),
+          lower: calcMedian(aggLoopWall),
+          upper: calcMedian(aggLoopWallUpper),
+          basis: 'derived',
+        },
+        verificationWallMs: {
+          median: calcMedian(aggVerifWall),
+          range: calcRange(aggVerifWall),
+          lower: calcMedian(aggVerifWall),
+          upper: calcMedian(aggVerifWallUpper),
+          basis: 'derived',
+        },
+        totalTestMs: {
+          median: calcMedian(aggTotalTest),
+          range: calcRange(aggTotalTest),
+          lower: calcMedian(aggTotalTest),
+          upper: calcMedian(aggTotalTestUpper),
+          basis: 'derived',
+        },
+        implementationMs: {
+          median: calcMedian(aggImpl),
+          range: calcRange(aggImpl),
+          lower: calcMedian(aggImpl),
+          upper: calcMedian(aggImplUpper),
+          basis: 'derived',
+        },
+        ratio: {
+          median: Number(calcMedian(aggRatio).toPrecision(3)),
+          range: calcRange(aggRatio).map((r) => Number(r.toPrecision(3))),
+          lower: Number(calcMedian(aggRatio).toPrecision(3)),
+          upper: Number(calcMedian(aggRatioUpper).toPrecision(3)),
+          basis: 'derived',
+        },
+        share: {
+          median: Number(calcMedian(aggRatio).toPrecision(3)),
+          range: calcRange(aggRatio).map((r) => Number(r.toPrecision(3))),
+          lower: Number(calcMedian(aggRatio).toPrecision(3)),
+          upper: Number(calcMedian(aggRatioUpper).toPrecision(3)),
+          basis: 'derived',
+        },
+        duplicates: {
+          median: calcMedian(aggDuplicates),
+          range: calcRange(aggDuplicates),
+          basis: 'derived',
+        },
+        fullSuiteRuns: {
+          median: calcMedian(aggFullSuite),
+          range: calcRange(aggFullSuite),
+          basis: 'derived',
+        },
+        cpuMs: {
+          median: aggCpuMedian,
+          range: aggCpuRange,
+          basis: anyCpuRecorded ? 'recorded' : 'unreached',
+        },
+        peakMemory: {
+          median: 'unreached',
+          range: null,
+          basis: 'unreached',
+        },
+        idleGapsMs: {
+          median: calcMedian(aggIdleGaps),
+          range: calcRange(aggIdleGaps),
+          basis: 'derived',
+        },
+      },
+    };
+  } else {
+    observed = {
+      n: loopsCount,
+      values: {
+        cpuMs: {
+          basis: anyCpuRecorded ? 'recorded' : 'unreached',
+          value: anyCpuRecorded ? aggCpuMedian : 'unreached',
+        },
+        duplicates: {
+          basis: 'derived',
+          value: aggDuplicates[0] ?? 0,
+        },
+        fullSuiteRuns: {
+          basis: 'derived',
+          value: aggFullSuite[0] ?? 0,
+        },
+        idleGapsMs: {
+          basis: 'derived',
+          value: aggIdleGaps[0] ?? 0,
+        },
+        implementationMs: {
+          basis: 'derived',
+          value: aggImpl[0] ?? 0,
+        },
+        loopWallMs: {
+          basis: 'derived',
+          value: aggLoopWall[0] ?? 0,
+        },
+        peakMemory: {
+          basis: 'unreached',
+          value: 'unreached',
+        },
+        ratio: {
+          basis: 'derived',
+          value: Number((aggRatio[0] ?? 0).toPrecision(3)),
+        },
+        share: {
+          basis: 'derived',
+          value: Number((aggRatio[0] ?? 0).toPrecision(3)),
+        },
+        totalTestMs: {
+          basis: 'derived',
+          value: aggTotalTest[0] ?? 0,
+        },
+        verificationWallMs: {
+          basis: 'derived',
+          value: aggVerifWall[0] ?? 0,
+        },
+      },
+    };
+  }
+
+  const primaryMetrics: any = windowFilled ? {
     loopWallMs: aggregate.metrics.loopWallMs.median,
     verificationWallMs: aggregate.metrics.verificationWallMs.median,
     totalTestMs: aggregate.metrics.totalTestMs.median,
@@ -554,6 +632,18 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
       ratio: aggregate.metrics.ratio.upper,
       share: aggregate.metrics.share.upper,
     },
+  } : {
+    cpuMs: anyCpuRecorded ? aggCpuMedian : 'unreached',
+    duplicates: aggDuplicates[0] ?? 0,
+    fullSuiteRuns: aggFullSuite[0] ?? 0,
+    idleGapsMs: aggIdleGaps[0] ?? 0,
+    implementationMs: aggImpl[0] ?? 0,
+    loopWallMs: aggLoopWall[0] ?? 0,
+    peakMemory: 'unreached',
+    ratio: Number((aggRatio[0] ?? 0).toPrecision(3)),
+    share: Number((aggRatio[0] ?? 0).toPrecision(3)),
+    totalTestMs: aggTotalTest[0] ?? 0,
+    verificationWallMs: aggVerifWall[0] ?? 0,
   };
 
   const report = {
@@ -561,7 +651,7 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
     verdict,
     progress,
     metrics: primaryMetrics,
-    aggregate,
+    ...(windowFilled ? { aggregate } : { observed }),
     goalLoops,
     inputTable,
     context: {
@@ -596,32 +686,52 @@ function renderReportMarkdown(report: any): string {
   }
   lines.push('');
 
-  lines.push('## Aggregate Metrics\n');
-  lines.push('| Metric | Median | Range | Lower End (D-1) | Upper Bound | Basis |');
-  lines.push('|---|---|---|---|---|---|');
-  for (const [k, v] of Object.entries(report.aggregate?.metrics || {})) {
-    const val = v as any;
-    const medianVal = val.median !== undefined ? val.median : val;
-    const rangeVal = Array.isArray(val.range) ? `${val.range[0]} - ${val.range[1]}` : (val.range ?? '-');
-    const lowerVal = val.lower !== undefined ? val.lower : '-';
-    const upperVal = val.upper !== undefined ? val.upper : '-';
-    const basisVal = val.basis || '-';
-    lines.push(`| ${k} | ${medianVal} | ${rangeVal} | ${lowerVal} | ${upperVal} | ${basisVal} |`);
+  if (!report.aggregate && report.observed) {
+    const n = report.observed.n || 1;
+    lines.push(`## Observed (n=${n}), not a result\n`);
+    lines.push('| Metric | Observed | Basis |');
+    lines.push('|---|---|---|');
+    for (const [k, v] of Object.entries(report.observed.values || {})) {
+      const val = v as any;
+      const metricVal = typeof val === 'object' && val !== null && val.value !== undefined ? val.value : val;
+      const basisVal = typeof val === 'object' && val !== null && val.basis !== undefined ? val.basis : '-';
+      lines.push(`| ${k} | ${metricVal} | ${basisVal} |`);
+    }
+    lines.push('');
+  } else if (report.aggregate) {
+    lines.push('## Aggregate Metrics\n');
+    lines.push('| Metric | Median | Range | Lower End (D-1) | Upper Bound | Basis |');
+    lines.push('|---|---|---|---|---|---|');
+    for (const [k, v] of Object.entries(report.aggregate?.metrics || {})) {
+      const val = v as any;
+      const medianVal = val.median !== undefined ? val.median : val;
+      const rangeVal = Array.isArray(val.range) ? `${val.range[0]} - ${val.range[1]}` : (val.range ?? '-');
+      const lowerVal = val.lower !== undefined ? val.lower : '-';
+      const upperVal = val.upper !== undefined ? val.upper : '-';
+      const basisVal = val.basis || '-';
+      lines.push(`| ${k} | ${medianVal} | ${rangeVal} | ${lowerVal} | ${upperVal} | ${basisVal} |`);
+    }
+    lines.push('');
   }
-  lines.push('');
 
   lines.push('## Goal Loops\n');
   const loops = report.goalLoops || [];
   lines.push(`Total loops recorded: ${loops.length}\n`);
   for (let idx = 0; idx < loops.length; idx++) {
     const gl = loops[idx];
+    const isOpenWindow = !gl.window?.to;
+    const ubLoop = isOpenWindow ? 'open (unbounded)' : `${gl.upperBound?.loopWallMs ?? gl.metrics.loopWallMs} ms`;
+    const ubVerif = isOpenWindow ? 'open (unbounded)' : `${gl.upperBound?.verificationWallMs ?? gl.metrics.verificationWallMs} ms`;
+    const ubTest = isOpenWindow ? 'open (unbounded)' : `${gl.upperBound?.totalTestMs ?? gl.metrics.totalTestMs} ms`;
+    const ubImpl = isOpenWindow ? 'open (unbounded)' : `${gl.upperBound?.implementationMs ?? gl.metrics.implementationMs} ms`;
+
     lines.push(`### Goal Loop ${idx + 1}: ${gl.traceId || gl.runKey || 'unnamed'}`);
     lines.push(`- **Harness:** ${gl.harness || 'unspecified'}`);
     lines.push(`- **Window:** ${gl.window?.from || '-'} .. ${gl.window?.to || 'open'}`);
-    lines.push(`- **Loop Wall:** ${gl.metrics.loopWallMs} ms (upper bound: ${gl.upperBound?.loopWallMs || gl.metrics.loopWallMs} ms)`);
-    lines.push(`- **Verification Wall:** ${gl.metrics.verificationWallMs} ms (upper bound: ${gl.upperBound?.verificationWallMs || gl.metrics.verificationWallMs} ms)`);
-    lines.push(`- **Total Test Time:** ${gl.metrics.totalTestMs} ms (upper bound: ${gl.upperBound?.totalTestMs || gl.metrics.totalTestMs} ms)`);
-    lines.push(`- **Implementation Time:** ${gl.metrics.implementationMs} ms (upper bound: ${gl.upperBound?.implementationMs || gl.metrics.implementationMs} ms)`);
+    lines.push(`- **Loop Wall:** ${gl.metrics.loopWallMs} ms (upper bound: ${ubLoop})`);
+    lines.push(`- **Verification Wall:** ${gl.metrics.verificationWallMs} ms (upper bound: ${ubVerif})`);
+    lines.push(`- **Total Test Time:** ${gl.metrics.totalTestMs} ms (upper bound: ${ubTest})`);
+    lines.push(`- **Implementation Time:** ${gl.metrics.implementationMs} ms (upper bound: ${ubImpl})`);
     lines.push(`- **Verification Ratio:** ${gl.metrics.ratio}`);
     lines.push(`- **Idle Gaps (> 30 min):** ${gl.metrics.idleGapsMs} ms (${gl.idleGaps.length} gap(s))`);
     lines.push(`- **Duplicates:** ${gl.metrics.duplicates} (exact: ${gl.metrics.exactDuplicates}, candidate: ${gl.metrics.candidateDuplicates})`);

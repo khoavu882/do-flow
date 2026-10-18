@@ -508,3 +508,138 @@ test('7. npm run bench -- verify-baseline --snapshot <dir> --json --out <dir> is
   assert.ok(Buffer.isBuffer(md1) && Buffer.isBuffer(md2));
   assert.ok(md1.equals(md2), 'report.md must be byte-equal between two runs');
 });
+
+// 8. Value assertions on the committed snapshot (088 F6, D5)
+test('8. Value assertions on the committed snapshot: fullSuiteRuns 2, duplicates 0, totalTestMs 775, verificationWallMs 1102, loopWallMs 23665', (t) => {
+  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
+  const baselineDir = path.join(REPO_ROOT, '..', 'do-flow', 'agent-docs', 'doflow', '088-verification-baseline', 'baseline');
+  const res = spawnSync(
+    process.execPath,
+    [runnerPath, 'verify-baseline', '--snapshot', baselineDir, '--json'],
+    { encoding: 'utf8' }
+  );
+  assert.equal(res.status, 0, `verify-baseline failed on committed baseline: ${res.stderr}`);
+  const report = JSON.parse(res.stdout);
+  const metrics = report.goalLoops[0].metrics;
+
+  assert.equal(metrics.fullSuiteRuns, 2, 'fullSuiteRuns must be 2');
+  assert.equal(metrics.duplicates, 0, 'duplicates must be 0');
+  assert.equal(metrics.exactDuplicates, 0, 'exactDuplicates must be 0');
+  assert.equal(metrics.candidateDuplicates, 0, 'candidateDuplicates must be 0');
+  assert.equal(metrics.totalTestMs, 775, 'totalTestMs must be 775');
+  assert.equal(metrics.verificationWallMs, 1102, 'verificationWallMs must be 1102');
+  assert.equal(metrics.loopWallMs, 23665, 'loopWallMs must be 23665');
+  assert.equal(metrics.ratio, 0.0466, 'ratio must be 0.0466');
+  assert.equal(metrics.share, 0.0466, 'share must be 0.0466');
+});
+
+// 9. When window is not filled: report.md contains no Median or Lower End, shows Observed (n=1), and open (unbounded) for open window
+test('9. While recording window is not filled: no Median or Lower End in report.md, shows "Observed (n=1), not a result", and open window prints "open (unbounded)"', (t) => {
+  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
+  const baselineDir = path.join(REPO_ROOT, '..', 'do-flow', 'agent-docs', 'doflow', '088-verification-baseline', 'baseline');
+  const res = spawnSync(
+    process.execPath,
+    [runnerPath, 'verify-baseline', '--snapshot', baselineDir],
+    { encoding: 'utf8' }
+  );
+  assert.equal(res.status, 0, `verify-baseline failed: ${res.stderr}`);
+  const md = res.stdout;
+
+  assert.ok(!md.includes('Median'), 'report.md must have no Median when window is not filled');
+  assert.ok(!md.includes('Lower End'), 'report.md must have no Lower End when window is not filled');
+  assert.ok(!md.includes('Range'), 'report.md must have no Range when window is not filled');
+  assert.match(md, /## Observed \(n=1\), not a result/, 'report.md must show Observed (n=1), not a result');
+  assert.match(md, /upper bound: open \(unbounded\)/, 'open window must print open (unbounded)');
+  assert.match(md, /- \*\*Verification Ratio:\*\* 0\.0466/, 'ratio must be formatted to 3 sig figs');
+
+  // Negative control: when window is filled (5 loops, 2 harnesses), report.md DOES contain Median and Lower End
+  const { renderReportMarkdown } = require('../../src/runtime/trace/baseline.ts');
+  const filledReport = {
+    verdict: 'material',
+    progress: '5 of 5 loops, 2 of 2 harnesses',
+    inputTable: [],
+    aggregate: {
+      metrics: {
+        ratio: { median: 0.25, range: [0.2, 0.3], lower: 0.2, upper: 0.3, basis: 'derived' },
+      },
+    },
+    goalLoops: [],
+  };
+  const filledMd = renderReportMarkdown(filledReport);
+  assert.ok(filledMd.includes('Median'), 'Negative control: filled window report must include Median');
+  assert.ok(filledMd.includes('Lower End'), 'Negative control: filled window report must include Lower End');
+});
+
+// 10. D7 manifest hardening: runner rejects missing/non-array files, unlisted files, outside paths, symlinks, bad schema
+test('10. D7 manifest hardening: verify-baseline rejects no files, object files, missing path, escaping path, symlink, unlisted file, v!=1, missing commit', (t) => {
+  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
+  const baselineDir = path.join(REPO_ROOT, '..', 'do-flow', 'agent-docs', 'doflow', '088-verification-baseline', 'baseline');
+
+  function makeVariant(name, modifier) {
+    const dir = tempDir(t, `doflow-d7-${name}-`);
+    // Copy state and manifest from committed baseline
+    fs.cpSync(path.join(baselineDir, 'snapshot', 'state'), path.join(dir, 'state'), { recursive: true });
+    const manifest = JSON.parse(fs.readFileSync(path.join(baselineDir, 'manifest.json'), 'utf8'));
+    modifier(dir, manifest);
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+    return dir;
+  }
+
+  // Case 1: no files key -> exits 2
+  const noFilesDir = makeVariant('nofiles', (dir, m) => { delete m.files; });
+  const r1 = spawnSync(process.execPath, [runnerPath, 'verify-baseline', '--snapshot', noFilesDir], { encoding: 'utf8' });
+  assert.equal(r1.status, 2, 'Missing files key must exit 2');
+  assert.match(r1.stderr, /manifest files must be an array/);
+
+  // Case 2: files is an object -> exits 2
+  const filesObjDir = makeVariant('filesobj', (dir, m) => { m.files = {}; });
+  const r2 = spawnSync(process.execPath, [runnerPath, 'verify-baseline', '--snapshot', filesObjDir], { encoding: 'utf8' });
+  assert.equal(r2.status, 2, 'files as object must exit 2');
+  assert.match(r2.stderr, /manifest files must be an array/);
+
+  // Case 3: entry with no path -> exits 2
+  const badPathDir = makeVariant('badpath', (dir, m) => { m.files.push({ sha256: 'deadbeef' }); });
+  const r3 = spawnSync(process.execPath, [runnerPath, 'verify-baseline', '--snapshot', badPathDir], { encoding: 'utf8' });
+  assert.equal(r3.status, 2, 'Entry without path must exit 2');
+  assert.match(r3.stderr, /manifest file entry missing path/);
+
+  // Case 4: path escapes snapshot directory -> exits 2
+  const escapeDir = makeVariant('escape', (dir, m) => {
+    m.files.push({ path: '../outside.txt', sha256: 'deadbeef' });
+  });
+  const r4 = spawnSync(process.execPath, [runnerPath, 'verify-baseline', '--snapshot', escapeDir], { encoding: 'utf8' });
+  assert.equal(r4.status, 2, 'Escaping path must exit 2');
+  assert.match(r4.stderr, /path escapes snapshot directory/);
+
+  // Case 5: symlink in snapshot state -> exits 2
+  const symlinkDir = makeVariant('symlink', (dir, m) => {
+    const target = path.join(dir, 'state', 'runs', 'telemetry', '2026-10-18.jsonl');
+    const outside = path.join(dir, 'outside_target.jsonl');
+    fs.renameSync(target, outside);
+    fs.symlinkSync(outside, target);
+  });
+  const r5 = spawnSync(process.execPath, [runnerPath, 'verify-baseline', '--snapshot', symlinkDir], { encoding: 'utf8' });
+  assert.equal(r5.status, 2, 'Symlink in snapshot state must exit 2');
+  assert.match(r5.stderr, /symlink not permitted in snapshot/);
+
+  // Case 6: unlisted regular file under state/ -> exits 2
+  const extraDir = makeVariant('extra', (dir, m) => {
+    fs.writeFileSync(path.join(dir, 'state', 'runs', 'telemetry', '2026-10-19.jsonl'), '{"extra":1}\n', 'utf8');
+  });
+  const r6 = spawnSync(process.execPath, [runnerPath, 'verify-baseline', '--snapshot', extraDir], { encoding: 'utf8' });
+  assert.equal(r6.status, 2, 'Unlisted file under state/ must exit 2');
+  assert.match(r6.stderr, /unlisted file in snapshot state/);
+
+  // Case 7: v !== 1 -> exits 2
+  const badVDir = makeVariant('badv', (dir, m) => { m.v = 99; });
+  const r7 = spawnSync(process.execPath, [runnerPath, 'verify-baseline', '--snapshot', badVDir], { encoding: 'utf8' });
+  assert.equal(r7.status, 2, 'v != 1 must exit 2');
+  assert.match(r7.stderr, /manifest version must be 1/);
+
+  // Case 8: missing commit -> exits 2
+  const noCommitDir = makeVariant('nocommit', (dir, m) => { delete m.commit; });
+  const r8 = spawnSync(process.execPath, [runnerPath, 'verify-baseline', '--snapshot', noCommitDir], { encoding: 'utf8' });
+  assert.equal(r8.status, 2, 'Missing commit must exit 2');
+  assert.match(r8.stderr, /manifest commit is required/);
+});
+
