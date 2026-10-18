@@ -26,6 +26,11 @@ const RE_BARE_IMPORT = new RegExp(`(?<!['"\`\\w$.])import\\s*${LIT}`, 'g');
 const RE_ANY_REQUIRE = /(?<!['"`\w$.])require\s*\(/g;
 const RE_LIT_ARG = /^\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`((?:[^`\\$]|\\.|\$(?!\{))*)`)\s*\)/;
 
+const RE_CREATE_REQUIRE = /(?<!['"`\w$])createRequire\s*\(/g;
+const RE_MODULE_REQUIRE = /(?<!['"`\w$])module\.require\s*\(/g;
+const RE_ANY_IMPORT = /(?<!['"`\w$.])import\s*\(/g;
+const RE_LIT_IMPORT_ARG = /^\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`((?:[^`\\$]|\\.|\$(?!\{))*)`)\s*[,)]/;
+
 function isAllowedSpecifier(spec) {
   return typeof spec === 'string' && (spec.startsWith('node:') || spec.startsWith('./') || spec.startsWith('../'));
 }
@@ -81,6 +86,21 @@ function scanFileContent(filePath, text) {
         findings.push(`${filePath}:${lineNum} require() argument must be a string literal without interpolation`);
       }
     }
+
+    for (const m of line.matchAll(RE_CREATE_REQUIRE)) {
+      findings.push(`${filePath}:${lineNum} createRequire() is forbidden`);
+    }
+
+    for (const m of line.matchAll(RE_MODULE_REQUIRE)) {
+      findings.push(`${filePath}:${lineNum} module.require() is forbidden`);
+    }
+
+    for (const m of line.matchAll(RE_ANY_IMPORT)) {
+      const afterParen = line.slice(m.index + m[0].length);
+      if (!RE_LIT_IMPORT_ARG.test(afterParen)) {
+        findings.push(`${filePath}:${lineNum} import() argument must be a string literal without interpolation`);
+      }
+    }
   });
   return findings;
 }
@@ -98,6 +118,12 @@ function checkBareImports(target = REPO) {
   if (typeof target === 'string' || (target && typeof target === 'object' && !target.files && !(target instanceof Map))) {
     const rootDir = typeof target === 'string' ? target : (target?.rootDir ?? REPO);
 
+    if (!fs.existsSync(rootDir)) {
+      findings.push(`root directory does not exist: ${rootDir}`);
+      return findings;
+    }
+
+    let scannedCount = 0;
     function walk(dir) {
       const fullDir = path.join(rootDir, dir);
       if (!fs.existsSync(fullDir)) return;
@@ -107,6 +133,7 @@ function checkBareImports(target = REPO) {
         if (ent.isDirectory()) {
           walk(rel);
         } else if (CODE_EXT_RE.test(ent.name) && !ent.name.endsWith('.d.ts')) {
+          scannedCount += 1;
           const normRel = rel.split(path.sep).join('/');
           const content = fs.readFileSync(full, 'utf8');
           findings.push(...scanFileContent(normRel, content));
@@ -115,6 +142,11 @@ function checkBareImports(target = REPO) {
     }
 
     for (const dir of ['src', 'bin']) walk(dir);
+
+    if (scannedCount === 0) {
+      findings.push(`walk found zero files in src/ or bin/ under ${rootDir}`);
+    }
+
     return findings;
   }
 
@@ -139,6 +171,8 @@ function checkBareImports(target = REPO) {
 const checkG50BareImports = checkBareImports;
 
 test('G50: shipped src/ and bin/ source files contain no bare imports or non-literal requires', () => {
+  assert.ok(fs.existsSync(path.join(REPO, 'src')), 'src/ must exist');
+  assert.ok(fs.existsSync(path.join(REPO, 'bin')), 'bin/ must exist');
   const findings = checkBareImports(REPO);
   assert.deepEqual(findings, [], `bare imports or non-literal requires found in repository:\n${findings.join('\n')}`);
 });
@@ -223,6 +257,47 @@ test('G50: ignores .d.ts files and files outside src/ and bin/', () => {
     ['src/readme.txt', "import 'chalk';\n"],
   ]);
   assert.deepEqual(checkBareImports({ files: ignored }), []);
+});
+
+test('G50 controls: scanning a nonexistent root or a walk with zero files fails', (t) => {
+  const nonexistent = path.join(REPO, 'no-such-root-directory');
+  const findingsNonexistent = checkBareImports(nonexistent);
+  assert.ok(findingsNonexistent.length > 0, 'scanning a nonexistent root must fail');
+  assert.ok(
+    findingsNonexistent.some((f) => f.includes('does not exist')),
+    `finding should report that root does not exist, got:\n${findingsNonexistent.join('\n')}`,
+  );
+
+  const empty = tempDir(t, 'doflow-g50-empty-');
+  const findingsEmpty = checkBareImports(empty);
+  assert.ok(findingsEmpty.length > 0, 'walking a directory with zero files in src/ or bin/ must fail');
+  assert.ok(
+    findingsEmpty.some((f) => f.includes('zero files') || f.includes('no files')),
+    `finding should report zero files found, got:\n${findingsEmpty.join('\n')}`,
+  );
+});
+
+test('G50 controls: fixture-map flags createRequire, module.require, and non-literal dynamic import', () => {
+  const seeded = new Map([
+    ['src/cr.ts', "const req = createRequire(import.meta.url);\n"],
+    ['src/mr.ts', "const m = module.require('chalk');\n"],
+    ['src/dyn-import.ts', 'const d = import(name);\n'],
+    ['src/dyn-template.ts', 'const d = import(`${name}`);\n'],
+    ['src/safe-dyn-node.ts', "const s = import('node:crypto');\n"],
+    ['src/safe-dyn-rel.ts', "const r = import('./helper.ts');\n"],
+  ]);
+
+  const findings = checkBareImports({ files: seeded });
+
+  assert.equal(findings.length, 4, `expected exactly 4 findings, got:\n${findings.join('\n')}`);
+  assert.ok(findings.some((f) => f.startsWith('src/cr.ts:1') && f.includes('createRequire()')),
+    'expected src/cr.ts:1 finding for createRequire()');
+  assert.ok(findings.some((f) => f.startsWith('src/mr.ts:1') && f.includes('module.require()')),
+    'expected src/mr.ts:1 finding for module.require()');
+  assert.ok(findings.some((f) => f.startsWith('src/dyn-import.ts:1') && f.includes('import()')),
+    'expected src/dyn-import.ts:1 finding for import(name)');
+  assert.ok(findings.some((f) => f.startsWith('src/dyn-template.ts:1') && f.includes('import()')),
+    'expected src/dyn-template.ts:1 finding for import(`${name}`)');
 });
 
 module.exports = {

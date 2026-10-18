@@ -483,7 +483,7 @@ Every rollback command is the user's:
 |---|---|---|---|---|
 | unrecorded | v2.0.0-beta.1 | unrecorded | env-node-version | unpublished |
 | unrecorded | v2.0.0-beta.2 | unrecorded | env-host-tool | unpublished |
-| unrecorded | v2.0.0-beta.3 | unrecorded | artifact | unrecorded |
+| unrecorded | v2.0.0-beta.3 | unrecorded | artifact (version deprecated) | unrecorded |
 | unrecorded | v2.0.0-beta.4 | unrecorded | none | unrecorded |
 | unrecorded | v2.0.0-beta.5 | unrecorded | none | latest: 2.0.0-beta.4, beta: 2.0.0-beta.5 |
 | unrecorded | v2.0.0-beta.6 | unrecorded | unclassified | unpublished (latest: 2.0.0-beta.4, beta: 2.0.0-beta.5) |
