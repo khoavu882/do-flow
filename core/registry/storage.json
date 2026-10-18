@@ -317,6 +317,22 @@
       ]
     },
     {
+      "id": "roadmap",
+      "root": "project-state",
+      "path": "roadmap",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/roadmap/merge.ts"
+      ]
+    },
+    {
       "id": "dispatch-envelopes",
       "root": "project-state",
       "path": "dispatch-envelopes",

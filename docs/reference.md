@@ -181,6 +181,13 @@ loudly rather than reading as "no dense provider".
 
 ### Storage stores
 
+Roadmap merge intents live in `.doflow/state/roadmap/intents/<row>.json` and move to
+`.doflow/state/roadmap/done/<row>.json` only after render and non-force cleanup. Open intents are
+never pruned; archived intents follow the 30-day finished-work bound. `status` includes open intents
+and reports `merged-unverified` when the guards and touched suites fail on the new develop head.
+That failure keeps the merge, worktree and branch; the next attempt rechecks before render and
+cleanup.
+
 These are the stores DoFlow keeps on this machine. A pruned store has the bound shown; an `existing` store keeps the bound its own code already enforces, and the cleanup never touches it. Paths starting `.doflow` are relative to the project root; `~/.config/doflow` is `$XDG_CONFIG_HOME/doflow` when that variable is set to an absolute path. `core/registry/storage.json` declares the stores and `test/guards/storage-declarations.test.js` (G26) checks this table against it.
 
 | Store | Location | Bound |
@@ -199,6 +206,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `worker-probes` | `.doflow/state/worker-probes` | keep newest 16; prune entries older than 30 days |
 | `worker-output` | `.doflow/state/worker-output` | keep newest 200; prune entries older than 30 days |
 | `dispatch` | `.doflow/state/dispatch` | prune finished work after 30 days |
+| `roadmap` | `.doflow/state/roadmap` | prune finished work after 30 days |
 | `dispatch-envelopes` | `.doflow/state/dispatch-envelopes` | keep newest 400; prune entries older than 30 days |
 | `dispatch-worktrees` | `.doflow/state/dispatch-worktrees` | attempt worktrees removed by dispatch cleanup; the integration worktree stays for the user to merge |
 | `task-delivery` | `.doflow/state/delivery` | prune finished work after 30 days |

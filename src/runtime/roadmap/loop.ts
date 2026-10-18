@@ -16,6 +16,7 @@ const {
   check,
 } = require('./rows.ts');
 const { gatherGitFacts } = require('./facts.ts');
+const { readOpenIntents } = require('./merge.ts');
 
 interface RoadmapCommandOptions {
   action?: string;
@@ -118,6 +119,19 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): number {
   const { statuses, rowStatus } = deriveStatus(rows, factsSnapshot);
 
   if (action === 'status') {
+    let openIntents: any[];
+    try { openIntents = readOpenIntents({ root, fsImpl }); }
+    catch (error: any) {
+      if (json) console.log(JSON.stringify({ schema: 1, action, error: 'cannot-read-facts', sources: ['merge-intents'], message: error.message }));
+      else console.error(`doflow roadmap: cannot read merge-intents: ${error.message}`);
+      process.exitCode = 1;
+      return 1;
+    }
+    const displayStatus = (info: any) => openIntents.some((intent) => intent.row === info.rowId && intent.status === 'merged-unverified')
+      ? 'merged-unverified' : info.status;
+    const displayRows = Array.from(statuses.values() as Iterable<any>).map((info) => ({ ...info, status: displayStatus(info) }));
+    const displayRowStatus = { ...rowStatus };
+    for (const info of displayRows) displayRowStatus[info.rowId] = info.status;
     if (filterRow) {
       const singleStatus = statuses.get(filterRow);
       if (!singleStatus) {
@@ -143,16 +157,19 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): number {
             schema: 1,
             action: 'status',
             row: filterRow,
-            status: singleStatus.status,
+            status: displayStatus(singleStatus),
             info: singleStatus,
+            intent: openIntents.find((intent) => intent.row === filterRow) || null,
           })
         );
       } else {
         console.log(
-          `Row ${filterRow}: ${singleStatus.status} (evidence: ${
+          `Row ${filterRow}: ${displayStatus(singleStatus)} (evidence: ${
             singleStatus.evidence ? singleStatus.evidence.shortSha : 'none'
           })`
         );
+        const intent = openIntents.find((entry) => entry.row === filterRow);
+        if (intent) console.log(`  Open merge intent: ${intent.phase}${intent.status ? ` (${intent.status})` : ''}`);
       }
       return 0;
     }
@@ -162,16 +179,18 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): number {
         JSON.stringify({
           schema: 1,
           action: 'status',
-          rowStatus,
-          rows: Array.from(statuses.values()),
+          rowStatus: displayRowStatus,
+          rows: displayRows,
+          openIntents,
         })
       );
     } else {
       console.log(`Roadmap status (${rows.length} rows):`);
       for (const [id, info] of statuses.entries()) {
         const ev = info.evidence ? `${info.evidence.shortSha} (${info.evidence.kind})` : '-';
-        console.log(`  ${id.padEnd(6)} ${info.status.padEnd(12)} evidence: ${ev}`);
+        console.log(`  ${id.padEnd(6)} ${displayStatus(info).padEnd(12)} evidence: ${ev}`);
       }
+      for (const intent of openIntents) console.log(`  Open merge intent ${intent.row}: ${intent.phase}${intent.status ? ` (${intent.status})` : ''}`);
     }
     return 0;
   }

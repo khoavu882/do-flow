@@ -378,6 +378,10 @@ const { runInflight } = require(${JSON.stringify(path.join(REPO, 'src/runtime/ve
 const dir=path.join(process.argv[1], '.doflow', 'state', 'verification', 'v0');
 const out=runInflight({dir,key:'0123456789abcdef',timeoutMs:1000,execute:()=>({status:0,stdout:'',stderr:''})});
 if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json')))process.exit(1);`;
+    // Exercise the production intent writer without any merge or external process.
+    const writeRoadmap = `const path=require('node:path');
+const { writeIntent } = require(${JSON.stringify(path.join(REPO, 'src/runtime/roadmap/merge.ts'))});
+writeIntent(path.join(process.argv[1], '.doflow/state/roadmap/intents/113.json'), { schema:1, row:'113', phase:'intent' });`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps = [
@@ -403,6 +407,7 @@ if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json'
       ['trace', verb('trace'), 0],
       ['telemetry write', node('-e', writeTelemetry, project), 0],
       ['verification-v0 write', node('-e', writeVerificationV0, project), 0],
+      ['roadmap intent write', node('-e', writeRoadmap, project), 0],
       ['verification-v0 inflight write', node('-e', writeInflight, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
@@ -586,6 +591,46 @@ test('G26: verification-runs is a per-task record pruned only after finished wor
     bound: { finishedDays: 30 },
     writers: ['src/runtime/verification/engine.ts'],
   });
+});
+
+test('G26: roadmap declares its intent writer and inherits dispatch retention', () => {
+  const store = registry.stores.find((entry) => entry.id === 'roadmap');
+  const dispatch = registry.stores.find((entry) => entry.id === 'dispatch');
+  assert.ok(store, 'roadmap intent phases need a declared store');
+  assert.equal(store.root, 'project-state');
+  assert.equal(store.path, 'roadmap');
+  assert.equal(store.rule, 'work');
+  assert.deepEqual(store.bound, dispatch.bound);
+  assert.ok(store.writers.includes('src/runtime/roadmap/merge.ts'));
+});
+
+test('G26: roadmap pruning keeps old open intents and selects only archived done intents', (t) => {
+  const { tempDir } = require('../helper/tmp');
+  const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
+  const { workStatus } = require('../../src/runtime/storage/work-status.ts');
+  const root = tempDir(t, 'doflow-roadmap-retention-');
+  const state = path.join(root, '.doflow/state');
+  const storeDir = path.join(state, 'roadmap');
+  const store = registry.stores.find((entry) => entry.id === 'roadmap');
+  const plan = path.join(root, 'agent-docs/doflow/113-toy');
+  fs.mkdirSync(plan, { recursive: true }); fs.writeFileSync(path.join(plan, 'plan.md'), '- [x] A.1 done\n');
+  fs.mkdirSync(path.join(storeDir, 'intents'), { recursive: true });
+  fs.mkdirSync(path.join(storeDir, 'done'), { recursive: true });
+  for (const name of ['intents/113.json', 'done/113.json']) {
+    const file = path.join(storeDir, name);
+    fs.writeFileSync(file, JSON.stringify({ schema: 1, row: '113', slug: '113-toy', phase: 'cleaned' }));
+    fs.utimesSync(file, new Date(0), new Date(0));
+  }
+  const openStatus = workStatus({ projectRoot: root, store: 'roadmap', taskId: '113', namespace: 'intents', mtimeMs: 0, fsImpl: fs });
+  assert.deepEqual({ state: openStatus.state, reason: openStatus.reason }, { state: 'open', reason: 'roadmap-intent-open' });
+  const doneStatus = workStatus({ projectRoot: root, store: 'roadmap', taskId: '113', namespace: 'done', mtimeMs: 0, fsImpl: fs });
+  assert.deepEqual({ state: doneStatus.state, since: doneStatus.since }, { state: 'finished', since: 0 });
+  const entries = fs.readdirSync(storeDir).map((name) => ({ name, stat: fs.statSync(path.join(storeDir, name)) }));
+  const selected = selectCandidates(store, entries, { now: Date.parse('2026-10-19'), fsImpl: fs,
+    storeDir, roots: { 'project-state': state }, settings: registry.settings });
+  assert.equal(selected.some((entry) => entry.name === 'intents/113.json'), false,
+    'a cleaned intent remains open until the archive move');
+  assert.deepEqual(selected.map((entry) => entry.name), ['done/113.json'], 'only the done namespace is eligible for pruning');
 });
 
 test('G26 (b): every file with a write call is declared, and every declared writer writes', () => {

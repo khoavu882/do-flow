@@ -259,11 +259,19 @@ function incompleteAnswer(run: any = null, feature: any = null): any {
 function workStatus({
   projectRoot, store, taskId, namespace = null, mtimeMs, cache, fsImpl, shouldStop,
 }: any): any {
+  const recordId = taskId;
+  const workId = typeof taskId === 'string' ? taskId.replace(/_claims$/, '') : taskId;
+
+  // Roadmap archive location is authoritative: open intents never age out, while archived
+  // intents use their own mtime and do not depend on the feature plan remaining on disk.
+  if (store === 'roadmap' && namespace === 'intents')
+    return answer('open', 'roadmap-intent-open', workId, null);
+  if (store === 'roadmap' && namespace === 'done')
+    return answer('finished', 'roadmap-intent-done', workId, null, Number.isFinite(mtimeMs) ? mtimeMs : null);
+
   const project = path.resolve(projectRoot);
   const fileSystem = fsImpl || cache?.fsImpl || fs;
   const pass = cacheFor({ projectRoot: project, fsImpl: fileSystem, cache });
-  const recordId = taskId;
-  const workId = typeof taskId === 'string' ? taskId.replace(/_claims$/, '') : taskId;
 
   if (shouldStop?.()) return incompleteAnswer();
   if (!safeSegment(workId)) return answer('undecidable', 'record-unreadable', null, null);
