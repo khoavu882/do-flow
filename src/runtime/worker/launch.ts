@@ -33,7 +33,7 @@ const { loadSettings } = require('../settings/resolve.ts');
 
 type Env = Record<string, string | undefined>;
 
-/** IC-012: the variables a launch sets, in the order the run record lists them. The first five are the
+/** IC-012: the names a launch may set, in the order the run record lists them. The first five are the
  * identity contract; `DOFLOW_WORKER_RUN` (110) carries the worker run id `w-<12 hex>` and nothing else,
  * so the worker's telemetry can name its own run. The seventh variable (112) is an optional
  * snapshot of project-only database names. Neither is part of the stored identity. */
@@ -88,7 +88,7 @@ function dropDatabases(execWorktree: string, env: Env): string | null {
       || resolved.candidates.some((c: any) => ['project', 'local'].includes(c.layer) && c.status === 'invalid')) return null;
     const value = resolved.value;
     if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > 1024
-      || /^[a-z][a-z0-9_]*( [a-z][a-z0-9_]*)*$/.exec(value)?.[0] !== value || value.split(' ').length > 32) return null;
+      || /^[a-z][a-z0-9_]{0,62}( [a-z][a-z0-9_]{0,62})*$/.exec(value)?.[0] !== value || value.split(' ').length > 32) return null;
     return value;
   } catch { return null; }
 }

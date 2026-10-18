@@ -295,14 +295,23 @@ test('112 launch snapshot resolves only the owning project, local before project
 test('112 absent, empty, invalid, wrong-type and oversized lists never set a snapshot (all-or-nothing)', (t) => {
   const w = dispatchWorld(t);
   const absent = () => assert.equal(Object.hasOwn(w.resolve({ ...w.env, DOFLOW_GUARD_DROP_DATABASES: 'injected_db' }).env, 'DOFLOW_GUARD_DROP_DATABASES'), false);
+  const max = [...Array(31).fill('a'.repeat(31)), 'a'.repeat(32)].join(' ');
+  const overMax = [...Array(31).fill('a'.repeat(31)), 'a'.repeat(33)].join(' ');
+  assert.equal(Buffer.byteLength(max, 'utf8'), 1024);
+  assert.equal(Buffer.byteLength(overMax, 'utf8'), 1025);
   absent();
   for (const value of ['', null, 4, [], {}, 'app_test BAD', 'app_test bad-name', '_test', 'app_test\nother',
     'app_test\tother', 'app_test\n', 'app_test  other', ' app_test', 'app_test ', 'app_test café',
-    Array.from({ length: 33 }, (_, i) => `db${i}`).join(' '), 'a'.repeat(1025)]) {
+    Array.from({ length: 33 }, (_, i) => `db${i}`).join(' '), overMax]) {
     w.write(value);
     absent();
   }
-  const max = 'a'.repeat(1024);
+  const maxName = 'a'.repeat(63);
+  const maxList = `project_db ${maxName}`;
+  w.write(maxList);
+  assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, maxList);
+  w.write(`project_db ${'a'.repeat(64)}`);
+  absent();
   w.write(max);
   assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, max);
   const names = Array.from({ length: 32 }, (_, i) => `db${i}`).join(' ');
