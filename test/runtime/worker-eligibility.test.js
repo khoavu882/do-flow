@@ -218,7 +218,7 @@ test('select: none eligible returns each gap and the fallback modes', POSIX_ONLY
   }
 });
 
-test('select: the real registry selects nothing (DEC-017)', (t) => {
+test('select: the real registry selects nothing when no harness is installed (DEC-017)', (t) => {
   const dir = tempDir(t, 'doflow-eligibility-real-');
   const emptyBin = path.join(dir, 'bin');
   fs.mkdirSync(emptyBin);
@@ -228,6 +228,13 @@ test('select: the real registry selects nothing (DEC-017)', (t) => {
   assert.equal(answer.candidates.length, 8);
   for (const candidate of answer.candidates) {
     assert.equal(candidate.eligible, false, candidate.harness);
+    if (candidate.harness === 'codex') {
+      // 109 IC-008: codex's static entries are supported, so only the discover-time gaps remain.
+      assert.deepEqual(candidate.gaps.map((g) => g.requirement), ['installed', 'runnable'], candidate.harness);
+      assert.equal(gap(answer, 'codex', 'one-shot'), undefined);
+      assert.equal(gap(answer, 'codex', 'spawn-denial'), undefined);
+      continue;
+    }
     assert.equal(gap(answer, candidate.harness, 'one-shot').result, 'unknown', candidate.harness);
     assert.equal(gap(answer, candidate.harness, 'spawn-denial').result, 'unknown', candidate.harness);
   }

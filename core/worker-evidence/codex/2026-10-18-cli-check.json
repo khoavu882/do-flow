@@ -1,0 +1,107 @@
+{
+  "binary": "codex",
+  "checks": [
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: codex exec \\[OPTIONS\\] \\[PROMPT\\]",
+        "instructions are read from stdin"
+      ],
+      "id": "exec-one-shot",
+      "matched": [
+        "Usage: codex exec [OPTIONS] [PROMPT]",
+        "          instructions are read from stdin. If stdin is piped and a prompt is also provided, stdin"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--json$",
+        "Print events to stdout as JSONL",
+        "-o, --output-last-message"
+      ],
+      "id": "exec-json",
+      "matched": [
+        "      --json",
+        "          Print events to stdout as JSONL",
+        "  -o, --output-last-message <FILE>"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "readOnly",
+        "isolatedEdit"
+      ],
+      "exit": 0,
+      "expect": [
+        "-s, --sandbox <SANDBOX_MODE>",
+        "read-only, workspace-write"
+      ],
+      "id": "exec-sandbox",
+      "matched": [
+        "  -s, --sandbox <SANDBOX_MODE>",
+        "          [possible values: read-only, workspace-write, danger-full-access]"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "features",
+        "list",
+        "--disable",
+        "multi_agent",
+        "--disable",
+        "multi_agent_v2"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^multi_agent\\s+\\S+\\s+false$",
+        "^multi_agent_v2\\s+\\S+\\s+false$"
+      ],
+      "id": "spawn-denial",
+      "matched": [
+        "multi_agent                              stable             false",
+        "multi_agent_v2                           stable             false"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "codex-cli 0.163.0",
+  "establishes": [
+    "isolatedEdit",
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "codex",
+  "kind": "cli-check",
+  "recordedAt": "2026-10-18T01:08:16.330Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

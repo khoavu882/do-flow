@@ -80,7 +80,7 @@ test('without edit: describe and select deep-equal the same call with the argume
   assert.equal(omitted.harness, 'claude', 'the read-only baseline still selects claude');
 });
 
-test('the real registry with edit: true leaves every harness ineligible naming isolated-edit', (t) => {
+test('the real registry with edit: true leaves every harness ineligible; seven name isolated-edit, codex only its discover-time gaps', (t) => {
   const dir = tempDir(t, 'doflow-edit-eligibility-real-');
   const emptyBin = path.join(dir, 'bin');
   fs.mkdirSync(emptyBin);
@@ -91,6 +91,13 @@ test('the real registry with edit: true leaves every harness ineligible naming i
   for (const harness of REAL.harnesses) {
     const candidate = answer.candidates.find((c) => c.harness === harness.id);
     assert.equal(candidate.eligible, false, harness.id);
+    if (harness.id === 'codex') {
+      // 109 IC-008: isolatedEdit is supported on the recorded cli-check; nothing is installed here.
+      assert.equal(harness.worker.isolatedEdit.status, 'supported');
+      assert.equal(gapOf(answer, 'codex', 'isolated-edit'), undefined);
+      assert.deepEqual(candidate.gaps.map((g) => g.requirement), ['installed', 'runnable']);
+      continue;
+    }
     assert.equal(harness.worker.isolatedEdit.status, 'unknown', harness.id);
     assert.deepEqual(gapOf(answer, harness.id, 'isolated-edit'), { requirement: 'isolated-edit', result: 'unknown', reason: harness.worker.isolatedEdit.reason }, harness.id);
   }

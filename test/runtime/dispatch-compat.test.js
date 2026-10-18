@@ -7,7 +7,8 @@
 //   every require/import in src/runtime/dispatch/*.ts names a `node:` built-in or a relative path
 //   that resolves inside src/.
 // - NFR-003: the 080 and 081 files plan §1 lists as unchanged are byte-identical to 0a474666
-//   (`git show`), and the eight real harnesses keep `isolatedEdit` unknown (IC-013).
+//   (`git show`); of the eight real harnesses only codex is `isolatedEdit` supported (109 IC-008) and
+//   the other seven keep it unknown (IC-013).
 // - NFR-002 / DEC-052: `dispatch start` and `step` over the real registry, under `--mode auto`, in a
 //   sandbox whose scratch bin/ also holds a logging wrapper named after every binary
 //   core/registry/harnesses.json declares. The static gate refuses every harness from its declared
@@ -43,17 +44,18 @@ const UNCHANGED_FILES = Object.freeze([
   'src/runtime/task-state.ts',
   'src/runtime/task-graph.ts',
   'src/runtime/task-sources.ts',
-  'src/runtime/worker/parsers.ts',
+  // parsers.ts: edited by 109 A.2 (codex-exec-json-v1); no longer frozen at 0a474666
   'src/runtime/worker/process-tree.ts',
   'src/lifecycle/coverage.ts',
   'core/registry/lifecycle.json',
   'test/e2e/worker-adapter.e2e.test.js',
-  'test/guards/worker-descriptors.test.js',
+  // worker-descriptors.test.js: edited by 109 B.2 (G41.4, codex evidence); no longer frozen at 0a474666
 ]);
 /** Plan §1 directories and globs, expanded from the base commit's tree. */
 const UNCHANGED_TREES = Object.freeze([
   { dir: '.github/workflows', match: () => true },
-  { dir: 'test/runtime', match: (name) => /^worker-.*\.test\.js$/.test(name) && !/^worker-(edit-|child-run)/.test(name) },
+  // worker-eligibility.test.js: edited by 109 B.2 (codex is eligible past the static gate); no longer frozen at 0a474666
+  { dir: 'test/runtime', match: (name) => /^worker-.*\.test\.js$/.test(name) && !/^worker-(edit-|child-run|eligibility\.)/.test(name) },
 ]);
 
 const GIT = resolveTool('git');
@@ -138,12 +140,16 @@ test(`NFR-003: every 080 and 081 file plan §1 lists is byte-identical to ${BASE
   assert.deepEqual(differ, [], `changed since ${BASE}: ${differ.join(', ')}`);
 });
 
-test('NFR-003 / IC-013: the eight real harnesses keep isolatedEdit unknown, so auto runs sequential', () => {
+test('NFR-003 / IC-013 / 109 IC-008: codex is isolatedEdit supported on its recorded evidence, the other seven keep it unknown, so auto runs sequential', () => {
   assert.deepEqual(HARNESSES.map((h) => h.id).sort(), [...REAL_IDS].sort());
   for (const h of HARNESSES) {
     assert.ok(h.worker && h.worker.isolatedEdit, `${h.id} declares a worker isolatedEdit block`);
-    assert.equal(h.worker.isolatedEdit.status, 'unknown', `${h.id}: isolatedEdit is ${h.worker.isolatedEdit.status}`);
+    const want = h.id === 'codex' ? 'supported' : 'unknown';
+    assert.equal(h.worker.isolatedEdit.status, want, `${h.id}: isolatedEdit is ${h.worker.isolatedEdit.status}`);
+    if (h.id !== 'codex') assert.deepEqual(h.worker.isolatedEdit.evidence, [], `${h.id}: nothing recorded`);
   }
+  const codex = HARNESSES.find((h) => h.id === 'codex');
+  assert.ok(codex.worker.isolatedEdit.evidence.every((item) => fs.existsSync(path.join(REPO_ROOT, item))), 'codex cites a record that exists');
 });
 
 // ── NFR-002 / DEC-052: the static gate starts no harness binary ──────────────────────────────────
@@ -174,7 +180,7 @@ function writeWrappers(bin, log, names) {
   }
 }
 
-test('NFR-002 / DEC-052: a real-registry dispatch start and step under auto look up and start no harness binary', { skip: SKIP }, (t) => {
+test('NFR-002 / DEC-052: a real-registry dispatch start and step under auto start no harness binary and look up only codex', { skip: SKIP }, (t) => {
   const box = makeDispatchSandbox(t, { plan: 'dependent', slug: SLUG });
   const binaries = declaredBinaries();
   assert.deepEqual(binaries, ['agy', 'claude', 'codex', 'copilot', 'gemini', 'kiro-cli', 'opencode', 'pi']);
@@ -210,8 +216,10 @@ test('NFR-002 / DEC-052: a real-registry dispatch start and step under auto look
   assert.equal(stepped.status, 0, stepped.stderr || stepped.stdout);
   assert.equal(stepped.data?.disposition, 'stepped', stepped.stdout);
 
-  // No wrapper was looked up and run: the log was never created.
-  assert.ok(!fs.existsSync(wrapperLog), `a harness binary ran: ${fs.existsSync(wrapperLog) ? fs.readFileSync(wrapperLog, 'utf8') : ''}`);
+  // Only codex passes the static gate (109 IC-008), so only codex may be looked up, and only for its
+  // `--version`: no other wrapper ran and nothing was launched.
+  const ran = fs.existsSync(wrapperLog) ? fs.readFileSync(wrapperLog, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [];
+  for (const entry of ran) assert.deepEqual(entry, { name: 'codex', argv: ['--version'] }, `a harness binary ran beyond the codex version lookup: ${JSON.stringify(ran)}`);
   // The sandbox's fake-CLI log is empty too: no fake harness ran either.
   assert.ok(!fs.existsSync(box.log) || fs.readFileSync(box.log, 'utf8') === '', 'no fake harness ran');
 
@@ -226,6 +234,11 @@ test('NFR-002 / DEC-052: a real-registry dispatch start and step under auto look
     assert.deepEqual(d.selection.candidates.map((c) => c.harness), REAL_IDS);
     for (const c of d.selection.candidates) {
       assert.equal(c.eligible, false, `${c.harness} is ineligible`);
+      if (c.harness === 'codex') {
+        // No static gap: what is left is the discover-time lookup that has not been probed.
+        assert.deepEqual(c.gaps.map((g) => g.requirement), ['installed', 'runnable'], JSON.stringify(c.gaps));
+        continue;
+      }
       const gap = c.gaps.find((g) => g.requirement === 'isolated-edit');
       assert.ok(gap, `${c.harness} names its isolated-edit gap: ${JSON.stringify(c.gaps)}`);
       assert.equal(gap.result, 'unknown', `${c.harness}: ${JSON.stringify(gap)}`);
