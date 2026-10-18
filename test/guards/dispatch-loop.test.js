@@ -286,7 +286,8 @@ test('G42.2 control: a dropped harness entry and a drifted EDIT_BASELINE are eac
 
 test('G42.2 control: a validator error naming isolatedEdit is reported', () => {
   const registry = structuredClone(shippedRegistry().registry);
-  const harness = registry.harnesses[0];
+  const harness = registry.harnesses.find((h) => h.worker.isolatedEdit.status === 'unknown');
+  assert.ok(harness, 'control precondition: a harness whose isolatedEdit is unknown (codex is supported since 109)');
   assert.equal(harness.worker.isolatedEdit.status, 'unknown', 'control precondition: isolatedEdit is unknown');
   harness.worker.isolatedEdit.argv = ['--edit'];
   const errors = registryModule.validateRegistry(registry, { repoRoot: REPO }).errors;

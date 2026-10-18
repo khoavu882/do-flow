@@ -962,7 +962,7 @@ scenario('verified-harness', 'a harness whose isolated editing is unknown is ine
   return null;
 });
 
-scenario('honest-fallback', 'with no eligible harness each gap is named and every attempt records mode sequential', ['sequential', 'subagent'], async (t, mode) => {
+scenario('honest-fallback', 'with no eligible harness each gap is named (real registry: codex fails only on installed/runnable when not probed, the seven others on isolated-edit unknown) and every attempt records mode sequential', ['sequential', 'subagent'], async (t, mode) => {
   // sequential: the real registry (every isolatedEdit unknown). subagent: the claude fake unprobed,
   // so its effective facts are unknown, and every other fake fails the static gate.
   const p = await project(t, 'subagent', { plan: 'dependent', descriptors: mode === 'sequential' ? 'registry' : 'edit', probe: false });
@@ -974,6 +974,18 @@ scenario('honest-fallback', 'with no eligible harness each gap is named and ever
     assert.deepEqual([d.mode, d.selection.policy, d.selection.chosen], ['sequential', 'auto', 'sequential']);
     assert.ok(d.selection.candidates.length >= 1);
     for (const c of d.selection.candidates) assert.ok(c.eligible === false && c.gaps.length >= 1, `${c.harness}: ${JSON.stringify(c.gaps)}`);
+    if (mode === 'sequential') {
+      // 109 IC-008: codex passes the static gate, so its only gaps are the discover-time ones; the
+      // seven harnesses whose entries stay unknown still name a static gap, isolated-edit included.
+      for (const c of d.selection.candidates) {
+        const requirements = c.gaps.map((g) => g.requirement);
+        if (c.harness === 'codex') {
+          assert.ok(requirements.every((r) => ['installed', 'runnable'].includes(r)), `codex has a static gap: ${JSON.stringify(c.gaps)}`);
+        } else {
+          assert.ok(requirements.includes('isolated-edit'), `${c.harness} names isolated-edit: ${JSON.stringify(c.gaps)}`);
+        }
+      }
+    }
   }
   for (const task of ['A.1', 'A.2', 'A.3']) assert.equal(p.ledger().tasks[task].attempts[0].mode, 'sequential');
   assert.equal(fs.existsSync(p.sb.log) ? fs.readFileSync(p.sb.log, 'utf8').split('\n').filter((l) => l && JSON.parse(l).argv[0] === '--edit-in-cwd').length : 0, 0, 'no worker was launched');

@@ -1,0 +1,62 @@
+{
+  "binary": "codex",
+  "checks": [],
+  "cliVersion": "codex-cli 0.163.0",
+  "establishes": [
+    "oneShot",
+    "structuredOutput",
+    "spawnDenial",
+    "readOnly"
+  ],
+  "harness": "codex",
+  "kind": "live-run",
+  "recordedAt": "2026-10-18T03:35:53.729Z",
+  "run": {
+    "argvShape": [
+      "exec",
+      "-s",
+      "read-only",
+      "--disable",
+      "multi_agent",
+      "--disable",
+      "multi_agent_v2",
+      "--json",
+      "-o",
+      "<last-message-file>",
+      "--ephemeral",
+      "-"
+    ],
+    "edit": false,
+    "exit": 0,
+    "isolation": null,
+    "parser": "codex-exec-json-v1",
+    "readOnly": {
+      "changes": [],
+      "head": {
+        "after": {
+          "object": "28bffdd57fb3d737fea5e478dfdc6a40b5d7ad6a",
+          "ref": "refs/heads/d1-read-only"
+        },
+        "before": {
+          "object": "28bffdd57fb3d737fea5e478dfdc6a40b5d7ad6a",
+          "ref": "refs/heads/d1-read-only"
+        }
+      },
+      "refsChanged": false,
+      "status": "clean"
+    },
+    "report": {
+      "deniedCount": 0,
+      "reason": null,
+      "status": "success",
+      "usage": {
+        "tokens": 63066
+      }
+    },
+    "resultOffered": true,
+    "runId": "w-067a85a5cc2d",
+    "stdoutBytes": 2203,
+    "withheld": []
+  },
+  "schema": "doflow-worker-evidence-v1"
+}

@@ -59,6 +59,10 @@
 //                                           '--skip-front-doors' (the codex fake's hooksProbe)
 //   { exit: code }                          stop and exit with code
 //
+// A codex fake scenario is `{ codex: { jsonl: [event | line, ...], lastMessage?, omitOutput?, exit? } }`.
+// An `exec --json` invocation prints each JSONL entry and writes `-o`'s path (empty when
+// `lastMessage` is omitted), unless `omitOutput` is set to model Codex producing no file.
+//
 // The fake descriptors: claude is fully supported (doflow-jsonl-v1, every probe argv, prompt in
 // argv); codex takes the prompt on stdin and its hooksProbe skips the front doors; gemini has
 // readOnly unknown; opencode has no free hooks probe and one model check, hooks-roundtrip.
@@ -134,6 +138,28 @@ async function main() {
   }
   const scenarioFile = process.env.FAKE_HARNESS_SCENARIO;
   const scenario = scenarioFile ? JSON.parse(fs.readFileSync(scenarioFile, 'utf8')) : {};
+
+  const codexScenario = scenario?.byBinary?.[binary]?.codex ?? scenario?.codex;
+  if (argv.includes('exec') && argv.includes('--json') && codexScenario) {
+    for (const line of Array.isArray(codexScenario.jsonl) ? codexScenario.jsonl : []) {
+      const text = typeof line === 'string' ? line : JSON.stringify(line);
+      out(`${text.replace(/\r?\n$/, '')}\n`);
+    }
+    const outputIndex = argv.indexOf('-o');
+    if (outputIndex >= 0 && !codexScenario.omitOutput) {
+      const outputFile = argv[outputIndex + 1];
+      if (typeof outputFile !== 'string' || !outputFile) {
+        fs.writeSync(2, 'fake-harness-cli: codex -o needs a path\n');
+        process.exitCode = ESCAPE_EXIT;
+        return;
+      }
+      const full = path.resolve(cwd, outputFile);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, Object.hasOwn(codexScenario, 'lastMessage') ? String(codexScenario.lastMessage ?? '') : '');
+    }
+    if (Number.isInteger(codexScenario.exit)) process.exitCode = codexScenario.exit;
+    return;
+  }
 
   for (const step of stepsFor(scenario, binary, kindOf(argv))) {
     if (Object.hasOwn(step, 'print')) out(`${step.print}\n`);

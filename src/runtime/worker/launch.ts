@@ -11,9 +11,10 @@
 //
 // `assembleArgv` builds the IC-003 argv: `readOnly`, `spawnDenial`, `structuredOutput` and
 // `oneShot` argv in that order (082 IC-014: an edit run puts `isolatedEdit` first in place of
-// `readOnly`), the one `{prompt}` element replaced whole. Substitution replaces an
-// element and never interpolates inside a longer string. `argvShape` is the same argv with the
-// prompt written `<prompt sha256:<hex> bytes:<n>>`, the only form a run record stores.
+// `readOnly`), the `{prompt}` element replaced whole. `{lastMessageFile}` is also replaced whole
+// with its output path. Substitution never interpolates inside a longer string. `argvShape` is the
+// same argv with the prompt written `<prompt sha256:<hex> bytes:<n>>` and the path written
+// `<last-message-file>`, the only forms a run record stores.
 //
 // `launchWorker` runs IC-012 steps 1 to 5: the environment, the optional 078 grant, the launch
 // emission in process, the emission text before the brief, then `spawn` with no shell. It returns a
@@ -31,6 +32,7 @@ type Env = Record<string, string | undefined>;
 /** IC-012: the five variables a launch sets, in the order the run record lists them. */
 const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE']);
 const PROMPT_ELEMENT = '{prompt}';
+const LAST_MESSAGE_FILE_ELEMENT = '{lastMessageFile}';
 /** IC-003 prompt limits in bytes. argv is one under Linux MAX_ARG_STRLEN, which counts the NUL (DEC-062). */
 const PROMPT_LIMITS = Object.freeze({ argv: 131071, stdin: 1048576 });
 const DEFAULT_RUN = 'local';
@@ -88,7 +90,7 @@ function launchEnv({ env, runKey, token, execWorktree, runId, runScoped = false 
 }
 
 /** The recipe argv with the `{prompt}` element replaced whole by `element`; a longer string is kept as written. */
-function assemble(recipe: any, element: string, edit = false): string[] {
+function assemble(recipe: any, element: string, edit = false, lastMessageFile?: string): string[] {
   const argv: string[] = [];
   for (const key of edit ? EDIT_RECIPE_ORDER : RECIPE_ORDER) {
     const entry = recipe?.[key];
@@ -97,8 +99,16 @@ function assemble(recipe: any, element: string, edit = false): string[] {
     }
     argv.push(...entry.argv);
   }
-  if (recipe.oneShot.promptVia !== 'argv') return argv;
-  return argv.map((value) => (value === PROMPT_ELEMENT ? element : value));
+  return argv.map((value) => {
+    if (value === LAST_MESSAGE_FILE_ELEMENT) {
+      if (lastMessageFile === undefined) {
+        throw new LaunchUsageError('last-message-file-missing', "assembleArgv: worker recipe needs a '{lastMessageFile}' output path");
+      }
+      return lastMessageFile;
+    }
+    if (value === PROMPT_ELEMENT && recipe.oneShot.promptVia === 'argv') return element;
+    return value;
+  });
 }
 
 function promptVia(recipe: any): 'argv' | 'stdin' {
@@ -107,19 +117,19 @@ function promptVia(recipe: any): 'argv' | 'stdin' {
 
 /** IC-003: the worker argv for `prompt`; a prompt over its mode's limit is `prompt-too-large`.
  * `edit` selects the edit recipe order (082 IC-014). */
-function assembleArgv(recipe: any, prompt: string, edit = false): string[] {
+function assembleArgv(recipe: any, prompt: string, edit = false, lastMessageFile?: string): string[] {
   const mode = promptVia(recipe);
   const bytes = Buffer.byteLength(prompt, 'utf8');
   if (bytes > PROMPT_LIMITS[mode]) {
     throw new LaunchUsageError('prompt-too-large', `assembleArgv: the prompt is ${bytes} bytes; ${mode} mode allows ${PROMPT_LIMITS[mode]}`);
   }
-  return assemble(recipe, prompt, edit);
+  return assemble(recipe, prompt, edit, lastMessageFile);
 }
 
 /** IC-003: the argv a record stores, the prompt element written `<prompt sha256:<hex> bytes:<n>>`. */
 function argvShape(recipe: any, prompt: string, edit = false): string[] {
   const hex = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
-  return assemble(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, edit);
+  return assemble(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, edit, '<last-message-file>');
 }
 
 /** IC-012 / data-model §1: the launch fields a run record stores. Names only, never a value. */
@@ -148,10 +158,12 @@ interface LaunchOptions {
   grant?: Record<string, unknown>;
   /** 082 IC-014: launch with the edit recipe order. */
   edit?: boolean;
+  /** IC-004: absolute path for the whole `{lastMessageFile}` argv element. */
+  lastMessageFile?: string;
 }
 
 /** IC-012 steps 1 to 5. Resolves `{ child, env, launched: { reason, bytes } }` once the process has spawned. */
-function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false }: LaunchOptions): Promise<any> {
+function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile }: LaunchOptions): Promise<any> {
   return new Promise((resolve, reject) => {
     const workerEnv = withIdentity(env, identity, execWorktree);
     if (grant) grantSummary({ ...grant, toRun: identity.run, toLineage: identity.lineage, env });
@@ -161,7 +173,7 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     const delivered = typeof emitted.text === 'string' ? emitted.text : null;
     const text = delivered !== null ? `${delivered}\n\n${prompt}` : prompt;
     const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
-    const argv = assembleArgv(recipe, text, edit);
+    const argv = assembleArgv(recipe, text, edit, lastMessageFile);
     const viaStdin = promptVia(recipe) === 'stdin';
     const child = spawn(recipe.cli.binary, argv, {
       cwd: execWorktree,

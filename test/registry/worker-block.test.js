@@ -12,6 +12,20 @@ const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752
 
 const REPO = path.resolve(__dirname, '../..');
 const HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
+const LIVE_READ_ONLY = 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json';
+const LIVE_EDIT = 'core/worker-evidence/codex/2026-10-18-live-run-edit.json';
+// D.1: the free check plus the live-run record(s) that establish each entry; runnableProbe keeps only the free check.
+const CODEX_EVIDENCE = {
+  oneShot: [CODEX_RECORD, LIVE_READ_ONLY, LIVE_EDIT],
+  structuredOutput: [CODEX_RECORD, LIVE_READ_ONLY, LIVE_EDIT],
+  spawnDenial: [CODEX_RECORD, LIVE_READ_ONLY, LIVE_EDIT],
+  readOnly: [CODEX_RECORD, LIVE_READ_ONLY],
+  isolatedEdit: [CODEX_RECORD, LIVE_EDIT],
+  runnableProbe: [CODEX_RECORD],
+};
+const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
+const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
 const BINARIES = { claude: 'claude', codex: 'codex', gemini: 'gemini', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 
 /** A supported entry carrying the given recipe fields. */
@@ -60,14 +74,49 @@ test('worker: the eight harnesses declare IC-002 values and nothing else as supp
     assert.equal(worker.cli.evidence.length, 1);
     assert.ok(worker.cli.evidence[0].startsWith(`bench/inventory/coverage.json → ${binary} --version → `), worker.cli.evidence[0]);
     for (const key of Object.keys(WORKER_CAPABILITIES).filter((name) => name !== 'cli')) {
-      assert.deepEqual(worker[key], {
-        status: 'unknown',
-        evidence: [],
-        verification: `Read ${harness.id}'s headless CLI documentation and \`${binary} --help\`; record the flag and its source`,
-        verifiedOn: '2026-10-15',
-        reason: `no in-repository evidence names this for ${harness.id}; nothing is inferred from another harness or a model name`,
-      }, `${harness.id} ${key}`);
+      if (harness.id === 'codex' && CODEX_SUPPORTED.includes(key)) {
+        // IC-008: the six entries the recorded codex cli-check establishes; the record is checked by G41.4.
+        assert.equal(worker[key].status, 'supported', `codex ${key}`);
+        assert.deepEqual(worker[key].evidence, CODEX_EVIDENCE[key], `codex ${key} evidence`);
+        assert.equal(worker[key].verifiedOn, '2026-10-18', `codex ${key} verifiedOn`);
+        continue;
+      }
+      assert.equal(worker[key].status, 'unknown', `${harness.id} ${key}`);
+      assert.deepEqual(worker[key].evidence, [], `${harness.id} ${key} evidence`);
+      assert.equal(worker[key].verification, `Read ${harness.id}'s headless CLI documentation and \`${binary} --help\`; record the flag and its source`, `${harness.id} ${key}`);
+      assert.equal(worker[key].verifiedOn, '2026-10-15', `${harness.id} ${key}`);
+      if (PER_HARNESS_REASON.includes(key)) {
+        // the four static-gate entries carry a per-harness reason naming the missing evidence (FR-009)
+        assert.match(worker[key].reason, new RegExp(`^no (recorded evidence for|captured) ${binary}[ :]`), `${harness.id} ${key} reason`);
+      } else {
+        assert.equal(worker[key].reason, `no in-repository evidence names this for ${harness.id}; nothing is inferred from another harness or a model name`, `${harness.id} ${key}`);
+      }
     }
+  }
+});
+
+// W2-1 (109 review A-1): the codex recipes are what the dispatcher launches, and the evidence record
+// only shows the flags exist. Pin every supported entry, argv included, so widening a sandbox or
+// swapping a disabled feature cannot pass with the record untouched.
+const CODEX_RECIPES = {
+  oneShot: { argv: ['--ephemeral', '-'], promptVia: 'stdin' },
+  structuredOutput: { argv: ['--json', '-o', '{lastMessageFile}'], parser: 'codex-exec-json-v1' },
+  readOnly: { argv: ['exec', '-s', 'read-only'] },
+  isolatedEdit: { argv: ['exec', '-s', 'workspace-write'] },
+  spawnDenial: { argv: ['--disable', 'multi_agent', '--disable', 'multi_agent_v2'] },
+  runnableProbe: { argv: ['exec', '--help'] },
+};
+
+test('worker: the six supported codex entries equal their committed status, evidence, verifiedOn and recipe', () => {
+  const codex = loadRegistry({ repoRoot: REPO }).harnesses.find((harness) => harness.id === 'codex').worker;
+  assert.deepEqual(Object.keys(CODEX_RECIPES).sort(), [...CODEX_SUPPORTED, 'isolatedEdit'].sort());
+  for (const [key, recipe] of Object.entries(CODEX_RECIPES)) {
+    const { status, evidence, verifiedOn, argv, promptVia, parser } = codex[key];
+    assert.deepEqual(
+      { status, evidence, verifiedOn, argv, promptVia, parser },
+      { status: 'supported', evidence: CODEX_EVIDENCE[key], verifiedOn: '2026-10-18', promptVia: undefined, parser: undefined, ...recipe },
+      `codex ${key}`,
+    );
   }
 });
 

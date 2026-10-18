@@ -242,14 +242,14 @@
           "evidence": [],
           "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for claude: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
           "status": "unknown",
           "evidence": [],
           "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+          "reason": "no captured claude transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
           "status": "unknown",
@@ -263,7 +263,7 @@
           "evidence": [],
           "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for claude: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
           "status": "unknown",
@@ -319,7 +319,7 @@
           "evidence": [],
           "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
-          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for claude: no free check shows a flag that confines edits to the working directory"
         },
         "modelChecks": []
       },
@@ -639,39 +639,77 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-read-only.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): runs w-067a85a5cc2d and w-821933d703be each exited 0 with the prompt on stdin under `--ephemeral -`, report status success, result offered.",
+          "verifiedOn": "2026-10-18",
+          "argv": [
+            "--ephemeral",
+            "-"
+          ],
+          "promptVia": "stdin"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-read-only.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): both runs launched with `--json -o <last-message-file>`, their stdout parsed by codex-exec-json-v1, report status success, result offered.",
+          "verifiedOn": "2026-10-18",
+          "argv": [
+            "--json",
+            "-o",
+            "{lastMessageFile}"
+          ],
+          "parser": "codex-exec-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-read-only.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-067a85a5cc2d under `exec -s read-only` ended with report status success, result offered, a clean worktree and unchanged HEAD and refs.",
+          "verifiedOn": "2026-10-18",
+          "argv": [
+            "exec",
+            "-s",
+            "read-only"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-read-only.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): both runs launched with `--disable multi_agent --disable multi_agent_v2`, report status success, deniedCount 0 (no spawn was attempted, so a denial was not exercised).",
+          "verifiedOn": "2026-10-18",
+          "argv": [
+            "--disable",
+            "multi_agent",
+            "--disable",
+            "multi_agent_v2"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-10-18-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines",
+          "verifiedOn": "2026-10-18",
+          "argv": [
+            "exec",
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",
@@ -716,11 +754,18 @@
           "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
         },
         "isolatedEdit": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag that confines edits to the working directory and its source",
-          "verifiedOn": "2026-10-16",
-          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-821933d703be under `exec -s workspace-write` in an isolated attempt ended with report status success, result offered, isolation status clean and unchanged caller and attempt refs.",
+          "verifiedOn": "2026-10-18",
+          "argv": [
+            "exec",
+            "-s",
+            "workspace-write"
+          ]
         },
         "modelChecks": []
       },
@@ -998,14 +1043,14 @@
           "evidence": [],
           "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for gemini: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
           "status": "unknown",
           "evidence": [],
           "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+          "reason": "no captured gemini transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
           "status": "unknown",
@@ -1019,7 +1064,7 @@
           "evidence": [],
           "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for gemini: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
           "status": "unknown",
@@ -1075,7 +1120,7 @@
           "evidence": [],
           "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for gemini: no free check shows a flag that confines edits to the working directory"
         },
         "modelChecks": []
       },
@@ -1400,14 +1445,14 @@
           "evidence": [],
           "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for opencode: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
           "status": "unknown",
           "evidence": [],
           "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "reason": "no captured opencode transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
           "status": "unknown",
@@ -1421,7 +1466,7 @@
           "evidence": [],
           "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for opencode: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
           "status": "unknown",
@@ -1477,7 +1522,7 @@
           "evidence": [],
           "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for opencode: no free check shows a flag that confines edits to the working directory"
         },
         "modelChecks": []
       },
@@ -1792,14 +1837,14 @@
           "evidence": [],
           "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for pi: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
           "status": "unknown",
           "evidence": [],
           "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "reason": "no captured pi transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
           "status": "unknown",
@@ -1813,7 +1858,7 @@
           "evidence": [],
           "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for pi: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
           "status": "unknown",
@@ -1869,7 +1914,7 @@
           "evidence": [],
           "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for pi: no free check shows a flag that confines edits to the working directory"
         },
         "modelChecks": []
       },
@@ -2189,14 +2234,14 @@
           "evidence": [],
           "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for copilot: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
           "status": "unknown",
           "evidence": [],
           "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "reason": "no captured copilot transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
           "status": "unknown",
@@ -2210,7 +2255,7 @@
           "evidence": [],
           "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for copilot: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
           "status": "unknown",
@@ -2266,7 +2311,7 @@
           "evidence": [],
           "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for copilot: no free check shows a flag that confines edits to the working directory"
         },
         "modelChecks": []
       },
@@ -2524,14 +2569,14 @@
           "evidence": [],
           "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for kiro-cli: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
           "status": "unknown",
           "evidence": [],
           "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "reason": "no captured kiro-cli transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
           "status": "unknown",
@@ -2545,7 +2590,7 @@
           "evidence": [],
           "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for kiro-cli: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
           "status": "unknown",
@@ -2601,7 +2646,7 @@
           "evidence": [],
           "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for kiro-cli: no free check shows a flag that confines edits to the working directory"
         },
         "modelChecks": []
       },
@@ -2929,14 +2974,14 @@
           "evidence": [],
           "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for agy: no free check has captured its one-shot headless flag, and a probe must show non-empty output and a result event, not exit 0 alone"
         },
         "structuredOutput": {
           "status": "unknown",
           "evidence": [],
           "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+          "reason": "no captured agy transcript: the event schema is undocumented, and a probe must show non-empty output and a result event, not exit 0 alone"
         },
         "readOnly": {
           "status": "unknown",
@@ -2950,7 +2995,7 @@
           "evidence": [],
           "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
           "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for agy: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
           "status": "unknown",
@@ -3006,7 +3051,7 @@
           "evidence": [],
           "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
-          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+          "reason": "no recorded evidence for agy: no free check shows a flag that confines edits to the working directory"
         },
         "modelChecks": []
       },

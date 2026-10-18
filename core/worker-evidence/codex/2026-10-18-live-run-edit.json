@@ -1,0 +1,73 @@
+{
+  "binary": "codex",
+  "checks": [],
+  "cliVersion": "codex-cli 0.163.0",
+  "establishes": [
+    "oneShot",
+    "structuredOutput",
+    "spawnDenial",
+    "isolatedEdit"
+  ],
+  "harness": "codex",
+  "kind": "live-run",
+  "recordedAt": "2026-10-18T03:36:27.965Z",
+  "run": {
+    "argvShape": [
+      "exec",
+      "-s",
+      "workspace-write",
+      "--disable",
+      "multi_agent",
+      "--disable",
+      "multi_agent_v2",
+      "--json",
+      "-o",
+      "<last-message-file>",
+      "--ephemeral",
+      "-"
+    ],
+    "edit": true,
+    "exit": 0,
+    "isolation": {
+      "attemptHead": {
+        "after": {
+          "object": "28bffdd57fb3d737fea5e478dfdc6a40b5d7ad6a",
+          "ref": "refs/heads/doflow-attempt/109-d1-edit/d-009378735f3b"
+        },
+        "before": {
+          "object": "28bffdd57fb3d737fea5e478dfdc6a40b5d7ad6a",
+          "ref": "refs/heads/doflow-attempt/109-d1-edit/d-009378735f3b"
+        }
+      },
+      "callerHead": {
+        "after": {
+          "object": "28bffdd57fb3d737fea5e478dfdc6a40b5d7ad6a",
+          "ref": "refs/heads/main"
+        },
+        "before": {
+          "object": "28bffdd57fb3d737fea5e478dfdc6a40b5d7ad6a",
+          "ref": "refs/heads/main"
+        }
+      },
+      "changes": [],
+      "reason": null,
+      "refsChanged": false,
+      "status": "clean"
+    },
+    "parser": "codex-exec-json-v1",
+    "readOnly": null,
+    "report": {
+      "deniedCount": 0,
+      "reason": null,
+      "status": "success",
+      "usage": {
+        "tokens": 181978
+      }
+    },
+    "resultOffered": true,
+    "runId": "w-821933d703be",
+    "stdoutBytes": 5891,
+    "withheld": []
+  },
+  "schema": "doflow-worker-evidence-v1"
+}

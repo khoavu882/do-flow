@@ -20,7 +20,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
-const ACTIONS = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel'];
+const ACTIONS = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence'];
 const DISPATCHER_TOOLS = ['dirname', 'date'];
 
 /** The first executable named `name` on this process's PATH. */
@@ -124,11 +124,13 @@ test('--reason with no value is a parser usage error: exit 1 and no JSON on stdo
   assert.match(r.stderr, /--reason requires a value/);
 });
 
-test('worker --help lists the seven actions', (t) => {
+test('worker --help lists the eight actions, the evidence flags included', (t) => {
   const r = project(t).cli('--help');
   assert.equal(r.status, 0, r.stderr);
   const line = r.stdout.split('\n').find((l) => /^\s+worker: /.test(l));
   assert.ok(line, 'the help names the worker actions');
   assert.deepEqual(line.trim().replace(/^worker: /, '').split('|'), ACTIONS);
   assert.match(r.stdout, /^ {2}worker {2,}\S/m, 'worker has a command line in the help');
+  assert.match(r.stdout, /--checks, --out\s+worker \(/, 'the help lists the evidence flags --checks and --out');
+  assert.match(r.stdout, /evidence: --harness --out and exactly one of --checks/);
 });

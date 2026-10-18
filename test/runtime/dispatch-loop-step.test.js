@@ -175,11 +175,23 @@ test('IC-005: the perform yield carries task, token, worktree and handoff; a sec
   assert.equal(next.measurement.tokens.main.estimated, 12);
 });
 
-test('IC-022 / DEC-052: under auto with the real registry the discover spy records no call and every attempt is sequential with each gap', POSIX, async (t) => {
+test('IC-022 / DEC-052: under auto with the real registry the discover spy records exactly the codex call and every attempt is sequential with each gap', POSIX, async (t) => {
   const p = await project(t, { plan: 'dependent', mode: 'auto' });
   const calls = [];
-  const r = await p.step({ descriptors: undefined, evaluateImpl: (args) => { calls.push(args.harness); return { eligible: true, gaps: [] }; } });
-  assert.deepEqual(calls, [], 'no harness passed the static gate, so nothing was discovered');
+  const r = await p.step({
+    descriptors: undefined,
+    evaluateImpl: (args) => {
+      calls.push(args.harness);
+      return {
+        eligible: false,
+        gaps: [
+          { requirement: 'installed', result: 'unknown', reason: 'not-probed' },
+          { requirement: 'runnable', result: 'unknown', reason: 'not-probed' },
+        ],
+      };
+    },
+  });
+  assert.deepEqual(calls, ['codex']);
   assert.equal(r.outcome, 'perform', JSON.stringify(r));
   const d = p.read().dispatches[r.perform.dispatchId];
   assert.equal(d.mode, 'sequential');
@@ -188,6 +200,13 @@ test('IC-022 / DEC-052: under auto with the real registry the discover spy recor
   assert.ok(d.selection.candidates.length >= 8, JSON.stringify(d.selection));
   for (const c of d.selection.candidates) {
     assert.equal(c.eligible, false);
+    if (c.harness === 'codex') {
+      const requirements = c.gaps.map((g) => g.requirement);
+      assert.ok(requirements.includes('installed') && requirements.includes('runnable'), `codex gaps: ${JSON.stringify(c.gaps)}`);
+      assert.ok(!requirements.includes('isolated-edit'), `codex has no isolated-edit gap: ${JSON.stringify(c.gaps)}`);
+      assert.deepEqual(requirements, ['installed', 'runnable'], JSON.stringify(c.gaps));
+      continue;
+    }
     const gap = c.gaps.find((g) => g.requirement === 'isolated-edit');
     assert.equal(gap.result, 'unknown', `${c.harness}: ${JSON.stringify(c.gaps)}`);
   }

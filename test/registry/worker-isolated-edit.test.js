@@ -13,6 +13,7 @@ const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752
 const REPO = path.resolve(__dirname, '../..');
 const HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const BINARIES = { claude: 'claude', codex: 'codex', gemini: 'gemini', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
+const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
 const AT = /^harness 'claude' worker 'isolatedEdit': /;
 
 function supported(recipe) {
@@ -44,19 +45,29 @@ test('isolatedEdit: exported as an optional capability, WORKER_KEYS unchanged', 
   assert.ok(!WORKER_KEYS.includes('isolatedEdit'));
 });
 
-test('isolatedEdit: the real registry loads, all eight entries unknown with a reason', () => {
+test('isolatedEdit: the real registry loads; codex is supported on its recorded evidence, the other seven stay unknown with a reason', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(registry.validation.errors.filter((line) => line.includes(" worker 'isolatedEdit'")), []);
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
   assert.deepEqual(registry.harnesses.map((h) => h.id), HARNESSES);
   for (const harness of registry.harnesses) {
     const binary = BINARIES[harness.id];
+    if (harness.id === 'codex') {
+      assert.deepEqual(harness.worker.isolatedEdit, {
+        status: 'supported',
+        evidence: [CODEX_RECORD, 'core/worker-evidence/codex/2026-10-18-live-run-edit.json'],
+        verification: `Run \`node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out ${CODEX_RECORD}\` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-821933d703be under \`exec -s workspace-write\` in an isolated attempt ended with report status success, result offered, isolation status clean and unchanged caller and attempt refs.`,
+        verifiedOn: '2026-10-18',
+        argv: ['exec', '-s', 'workspace-write'],
+      }, 'codex isolatedEdit');
+      continue;
+    }
     assert.deepEqual(harness.worker.isolatedEdit, {
       status: 'unknown',
       evidence: [],
       verification: `Read ${harness.id}'s headless CLI documentation and \`${binary} --help\`; record the flag that confines edits to the working directory and its source`,
       verifiedOn: '2026-10-16',
-      reason: `no in-repository evidence names this for ${harness.id}; nothing is inferred from another harness or a model name`,
+      reason: `no recorded evidence for ${binary}: no free check shows a flag that confines edits to the working directory`,
     }, `${harness.id} isolatedEdit`);
   }
 });
