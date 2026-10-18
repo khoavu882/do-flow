@@ -118,10 +118,11 @@ spawn settles, and no tier or check line. All lines of one run share `verify_id`
 and the first check's start for a tier line. Timing comes from the contract runner's `metrics`
 WeakMap (keyed by each check result, measured with the monotonic clock around the check's spawn),
 so the report and `verify --json` carry no timing and are the same bytes with telemetry on, off or
-faulted. The lines go to the nearest `.doflow` above the verify's working directory that holds
-`state/runs` (or `DOFLOW_CONFIG_DIR`), passing over a `.doflow` inside another `.doflow` (a dispatch
-worktree's) to continue to the project's store; that worktree `.doflow` used to hide the project
-store because the launch writes the worker's delivery pack into its own `.doflow/state/delivery`.
+faulted. The lines go to `DOFLOW_CONFIG_DIR` when set; otherwise, the walk selects the nearest
+`.doflow` above the verify's working directory that holds `state/runs`, passing over one without
+`state/runs` and now also over one inside another `.doflow` (a dispatch worktree's) to continue to
+the project's store; before this change, the worktree `.doflow` hid that store after a worker verb
+created `state/runs` in it.
 A failing check leaves a `.doflow/state/verification/logs` fragment in the working directory, and
 the walk passes over it. With no project store nothing is written; there is no global fallback.
 
