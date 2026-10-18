@@ -43,4 +43,4 @@ back on a bad approach with evidence. → `rules/RULE_03_QUALITY.md`.
   validates it, so a tier-2 file that weakened P1 would not be rejected by any check.*
 - `/do-plan` MUST evaluate its Constitution Check against both tiers together (tier-2 taking
   precedence) and record PASS/FAIL. The verdict is **advisory** — it is recorded in `plan.md`
-  §2 is nonblocking. Gate scope: `DOFLOW_CHAIN.md`.
+  §2 "Constitution Check" and blocks nothing. Gate scope: `DOFLOW_CHAIN.md`.

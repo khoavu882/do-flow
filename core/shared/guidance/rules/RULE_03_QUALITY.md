@@ -2,7 +2,7 @@
 
 ## Organization & Hygiene
 **Naming**: Follow language standards (camelCase JS, snake_case Python); no mixed conventions
-**Files**: Follow the repository's existing layout; only if none exists, use `tests/`, `scripts/` and `agent-docs/`.
+**Files**: Follow the repository's existing layout; only if none exists, use `tests/` for tests, `scripts/` for scripts and `agent-docs/` for reports.
 **Workspace**: Remove temp files, debug scripts, build artifacts after use; never leave clutter in VCS
 
 ## Professional Honesty

@@ -71,9 +71,9 @@ not have.
    `overflowAction.message` and report the gap.** By this point `do-design` should have batched
    evidence and claims (step 8), so an empty pack carries weight: either the batch never ran or the
    task id mismatched. Empty packs are advisory; prerequisites check artifact existence only. Report
-   them in this stage's report and `plan.md` §3; prose without a compiled pack cannot claim prior
-   evidence. When
-   non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.
+   them in this stage's report and `plan.md` §3 "Research & Decisions"; prose without a compiled
+   pack cannot claim prior evidence. When non-empty, read it alongside `requirement.md`,
+   `design.md`, and the constitution.
    **Also read `specs.md` when step 1's `has_specs` is true** — use that flag, never a filesystem
    check of your own, and read the `specs` path the resolver returned. `/do-design` moves the
    interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`
