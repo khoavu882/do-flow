@@ -23,7 +23,16 @@ const RUNNER_TOOLS = ['git', 'jq', 'python3'];
 
 const SYSTEM_PATH = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'];
 const SEED_COMMIT = '0864b39a';
-const UNSUPPORTED_SIGNATURE = 'ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING';
+// What each seed's expected failure must print, all of it. plantuml: with the stub removed (the
+// revert) and no PlantUML on the scratch PATH, render-puml.sh exits before the splice, so the first
+// test fails on design.md still holding its old block. raw-ts: Node refuses .ts under node_modules.
+const SEED_SIGNATURES: Record<string, string[]> = {
+  plantuml: [
+    'not ok 1 - a projector that writes to stderr does not pollute the generated block',
+    'old <!-- end generated -->',
+  ],
+  'raw-ts': ['ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING'],
+};
 const SMOKE_TESTS = [
   'test/e2e/packed-install.e2e.test.js',
   'test/e2e/node-floor-guard.test.js',
@@ -196,8 +205,16 @@ function runRehearse({
 
   const clone = dir('repo');
   const prefix = dir('prefix');
-  const floorEnv = ciEnv({ scratch, nodeDir: path.dirname(nodeBin), shimDir, npmCli, base: baseEnv });
-  const invokingEnv = ciEnv({ scratch, nodeDir: path.dirname(invokingNode), shimDir, npmCli, base: baseEnv });
+  // The child PATH gets a directory holding only a `node` link, never the folder the binary lives
+  // in: that folder (Homebrew bin, ~/.local/bin) carries unrelated tools such as plantuml and jq.
+  const nodeShim = (name: string, binary: string): string => {
+    const shim = dir(name);
+    fsImpl.mkdirSync(shim, { recursive: true });
+    fsImpl.symlinkSync(binary, path.join(shim, 'node'));
+    return shim;
+  };
+  const floorEnv = ciEnv({ scratch, nodeDir: nodeShim('node-floor', nodeBin), shimDir, npmCli, base: baseEnv });
+  const invokingEnv = ciEnv({ scratch, nodeDir: nodeShim('node-invoking', invokingNode), shimDir, npmCli, base: baseEnv });
   let sha = '';
   let tarball = '';
   let packSource = dir('stage');
@@ -324,8 +341,8 @@ function runRehearse({
   } else if (opts.seed) {
     const expected = opts.seed === 'plantuml' ? 'suite' : 'version';
     const got = outcomes.get(expected);
-    const signature = opts.seed === 'raw-ts' ? UNSUPPORTED_SIGNATURE : null;
-    const reproduced = Boolean(got && got.status === 'FAIL' && got.kind === 'exit' && (!signature || got.output.includes(signature)));
+    const missing = got ? SEED_SIGNATURES[opts.seed].filter((part) => !got.output.includes(part)) : [];
+    const reproduced = Boolean(got && got.status === 'FAIL' && got.kind === 'exit' && missing.length === 0);
     if (reproduced) {
       lines.push(`SEED reproduced: ${opts.seed} failed at ${expected}`);
     } else {
@@ -333,7 +350,7 @@ function runRehearse({
       if (!got) outcome = `FAIL at ${chainFailed}`;
       else if (got.status === 'PASS') outcome = 'PASS';
       else if (got.kind !== 'exit') outcome = `FAIL (${got.kind})`;
-      else outcome = `FAIL without ${signature}`;
+      else outcome = `FAIL without ${missing[0]}`;
       lines.push(`SEED not reproduced: ${opts.seed} expected ${expected}, got ${outcome}`);
     }
     exitCode = reproduced ? 0 : 1;

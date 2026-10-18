@@ -10,6 +10,8 @@ const { RUNNER_TOOLS, parseArgs, ciEnv, stagePlan, runRehearse } = require('../.
 const VERSION = '2.0.0-beta.6';
 const FLOOR = '22.18.0';
 const NODE = '/fake/node22/bin/node';
+const PLANTUML_SIGNATURE = 'not ok 1 - a projector that writes to stderr does not pollute the generated block\n'
+  + "      actual: 'before <!-- generated --> old <!-- end generated --> authored after '\n";
 const ORDER = ['clone', 'preflight', 'suite', 'smoke', 'build', 'pack', 'install', 'version', 'install-g', 'verb'];
 
 /** The spec forbids every registry, tag and push verb; this is the check the tests apply to each spawn. */
@@ -149,7 +151,9 @@ test('a clean run passes every stage in order, spawns the documented argv and re
   const smoke = find((c) => c === '/fake/node26/bin/node' && true);
   assert.equal(smoke.args[0], '--test');
   assert.equal(smoke.args.length, 5);
-  assert.ok(smoke.options.env.PATH.startsWith('/fake/node26/bin:'));
+  assert.ok(smoke.options.env.PATH.startsWith(path.join(scratchRoot, ''))
+    && smoke.options.env.PATH.split(path.delimiter)[0].endsWith('/node-invoking'), 'a node-only shim directory, not the Node folder');
+  assert.ok(!calls.some((c) => c.options.env.PATH.split(path.delimiter).some((d) => d.startsWith('/fake/'))));
   assert.deepEqual(find((c, a) => a[0] === 'src/release/build-package.ts').args.slice(1).map(scratchAbs), [true]);
   const pack = find((c, a) => a.includes('pack'));
   assert.equal(pack.args[0], npmCli);
@@ -228,7 +232,7 @@ test('the version stage fails when the installed CLI prints another version', (t
 test('seed plantuml: reverts the commit, runs only the render test, exits 0 when it fails', (t) => {
   const { result, calls, scratchRoot } = fixture(t, {
     seed: 'plantuml',
-    override: (command, args) => (args[0] === '--test' ? { status: 1, stdout: 'not ok\n' } : undefined),
+    override: (command, args) => (args[0] === '--test' ? { status: 1, stdout: PLANTUML_SIGNATURE } : undefined),
   });
   assert.equal(result.exitCode, 0, result.lines.join('\n'));
   assert.deepEqual(calls.find((c) => c.args[0] === 'revert').args, ['revert', '--no-commit', '0864b39a']);
@@ -239,6 +243,51 @@ test('seed plantuml: reverts the commit, runs only the render test, exits 0 when
   for (const id of ['preflight', 'smoke', 'build', 'pack', 'install', 'version', 'install-g', 'verb']) {
     assert.ok(result.lines.some((l) => l.startsWith(`SKIP ${id}:`)), id);
   }
+});
+
+test('seed plantuml: the render test failing for another reason is not a reproduction', (t) => {
+  const { result } = fixture(t, {
+    seed: 'plantuml',
+    override: (command, args) => (args[0] === '--test' ? { status: 1, stdout: 'not ok\n' } : undefined),
+  });
+  t.after(() => fs.rmSync(scratchOf(result), { recursive: true, force: true }));
+  assert.equal(result.exitCode, 1);
+  assert.ok(result.lines.includes('SEED not reproduced: plantuml expected suite, got FAIL without not ok 1 - a projector that writes to stderr does not pollute the generated block'));
+  const half = fixture(t, {
+    seed: 'plantuml',
+    override: (command, args) => (args[0] === '--test' ? { status: 1, stdout: PLANTUML_SIGNATURE.split('\n')[0] + '\n' } : undefined),
+  });
+  t.after(() => fs.rmSync(scratchOf(half.result), { recursive: true, force: true }));
+  assert.equal(half.result.exitCode, 1, 'the test name alone, without the design.md-kept-old-block assertion, is not enough');
+});
+
+test('a Node folder that holds other tools never reaches a child PATH, so the plantuml seed reproduces', (t) => {
+  const nodeFolder = tempDir(t, 'doflow-rehearse-nodedir-');
+  fs.writeFileSync(path.join(nodeFolder, 'node'), '');
+  fs.writeFileSync(path.join(nodeFolder, 'plantuml'), '#!/bin/sh\nexit 0\n');
+  const nodeBin = path.join(nodeFolder, 'node');
+  // The fake suite passes when any directory on the child's PATH holds a plantuml (the stub case),
+  // and fails with the signature when none does, the way the real test behaves.
+  const visible = (env) => env.PATH.split(path.delimiter).some((d) => fs.existsSync(path.join(d, 'plantuml')));
+  const { result, calls } = fixture(t, {
+    seed: 'plantuml',
+    node: nodeBin,
+    keep: true,
+    override: (command, args, options) => {
+      if (command === nodeBin && args[0] === '--version') return { stdout: `v${FLOOR}\n` };
+      if (args[0] === '--test') return visible(options.env) ? { status: 0 } : { status: 1, stdout: PLANTUML_SIGNATURE };
+      return undefined;
+    },
+  });
+  t.after(() => fs.rmSync(scratchOf(result), { recursive: true, force: true }));
+  assert.equal(result.exitCode, 0, result.lines.join('\n'));
+  assert.ok(result.lines.includes('SEED reproduced: plantuml failed at suite'));
+  for (const c of calls.filter((x) => x.options.env.HOME.startsWith(scratchOf(result)))) {
+    assert.ok(!c.options.env.PATH.split(path.delimiter).includes(nodeFolder), `${c.command} ${c.args[0]}`);
+  }
+  const floorShim = path.join(scratchOf(result), 'node-floor');
+  assert.deepEqual(fs.readdirSync(floorShim), ['node']);
+  assert.equal(fs.readlinkSync(path.join(floorShim, 'node')), nodeBin);
 });
 
 test('seed plantuml: a passing render test means the seed was not reproduced (exit 1)', (t) => {
