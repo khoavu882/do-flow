@@ -127,11 +127,14 @@ test('N1: a failing verify in an attempt worktree with planted delivery pack wri
   assert.ok(first.logs >= 1, 'logs land in <P>');
   assert.equal(first.verifyRuns, 1, 'verify.run lands in <P>');
   assert.ok(first.upkeep >= 1, 'upkeep line lands in <P>');
+  const wtState = path.join(wt, '.doflow', 'state');
+  assert.deepEqual(fs.readdirSync(wtState).sort(), ['delivery'], 'nothing is created under <W>/.doflow/state besides delivery/ after first verify');
 
   verify(p, wt, env);
   const second = holdings(store);
   assert.equal(second.verifyRuns, 2, 'a second verify still in <P>');
   assert.ok(second.logs > first.logs, 'second verify logs still in <P>');
+  assert.deepEqual(fs.readdirSync(wtState).sort(), ['delivery'], 'nothing is created under <W>/.doflow/state besides delivery/ after second verify');
 
   const res = verifyStateRoot({ start: wt, env });
   assert.equal(res.projectRoot, p.root, 'verifyStateRoot projectRoot = <P>');

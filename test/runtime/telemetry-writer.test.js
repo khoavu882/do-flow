@@ -240,6 +240,24 @@ test('N3: A.1 block: resolveRunsLocation and outerProjectRoot map <W> to <P>; a 
   assert.equal(outerProjectRoot(P), P);
 });
 
+test('F4: outerProjectRoot handles drive root, POSIX root, and normal paths', () => {
+  // Drive root preserves trailing separator (C:\, not drive-relative C:)
+  assert.equal(outerProjectRoot('C:\\.doflow\\x'), 'C:\\');
+  assert.equal(outerProjectRoot('C:\\.doflow'), 'C:\\');
+  assert.equal(outerProjectRoot('d:\\.doflow\\state'), 'd:\\');
+  assert.equal(outerProjectRoot('C:/.doflow/x'), 'C:/');
+
+  // POSIX root preserves '/'
+  assert.equal(outerProjectRoot('/.doflow/x'), '/');
+  assert.equal(outerProjectRoot('/.doflow'), '/');
+  assert.equal(outerProjectRoot('/.doflow/state/runs'), '/');
+
+  // Normal paths
+  assert.equal(outerProjectRoot('/Users/user/project/.doflow/state/dispatch-worktrees/d-1'), '/Users/user/project');
+  assert.equal(outerProjectRoot('/Users/user/project'), '/Users/user/project');
+  assert.equal(outerProjectRoot('C:\\Users\\user\\project\\.doflow\\state'), 'C:\\Users\\user\\project');
+});
+
 test('A.1 writer: creates only telemetry/, non-recursively, and only when state/runs exists', (t) => {
   const root = tempDir(t, 'doflow-telemetry-writer-bare-');
   fs.mkdirSync(path.join(root, '.doflow', 'state'), { recursive: true });

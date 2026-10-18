@@ -166,9 +166,14 @@ test('E1 variant (C1): DOFLOW_TELEMETRY=off writes no telemetry file in either s
   const telemDirW = path.join(wt.worktree, '.doflow', 'state', 'runs', 'telemetry');
   const telemFilesW = fs.existsSync(telemDirW) ? fs.readdirSync(telemDirW).filter((f) => f.endsWith('.jsonl')) : [];
   assert.deepEqual(telemFilesW, [], 'no telemetry file in worktree store');
+});
+
+test('E1 variant: DOFLOW_TELEMETRY=off worktree state holds only delivery', POSIX, async (t) => {
+  const { wt } = await setupWorkerRun(t, { telemetry: 'off' });
 
   const wtStateDir = path.join(wt.worktree, '.doflow', 'state');
   assert.ok(fs.existsSync(wtStateDir), 'worktree state directory exists');
   const wtStateEntries = fs.readdirSync(wtStateDir);
   assert.deepEqual(wtStateEntries, ['delivery'], 'worktree state holds only delivery/');
 });
+

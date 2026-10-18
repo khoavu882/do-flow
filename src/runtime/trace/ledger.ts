@@ -238,8 +238,13 @@ function outerProjectRoot(dir: any): any {
   const idx = segments.indexOf('.doflow');
   if (idx === -1) return dir;
   const before = segments.slice(0, idx);
-  if (before.length === 1 && before[0] === '') return path.sep;
-  return before.join(path.sep) || '.';
+  if (before.length === 1 && before[0] === '') return dir.startsWith('\\') ? '\\' : '/';
+  if (before.length === 1 && /^[A-Za-z]:$/.test(before[0])) {
+    const sep = dir.length > 2 && dir[2] === '/' ? '/' : '\\';
+    return before[0] + sep;
+  }
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : path.sep;
+  return before.join(sep) || '.';
 }
 
 /**

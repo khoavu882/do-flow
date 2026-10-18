@@ -416,3 +416,40 @@ test('N2: upkeepAfterVerb({projectRoot:<W>}) when due writes upkeep-due, .gitign
   assert.ok(indexed.includes(fs.realpathSync(P)), 'upkeep-roots lists <P>');
   assert.ok(!indexed.includes(W), 'upkeep-roots does not list <W>');
 });
+
+test('F2: upkeepAfterVerify({projectRoot:<W>}) writes ledger line under <P>/.doflow/state and upkeep-roots lists <P> not <W>', (t) => {
+  const dir = tempDir(t, 'doflow-upkeep-f2-');
+  const P = path.join(dir, 'project');
+  const W = path.join(P, '.doflow', 'state', 'dispatch-worktrees', 'd-000000000001');
+  const home = path.join(dir, 'home');
+  const xdg = path.join(dir, 'xdg');
+  fs.mkdirSync(P, { recursive: true });
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(xdg, { recursive: true });
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg };
+  delete env.DOFLOW_RETENTION_HOURS;
+  delete env.DOFLOW_CONFIG_DIR;
+
+  fs.mkdirSync(path.join(P, '.doflow', 'state', 'runs'), { recursive: true });
+  fs.writeFileSync(path.join(P, '.doflow', 'state', '.gitignore'), IGNORE);
+  fs.mkdirSync(path.join(W, '.doflow', 'state', 'delivery'), { recursive: true });
+  fs.writeFileSync(path.join(W, '.doflow', 'state', 'delivery', 'A.1.json'), '{}');
+
+  const roots = resolveRoots({ registry, projectRoot: P, env });
+  fs.mkdirSync(roots['user-state'], { recursive: true });
+
+  upkeep().upkeepAfterVerify({ projectRoot: W, now: NOW, env });
+
+  assert.equal(fs.existsSync(path.join(P, '.doflow', 'state', '.gitignore')), true, '.gitignore exists under <P>');
+  assert.ok(records(path.join(P, '.doflow', 'state')).filter((r) => r.kind === 'upkeep').length >= 1, 'ledger line under <P>');
+
+  assert.equal(fs.existsSync(path.join(W, '.doflow', 'state', '.gitignore')), false, 'no .gitignore under <W>');
+  assert.equal(records(path.join(W, '.doflow', 'state')).length, 0, 'no ledger line under <W>');
+
+  const indexFile = path.join(roots['user-state'], 'upkeep-roots');
+  assert.equal(fs.existsSync(indexFile), true, 'upkeep-roots index exists');
+  const indexed = fs.readFileSync(indexFile, 'utf8');
+  assert.ok(indexed.includes(fs.realpathSync(P)), 'upkeep-roots lists <P>');
+  assert.ok(!indexed.includes(W), 'upkeep-roots does not list <W>');
+});
+
