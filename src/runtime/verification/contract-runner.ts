@@ -28,6 +28,8 @@
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { telemetryOff } = require('../trace/telemetry.ts');
+const { checkKey, headCommit, treeDigest } = require('./check-key.ts');
 
 /** A failing check whose name contains one of these aborts the remaining checks: once the build is
  * broken, every later result describes the broken build rather than the change. */
@@ -97,6 +99,60 @@ function monotonicNs(): bigint | null {
   }
 }
 
+/**
+ * Test output counts parser (088 E.2, IC-007).
+ * Parses full stdout+stderr for TAP (# tests N / # fail N) or spec (ℹ tests N / ℹ fail N).
+ * Pytest and unparseable outputs return { tests: null, testsFailed: null }.
+ * @param {unknown} text
+ * @returns {{ tests: number | null, testsFailed: number | null }}
+ */
+function parseTestCounts(text: unknown): { tests: number | null; testsFailed: number | null } {
+  if (typeof text !== 'string') return { tests: null, testsFailed: null };
+  const tapTests = text.match(/^# tests (\d+)/m);
+  if (tapTests) {
+    const tapFail = text.match(/^# fail (\d+)/m);
+    return {
+      tests: parseInt(tapTests[1], 10),
+      testsFailed: tapFail ? parseInt(tapFail[1], 10) : 0,
+    };
+  }
+  const specTests = text.match(/^ℹ tests (\d+)/m);
+  if (specTests) {
+    const specFail = text.match(/^ℹ fail (\d+)/m);
+    return {
+      tests: parseInt(specTests[1], 10),
+      testsFailed: specFail ? parseInt(specFail[1], 10) : 0,
+    };
+  }
+  return { tests: null, testsFailed: null };
+}
+
+/**
+ * Reads child cpu ticks from /proc/self/stat on Linux (088 E.2, IC-008).
+ * Returns cutime + cstime as a number, or null on non-Linux or read fault.
+ * @param {Object} [fsImpl=fs]
+ * @param {string} [platform=process.platform]
+ * @returns {number | null}
+ */
+function childCpuTicks(fsImpl: any = fs, platform: string = process.platform): number | null {
+  if (platform !== 'linux') return null;
+  try {
+    const statText = fsImpl.readFileSync('/proc/self/stat', 'utf8');
+    const lastParen = statText.lastIndexOf(')');
+    if (lastParen === -1) return null;
+    const rest = statText.slice(lastParen + 1).trim();
+    const tokens = rest.split(/\s+/);
+    // After the last ')', field 3 (state) is index 0.
+    // field 16 (cutime) is index 13, field 17 (cstime) is index 14.
+    const cutime = parseInt(tokens[13], 10);
+    const cstime = parseInt(tokens[14], 10);
+    if (!Number.isFinite(cutime) || !Number.isFinite(cstime)) return null;
+    return cutime + cstime;
+  } catch {
+    return null;
+  }
+}
+
 class VerificationContractRunner {
   cwd: string;
   defaultTimeoutMs: number;
@@ -104,9 +160,12 @@ class VerificationContractRunner {
   fsImpl: any;
   logDir: string;
   logWriteWarned?: boolean;
-  /** Check result → `{ startedAt (epoch ms), durationMs (monotonic, null on a clock fault) }` for
-   * every executed check; an in-run duplicate and a check with no command have no entry. */
-  metrics: WeakMap<object, { startedAt: number; durationMs: number | null }>;
+  platform: string;
+  env: Record<string, string | undefined>;
+  _treeContext?: { head: string | null; tree: string | null };
+  /** Check result → `{ startedAt, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
+   * for every executed check; an in-run duplicate and a check with no command have no entry. */
+  metrics: WeakMap<object, any>;
 
   /**
    * @param {Object|string} [options] a string is accepted for parity with the Python's positional
@@ -116,6 +175,8 @@ class VerificationContractRunner {
    * @param {Function} [options.exec] injection seam for tests; same contract as `spawnSync`
    * @param {string} [options.logDir] where full check logs go; the verify verb passes its resolved
    *   store's (engine.ts `verifyStateRoot`), so `<cwd>/.doflow` is only the unconfigured default
+   * @param {string} [options.platform=process.platform]
+   * @param {Object} [options.env=process.env]
    */
   constructor(options: any = {}) {
     const opts = typeof options === 'string' ? { cwd: options } : options;
@@ -124,6 +185,9 @@ class VerificationContractRunner {
     this.exec = opts.exec || spawnSync;
     this.fsImpl = opts.fsImpl || fs;
     this.logDir = opts.logDir || path.join(this.cwd, '.doflow', 'state', 'verification', 'logs');
+    this.platform = opts.platform || process.platform;
+    this.env = opts.env || process.env;
+    this._treeContext = undefined;
     this.metrics = new WeakMap();
   }
 
@@ -211,19 +275,67 @@ class VerificationContractRunner {
     if (dedupeCache && dedupeCache.has(dedupeKey)) {
       return { ...dedupeCache.get(dedupeKey), name: checkName, deduplicated: true };
     }
-    // Timing for telemetry (088 C.1, IC-006) lives in `this.metrics`, never in the result, so the
-    // report is the same with telemetry on or off. A clock fault leaves the duration null.
+    // Timing for telemetry (088 C.1, IC-006; 088 E.2, IC-007..IC-009) lives in `this.metrics`,
+    // never in the result, so the report is the same with telemetry on or off.
     const startedAt = Date.now();
     const t0 = monotonicNs();
+    const t0Cpu = childCpuTicks(this.fsImpl, this.platform);
+    let checkKeyVal: string | null = null;
+    try {
+      if (!telemetryOff(this.env)) {
+        if (this._treeContext === undefined) {
+          const head = headCommit(this.cwd);
+          const tree = treeDigest(this.cwd, { fsImpl: this.fsImpl });
+          this._treeContext = { head, tree };
+        }
+        checkKeyVal = checkKey({
+          command,
+          timeoutMs,
+          cwd: this.cwd,
+          head: this._treeContext.head,
+          tree: this._treeContext.tree,
+          env: this.env,
+          fsImpl: this.fsImpl,
+        });
+      }
+    } catch {
+      checkKeyVal = null;
+    }
+
     let timing: any = null;
     const remember = (result: any) => {
       if (timing) this.metrics.set(result, timing);
       if (dedupeCache) dedupeCache.set(dedupeKey, result);
       return result;
     };
-    const stop = () => {
+    const stop = (res?: any) => {
       const t1 = monotonicNs();
-      timing = { startedAt, durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null };
+      const t1Cpu = childCpuTicks(this.fsImpl, this.platform);
+      let cpuMs: number | null = null;
+      let resourceBasis: string | null = null;
+      if (this.platform !== 'linux') {
+        cpuMs = null;
+        resourceBasis = 'unreached-platform';
+      } else if (t0Cpu === null || t1Cpu === null) {
+        cpuMs = null;
+        resourceBasis = 'unreached-read';
+      } else {
+        cpuMs = Math.max(0, (t1Cpu - t0Cpu) * 10);
+        resourceBasis = 'proc-children';
+      }
+      const full = `${res ? res.stdout || '' : ''}\n${res ? res.stderr || '' : ''}`;
+      const { tests, testsFailed } = parseTestCounts(full);
+      timing = {
+        startedAt,
+        durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null,
+        tests,
+        testsFailed,
+        cpuMs,
+        resourceBasis,
+        checkKey: checkKeyVal,
+        shared: 'none',
+        failedFirst: null,
+      };
     };
 
     let res: any;
@@ -251,7 +363,7 @@ class VerificationContractRunner {
         error: error.message,
       });
     }
-    stop();
+    stop(res);
 
     // Defect fix (2): the Python's TimeoutExpired arm returned neither stdout nor stderr, so a
     // check that hung after printing its first failure told you only that it hung. Whatever the
@@ -365,4 +477,6 @@ module.exports = {
   MAX_STREAM_CHARS,
   MAX_FAILED_TESTS,
   extractFailedTests,
+  parseTestCounts,
+  childCpuTicks,
 };

@@ -51,6 +51,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
   let cursor = Number.isFinite(runStart) ? runStart : undefined;
   let checksRun = 0;
   const body: any[] = [];
+  const commandKeys = new Map<string, string | null>();
 
   for (const tier of Array.isArray(report.tiers) ? report.tiers : []) {
     const checks: any[] = [];
@@ -60,13 +61,33 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
       const timing = check && typeof check === 'object' && metrics ? metrics.get(check) : undefined;
       let durationMs: number | null = null;
       let at = cursor;
-      if (timing) {
+      let checkKey: string | null = null;
+      let shared: string | null = null;
+      let tests: number | null = null;
+      let testsFailed: number | null = null;
+      let cpuMs: number | null = null;
+      let resourceBasis: string | null = null;
+
+      if (check && check.status === 'NOT_RUN') {
+        durationMs = null;
+      } else if (timing) {
         checksRun += 1;
         if (Number.isFinite(timing.startedAt)) at = timing.startedAt;
         if (Number.isFinite(timing.durationMs)) durationMs = Math.round(timing.durationMs);
         if (at !== undefined) cursor = Math.max(cursor ?? at, at + (durationMs ?? 0));
+        checkKey = timing.checkKey ?? null;
+        shared = timing.shared ?? 'none';
+        tests = typeof timing.tests === 'number' ? timing.tests : null;
+        testsFailed = typeof timing.testsFailed === 'number' ? timing.testsFailed : null;
+        cpuMs = typeof timing.cpuMs === 'number' ? timing.cpuMs : null;
+        resourceBasis = timing.resourceBasis ?? null;
+        if (check && check.command && checkKey) {
+          commandKeys.set(check.command, checkKey);
+        }
       } else if (check && check.deduplicated) {
         durationMs = 0; // reused the result of an identical check earlier in this run (S-10)
+        shared = 'in-run';
+        checkKey = (check.command && commandKeys.get(check.command)) ?? null;
       }
       if (durationMs !== null) tierMs = (tierMs ?? 0) + durationMs;
       if (tierStart === undefined) tierStart = at;
@@ -76,10 +97,14 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         verify_id: verifyId,
         tier: tier.id,
         status: check ? check.status : null,
-        exit_code: check ? check.exitCode ?? null : null,
+        exit_code: check ? (check.exitCode ?? null) : null,
         duration_ms: durationMs,
-        check_key: null,
-        shared: null,
+        tests,
+        tests_failed: testsFailed,
+        cpu_ms: cpuMs,
+        resource_basis: resourceBasis,
+        check_key: checkKey,
+        shared,
       });
     }
     const selection = tier.selection || {};
