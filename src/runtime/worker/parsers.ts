@@ -23,6 +23,7 @@
 const { maskLine, maskBody } = require('../mask.ts');
 
 const JSONL_V1 = 'doflow-jsonl-v1';
+const CODEX_EXEC_JSON_V1 = 'codex-exec-json-v1';
 const UNPARSED = 'unparsed';
 const MAX_DENIALS = 20;
 const DETAIL_CHARS = 200;
@@ -107,6 +108,82 @@ function createJsonlV1() {
   };
 }
 
+/** Parses Codex `exec --json` events (IC-003). */
+function createCodexExecJsonV1() {
+  const denials: Denial[] = [];
+  let deniedCount = 0;
+  let usage: { tokens: number } | null = null;
+  let ignoredLines = 0;
+  let oversizeJson = false;
+  let final: string | null = null;
+  let fileFinal: string | null = null;
+  let spawnObserved = false;
+  let terminal: 'completed' | 'failed' | null = null;
+  let failMessage: string | null = null;
+  let streamError: string | null = null;
+
+  return {
+    oversize(looksJson: boolean): void {
+      ignoredLines++;
+      if (looksJson) oversizeJson = true;
+    },
+    line(text: string): void {
+      const event = eventOf(String(text ?? '').replace(/\r$/, ''));
+      if (!event) {
+        ignoredLines++;
+        return;
+      }
+
+      const item = event.item;
+      if (event.type === 'item.completed' && item?.type === 'agent_message' && typeof item.text === 'string') {
+        final = item.text;
+      } else if (['item.started', 'item.updated', 'item.completed'].includes(event.type)
+        && item?.type === 'collab_tool_call' && item.tool === 'spawn_agent') {
+        spawnObserved = true;
+      } else if (event.type === 'item.completed' && item?.type === 'command_execution' && item.status === 'declined') {
+        deniedCount++;
+        if (denials.length < MAX_DENIALS) {
+          denials.push({ action: 'command', detail: cutChars(maskLine(String(item.command ?? '')).text, DETAIL_CHARS) });
+        }
+      } else if (event.type === 'turn.completed') {
+        terminal = 'completed';
+        const reported = event.usage;
+        const input = Number.isInteger(reported?.input_tokens) && reported.input_tokens >= 0 ? reported.input_tokens : null;
+        const output = Number.isInteger(reported?.output_tokens) && reported.output_tokens >= 0 ? reported.output_tokens : null;
+        usage = input === null && output === null ? null : { tokens: (input ?? 0) + (output ?? 0) };
+      } else if (event.type === 'turn.failed' && typeof event.error?.message === 'string') {
+        terminal = 'failed';
+        failMessage = event.error.message;
+      } else if (event.type === 'error' && typeof event.message === 'string') {
+        streamError = event.message;
+      } else {
+        ignoredLines++;
+      }
+    },
+    lastMessage(text: string): void {
+      if (String(text ?? '').trim()) fileFinal = String(text);
+    },
+    end(): Report {
+      let status: Report['status'];
+      let reason: string | null = null;
+      let rawSummary: string | null = null;
+      if (deniedCount > 0) status = 'denied';
+      else if (oversizeJson) { status = 'unparsed'; reason = 'oversize-line'; }
+      else if (spawnObserved) { status = 'failure'; reason = 'spawn-observed'; }
+      else if (terminal === 'failed') { status = 'failure'; rawSummary = failMessage; }
+      else if (terminal === 'completed' && (final ?? fileFinal) !== null) {
+        status = 'success';
+        rawSummary = final ?? fileFinal;
+      } else if (terminal === 'completed') { status = 'unparsed'; reason = 'no-final-message'; }
+      else if (streamError !== null) { status = 'failure'; reason = 'stream-error'; rawSummary = streamError; }
+      else { status = 'unparsed'; reason = 'no-turn-end'; }
+
+      const summary = rawSummary === null ? null : cutBytes(maskBody(rawSummary).text, SUMMARY_BYTES);
+      return { parser: CODEX_EXEC_JSON_V1, status, reason, summary, denials: denials.slice(), deniedCount, usage, ignoredLines };
+    },
+  };
+}
+
 /** The fallback: reads nothing and reports `unparsed` with the reason it was chosen. */
 function unparsedParser(reason: 'no-structured-output-declared' | 'parser-unknown') {
   return {
@@ -124,9 +201,19 @@ function unparsedParser(reason: 'no-structured-output-declared' | 'parser-unknow
   };
 }
 
-const PARSERS: Record<string, { id: string; create(): { line(text: string): void; oversize(looksJson: boolean): void; end(): Report } }> = Object.freeze({
+type ParserInstance = { line(text: string): void; oversize(looksJson: boolean): void; lastMessage?: (text: string) => void; end(): Report };
+type ParserFactory = { id: string; create(): ParserInstance };
+
+// Keep the original enumerable parser listing stable for existing callers; both parser ids remain
+// registered own properties and are resolved by parserFor.
+const parserTable: Record<string, ParserFactory> = {
   [JSONL_V1]: Object.freeze({ id: JSONL_V1, create: createJsonlV1 }),
+};
+Object.defineProperty(parserTable, CODEX_EXEC_JSON_V1, {
+  value: Object.freeze({ id: CODEX_EXEC_JSON_V1, create: createCodexExecJsonV1 }),
+  enumerable: false,
 });
+const PARSERS = Object.freeze(parserTable);
 
 /** The parser for `id`; the `unparsed` fallback for a null or unknown one. */
 function parserFor(id: string | null | undefined) {
@@ -134,4 +221,4 @@ function parserFor(id: string | null | undefined) {
   return Object.prototype.hasOwnProperty.call(PARSERS, id) ? PARSERS[id] : unparsedParser('parser-unknown');
 }
 
-module.exports = { PARSERS, parserFor, JSONL_V1, UNPARSED, MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES };
+module.exports = { PARSERS, parserFor, JSONL_V1, CODEX_EXEC_JSON_V1, UNPARSED, MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES };

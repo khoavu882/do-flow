@@ -244,7 +244,7 @@
       "root": "project-state",
       "path": "worker-output",
       "entry": "file",
-      "match": "^w-[0-9a-f]{12}\\.(out|err)\\.log$",
+      "match": "^w-[0-9a-f]{12}\\.(out|err|last)\\.log$",
       "rule": "count-and-age",
       "bound": {
         "keepNewest": 200,

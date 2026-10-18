@@ -320,6 +320,24 @@ function boundedWait(promise: Promise<any>, ms: number): Promise<any> {
   return Promise.race([promise, bound]).finally(() => clearTimeout(timer));
 }
 
+/** Reads only the bounded Codex output-last-message prefix; absent or unreadable files are optional. */
+function readLastMessage(parser: any, file: string): void {
+  if (typeof parser.lastMessage !== 'function') return;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, 'r');
+    const bytes = Buffer.alloc(65536);
+    const length = fs.readSync(fd, bytes, 0, bytes.length, 0);
+    parser.lastMessage(maskBody(bytes.subarray(0, length).toString('utf8')).text);
+  } catch {
+    // Codex may not have produced this optional file; that does not change the run outcome.
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* unreadable/closed files are ignored */ }
+    }
+  }
+}
+
 /**
  * IC-014 steps 1 to 7 for `runId` in the run store `file`. Resolves the run's record as it stands
  * when the supervisor is done. `env`, `cwd` and `platform` default to this process's; `launch`,
@@ -369,11 +387,18 @@ async function superviseRun({
   // Step 3: `launchingAt`, then the launch. A refused transition means a cancel took the run.
   const marked = transition(file, runId, ['starting'], (r: any) => { r.launchingAt = iso(clock); });
   if (!marked.applied) return current();
+  const usesLastMessageFile = run.descriptor?.structuredOutput?.argv?.includes('{lastMessageFile}') === true;
+  const lastMessageFile = usesLastMessageFile ? path.join(stateRoot, 'worker-output', `${runId}.last.log`) : undefined;
   let launched: any;
   try {
+    if (lastMessageFile) {
+      fs.mkdirSync(path.dirname(lastMessageFile), { recursive: true });
+      fs.rmSync(lastMessageFile, { force: true });
+    }
     launched = await launch({
       recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity,
       execWorktree: run.execWorktree, env, taskId: run.task, ...(run.edit ? { edit: true } : {}),
+      ...(lastMessageFile ? { lastMessageFile } : {}),
     });
   } catch (error: any) {
     notStarted(typeof error?.code === 'string' && error.code ? error.code : 'launch-failed');
@@ -477,6 +502,7 @@ async function superviseRun({
       readOnly = { status: 'unverifiable', changes: [], head: { before: before.head, after: null }, refsChanged: null };
     }
   }
+  if (lastMessageFile) readLastMessage(parser, lastMessageFile);
   const report = parser.end();
   const unit = `L.${run.identity?.run}.${run.identity?.lineage}.${run.token}`;
   const launchObserved = run.identity ? (bindingObserved(launched.env ?? env, unit) ? 'yes' : 'no') : 'unknown';
