@@ -65,7 +65,17 @@ function parseRegistryFile(file: string, fsImpl: any = fs): any {
 
 function registryDir(repoRoot: string): string { return path.join(path.resolve(repoRoot), 'core', 'registry'); }
 
-function loadRegistry({ repoRoot, dir, fsImpl = fs }: { repoRoot?: string, dir?: string, fsImpl?: any } = {}): any {
+type SourceMode = 'require' | 'skip';
+
+function registrySourceMode(repoRoot: string, fsImpl: any = fs): SourceMode {
+  if (typeof repoRoot !== 'string' || !repoRoot.trim()) return 'skip';
+  return fsImpl.existsSync(path.join(path.resolve(repoRoot), 'package.json')) ? 'require' : 'skip';
+}
+
+function loadRegistry({ repoRoot, dir, fsImpl = fs, sources }: { repoRoot?: string, dir?: string, fsImpl?: any, sources?: SourceMode } = {}): any {
+  if (sources !== undefined && sources !== 'require' && sources !== 'skip') {
+    throw new TypeError(`sources must be 'require' or 'skip', got ${JSON.stringify(sources)}`);
+  }
   if (!repoRoot && !dir) throw new Error('loadRegistry requires repoRoot or dir');
   const base = dir ? path.resolve(dir) : registryDir(repoRoot as string);
   const loaded: any = {};
@@ -93,7 +103,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs }: { repoRoot?: string, dir?:
     capabilities,
     versions: Object.fromEntries((Object.entries(loaded) as [string, any][]).map(([name, value]) => [name, value.version])),
   };
-  const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
+  const sourceMode: SourceMode = sources ?? registrySourceMode(registry.repoRoot, fsImpl);
+  const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl, sources: sourceMode });
   if (!validation.ok) {
     const error: any = new Error(`Invalid DoFlow registry:\n- ${validation.errors.join('\n- ')}`);
     error.validation = validation;
@@ -191,22 +202,24 @@ function validateCapability(value: any, location: string, errors: string[]): voi
   }
 }
 
-function validateSource(repoRoot: any, source: any, location: string, errors: string[], fsImpl: any, expected: string = 'any'): void {
+function validateSource(repoRoot: any, source: any, location: string, errors: string[], fsImpl: any, expected: string = 'any', sources: SourceMode = 'require'): void {
   if (typeof source !== 'string' || !source.trim()) { issue(errors, location, 'requires a repository-relative source'); return; }
   const root = path.resolve(repoRoot);
   const resolved = path.resolve(root, source);
-  if (!resolved.startsWith(`${root}${path.sep}`) || !fsImpl.existsSync(resolved)) { issue(errors, location, `source does not exist inside repository: ${source}`); return; }
+  if (!resolved.startsWith(`${root}${path.sep}`)) { issue(errors, location, `source does not exist inside repository: ${source}`); return; }
+  if (sources === 'skip') return;
+  if (!fsImpl.existsSync(resolved)) { issue(errors, location, `source does not exist inside repository: ${source}`); return; }
   if (expected === 'file' && !fsImpl.statSync(resolved).isFile()) issue(errors, location, `source must be a file: ${source}`);
   if (expected === 'directory' && !fsImpl.statSync(resolved).isDirectory()) issue(errors, location, `source must be a directory: ${source}`);
 }
 
-function validateNativeProjection(projection: any, harness: any, { repoRoot, fsImpl }: { repoRoot: any, fsImpl: any }, errors: string[]): void {
+function validateNativeProjection(projection: any, harness: any, { repoRoot, fsImpl, sources }: { repoRoot: any, fsImpl: any, sources?: SourceMode }, errors: string[]): void {
   const at = `harness '${harness.id}' nativeProjection`;
   if (!object(projection)) { issue(errors, at, 'must be an object'); return; }
   const config = projection.config;
   if (!object(config)) issue(errors, at, 'requires config declaration');
   else {
-    validateSource(repoRoot, config.source, `${at} config`, errors, fsImpl, 'file');
+    validateSource(repoRoot, config.source, `${at} config`, errors, fsImpl, 'file', sources);
     if (!Array.isArray(config.resources) || !config.resources.length) issue(errors, `${at} config`, 'requires non-empty resources');
     for (const resource of config.resources || []) {
       if (!object(resource) || resource.kind !== 'configuration-entry' || typeof resource.identity !== 'string' || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(resource.identity) || !Object.hasOwn(resource, 'value')) {
@@ -218,12 +231,12 @@ function validateNativeProjection(projection: any, harness: any, { repoRoot, fsI
   if (!object(mcp) || mcp.catalog !== 'registry.mcp' || !['optional', 'required'].includes(mcp.selection)) issue(errors, `${at} mcp`, 'requires catalog registry.mcp and optional/required selection');
   const agents = projection.agents;
   if (!object(agents)) issue(errors, `${at} agents`, 'requires agents declaration');
-  else validateSource(repoRoot, agents.source, `${at} agents`, errors, fsImpl, 'directory');
+  else validateSource(repoRoot, agents.source, `${at} agents`, errors, fsImpl, 'directory', sources);
   const hooks = projection.hooks;
   if (!object(hooks)) issue(errors, `${at} hooks`, 'requires hooks declaration');
   else {
-    validateSource(repoRoot, hooks.configSource, `${at} hooks`, errors, fsImpl, 'file');
-    validateSource(repoRoot, hooks.scriptsSource, `${at} hooks`, errors, fsImpl, 'directory');
+    validateSource(repoRoot, hooks.configSource, `${at} hooks`, errors, fsImpl, 'file', sources);
+    validateSource(repoRoot, hooks.scriptsSource, `${at} hooks`, errors, fsImpl, 'directory', sources);
     if (typeof hooks.trusted !== 'boolean') issue(errors, `${at} hooks`, 'trusted must be boolean');
   }
 }
@@ -502,10 +515,21 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     for (const field of ['versionArgv', 'argv']) {
       if (!Object.hasOwn(entry, field)) continue;
       const problem = workerArgvProblem(entry[field]);
-      if (problem) fail(key, problem.replace(/^argv/, field));
-      // DEC-066: only oneShot.argv carries the prompt; a second placeholder would duplicate it.
-      else if (!(key === 'oneShot' && field === 'argv') && entry[field].includes('{prompt}')) {
-        fail(key, `${field} must not contain '{prompt}' outside oneShot.argv`);
+      if (problem) {
+        fail(key, problem.replace(/^argv/, field));
+      } else {
+        // DEC-066: only oneShot.argv carries the prompt; a second placeholder would duplicate it.
+        if (!(key === 'oneShot' && field === 'argv') && entry[field].includes('{prompt}')) {
+          fail(key, `${field} must not contain '{prompt}' outside oneShot.argv`);
+        }
+        if (key === 'structuredOutput' && field === 'argv') {
+          const count = entry.argv.filter((item: any) => item === '{lastMessageFile}').length;
+          if (count > 1) {
+            fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
+          }
+        } else if (entry[field].includes('{lastMessageFile}')) {
+          fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
+        }
       }
     }
     if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
@@ -535,8 +559,12 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     else if (seen.has(check.id)) fail(key, `duplicate id '${check.id}'`);
     else seen.add(check.id);
     const problem = workerArgvProblem(check.argv);
-    if (problem) fail(key, problem);
-    else if (check.argv.includes('{prompt}')) fail(key, "argv must not contain '{prompt}' outside oneShot.argv");
+    if (problem) {
+      fail(key, problem);
+    } else {
+      if (check.argv.includes('{prompt}')) fail(key, "argv must not contain '{prompt}' outside oneShot.argv");
+      if (check.argv.includes('{lastMessageFile}')) fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
+    }
     if (!Array.isArray(check.establishes) || check.establishes.length === 0 || check.establishes.some((fact: any) => !WORKER_FACTS.has(fact))) {
       fail(key, `establishes must be a non-empty subset of ${[...WORKER_FACTS].join(', ')}`);
     }
@@ -633,7 +661,13 @@ function validateContextProfile(value: any, location: string, errors: string[]):
   }
 }
 
-function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?: string, fsImpl?: any } = {}): { ok: boolean, errors: string[] } {
+function validateRegistry(
+  registry: any,
+  { repoRoot, fsImpl = fs, sources = 'require' }: { repoRoot?: string, fsImpl?: any, sources?: SourceMode } = {},
+): { ok: boolean, errors: string[], sources: SourceMode } {
+  if (sources !== 'require' && sources !== 'skip') {
+    throw new TypeError(`sources must be 'require' or 'skip', got ${JSON.stringify(sources)}`);
+  }
   const errors: string[] = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
   const assets = Array.isArray(registry?.assets) ? registry.assets : null;
@@ -674,7 +708,7 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
     validateOrchestration(harness.orchestration, at, errors);
     validateWorker(harness.worker, at, errors);
     validateContextProfile(harness.contextProfile, at, errors);
-    if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl }, errors);
+    if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl, sources }, errors);
   }
 
   const contractHarnesses = new Set();
@@ -697,7 +731,8 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
     for (const field of ['id', 'kind', 'source', 'ownership']) if (typeof asset[field] !== 'string' || !asset[field].trim()) issue(errors, at, `requires ${field}`);
     if (typeof asset.source === 'string' && repoRoot) {
       const source = path.resolve(repoRoot, asset.source);
-      if (!source.startsWith(`${path.resolve(repoRoot)}${path.sep}`) || !fsImpl.existsSync(source)) issue(errors, at, `source does not exist inside repository: ${asset.source}`);
+      const outside = !source.startsWith(`${path.resolve(repoRoot)}${path.sep}`);
+      if (outside || (sources === 'require' && !fsImpl.existsSync(source))) issue(errors, at, `source does not exist inside repository: ${asset.source}`);
     }
     if (!Array.isArray(asset.appliesTo) || asset.appliesTo.length === 0) issue(errors, at, 'appliesTo must be a non-empty array');
     if (!object(asset.projection)) issue(errors, at, 'projection must be an object');
@@ -767,7 +802,7 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
     const providerIds = new Set((modelProviders || []).filter(object).map((item: any) => item.id));
     for (const slot of modelSlots) validateModelSlot(slot, `model slot '${slot?.id ?? '?'}'`, errors, providerIds);
   }
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, sources };
 }
 
 const COVERAGE_CLASSES = new Set(['blocking', 'observation', 'advisory', 'unsupported', 'unknown']);
@@ -921,6 +956,6 @@ function capabilityMapData(registry: any): any[] {
 
 module.exports = {
   REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
-  parseRegistryFile, registryDir, loadRegistry, validateRegistry,
+  parseRegistryFile, registryDir, loadRegistry, validateRegistry, registrySourceMode,
   harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };
