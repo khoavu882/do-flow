@@ -239,7 +239,8 @@ test('IC-012 the record lists variable names only and no value of any variable',
   const { env, identity } = launchEnv({ env: caller, runKey: 'abcdef0123456789/local/main', token: 2, execWorktree: w.worktree, runId: RUN_ID });
   const record = launchRecord(recipeOf('claude'), identity, 'the brief');
 
-  assert.deepEqual(record.envSet, ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', 'DOFLOW_WORKER_RUN']);
+  // 112 adds the optional snapshot after the old six launch variables; values are never stored.
+  assert.deepEqual(record.envSet, ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', 'DOFLOW_WORKER_RUN', 'DOFLOW_GUARD_DROP_DATABASES']);
   assert.equal(record.envInherited, true);
   assert.deepEqual(record.identity, { run: '0123456789ab', lineage: 'main', attempt: '2', runSource: 'run-scoped' });
   assert.deepEqual(Object.keys(record.recipe), ['binary', 'argvShape', 'promptVia', 'parser', 'profile']);
@@ -260,4 +261,122 @@ test('IC-012 a missing binary rejects with ENOENT', POSIX_ONLY, async (t) => {
   const { identity } = launchEnv({ env: w.env, runKey: 'abcdef0123456789/r1/w1', token: 1, execWorktree: w.worktree, runId: RUN_ID });
   await assert.rejects(launchWorker({ recipe, prompt: 'p', identity, execWorktree: w.worktree, env: w.env }), { code: 'ENOENT' });
   assert.deepEqual(readLog(w.log), []);
+});
+
+function dispatchWorld(t) {
+  const w = world(t);
+  w.worktree = path.join(w.dir, '.doflow/state/dispatch-worktrees/d-0123456789ab');
+  fs.mkdirSync(w.worktree, { recursive: true });
+  w.settings = path.join(w.dir, '.doflow/settings.json');
+  w.local = path.join(w.dir, '.doflow/settings.local.json');
+  w.write = (value, file = w.settings) => fs.writeFileSync(file, JSON.stringify({ 'guard.workerDropDatabases': value }));
+  w.resolve = (env = w.env, execWorktree = w.worktree) => launchEnv({ env, execWorktree, runKey: 'abcdef0123456789/local/main', token: 1, runId: RUN_ID });
+  return w;
+}
+
+test('112 launch snapshot resolves only the owning project, local before project, from the canonical dispatch path', (t) => {
+  const w = dispatchWorld(t);
+  w.write('project_db app_test');
+  assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, 'project_db app_test');
+  w.write('local_db', w.local);
+  assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, 'local_db');
+  fs.mkdirSync(path.join(w.worktree, '.doflow'));
+  w.write('worker_db', path.join(w.worktree, '.doflow/settings.json'));
+  assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, 'local_db', 'worker checkout cannot grant itself a name');
+  const alias = path.join(w.dir, 'alias');
+  fs.symlinkSync(w.worktree, alias);
+  assert.equal(w.resolve(w.env, alias).env.DOFLOW_GUARD_DROP_DATABASES, 'local_db');
+  for (const execWorktree of [path.join(w.dir, 'work'), `${w.worktree}.c1`, `${w.worktree}\n`, path.dirname(w.worktree), 'relative', path.join(w.dir, 'missing')]) {
+    fs.mkdirSync(path.isAbsolute(execWorktree) ? execWorktree : path.join(w.dir, execWorktree), { recursive: true });
+    assert.equal(Object.hasOwn(w.resolve(w.env, execWorktree).env, 'DOFLOW_GUARD_DROP_DATABASES'), false, execWorktree);
+  }
+});
+
+test('112 absent, empty, invalid, wrong-type and oversized lists never set a snapshot (all-or-nothing)', (t) => {
+  const w = dispatchWorld(t);
+  const absent = () => assert.equal(Object.hasOwn(w.resolve({ ...w.env, DOFLOW_GUARD_DROP_DATABASES: 'injected_db' }).env, 'DOFLOW_GUARD_DROP_DATABASES'), false);
+  absent();
+  for (const value of ['', null, 4, [], {}, 'app_test BAD', 'app_test bad-name', '_test', 'app_test\nother',
+    'app_test\tother', 'app_test\n', 'app_test  other', ' app_test', 'app_test ', 'app_test café',
+    Array.from({ length: 33 }, (_, i) => `db${i}`).join(' '), 'a'.repeat(1025)]) {
+    w.write(value);
+    absent();
+  }
+  const max = 'a'.repeat(1024);
+  w.write(max);
+  assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, max);
+  const names = Array.from({ length: 32 }, (_, i) => `db${i}`).join(' ');
+  w.write(names);
+  assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, names);
+  w.write('project_db');
+  fs.writeFileSync(w.local, '{ broken');
+  absent();
+  w.write('local_db', w.local);
+  fs.writeFileSync(w.settings, '{ broken');
+  absent();
+});
+
+test('112 user/global-only and worker-checkout lists cannot enable a snapshot, nor can caller or launcher env', (t) => {
+  const w = dispatchWorld(t);
+  fs.mkdirSync(path.join(w.dir, 'config/doflow'), { recursive: true });
+  w.write('global_db', path.join(w.dir, 'config/doflow/settings.json'));
+  fs.mkdirSync(path.join(w.worktree, '.doflow'));
+  w.write('worker_db', path.join(w.worktree, '.doflow/settings.json'));
+  const previous = process.env.DOFLOW_GUARD_DROP_DATABASES;
+  try {
+    process.env.DOFLOW_GUARD_DROP_DATABASES = 'launcher_db';
+    const caller = { ...w.env, DOFLOW_GUARD_DROP_DATABASES: 'caller_db' };
+    assert.equal(Object.hasOwn(w.resolve(caller).env, 'DOFLOW_GUARD_DROP_DATABASES'), false);
+    assert.equal(caller.DOFLOW_GUARD_DROP_DATABASES, 'caller_db');
+    assert.equal(Object.hasOwn(w.resolve().env, 'DOFLOW_GUARD_DROP_DATABASES'), false);
+    w.write('project_db');
+    assert.equal(w.resolve(caller).env.DOFLOW_GUARD_DROP_DATABASES, 'project_db');
+    assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, 'project_db');
+  } finally {
+    if (previous === undefined) delete process.env.DOFLOW_GUARD_DROP_DATABASES;
+    else process.env.DOFLOW_GUARD_DROP_DATABASES = previous;
+  }
+});
+
+test('112 the launcher does not inherit project settings from the owning linked checkout\'s main checkout', (t) => {
+  const w = dispatchWorld(t);
+  const main = path.join(w.dir, 'main');
+  const gitdir = path.join(main, '.git/worktrees/owner');
+  fs.mkdirSync(gitdir, { recursive: true });
+  fs.mkdirSync(path.join(main, '.doflow'));
+  w.write('main_db', path.join(main, '.doflow/settings.json'));
+  fs.writeFileSync(path.join(w.dir, '.git'), `gitdir: ${gitdir}\n`);
+  fs.writeFileSync(path.join(gitdir, 'gitdir'), `${path.join(w.dir, '.git')}\n`);
+  fs.writeFileSync(path.join(gitdir, 'commondir'), '../..\n');
+  assert.equal(Object.hasOwn(w.resolve().env, 'DOFLOW_GUARD_DROP_DATABASES'), false);
+});
+
+test('112 launchWorker strips caller snapshot and re-resolves settings immediately before spawn', POSIX_ONLY, async (t) => {
+  const w = dispatchWorld(t);
+  const caller = { ...w.env, DOFLOW_GUARD_DROP_DATABASES: 'caller_db' };
+  const { identity } = w.resolve(caller);
+  const recipe = recipeOf('claude');
+  recipe.cli.binary = process.execPath;
+  for (const key of ['readOnly', 'spawnDenial', 'structuredOutput']) recipe[key].argv = [];
+  recipe.oneShot.argv = ['-e', 'process.stdout.write(JSON.stringify({snapshot: process.env.DOFLOW_GUARD_DROP_DATABASES ?? null}))'];
+  const launch = async () => {
+    const result = await launchWorker({ recipe, prompt: 'brief', identity, execWorktree: w.worktree, env: caller, runId: RUN_ID });
+    let output = '';
+    for await (const chunk of result.child.stdout) output += chunk;
+    await exited(result.child);
+    return { result, seen: JSON.parse(output) };
+  };
+  let { result, seen } = await launch();
+  assert.equal(seen.snapshot, null, 'the spawned process did not inherit the caller snapshot');
+  assert.equal(Object.hasOwn(result.env, 'DOFLOW_GUARD_DROP_DATABASES'), false);
+  const oldSix = ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', 'DOFLOW_WORKER_RUN'];
+  assert.deepEqual(ENV_SET.filter((key) => Object.hasOwn(result.env, key)), oldSix, 'no list leaves exactly the old six launch variables');
+  w.write('app_test');
+  ({ result, seen } = await launch());
+  assert.equal(seen.snapshot, 'app_test', 'the actual child receives the settings snapshot');
+  assert.equal(result.env.DOFLOW_GUARD_DROP_DATABASES, 'app_test', 'settings are resolved afresh even after an earlier launch');
+  assert.deepEqual(ENV_SET.filter((key) => Object.hasOwn(result.env, key)), [...oldSix, 'DOFLOW_GUARD_DROP_DATABASES']);
+  assert.equal(caller.DOFLOW_GUARD_DROP_DATABASES, 'caller_db');
+  const record = JSON.stringify(launchRecord(recipeOf('claude'), identity, 'brief'));
+  assert.equal(record.includes('app_test'), false, 'the database names never enter the run record');
 });

@@ -26,7 +26,7 @@ const REGISTRY_FILE = 'core/registry/settings.json';
 
 const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 const TYPES = ['boolean', 'enum', 'integer', 'string', 'url'];
-const SCOPES = ['global-only', 'narrow-only', 'project-overridable'];
+const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
 const COMBINES = ['override', 'narrowest'];
 const PARSES = ['positive-int', 'off-words'];
 const DIRECTIONS = ['any', 'narrow'];
@@ -230,6 +230,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     }
 
     // env / flag / shellRead / needsConfigHome
+    if (spec.scope === 'project-only' && spec.env !== null) err('project-only: env must be null');
     if (has(spec, 'env') && spec.env !== null) {
       const env = spec.env;
       if (!isObject(env) || !sameList(Object.keys(env), ['name', 'parse', 'direction'])) err('env must be null or {name, parse, direction}');

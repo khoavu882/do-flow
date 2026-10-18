@@ -6,7 +6,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # matching against POSIX ERE patterns in blocked-patterns.conf (grep -E).
 #
 # Multi-session safe: reads the conf and canonical worker/cwd directories only.
-# Only reset/clean rules marked worker-worktree may exempt a dispatch worker;
+# Marked reset/clean rules and an exact DROP DATABASE launch snapshot may exempt a dispatch worker;
 # every failed scope/command check retains the ordinary pattern verdict.
 # Must complete in <50ms.
 #
@@ -89,15 +89,15 @@ PATTERNS_FILE="$_DOFLOW_POLDIR/blocked-patterns.conf"
 # byte-wise (much faster than multibyte-aware in a UTF-8 locale).
 export LC_ALL=C
 
-# Lazy and cached: command shape, role and git environment precede the only
-# two subshells (cd/pwd builtins). Never infer worker identity from command text.
+# Lazy and cached: shape checks precede the shared scope's only two subshells
+# (cd/pwd builtins). Never infer worker identity from command text.
 _WORKER_EXEMPT=
 _worker_exempt() {
   case $_WORKER_EXEMPT in allow) return 0 ;; deny) return 1 ;; esac
   _WORKER_EXEMPT=deny
   local reset_re='^[[:blank:]]*git[[:blank:]]+reset([[:blank:]]+(--hard|-q|--quiet))+([[:blank:]]+[A-Za-z0-9_@][A-Za-z0-9_./^~@{}-]*)?[[:blank:]]*$'
   local clean_re='^[[:blank:]]*git[[:blank:]]+clean([[:blank:]]+(-[dfqxX]+|--force|--quiet))+[[:blank:]]*$'
-  local forces worktree cwd
+  local forces
   if [[ $COMMAND =~ $reset_re ]]; then
     case " $COMMAND " in *[[:blank:]]--hard[[:blank:]]*) ;; *) return 1 ;; esac
   elif [[ $COMMAND =~ $clean_re ]]; then
@@ -106,6 +106,17 @@ _worker_exempt() {
   else
     return 1
   fi
+  _worker_scope || return 1
+  _WORKER_EXEMPT=allow
+  return 0
+}
+
+# Both exemptions use exactly the same worker, dispatch-path, cwd and GIT_* checks.
+_WORKER_SCOPE=
+_worker_scope() {
+  case $_WORKER_SCOPE in allow) return 0 ;; deny) return 1 ;; esac
+  _WORKER_SCOPE=deny
+  local worktree cwd
   [ "${DOFLOW_SESSION_ROLE:-}" = worker ] || return 1
   [ -z "${GIT_DIR+x}${GIT_WORK_TREE+x}${GIT_INDEX_FILE+x}${GIT_COMMON_DIR+x}" ] || return 1
   case ${DOFLOW_WORKTREE:-} in /*) ;; *) return 1 ;; esac
@@ -119,8 +130,48 @@ _worker_exempt() {
   cwd=$(CDPATH= cd -P -- "$DF_ENV_CWD" 2>/dev/null && pwd -P && printf '.') || return 1
   cwd=${cwd%.}; cwd=${cwd%$'\n'}
   case $cwd in "$worktree"|"$worktree"/*) ;; *) return 1 ;; esac
-  _WORKER_EXEMPT=allow
+  _WORKER_SCOPE=allow
   return 0
+}
+
+# 112: no settings reads here. Re-validate only the launcher's snapshot, then
+# recognise one full bare client invocation and one statement. No shell eval,
+# substitutions, variables, wrappers, redirects, additional args or statements.
+_worker_dropdb_exempt() {
+  local list=${DOFLOW_GUARD_DROP_DATABASES:-} list_re='^[a-z][a-z0-9_]*( [a-z][a-z0-9_]*)*$'
+  [ "${#list}" -le 1024 ] && [[ $list =~ $list_re ]] || return 1
+  local names=() name rest client quote statement id_re sql_re
+  IFS=' ' read -r -a names <<< "$list"
+  [ "${#names[@]}" -le 32 ] || return 1
+  local psql_re='^[[:blank:]]*psql([[:blank:]]+(-[hpUd][[:blank:]]+[A-Za-z0-9_.:-]+|--(host|port|username|dbname)=[A-Za-z0-9_.:-]+|-w))*[[:blank:]]+-c[[:blank:]]+'
+  local mysql_re='^[[:blank:]]*mysql([[:blank:]]+(-[hPu][[:blank:]]+[A-Za-z0-9_.:-]+|--(host|port|user)=[A-Za-z0-9_.:-]+))*[[:blank:]]+-e[[:blank:]]+'
+  if [[ $COMMAND =~ $psql_re ]]; then client=psql
+  elif [[ $COMMAND =~ $mysql_re ]]; then client=mysql
+  else return 1
+  fi
+  rest=${COMMAND:${#BASH_REMATCH[0]}}
+  local single_re="^'([^']*)'[[:blank:]]*$" double_re='^"([^"]*)"[[:blank:]]*$'
+  if [[ $rest =~ $single_re ]]; then quote=single
+  elif [[ $rest =~ $double_re ]]; then quote=double
+  else return 1
+  fi
+  statement=${BASH_REMATCH[1]}
+  id_re='[a-z][a-z0-9_]*'
+  if [ "$quote" = single ]; then
+    if [ "$client" = psql ]; then id_re='([a-z][a-z0-9_]*|"[a-z][a-z0-9_]*")'
+    else id_re='([a-z][a-z0-9_]*|`[a-z][a-z0-9_]*`)'
+    fi
+  fi
+  sql_re="^[[:blank:]]*[Dd][Rr][Oo][Pp][[:blank:]]+[Dd][Aa][Tt][Aa][Bb][Aa][Ss][Ee][[:blank:]]+([Ii][Ff][[:blank:]]+[Ee][Xx][Ii][Ss][Tt][Ss][[:blank:]]+)?($id_re)[[:blank:]]*;?[[:blank:]]*$"
+  [[ $statement =~ $sql_re ]] || return 1
+  name=${BASH_REMATCH[2]}
+  case $name in \"*\"|\`*\`) name=${name#?}; name=${name%?} ;; esac
+  local listed found=false
+  for listed in "${names[@]}"; do
+    if [ "$name" = "$listed" ]; then found=true; break; fi
+  done
+  [ "$found" = true ] || return 1
+  _worker_scope
 }
 
 # ── Quoted text, comments and heredoc bodies are not commands ────────────────
@@ -419,6 +470,7 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   [ -z "$pattern" ] && continue
   case "$pattern" in
     '#@exempt-next worker-worktree') _exempt_next=worker-worktree; continue ;;
+    '#@exempt-next worker-dropdb') _exempt_next=worker-dropdb; continue ;;
     \#*) continue ;;
   esac
   exemption=$_exempt_next
@@ -452,7 +504,11 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
 
   if [ "$matched" = "true" ]; then
     if [ "$exemption" = worker-worktree ] && _worker_exempt; then
-      _worker_skipped=true
+      _worker_skipped=worker-worktree
+      continue
+    fi
+    if [ "$exemption" = worker-dropdb ] && _worker_dropdb_exempt; then
+      _worker_skipped=worker-dropdb
       continue
     fi
     echo "[pre-bash-guard] ${reason:-Command blocked by pre-bash-guard}" >&2
@@ -462,5 +518,5 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
 done < "$PATTERNS_FILE"
 
 # No match — allow
-[ "$_worker_skipped" = true ] && doflow_decide allow worker-worktree
+[ "$_worker_skipped" != false ] && doflow_decide allow "$_worker_skipped"
 exit 0

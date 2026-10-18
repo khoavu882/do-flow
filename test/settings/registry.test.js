@@ -10,14 +10,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { REPO } = require('../helper/settings-fixtures');
+const { REPO, createSettingsEnv } = require('../helper/settings-fixtures');
+const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
 const { validateSettingsRegistry, loadSettingsRegistry, derivedEnvName, REGISTRY_FILE } = require('../../src/runtime/settings/registry.ts');
 const { REF_META, createRefs } = require('../../src/runtime/settings/refs.ts');
 
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
 
-// The seven v1 entries, exactly as design/data-model.md §1 states them (the design folder is not in
-// the repo, so the contract is pinned here; a registry edit must change this table on purpose).
+// The seven v1 entries plus 112's project-only guard entry (the design folder is not in the repo,
+// so the contract is pinned here; a registry edit must change this table on purpose).
 const V1 = {
   'advice.enabled': { type: 'boolean', order: [false, true], default: false,
     scope: 'narrow-only', combine: 'override', securityRelevant: true, failSafe: false,
@@ -60,20 +61,65 @@ const V1 = {
     flag: null, shellRead: 'lexical-v1', needsConfigHome: true,
     legacy: [{ layer: 'user', kind: 'sentinel', path: 'failures/off', value: 'off' }],
     consumers: ['src/runtime/failure/home.ts'], description: "Capture of DoFlow's own failures on this machine; any layer saying off wins." },
+  'guard.workerDropDatabases': { type: 'string', default: null, scope: 'project-only', combine: 'override',
+    securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/worker/launch.ts', 'core/harnesses/shared/hooks/policies/pre-bash-guard.sh'],
+    description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+test('project-only refuses every environment binding, including a narrowing binding', () => {
+  for (const direction of ['any', 'narrow']) {
+    const raw = clone(SHIPPED);
+    // An otherwise valid integer binding isolates the scope check from string parse rules.
+    Object.assign(raw.keys['storage.retentionHours'], { scope: 'project-only', order: 'ascending',
+      env: { name: 'DOFLOW_RETENTION_HOURS', parse: 'positive-int', direction } });
+    const rejected = validateSettingsRegistry(raw);
+    assert.equal(rejected.ok, false);
+    assert.ok(rejected.errors.some((e) => e.includes('storage.retentionHours') && e.includes('project-only') && e.includes('env must be null')), rejected.errors.join('\n'));
+    raw.keys['storage.retentionHours'].env = null;
+    assert.equal(validateSettingsRegistry(raw).ok, true, 'the same project-only key with no env binding is valid');
+  }
+});
+
+test('project-only ignores user/global values and env; project and local files alone decide', (t) => {
+  const w = createSettingsEnv(t);
+  const key = 'guard.workerDropDatabases';
+  const get = () => loadSettings({ projectRoot: w.project,
+    env: w.env({ DOFLOW_GUARD_DROP_DATABASES: 'env_db', DOFLOW_GUARD_WORKER_DROP_DATABASES: 'env_db' }) });
+  w.writeUserSettings({ [key]: 'global_db' });
+  let view = get();
+  for (const name of ['project', 'global']) {
+    const r = view.get(key, name);
+    assert.equal(r.value, null);
+    assert.equal(r.origin.layer, 'default');
+    assert.equal(r.candidates.find((c) => c.layer === 'user').status, 'ignored-scope');
+    assert.match(r.candidates.find((c) => c.layer === 'user').reason, /project-only/);
+    assert.equal(r.candidates.some((c) => c.layer === 'env'), false);
+  }
+  w.writeProjectSettings({ [key]: 'project_db' });
+  view = get();
+  assert.equal(view.get(key).value, 'project_db');
+  assert.equal(view.get(key).origin.layer, 'project');
+  assert.equal(view.get(key, 'global').value, null);
+  w.writeProjectLocal({ [key]: 'local_db' });
+  assert.equal(get().get(key).value, 'local_db');
+  assert.equal(get().get(key).origin.layer, 'local');
+  w.writeUserSettings({ [key]: 42 });
+  assert.equal(get().get(key).candidates.find((c) => c.layer === 'user').status, 'ignored-scope', 'scope precedes type validation, mirroring global-only');
+});
+
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry has exactly the seven v1 entries, equal to data-model §1, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 112 project-only guard key, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 7);
+  assert.equal(Object.keys(SHIPPED.keys).length, 8);
 });
 
-test('prompt-nudge is not registered (D-2) and no key outside the seven exists', () => {
+test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
   assert.equal(Object.keys(SHIPPED.keys).some((key) => /nudge/i.test(key)), false);
   assert.equal(JSON.stringify(SHIPPED).includes('prompt-nudge'), false);
 });
