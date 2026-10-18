@@ -40,8 +40,17 @@ function commit(root, files, parent) {
   }
   return object(root, 'commit', `tree ${tree(Object.entries(files))}\n${parent ? `parent ${parent}\n` : ''}author Test <test@example.com> 1760832000 +0000\ncommitter Test <test@example.com> 1760832000 +0000\n\nfixture\n`);
 }
+// Decision C9: decide-gate --policy honours the autopilot switch, so each fixture owns a config home
+// that turns it on; no inherited switch variable reaches the fixture.
+function switchEnv(root) {
+  const env = { ...process.env, HOME: root, XDG_CONFIG_HOME: path.join(root, '.config'), FORCE_COLOR: '' };
+  delete env.DOFLOW_AUTOPILOT_ENABLED;
+  return env;
+}
+function switchOn(root) { write(path.join(root, '.config/doflow/settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' })); }
 function fixture(t, { mode = 'approve', missing = false, markers = false, gateId = 'gate-0', protect = false } = {}) {
   const root = tempDir(t, 'doflow-gate-policy-');
+  switchOn(root);
   const policy = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
   // Keep each gate independently passable while exercising the real fact gatherer.
   for (const gate of Object.values(policy.classes.feature)) { gate.autopilot = mode; gate.predicates = protect ? ['protected-paths'] : ['markers-zero:requirement']; }
@@ -61,7 +70,7 @@ function fixture(t, { mode = 'approve', missing = false, markers = false, gateId
   const featureDir = path.join(root, 'agent-docs/doflow', SLUG);
   initRegister({ featureDir, slug: SLUG });
   write(path.join(featureDir, 'intention/requirement.md'), markers ? '[NEEDS CLARIFICATION: choice]\n' : '# Settled\n');
-  const orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root, readinessEvaluate: () => 'READY' });
+  const orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root, readinessEvaluate: () => 'READY', env: switchEnv(root) });
   orch.start({ taskId: SLUG, taskClass: 'feature', now: FIXED });
   // Stage work is outside this task: put the real compiled run at the requested gate.
   const run = orch.readRun(SLUG);
@@ -74,7 +83,7 @@ function fixture(t, { mode = 'approve', missing = false, markers = false, gateId
 const decide = f => f.orch.decideGate({ taskId: SLUG, gateId: f.gateId, policy: f.gateId, now: FIXED });
 function cli(f, extra = []) {
   return spawnSync(process.execPath, [path.join(REPO, 'bin/doflow.js'), 'orchestrate', '--action', 'decide-gate', '--task-id', SLUG, '--gate', f.gateId, '--policy', f.gateId, ...extra, '--json'], {
-    cwd: f.root, encoding: 'utf8', env: { ...process.env, HOME: f.root, XDG_CONFIG_HOME: path.join(f.root, '.config'), FORCE_COLOR: '' },
+    cwd: f.root, encoding: 'utf8', env: switchEnv(f.root),
   });
 }
 
@@ -194,7 +203,7 @@ test('linked checkout uses the main seed and override, even when the run lives o
   write(path.join(linked, 'agent-docs/roadmap/rows.json'), '{"schema":1,"rows":[]}');
   write(path.join(f.root, '.doflow/gates.override.json'), '{"classes":{"feature":{"gate-0":{"autopilot":"never"}}}}');
   write(path.join(linked, '.doflow/gates.override.json'), '{"loop":{"wip":999}}');
-  f.orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: f.root, sourceRoot: linked });
+  f.orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: f.root, sourceRoot: linked, env: switchEnv(f.root) });
   const result = decide(f);
   assert.deepEqual(result.reasons, ['policy-never']);
   assert.equal(result.state, 'AWAITING_GATE');
@@ -260,3 +269,47 @@ for (const args of [['--decision', 'approve'], ['--forced', '--note', 'override'
     assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
   });
 }
+
+// Decision C9: every layer of the kill switch denies a policy decision before any fact is read.
+for (const [name, arrange, layer] of [
+  ['the shipped default (no setting) is off', (f) => fs.rmSync(path.join(f.root, '.config/doflow/settings.json')), 'setting'],
+  ['an explicit off setting', (f) => write(path.join(f.root, '.config/doflow/settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'off' })), 'setting'],
+  ['an unreadable setting fails safe to off', (f) => write(path.join(f.root, '.config/doflow/settings.json'), '{not json'), 'setting'],
+  ['the sentinel in the config home', (f) => write(path.join(f.root, '.config/doflow/autopilot/off'), ''), 'sentinel'],
+  ['the environment', (f) => { f.orch.env = { ...switchEnv(f.root), DOFLOW_AUTOPILOT_ENABLED: 'off' }; }, 'env'],
+]) {
+  test(`C9: ${name} denies autopilot-disabled and records nothing`, t => {
+    const f = fixture(t);
+    arrange(f);
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    const register = fs.readFileSync(path.join(f.featureDir, 'decisions/register.json'));
+    const result = decide(f);
+    assert.equal(result.decision, 'deny');
+    assert.deepEqual(result.reasons, ['autopilot-disabled']);
+    assert.equal(result.annotations.switch, layer);
+    assert.deepEqual(result.inputs, [], 'no fact is gathered while the switch is off');
+    assert.equal(result.state, 'AWAITING_GATE');
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+    assert.deepEqual(fs.readFileSync(path.join(f.featureDir, 'decisions/register.json')), register);
+  });
+}
+
+test('C9: autopilot-disabled is in the closed deny list, and the same fixture passes once the switch is on', t => {
+  const policy = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+  assert.ok(policy.denyReasons.includes('autopilot-disabled'));
+  const f = fixture(t);
+  write(path.join(f.root, '.config/doflow/autopilot/off'), '');
+  assert.deepEqual(decide(f).reasons, ['autopilot-disabled']);
+  fs.rmSync(path.join(f.root, '.config/doflow/autopilot/off'));
+  assert.equal(decide(f).decision, 'pass', 'the switch is read on every decision, not once');
+});
+
+test('C9: the CLI denies with the switch off and exits 0 with the run unchanged', t => {
+  const f = fixture(t);
+  fs.rmSync(path.join(f.root, '.config/doflow/settings.json'));
+  const before = fs.readFileSync(f.orch.runFile(SLUG));
+  const result = cli(f);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).reasons, ['autopilot-disabled']);
+  assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+});

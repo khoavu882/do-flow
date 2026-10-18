@@ -706,6 +706,15 @@ class WorkflowOrchestrator {
 
   /** IC-005: the feature checkout cannot grant itself a weaker gate policy. Denies write nothing. */
   decideGateByPolicy(run: any, node: any, policyId: string, now: any) {
+    // Decision C9: the autopilot kill switch binds every policy decision, not only the loop's. Off on
+    // any layer (env, sentinel, settings; an unreadable setting fails safe to off) denies before any
+    // fact is read, and records nothing.
+    const { readKillSwitch } = require('./roadmap/loop.ts');
+    const killSwitch = readKillSwitch(this.env);
+    if (!killSwitch.enabled) {
+      return { ...this.snapshot(run), decision: 'deny', reason: 'autopilot-disabled', reasons: ['autopilot-disabled'],
+        rule: `${node.id}/autopilot`, policy: { id: policyId, digest: null }, inputs: [], annotations: { switch: killSwitch.switch } };
+    }
     // Loaded here, not at module top: every other orchestrator path (and a dry-run install) must not import them.
     const { listCheckouts } = require('./checkouts.ts');
     const { projectLayerSource } = require('./settings/project-layers.ts');

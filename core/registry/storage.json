@@ -329,7 +329,8 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/roadmap/merge.ts"
+        "src/runtime/roadmap/merge.ts",
+        "src/runtime/roadmap/loop.ts"
       ]
     },
     {
@@ -780,6 +781,26 @@
       "source": {
         "file": "src/runtime/failure/capture.ts",
         "pattern": "KEEP_ROTATED = {value}"
+      }
+    },
+    {
+      "id": "autopilot-switch",
+      "root": "config-home",
+      "path": "autopilot",
+      "entry": "file",
+      "match": "^off$",
+      "rule": "existing",
+      "bound": {
+        "text": "one sentinel file; only a person removes it"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/roadmap/loop.ts"
+      ],
+      "source": {
+        "file": "src/runtime/roadmap/loop.ts",
+        "pattern": "path.join(home, 'autopilot', 'off')"
       }
     },
     {

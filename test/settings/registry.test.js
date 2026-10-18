@@ -61,6 +61,13 @@ const V1 = {
     flag: null, shellRead: 'lexical-v1', needsConfigHome: true,
     legacy: [{ layer: 'user', kind: 'sentinel', path: 'failures/off', value: 'off' }],
     consumers: ['src/runtime/failure/home.ts'], description: "Capture of DoFlow's own failures on this machine; any layer saying off wins." },
+  'autopilot.enabled': { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'off',
+    scope: 'global-only', combine: 'override', securityRelevant: true, failSafe: 'off',
+    env: { name: 'DOFLOW_AUTOPILOT_ENABLED', parse: 'off-words', direction: 'narrow' },
+    flag: null, shellRead: null, needsConfigHome: true,
+    legacy: [{ layer: 'user', kind: 'sentinel', path: 'autopilot/off', value: 'off' }],
+    consumers: ['src/runtime/roadmap/loop.ts'],
+    description: 'Roadmap autopilot kill switch, off until the owner turns it on; the env and the autopilot/off sentinel can only turn it off.' },
   'guard.workerDropDatabases': { type: 'string', default: null, scope: 'project-only', combine: 'override',
     securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/worker/launch.ts'],
@@ -112,11 +119,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 112 project-only guard key, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch and the 112 project-only guard key, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 8);
+  assert.equal(Object.keys(SHIPPED.keys).length, 9);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -344,7 +351,7 @@ test('env names: DOFLOW_<KEY_UPPER_SNAKE> for new bindings, the two existing nam
   assert.equal(derivedEnvName('storage.retentionHours'), 'DOFLOW_STORAGE_RETENTION_HOURS');
   assert.equal(derivedEnvName('advice.model'), 'DOFLOW_ADVICE_MODEL');
   const names = Object.values(SHIPPED.keys).filter((spec) => spec.env).map((spec) => spec.env.name).sort();
-  assert.deepEqual(names, ['DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS']);
+  assert.deepEqual(names, ['DOFLOW_AUTOPILOT_ENABLED', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS']);
   // control: the same key under a renamed variable that is not one of the grandfathered pair fails
   const renamed = clone(SHIPPED);
   renamed.keys['storage.retentionHours'].env.name = 'DOFLOW_KEEP_HOURS';
@@ -365,6 +372,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'storage.prune': 'off',
     'storage.retentionHours': { state: 'invalid' },
     'failure.capture': 'off',
+    'autopilot.enabled': 'off',
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';

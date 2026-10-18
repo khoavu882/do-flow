@@ -496,7 +496,7 @@ Commands:
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
-  roadmap              Session-driven autopilot runner (--action render|status)
+  roadmap              Session-driven autopilot runner (--action render|status|next|audit [--check] [--row <id>] [--run <id>])
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
@@ -540,7 +540,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
-                       roadmap: render|status
+                       roadmap: render|status|next|audit
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]

@@ -604,6 +604,19 @@ test('G26: roadmap declares its intent writer and inherits dispatch retention', 
   assert.ok(store.writers.includes('src/runtime/roadmap/merge.ts'));
 });
 
+test('G26: the loop writes the roadmap store, and the autopilot sentinel is a config-home file only a person removes', () => {
+  const roadmap = registry.stores.find((entry) => entry.id === 'roadmap');
+  assert.ok(roadmap.writers.includes('src/runtime/roadmap/loop.ts'), 'lease, run records and tripwire events live in the roadmap store');
+  const sentinel = registry.stores.find((entry) => entry.id === 'autopilot-switch');
+  assert.ok(sentinel, 'the tripwire sentinel needs a declared store');
+  assert.deepEqual({ root: sentinel.root, path: sentinel.path, entry: sentinel.entry, match: sentinel.match, rule: sentinel.rule, writers: sentinel.writers }, {
+    root: 'config-home', path: 'autopilot', entry: 'file', match: '^off$', rule: 'existing', writers: ['src/runtime/roadmap/loop.ts'],
+  });
+  const settings = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
+  assert.deepEqual(settings.keys['autopilot.enabled'].legacy, [{ layer: 'user', kind: 'sentinel', path: 'autopilot/off', value: 'off' }],
+    'the store and the settings key name the same sentinel');
+});
+
 test('G26: roadmap pruning keeps old open intents and selects only archived done intents', (t) => {
   const { tempDir } = require('../helper/tmp');
   const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
@@ -631,6 +644,43 @@ test('G26: roadmap pruning keeps old open intents and selects only archived done
   assert.equal(selected.some((entry) => entry.name === 'intents/113.json'), false,
     'a cleaned intent remains open until the archive move');
   assert.deepEqual(selected.map((entry) => entry.name), ['done/113.json'], 'only the done namespace is eligible for pruning');
+});
+
+test('G26: roadmap run records are pruned once finished; the newest, an intent-named, a leased run and the tripwire are kept', (t) => {
+  const { tempDir } = require('../helper/tmp');
+  const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
+  const root = tempDir(t, 'doflow-roadmap-runs-');
+  const state = path.join(root, '.doflow/state');
+  const storeDir = path.join(state, 'roadmap');
+  const store = registry.stores.find((entry) => entry.id === 'roadmap');
+  const put = (name, value, seconds) => {
+    const file = path.join(storeDir, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(value));
+    fs.utimesSync(file, new Date(seconds * 1000), new Date(seconds * 1000));
+  };
+  const record = (runId) => ({ schema: 1, runId, createdAt: '2026-01-01T00:00:00.000Z', closedAt: null, steps: 0, n: 0, rows: {}, log: [] });
+  const [old, named, leased, newest] = ['rl-20260101-aaaa', 'rl-20260102-bbbb', 'rl-20260103-cccc', 'rl-20260104-dddd'];
+  put(`runs/${old}.json`, record(old), 100);
+  put(`runs/${named}.json`, record(named), 200);
+  put(`runs/${leased}.json`, record(leased), 300);
+  put(`runs/${newest}.json`, record(newest), 400);
+  put('intents/113.json', { schema: 1, row: '113', runId: named, phase: 'intent' }, 200);
+  put('lease.json', { schema: 1, pid: 1, host: 'h', runId: leased }, Date.parse('2026-10-19') / 1000); // a live lease is fresh
+  put('tripwire/events.json', { schema: 1, reverts: [], unverified: [] }, 100);
+  const select = () => selectCandidates(store, fs.readdirSync(storeDir).map((name) => ({ name, stat: fs.statSync(path.join(storeDir, name)) })),
+    { now: Date.parse('2026-10-19'), fsImpl: fs, storeDir, roots: { 'project-state': state }, settings: registry.settings });
+  assert.deepEqual(select().map((entry) => entry.name), [`runs/${old}.json`],
+    'only the finished, unreferenced, non-newest run record is eligible; the tripwire is kept');
+  const { workStatus } = require('../../src/runtime/storage/work-status.ts');
+  const status = (taskId, namespace) => workStatus({ projectRoot: root, store: 'roadmap', taskId, namespace, mtimeMs: 100000, fsImpl: fs });
+  assert.equal(status(newest, 'runs').reason, 'roadmap-run-open');
+  assert.equal(status(named, 'runs').reason, 'roadmap-run-open');
+  assert.equal(status(leased, 'runs').reason, 'roadmap-run-open');
+  assert.deepEqual({ state: status(old, 'runs').state, since: status(old, 'runs').since }, { state: 'finished', since: 100000 });
+  assert.deepEqual({ state: status('events', 'tripwire').state, reason: status('events', 'tripwire').reason }, { state: 'open', reason: 'roadmap-tripwire-kept' });
+  fs.writeFileSync(path.join(storeDir, 'intents/113.json'), '{broken');
+  assert.equal(status(named, 'runs').state, 'undecidable', 'an unreadable intent never reads as finished');
 });
 
 test('G26 (b): every file with a write call is declared, and every declared writer writes', () => {

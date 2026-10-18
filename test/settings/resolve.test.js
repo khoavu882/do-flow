@@ -555,7 +555,7 @@ test('an unparseable user file marks every key of that layer invalid and affects
   assert.equal(v.get('advice.model').value, 'p', 'the project layer is untouched');
   assert.equal(v.get('failure.capture').value, 'on', 'capture reads the file lexically: no match is no setting');
   const userErrors = v.errors.filter((e) => e.source === file);
-  assert.deepEqual(userErrors.map((e) => e.key).sort(), ['advice.enabled', 'advice.endpoint', 'advice.model', 'advice.provider', 'storage.prune', 'storage.retentionHours']);
+  assert.deepEqual(userErrors.map((e) => e.key).sort(), ['advice.enabled', 'advice.endpoint', 'advice.model', 'advice.provider', 'autopilot.enabled', 'storage.prune', 'storage.retentionHours']);
   // V8 quotes the input in an "Unexpected token" message and gives no position: no offset then
   assert.ok(userErrors.every((e) => e.code === 'unparseable' && e.offset === null && e.reason === 'not valid JSON'));
   assert.ok(!JSON.stringify(report).includes('root:x'), 'no byte of the file in any output');
@@ -732,7 +732,7 @@ test('bounded reads: every path is stat-ed and read at most once per view, only 
   for (const [p, n] of count('statSync')) assert.equal(n, 1, `stat ${p}`);
   assert.deepEqual([...count('readFileSync').keys()].sort(), present.sort(), 'only present files are read');
   for (const [p, n] of count('readFileSync')) assert.equal(n, 1, `read ${p}`);
-  assert.equal(count('statSync').size, 8, 'two settings files and a local, two decision-models, two prunes, a sentinel');
+  assert.equal(count('statSync').size, 9, 'two settings files and a local, two decision-models, two prunes, two sentinels');
   // a fresh view reads again (the per-view bound, not a process-wide cache for an injected fs)
   loadSettings({ projectRoot: f.project, env: f.env(), fsImpl: spy }).get('storage.prune');
   assert.ok(count('statSync').get(f.userFile('settings.json')) === 2);

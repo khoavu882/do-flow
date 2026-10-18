@@ -26,7 +26,7 @@
     "no-policy", "policy-invalid", "policy-override-widens", "policy-never", "class-unsupported", "row-unknown", "seed-typed-status",
     "unresolved-clarifications", "markers-open", "protected-path", "plan-unparsable", "need-unmerged", "prerequisite-no-source", "capability-unreachable", "write-set-exceeded",
     "verify-missing", "verify-not-pass", "verify-flaky", "findings-missing", "findings-invalid", "review-stale-head", "seats-too-few", "finding-dropped", "refuted-without-evidence", "accepted-without-user-decision", "fixed-not-ancestor", "blockers-open",
-    "lease-held", "stage-not-performed", "report-changed", "pause-not-machine",
+    "lease-held", "stage-not-performed", "report-changed", "pause-not-machine", "facts-unreadable", "autopilot-disabled",
     "git-too-old", "merge-conflict", "develop-wrong-branch", "develop-dirty", "develop-moved", "head-moved", "no-develop-worktree"
   ]
 }

@@ -251,6 +251,41 @@ function incompleteAnswer(run: any = null, feature: any = null): any {
 }
 
 /**
+ * A loop run record (`roadmap/runs/<runId>.json`) is open while it is the newest record in `runs/`,
+ * while a merge intent in `roadmap/intents/` names its `runId`, or while `roadmap/lease.json` names
+ * it. Any other record is finished as of its mtime. An unreadable source is never called finished.
+ */
+function roadmapRunStatus(project: string, fileSystem: any, runId: any, mtimeMs: any): any {
+  if (!safeSegment(runId)) return answer('undecidable', 'record-unreadable', null, null);
+  const dir = path.join(stateRoot(project), 'roadmap');
+  const unreadable = () => answer('undecidable', 'record-unreadable', runId, null);
+  const list = (folder: string): string[] | null => {
+    try { return fileSystem.readdirSync(folder); } catch (error: any) { return error.code === 'ENOENT' ? [] : null; }
+  };
+  const runs = list(path.join(dir, 'runs'));
+  if (runs === null) return unreadable();
+  let newest: { name: string; mtimeMs: number } | null = null;
+  for (const name of runs) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/.test(name)) continue;
+    let stat: any;
+    try { stat = fileSystem.statSync(path.join(dir, 'runs', name)); } catch { return unreadable(); }
+    if (!newest || stat.mtimeMs > newest.mtimeMs || (stat.mtimeMs === newest.mtimeMs && name > newest.name)) newest = { name, mtimeMs: stat.mtimeMs };
+  }
+  const open = answer('open', 'roadmap-run-open', runId, null);
+  if (newest?.name === `${runId}.json`) return open;
+  const intents = list(path.join(dir, 'intents'));
+  if (intents === null) return unreadable();
+  for (const name of intents) {
+    if (!name.endsWith('.json')) continue;
+    try { if (JSON.parse(fileSystem.readFileSync(path.join(dir, 'intents', name), 'utf8'))?.runId === runId) return open; }
+    catch { return unreadable(); }
+  }
+  try { if (JSON.parse(fileSystem.readFileSync(path.join(dir, 'lease.json'), 'utf8'))?.runId === runId) return open; }
+  catch (error: any) { if (error.code !== 'ENOENT') return unreadable(); }
+  return answer('finished', 'roadmap-run-finished', runId, null, Number.isFinite(mtimeMs) ? mtimeMs : null);
+}
+
+/**
  * The one definition of whether a per-task record is still open work (IC-004).
  * Reads fail closed: an unreadable run, record, or relevant plan is never called finished. An
  * optional pass deadline makes discovery cancellable; incomplete results must not be treated as
@@ -268,9 +303,13 @@ function workStatus({
     return answer('open', 'roadmap-intent-open', workId, null);
   if (store === 'roadmap' && namespace === 'done')
     return answer('finished', 'roadmap-intent-done', workId, null, Number.isFinite(mtimeMs) ? mtimeMs : null);
+  // The tripwire's remembered event ids are tiny and bounded by those ids: kept.
+  if (store === 'roadmap' && namespace === 'tripwire')
+    return answer('open', 'roadmap-tripwire-kept', workId, null);
 
   const project = path.resolve(projectRoot);
   const fileSystem = fsImpl || cache?.fsImpl || fs;
+  if (store === 'roadmap' && namespace === 'runs') return roadmapRunStatus(project, fileSystem, workId, mtimeMs);
   const pass = cacheFor({ projectRoot: project, fsImpl: fileSystem, cache });
 
   if (shouldStop?.()) return incompleteAnswer();
