@@ -657,10 +657,10 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   absent from the tree is declared in `instruction-lint.json`; an entry that suppresses nothing, or a
   malformed policy file, fails the lint, so the policy cannot rot into a blanket suppression.
   Policy pairs in `instruction-lint.json` guard against contradictory guidance: `default-vs-disjoint-parallelism`
-  (replacing `parallel-vs-sequential-default` so that parallel work must be conditional on disjoint write sets),
+  (parallel work, including "parallel-first" wording, must be conditional on disjoint write sets),
   `imposed-layout-vs-project-conventions`, `universal-load-vs-pointer-read`, `confidence-bands-vs-no-confidence`,
-  `ask-only-vs-always-ask`, `continue-vs-wait-at-plan`, and `incremental-vs-no-commit` (with a near-miss control
-  recording compatibility with `do-git`'s confirmation rule).
+  `ask-only-vs-always-ask`, `continue-vs-wait-at-plan`, and `incremental-vs-no-commit` (with near-miss controls for
+  "do not commit secrets" and confirmation wording).
 - **G25** (`prompt-nudge-registry.test.js`) — the standalone-prompt nudge reads its rules from the
   `promptNudge` key of `core/registry/workflows.json` with `jq` and has no built-in defaults, so a
   missing or mistyped field would make the decision fail silently. The guard checks that object's
@@ -803,8 +803,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   (G44.5); and every telemetry store is a declared `runs/` subdirectory the ledger readers skip
   (G44.6). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
 - **G46** (`guidance-truth.test.js`) — prose claims that restate runtime gate behavior, install layout or
-  packaged file sets must agree with the scripts and registries that own those facts. The numbered `# Denies` cases in the header of `core/harnesses/shared/hooks/policies/pre-implementation-gate.sh` must correspond one-to-one with the deny-code families the script emits, and the hard implement-gate bullet in `core/shared/guidance/references/DOFLOW_CHAIN.md` must name every deny case the header lists (G46.1); canonical gate statements across guidance, skills, and agent specs
-  must cite `DOFLOW_CHAIN.md` instead of making unanchored gate scope claims (G46.2); the Layout table's
+  packaged file sets must agree with the scripts and registries that own those facts. The numbered `# Denies` cases in the header of `core/harnesses/shared/hooks/policies/pre-implementation-gate.sh` must be as many as the deny-code families the script emits, and the backticked deny codes in the implement-gate bullet in `core/shared/guidance/references/DOFLOW_CHAIN.md` must equal the codes the script emits (G46.1); a "hard gate" or "hard hook" scope claim anywhere in guidance, skills, or agent specs
+  must cite `DOFLOW_CHAIN.md` in its own sentence or an adjacent one (G46.2); the Layout table's
   `shared/hooks/policies/` row must list the shared policy scripts emitting literal deny decisions (G46.3);
   the `templates/doflow/` row must match all ten templates declared in `templates.doflow` (G46.4); the
   `guidance/references/` row must match all ten reference files in `guidance.context-layer` (G46.5); and the
@@ -814,8 +814,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   the corpus (`>N`, `N+`, `more than N`, `past N`, `over N`, `at least N` for files, steps, tasks, directories)
   must normalize to a single consistent minimum per unit (such as `>3 files` and `>3 steps/tasks`) (G47.1); and
   uppercase enforcement words (`BLOCK`, `BLOCKS`, `BLOCKED`, `ENFORCED`) must not appear without a matching
-  backticked shared policy script from `core/harnesses/shared/hooks/policies/` on the same line that actually
-  enforces the restriction (G47.2).
+  backticked `*.sh` name on the same line that exists in `core/harnesses/shared/hooks/policies/`; any script
+  there counts, and the check does not read what the script enforces (G47.2).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
