@@ -282,7 +282,7 @@ test('handleWorkerCommand maps dispositions to exits 0, 1 and 2', async (t) => {
   assert.equal(await handleWorkerCommand({ ...base, action: 'status', task: 'A.1', token: p.token, json: false }), 0);
   assert.match(logs.pop(), /^status task A\.1 token \d+ no run$/);
   process.exitCode = saved;
-  assert.deepEqual(ACTIONS, ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel']);
+  assert.deepEqual(ACTIONS, ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence']);
 });
 
 // ── Started runs, run-exists, status and cancel ───────────────────────────────────────────────

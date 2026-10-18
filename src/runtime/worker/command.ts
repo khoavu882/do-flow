@@ -53,9 +53,7 @@ const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { readDispatch, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
 
-// IC-025's original action list remains exported for existing callers; IC-007 adds evidence below.
-const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel']);
-const VALID_ACTIONS = Object.freeze([...ACTIONS, 'evidence']);
+const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence']);
 /** IC-025: the dispositions that exit 0; `refused` and `none-eligible` exit 1. */
 const EXIT_ZERO = Object.freeze(['discovered', 'probed', 'described', 'selected', 'started', 'cancelled', 'status', 'recorded']);
 const ERROR_CODES = Object.freeze(['usage', 'store-unreadable', 'registry-invalid']);
@@ -532,8 +530,8 @@ async function executeWorkerCommand({
   descriptors, registry, coverage, sleep = defaultSleep,
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
-    if (!given(action)) throw usage(`--action is required; valid: ${VALID_ACTIONS.join(' | ')}`);
-    if (!VALID_ACTIONS.includes(action)) throw usage(`unknown action '${action}'; valid: ${VALID_ACTIONS.join(' | ')}`);
+    if (!given(action)) throw usage(`--action is required; valid: ${ACTIONS.join(' | ')}`);
+    if (!ACTIONS.includes(action)) throw usage(`unknown action '${action}'; valid: ${ACTIONS.join(' | ')}`);
     refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree });
     if (given(task) && !TASK_ID.test(String(task))) throw usage(`--task expects a plan task id such as A.1, got '${task}'`);
     if (given(token)) digits(token, '--token', 1);
@@ -651,4 +649,4 @@ async function handleWorkerCommand(options: any = {}): Promise<number> {
   return finishRuntime(exit);
 }
 
-module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, settledStatus, findRun, allowedExecArgv, ACTIONS, VALID_ACTIONS, FLAG_ACTIONS, WorkerCommandError };
+module.exports = { handleWorkerCommand, executeWorkerCommand, statusView, settledStatus, findRun, allowedExecArgv, ACTIONS, FLAG_ACTIONS, WorkerCommandError };

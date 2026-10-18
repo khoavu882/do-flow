@@ -14,8 +14,9 @@ function run(lines) {
   return parser.end();
 }
 
-test('the table registers doflow-jsonl-v1 and parserFor returns it', () => {
-  assert.deepEqual(Object.keys(PARSERS), [ID]);
+test('the table registers doflow-jsonl-v1 and codex-exec-json-v1 as ordinary properties and parserFor returns them', () => {
+  assert.deepEqual(Object.keys(PARSERS), [ID, 'codex-exec-json-v1']);
+  assert.equal(parserFor('codex-exec-json-v1'), PARSERS['codex-exec-json-v1']);
   assert.equal(PARSERS[ID].id, ID);
   assert.equal(parserFor(ID), PARSERS[ID]);
 });

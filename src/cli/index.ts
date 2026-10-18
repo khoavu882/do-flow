@@ -532,7 +532,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
-                       worker: discover|probe|describe|select|run|status|cancel
+                       worker: discover|probe|describe|select|run|status|cancel|evidence
                        dispatch: start|step|run|submit|spawn|pause|inspect|cancel|takeover|resume
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
@@ -618,13 +618,17 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --task, --token, --prompt-file,
       --timeout-seconds, --wait, --edit,
       --child-of, --request, --exec-worktree,
-      --worker-run, --by, --reason          worker (probe: [--model-check <id> --budget-tokens <n>];
+      --worker-run, --by, --reason,
+      --checks, --out                       worker (probe: [--model-check <id> --budget-tokens <n>];
                                             describe: --harness [--edit]; select: [--edit];
                                             run: --harness --task --token
                                             --prompt-file [--timeout-seconds 1-14400] [--wait] [--edit]
                                             [--child-of <w-id> --request <d-id.cN> --exec-worktree <path>];
                                             status, cancel: --worker-run or --task --token;
-                                            cancel also --by --reason. Exit 0 done; 1 refused or
+                                            cancel also --by --reason;
+                                            evidence: --harness --out and exactly one of --checks <file>
+                                            (free CLI checks) or --worker-run <w-id> (an ended run).
+                                            Exit 0 done; 1 refused or
                                             none-eligible, the disposition in the JSON; 2 usage)
       --slug, --by, --reason, --concurrency,
       --mode, --verify-argv, --verify-seconds,

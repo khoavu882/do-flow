@@ -204,16 +204,10 @@ function unparsedParser(reason: 'no-structured-output-declared' | 'parser-unknow
 type ParserInstance = { line(text: string): void; oversize(looksJson: boolean): void; lastMessage?: (text: string) => void; end(): Report };
 type ParserFactory = { id: string; create(): ParserInstance };
 
-// Keep the original enumerable parser listing stable for existing callers; both parser ids remain
-// registered own properties and are resolved by parserFor.
-const parserTable: Record<string, ParserFactory> = {
+const PARSERS: Readonly<Record<string, ParserFactory>> = Object.freeze({
   [JSONL_V1]: Object.freeze({ id: JSONL_V1, create: createJsonlV1 }),
-};
-Object.defineProperty(parserTable, CODEX_EXEC_JSON_V1, {
-  value: Object.freeze({ id: CODEX_EXEC_JSON_V1, create: createCodexExecJsonV1 }),
-  enumerable: false,
+  [CODEX_EXEC_JSON_V1]: Object.freeze({ id: CODEX_EXEC_JSON_V1, create: createCodexExecJsonV1 }),
 });
-const PARSERS = Object.freeze(parserTable);
 
 /** The parser for `id`; the `unparsed` fallback for a null or unknown one. */
 function parserFor(id: string | null | undefined) {
