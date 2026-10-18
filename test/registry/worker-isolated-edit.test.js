@@ -55,8 +55,8 @@ test('isolatedEdit: the real registry loads; codex is supported on its recorded 
     if (harness.id === 'codex') {
       assert.deepEqual(harness.worker.isolatedEdit, {
         status: 'supported',
-        evidence: [CODEX_RECORD],
-        verification: `Run \`node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out ${CODEX_RECORD}\` against the installed codex and read the matched help lines`,
+        evidence: [CODEX_RECORD, 'core/worker-evidence/codex/2026-10-18-live-run-edit.json'],
+        verification: `Run \`node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out ${CODEX_RECORD}\` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-821933d703be under \`exec -s workspace-write\` in an isolated attempt ended with report status success, result offered, isolation status clean and unchanged caller and attempt refs.`,
         verifiedOn: '2026-10-18',
         argv: ['exec', '-s', 'workspace-write'],
       }, 'codex isolatedEdit');

@@ -13,6 +13,17 @@ const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752
 const REPO = path.resolve(__dirname, '../..');
 const HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
+const LIVE_READ_ONLY = 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json';
+const LIVE_EDIT = 'core/worker-evidence/codex/2026-10-18-live-run-edit.json';
+// D.1: the free check plus the live-run record(s) that establish each entry; runnableProbe keeps only the free check.
+const CODEX_EVIDENCE = {
+  oneShot: [CODEX_RECORD, LIVE_READ_ONLY, LIVE_EDIT],
+  structuredOutput: [CODEX_RECORD, LIVE_READ_ONLY, LIVE_EDIT],
+  spawnDenial: [CODEX_RECORD, LIVE_READ_ONLY, LIVE_EDIT],
+  readOnly: [CODEX_RECORD, LIVE_READ_ONLY],
+  isolatedEdit: [CODEX_RECORD, LIVE_EDIT],
+  runnableProbe: [CODEX_RECORD],
+};
 const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
 const BINARIES = { claude: 'claude', codex: 'codex', gemini: 'gemini', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
@@ -66,7 +77,7 @@ test('worker: the eight harnesses declare IC-002 values and nothing else as supp
       if (harness.id === 'codex' && CODEX_SUPPORTED.includes(key)) {
         // IC-008: the six entries the recorded codex cli-check establishes; the record is checked by G41.4.
         assert.equal(worker[key].status, 'supported', `codex ${key}`);
-        assert.deepEqual(worker[key].evidence, [CODEX_RECORD], `codex ${key} evidence`);
+        assert.deepEqual(worker[key].evidence, CODEX_EVIDENCE[key], `codex ${key} evidence`);
         assert.equal(worker[key].verifiedOn, '2026-10-18', `codex ${key} verifiedOn`);
         continue;
       }
@@ -103,7 +114,7 @@ test('worker: the six supported codex entries equal their committed status, evid
     const { status, evidence, verifiedOn, argv, promptVia, parser } = codex[key];
     assert.deepEqual(
       { status, evidence, verifiedOn, argv, promptVia, parser },
-      { status: 'supported', evidence: [CODEX_RECORD], verifiedOn: '2026-10-18', promptVia: undefined, parser: undefined, ...recipe },
+      { status: 'supported', evidence: CODEX_EVIDENCE[key], verifiedOn: '2026-10-18', promptVia: undefined, parser: undefined, ...recipe },
       `codex ${key}`,
     );
   }

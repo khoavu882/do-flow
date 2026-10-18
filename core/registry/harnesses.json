@@ -641,9 +641,11 @@
         "oneShot": {
           "status": "supported",
           "evidence": [
-            "core/worker-evidence/codex/2026-10-18-cli-check.json"
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-read-only.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): runs w-067a85a5cc2d and w-821933d703be each exited 0 with the prompt on stdin under `--ephemeral -`, report status success, result offered.",
           "verifiedOn": "2026-10-18",
           "argv": [
             "--ephemeral",
@@ -654,9 +656,11 @@
         "structuredOutput": {
           "status": "supported",
           "evidence": [
-            "core/worker-evidence/codex/2026-10-18-cli-check.json"
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-read-only.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): both runs launched with `--json -o <last-message-file>`, their stdout parsed by codex-exec-json-v1, report status success, result offered.",
           "verifiedOn": "2026-10-18",
           "argv": [
             "--json",
@@ -668,9 +672,10 @@
         "readOnly": {
           "status": "supported",
           "evidence": [
-            "core/worker-evidence/codex/2026-10-18-cli-check.json"
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-read-only.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-067a85a5cc2d under `exec -s read-only` ended with report status success, result offered, a clean worktree and unchanged HEAD and refs.",
           "verifiedOn": "2026-10-18",
           "argv": [
             "exec",
@@ -681,9 +686,11 @@
         "spawnDenial": {
           "status": "supported",
           "evidence": [
-            "core/worker-evidence/codex/2026-10-18-cli-check.json"
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-read-only.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): both runs launched with `--disable multi_agent --disable multi_agent_v2`, report status success, deniedCount 0 (no spawn was attempted, so a denial was not exercised).",
           "verifiedOn": "2026-10-18",
           "argv": [
             "--disable",
@@ -749,9 +756,10 @@
         "isolatedEdit": {
           "status": "supported",
           "evidence": [
-            "core/worker-evidence/codex/2026-10-18-cli-check.json"
+            "core/worker-evidence/codex/2026-10-18-cli-check.json",
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-821933d703be under `exec -s workspace-write` in an isolated attempt ended with report status success, result offered, isolation status clean and unchanged caller and attempt refs.",
           "verifiedOn": "2026-10-18",
           "argv": [
             "exec",

@@ -340,3 +340,28 @@ test('G41.4 control: a live-run record whose result was not offered or whose run
   codex.worker.oneShot.evidence = ['core/worker-evidence/gemini/2026-10-18-cli-check.json'];
   assert.equal(oneShot().length, 1, 'another harness directory does not establish');
 });
+
+test('G41.4 control: the shipped live-run records count, and a copy of either with a failed report or an unoffered result does not', (t) => {
+  const root = tempDir(t, 'doflow-g414-real-');
+  const registry = structuredClone(shipped().registry);
+  const codex = registry.harnesses.find((h) => h.id === 'codex');
+  const dir = path.join(root, 'core', 'worker-evidence', 'codex');
+  fs.mkdirSync(dir, { recursive: true });
+  const copy = (source, name, mutate) => {
+    const record = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'worker-evidence', 'codex', source), 'utf8'));
+    mutate(record);
+    fs.writeFileSync(path.join(dir, name), JSON.stringify(record));
+    return `core/worker-evidence/codex/${name}`;
+  };
+  const findingsFor = (key, evidence) => {
+    codex.worker[key].evidence = evidence;
+    return establishingRecordFindings(registry, root).filter((f) => f.includes(`'${key}'`));
+  };
+  const intact = (record) => record;
+  for (const [source, key] of [['2026-10-18-live-run-read-only.json', 'readOnly'], ['2026-10-18-live-run-edit.json', 'isolatedEdit']]) {
+    assert.equal(shipped().registry.harnesses.find((h) => h.id === 'codex').worker[key].evidence.includes(`core/worker-evidence/codex/${source}`), true, `${key} cites ${source}`);
+    assert.deepEqual(findingsFor(key, [copy(source, `ok-${key}.json`, intact)]), [], `an intact copy establishes ${key}`);
+    assert.equal(findingsFor(key, [copy(source, `failed-${key}.json`, (r) => { r.run.report.status = 'failure'; })]).length, 1, `status failure does not establish ${key}`);
+    assert.equal(findingsFor(key, [copy(source, `unoffered-${key}.json`, (r) => { r.run.resultOffered = false; })]).length, 1, `resultOffered false does not establish ${key}`);
+  }
+});
