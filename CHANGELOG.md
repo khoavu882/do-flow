@@ -15,7 +15,14 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `worker --action evidence` records harness capability evidence from free CLI checks (`--checks <path>`) or completed worker runs (`--worker-run <w-id>`) into `core/worker-evidence/<harness>/` (FU-c1ydm1).
+
+### Changed
+- With codex probed, `dispatch --mode auto` runs eligible tasks as a codex `subagent` worker; `--mode sequential` is the kill switch. Codex worker eligibility rests on static capability evidence recorded in `core/worker-evidence/codex/2026-10-18-cli-check.json` (establishing `runnableProbe`, `oneShot`, `structuredOutput`, `readOnly`, `isolatedEdit`, and `spawnDenial`) and on a live run that has not happened yet (no live execution run has occurred).
+
 ### Fixed
+- Installed-runtime registry validation and real error reporting (FU-tz5h0m): `loadRegistry` and `validateRegistry` support a `sources` mode (`require` or `skip`). An installed runtime (holding only `bin/`, `src/` and `core/registry/`) defaults to `skip` mode via `registrySourceMode`, allowing registry-backed verbs to run outside a full source tree without requiring unprojected shared assets or native-projection sources. When a projected runtime fails registry validation, the dispatcher exits 2 (`stale-runtime`), reporting the runtime registry path and the first validation error verbatim instead of asserting that the runtime appears out of date.
 - Guidance truth and consistency (107-A): fixed shipped guidance, skills, and agent specs that contradicted each other or the code. `FLAGS.md` now names which skills own each flag. `DOFLOW_CHAIN.md` is the one place that states what the implement gate denies, and the constitution base, `do-plan`, `do-flow`, and its task-class reference point to it. The install-root search order, the Layout rows for shared policies, templates, and references, and the repo-layout rule now match the code and registry. Parallel work is conditional on disjoint write sets everywhere, including `MODE_Orchestration.md`. File-count and task-count thresholds agree, estimates use a range and its assumptions without confidence bands, and enforcement words name the policy script behind them. `CONSTITUTION_BASE.md` is v1.0.1 (PATCH). New guards G46 (`guidance-truth.test.js`) and G47 (`guidance-consistency.test.js`) check these statements against the scripts and registries that own the facts, and G4 (`flags.test.js`) and G24 (`instruction-lint.test.js`) are extended, including the stricter `default-vs-disjoint-parallelism` pair.
 
 ## [2.0.0-beta.6] - 2026-10-18

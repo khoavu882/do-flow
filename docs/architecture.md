@@ -25,6 +25,8 @@ ownership, and recovery; and one runtime, reached through one seam, owns everyth
 at use time.** Do not duplicate a skill, rule, or template simply because clients place it in
 different directories, and do not add a second implementation of a runtime verb.
 
+At the runtime/registry boundary, `loadRegistry` adapts to tree shape via `registrySourceMode` (IC-001): in a full package or development checkout (`package.json` exists), validation runs in `require` mode where every declared shared asset and native-projection source must exist; from an installed runtime tree (carrying only `bin/`, `src/` and `core/registry/`), validation runs in `skip` mode, verifying source path strings and repository containment without requiring unprojected shared files on disk.
+
 Each target is a native projection, not a copy of another target's settings. Its supported
 surfaces, prerequisites, verification steps, and intentional gaps are the contract in the
 [multi-harness capability map](capability-map.md). In particular, configuration and hook discovery
@@ -211,7 +213,7 @@ authorization. Until then lexical-only remains the default and the hybrid MVP is
 ### Runtime registries
 
 The runtime reads its policy from the registry rather than hardcoding it — see [Installation
-registries](#installation-registries) for the same plain-JSON convention.
+registries](#installation-registries) for the same plain-JSON convention. Across the runtime/registry boundary, registry loading distinguishes between full checkouts and installed runtimes: `loadRegistry` uses `skip` source mode in an installed runtime (which ships only `bin/`, `src/` and `core/registry/`, without `package.json`), skipping existence checks for shared assets and native-projection sources, while development and installer checkouts run in `require` mode (checked by G48).
 
 | File | Declares |
 |---|---|
@@ -511,11 +513,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-fifty-four test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-forty-seven entries across forty-three test files and carries forty-five distinct G-numbers.
+fifty-five test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+forty-eight entries across forty-four test files and carries forty-six distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G47 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G48 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -767,9 +769,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   (G40.3).
 - **G41** (`worker-descriptors.test.js`) - every harness in `core/registry/harnesses.json` carries a
   `worker` block and the registry validator reports no worker error (G41.1); every `supported`
-  worker entry has evidence naming an existing repository path or an `https://` URL (G41.2); and
+  worker entry has evidence naming an existing repository path or an `https://` URL (G41.2);
   every declared `structuredOutput.parser` is a key of `PARSERS` in `src/runtime/worker/parsers.ts`
-  (G41.3).
+  (G41.3); and every `supported` worker entry other than `cli`, `profile`, `modelChecks` cites a recorded
+  evidence file under `core/worker-evidence/` establishing it, where a `live-run` record counts only when its
+  result was offered (G41.4).
 - **G42** (`dispatch-loop.test.js`) - `core/registry/storage.json` declares the `dispatch`,
   `dispatch-envelopes` and `dispatch-worktrees` stores (G42.1); every harness declares
   `isolatedEdit`, the registry validator reports no `isolatedEdit` error, and the edit baseline is the
@@ -816,6 +820,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   uppercase enforcement words (`BLOCK`, `BLOCKS`, `BLOCKED`, `ENFORCED`) must not appear without a matching
   backticked `*.sh` name on the same line that exists in `core/harnesses/shared/hooks/policies/`; any script
   there counts, and the check does not read what the script enforces (G47.2).
+- **G48** (`registry-sources.test.js`) — registry source mode: the source tree requires every declared source and asset to exist (`require` mode), while a runtime-shaped tree (holding only `bin/`, `src/` and `core/registry/`) loads in `skip` mode without checking shared assets or native-projection sources, and fails in `require` mode.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
