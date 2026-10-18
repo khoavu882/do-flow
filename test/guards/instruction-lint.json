@@ -20,10 +20,28 @@
   ],
   "pairs": [
     {
-      "id": "parallel-vs-sequential-default",
-      "a": "\\bparallel by default\\b|\\bdefault to parallel\\b",
-      "b": "\\bsequential by default\\b|\\bdefault to sequential\\b",
-      "reason": "the shipped guidance must not set both parallel and sequential as the default"
+      "id": "default-vs-disjoint-parallelism",
+      "a": "\\bparallel by default\\b|\\bdefault to parallel\\b|\\bparallel[- ]first\\b|\\bsequential by default\\b|\\bdefault to sequential\\b",
+      "b": "\\bdisjoint write sets?\\b",
+      "reason": "C5: parallel work must be conditional on disjoint write sets"
+    },
+    {
+      "id": "imposed-layout-vs-project-conventions",
+      "a": "\\btests\\s*(→|->)\\s*`?tests/",
+      "b": "\\bexisting code conventions\\b",
+      "reason": "C4: use generic directory names only when the repository has no layout of its own"
+    },
+    {
+      "id": "universal-load-vs-pointer-read",
+      "a": "\\bsession on every harness\\b|\\bloaded into \\W*every\\W* session\\b",
+      "b": "\\bdoes not expand `?@file`? imports\\b",
+      "reason": "C7: harnesses own their guidance-loading pointers; 107-B must update this pair when it rewrites pointers/codex.md"
+    },
+    {
+      "id": "confidence-bands-vs-no-confidence",
+      "a": "\\bconfidence[- ]band(ed|s)?\\b",
+      "b": "\\bor a confidence\\b|\\bpercentage certainty\\b",
+      "reason": "C8: estimates use a range and its width-setting assumptions, without confidence bands"
     },
     {
       "id": "ask-only-vs-always-ask",

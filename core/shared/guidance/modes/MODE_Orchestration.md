@@ -44,14 +44,15 @@ source itself or reports the concrete access gap.
   1. **WebSearch and WebFetch official documentation**, or use a relevant official documentation
      MCP, before any technical recommendation
   2. Activate MODE_DeepResearch for infrastructure investigation
-  3. BLOCK assumption-based configuration changes
+  3. Do not change configuration on an assumption; verify it against the official documentation first
 
 **Rationale**: Infrastructure misconfiguration can cause production outages. Always verify against official documentation (e.g., Traefik docs for port configuration, nginx docs for proxy settings).
 
 **Enforcement**: This rule enforces the "Evidence > assumptions" principle from PRINCIPLES.md for infrastructure operations.
 
 ## Parallel Execution Triggers
-- **3+ files**: Auto-suggest parallel processing
+Each trigger applies only to work with disjoint write sets; tasks that share files or depend on each other run sequentially.
+- **>3 files**: Auto-suggest parallel processing
 - **Independent operations**: Batch Read calls, parallel edits
 - **Multi-directory scope**: Enable delegation mode
-- **Performance requests**: Parallel-first approach
+- **Performance requests**: Parallelize the disjoint parts

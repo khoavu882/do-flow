@@ -1,6 +1,6 @@
 # Base Constitution (tier-1)
 
-**Version:** 1.0.0 · **Scope:** all repos using the doflow chain
+**Version:** 1.0.1 · **Scope:** all repos using the doflow chain
 
 > The universal, non-negotiable rules every feature inherits. This is the **tier-1 base**;
 > each repo's `agent-docs/constitution.md` (tier-2) overlays it and **takes precedence on
@@ -29,8 +29,8 @@ compiling. → `rules/RULE_02_WORKFLOW.md`.
 Build only what the spec asks — no bonus features, no speculative abstraction.
 → `rules/RULE_02_WORKFLOW.md`.
 
-### P5 — Parallel by default
-Independent work runs concurrently; sequential only for hard dependencies.
+### P5 — Parallel when write sets are disjoint
+Shared write sets/dependencies run sequentially.
 → `rules/RULE_02_WORKFLOW.md`.
 
 ### P6 — Professional honesty
@@ -43,5 +43,4 @@ back on a bad approach with evidence. → `rules/RULE_03_QUALITY.md`.
   validates it, so a tier-2 file that weakened P1 would not be rejected by any check.*
 - `/do-plan` MUST evaluate its Constitution Check against both tiers together (tier-2 taking
   precedence) and record PASS/FAIL. The verdict is **advisory** — it is recorded in `plan.md`
-  §2 "Constitution Check" and does not block work; the chain's one hard gate covers artifact
-  existence only.
+  §2 "Constitution Check" and blocks nothing. Gate scope: `DOFLOW_CHAIN.md`.

@@ -235,17 +235,23 @@ const run = (text, policy = FIXTURE_POLICY, rel = 'core/shared/guidance/x.md') =
 
 // Sample lines that make each shipped pair fire, so every pair in instruction-lint.json is proven able to.
 const PAIR_SAMPLES = {
-  'parallel-vs-sequential-default': ['Parallel by default', 'sequential by default'],
+  'default-vs-disjoint-parallelism': ['Parallel by default', 'disjoint write sets'],
+  'imposed-layout-vs-project-conventions': ['tests → `tests/', 'existing code conventions'],
+  'universal-load-vs-pointer-read': ['loaded into **every** session', 'Codex does not expand `@file` imports'],
+  'confidence-bands-vs-no-confidence': ['confidence-banded estimates', 'percentage certainty'],
   'ask-only-vs-always-ask': ['Ask ONLY for decisions', 'Always ask first'],
   'continue-vs-wait-at-plan': ['continue into execution', 'wait for approval again'],
   'incremental-vs-no-commit': ['Commit incrementally', 'never commit'],
 };
 // Ordinary prose near each pair's second side, which must not fire it.
 const PAIR_NEAR_MISSES = {
-  'parallel-vs-sequential-default': 'Run tasks sequentially when they share a write set.',
+  'default-vs-disjoint-parallelism': 'Parallel work runs when write sets are disjoint.',
+  'imposed-layout-vs-project-conventions': 'Follow the repository\'s existing conventions for new modules.',
+  'universal-load-vs-pointer-read': 'Codex expands `@file` imports from this pointer.',
+  'confidence-bands-vs-no-confidence': 'Use numeric certainty only when the evidence supports it.',
   'ask-only-vs-always-ask': 'Ask one question at a time.',
   'continue-vs-wait-at-plan': 'At each gate, wait for approval before the next phase.',
-  'incremental-vs-no-commit': 'Do not commit secrets or .env files.',
+  'incremental-vs-no-commit': ['Do not commit secrets or .env files.', 'All mutating operations require explicit confirmation.'],
 };
 
 test('G24: controls — the lint sees an unresolved path, an unknown verb and coexisting defaults', () => {
@@ -277,10 +283,20 @@ test('G24: controls — every shipped pair fires on a fixture holding both sides
     const { findings } = pairFindings([pair], [{ rel: 'a.md', text: a }, { rel: 'b.md', text: b }]);
     assert.equal(findings.length, 1, `pair ${pair.id} did not fire on its sample`);
     assert.equal(pairFindings([pair], [{ rel: 'a.md', text: a }]).findings.length, 0, `pair ${pair.id} fired on one side`);
-    assert.equal(pairFindings([pair], [{ rel: 'a.md', text: a }, { rel: 'b.md', text: PAIR_NEAR_MISSES[pair.id] }]).findings.length, 0,
-      `pair ${pair.id} fired on ordinary prose: ${PAIR_NEAR_MISSES[pair.id]}`);
+    for (const miss of [PAIR_NEAR_MISSES[pair.id]].flat()) {
+      assert.equal(pairFindings([pair], [{ rel: 'a.md', text: a }, { rel: 'b.md', text: miss }]).findings.length, 0,
+        `pair ${pair.id} fired on ordinary prose: ${miss}`);
+    }
   }
   assert.deepEqual(Object.keys(PAIR_NEAR_MISSES).sort(), Object.keys(PAIR_SAMPLES).sort(), 'a shipped pair has no near-miss control');
+});
+
+test('G24: controls — the parallelism pair also catches parallel-first prose and not its near miss', () => {
+  const pair = readPolicy().pairs.find(({ id }) => id === 'default-vs-disjoint-parallelism');
+  const withB = (text) => pairFindings([pair], [{ rel: 'a.md', text }, { rel: 'b.md', text: 'disjoint write sets' }]).findings.length;
+  assert.equal(withB('**Performance requests**: Parallel-first approach'), 1);
+  assert.equal(withB('Performance requests: parallel first approach'), 1);
+  assert.equal(withB('Performance requests: parallelize the disjoint parts; run the first parallel batch after the reads.'), 0);
 });
 
 test('G24: controls — an allow entry suppresses what it names and fails when it matches nothing', () => {

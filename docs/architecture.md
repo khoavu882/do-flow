@@ -511,11 +511,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-fifty-two test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-forty-five entries across forty-one test files and carries forty-three distinct G-numbers.
+fifty-four test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+forty-seven entries across forty-three test files and carries forty-five distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G45 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G47 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -533,7 +533,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   entry rather than a skill, and copy-tree'ing the guidance directory is not reachability — that is
   how an orphaned pointer shipped to five harnesses while naming a directory the install had
   flattened away.
-- **G4** (`flags.test.js`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`.
+- **G4** (`flags.test.js`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`. It also verifies flag ownership against skill frontmatter: the backticked `--flag` tokens on `FLAGS.md`'s shared-flags line equal the flags declared in at least two skills' `argument-hint`, and for every `**--flag ...**` entry, the backticked skill names after "Consumed by" equal exactly the skills whose `argument-hint` declares that flag.
 - **G5** (`registry.test.js`) — the only guard that reads `src/` and `core/harnesses/` as data;
   checks registry claims against what's actually implemented.
 - **G6** (`docs.test.js`) — documented inventories match reality: the skill list in
@@ -656,6 +656,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `README.md`), and no two contradictory defaults may both be present. A path or verb intentionally
   absent from the tree is declared in `instruction-lint.json`; an entry that suppresses nothing, or a
   malformed policy file, fails the lint, so the policy cannot rot into a blanket suppression.
+  Policy pairs in `instruction-lint.json` guard against contradictory guidance: `default-vs-disjoint-parallelism`
+  (parallel work, including "parallel-first" wording, must be conditional on disjoint write sets),
+  `imposed-layout-vs-project-conventions`, `universal-load-vs-pointer-read`, `confidence-bands-vs-no-confidence`,
+  `ask-only-vs-always-ask`, `continue-vs-wait-at-plan`, and `incremental-vs-no-commit` (with near-miss controls for
+  "do not commit secrets" and confirmation wording).
 - **G25** (`prompt-nudge-registry.test.js`) — the standalone-prompt nudge reads its rules from the
   `promptNudge` key of `core/registry/workflows.json` with `jq` and has no built-in defaults, so a
   missing or mistyped field would make the decision fail silently. The guard checks that object's
@@ -797,6 +802,20 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   or `verify-baseline` (G44.4); the package has no runtime dependency and G30.2 is still enforced
   (G44.5); and every telemetry store is a declared `runs/` subdirectory the ledger readers skip
   (G44.6). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
+- **G46** (`guidance-truth.test.js`) — prose claims that restate runtime gate behavior, install layout or
+  packaged file sets must agree with the scripts and registries that own those facts. The numbered `# Denies` cases in the header of `core/harnesses/shared/hooks/policies/pre-implementation-gate.sh` must be as many as the deny-code families the script emits, and the backticked deny codes in the implement-gate bullet in `core/shared/guidance/references/DOFLOW_CHAIN.md` must equal the codes the script emits (G46.1); a "hard gate" or "hard hook" scope claim anywhere in guidance, skills, or agent specs
+  must cite `DOFLOW_CHAIN.md` in its own sentence or an adjacent one (G46.2); the Layout table's
+  `shared/hooks/policies/` row must list the shared policy scripts emitting literal deny decisions (G46.3);
+  the `templates/doflow/` row must match all ten templates declared in `templates.doflow` (G46.4); the
+  `guidance/references/` row must match all ten reference files in `guidance.context-layer` (G46.5); and the
+  install-root note must match the resolver search order in `core/shared/skills/do/SKILL.md` (G46.6).
+- **G47** (`guidance-consistency.test.js`) — guidance statements must maintain consistent wording and grounded
+  enforcement claims across all shared documentation in `core/shared/guidance/`. Threshold expressions across
+  the corpus (`>N`, `N+`, `more than N`, `past N`, `over N`, `at least N` for files, steps, tasks, directories)
+  must normalize to a single consistent minimum per unit (such as `>3 files` and `>3 steps/tasks`) (G47.1); and
+  uppercase enforcement words (`BLOCK`, `BLOCKS`, `BLOCKED`, `ENFORCED`) must not appear without a matching
+  backticked `*.sh` name on the same line that exists in `core/harnesses/shared/hooks/policies/`; any script
+  there counts, and the check does not read what the script enforces (G47.2).
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

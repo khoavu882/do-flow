@@ -7,9 +7,117 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { GUIDANCE, coreTextFiles } = require('./_shared');
+const { GUIDANCE, coreTextFiles, skillFiles } = require('./_shared');
 
 const FLAGS = path.join(GUIDANCE, 'FLAGS.md');
+
+/** Same extraction G8/G10 already uses for argument-hint -> flag list: read the frontmatter's
+ * argument-hint string, then pull every `--flag` token out of it. */
+function argumentHintFlags(file) {
+  const hint = fs.readFileSync(file, 'utf8').match(/^argument-hint:\s*"?(.*?)"?\s*$/m)?.[1];
+  if (!hint) return new Set();
+  return new Set([...hint.matchAll(/--[a-z][a-z-]*/g)].map((m) => m[0]));
+}
+
+/** Every skill's declared argument-hint flags as a Map (name -> Set of flags). */
+function skillFlagDeclarations() {
+  const declarations = new Map();
+  for (const { name, file } of skillFiles()) {
+    declarations.set(name, argumentHintFlags(file));
+  }
+  return declarations;
+}
+
+/** G4 shared set check: pure function (flagsText, declarations) -> findings[].
+ * FLAGS.md's "shared" line must name backticked flags equal to those declared in at least two skills' argument-hint. */
+function checkSharedFlags(flagsText, declarations) {
+  const findings = [];
+  if (/\bevery flag belongs to one skill\b/i.test(flagsText) || /\bwhich crosses them\b/i.test(flagsText)) {
+    findings.push('FLAGS.md claims "Every flag belongs to one skill and is declared in that skill\'s `argument-hint`, except this one, which crosses them:" (re-seeded fault)');
+    return findings;
+  }
+
+  const lines = flagsText.split('\n');
+  const sharedLine = lines.find((line) => /\bshared\b/i.test(line));
+  if (!sharedLine) {
+    findings.push('FLAGS.md: found no anchor line containing "shared"');
+    return findings;
+  }
+
+  const named = [...sharedLine.matchAll(/`(--[a-z0-9-]+)`/g)].map((m) => m[1]).sort();
+
+  const declEntries = declarations instanceof Map ? declarations.entries() : Object.entries(declarations);
+  const counts = new Map();
+  for (const [, flags] of declEntries) {
+    for (const flag of flags) {
+      counts.set(flag, (counts.get(flag) || 0) + 1);
+    }
+  }
+  const expected = [...counts.entries()]
+    .filter(([, count]) => count >= 2)
+    .map(([flag]) => flag)
+    .sort();
+
+  if (named.length !== expected.length || !named.every((f, i) => f === expected[i])) {
+    findings.push(`FLAGS.md: shared flags [${named.join(', ')}] do not match flags declared by at least two skills [${expected.join(', ')}]`);
+  }
+
+  return findings;
+}
+
+/** G4 flag consumers check: pure function (flagsText, declarations) -> findings[].
+ * For every **--flag ...** entry, the backticked skill names after "Consumed by" must equal
+ * the skills whose argument-hint declares that flag. */
+function checkFlagConsumers(flagsText, declarations) {
+  const findings = [];
+  const entries = [];
+  const regex = /^\*\*(--[a-z0-9-]+)[^*]*\*\*/gm;
+  const matches = [...flagsText.matchAll(regex)];
+
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const startIndex = match.index;
+    const nextStart = i + 1 < matches.length ? matches[i + 1].index : flagsText.length;
+    const block = flagsText.slice(startIndex, nextStart);
+    const endPos = block.search(/\n\s*\n|\n##\s/);
+    const entryText = endPos !== -1 ? block.slice(0, endPos) : block;
+    entries.push({
+      flag: match[1],
+      body: entryText.slice(match[0].length),
+    });
+  }
+
+  if (entries.length === 0) {
+    findings.push('FLAGS.md: found no anchor: no **--flag ...** entries found');
+    return findings;
+  }
+
+  const declEntries = declarations instanceof Map ? declarations.entries() : Object.entries(declarations);
+  const declMap = new Map();
+  for (const [skill, flags] of declEntries) {
+    declMap.set(skill, flags instanceof Set ? flags : new Set(flags));
+  }
+
+  for (const { flag, body } of entries) {
+    const consumedMatch = body.match(/consumed\s+by\b([\s\S]*?)(?:\.|$)/i);
+    if (!consumedMatch) {
+      findings.push(`entry for ${flag}: found no anchor: missing "Consumed by" clause`);
+      continue;
+    }
+    const actualSkills = [...consumedMatch[1].matchAll(/`([a-z][a-z0-9-]*)`/g)].map((m) => m[1]).sort();
+    const expectedSkills = [];
+    for (const [skill, flags] of declMap) {
+      if (flags.has(flag)) expectedSkills.push(skill);
+    }
+    expectedSkills.sort();
+
+    if (actualSkills.length !== expectedSkills.length || !actualSkills.every((s, i) => s === expectedSkills[i])) {
+      findings.push(`entry for ${flag}: consumers [${actualSkills.join(', ')}] do not match skills declaring it in argument-hint [${expectedSkills.join(', ')}]`);
+    }
+  }
+
+  return findings;
+}
 
 // Suppressions must carry a reason so each one is visible in review rather than accumulating
 // silently. A flag consumed behaviourally by the model — rather than by a file reference a scan
@@ -88,4 +196,52 @@ test('G4: every BEHAVIOURAL_ONLY suppression names a flag that is still document
   const documented = new Set(documentedFlags());
   const stale = [...BEHAVIOURAL_ONLY.keys()].filter((flag) => !documented.has(flag));
   assert.deepEqual(stale, [], 'suppressions for flags that no longer exist must be deleted');
+});
+
+test('G4: shared set — backticked flags on the shared line equal flags declared by at least two skills', () => {
+  const text = fs.readFileSync(FLAGS, 'utf8');
+  const decls = skillFlagDeclarations();
+  const findings = checkSharedFlags(text, decls);
+  assert.deepEqual(findings, [],
+    `FLAGS.md shared-flags line does not match skills declaring flags:\n  ${findings.join('\n  ')}`);
+});
+
+test('G4: flag consumers — skills listed after Consumed by equal skills declaring the flag', () => {
+  const text = fs.readFileSync(FLAGS, 'utf8');
+  const decls = skillFlagDeclarations();
+  const findings = checkFlagConsumers(text, decls);
+  assert.deepEqual(findings, [],
+    `FLAGS.md flag consumers do not match skill argument-hints:\n  ${findings.join('\n  ')}`);
+});
+
+test('G4: controls — shared-set and consumer checks detect re-seeded faults and missing anchors', () => {
+  const text = fs.readFileSync(FLAGS, 'utf8');
+  const decls = skillFlagDeclarations();
+
+  // Re-seed control: C1 baseline fault in shared-set check
+  const reseededShared = text.replace(
+    /.*shared.*\n?/i,
+    "Every flag belongs to one skill and is declared in that skill's `argument-hint`, except this one, which crosses them:\n",
+  );
+  const sharedFaultFindings = checkSharedFlags(reseededShared, decls);
+  assert.equal(sharedFaultFindings.length, 1);
+  assert.match(sharedFaultFindings[0], /belongs to one skill/i);
+
+  // Vacuity control: shared-set check with no anchor
+  const vacuousShared = text.replace(/.*shared.*\n?/i, '');
+  const sharedVacuityFindings = checkSharedFlags(vacuousShared, decls);
+  assert.equal(sharedVacuityFindings.length, 1);
+  assert.match(sharedVacuityFindings[0], /found no anchor/);
+
+  // Re-seed control: wrong consumer in flag consumers check
+  const reseededConsumer = text.replace('`do-diagnose`', '`do-plan`');
+  const consumerFaultFindings = checkFlagConsumers(reseededConsumer, decls);
+  assert.equal(consumerFaultFindings.length, 1);
+  assert.match(consumerFaultFindings[0], /consumers \[do-plan\] do not match/);
+
+  // Vacuity control: consumer check with missing "Consumed by" anchor
+  const vacuousConsumer = text.replace(/Consumed[\s\S]*?`do-diagnose`\./i, '');
+  const consumerVacuityFindings = checkFlagConsumers(vacuousConsumer, decls);
+  assert.equal(consumerVacuityFindings.length, 1);
+  assert.match(consumerVacuityFindings[0], /found no anchor/);
 });
