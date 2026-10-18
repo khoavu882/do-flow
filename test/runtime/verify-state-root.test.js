@@ -16,7 +16,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir, tempDir } = require('../helper/tmp');
 const { createScratch } = require('../helper/scratch-env');
 const { verifyStateRoot } = require('../../src/runtime/verification/engine.ts');
 
@@ -103,6 +103,38 @@ test('a failing verify from a project subdirectory creates no .doflow there; sta
 test('a failing verify in an attempt worktree, DOFLOW_CONFIG_DIR unset, writes to the store the walk-up finds', () => {
   const p = project();
   assertNoFragment(p, attemptWorktree(p));
+});
+
+test('N1: a failing verify in an attempt worktree with planted delivery pack writes to <P>, not <W>', (t) => {
+  const p = project();
+  const wt = path.join(p.root, '.doflow', 'state', 'dispatch-worktrees', 'd-000000000001');
+  git(p.root, 'worktree', 'add', '-q', '--detach', wt);
+  const deliveryDir = path.join(wt, '.doflow', 'state', 'delivery');
+  fs.mkdirSync(deliveryDir, { recursive: true });
+  fs.writeFileSync(path.join(deliveryDir, 'A.1.json'), '{}');
+
+  const scratchDir = tempDir(t, 'doflow-verify-scratch-');
+  const home = path.join(scratchDir, 'home');
+  const xdg = path.join(scratchDir, 'xdg');
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(path.join(xdg, 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(xdg, 'doflow', 'prune'), 'on\n');
+  const env = { HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_CONFIG_DIR: undefined };
+
+  const store = path.join(p.root, '.doflow');
+  verify(p, wt, env);
+  const first = holdings(store);
+  assert.ok(first.logs >= 1, 'logs land in <P>');
+  assert.equal(first.verifyRuns, 1, 'verify.run lands in <P>');
+  assert.ok(first.upkeep >= 1, 'upkeep line lands in <P>');
+
+  verify(p, wt, env);
+  const second = holdings(store);
+  assert.equal(second.verifyRuns, 2, 'a second verify still in <P>');
+  assert.ok(second.logs > first.logs, 'second verify logs still in <P>');
+
+  const res = verifyStateRoot({ start: wt, env });
+  assert.equal(res.projectRoot, p.root, 'verifyStateRoot projectRoot = <P>');
 });
 
 test('a failing verify in an attempt worktree with DOFLOW_CONFIG_DIR set writes to that store', () => {

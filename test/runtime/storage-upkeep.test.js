@@ -379,3 +379,40 @@ test('IC-016 (G.3 A5): an ignore file created between the check and the commit i
   assert.equal(fs.readFileSync(ignore, 'utf8'), 'user-managed\n');
   assert.deepEqual(fs.readdirSync(root).filter(name => name.endsWith('.tmp')), [], 'the temp file is removed');
 });
+
+test('N2: upkeepAfterVerb({projectRoot:<W>}) when due writes upkeep-due, .gitignore, ledger line under <P>/.doflow/state, and upkeep-roots lists <P> not <W>', (t) => {
+  const dir = tempDir(t, 'doflow-upkeep-n2-');
+  const P = path.join(dir, 'project');
+  const W = path.join(P, '.doflow', 'state', 'dispatch-worktrees', 'd-000000000001');
+  const home = path.join(dir, 'home');
+  const xdg = path.join(dir, 'xdg');
+  fs.mkdirSync(P, { recursive: true });
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(xdg, { recursive: true });
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg };
+  delete env.DOFLOW_RETENTION_HOURS;
+  delete env.DOFLOW_CONFIG_DIR;
+
+  fs.mkdirSync(path.join(P, '.doflow', 'state', 'runs'), { recursive: true });
+  fs.mkdirSync(path.join(W, '.doflow', 'state', 'delivery'), { recursive: true });
+  fs.writeFileSync(path.join(W, '.doflow', 'state', 'delivery', 'A.1.json'), '{}');
+
+  const roots = resolveRoots({ registry, projectRoot: P, env });
+  fs.mkdirSync(roots['user-state'], { recursive: true });
+
+  upkeep().upkeepAfterVerb({ projectRoot: W, now: NOW, env });
+
+  assert.equal(fs.existsSync(path.join(P, '.doflow', 'state', 'upkeep-due')), true, 'upkeep-due written under <P>');
+  assert.equal(fs.existsSync(path.join(P, '.doflow', 'state', '.gitignore')), true, '.gitignore written under <P>');
+  assert.ok(records(path.join(P, '.doflow', 'state')).filter((r) => r.kind === 'upkeep').length >= 1, 'ledger line under <P>');
+
+  assert.equal(fs.existsSync(path.join(W, '.doflow', 'state', 'upkeep-due')), false, 'no upkeep-due under <W>');
+  assert.equal(fs.existsSync(path.join(W, '.doflow', 'state', '.gitignore')), false, 'no .gitignore under <W>');
+  assert.equal(records(path.join(W, '.doflow', 'state')).length, 0, 'no ledger line under <W>');
+
+  const indexFile = path.join(roots['user-state'], 'upkeep-roots');
+  assert.equal(fs.existsSync(indexFile), true, 'upkeep-roots index exists');
+  const indexed = fs.readFileSync(indexFile, 'utf8');
+  assert.ok(indexed.includes(fs.realpathSync(P)), 'upkeep-roots lists <P>');
+  assert.ok(!indexed.includes(W), 'upkeep-roots does not list <W>');
+});
