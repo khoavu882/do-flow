@@ -35,13 +35,14 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
  * identity joins the one segment that holds it, or is a gap named by its locator: none holds it
  * (`unmatched`) or more than one does (`ambiguous`, e.g. one session identity under two worktrees).
  * Ids beat windows (110 F3): a hook line's `worker_run` follows that worker, a verify.run's
- * `dispatch_run` goes to that dispatch run's segment that holds it (T1). A line that more than one
- * segment holds joins one of them only through the single activity it fits, labelled
- * `attrs.join: "activity"` (T2): a hook line with an attempt fits the one worker whose identity and
- * lifetime match and that every hook line of its session resolves to; a `source: dispatch`
- * verify.run fits the one dispatch run of its identity whose window holds it, and whose task or slug
- * is the line's task when it names one. A line T2 cannot settle stays `ambiguous`, and a line one
- * segment holds joins it unlabelled, as before 110 (T3).
+ * `dispatch_run` goes to that dispatch run's segment that holds it (T1). An id that names no record,
+ * or a record with no placement, leaves the line unmatched/ambiguous; it never joins another run.
+ * A line that more than one segment holds joins one of them only through the single activity it
+ * fits, labelled `attrs.join: "activity"` (T2): a hook line with an attempt fits the one worker
+ * whose identity and lifetime match and that every hook line of its session resolves to; a
+ * `source: dispatch` verify.run fits the one dispatch run of its identity whose window holds it,
+ * and whose task or slug is the line's task when it names one. A line T2 cannot settle stays
+ * `ambiguous`, and a line one segment holds joins it unlabelled, as before 110 (T3).
  * A line stamped to the whole second (doflow-run's ledger lines) is compared at that resolution:
  * the segment start is floored to its second, so the `dispatch start` line of the run's own start
  * second joins, and a second shared by two segments makes it `ambiguous`. A segment without a trace id
@@ -460,7 +461,8 @@ const dispatchSegments = (d: any, t: number | null, coarse: boolean, ctx: any): 
 /**
  * T1 (110 F3): an id the line carries beats any window. A hook's `worker_run` follows that worker to
  * its segment and parents to it; a verify.run's `dispatch_run` goes to the segment of that dispatch
- * run's slug that holds the line. An id that names no record read here leaves the line to T2/T3.
+ * run's slug that holds the line. An id that names no record, or a record with no placement, leaves
+ * the line unmatched/ambiguous; it never joins another run.
  */
 function tiers(it: any, ctx: any, coarse: boolean): any[] | null {
   const s = it.link.scope;
@@ -497,7 +499,8 @@ function activity(it: any, ctx: any, found: any[]): any[] {
   } else if (it.kind === 'verify.run' && s.source === 'dispatch') {
     const p = it.place;
     const fits = ctx.dispatchRuns.filter((d: any) => d.run === p.run && d.lineage === p.lineage && p.at !== null && d.startMs !== null
-      && d.startMs <= p.at && (d.endMs === null || p.at <= d.endMs) && (s.task === null || d.tasks.has(s.task) || d.slug === s.task));
+      && d.startMs <= p.at && (d.endMs === null || p.at <= d.endMs) && (s.task === null || d.tasks.has(s.task) || d.slug === s.task)
+      && (s.dispatchRun === null || d.id === s.dispatchRun));
     if (fits.length !== 1) return found;
     segs = dispatchSegments(fits[0], p.at, coarse, ctx);
   } else return found;
@@ -520,8 +523,10 @@ function resolveSessions(items: any[], ctx: any): void {
     const s = it.link.scope;
     const p = it.place;
     const t = msOf(it.start);
-    let hits: any[] = s.workerRun ? ctx.workers.filter((w: any) => w.runId === s.workerRun) : [];
-    if (!hits.length && p.type === 'identity' && it.link.attempt !== null && (s.role === null || s.role === 'worker') && t !== null) {
+    let hits: any[] = [];
+    if (s.workerRun) {
+      hits = ctx.workers.filter((w: any) => w.runId === s.workerRun);
+    } else if (p.type === 'identity' && it.link.attempt !== null && (s.role === null || s.role === 'worker') && t !== null) {
       hits = ctx.workers.filter((w: any) => w.run === p.run && w.lineage === p.lineage && w.attempt === it.link.attempt
         && w.startMs !== null && w.startMs <= t && (w.endMs === null || t <= w.endMs));
     }

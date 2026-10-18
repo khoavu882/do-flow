@@ -751,6 +751,7 @@ test('110 P4: a hook with worker_run = A\'s worker, at a time both windows hold,
   assert.ok(hookSpan, 'hook span exists in trace A');
   assert.ok(workerSpan, 'worker A span exists in trace A');
   assert.equal(hookSpan.parentSpanId, workerSpan.spanId);
+  assert.equal(hookSpan.attrs.join, undefined);
 });
 
 test('110 P5: verify.run with dispatch_run joins that slug', (t) => {
@@ -763,6 +764,7 @@ test('110 P5: verify.run with dispatch_run joins that slug', (t) => {
   assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDB_110}`]);
   const verifySpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
   assert.ok(verifySpan, 'verify span exists in trace B');
+  assert.equal(verifySpan.attrs.join, undefined);
 });
 
 test('110 P6: B\'s dispatch no longer closes A (window.to null)', (t) => {
@@ -871,4 +873,70 @@ test('110 N5: the existing two-worktree control (:214) unchanged', (t) => {
   const v = view(dir);
   for (const n of [1, 2, 3]) assert.deepEqual(where(v, `${LEDGER}:${n}`), ['gap:ambiguous']);
 });
+
+test('110 ADV1: hook whose worker_run names no worker is ambiguous, not joined with join:activity or parented to another worker', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:38:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-d', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-dddddddddddd' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:ambiguous']);
+  const spans = allSpans(v).filter((s) => s.locator === `${TELEMETRY}:1`);
+  assert.equal(spans.length, 0);
+});
+
+test('110 ADV2: verify.run whose dispatch_run names no dispatch run is ambiguous, not joined with join:activity', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:40:00'), kind: 'verify.run', run: 'r110', lineage: 'l110', attempt: null, verify_id: VERIFY_ID, source: 'dispatch', task: 'B.1', risk: 'LOW', status: 'PASS', dispatch_run: 'p-dddddddddddd' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:ambiguous']);
+  const spans = allSpans(v).filter((s) => s.locator === `${TELEMETRY}:1`);
+  assert.equal(spans.length, 0);
+});
+
+test('110 ADV3: verify.run with dispatch_run and task null joins its dispatch run under concurrent dispatches (bites T1-verify)', (t) => {
+  const { dir } = seed110(t, {
+    extraStores: {
+      'dispatch/slug-c.json': {
+        version: 1, revision: 1, slug: 'slug-c',
+        run: {
+          dispatchRunId: 'p-cccccccccccc', slug: 'slug-c', state: 'completed', runKey: KEY_110, run: 'r110', lineage: 'l110', epoch: 1,
+          createdAt: at('10:32:00'), completedAt: at('10:52:00'),
+        },
+        dispatches: {
+          'd-cccccccccccc': { task: 'B.1', token: 1, workerRunId: 'w-cccccccccccc' },
+        },
+      },
+    },
+    telemetry: [
+      { timestamp: at('10:40:00'), kind: 'verify.run', run: 'r110', lineage: 'l110', attempt: null, verify_id: VERIFY_ID, source: 'dispatch', task: null, risk: 'LOW', status: 'PASS', dispatch_run: 'p-bbbbbbbbbbbb' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDB_110}`]);
+  const verifySpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  assert.ok(verifySpan, 'verify span exists in trace B');
+  assert.equal(verifySpan.attrs.join, undefined);
+});
+
+test('110 P7: hook with worker_run overrides a single T3 candidate when worker slug window is closed', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:52:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-b', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-bbbbbbbbbbbb' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDB_110}`]);
+  const hookSpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  const workerSpan = traceOf(v, IDB_110).spans.find((s) => s.locator === 'worker-runs/slug-b.json#w-bbbbbbbbbbbb');
+  assert.ok(hookSpan, 'hook span exists in trace B');
+  assert.ok(workerSpan, 'worker B span exists in trace B');
+  assert.equal(hookSpan.parentSpanId, workerSpan.spanId);
+  assert.equal(hookSpan.attrs.join, undefined);
+});
+
 
