@@ -51,7 +51,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 | Kind | Written by | Keys beyond the common ones |
 |---|---|---|
 | `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh`, `core/harnesses/claude/hooks/post-shell-observe.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `session`, `tool`, `tool_call_id`, `role`, `worker_run`, `test_class` (see Hook lines) |
-| `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `level`, `status`, `exit_code`, `duration_ms`, `checks_run` (see Verify lines) |
+| `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `level`, `status`, `exit_code`, `duration_ms`, `checks_run`, `v0` (see Verify lines) |
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared`, `shared_ref`, `failed_first` |
 
@@ -66,23 +66,34 @@ the `--emit decision` paths alike, after the verdict is known. The allowlist is 
 paired perf run measures: `pre-bash-guard` on claude, codex, gemini, kiro, antigravity and pi, and
 `user-prompt-submit` on claude and codex. Any other surface writes nothing.
 
-| Key | Type | Class | Source |
-|---|---|---|---|
-| `harness`, `event`, `policy` | `enum:harness`, `enum:event`, `enum:policy` | T2 | the allowlist entry (Kiro's `preToolUse` is written `PreToolUse`) |
-| `verdict` | `enum:verdict` | T2 | the bridge's classified outcome |
-| `duration_ms` | `uint` or null | T1 | `EPOCHREALTIME` at bridge entry and at the write; null on bash below 5 (macOS `/bin/bash` 3.2) |
-| `session` | `token` or null | T0 | the decoded session id |
-| `tool` | `token` or null | T2 | the decoded tool name; null for an MCP tool, so an MCP server or tool name is never recorded |
-| `tool_call_id` | `token` or null | T0 | Pi `toolCallId`, Claude and Codex `tool_use_id`; else null |
-| `test_class` | `enum:test_class` or null | T2 | command class on post-shell-observe, else null |
+| Key | Type | Class | Phase | Source |
+|---|---|---|---|---|
+| `harness`, `event`, `policy` | `enum:harness`, `enum:event`, `enum:policy` | T2 | P2 | the allowlist entry (Kiro's `preToolUse` is written `PreToolUse`) |
+| `verdict` | `enum:verdict` | T2 | P2 | the bridge's classified outcome |
+| `duration_ms` | `uint` or null | T1 | P2 | `EPOCHREALTIME` at bridge entry and at the write; null on bash below 5 (macOS `/bin/bash` 3.2) |
+| `session` | `token` or null | T0 | P2 | the decoded session id |
+| `tool` | `token` or null | T2 | P2 | the decoded tool name; null for an MCP tool, so an MCP server or tool name is never recorded |
+| `tool_call_id` | `token` or null | T0 | P2 | Pi `toolCallId`, Claude and Codex `tool_use_id`; else null |
+| `role` | `enum:role` or null | T2 | P2 | `DOFLOW_SESSION_ROLE` (`main` or `worker` exactly; else null) |
+| `worker_run` | `token` or null | T0 | P2 | worker run identifier from `DOFLOW_WORKER_RUN` |
+| `test_class` | `enum:test_class` or null | T2 | P3 | command class on post-shell-observe or classified via `envelope.jq`, else null |
 
-The line is `kind, harness, event, policy, verdict, duration_ms, timestamp, session, tool,
-tool_call_id, run, lineage, attempt`. Everything after `duration_ms` comes from a tuple that
-`envelope.jq` emits as its first line in `--arg mode encode` (only when that mode is passed
-explicitly): `{dft:1, date, timestamp, session, tool, tool_call_id, run, lineage, attempt}`, every
-value validated in jq. Every telemetry expression sits inside `try`, so a fault there yields
-`{"dft":1}`, which writes nothing and leaves the envelope and the policy verdict untouched. Off emits
-`{"dft":1}` too.
+The line is `kind, harness, event, policy, verdict, duration_ms, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, test_class`. Everything after `duration_ms` comes from a tuple that `envelope.jq` emits as its first line in `--arg mode encode` (only when that mode is passed explicitly): `{dft:1, date, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, test_class}`, every value validated in jq. Every telemetry expression sits inside `try`, so a fault there yields `{"dft":1}`, which writes nothing and leaves the envelope and the policy verdict untouched. Off emits `{"dft":1}` too.
+
+### Harness observation coverage (NFR-008)
+
+No behaviour depends on one harness; observation coverage is tabulated per harness across all eight targets:
+
+| Harness | Pre-shell event | Command class | Post-shell observation | Duration & status |
+|---|---|---|---|---|
+| `claude` | observed (`PreToolUse`) | observed | observed (`PostToolUse`, `PostToolUseFailure`) | measured |
+| `codex` | observed (`PreToolUse`) | observed | none | `unreached` |
+| `gemini` | observed (`BeforeTool`) | observed | none | `unreached` |
+| `kiro` | observed (`PreToolUse`) | observed | none | `unreached` |
+| `antigravity` | observed (`PreToolUse`) | observed | none | `unreached` |
+| `pi` | observed (`tool_call`) | observed | none | `unreached` |
+| `opencode` | unobserved | unobserved | none | unobserved |
+| `copilot` | unobserved | unobserved | none | unobserved |
 
 The target is `<config>/state/runs/telemetry/<UTC date>.jsonl`, with `<config>` from
 `DOFLOW_CONFIG_DIR`, else the nearest `.doflow` at or above the working directory, passing over a
@@ -103,34 +114,34 @@ verify verb writes, once its report is printed, one `verify.run`, then for each 
 (`src/runtime/dispatch/verify-run.ts`) writes one `verify.run` with `source: dispatch` after its
 spawn settles, and no tier or check line. All lines of one run share `verify_id`.
 
-| Kind | Key | Type | Class | Source |
-|---|---|---|---|---|
-| all three | `verify_id` | `hex16` | T0 | 8 random bytes per run, never derived from a path, task or command |
-| `verify.run` | `source` | `enum:source` | T2 | `verb` or `dispatch` |
-| `verify.run` | `task` | `token` or null | T0 | the task id when it passes `token`, else null |
-| `verify.run` | `dispatch_run` | `token` or null | T0 | dispatch run identifier when source is dispatch, else null |
-| `verify.run` | `risk` | `enum:risk` or null | T2 | the report's risk level; null from the dispatch runner |
-| `verify.run` | `level` | `enum:level` or null | T2 | the verification level (L1..L3) derived from risk; null from the dispatch runner |
-| `verify.run` | `status` | `enum:status` or null | T2 | the report status; a status outside the vocabulary (`INCONCLUSIVE`) is null |
-| `verify.run` | `exit_code` | `uint` or null | T1 | the verify run's exit code |
-| `verify.run` | `duration_ms` | `uint` or null | T1 | total elapsed milliseconds for the verify run |
-| `verify.run` | `checks_run` | `uint` or null | T1 | count of executed checks only |
-| `verify.run` | `v0` | `enum:v0` or null | T2 | whether V0 optimizations were enabled (`on`/`off`); null when V0 does not apply (e.g. L3 via `v0Applies`, or dispatch) |
-| `verify.tier`, `verify.check` | `tier` | `token` or null | T2 | the tier id |
-| `verify.tier`, `verify.check` | `status` | `enum:status` or null | T2 | the tier's or the check's status |
-| `verify.tier` | `selection_basis`, `fallback` | `enum:selection_basis`, `enum:fallback`, or null | T2 | the targeted tier's test selection; null on every other tier |
-| `verify.tier` | `selected`, `total` | `uint` or null | T1 | the selection's counts; null when unknown |
-| `verify.tier` | `duration_ms` | `uint` or null | T1 | sum of check durations in the tier (derived-sum) |
-| `verify.check` | `exit_code` | `uint` or null | T1 | the check process exit code |
-| `verify.check` | `duration_ms` | `uint` or null | T1 | check execution duration, or the follower's wait, in milliseconds (null when `NOT_RUN`) |
-| `verify.check` | `tests` | `uint` or null | T1 | total test count parsed from test output |
-| `verify.check` | `tests_failed` | `uint` or null | T1 | failed test count parsed from test output |
-| `verify.check` | `cpu_ms` | `uint` or null | T1 | child CPU time in milliseconds (Linux only, null on other platforms) |
-| `verify.check` | `resource_basis` | `enum:resource_basis` or null | T2 | `proc-children`, `unreached-platform`, or `unreached-read` |
-| `verify.check` | `check_key` | `hex16` or null | T0 | 16-hex deterministic check key |
-| `verify.check` | `shared` | `enum:shared` or null | T2 | `none` for unshared checks, `in-run` for checks reused within a run, `leader` or `follower` for overlapping V0 checks |
-| `verify.check` | `shared_ref` | `hex32` or null | T0 | random lock token for a leader or follower, else null |
-| `verify.check` | `failed_first` | `enum:failed_first` or null | T2 | `none` for normal runs, `pass` or `fail` when failed-first ran; null when `NOT_RUN` |
+| Kind | Key | Type | Class | Phase | Source |
+|---|---|---|---|---|---|
+| all three | `verify_id` | `hex16` | T0 | P2 | 8 random bytes per run, never derived from a path, task or command |
+| `verify.run` | `source` | `enum:source` | T2 | P2 | `verb` or `dispatch` |
+| `verify.run` | `task` | `token` or null | T0 | P2 | the task id when it passes `token`, else null |
+| `verify.run` | `dispatch_run` | `token` or null | T0 | P2 | dispatch run identifier when source is dispatch, else null |
+| `verify.run` | `risk` | `enum:risk` or null | T2 | P2 | the report's risk level; null from the dispatch runner |
+| `verify.run` | `level` | `enum:level` or null | T2 | P5.1 | the verification level (L1..L3) derived from risk; null from the dispatch runner |
+| `verify.run` | `status` | `enum:status` or null | T2 | P2 | the report status; a status outside the vocabulary (`INCONCLUSIVE`) is null |
+| `verify.run` | `exit_code` | `uint` or null | T1 | P3 | the verify run's exit code |
+| `verify.run` | `duration_ms` | `uint` or null | T1 | P3 | total elapsed milliseconds for the verify run |
+| `verify.run` | `checks_run` | `uint` or null | T1 | P3 | count of executed checks only |
+| `verify.run` | `v0` | `enum:v0` or null | T2 | P5.2 | whether V0 optimizations were enabled (`on`/`off`); null when V0 does not apply (e.g. L3 via `v0Applies`, or dispatch) |
+| `verify.tier`, `verify.check` | `tier` | `token` or null | T2 | P2 | the tier id |
+| `verify.tier`, `verify.check` | `status` | `enum:status` or null | T2 | P2 | the tier's or the check's status |
+| `verify.tier` | `selection_basis`, `fallback` | `enum:selection_basis`, `enum:fallback`, or null | T2 | P2 | the targeted tier's test selection; null on every other tier |
+| `verify.tier` | `selected`, `total` | `uint` or null | T1 | P2 | the selection's counts; null when unknown |
+| `verify.tier` | `duration_ms` | `uint` or null | T1 | P3 | sum of check durations in the tier (derived-sum) |
+| `verify.check` | `exit_code` | `uint` or null | T1 | P3 | the check process exit code |
+| `verify.check` | `duration_ms` | `uint` or null | T1 | P3 | check execution duration, or the follower's wait, in milliseconds (null when `NOT_RUN`) |
+| `verify.check` | `tests` | `uint` or null | T1 | P3 | total test count parsed from test output |
+| `verify.check` | `tests_failed` | `uint` or null | T1 | P3 | failed test count parsed from test output |
+| `verify.check` | `cpu_ms` | `uint` or null | T1 | P3 | child CPU time in milliseconds (Linux only, null on other platforms) |
+| `verify.check` | `resource_basis` | `enum:resource_basis` or null | T2 | P3 | `proc-children`, `unreached-platform`, or `unreached-read` |
+| `verify.check` | `check_key` | `hex16` or null | T0 | P3 | 16-hex deterministic check key |
+| `verify.check` | `shared` | `enum:shared` or null | T2 | P3 | `none` for unshared checks, `in-run` for checks reused within a run, `leader` or `follower` for overlapping V0 checks |
+| `verify.check` | `shared_ref` | `hex32` or null | T0 | P5.4 | random lock token for a leader or follower, else null |
+| `verify.check` | `failed_first` | `enum:failed_first` or null | T2 | P5.3 | `none` for normal runs, `pass` or `fail` when failed-first ran; null when `NOT_RUN` |
 
 `timestamp` is the report's `startedAt` for the run line, the check's own start for a check line,
 and the first check's start for a tier line. Timing comes from the contract runner's `metrics`
@@ -198,6 +209,7 @@ G45.1 holds those three equal.
 | `source` | `verb`, `dispatch` |
 | `status` | `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`, `NOT_APPLICABLE`, `SKIPPED`, `NOT_RUN` |
 | `risk` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
+| `role` | `main`, `worker` |
 | `level` | `L0`, `L1`, `L2`, `L3` |
 | `selection_basis` | `changed-test-files`, `explicit-pattern`, `none` |
 | `fallback` | `change-scope-unavailable`, `no-changed-tests`, `unsafe-path`, `not-scopable` |
