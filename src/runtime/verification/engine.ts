@@ -39,7 +39,8 @@ const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate
 const { assertSafeTaskId } = require('../evidence-ledger.ts');
 const { upkeepAfterVerify } = require('../storage/upkeep.ts');
 const { emitVerifyTelemetry } = require('./telemetry-emit.ts');
-const { resolveRunsLocation } = require('../trace/ledger.ts');
+const { resolveRunsLocation, outerProjectRoot } = require('../trace/ledger.ts');
+const { projectRoot: lifecycleProjectRoot } = require('../lifecycle/root.ts');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -130,6 +131,8 @@ class VerificationEngine {
   runner: any;
   recoveryOverride: any;
   v0: boolean;
+  platform: string;
+  configDir: string;
 
   /**
    * @param {Object} [options]
@@ -141,6 +144,8 @@ class VerificationEngine {
    * @param {Function} [options.clock] injection seam returning epoch milliseconds
    * @param {RecoveryManager} [options.recovery] overrides the per-risk-level manager
    * @param {string} [options.logDir] where failing checks' full logs go (`verifyStateRoot`)
+   * @param {string} [options.platform] platform used for command execution
+   * @param {string} [options.configDir] resolved verification state store
    * @param {boolean} [options.v0] whether V0 behavior is enabled (IC-015)
    */
   constructor(options: any = {}) {
@@ -1519,9 +1524,9 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
  */
 /**
  * Where verification keeps its own state (check logs, the verify-moment upkeep): the store the
- * ledger and doflow-run resolve (`resolve_config_dir`) — `DOFLOW_CONFIG_DIR`, else the nearest
- * existing `.doflow` above `start`, else the install this runtime was copied into, else an existing
- * `~/.doflow`. Only when none exists (a project never set up) is it `<start>/.doflow`, as before.
+ * lifecycle owns — `DOFLOW_CONFIG_DIR`, else the nearest existing `.doflow` above the main checkout,
+ * else the install this runtime was copied into, else an existing `~/.doflow`. Only when none
+ * exists (a project never set up) is it the owner's `.doflow`.
  * A `.doflow` created under the working directory of a dispatch attempt worktree captured every
  * later record from there and was deleted with the worktree (088 G-O1 D4).
  * @param {Object} [options]
@@ -1534,7 +1539,9 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
  *   `configDir` when it is named `.doflow` (the root the storage upkeep takes), else null
  */
 function verifyStateRoot({ start, env = process.env, homeDir = os.homedir(), installRoot = REPO_ROOT, fsImpl = nodeFs }: any = {}): { configDir: string; projectRoot: string | null } {
-  const from = path.resolve(start || process.cwd());
+  // Match worker/lifecycle state ownership before looking for a store. A sibling linked checkout
+  // cannot walk up to the main checkout, and a nested .doflow is never a store root (110/111).
+  const from = lifecycleProjectRoot(outerProjectRoot(path.resolve(start || process.cwd())));
   const isDir = (dir: string): boolean => { try { return fsImpl.statSync(dir).isDirectory(); } catch { return false; } };
   const at = resolveRunsLocation({ start: from, env, homeDir, fsImpl });
   let configDir = path.join(from, '.doflow');
@@ -1720,7 +1727,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   const exitCode = report.status === 'PASS' ? 0 : 1;
   // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
-  emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode, v0: v0 ? 'on' : 'off' }, start: cwd, env, fsImpl });
+  emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode, v0: v0 ? 'on' : 'off' }, start: state.projectRoot || cwd, env, fsImpl });
   upkeepAfterVerify({ projectRoot: state.projectRoot });
   return finishRuntime(exitCode);
 }
