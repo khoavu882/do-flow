@@ -18,13 +18,11 @@ remains the chain's own implementation phase.
 |------|-------|
 | `skills/` | Chain skills: `do-brainstorm` (also creates the feature branch/dir, writes `requirement.md`, optionally captures a PBI/ticket ID), `do-design` (writes `design.md`), `do-plan` (also writes the dependency-ordered task checklist inside `plan.md`, plus a Repo Branch Plan for multi-repo features), `do-execute-plan` (also supports `--scaffold` to emit a reviewable code scaffold under the feature dir — the source layout, signatures and test stubs the three artifacts imply, plus a per-dependency-service contract frame — and lazily creates/tracks each repo's branch as it's first touched; a non-local dependency with a `external-contract:` field gets a frame generated from that doc instead of the default silent skip), `do-test`, `do-code-review`. `do-constitution` is standalone, not part of the numbered chain. |
 | `scripts/doflow/` | The runtime seam. Skills call `bin/doflow-run <verb>` and never name a helper: the dispatcher decides which `bash/*.sh` helper or Node command serves each verb. The dispatcher owns the verb namespace and is the only place it is written down — an inventory here is the drift this row used to produce. |
-| `hooks/`               | `pre-implement-gate.sh` — PreToolUse(Edit\|Write) backstop for the one hard gate |
-| `templates/doflow/`    | `requirement-template.md` (optional `**Ticket:**` header field) / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, supports optional `depends-on:` and `external-contract:` fields per task, and a Repo Branch Plan table for multi-repo features) / `state-template.md` (Repo Branch Status table) / `constitution-template.md` / `external-contract-template.md` (pinned structure for a `external-contract:` target — a documented external dependency `--scaffold` can generate a mechanical frame from) — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
-| `references/`          | `CONSTITUTION_BASE.md` — tier-1 global constitution base |
+| `shared/hooks/policies/` | `mcp-tool-guard.sh`: MCP policy; `pre-bash-guard.sh`: command denials; `pre-implementation-gate.sh`: artifact/readiness edit gate; `stop-check.sh`: blocks completion with required work left. Each harness has policy-calling hook front doors. |
+| `templates/doflow/` | `constitution-template.md` (base); `data-model-template.md`; `design-template.md` (system design); `external-contract-template.md` (pinned structure; `--scaffold` mechanical frame); `intent-template.md` (pre-chain); `plan-template.md` (merged Tasks; optional per-task `depends-on:`/`external-contract:`; multi-repo Repo Branch Plan table); `question-log-template.md` (rounds); `requirement-template.md` (optional `**Ticket:**` header); `specs-template.md` (interface contracts); `state-template.md` (Repo Branch Status table). Chain skills seed feature dirs from a shared pool, not per-skill `assets/`. |
+| `guidance/references/` | `ARTIFACT_FORMAT.md`, `ARTIFACT_VOICE.md`, `CONSTITUTION_BASE.md` (global tier-1), `DIAGRAM_GUIDE.md`, `DOFLOW_CHAIN.md`, `EVIDENCE_LEDGER.md`, `MODEL_SELECTION.md`, `ORCHESTRATION.md`, `RESEARCH_CONFIG.md`, `WORKFLOW_HANDOFF.md` — on-demand guidance. |
 
-> Paths above are relative to the installed root (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}` globally,
-> or a project's own `.claude/` in project scope). Chain skills' resolver lookups check the global
-> config dir first, then walk upward from `$PWD` for a project-scoped `.claude/` install.
+> Except `skills/`, use resolver roots: `.doflow/` at/above `$PWD`, then `$HOME/.doflow/`; skills install per harness in its skills dir.
 
 ## Core design rules
 
@@ -53,9 +51,7 @@ remains the chain's own implementation phase.
   `requirement.md`'s `**Intent:**` field — the argument that does so is declared in `/do-brainstorm`'s
   own `argument-hint`, which is where a single-skill argument is owned. Discovery without an intent is
   unchanged and is the ordinary case.
-- **One hard gate:** source edits are blocked when a feature is started but `requirement.md`,
-  `design.md`, or `plan.md` is missing. Every other gate is advisory/skippable (solo,
-  low-ceremony).
+- **Implement gate (hard):** Denies edits for started features missing `requirement.md`/`design.md`/`plan.md` (`missing-artifacts`), or held tasks without READY at their workflow's first source-mutating stage (`readiness-missing`, `readiness-not-ready`, `readiness-wrong-template`). Other blockers: `shared/hooks/policies/`; all other chain gates are advisory/skippable.
 - **Two-tier constitution — what is computed vs. what is convention.**
   `references/CONSTITUTION_BASE.md` (tier-1, global) is overlaid by
   `<repo>/agent-docs/constitution.md` (tier-2, per-repo), and tier-2 takes precedence. **That
