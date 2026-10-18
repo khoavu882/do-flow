@@ -84,6 +84,31 @@ test('worker: the eight harnesses declare IC-002 values and nothing else as supp
   }
 });
 
+// W2-1 (109 review A-1): the codex recipes are what the dispatcher launches, and the evidence record
+// only shows the flags exist. Pin every supported entry, argv included, so widening a sandbox or
+// swapping a disabled feature cannot pass with the record untouched.
+const CODEX_RECIPES = {
+  oneShot: { argv: ['--ephemeral', '-'], promptVia: 'stdin' },
+  structuredOutput: { argv: ['--json', '-o', '{lastMessageFile}'], parser: 'codex-exec-json-v1' },
+  readOnly: { argv: ['exec', '-s', 'read-only'] },
+  isolatedEdit: { argv: ['exec', '-s', 'workspace-write'] },
+  spawnDenial: { argv: ['--disable', 'multi_agent', '--disable', 'multi_agent_v2'] },
+  runnableProbe: { argv: ['exec', '--help'] },
+};
+
+test('worker: the six supported codex entries equal their committed status, evidence, verifiedOn and recipe', () => {
+  const codex = loadRegistry({ repoRoot: REPO }).harnesses.find((harness) => harness.id === 'codex').worker;
+  assert.deepEqual(Object.keys(CODEX_RECIPES).sort(), [...CODEX_SUPPORTED, 'isolatedEdit'].sort());
+  for (const [key, recipe] of Object.entries(CODEX_RECIPES)) {
+    const { status, evidence, verifiedOn, argv, promptVia, parser } = codex[key];
+    assert.deepEqual(
+      { status, evidence, verifiedOn, argv, promptVia, parser },
+      { status: 'supported', evidence: [CODEX_RECORD], verifiedOn: '2026-10-18', promptVia: undefined, parser: undefined, ...recipe },
+      `codex ${key}`,
+    );
+  }
+});
+
 test('worker: every harness orchestration block equals the copy taken at be752d8', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(Object.keys(ORCHESTRATION_AT_BE752D8), HARNESSES);
