@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { buildInstallMirror, createScratch } = require('../helper/hook-fixtures');
+const { tempDir } = require('../helper/tmp.js');
 
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
@@ -55,6 +56,15 @@ function project({ state = 'runs', envelope } = {}) {
     fs.writeFileSync(file, changed);
   }
   return root;
+}
+
+/** The dispatch attempt layout leaves its delivery pack in a nested worktree-local .doflow. */
+function dispatchWorktree(root) {
+  const worktree = path.join(root, '.doflow/state/dispatch-worktrees/d-000000000001');
+  const delivery = path.join(worktree, '.doflow/state/delivery');
+  fs.mkdirSync(delivery, { recursive: true });
+  fs.writeFileSync(path.join(delivery, 'A.1.json'), '{}\n');
+  return worktree;
 }
 
 function baseEnv(root, extra) {
@@ -336,6 +346,97 @@ test('no write without <config>/state, and no directory above runs/telemetry is 
   const stateOnly = project({ state: 'state' });
   run(stateOnly, surface, fixtureNative(surface));
   assert.deepEqual(fs.readdirSync(path.join(stateOnly, '.doflow/state')), [], 'no runs directory under state');
+});
+
+test('no store above cwd: the bridge returns 0 without treating /state as a config', (t) => {
+  const cwd = tempDir(t, 'doflow-no-store-');
+  for (let dir = cwd; ; dir = path.dirname(dir)) {
+    assert.equal(fs.existsSync(path.join(dir, '.doflow')), false, `${dir} has no .doflow store`);
+    if (dir === path.dirname(dir)) break;
+  }
+
+  const marker = path.join(cwd, 'mkdir.log');
+  const startup = path.join(cwd, 'bash-env');
+  fs.writeFileSync(marker, '');
+  fs.writeFileSync(startup, [
+    '[() {',
+    '  if [[ "$#" -eq 3 && "$1" == -d && "$2" == /state && "$3" == "]" ]]; then return 0; fi',
+    '  builtin [ "$@"',
+    '}',
+    'mkdir() { printf "%s\\n" "$*" >> "$DOFLOW_TEST_MKDIR_LOG"; return 1; }',
+    '',
+  ].join('\n'));
+
+  const bridgePath = path.join(REPO, 'core/harnesses/shared/hooks/bridge/bridge.sh');
+  const result = spawnSync(BASH, [
+    '-c', 'source "$2"; source "$1"; doflow_bridge_hook_line codex PreToolUse pre-bash-guard', 'bash', bridgePath, startup,
+  ], {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      HOME: '',
+      XDG_CONFIG_HOME: '',
+      PATH: process.env.PATH,
+      DOFLOW_FAILURE_CAPTURE: 'off',
+      DOFLOW_TEST_MKDIR_LOG: marker,
+      DOFLOW_TELEMETRY: 'on',
+      DF_TUPLE: '{"dft":1,"date":"2026-10-18","timestamp":"2026-10-18T00:00:00.000Z"}',
+      DF_BRIDGE_OUTCOME: 'allow',
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, '');
+  assert.equal(fs.readFileSync(marker, 'utf8'), '', 'the bridge never attempts to create /state/runs/telemetry');
+  assert.deepEqual(fs.readdirSync(cwd).sort(), ['bash-env', 'mkdir.log'], 'the no-store call creates no files');
+});
+
+test('S1: a hook from a dispatch worktree writes one line to the project store only', () => {
+  const root = project();
+  const worktree = dispatchWorktree(root);
+  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), { cwd: worktree });
+  assert.equal(hookLines(path.join(root, '.doflow')).length, 1, 'the project gets one line');
+  assert.deepEqual(hookLines(path.join(worktree, '.doflow')), [], 'the worktree gets no line');
+  assert.equal(fs.existsSync(path.join(worktree, '.doflow/state/runs')), false, 'the worktree gets no state/runs');
+});
+
+test('S2: an old worktree state/runs fragment does not shadow the project store', () => {
+  const root = project();
+  const worktree = dispatchWorktree(root);
+  fs.mkdirSync(path.join(worktree, '.doflow/state/runs'), { recursive: true });
+  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), { cwd: worktree });
+  assert.equal(hookLines(path.join(root, '.doflow')).length, 1, 'the project gets one line');
+  assert.deepEqual(hookLines(path.join(worktree, '.doflow')), [], 'the old fragment gets no line');
+  assert.equal(fs.existsSync(telemetryDir(path.join(worktree, '.doflow'))), false, 'the old fragment gets no telemetry directory');
+});
+
+test('C1: telemetry off writes nothing in the project or worktree store', () => {
+  const root = project();
+  const worktree = dispatchWorktree(root);
+  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), {
+    cwd: worktree, env: { DOFLOW_TELEMETRY: 'off' },
+  });
+  assert.deepEqual(hookLines(path.join(root, '.doflow')), [], 'the project gets no line');
+  assert.deepEqual(hookLines(path.join(worktree, '.doflow')), [], 'the worktree gets no line');
+  assert.equal(fs.existsSync(telemetryDir(path.join(root, '.doflow'))), false, 'the project gets no telemetry directory');
+  assert.equal(fs.existsSync(telemetryDir(path.join(worktree, '.doflow'))), false, 'the worktree gets no telemetry directory');
+});
+
+test('C2: a flat project without runs does not fall through to the HOME store', () => {
+  const root = project({ state: 'state' });
+  const home = scratch.path(`flat-home-${homes += 1}`);
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(path.join(home, '.doflow/state/runs'), { recursive: true });
+  const surface = SURFACES['codex:pre-bash-guard'];
+  run(root, surface, fixtureNative(surface), {
+    env: { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') },
+  });
+  assert.deepEqual(hookLines(path.join(root, '.doflow')), [], 'the flat project gets no line');
+  assert.deepEqual(hookLines(path.join(home, '.doflow')), [], 'HOME gets no line');
+  assert.equal(fs.existsSync(path.join(root, '.doflow/state/runs')), false, 'the project does not gain runs');
+  assert.equal(fs.existsSync(telemetryDir(path.join(home, '.doflow'))), false, 'HOME gets no telemetry directory');
 });
 
 test('a linked worktree subdirectory writes to the store of the checkout it lives in; DOFLOW_CONFIG_DIR wins', () => {

@@ -12,6 +12,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const { telemetryOff, TelemetryWriter } = require('../../src/runtime/trace/telemetry.ts');
+const { resolveRunsLocation, outerProjectRoot } = require('../../src/runtime/trace/ledger.ts');
 
 const NOW = new Date('2026-10-17T08:30:15.123Z');
 const NOW_ISO = '2026-10-17T08:30:15.123Z';
@@ -208,6 +209,53 @@ test('A.1 writer: resolves the config by walking up from start, and DOFLOW_CONFI
   writer(nested, { env: { ...VALID, DOFLOW_CONFIG_DIR: other } }).write([{ kind: 'verify.tier' }]);
   assert.equal(readLines(path.join(other, 'state', 'runs', 'telemetry')).length, 1);
   assert.equal(readLines(dir).length, 1, 'the project store did not grow');
+});
+
+test('N3: A.1 block: resolveRunsLocation and outerProjectRoot map <W> to <P>; a flat project is unchanged', (t) => {
+  const scratch = tempDir(t, 'doflow-telemetry-writer-n3-');
+  const env = {
+    HOME: path.join(scratch, 'home'),
+    XDG_CONFIG_HOME: path.join(scratch, 'xdg'),
+  };
+  delete env.DOFLOW_CONFIG_DIR;
+  fs.mkdirSync(env.HOME, { recursive: true });
+  fs.mkdirSync(env.XDG_CONFIG_HOME, { recursive: true });
+
+  const P = tempDir(t, 'doflow-telemetry-writer-p-');
+  const W = path.join(P, '.doflow', 'state', 'dispatch-worktrees', 'd-000000000001');
+  fs.mkdirSync(path.join(P, '.doflow', 'state', 'runs'), { recursive: true });
+  fs.mkdirSync(path.join(W, '.doflow', 'state', 'delivery'), { recursive: true });
+  fs.writeFileSync(path.join(W, '.doflow', 'state', 'delivery', 'A.1.json'), '{}');
+
+  // map <W> to <P>
+  const locW = resolveRunsLocation({ start: W, env });
+  assert.equal(locW.configDir, path.join(P, '.doflow'));
+  assert.equal(locW.origin, 'project');
+  assert.equal(outerProjectRoot(W), P);
+
+  // a flat project is unchanged
+  const locP = resolveRunsLocation({ start: P, env });
+  assert.equal(locP.configDir, path.join(P, '.doflow'));
+  assert.equal(locP.origin, 'project');
+  assert.equal(outerProjectRoot(P), P);
+});
+
+test('F4: outerProjectRoot handles drive root, POSIX root, and normal paths', () => {
+  // Drive root preserves trailing separator (C:\, not drive-relative C:)
+  assert.equal(outerProjectRoot('C:\\.doflow\\x'), 'C:\\');
+  assert.equal(outerProjectRoot('C:\\.doflow'), 'C:\\');
+  assert.equal(outerProjectRoot('d:\\.doflow\\state'), 'd:\\');
+  assert.equal(outerProjectRoot('C:/.doflow/x'), 'C:/');
+
+  // POSIX root preserves '/'
+  assert.equal(outerProjectRoot('/.doflow/x'), '/');
+  assert.equal(outerProjectRoot('/.doflow'), '/');
+  assert.equal(outerProjectRoot('/.doflow/state/runs'), '/');
+
+  // Normal paths
+  assert.equal(outerProjectRoot('/Users/user/project/.doflow/state/dispatch-worktrees/d-1'), '/Users/user/project');
+  assert.equal(outerProjectRoot('/Users/user/project'), '/Users/user/project');
+  assert.equal(outerProjectRoot('C:\\Users\\user\\project\\.doflow\\state'), 'C:\\Users\\user\\project');
 });
 
 test('A.1 writer: creates only telemetry/, non-recursively, and only when state/runs exists', (t) => {

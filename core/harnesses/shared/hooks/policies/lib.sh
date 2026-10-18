@@ -459,8 +459,8 @@ nudge_feature_active() {
 # S3: succeed when a `/do-*` skill already ran this session, read from the run ledger:
 # the lexically last <config>/state/runs/*.jsonl, whose last line's timestamp is not
 # earlier than the session's captured_at (both YYYY-MM-DDTHH:MM:SSZ). Config dir:
-# $DOFLOW_CONFIG_DIR, else the nearest `.doflow` at or above <cwd>, else $HOME/.doflow (none when
-# HOME is unset or empty).
+# $DOFLOW_CONFIG_DIR, else the nearest non-nested `.doflow` at or above <cwd>, else $HOME/.doflow
+# (none when HOME is unset or empty).
 # Without a captured_at the ledger counts when it is named for today's UTC date; a last
 # line without a usable timestamp counts too. No ledger, or an empty one, does not.
 nudge_ledger_active() {
@@ -472,7 +472,15 @@ nudge_ledger_active() {
   else
     config="${HOME:+$HOME/.doflow}"
     # The ancestor in the walk's own spelling (`\` read as `/`), the form its test succeeded on.
-    if dir=$(nudge_find_up "$cwd" .doflow -d); then config="${dir//\\//}/.doflow"; fi
+    if dir=$(nudge_find_up "$cwd" .doflow -d); then
+      while :; do
+        dir="${dir//\\//}"
+        case "$dir/" in
+          */.doflow/*) dir=$(nudge_find_up "${dir%/*}" .doflow -d) || break ;;
+          *) config="$dir/.doflow"; break ;;
+        esac
+      done
+    fi
   fi
   [ -n "$config" ] || return 1
   for f in "$config"/state/runs/*.jsonl; do

@@ -445,6 +445,21 @@ test('ledger probe: config dir from DOFLOW_CONFIG_DIR, then the nearest .doflow 
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
 });
 
+test('S4: the ledger probe skips the nested worktree .doflow and reads the project ledger', () => {
+  const project = fresh('project');
+  const runs = path.join(project, '.doflow/state/runs');
+  const worktree = path.join(project, '.doflow/state/dispatch-worktrees/d-000000000001');
+  const delivery = path.join(worktree, '.doflow/state/delivery');
+  fs.mkdirSync(runs, { recursive: true });
+  fs.mkdirSync(delivery, { recursive: true });
+  write(path.join(delivery, 'A.1.json'), '{}\n');
+  write(path.join(runs, `${today()}.jsonl`), rec(`${today()}T10:05:00Z`));
+  const session = fresh('session');
+  write(path.join(session, 'git-context.json'), JSON.stringify({ captured_at: `${today()}T10:00:00Z` }));
+  assert.equal(callIn(worktree, 'nudge_ledger_active', [worktree, session], { DOFLOW_CONFIG_DIR: undefined }).status, 0,
+    'the outer project ledger is active with DOFLOW_CONFIG_DIR unset');
+});
+
 test('ledger probe: a cwd without a leading / ends the walk and finds a .doflow on its own path', () => {
   const base = relativeTree();
   const session = fresh('session');

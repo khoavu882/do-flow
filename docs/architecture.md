@@ -449,7 +449,14 @@ The lifecycle ledger is independent of a harness directory: project installation
 `<project>/.doflow/state/`; user installations use `~/.doflow/state/`. Lifecycle backups and the
 install manifest use sibling paths under `.doflow/` (`backups/` and `.install-manifest.json`). The
 same neutral state directory also holds what the runtime writes: per-task evidence and claims, and
-the date-partitioned run ledger the dispatcher appends to. Lifecycle commands no longer anchor
+the date-partitioned run ledger the dispatcher appends to, with worker ledger lines resolving to the project
+store by passing over a `.doflow` inside another `.doflow` (a dispatch worktree's); that nested
+worktree `.doflow` used to hide the project store because the launch writes the worker's delivery pack
+into its own `.doflow/state/delivery`. **Known limit:** a project located under a `.doflow` folder
+resolves its state to the outer store (usually `~/.doflow`). A symlinked checkout may resolve
+differently in the shell hook and `ledger.ts` (logical path) than in `doflow-run` (physical path),
+so hook and ledger lines can split across two stores. Read-only workers on claim worktrees outside
+the project still have no route to the project store (follow-up). Lifecycle commands no longer anchor
 metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
 Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the runtime prune (`pruneRetiredRuntimeFiles`): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. The same directory holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
 

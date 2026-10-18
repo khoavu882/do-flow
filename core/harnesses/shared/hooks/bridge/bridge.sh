@@ -90,11 +90,16 @@ doflow_bridge_hook_line() {
   else
     d=${PWD:-}
     case "$d" in /*) ;; *) return 0 ;; esac
-    while [ ! -d "$d/.doflow" ]; do
-      [ -n "$d" ] || return 0
+    while :; do
+      if [ -d "$d/.doflow" ]; then
+        case "$d/" in
+          */.doflow/*) ;;
+          *) d=${d%/}/.doflow; break ;;
+        esac
+      fi
+      [ -n "$d" ] && [ "$d" != "/" ] || return 0
       d=${d%/*}
     done
-    d=$d/.doflow
   fi
   [ -d "$d/state" ] || return 0
   day=${DF_TUPLE:17:10}

@@ -228,6 +228,26 @@ function runsDir(configDir: string): string {
 }
 
 /**
+ * Returns the path before the first `.doflow` segment, else `dir`.
+ * @param {string} dir
+ * @returns {string}
+ */
+function outerProjectRoot(dir: any): any {
+  if (!dir || typeof dir !== 'string') return dir;
+  const segments = dir.split(/[/\\]/);
+  const idx = segments.indexOf('.doflow');
+  if (idx === -1) return dir;
+  const before = segments.slice(0, idx);
+  if (before.length === 1 && before[0] === '') return dir.startsWith('\\') ? '\\' : '/';
+  if (before.length === 1 && /^[A-Za-z]:$/.test(before[0])) {
+    const sep = dir.length > 2 && dir[2] === '/' ? '/' : '\\';
+    return before[0] + sep;
+  }
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : path.sep;
+  return before.join(sep) || '.';
+}
+
+/**
  * Mirrors the dispatcher's own `resolve_config_dir` (design §4.1) so a view reads the same ledger
  * the dispatcher wrote. Resolving from `process.cwd()` alone would miss every run recorded by a
  * dispatcher invoked from a subdirectory of the project, and report an empty ledger for a project
@@ -258,10 +278,12 @@ function resolveRunsLocation({ start, global: forceGlobal = false, env = process
     const candidate = path.join(dir, '.doflow');
     searched.push(candidate);
     let found = false;
-    try {
-      found = fsImpl.statSync(path.join(candidate, containing)).isDirectory();
-    } catch {
-      found = false; // Not readable is the same as not there for a lookup that must not throw.
+    if (!dir.split(/[/\\]/).includes('.doflow')) {
+      try {
+        found = fsImpl.statSync(path.join(candidate, containing)).isDirectory();
+      } catch {
+        found = false; // Not readable is the same as not there for a lookup that must not throw.
+      }
     }
     if (found) return { dir: runsDir(candidate), configDir: candidate, origin: 'project', searched };
     const parent = path.dirname(dir);
@@ -642,6 +664,7 @@ module.exports = {
   RunLedger,
   runsDir,
   resolveRunsLocation,
+  outerProjectRoot,
   sanitizeRunEvent,
   normalizeRunRecord,
   groupSessions,
