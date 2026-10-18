@@ -51,7 +51,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 | Kind | Written by | Keys beyond the common ones |
 |---|---|---|
 | `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh`, `core/harnesses/claude/hooks/post-shell-observe.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `session`, `tool`, `tool_call_id`, `role`, `worker_run`, `test_class` (see Hook lines) |
-| `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `status`, `exit_code`, `duration_ms`, `checks_run` (see Verify lines) |
+| `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `level`, `status`, `exit_code`, `duration_ms`, `checks_run` (see Verify lines) |
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared` |
 
@@ -110,6 +110,7 @@ spawn settles, and no tier or check line. All lines of one run share `verify_id`
 | `verify.run` | `task` | `token` or null | T0 | the task id when it passes `token`, else null |
 | `verify.run` | `dispatch_run` | `token` or null | T0 | dispatch run identifier when source is dispatch, else null |
 | `verify.run` | `risk` | `enum:risk` or null | T2 | the report's risk level; null from the dispatch runner |
+| `verify.run` | `level` | `enum:level` or null | T2 | the verification level (L1..L3) derived from risk; null from the dispatch runner |
 | `verify.run` | `status` | `enum:status` or null | T2 | the report status; a status outside the vocabulary (`INCONCLUSIVE`) is null |
 | `verify.run` | `exit_code` | `uint` or null | T1 | the verify run's exit code |
 | `verify.run` | `duration_ms` | `uint` or null | T1 | total elapsed milliseconds for the verify run |
@@ -140,7 +141,7 @@ created `state/runs` in it.
 A failing check leaves a `.doflow/state/verification/logs` fragment in the working directory, and
 the walk passes over it. With no project store nothing is written; there is no global fallback.
 
-Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` and `v0` follow in P5.
+Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` follows in P5.2.
 
 `recordFields` are not line keys: they are the identifiers a run record carries
 (`task-run.run.traceId`, `task-run.history.traceId`, `task-run.history.traceLink`,

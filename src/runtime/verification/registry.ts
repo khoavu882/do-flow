@@ -107,8 +107,22 @@ function loadVerificationRegistry(options: any = {}): any {
   // of the registry, so it is checkable here instead of being re-asserted in prose.
   assert(firstModelOrder > lastNonModelOrder, 'every model-based tier must be ordered after every deterministic tier');
 
+  assert(data.levels && typeof data.levels === 'object', 'levels must be an object');
+  const l0 = data.levels.L0;
+  assert(l0 && typeof l0 === 'object', 'levels.L0 must be an object');
+  assert(Array.isArray(l0.tiers) && l0.tiers.length > 0, 'levels.L0.tiers must be a non-empty array');
+  for (const t of l0.tiers) {
+    assert(seen.has(t), `levels.L0 tier '${t}' must exist in tiers`);
+  }
+
   for (const [level, def] of Object.entries(data.riskLevels) as [string, any][]) {
     assert(def && Array.isArray(def.requiredTiers), `risk level '${level}' needs requiredTiers`);
+    for (let i = 0; i < l0.tiers.length; i++) {
+      assert(
+        def.requiredTiers[i] === l0.tiers[i],
+        `risk level '${level}' requiredTiers must begin with L0 tiers [${l0.tiers.join(', ')}]`,
+      );
+    }
     for (const id of def.requiredTiers.concat(def.advisoryTiers || [])) {
       assert(seen.has(id), `risk level '${level}' references unknown tier '${id}'`);
     }
@@ -118,13 +132,66 @@ function loadVerificationRegistry(options: any = {}): any {
     );
   }
 
+  const levelNames = ['L1', 'L2', 'L3'] as const;
+  const riskLevelsInLevels = new Map<string, string>();
+  for (const lvl of levelNames) {
+    const entry = data.levels[lvl];
+    assert(entry && typeof entry === 'object', `levels.${lvl} must be an object`);
+    assert(Array.isArray(entry.riskLevels), `levels.${lvl}.riskLevels must be an array`);
+    for (const r of entry.riskLevels) {
+      assert(typeof r === 'string' && r !== '', `levels.${lvl}.riskLevels entries must be non-empty strings`);
+      assert(Object.hasOwn(data.riskLevels, r), `levels.${lvl} references unknown risk level '${r}'`);
+      assert(!riskLevelsInLevels.has(r), `risk level '${r}' is declared in multiple levels ('${riskLevelsInLevels.get(r)}' and '${lvl}')`);
+      riskLevelsInLevels.set(r, lvl);
+    }
+  }
+  for (const r of Object.keys(data.riskLevels)) {
+    assert(riskLevelsInLevels.has(r), `risk level '${r}' must be assigned to exactly one of L1..L3`);
+  }
+
+  assert(policy.v0 && typeof policy.v0 === 'object', 'policy.v0 must be an object');
+  assert(Array.isArray(policy.v0.levels), 'policy.v0.levels must be an array');
+  const allowedV0Levels = new Set(['L1', 'L2']);
+  for (const lvl of policy.v0.levels) {
+    assert(allowedV0Levels.has(lvl), `policy.v0.levels must be a subset of ['L1', 'L2']: found '${lvl}'`);
+  }
+
   return data;
+}
+
+/**
+ * Maps a risk level ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') to its verification level ('L1' | 'L2' | 'L3').
+ * Returns null if the risk level is unknown, null, or undefined.
+ */
+function levelOf(registry: any, risk: string | null | undefined): 'L1' | 'L2' | 'L3' | null {
+  if (!registry?.levels || typeof risk !== 'string') return null;
+  for (const lvl of ['L1', 'L2', 'L3'] as const) {
+    const riskLevels = registry.levels[lvl]?.riskLevels;
+    if (Array.isArray(riskLevels) && riskLevels.includes(risk)) {
+      return lvl;
+    }
+  }
+  return null;
+}
+
+/**
+ * Returns whether V0 behavior applies to the given risk level under the registry policy.
+ * True when the risk level maps to a level listed in policy.v0.levels.
+ */
+function v0Applies(registry: any, risk: string | null | undefined): boolean {
+  const level = levelOf(registry, risk);
+  if (!level) return false;
+  const v0Levels = registry?.policy?.v0?.levels;
+  return Array.isArray(v0Levels) && v0Levels.includes(level);
 }
 
 module.exports = {
   loadVerificationRegistry,
+  levelOf,
+  v0Applies,
   TIER_RESOLUTIONS,
   TIER_STATUSES,
   RECOVERY_OUTCOMES,
   REGISTRY_FILENAME,
 };
+

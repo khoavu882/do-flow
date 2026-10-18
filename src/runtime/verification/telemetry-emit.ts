@@ -8,6 +8,20 @@ const nodeFs = require('node:fs');
 const { SAFE_TOKEN, telemetryOff, TelemetryWriter } = require('../trace/telemetry.ts');
 const { resolveRunsLocation } = require('../trace/ledger.ts');
 const { DISPATCH_RUN_ID } = require('../dispatch/store.ts');
+const { levelOf, loadVerificationRegistry } = require('./registry.ts');
+
+let defaultRegistry: any = null;
+function getDefaultRegistry(): any {
+  if (!defaultRegistry) {
+    try {
+      defaultRegistry = loadVerificationRegistry();
+    } catch {
+      defaultRegistry = null;
+    }
+  }
+  return defaultRegistry;
+}
+
 
 /**
  * Verify telemetry (088 C.1, IC-006, DD-4): one `verify.run` line per verify run, one `verify.tier`
@@ -133,7 +147,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
       ? dispatchRun
       : null,
     risk: ctx.risk ?? null,
-    level: null,
+    level: ctx.level ?? (ctx.risk ? levelOf(ctx.registry || getDefaultRegistry(), ctx.risk) : null),
     status: report.status,
     exit_code: ctx.exitCode ?? null,
     // Wall time between the report's own stamps: the engine clock, not a monotonic one.
