@@ -18,6 +18,8 @@ const ASSETS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/assets.
 const CODE_RE = /^[a-z]+(-[a-z]+)+$/;
 const GATE_LABEL = '**Implement gate (hard):**';
 const CANONICAL_GATE_RE = /\b(one|only|single)\b[^.]{0,40}\bhard[- ](gate|hook)\b|\bhard[- ](gate|hook)\b[^.]{0,60}\b(only|covers)\b/i;
+const GATE_SCOPE_CLAIM_RE = /\bhard[- ](gate|hook)\b|pre-implement(ation)?-gate\.sh/i;
+const GATE_SCOPE_ARTIFACTS = ['requirement.md', 'design.md', 'plan.md'];
 
 const BASELINE_GATE_BODY = [
   'source edits are blocked when a feature is started but `requirement.md`,',
@@ -53,6 +55,29 @@ const BASELINE_FIXED_PLAN_CHECK = [
 const BASELINE_PLAN_CHECK = [
   'blocks on it — the chain\'s one hard gate covers artifact existence only. Stopping on a violation',
   '   is a discipline this skill observes, not something a hook enforces.',
+].join('\n');
+const FIXED_GATE_A_SCOPE = [
+  'the conversational checkpoint on top of the already-existing',
+  '     hard hook (`pre-implement-gate.sh`; its scope is in `references/DOFLOW_CHAIN.md`), which remains',
+  '     the real enforcement regardless of what happens here.',
+].join('\n');
+const BASELINE_GATE_A_SCOPE = [
+  'the conversational checkpoint on top of the already-existing',
+  '     hard hook (`pre-implement-gate.sh`, which blocks source edits until `requirement.md`,',
+  '     `design.md` and `plan.md` exist and remains the real enforcement regardless of what happens',
+  '     here).',
+].join('\n');
+const FIXED_TASK_CLASSES_SCOPE = [
+  '`pre-implement-gate.sh` keys on branch and artifact state (what it denies: `DOFLOW_CHAIN.md`): if the',
+  'current branch already carries a feature directory the gate rejects, it denies source edits',
+  'regardless of the class in play — so a `bug` or `trivial-edit` workflow started on that branch will',
+  'be blocked at its implementation stage.',
+].join('\n');
+const BASELINE_TASK_CLASSES_SCOPE = [
+  '`pre-implement-gate.sh` keys on branch and artifact state: if the current branch already carries a',
+  'feature directory missing `requirement.md`, `design.md` or `plan.md`, it denies source edits',
+  'regardless of the class in play — so a `bug` or `trivial-edit` workflow started on that branch will',
+  'be blocked at its implementation stage.',
 ].join('\n');
 const BASELINE_TEMPLATE_ROW = '| `templates/doflow/`    | `requirement-template.md` (optional `**Ticket:**` header field) / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, supports optional `depends-on:` and `external-contract:` fields per task, and a Repo Branch Plan table for multi-repo features) / `state-template.md` (Repo Branch Status table) / `constitution-template.md` / `external-contract-template.md` (pinned structure for a `external-contract:` target — a documented external dependency `--scaffold` can generate a mechanical frame from) — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |';
 const BASELINE_REFERENCE_BODY = '`CONSTITUTION_BASE.md` — tier-1 global constitution base';
@@ -141,11 +166,21 @@ function paragraphs(text) {
   return text.split(/\r?\n\s*\r?\n/).map((part) => part.trim()).filter(Boolean);
 }
 
+function claimSentences(paragraph) {
+  return paragraph.split(/(?<=[.!?])\s+/);
+}
+
+function isGateScopeClaim(sentence) {
+  return CANONICAL_GATE_RE.test(sentence)
+    || (GATE_SCOPE_CLAIM_RE.test(sentence)
+      && GATE_SCOPE_ARTIFACTS.every((artifact) => sentence.includes(artifact)));
+}
+
 // A claim sentence is cleared only by DOFLOW_CHAIN.md in that sentence or the one before or after it.
 function uncitedClaims(text) {
   return paragraphs(text).flatMap((paragraph) => {
-    const sentences = paragraph.split(/(?<=[.!?])\s+/);
-    return sentences.filter((sentence, i) => CANONICAL_GATE_RE.test(sentence)
+    const sentences = claimSentences(paragraph);
+    return sentences.filter((sentence, i) => isGateScopeClaim(sentence)
       && !sentences.slice(Math.max(0, i - 1), i + 2).some((near) => near.includes('DOFLOW_CHAIN.md')));
   });
 }
@@ -210,7 +245,8 @@ function checkGate({ chain, gate }) {
 function checkCanonicalGate(files) {
   if (!files.length) return ['G46.2: G24 corpus is empty'];
   const claims = files.flatMap(({ rel, text }) => rel === CHAIN_REL ? [] : paragraphs(text)
-    .filter((paragraph) => CANONICAL_GATE_RE.test(paragraph))
+    .flatMap(claimSentences)
+    .filter(isGateScopeClaim)
     .map(() => rel));
   if (!claims.length) return ['G46.2: found no canonical hard-gate statement anchor'];
   return files.filter(({ rel }) => rel !== CHAIN_REL)
@@ -402,6 +438,22 @@ test('G46.2 control: re-seeding the baseline do-plan claims into a scratch tree 
   }, (root) => checkCanonicalGate(guidanceCorpus(root)));
   assert.ok(findings.length >= 2, findings.join('\n'));
   assert.ok(findings.every((finding) => finding.includes(rel)), findings.join('\n'));
+});
+
+test('G46.2 control: re-seeding the b4fc814b gate-a sentence in a scratch tree is caught', (t) => {
+  const rel = `${SKILLS_REL}/do-flow/SKILL.md`;
+  const findings = withScratchTree(t, {
+    [rel]: (text) => replaceOnce(text, FIXED_GATE_A_SCOPE, BASELINE_GATE_A_SCOPE),
+  }, (root) => checkCanonicalGate(guidanceCorpus(root)));
+  assert.deepEqual(findings, [`G46.2: ${rel} has a hard-gate scope claim without DOFLOW_CHAIN.md`]);
+});
+
+test('G46.2 control: re-seeding the b4fc814b task-classes sentence in a scratch tree is caught', (t) => {
+  const rel = `${SKILLS_REL}/do-flow/references/task_classes.md`;
+  const findings = withScratchTree(t, {
+    [rel]: (text) => replaceOnce(text, FIXED_TASK_CLASSES_SCOPE, BASELINE_TASK_CLASSES_SCOPE),
+  }, (root) => checkCanonicalGate(guidanceCorpus(root)));
+  assert.deepEqual(findings, [`G46.2: ${rel} has a hard-gate scope claim without DOFLOW_CHAIN.md`]);
 });
 
 test('G46.2 control: a claim is cleared only by DOFLOW_CHAIN.md in its own or an adjacent sentence', () => {
