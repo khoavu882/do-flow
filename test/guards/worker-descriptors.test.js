@@ -15,7 +15,8 @@
 //         (109 IC-009, DEC-003) and whose content holds up: a cli-check record has checks, every one
 //         equal (id, argv, expect, establishes) to core/worker-evidence/<harness>/checks.json, and the
 //         capability is recomputed from the checks that passed (result pass, exit 0, matched lines);
-//         a live-run record counts only when its run succeeded and its result was offered
+//         a live-run record counts only when its run succeeded, its result was offered and its
+//         run.argvShape equals the shape the registry recipe assembles (read-only or edit order)
 //
 // validateWorker() (src/registry/index.ts) checks shape; this guard checks meaning.
 
@@ -26,6 +27,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const registryModule = require('../../src/registry/index.ts');
 const { PARSERS } = require('../../src/runtime/worker/parsers.ts');
+const { argvShape } = require('../../src/runtime/worker/launch.ts');
 const { tempDir } = require('../helper/tmp');
 
 const HARNESS_COUNT = 8;
@@ -113,10 +115,26 @@ function checksEstablish(record, harnessId, key, repoRoot) {
   return recomputed.has(key);
 }
 
+/** The prompt element is a per-run hash, so both shapes are compared with it written `<prompt>`. */
+function withoutPromptHash(shape) {
+  return Array.isArray(shape) ? shape.map((value) => (/^<prompt .*>$/.test(value) ? '<prompt>' : value)) : shape;
+}
+
+/** True when a live-run record's argvShape equals the recipe's own shape, in the order its run kind
+ * uses (edit: isolatedEdit first). A readOnly record must be a read-only run, an isolatedEdit one an edit run. */
+function shapeMatchesRecipe(record, key, worker) {
+  const edit = record.run?.edit === true;
+  if ((key === 'readOnly' && edit) || (key === 'isolatedEdit' && !edit)) return false;
+  let expected;
+  try { expected = argvShape(worker, '', edit); } catch { return false; }
+  return sameJson(withoutPromptHash(record.run?.argvShape), withoutPromptHash(expected));
+}
+
 /** True when `item` is a repository path under core/worker-evidence/<harness>/ whose file parses as a
  * record for that harness and establishes `key`: a cli-check record through its own passing checks
- * (run is null), a live-run record only when its run succeeded and its result was offered. */
-function recordEstablishes(item, harnessId, key, repoRoot) {
+ * (run is null), a live-run record only when its run succeeded, its result was offered and its
+ * argvShape matches the recipe in `worker`. */
+function recordEstablishes(item, harnessId, key, repoRoot, worker) {
   if (typeof item !== 'string') return false;
   const dir = path.resolve(repoRoot, 'core', 'worker-evidence', harnessId);
   const file = path.resolve(repoRoot, item);
@@ -126,7 +144,9 @@ function recordEstablishes(item, harnessId, key, repoRoot) {
   if (!record || record.schema !== EVIDENCE_SCHEMA || record.harness !== harnessId) return false;
   if (typeof record.cliVersion !== 'string' || record.cliVersion === '') return false;
   if (!Array.isArray(record.establishes) || !record.establishes.includes(key)) return false;
-  if (record.kind === 'live-run') return record.run?.report?.status === 'success' && record.run?.resultOffered === true;
+  if (record.kind === 'live-run') {
+    return record.run?.report?.status === 'success' && record.run?.resultOffered === true && shapeMatchesRecipe(record, key, worker);
+  }
   if (record.kind !== 'cli-check' || record.run !== null) return false;
   return checksEstablish(record, harnessId, key, repoRoot);
 }
@@ -138,7 +158,7 @@ function establishingRecordFindings(registry, repoRoot) {
     for (const [key, entry] of Object.entries(harness.worker || {})) {
       if (NOT_CAPABILITIES.has(key) || entry === null || typeof entry !== 'object' || Array.isArray(entry) || entry.status !== 'supported') continue;
       const evidence = Array.isArray(entry.evidence) ? entry.evidence : [];
-      if (!evidence.some((item) => recordEstablishes(item, harness.id, key, repoRoot))) {
+      if (!evidence.some((item) => recordEstablishes(item, harness.id, key, repoRoot, harness.worker))) {
         findings.push(`G41.4: harness '${harness.id}' worker '${key}': supported without a recorded evidence file that establishes it`);
       }
     }
@@ -321,10 +341,11 @@ test('G41.4 control: a live-run record whose result was not offered or whose run
   const codex = registry.harnesses.find((h) => h.id === 'codex');
   const dir = path.join(root, 'core', 'worker-evidence', 'codex');
   fs.mkdirSync(dir, { recursive: true });
+  const shape = argvShape(codex.worker, '', false);
   const live = (name, extra) => {
     fs.writeFileSync(path.join(dir, name), JSON.stringify({
       schema: EVIDENCE_SCHEMA, harness: 'codex', kind: 'live-run', cliVersion: 'codex-cli 0.0.0',
-      establishes: ['oneShot'], checks: [], ...extra,
+      establishes: ['oneShot'], checks: [], ...extra, run: { edit: false, argvShape: shape, ...extra.run },
     }));
     return `core/worker-evidence/codex/${name}`;
   };
@@ -363,5 +384,31 @@ test('G41.4 control: the shipped live-run records count, and a copy of either wi
     assert.deepEqual(findingsFor(key, [copy(source, `ok-${key}.json`, intact)]), [], `an intact copy establishes ${key}`);
     assert.equal(findingsFor(key, [copy(source, `failed-${key}.json`, (r) => { r.run.report.status = 'failure'; })]).length, 1, `status failure does not establish ${key}`);
     assert.equal(findingsFor(key, [copy(source, `unoffered-${key}.json`, (r) => { r.run.resultOffered = false; })]).length, 1, `resultOffered false does not establish ${key}`);
+  }
+});
+
+test('G41.4 control: a live-run record whose argvShape contradicts the recipe it is cited for does not establish', (t) => {
+  const root = tempDir(t, 'doflow-g414-shape-');
+  const registry = structuredClone(shipped().registry);
+  const codex = registry.harnesses.find((h) => h.id === 'codex');
+  const dir = path.join(root, 'core', 'worker-evidence', 'codex');
+  fs.mkdirSync(dir, { recursive: true });
+  const copy = (source, name, mutate) => {
+    const record = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'worker-evidence', 'codex', source), 'utf8'));
+    mutate(record);
+    fs.writeFileSync(path.join(dir, name), JSON.stringify(record));
+    return `core/worker-evidence/codex/${name}`;
+  };
+  const findingsFor = (key, evidence) => {
+    codex.worker[key].evidence = evidence;
+    return establishingRecordFindings(registry, root).filter((f) => f.includes(`'${key}'`));
+  };
+  const source = { readOnly: '2026-10-18-live-run-read-only.json', isolatedEdit: '2026-10-18-live-run-edit.json' };
+  for (const key of ['readOnly', 'isolatedEdit']) {
+    const shapeOf = (name, mutate) => copy(source[key], name, (r) => mutate(r.run.argvShape, r));
+    assert.deepEqual(findingsFor(key, [shapeOf(`ok-${key}.json`, () => {})]), [], `an intact copy establishes ${key}`);
+    assert.equal(findingsFor(key, [shapeOf(`sandbox-${key}.json`, (shape) => { shape[2] = 'danger-full-access'; })]).length, 1, `a different sandbox does not establish ${key}`);
+    assert.equal(findingsFor(key, [shapeOf(`extra-${key}.json`, (shape) => { shape.push('--extra'); })]).length, 1, `an extra element does not establish ${key}`);
+    assert.equal(findingsFor(key, [shapeOf(`kind-${key}.json`, (shape, r) => { r.run.edit = key === 'readOnly'; })]).length, 1, `the other run kind does not establish ${key}`);
   }
 });
