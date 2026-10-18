@@ -90,14 +90,37 @@ function headCommit(root: string, { spawnSyncImpl = spawnSync }: { spawnSyncImpl
  * Computes a digest of all modified and untracked files in the working tree.
  * Returns null if not in a git repository, or if > 500 files or > 50 MB are dirty.
  * @param {string} root
- * @param {{ spawnSyncImpl?: typeof spawnSync, fsImpl?: typeof nodeFs }} [options]
+ * @param {{ spawnSyncImpl?: typeof spawnSync, fsImpl?: typeof nodeFs, configDir?: string }} [options]
  * @returns {string | null}
  */
 function treeDigest(
   root: string,
-  { spawnSyncImpl = spawnSync, fsImpl = nodeFs }: { spawnSyncImpl?: any; fsImpl?: any } = {},
+  { spawnSyncImpl = spawnSync, fsImpl = nodeFs, configDir }: { spawnSyncImpl?: any; fsImpl?: any; configDir?: string } = {},
 ): string | null {
   try {
+    const top = spawnSyncImpl('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8' });
+    if (top.status !== 0 || typeof top.stdout !== 'string' || !path.isAbsolute(top.stdout.trim())) return null;
+    const gitRoot = fsImpl.realpathSync(top.stdout.trim());
+    const excluded = ['.doflow'];
+    if (configDir) {
+      // A first run may not have created its config directory yet. Resolve its nearest
+      // existing ancestor so a symlinked parent has the same identity after creation.
+      let ancestor = path.resolve(configDir);
+      const missing: string[] = [];
+      let realConfig: string;
+      for (;;) {
+        try { realConfig = path.join(fsImpl.realpathSync(ancestor), ...missing); break; }
+        catch (error: any) {
+          if (error.code !== 'ENOENT' || path.dirname(ancestor) === ancestor) throw error;
+          missing.unshift(path.basename(ancestor));
+          ancestor = path.dirname(ancestor);
+        }
+      }
+      const relative = path.relative(gitRoot, realConfig!);
+      if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+        excluded.push(relative.split(path.sep).join('/'));
+      }
+    }
     const res = spawnSyncImpl(
       'git',
       ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
@@ -106,11 +129,6 @@ function treeDigest(
     if (res.status !== 0 || typeof res.stdout !== 'string') return null;
 
     const raw = res.stdout;
-    if (raw.length === 0) {
-      // Clean working tree
-      return crypto.createHash('sha256').update('clean', 'utf8').digest('hex');
-    }
-
     const tokens = raw.split('\0');
     // The trailing null produces an empty token at the end
     if (tokens.length > 0 && tokens[tokens.length - 1] === '') {
@@ -132,11 +150,15 @@ function treeDigest(
         entry += `\0${source}`;
       }
 
-      // Exclude anything under .doflow/
-      if (relPath === '.doflow' || relPath.startsWith('.doflow/') || relPath.includes('/.doflow/')) {
+      // Only runtime state is excluded; fixture/project .doflow directories are inputs.
+      if (excluded.some((dir) => relPath === dir || relPath.startsWith(`${dir}/`))) {
         continue;
       }
       entries.push({ entry, relPath });
+    }
+
+    if (entries.length === 0) {
+      return crypto.createHash('sha256').update('clean', 'utf8').digest('hex');
     }
 
     if (entries.length > MAX_UNCOMMITTED_FILES) {
@@ -150,7 +172,7 @@ function treeDigest(
     let totalBytes = 0;
 
     for (const item of entries) {
-      const fullPath = path.resolve(root, item.relPath);
+      const fullPath = path.resolve(gitRoot, item.relPath);
       let fileHash = '';
       try {
         if (typeof fsImpl.lstatSync === 'function' && fsImpl.lstatSync(fullPath).isSymbolicLink()) return null;
@@ -200,6 +222,7 @@ function checkKey({
   cwd,
   head,
   tree,
+  configDir,
   env = process.env,
   fsImpl = nodeFs,
   spawnSyncImpl = spawnSync,
@@ -209,6 +232,7 @@ function checkKey({
   cwd: string;
   head?: string | null;
   tree?: string | null;
+  configDir?: string;
   env?: Record<string, string | undefined>;
   fsImpl?: any;
   spawnSyncImpl?: any;
@@ -231,7 +255,7 @@ function checkKey({
 
   let resolvedTree = tree;
   if (resolvedTree === undefined) {
-    resolvedTree = treeDigest(realCwd, { spawnSyncImpl, fsImpl });
+    resolvedTree = treeDigest(realCwd, { spawnSyncImpl, fsImpl, configDir });
   }
 
   if (resolvedHead === null || resolvedTree === null) {

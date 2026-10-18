@@ -285,6 +285,7 @@ class VerificationContractRunner {
   platform: string;
   env: Record<string, string | undefined>;
   convention?: any;
+  configDir?: string;
   inflightContext?: { enabled: boolean; dir: string };
   _treeContext?: { head: string | null; tree: string | null };
   /** Check result → `{ startedAt, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
@@ -322,6 +323,7 @@ class VerificationContractRunner {
   beginContract({ v0, registry, riskLevel, configDir }: any): void {
     this._treeContext = undefined;
     this.inflightContext = undefined;
+    this.configDir = configDir;
     if (v0 === true && v0Applies(registry, riskLevel) && typeof configDir === 'string') {
       this.inflightContext = { enabled: true, dir: path.join(configDir, 'state', 'verification', 'v0') };
     }
@@ -369,7 +371,13 @@ class VerificationContractRunner {
    * @param {string} [stdout]
    * @param {string} [stderr]
    */
-  decorate(result: any, command: string, stdout?: string, stderr?: string): void {
+  decorate(result: any, command: string, stdout?: string, stderr?: string, execution?: any): void {
+    if (execution?.bounded === true) {
+      for (const field of ['failedTests', 'failedFiles', 'logPath']) {
+        if (Object.hasOwn(execution, field)) result[field] = execution[field];
+      }
+      return;
+    }
     const full = `${stdout || ''}\n${stderr || ''}`;
     if (result.status === 'FAIL') {
       const failedTests = extractFailedTests(full);
@@ -387,6 +395,27 @@ class VerificationContractRunner {
     if ((result.status === 'FAIL' || truncated) && full.trim() !== '') {
       result.logPath = this.persistLog(result.name, command, stdout as string, stderr as string);
     }
+  }
+
+  /** Parse the full streams and write their log once, before publishing a bounded handoff.
+   * Keep the runner's existing head/tail excerpt so a follower reports the same diagnostics. */
+  summarizeExecution(res: any, name: string, command: string): any {
+    const diagnostics: any = { name, status: res.error || res.status !== 0 ? 'FAIL' : 'PASS' };
+    this.decorate(diagnostics, command, res.stdout, res.stderr);
+    const counts = parseTestCounts(`${res.stdout || ''}\n${res.stderr || ''}`);
+    return {
+      status: res.status,
+      signal: res.signal ?? null,
+      ...(res.error ? { error: { message: res.error.message, code: res.error.code ?? null } } : {}),
+      stdout: truncate(res.stdout),
+      stderr: truncate(res.stderr),
+      truncated: (res.stdout || '').length > MAX_STREAM_CHARS || (res.stderr || '').length > MAX_STREAM_CHARS,
+      bounded: true,
+      ...counts,
+      ...(diagnostics.failedTests ? { failedTests: diagnostics.failedTests } : {}),
+      ...(diagnostics.failedFiles ? { failedFiles: diagnostics.failedFiles } : {}),
+      ...(Object.hasOwn(diagnostics, 'logPath') ? { logPath: diagnostics.logPath } : {}),
+    };
   }
 
   /**
@@ -429,7 +458,7 @@ class VerificationContractRunner {
       if (!telemetryOff(this.env) || this.inflightContext?.enabled) {
         if (this._treeContext === undefined) {
           const head = headCommit(this.cwd);
-          const tree = treeDigest(this.cwd, { fsImpl: this.fsImpl });
+          const tree = treeDigest(this.cwd, { fsImpl: this.fsImpl, configDir: this.configDir });
           this._treeContext = { head, tree };
         }
         checkKeyVal = checkKey({
@@ -477,7 +506,7 @@ class VerificationContractRunner {
         resourceBasis = 'proc-children';
       }
       const full = `${res ? res.stdout || '' : ''}\n${res ? res.stderr || '' : ''}`;
-      const { tests, testsFailed } = parseTestCounts(full);
+      const { tests, testsFailed } = res?.bounded === true ? res : parseTestCounts(full);
       timing = {
         startedAt,
         durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null,
@@ -508,7 +537,7 @@ class VerificationContractRunner {
       });
       if (this.inflightContext?.enabled && checkKeyVal) {
         sharing = runInflight({ dir: this.inflightContext.dir, key: checkKeyVal, timeoutMs,
-          execute, fsImpl: this.fsImpl });
+          execute, summarize: (result: any) => this.summarizeExecution(result, checkName, command), fsImpl: this.fsImpl });
         res = sharing.result;
       } else {
         res = execute();
@@ -526,6 +555,8 @@ class VerificationContractRunner {
       });
     }
     stop(res);
+    const stdout = res.bounded === true ? res.stdout : truncate(res.stdout);
+    const stderr = res.bounded === true ? res.stderr : truncate(res.stderr);
 
     // Defect fix (2): the Python's TimeoutExpired arm returned neither stdout nor stderr, so a
     // check that hung after printing its first failure told you only that it hung. Whatever the
@@ -537,10 +568,10 @@ class VerificationContractRunner {
         status: 'FAIL',
         exitCode: TIMEOUT_EXIT_CODE,
         error: 'TimeoutExpired',
-        stdout: truncate(res.stdout),
-        stderr: truncate(res.stderr),
+        stdout,
+        stderr,
       };
-      this.decorate(result, command, res.stdout, res.stderr);
+      this.decorate(result, command, res.stdout, res.stderr, res);
       return remember(result);
     }
 
@@ -551,10 +582,10 @@ class VerificationContractRunner {
         status: 'FAIL',
         exitCode: 1,
         error: res.error.message,
-        stdout: truncate(res.stdout),
-        stderr: truncate(res.stderr),
+        stdout,
+        stderr,
       };
-      this.decorate(result, command, res.stdout, res.stderr);
+      this.decorate(result, command, res.stdout, res.stderr, res);
       return remember(result);
     }
 
@@ -569,13 +600,13 @@ class VerificationContractRunner {
       command,
       status: passed ? 'PASS' : 'FAIL',
       exitCode,
-      stdout: truncate(res.stdout),
-      stderr: truncate(res.stderr),
+      stdout,
+      stderr,
     };
     if (res.signal) {
       result.error = `Terminated by signal ${res.signal}`;
     }
-    this.decorate(result, command, res.stdout, res.stderr);
+    this.decorate(result, command, res.stdout, res.stderr, res);
     return remember(result);
   }
 

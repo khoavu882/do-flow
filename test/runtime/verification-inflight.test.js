@@ -16,6 +16,7 @@ const TOKEN = 'a'.repeat(32);
 const OTHER = 'b'.repeat(32);
 const good = () => ({ status: 0, stdout: '# tests 3\n# fail 0\n', stderr: '' });
 const bad = () => ({ status: 7, stdout: '# tests 3\n# fail 1\n', stderr: 'failed\n' });
+const statusStub = (root, stdout) => (_cmd, args) => ({ status: 0, stdout: args.includes('--show-toplevel') ? root : stdout });
 const enoent = () => Object.assign(new Error('absent'), { code: 'ENOENT' });
 const lockName = (dir) => path.join(dir, `inflight-${KEY}.lock`);
 const resultName = (dir, token = TOKEN) => path.join(dir, `inflight-${KEY}.${token}.result.json`);
@@ -52,11 +53,14 @@ const {VerificationContractRunner}=require(input.repo+'/src/runtime/verification
 const {loadVerificationRegistry}=require(input.repo+'/src/runtime/verification/registry.ts');
 const {treeDigest}=require(input.repo+'/src/runtime/verification/check-key.ts');
 const io=Object.create(fs);
-io.readFileSync=(file,...args)=>{const out=fs.readFileSync(file,...args);if(String(file).endsWith('.lock')) process.send({following:true});return out;};
+let contended=false,following=false;
+io.linkSync=(...args)=>{try{return fs.linkSync(...args);}catch(error){if(error.code==='EEXIST'){contended=true;process.send({contended:true});}throw error;}};
+io.readFileSync=(file,...args)=>{const out=fs.readFileSync(file,...args);if(String(file).endsWith('.lock')&&contended&&!following){following=true;process.send({following:true});}return out;};
 const registry=loadVerificationRegistry();
 const runner=new VerificationContractRunner({cwd:input.root,fsImpl:io,env:input.env,
+ convention:input.convention?{isTest:file=>file.endsWith('.test.js')}:null,
  logDir:input.dir+'/logs',context:{v0:input.v0!==false,registry,riskLevel:input.risk||'LOW',configDir:input.dir}});
-runner._treeContext={head:'1'.repeat(40),tree:treeDigest(input.root,{spawnSyncImpl:()=>({status:0,stdout:' M dirty.js\\0'})})};
+runner._treeContext={head:'1'.repeat(40),tree:treeDigest(input.root,{spawnSyncImpl:(_cmd,args)=>({status:0,stdout:args.includes('--show-toplevel')?input.root:' M dirty.js\\0'})})};
 const check=runner.runCheck(input.name,input.command,10000);
 const metric=runner.metrics.get(check);
 process.send({check,metric});process.disconnect();
@@ -86,6 +90,11 @@ function countRuns(root) {
   try { return fs.readFileSync(path.join(root, 'runs'), 'utf8').trim().split('\n').length; } catch { return 0; }
 }
 function finish(root) { fs.writeFileSync(path.join(root, 'go'), ''); }
+function assertFollowerOrder(worker) {
+  const contention = worker.messages.findIndex((m) => m.contended);
+  const following = worker.messages.findIndex((m) => m.following);
+  assert.ok(contention >= 0 && contention < following, 'follower barrier follows linkSync EEXIST, never the sweep read');
+}
 async function completed(worker) {
   const ended = await worker.done;
   assert.equal(ended.code, 0, ended.stderr);
@@ -102,6 +111,8 @@ for (const exit of [0, 7]) {
     await until(() => countRuns(fixture.root) === 1, 'leader executing');
     const follower = child(t, { ...fixture, name: 'follower-name' });
     await until(() => follower.messages.some((m) => m.following), 'follower read lock');
+    assertFollowerOrder(follower);
+    assert.equal(countRuns(fixture.root), 1, 'leader remains blocked until follower has lost the link race');
     finish(fixture.root);
     const [a, b] = await Promise.all([completed(leader), completed(follower)]);
     assert.equal(countRuns(fixture.root), 1);
@@ -120,6 +131,40 @@ for (const exit of [0, 7]) {
     assert.equal(fs.existsSync(path.join(fixture.dir, 'state/verification/v0', `inflight-${KEY}.lock`)), false);
   });
 }
+
+test('5 MB output has a handoff under 16 KB and identical leader/follower diagnostics', async (t) => {
+  const fixture = concurrentFixture(t);
+  fs.writeFileSync(path.join(fixture.root, 'sample.test.js'), 'test fixture');
+  fixture.convention = true;
+  const script = "process.stdout.write('head\\n'+'x'.repeat(2500000)+'\\nnot ok 1 - middle failure\\n  ---\\n  location: sample.test.js:1:1\\n  ...\\n# tests 3\\n# fail 1\\n'+'y'.repeat(2500000)+'\\ntail\\n',()=>process.stderr.write('stderr\\n',()=>process.exit(7)))";
+  const quote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
+  fixture.command = `printf 'run\\n' >> runs; until [ -f go ]; do [ -d "${fixture.root}" ] || exit 1; done; ${quote(process.execPath)} -e ${quote(script)}`;
+  const leader = child(t, { ...fixture, name: 'large-leader' });
+  await until(() => countRuns(fixture.root) === 1, 'large leader executing');
+  const follower = child(t, { ...fixture, name: 'large-follower' });
+  await until(() => follower.messages.some((m) => m.following), 'large follower read lock');
+  assertFollowerOrder(follower);
+  finish(fixture.root);
+  const [a, b] = await Promise.all([completed(leader), completed(follower)]);
+  assert.equal(countRuns(fixture.root), 1);
+  assert.equal(a.metric.shared, 'leader');
+  assert.equal(b.metric.shared, 'follower');
+  const dir = path.join(fixture.dir, 'state/verification/v0');
+  const handoff = path.join(dir, `inflight-${a.metric.checkKey}.${a.metric.sharedRef}.result.json`);
+  assert.ok(fs.statSync(handoff).size < 16 * 1024, 'result handoff is bounded below 16 KB');
+  const { shared, ...followerCheck } = b.check;
+  assert.deepEqual({ ...followerCheck, name: a.check.name }, a.check);
+  assert.deepEqual(shared, { from: a.metric.sharedRef });
+  assert.deepEqual(a.check.failedTests, ['middle failure']);
+  assert.deepEqual(a.check.failedFiles, ['sample.test.js']);
+  assert.deepEqual([a.metric.tests, a.metric.testsFailed, b.metric.tests, b.metric.testsFailed], [3, 1, 3, 1]);
+  assert.match(a.check.stdout, /characters elided/);
+  assert.match(a.check.stdout, /tail/);
+  assert.ok(fs.statSync(a.check.logPath).size > 5000000, 'full log remains in verification-logs');
+  const record = JSON.parse(fs.readFileSync(handoff));
+  assert.equal(record.result.truncated, true);
+  assert.equal(fs.statSync(handoff).mode & 0o777, 0o600);
+});
 
 for (const difference of ['NODE_OPTIONS', 'environment key', 'uncommitted change']) {
   test(`${difference} gives two executions`, async (t) => {
@@ -146,6 +191,7 @@ test('SIGKILLed leader: follower executes and never removes the dead leader lock
   await until(() => countRuns(fixture.root) === 1, 'leader executing');
   const follower = child(t, { ...fixture, name: 'survivor' });
   await until(() => follower.messages.some((m) => m.following), 'follower read lock');
+  assertFollowerOrder(follower);
   leader.proc.kill('SIGKILL');
   const ended = await leader.done;
   assert.equal(ended.signal, 'SIGKILL');
@@ -281,16 +327,56 @@ test('inflight directory is a regular file: both requests run without throwing',
   assert.equal(runs, 2);
 });
 
-test('sweep removes results older than one hour and expired locks, preserving live locks', (t) => {
+test('sweep removes results after two minutes and expired locks, preserving live locks', (t) => {
   const dir = tempDir(t, 'doflow-inflight-sweep-');
   result(dir, { finishedAt: 1 });
   lock(dir, { deadlineAt: 1001 });
   const live = path.join(dir, `inflight-${'f'.repeat(16)}.lock`);
   fs.writeFileSync(live, JSON.stringify({ v: 1, token: OTHER, pid: process.pid, startedAt: 0, deadlineAt: 9999999 }));
-  sweepInflight(dir, { now: () => 3600002 });
+  sweepInflight(dir, { now: () => 120002 });
   assert.equal(fs.existsSync(resultName(dir)), false);
   assert.equal(fs.existsSync(lockName(dir)), false);
   assert.equal(fs.existsSync(live), true);
+});
+
+test('a malformed lock for one key leaves another key shared and ages out per file', (t) => {
+  let foreign;
+  const { got, runs } = follow(t, (dir) => {
+    foreign = path.join(dir, `inflight-${'f'.repeat(16)}.lock`);
+    fs.writeFileSync(foreign, '{}');
+    fs.utimesSync(foreign, 1, 1);
+    result(dir);
+  });
+  assert.equal(runs, 0);
+  assert.equal(got.shared, 'follower');
+  assert.equal(fs.existsSync(foreign), true, 'fresh malformed records do not poison other keys');
+  sweepInflight(path.dirname(foreign), { now: () => 121001 });
+  assert.equal(fs.existsSync(foreign), false, 'old malformed record is removed after two minutes');
+});
+
+test('an old valid lock with a busy removal claim is never deleted by malformed-file cleanup', (t) => {
+  const dir = tempDir(t, 'doflow-inflight-busy-claim-');
+  lock(dir, { deadlineAt: 500 });
+  fs.utimesSync(lockName(dir), 1, 1);
+  const claim = `${lockName(dir)}.${TOKEN}.claim`;
+  fs.writeFileSync(claim, '', { mode: 0o600 });
+  sweepInflight(dir, { now: () => 121001 });
+  assert.equal(fs.existsSync(lockName(dir)), true, 'valid lock removal still requires its claim');
+  assert.equal(fs.existsSync(claim), true);
+});
+
+test('sweep removes abandoned tmp and claim files after ten minutes, preserving fresh and foreign files', (t) => {
+  const dir = tempDir(t, 'doflow-inflight-scratch-sweep-');
+  const old = [`inflight-${KEY}.${TOKEN}.tmp`, `inflight-${KEY}.lock.${TOKEN}.claim`];
+  const fresh = [`inflight-${KEY}.${OTHER}.tmp`, `inflight-${KEY}.lock.${OTHER}.claim`];
+  for (const name of [...old, ...fresh, 'foreign.tmp']) {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, '');
+    fs.utimesSync(file, old.includes(name) || name === 'foreign.tmp' ? 1 : 601, old.includes(name) || name === 'foreign.tmp' ? 1 : 601);
+  }
+  sweepInflight(dir, { now: () => 601001 });
+  for (const name of old) assert.equal(fs.existsSync(path.join(dir, name)), false, name);
+  for (const name of [...fresh, 'foreign.tmp']) assert.equal(fs.existsSync(path.join(dir, name)), true, name);
 });
 
 test('leader releases only its token, even when its lock has been replaced', (t) => {
@@ -319,7 +405,7 @@ test('leader and sweep share the removal claim: stale sweep cannot unlink a succ
     return target[prop];
   } });
   let runs = 0;
-  const out = runInflight({ dir, key: KEY, timeoutMs: 10, fsImpl: io, now: () => 1000,
+  const out = runInflight({ dir, key: KEY, timeoutMs: 10, fsImpl: io, now: () => 1000, isAlive: () => false,
     execute: () => { runs++; return good(); } });
   assert.equal(out.shared, 'none');
   assert.equal(runs, 1);
@@ -380,10 +466,11 @@ test('/tmp and /private/tmp aliases share a check key; all environment keys part
 
 test('dirty content read faults are unkeyable; a deletion remains keyable', (t) => {
   const root = tempDir(t, 'doflow-inflight-dirty-');
-  const io = { statSync: () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); } };
-  assert.equal(treeDigest(root, { fsImpl: io, spawnSyncImpl: () => ({ status: 0, stdout: ' M dirty.js\0' }) }), null);
+  const io = Object.create(fs);
+  io.statSync = () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); };
+  assert.equal(treeDigest(root, { fsImpl: io, spawnSyncImpl: statusStub(root, ' M dirty.js\0') }), null);
   io.statSync = () => { throw enoent(); };
-  assert.match(treeDigest(root, { fsImpl: io, spawnSyncImpl: () => ({ status: 0, stdout: ' D gone.js\0' }) }), /^[0-9a-f]{64}$/);
+  assert.match(treeDigest(root, { fsImpl: io, spawnSyncImpl: statusStub(root, ' D gone.js\0') }), /^[0-9a-f]{64}$/);
 });
 
 // Execute mutated modules in memory. No production file or test assertion is edited; each
@@ -436,7 +523,7 @@ test('negative control: removing envDigest from the key shares across NODE_OPTIO
 test('negative control: removing dirty content hashing misses an uncommitted edit', (t) => {
   const mutant = mutated('check-key.ts', "fileHash = crypto.createHash('sha256').update(content).digest('hex');", "fileHash = '';");
   const root = tempDir(t, 'doflow-inflight-negative-tree-');
-  const options = { spawnSyncImpl: () => ({ status: 0, stdout: ' M dirty.js\0' }) };
+  const options = { spawnSyncImpl: statusStub(root, ' M dirty.js\0') };
   const file = path.join(root, 'dirty.js');
   fs.writeFileSync(file, 'one');
   const a = mutant.treeDigest(root, options);
@@ -470,7 +557,7 @@ test('dirty rename source paths participate in identity; malformed rename entrie
   const root = tempDir(t, 'doflow-inflight-rename-');
   fs.writeFileSync(path.join(root, 'destination.js'), 'identical bytes');
   const digest = (source) => treeDigest(root, {
-    spawnSyncImpl: () => ({ status: 0, stdout: `R  destination.js\0${source}\0` }),
+    spawnSyncImpl: statusStub(root, `R  destination.js\0${source}\0`),
   });
   assert.notEqual(digest('source-a.js'), digest('source-b.js'));
   assert.equal(digest(''), null);
@@ -482,6 +569,6 @@ test('dirty symlinks and submodule/directory entries are unkeyable, never shared
   fs.symlinkSync('target.js', path.join(root, 'link.js'));
   fs.mkdirSync(path.join(root, 'submodule'));
   for (const name of ['link.js', 'submodule']) {
-    assert.equal(treeDigest(root, { spawnSyncImpl: () => ({ status: 0, stdout: ` M ${name}\0` }) }), null);
+    assert.equal(treeDigest(root, { spawnSyncImpl: statusStub(root, ` M ${name}\0`) }), null);
   }
 });

@@ -8,7 +8,9 @@ const { defaultIsAlive } = require('../../state/run-lock.ts');
 
 const TOKEN = /^[0-9a-f]{32}$/;
 const KEY = /^[0-9a-f]{16}$/;
-const HOUR_MS = 3600000;
+const RESULT_TTL_MS = 2 * 60 * 1000;
+const SCRATCH_TTL_MS = 10 * 60 * 1000;
+const MAX_STREAM_CHARS = 2000;
 const wait = (ms: number): void => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
 
 function validLock(lock: any): boolean {
@@ -25,10 +27,19 @@ function execution(result: any): any {
     || (result.error && typeof result.error.message !== 'string')) throw new Error('Invalid execution result');
   return {
     status: result.status,
-    stdout: result.stdout,
-    stderr: result.stderr,
+    stdout: result.bounded === true ? result.stdout : result.stdout.slice(0, MAX_STREAM_CHARS),
+    stderr: result.bounded === true ? result.stderr : result.stderr.slice(0, MAX_STREAM_CHARS),
+    truncated: result.truncated === true || result.stdout.length > MAX_STREAM_CHARS || result.stderr.length > MAX_STREAM_CHARS,
     signal: result.signal ?? null,
     ...(result.error ? { error: { message: result.error.message, code: result.error.code ?? null } } : {}),
+    ...(result.bounded === true ? {
+      bounded: true,
+      tests: result.tests,
+      testsFailed: result.testsFailed,
+      ...(result.failedTests ? { failedTests: result.failedTests } : {}),
+      ...(result.failedFiles ? { failedFiles: result.failedFiles } : {}),
+      ...(Object.hasOwn(result, 'logPath') ? { logPath: result.logPath } : {}),
+    } : {}),
   };
 }
 
@@ -52,28 +63,41 @@ function sweepInflight(dir: string, { fsImpl = fs, now = Date.now }: any = {}): 
   for (const name of fsImpl.readdirSync(dir)) {
     const result = /^inflight-[0-9a-f]{16}\.[0-9a-f]{32}\.result\.json$/.test(name);
     const lock = /^inflight-[0-9a-f]{16}\.lock$/.test(name);
-    if (!result && !lock) continue;
+    const scratch = /^inflight-[0-9a-f]{16}(?:\.[0-9a-f]{32}\.tmp|\.lock\.[0-9a-f]{32}\.claim)$/.test(name);
+    if (!result && !lock && !scratch) continue;
     const file = path.join(dir, name);
     try {
+      if (scratch) {
+        if (now() - fsImpl.statSync(file).mtimeMs > SCRATCH_TTL_MS) fsImpl.unlinkSync(file);
+        continue;
+      }
       const raw = fsImpl.readFileSync(file, 'utf8');
-      if (lock && raw === '') continue; // followers own the bounded empty-lock retry
-      const record = JSON.parse(raw);
+      let record: any;
+      try {
+        record = JSON.parse(raw);
+        if (result ? record?.v !== 1 || !Number.isSafeInteger(record.finishedAt) : !validLock(record)) {
+          throw new Error('Invalid inflight record');
+        }
+      } catch {
+        // Fresh empty locks still get the follower's bounded retry. Only malformed
+        // records use mtime: valid locks always require the token-bound removal claim.
+        if (now() - fsImpl.statSync(file).mtimeMs > RESULT_TTL_MS) fsImpl.unlinkSync(file);
+        continue;
+      }
       if (result) {
-        if (record?.v !== 1 || !Number.isSafeInteger(record.finishedAt)) throw new Error('Invalid result age');
-        if (now() - record.finishedAt > HOUR_MS) fsImpl.unlinkSync(file);
+        if (now() - record.finishedAt > RESULT_TTL_MS) fsImpl.unlinkSync(file);
       } else {
-        if (!validLock(record)) throw new Error('Invalid lock');
         if (now() > record.deadlineAt) removeLock(fsImpl, file, record.token, true, now);
       }
-    } catch (error: any) {
-      if (error.code !== 'ENOENT') throw error;
+    } catch {
+      // A raced, inaccessible or claimed entry never disables unrelated sharing.
     }
   }
 }
 
 /** Returns spawnSync's execution plus out-of-report telemetry. A coordination fault executes
  * locally; exceptions from execute itself are left to the runner's ordinary FAIL handling. */
-function runInflight({ dir, key, timeoutMs, execute, fsImpl = fs, now = Date.now,
+function runInflight({ dir, key, timeoutMs, execute, summarize, fsImpl = fs, now = Date.now,
   isAlive = defaultIsAlive, sleep = wait, monotonic = () => process.hrtime.bigint(), mintToken = () => crypto.randomBytes(16).toString('hex') }: any): any {
   const unshared = () => ({ result: execute(), shared: 'none', sharedRef: null });
   if (typeof key !== 'string' || !KEY.test(key) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 0) return unshared();
@@ -156,6 +180,7 @@ function runInflight({ dir, key, timeoutMs, execute, fsImpl = fs, now = Date.now
   let shared = 'leader';
   try {
     result = execute();
+    if (summarize) result = summarize(result);
     const persisted = execution(result);
     const finishedAt = now();
     if (!Number.isSafeInteger(finishedAt)) throw new Error('Invalid result clock');

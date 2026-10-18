@@ -185,7 +185,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | Store | Location | Bound |
 |---|---|---|
 | `verification-logs` | `.doflow/state/verification/logs` | keep newest 40; prune entries older than 30 days |
-| `verification-v0` | `.doflow/state/verification/v0` | prune inactive directories after 7 days |
+| `verification-v0` | `.doflow/state/verification/v0` | keep newest 40; prune entries older than 7 days |
 | `task-evidence` | `.doflow/state/evidence` | prune finished work after 30 days |
 | `task-readiness` | `.doflow/state/readiness` | prune finished work after 30 days |
 | `task-research` | `.doflow/state/research` | prune finished work after 30 days |
@@ -234,7 +234,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 Notes on five rows:
 
 - **Verification logs** are bounded by count and age, not size. One log of a very verbose suite can reach about 128 MiB; at the typical size the 40 newest logs take a few megabytes. A log named by the evidence of a run waiting at a gate is kept past its bound.
-- **Verification V0 state** (`verification-v0` at `.doflow/state/verification/v0`) holds transient coordination locks and digests, pruned after 7 days (`age` rule). Writers are `src/runtime/verification/engine.ts` and `src/runtime/verification/inflight.ts`. Mode 0600; coordination state is excluded from telemetry export.
+- **Verification V0 state** (`verification-v0` at `.doflow/state/verification/v0`) holds failed-first digests and transient coordination locks and bounded result excerpts. The store keeps the newest 40 and prunes entries older than 7 days (`count-and-age` rule); in-flight sweeps remove results after 2 minutes and abandoned temp/claim files after 10 minutes. Writers are `src/runtime/verification/engine.ts` and `src/runtime/verification/inflight.ts`. Mode 0600; coordination state is excluded from telemetry export.
 - **Run partitions** are pruned after 180 days, so `trace`, `stats` and `discover` without `--days` now cover at most the last 180 days.
 - **Telemetry partitions** (`runs-telemetry` at `.doflow/state/runs/telemetry`) are pruned after 180 days (`date-partition` rule). Writers are the shared bridge (`core/harnesses/shared/hooks/bridge/bridge.sh`), Claude post-shell observer (`core/harnesses/claude/hooks/post-shell-observe.sh`), and the runtime telemetry writer (`src/runtime/trace/telemetry.ts`).
 - **Readiness records** that could not be parsed are renamed to `<task>.json.unreadable`. The `task-readiness` store does not select that name, so pruning never removes those files; delete them by hand when you no longer need them.

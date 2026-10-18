@@ -80,8 +80,9 @@
       "path": "verification/v0",
       "entry": "file",
       "match": "^[A-Za-z0-9._-]+$",
-      "rule": "age",
+      "rule": "count-and-age",
       "bound": {
+        "keepNewest": 40,
         "maxAgeDays": 7
       },
       "protect": null,
