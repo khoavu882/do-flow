@@ -33,12 +33,13 @@ after(() => scratch.remove());
 
 const KINDS = ['verify.run', 'verify.tier', 'verify.check'];
 const COMMON = ['timestamp', 'kind', 'run', 'lineage', 'attempt'];
-/** IC-006, P2 column (FR-006). P3 keys arrive with E.2, P5 keys with G.1..G.4. */
-const P2 = {
-  'verify.run': ['verify_id', 'source', 'task', 'dispatch_run', 'risk', 'status'],
-  'verify.tier': ['verify_id', 'tier', 'status', 'selection_basis', 'selected', 'total', 'fallback'],
-  'verify.check': ['verify_id', 'tier', 'status'],
+/** IC-006, P3 column (FR-016). P5 keys arrive with G.1..G.4. */
+const P3 = {
+  'verify.run': ['verify_id', 'source', 'task', 'dispatch_run', 'risk', 'level', 'status', 'exit_code', 'duration_ms', 'checks_run', 'v0'],
+  'verify.tier': ['verify_id', 'tier', 'status', 'selection_basis', 'selected', 'total', 'fallback', 'duration_ms'],
+  'verify.check': ['verify_id', 'tier', 'status', 'exit_code', 'duration_ms', 'tests', 'tests_failed', 'cpu_ms', 'resource_basis', 'check_key', 'shared', 'shared_ref', 'failed_first'],
 };
+const P2 = P3;
 const HEX16 = /^[0-9a-f]{16}$/;
 
 // Canaries: each names one kind of content no record may carry (NFR-004). The output canary is
@@ -121,16 +122,19 @@ function fixtureRun(name) {
   return runs[name];
 }
 
-test('the registry declares exactly the IC-006 P2 keys for the three verify kinds', () => {
+test('the registry declares exactly the IC-006 P2 and P3 keys for the three verify kinds', () => {
   for (const kind of KINDS) {
     const fields = REGISTRY.kinds[kind].fields;
-    assert.deepEqual(Object.keys(fields), P2[kind], kind);
-    for (const [key, field] of Object.entries(fields)) assert.equal(field.phase, 'P2', `${kind}.${key}`);
+    assert.deepEqual(Object.keys(fields), P3[kind], kind);
+    for (const [key, field] of Object.entries(fields)) {
+      if (key === 'shared_ref') assert.equal(field.phase, 'P5.4');
+      else assert.ok(['P2', 'P3', 'P5.1', 'P5.2', 'P5.3'].includes(field.phase), `${kind}.${key}`);
+    }
   }
 });
 
 for (const name of ['pass', 'fail']) {
-  test(`${name} fixture: one verify.run, one verify.tier per tier, one verify.check per check, P2 keys only`, () => {
+  test(`${name} fixture: one verify.run, one verify.tier per tier, one verify.check per check, P3 keys`, () => {
     const { res, report, telemetry } = fixtureRun(name);
     assert.equal(res.status, name === 'pass' ? 0 : 1, res.stderr);
     assert.equal(report.status, name === 'pass' ? 'PASS' : 'FAIL');
@@ -144,14 +148,20 @@ for (const name of ['pass', 'fail']) {
     assert.match(run.verify_id, HEX16);
     assert.deepEqual({ source: run.source, task: run.task, risk: run.risk, status: run.status },
       { source: 'verb', task: 'T-1', risk: 'LOW', status: report.status });
+    assert.equal(run.level, 'L1');
+    assert.equal(run.v0, 'on');
     assert.equal(run.timestamp, report.startedAt);
     assert.deepEqual([run.run, run.lineage, run.attempt], [null, null, null]);
+    assert.equal(run.exit_code, name === 'pass' ? 0 : 1);
+    assert.ok(typeof run.duration_ms === 'number' && run.duration_ms >= 0);
+    assert.ok(typeof run.checks_run === 'number' && run.checks_run > 0);
     for (const line of rest) assert.equal(line.verify_id, run.verify_id, 'one verify id per run');
 
     const tiers = lines.filter((line) => line.kind === 'verify.tier');
     assert.deepEqual(tiers.map((line) => [line.tier, line.status]), report.tiers.map((tier) => [tier.id, tier.status]));
     const targeted = tiers.find((line) => line.tier === 'targeted-tests');
     assert.deepEqual([targeted.selection_basis, targeted.selected, targeted.total, targeted.fallback], ['none', null, null, 'not-scopable']);
+    assert.ok(typeof targeted.duration_ms === 'number' && targeted.duration_ms >= 0);
     const build = tiers.find((line) => line.tier === 'build');
     assert.deepEqual([build.selection_basis, build.selected, build.total, build.fallback], [null, null, null, null]);
 
@@ -159,6 +169,15 @@ for (const name of ['pass', 'fail']) {
     const reportChecks = report.tiers.flatMap((tier) => tier.checks.map((check) => [tier.id, check.status]));
     assert.deepEqual(checks.map((line) => [line.tier, line.status]), reportChecks);
     if (name === 'fail') assert.ok(checks.some((line) => line.tier === 'targeted-tests' && line.status === 'FAIL'));
+    for (const check of checks) {
+      assert.ok(['none', 'in-run', 'leader', 'follower'].includes(check.shared), `check.shared ${check.shared}`);
+      if (check.shared === 'leader' || check.shared === 'follower') assert.match(check.shared_ref, /^[0-9a-f]{32}$/);
+      else assert.equal(check.shared_ref, null);
+      assert.ok(['none', 'pass', 'fail'].includes(check.failed_first), `check.failed_first ${check.failed_first}`);
+      if (check.status !== 'NOT_RUN') {
+        assert.ok(typeof check.duration_ms === 'number', 'duration_ms is number');
+      }
+    }
   });
 }
 
@@ -167,7 +186,10 @@ test('the committed verify fixture lines carry the keys a real verify run writes
   assert.deepEqual(fixture.map((line) => line.kind), KINDS);
   const written = fixtureRun('pass').telemetry.lines;
   for (const line of fixture) {
-    assert.deepEqual(Object.keys(line), Object.keys(written.find((w) => w.kind === line.kind)), line.kind);
+    const writtenKeys = Object.keys(written.find((w) => w.kind === line.kind));
+    for (const key of Object.keys(line)) {
+      assert.ok(writtenKeys.includes(key), `${line.kind} missing ${key}`);
+    }
   }
 });
 
@@ -250,8 +272,8 @@ test('check durations are monotonic, timestamps never go backwards, and a tier d
   const run = records[0];
   assert.equal(run.checks_run, checks.length);
   assert.ok(run.duration_ms >= 0);
-  assert.deepEqual([run.level, run.v0, run.exit_code], [null, null, 1]);
-  for (const check of checks) assert.deepEqual([check.check_key, check.shared], [null, null]);
+  assert.deepEqual([run.level, run.v0, run.exit_code], ['L2', 'on', 1]);
+  for (const check of checks) assert.deepEqual([check.check_key, check.shared, check.failed_first], [null, 'none', 'none']);
 });
 
 test('the runner times an executed check in its metrics map and leaves an in-run duplicate unmeasured', () => {
@@ -364,4 +386,158 @@ test('outside any project store the verify verb writes nothing (no global fallba
   assert.equal(res.status, 0, res.stderr);
   assert.equal(fs.existsSync(path.join(home, 'telemetry')), false, 'the global store stays empty');
   assert.equal(fs.existsSync(telemetryDir(p.root)), false);
+});
+
+test('checkKey: equal inputs give equal check_key', () => {
+  const { checkKey } = require('../../src/runtime/verification/check-key.ts');
+  const input = {
+    command: 'npm test',
+    timeoutMs: 60000,
+    cwd: REPO,
+    head: '0123456789abcdef0123456789abcdef01234567',
+    tree: 'fedcba9876543210fedcba9876543210fedcba98',
+    env: { PATH: '/bin:/usr/bin', NODE_ENV: 'test' },
+  };
+  const key1 = checkKey(input);
+  const key2 = checkKey({ ...input });
+  assert.ok(typeof key1 === 'string' && key1.length === 16);
+  assert.equal(key1, key2);
+});
+
+test('checkKey: a dirty file or a NODE_OPTIONS change gives a different key', () => {
+  const { checkKey } = require('../../src/runtime/verification/check-key.ts');
+  const base = {
+    command: 'npm test',
+    timeoutMs: 60000,
+    cwd: REPO,
+    head: '0123456789abcdef0123456789abcdef01234567',
+    tree: 'fedcba9876543210fedcba9876543210fedcba98',
+    env: { PATH: '/bin:/usr/bin', NODE_ENV: 'test' },
+  };
+  const baseKey = checkKey(base);
+  const dirtyTreeKey = checkKey({ ...base, tree: 'dirtytree9876543210fedcba9876543210fedcba' });
+  assert.notEqual(baseKey, dirtyTreeKey, 'different treeDigest gives different key');
+
+  const nodeOptionsKey = checkKey({ ...base, env: { ...base.env, NODE_OPTIONS: '--max-old-space-size=4096' } });
+  assert.notEqual(baseKey, nodeOptionsKey, 'NODE_OPTIONS change gives different key');
+});
+
+test('checkKey: /tmp and /private/tmp equal', () => {
+  const { checkKey } = require('../../src/runtime/verification/check-key.ts');
+  if (process.platform === 'darwin') {
+    const inputTmp = {
+      command: 'echo 1',
+      timeoutMs: 1000,
+      cwd: '/tmp',
+      head: '0123456789abcdef0123456789abcdef01234567',
+      tree: 'fedcba9876543210fedcba9876543210fedcba98',
+      env: { PATH: '/bin' },
+    };
+    const inputPrivateTmp = { ...inputTmp, cwd: '/private/tmp' };
+    const keyTmp = checkKey(inputTmp);
+    const keyPrivateTmp = checkKey(inputPrivateTmp);
+    assert.ok(keyTmp !== null);
+    assert.equal(keyTmp, keyPrivateTmp, '/tmp and /private/tmp must resolve to equal check keys');
+  }
+});
+
+test('checkKey: more than 500 files gives null', (t) => {
+  const { treeDigest, checkKey } = require('../../src/runtime/verification/check-key.ts');
+  const dir = tempDir(t, 'doflow-check-key-500-');
+  git(dir, 'init', '-q');
+  const fakeEntries = Array.from({ length: 501 }, (_, i) => `?? file_${i}.txt`).join('\0') + '\0';
+  const spawnSyncStub = (cmd, args) => {
+    if (args.includes('--porcelain=v1')) {
+      return { status: 0, stdout: fakeEntries, stderr: '' };
+    }
+    return spawnSync(cmd, args, { cwd: dir, encoding: 'utf8' });
+  };
+  const digest = treeDigest(dir, { spawnSyncImpl: spawnSyncStub });
+  assert.equal(digest, null, 'treeDigest returns null for > 500 files');
+
+  const key = checkKey({
+    command: 'npm test',
+    timeoutMs: 60000,
+    cwd: dir,
+    head: '0123456789abcdef0123456789abcdef01234567',
+    tree: digest,
+  });
+  assert.equal(key, null, 'checkKey returns null when tree is null');
+});
+
+test('buildVerifyRecords: NOT_RUN gives duration_ms null and checks_run counts executed only', () => {
+  const report = {
+    status: 'FAIL',
+    startedAt: '2026-10-17T00:00:00.000Z',
+    finishedAt: '2026-10-17T00:00:02.000Z',
+    tiers: [
+      {
+        id: 'targeted-tests',
+        status: 'FAIL',
+        checks: [
+          { name: 'executed_check', command: 'node test1.js', status: 'FAIL', exitCode: 1 },
+          { name: 'not_run_check', command: 'node test2.js', status: 'NOT_RUN' },
+          { name: 'dedup_check', command: 'node test1.js', status: 'FAIL', exitCode: 1, deduplicated: true },
+        ],
+      },
+    ],
+  };
+  const metrics = new WeakMap();
+  metrics.set(report.tiers[0].checks[0], {
+    startedAt: 1792000000000,
+    durationMs: 150.4,
+    tests: 10,
+    testsFailed: 1,
+    cpuMs: null,
+    resourceBasis: 'unreached-platform',
+    checkKey: '0123456789abcdef',
+    shared: 'none',
+  });
+
+  const records = buildVerifyRecords({
+    report,
+    metrics,
+    ctx: { verifyId: 'c'.repeat(16), source: 'verb', taskId: 'T-1', risk: 'LOW', exitCode: 1 },
+  });
+
+  const runRecord = records.find((r) => r.kind === 'verify.run');
+  const checkRecords = records.filter((r) => r.kind === 'verify.check');
+
+  assert.equal(runRecord.checks_run, 1, 'checks_run counts executed only (1 executed, 1 NOT_RUN, 1 dedup)');
+  assert.equal(checkRecords[0].status, 'FAIL');
+  assert.equal(checkRecords[0].duration_ms, 150);
+  assert.equal(checkRecords[0].shared, 'none');
+  assert.equal(checkRecords[0].check_key, '0123456789abcdef');
+  assert.equal(checkRecords[0].failed_first, 'none');
+
+  assert.equal(checkRecords[1].status, 'NOT_RUN');
+  assert.equal(checkRecords[1].duration_ms, null, 'NOT_RUN check must have duration_ms null');
+  assert.equal(checkRecords[1].failed_first, null);
+
+  assert.equal(checkRecords[2].status, 'FAIL');
+  assert.equal(checkRecords[2].duration_ms, 0, 'deduplicated check has duration_ms 0');
+  assert.equal(checkRecords[2].shared, 'in-run');
+  assert.equal(checkRecords[2].check_key, '0123456789abcdef', 'deduplicated check gets executed check_key');
+  assert.equal(checkRecords[2].failed_first, 'none');
+});
+
+
+test('G.4 leader and follower telemetry pin shared/shared_ref, follower wait and execution count', () => {
+  const token = 'a'.repeat(32);
+  const leader = { name: 'leader', command: 'true', status: 'FAIL', exitCode: 7 };
+  const follower = { name: 'follower', command: 'true', status: 'FAIL', exitCode: 7, shared: { from: token } };
+  const metrics = new WeakMap([
+    [leader, { startedAt: 1000, durationMs: 1000, shared: 'leader', sharedRef: token }],
+    [follower, { startedAt: 1100, durationMs: 250, shared: 'follower', sharedRef: token }],
+  ]);
+  const records = buildVerifyRecords({ report: { status: 'FAIL', startedAt: new Date(1000).toISOString(),
+    finishedAt: new Date(2000).toISOString(), tiers: [{ id: 'parse', status: 'FAIL', checks: [leader, follower] }] },
+    metrics, ctx: { verifyId: '0123456789abcdef', source: 'verb', risk: 'LOW', v0: true } });
+  assert.equal(records[0].checks_run, 1, 'a follower waits; it does not execute');
+  const checks = records.filter((r) => r.kind === 'verify.check');
+  assert.deepEqual(checks.map((r) => [r.shared, r.shared_ref, r.duration_ms]),
+    [['leader', token, 1000], ['follower', token, 250]]);
+  assert.equal(checks[1].status, checks[0].status);
+  assert.equal(REGISTRY.kinds['verify.check'].fields.shared_ref.type, 'hex32|null');
+  assert.equal(REGISTRY.kinds['verify.check'].fields.shared_ref.phase, 'P5.4');
 });

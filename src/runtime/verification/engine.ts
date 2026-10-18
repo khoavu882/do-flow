@@ -26,7 +26,7 @@ const os = require('node:os');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect.ts');
-const { selectChangedTests } = require('./test-selection.ts');
+const { selectChangedTests, testFilesFor, conventionFor, quotePath } = require('./test-selection.ts');
 const { RecoveryManager } = require('../recovery.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
@@ -39,7 +39,8 @@ const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate
 const { assertSafeTaskId } = require('../evidence-ledger.ts');
 const { upkeepAfterVerify } = require('../storage/upkeep.ts');
 const { emitVerifyTelemetry } = require('./telemetry-emit.ts');
-const { resolveRunsLocation } = require('../trace/ledger.ts');
+const { resolveRunsLocation, outerProjectRoot } = require('../trace/ledger.ts');
+const { projectRoot: lifecycleProjectRoot } = require('../lifecycle/root.ts');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -52,7 +53,29 @@ const {
   TIER_STATUSES,
   RECOVERY_OUTCOMES,
   REGISTRY_FILENAME,
+  v0Enabled,
+  v0Applies,
+  levelOf,
 } = require('./registry.ts');
+
+const sha16 = (text: string): string => nodeCrypto.createHash('sha256').update(String(text), 'utf8').digest('hex').slice(0, 16);
+
+/**
+ * Saves a failed-first state file atomically via temp file + rename with mode 0600.
+ * If checks is empty, any existing state file is removed (IC-016).
+ */
+function saveFailedFirstFile(stateDir: string, stateFile: string, state: any, fsImpl: any = nodeFs): void {
+  try {
+    if (!state || !state.checks || Object.keys(state.checks).length === 0) {
+      try { fsImpl.unlinkSync(stateFile); } catch {}
+      return;
+    }
+    fsImpl.mkdirSync(stateDir, { recursive: true });
+    const tmp = path.join(stateDir, `.failed-first.${nodeCrypto.randomBytes(6).toString('hex')}.tmp`);
+    fsImpl.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 });
+    fsImpl.renameSync(tmp, stateFile);
+  } catch {}
+}
 
 // `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
 // SCRIPT_DIR is bin/, so its repo root is path.dirname(SCRIPT_DIR). This module takes the same root
@@ -107,6 +130,9 @@ class VerificationEngine {
   policy: any;
   runner: any;
   recoveryOverride: any;
+  v0: boolean;
+  platform: string;
+  configDir: string;
 
   /**
    * @param {Object} [options]
@@ -118,12 +144,17 @@ class VerificationEngine {
    * @param {Function} [options.clock] injection seam returning epoch milliseconds
    * @param {RecoveryManager} [options.recovery] overrides the per-risk-level manager
    * @param {string} [options.logDir] where failing checks' full logs go (`verifyStateRoot`)
+   * @param {string} [options.platform] platform used for command execution
+   * @param {string} [options.configDir] resolved verification state store
+   * @param {boolean} [options.v0] whether V0 behavior is enabled (IC-015)
    */
   constructor(options: any = {}) {
     this.cwd = options.cwd || process.cwd();
     this.fsImpl = options.fsImpl || nodeFs;
     this.exec = options.exec || spawnSync;
     this.clock = options.clock || Date.now;
+    this.platform = options.platform || process.platform;
+    this.configDir = options.configDir || (options.logDir ? path.resolve(options.logDir, '..', '..', '..') : path.join(this.cwd, '.doflow'));
     this.registry = loadVerificationRegistry({
       repoRoot: options.repoRoot,
       registryDir: options.registryDir,
@@ -132,8 +163,15 @@ class VerificationEngine {
       fsImpl: this.fsImpl,
     });
     this.policy = this.registry.policy || {};
-    this.runner = new VerificationContractRunner({ cwd: this.cwd, exec: this.exec, logDir: options.logDir });
+    this.runner = new VerificationContractRunner({
+      cwd: this.cwd,
+      exec: this.exec,
+      logDir: options.logDir,
+      platform: this.platform,
+      fsImpl: this.fsImpl,
+    });
     this.recoveryOverride = options.recovery || null;
+    this.v0 = options.v0 !== undefined ? Boolean(options.v0) : true;
   }
 
   /** @returns {string} ISO timestamp from the injected clock */
@@ -297,6 +335,7 @@ class VerificationEngine {
       .filter((t: any) => t.required && t.resolution === 'UNRESOLVED')
       .map((t: any) => ({ tier: t.id, reason: t.reason }));
 
+    const v0Active = Boolean(this.v0 && v0Applies(this.registry, riskLevel));
     return {
       version: this.registry.version,
       taskId: input.taskId,
@@ -317,6 +356,7 @@ class VerificationEngine {
         declaredNone: detection.declaredNone,
         errors: detection.errors,
       },
+      ...(v0Active ? { testTargeted: detection?.commands?.testTargeted || null } : {}),
       scope: {
         maxFiles: Number.isFinite(scope.maxFiles) ? scope.maxFiles : null,
         allowedPaths: toStringArray(scope.allowedPaths),
@@ -647,6 +687,73 @@ class VerificationEngine {
     // runContract again and gets a fresh cache, so retries always observe live behaviour.
     const dedupeCache = new Map<string, any>();
 
+    const v0Active = Boolean(this.v0 && v0Applies(this.registry, contract.riskLevel));
+    if (v0Active) {
+      this.runner.beginContract({
+        v0: this.v0,
+        registry: this.registry,
+        riskLevel: contract.riskLevel,
+        configDir: this.configDir,
+      });
+    } else {
+      // A reused engine must not carry L1/L2 sharing into an L3 or flag-off contract.
+      this.runner.inflightContext = undefined;
+    }
+    let taskIdValid = false;
+    if (typeof contract.taskId === 'string') {
+      try {
+        assertSafeTaskId(contract.taskId);
+        taskIdValid = true;
+      } catch {
+        taskIdValid = false;
+      }
+    }
+
+    const stateDir = path.join(this.configDir, 'state', 'verification', 'v0');
+    const stateFile = taskIdValid ? path.join(stateDir, `failed-first-${contract.taskId}.json`) : '';
+    let realRootSha = '';
+    try {
+      const real = typeof this.fsImpl.realpathSync === 'function'
+        ? this.fsImpl.realpathSync(this.cwd)
+        : path.resolve(this.cwd);
+      realRootSha = sha16(real);
+    } catch {
+      realRootSha = sha16(path.resolve(this.cwd));
+    }
+
+    let failedFirstState: any = null;
+    if (v0Active && taskIdValid) {
+      try {
+        const content = this.fsImpl.readFileSync(stateFile, 'utf8');
+        const parsed = JSON.parse(content);
+        if (parsed && parsed.v === 1 && parsed.cwd === realRootSha && parsed.checks && typeof parsed.checks === 'object') {
+          failedFirstState = parsed;
+        }
+      } catch {
+        failedFirstState = null;
+      }
+    }
+    let stateDirty = false;
+
+    const hasTargeted = Object.hasOwn(contract, 'testTargeted');
+    let foundTargeted = hasTargeted ? contract.testTargeted : contract.detection?.commands?.testTargeted;
+    if (!hasTargeted && !foundTargeted && v0Active && taskIdValid) {
+      try {
+        const det = detectCommands({ projectRoot: this.cwd, fsImpl: this.fsImpl });
+        foundTargeted = det?.commands?.testTargeted;
+      } catch {}
+    }
+    const convention = (foundTargeted && typeof foundTargeted.command === 'string' && foundTargeted.command.includes(TARGET_PATTERN_TOKEN))
+      ? conventionFor(foundTargeted)
+      : null;
+
+    if (convention && this.runner) {
+      this.runner.convention = convention;
+    }
+
+    let failedFirstAttempted = false;
+    let failedFirstHalted = false;
+
     for (const tier of contract.tiers) {
       const entry: any = {
         id: tier.id,
@@ -675,6 +782,23 @@ class VerificationEngine {
         continue;
       }
 
+      if (failedFirstHalted && tier.kind === 'behavioral') {
+        entry.status = 'NOT_RUN';
+        entry.reason = 'failed-first-still-failing';
+        for (const check of tier.checks) {
+          entry.checks.push({
+            name: check.name,
+            tier: tier.id,
+            role: check.role,
+            command: check.command,
+            status: 'NOT_RUN',
+            reason: 'failed-first-still-failing',
+          });
+        }
+        reportTiers.push(entry);
+        continue;
+      }
+
       if (tier.modelBased) {
         Object.assign(entry, this.evaluateModelTier(tier, runtimeInput.modelReview));
         reportTiers.push(entry);
@@ -688,6 +812,115 @@ class VerificationEngine {
       }
 
       for (const check of tier.checks) {
+        if (failedFirstHalted && tier.kind === 'behavioral') {
+          entry.checks.push({
+            name: check.name,
+            tier: tier.id,
+            role: check.role,
+            command: check.command,
+            status: 'NOT_RUN',
+            reason: 'failed-first-still-failing',
+          });
+          continue;
+        }
+
+        let runNarrowed = false;
+        let matchedFiles: string[] = [];
+        let narrowedCommand: string | null = null;
+        let narrowedStrikes = 0;
+
+        if (v0Active && taskIdValid && convention && !failedFirstAttempted && tier.kind === 'behavioral') {
+          try {
+            const savedCheck = failedFirstState?.checks?.[check.name]
+              || (failedFirstState?.checks ? Object.values(failedFirstState.checks).find((c: any) => c && c.cmd === sha16(check.command)) : null);
+            const strikes = Number.isSafeInteger(savedCheck?.strikes) && savedCheck.strikes >= 0 ? savedCheck.strikes : 0;
+            // A file can fail in isolation while the full suite passes (for example, suite setup).
+            // After two narrowed failures, recheck the full scope so saved state cannot pin FAIL.
+            if (savedCheck && strikes < 2 && savedCheck.cmd === sha16(check.command) && Array.isArray(savedCheck.files) && savedCheck.files.length > 0) {
+              const universeFiles = testFilesFor(foundTargeted, this.cwd, this.fsImpl);
+              matchedFiles = universeFiles.filter((f: string) => savedCheck.files.includes(sha16(f)));
+              if (matchedFiles.length > 0) {
+                const pattern = matchedFiles.map((f: string) => quotePath(f, this.platform || process.platform)).join(' ');
+                const sub = applyTargetPattern(foundTargeted.command, pattern);
+                if (sub.substituted && sub.command) {
+                  narrowedCommand = sub.command;
+                  runNarrowed = true;
+                  narrowedStrikes = strikes;
+                }
+              }
+            }
+          } catch {
+            runNarrowed = false;
+          }
+        }
+
+        if (runNarrowed && narrowedCommand) {
+          failedFirstAttempted = true;
+          const narrowedResult = this.runner.runCheck(check.name, narrowedCommand, check.timeoutMs, null);
+          if (narrowedResult.status === 'FAIL') {
+            narrowedResult.tier = tier.id;
+            narrowedResult.role = check.role;
+            if (check.requirementId) narrowedResult.requirementId = check.requirementId;
+            narrowedResult.failedFirst = { ran: true, status: 'FAIL', files: matchedFiles.length };
+            entry.checks.push(narrowedResult);
+            checksRun += 1;
+            failedChecks.push(narrowedResult.name);
+            failedFirstHalted = true;
+
+            const metric = this.runner.metrics.get(narrowedResult);
+            if (metric) metric.failedFirst = 'fail';
+
+            if (v0Active && taskIdValid) {
+              const filesToSave = narrowedResult.failedFiles && narrowedResult.failedFiles.length > 0
+                ? narrowedResult.failedFiles
+                : matchedFiles;
+              if (filesToSave && filesToSave.length > 0) {
+                if (!failedFirstState) failedFirstState = { v: 1, cwd: realRootSha, checks: {} };
+                failedFirstState.checks[check.name] = {
+                  cmd: sha16(check.command),
+                  files: filesToSave.map(sha16),
+                  strikes: narrowedStrikes + 1,
+                };
+                stateDirty = true;
+              }
+            }
+            continue;
+          } else {
+            // Narrowed PASS: the full check runs and alone decides
+            const fullResult = this.runner.runCheck(check.name, check.command, check.timeoutMs, dedupeCache);
+            fullResult.tier = tier.id;
+            fullResult.role = check.role;
+            if (check.requirementId) fullResult.requirementId = check.requirementId;
+            fullResult.failedFirst = { ran: true, status: 'PASS', files: matchedFiles.length };
+            entry.checks.push(fullResult);
+            checksRun += 1;
+            if (fullResult.status === 'PASS') checksPassed += 1;
+            else failedChecks.push(fullResult.name);
+
+            const metric = this.runner.metrics.get(fullResult);
+            if (metric) metric.failedFirst = 'pass';
+
+            if (v0Active && taskIdValid) {
+              if (fullResult.status === 'PASS') {
+                if (failedFirstState?.checks?.[check.name]) {
+                  delete failedFirstState.checks[check.name];
+                  stateDirty = true;
+                }
+              } else if (fullResult.status === 'FAIL') {
+                if (fullResult.failedFiles && fullResult.failedFiles.length > 0) {
+                  if (!failedFirstState) failedFirstState = { v: 1, cwd: realRootSha, checks: {} };
+                  failedFirstState.checks[check.name] = {
+                    cmd: sha16(check.command),
+                    files: fullResult.failedFiles.map(sha16),
+                  };
+                  stateDirty = true;
+                }
+              }
+            }
+            continue;
+          }
+        }
+
         const result = this.runner.runCheck(check.name, check.command, check.timeoutMs, dedupeCache);
         result.tier = tier.id;
         result.role = check.role;
@@ -696,6 +929,27 @@ class VerificationEngine {
         checksRun += 1;
         if (result.status === 'PASS') checksPassed += 1;
         else failedChecks.push(result.name);
+
+        const metric = this.runner.metrics.get(result);
+        if (metric) metric.failedFirst = 'none';
+
+        if (v0Active && taskIdValid && tier.kind === 'behavioral') {
+          if (result.status === 'FAIL') {
+            if (result.failedFiles && result.failedFiles.length > 0) {
+              if (!failedFirstState) failedFirstState = { v: 1, cwd: realRootSha, checks: {} };
+              failedFirstState.checks[check.name] = {
+                cmd: sha16(check.command),
+                files: result.failedFiles.map(sha16),
+              };
+              stateDirty = true;
+            }
+          } else if (result.status === 'PASS') {
+            if (failedFirstState?.checks?.[check.name]) {
+              delete failedFirstState.checks[check.name];
+              stateDirty = true;
+            }
+          }
+        }
       }
 
       const anyFailed = entry.checks.some((c: any) => c.status === 'FAIL');
@@ -714,6 +968,10 @@ class VerificationEngine {
         entry.status = 'PASS';
       }
       reportTiers.push(entry);
+    }
+
+    if (stateDirty && v0Active && taskIdValid) {
+      saveFailedFirstFile(stateDir, stateFile, failedFirstState, this.fsImpl);
     }
 
     const requiredTiers = reportTiers.filter((t) => t.required);
@@ -1266,9 +1524,9 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
  */
 /**
  * Where verification keeps its own state (check logs, the verify-moment upkeep): the store the
- * ledger and doflow-run resolve (`resolve_config_dir`) — `DOFLOW_CONFIG_DIR`, else the nearest
- * existing `.doflow` above `start`, else the install this runtime was copied into, else an existing
- * `~/.doflow`. Only when none exists (a project never set up) is it `<start>/.doflow`, as before.
+ * lifecycle owns — `DOFLOW_CONFIG_DIR`, else the nearest existing `.doflow` above the main checkout,
+ * else the install this runtime was copied into, else an existing `~/.doflow`. Only when none
+ * exists (a project never set up) is it the owner's `.doflow`.
  * A `.doflow` created under the working directory of a dispatch attempt worktree captured every
  * later record from there and was deleted with the worktree (088 G-O1 D4).
  * @param {Object} [options]
@@ -1281,7 +1539,9 @@ function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto
  *   `configDir` when it is named `.doflow` (the root the storage upkeep takes), else null
  */
 function verifyStateRoot({ start, env = process.env, homeDir = os.homedir(), installRoot = REPO_ROOT, fsImpl = nodeFs }: any = {}): { configDir: string; projectRoot: string | null } {
-  const from = path.resolve(start || process.cwd());
+  // Match worker/lifecycle state ownership before looking for a store. A sibling linked checkout
+  // cannot walk up to the main checkout, and a nested .doflow is never a store root (110/111).
+  const from = lifecycleProjectRoot(outerProjectRoot(path.resolve(start || process.cwd())));
   const isDir = (dir: string): boolean => { try { return fsImpl.statSync(dir).isDirectory(); } catch { return false; } };
   const at = resolveRunsLocation({ start: from, env, homeDir, fsImpl });
   let configDir = path.join(from, '.doflow');
@@ -1296,7 +1556,7 @@ function verifyStateRoot({ start, env = process.env, homeDir = os.homedir(), ins
   return { configDir, projectRoot: path.basename(configDir) === '.doflow' ? path.dirname(configDir) : null };
 }
 
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null }: {
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null, env = process.env, fsImpl = nodeFs }: {
   taskId?: any;
   action?: string;
   risk?: any;
@@ -1308,6 +1568,8 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   verificationInput?: string | null;
   verificationPhase?: string | null;
   baselineRef?: string | null;
+  env?: any;
+  fsImpl?: any;
 } = {}): number {
   // The task id names state files here, so it obeys the rule every other task verb applies.
   try {
@@ -1370,11 +1632,12 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     if (!declared) declared = { paths: [...recordedScope], origin: 'readiness-record', record: recordRel };
   }
 
-  const state = verifyStateRoot({ start: cwd });
+  const state = verifyStateRoot({ start: cwd, env, fsImpl });
+  const v0 = v0Enabled(env, state.configDir, fsImpl);
   let engine: any;
   let contract: any;
   try {
-    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT, logDir: path.join(state.configDir, 'state', 'verification', 'logs') });
+    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT, logDir: path.join(state.configDir, 'state', 'verification', 'logs'), configDir: state.configDir, v0, fsImpl });
     // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
     // declared scope; with neither the change-scope tier is UNRESOLVED and says where it looked.
     const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared, baselineRef });
@@ -1464,7 +1727,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   const exitCode = report.status === 'PASS' ? 0 : 1;
   // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
-  emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode }, start: cwd });
+  emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode, v0: v0 ? 'on' : 'off' }, start: state.projectRoot || cwd, env, fsImpl });
   upkeepAfterVerify({ projectRoot: state.projectRoot });
   return finishRuntime(exitCode);
 }
@@ -1499,4 +1762,5 @@ module.exports = {
   handleVerifyCommand,
   verifyStateRoot,
   validateVerificationInput,
+  saveFailedFirstFile,
 };

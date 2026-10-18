@@ -20,18 +20,23 @@
   "kinds": {
     "hook": {
       "store": "runs-telemetry",
-      "writers": ["core/harnesses/shared/hooks/bridge/bridge.sh"],
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "core/harnesses/claude/hooks/post-shell-observe.sh"
+      ],
       "fields": {
         "harness": { "name": "doflow.hook.harness", "class": "T2", "type": "enum:harness", "phase": "P2" },
         "event": { "name": "doflow.hook.event", "class": "T2", "type": "enum:event", "phase": "P2" },
         "policy": { "name": "doflow.hook.policy", "class": "T2", "type": "enum:policy", "phase": "P2" },
         "verdict": { "name": "doflow.hook.verdict", "class": "T2", "type": "enum:verdict", "phase": "P2" },
         "duration_ms": { "name": "doflow.hook.duration_ms", "class": "T1", "type": "uint|null", "phase": "P2" },
+        "tool_duration_ms": { "name": "doflow.hook.tool_duration_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
         "session": { "name": "doflow.hook.session", "class": "T0", "type": "token|null", "phase": "P2" },
         "tool": { "name": "doflow.hook.tool", "class": "T2", "type": "token|null", "phase": "P2" },
         "tool_call_id": { "name": "doflow.hook.tool_call_id", "class": "T0", "type": "token|null", "phase": "P2" },
         "role": { "name": "doflow.hook.role", "class": "T2", "type": "enum:role|null", "phase": "P2" },
-        "worker_run": { "name": "doflow.hook.worker_run", "class": "T0", "type": "token|null", "phase": "P2" }
+        "worker_run": { "name": "doflow.hook.worker_run", "class": "T0", "type": "token|null", "phase": "P2" },
+        "test_class": { "name": "doflow.hook.test_class", "class": "T2", "type": "enum:test_class|null", "phase": "P3" }
       }
     },
     "verify.run": {
@@ -43,7 +48,12 @@
         "task": { "name": "doflow.verify.run.task", "class": "T0", "type": "token|null", "phase": "P2" },
         "dispatch_run": { "name": "doflow.verify.run.dispatch_run", "class": "T0", "type": "token|null", "phase": "P2" },
         "risk": { "name": "doflow.verify.run.risk", "class": "T2", "type": "enum:risk|null", "phase": "P2" },
-        "status": { "name": "doflow.verify.run.status", "class": "T2", "type": "enum:status|null", "phase": "P2" }
+        "level": { "name": "doflow.verify.run.level", "class": "T2", "type": "enum:level|null", "phase": "P5.1" },
+        "status": { "name": "doflow.verify.run.status", "class": "T2", "type": "enum:status|null", "phase": "P2" },
+        "exit_code": { "name": "doflow.verify.run.exit_code", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "duration_ms": { "name": "doflow.verify.run.duration_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "checks_run": { "name": "doflow.verify.run.checks_run", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "v0": { "name": "doflow.verify.run.v0", "class": "T2", "type": "enum:v0|null", "phase": "P5.2" }
       }
     },
     "verify.tier": {
@@ -56,7 +66,8 @@
         "selection_basis": { "name": "doflow.verify.tier.selection_basis", "class": "T2", "type": "enum:selection_basis|null", "phase": "P2" },
         "selected": { "name": "doflow.verify.tier.selected", "class": "T1", "type": "uint|null", "phase": "P2" },
         "total": { "name": "doflow.verify.tier.total", "class": "T1", "type": "uint|null", "phase": "P2" },
-        "fallback": { "name": "doflow.verify.tier.fallback", "class": "T2", "type": "enum:fallback|null", "phase": "P2" }
+        "fallback": { "name": "doflow.verify.tier.fallback", "class": "T2", "type": "enum:fallback|null", "phase": "P2" },
+        "duration_ms": { "name": "doflow.verify.tier.duration_ms", "class": "T1", "type": "uint|null", "basis": "derived-sum", "phase": "P3" }
       }
     },
     "verify.check": {
@@ -65,7 +76,17 @@
       "fields": {
         "verify_id": { "name": "doflow.verify.check.verify_id", "class": "T0", "type": "hex16", "phase": "P2" },
         "tier": { "name": "doflow.verify.check.tier", "class": "T2", "type": "token|null", "phase": "P2" },
-        "status": { "name": "doflow.verify.check.status", "class": "T2", "type": "enum:status|null", "phase": "P2" }
+        "status": { "name": "doflow.verify.check.status", "class": "T2", "type": "enum:status|null", "phase": "P2" },
+        "exit_code": { "name": "doflow.verify.check.exit_code", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "duration_ms": { "name": "doflow.verify.check.duration_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "tests": { "name": "doflow.verify.check.tests", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "tests_failed": { "name": "doflow.verify.check.tests_failed", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "cpu_ms": { "name": "doflow.verify.check.cpu_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "resource_basis": { "name": "doflow.verify.check.resource_basis", "class": "T2", "type": "enum:resource_basis|null", "phase": "P3" },
+        "check_key": { "name": "doflow.verify.check.check_key", "class": "T0", "type": "hex16|null", "phase": "P3" },
+        "shared": { "name": "doflow.verify.check.shared", "class": "T2", "type": "enum:shared|null", "phase": "P3" },
+        "shared_ref": { "name": "doflow.verify.check.shared_ref", "class": "T0", "type": "hex32|null", "phase": "P5.4" },
+        "failed_first": { "name": "doflow.verify.check.failed_first", "class": "T2", "type": "enum:failed_first|null", "phase": "P5.3" }
       }
     }
   },
@@ -98,7 +119,7 @@
   "excludedStores": [
     {
       "store": "verification-v0",
-      "reason": "coordination state: transient pid and token in a mode-0600 lock deleted after use (U-1); digests only"
+      "reason": "coordination state excluded from telemetry: digests, transient pid and token in a mode-0600 lock deleted after use (U-1), and bounded output excerpts with a short TTL"
     }
   ]
 }

@@ -16,6 +16,7 @@ All notable changes to DoFlow are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Feature 088 (Verification baseline V0):** Telemetry contract v1 (`core/registry/telemetry.json`) and hook lines (`test_class` on every hook line, classified via `envelope.jq` or observed via Claude `post-shell-observe.sh`, whose `tool_duration_ms` records tool runtime with `duration_ms:null`), trace spans (`doflow-run trace spans`) and trace ids on run records, paired perf option (`bench perf measure --paired-env`), verification levels L0–L3 and the `level` key in `verify.run`, V0 flag (`DOFLOW_VERIFY_V0=off` and sentinel `<config>/verify-v0.off`, recorded in `verify.run.v0`), failed-first execution order from file digests (`verification-v0` store), in-flight dedup with run-lock link primitive (shared leader/follower roles, bounded output excerpts in the in-flight store with a short TTL of about 2 minutes), `bench verify-baseline` entry over recorded snapshots, and controlled-loop baseline shown as observed, not a result: "verdict not yet derivable" (1 of 5 loops, 1 of 2 harnesses).
 - `worker --action evidence` records harness capability evidence from free CLI checks (`--checks <path>`) or completed worker runs (`--worker-run <w-id>`) into `core/worker-evidence/<harness>/` (FU-c1ydm1).
 - **Feature 085a:** `release:rehearse` exercises release checks in an isolated clone and includes
   the `plantuml` and `raw-ts` seeded-fault modes. Preflight adds `stable-allowed`

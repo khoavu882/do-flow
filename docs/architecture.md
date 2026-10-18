@@ -179,6 +179,8 @@ in, and `test/guards/runtime-unification.test.js` asserts the records carry meta
 source content, no secrets. When telemetry is turned off (`DOFLOW_TELEMETRY=off`), writers emit
 nothing and create no telemetry files.
 
+**Verification observability flow.** During verification execution (`src/runtime/verification/engine.ts` and `src/runtime/verification/contract-runner.ts`), `emitVerifyTelemetry` writes structured metadata lines (`verify.run`, `verify.tier`, `verify.check`) to `.doflow/state/runs/telemetry/YYYY-MM-DD.jsonl`. Verification metrics are tracked in-process via WeakMap on the contract runner instance and flushed to telemetry. When `DOFLOW_VERIFY_V0` is enabled, failed-first test ordering and in-flight deduplication run over coordination state in `verification-v0` (`.doflow/state/verification/v0`). Offline, `trace spans` and `bench verify-baseline` correlate these telemetry events with run ledger entries and task attempts to project spans and compute baseline statistics without modifying production execution or calling external models.
+
 Offline, `trace spans` projects spans from existing ledger, telemetry, attempt, orchestration, and
 worker records without a dedicated span store. Trace segments are scoped to task-attempt slugs rather
 than session run keys alone: a worker run joins through its slug's attempt file, token, and task
@@ -549,11 +551,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-fifty-eight test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-fifty-one entries across forty-seven test files and carries forty-nine distinct G-numbers.
+59 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+52 entries across 48 test files and carries 50 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G51 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G52 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -839,12 +841,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G45** (`telemetry-contract.test.js`) — `core/registry/telemetry.json` is well
   formed and its keys per kind equal the keys the `TelemetryWriter`, the bridge and observer `printf`
   formats and the fixture lines carry, with `harness`, `status` and `risk` equal to their owning
-  registries (G44.1); no `node` process starts on a shell hook path, and the node files there are the
-  pinned three (G44.2); no network module or `fetch` under `src/runtime` outside the pinned advice
-  client (G44.3); no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze`
-  or `verify-baseline` (G44.4); the package has no runtime dependency and G30.2 is still enforced
-  (G44.5); and every telemetry store is a declared `runs/` subdirectory the ledger readers skip
-  (G44.6). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
+  registries (G45.1); no `node` process starts on a shell hook path, and the node files there are the
+  pinned three (G45.2); no network module or `fetch` under `src/runtime` outside the pinned advice
+  client (G45.3); no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze`
+  or `verify-baseline` (G45.4); the package has no runtime dependency and G30.2 is still enforced
+  (G45.5); and every telemetry store is a declared `runs/` subdirectory the ledger readers skip
+  (G45.6). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
 - **G46** (`guidance-truth.test.js`) — prose claims that restate runtime gate behavior, install layout or
   packaged file sets must agree with the scripts and registries that own those facts. The numbered `# Denies` cases in the header of `core/harnesses/shared/hooks/policies/pre-implementation-gate.sh` must be as many as the deny-code families the script emits, and the backticked deny codes in the implement-gate bullet in `core/shared/guidance/references/DOFLOW_CHAIN.md` must equal the codes the script emits (G46.1); a "hard gate" or "hard hook" scope claim anywhere in guidance, skills, or agent specs
   must cite `DOFLOW_CHAIN.md` in its own sentence or an adjacent one (G46.2); the Layout table's
@@ -863,6 +865,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G49** (`docs-site.test.js`) - the published docs site stays true to the code: every `mkdocs.yml` nav page exists and is listed in `docs/llms.txt`, and every `llms.txt` link is a nav page; every Node range statement in `docs/quickstart.md` and `docs/setup.md` equals the range `package.json` declares in `engines.node`; no page claims a Node 18 or 20 floor except in a sentence (or table cell) that itself says the floor was raised; and whenever a page holds a `mermaid` fence, `mkdocs.yml` (YAML comments ignored) declares the mermaid custom fence and an `extra_javascript` script pins the mermaid library (`mermaid@<version>/dist/mermaid`) with a `sha384` integrity hash. Each check has a negative control that re-seeds the fault in a copy under `tempDir`.
 - **G50** (`bare-imports.test.js`) — every code module under `src/` and `bin/` (`.ts`, `.js`, `.mjs`, `.cjs`, ignoring `.d.ts` and files outside those directories) must use `node:` builtins or relative specifiers (`./` or `../`): bare package imports without `node:` prefixes, bare Node builtins (such as `'fs'`), and non-literal or dynamic `require()` calls are forbidden so unvendored dependencies and dynamic lookups cannot slip into shipped code. Specifiers are scanned across all five forms: `require()`, `require.resolve()`, `import()`, `from ...`, and bare `import`. Each check has a negative control: fixture-map tests assert that bare packages, bare Node builtins, dynamic `require()` arguments, and all five specifier forms are reported while safe specifiers are permitted, and a filesystem walk over directories copied into `tempDir` identifies a seeded fault by file and line without modifying tracked sources.
 - **G51** (`release-workflow.test.js`) — the committed release workflow (`.github/workflows/release.yml`) satisfies the IC-004 workflow rules and IC-005 job graph. Each check has a negative control: string mutations re-seed faults on workflow copies (leaving the committed file untouched) to verify that violations of rules R1 (empty top-level permissions), R3 (`id-token: write` restricted to `publish`), R5 (40-hex SHA pinning for external actions), R6 (`preflight` having no dependencies), R7 (`publish-release` dependency on `promote`), and R9 (`publish` publishing to `${channel}-candidate`) are detected and reported by their respective rules.
+- **G52** (`verification-levels.test.js`) — verification levels are data over tiers: L0 tiers exist and lead every risk level's `requiredTiers`; each risk level is in exactly one of L1..L3; L3 includes HIGH and CRITICAL; `policy.v0.levels` is a subset of {L1, L2}. Each check has a negative control.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

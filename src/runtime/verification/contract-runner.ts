@@ -28,6 +28,10 @@
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { telemetryOff } = require('../trace/telemetry.ts');
+const { checkKey, headCommit, treeDigest } = require('./check-key.ts');
+const { runInflight } = require('./inflight.ts');
+const { v0Applies } = require('./registry.ts');
 
 /** A failing check whose name contains one of these aborts the remaining checks: once the build is
  * broken, every later result describes the broken build rather than the change. */
@@ -97,6 +101,180 @@ function monotonicNs(): bigint | null {
   }
 }
 
+/**
+ * Test output counts parser (088 E.2, IC-007).
+ * Parses full stdout+stderr for TAP (# tests N / # fail N) or spec (ℹ tests N / ℹ fail N).
+ * Pytest and unparseable outputs return { tests: null, testsFailed: null }.
+ * @param {unknown} text
+ * @returns {{ tests: number | null, testsFailed: number | null }}
+ */
+function parseTestCounts(text: unknown): { tests: number | null; testsFailed: number | null } {
+  if (typeof text !== 'string') return { tests: null, testsFailed: null };
+  const tapTests = text.match(/^# tests (\d+)/m);
+  if (tapTests) {
+    const tapFail = text.match(/^# fail (\d+)/m);
+    return {
+      tests: parseInt(tapTests[1], 10),
+      testsFailed: tapFail ? parseInt(tapFail[1], 10) : 0,
+    };
+  }
+  const specTests = text.match(/^ℹ tests (\d+)/m);
+  if (specTests) {
+    const specFail = text.match(/^ℹ fail (\d+)/m);
+    return {
+      tests: parseInt(specTests[1], 10),
+      testsFailed: specFail ? parseInt(specFail[1], 10) : 0,
+    };
+  }
+  return { tests: null, testsFailed: null };
+}
+
+/**
+ * Reads child cpu ticks from /proc/self/stat on Linux (088 E.2, IC-008).
+ * Returns cutime + cstime as a number, or null on non-Linux or read fault.
+ * @param {Object} [fsImpl=fs]
+ * @param {string} [platform=process.platform]
+ * @returns {number | null}
+ */
+function childCpuTicks(fsImpl: any = fs, platform: string = process.platform): number | null {
+  if (platform !== 'linux') return null;
+  try {
+    const statText = fsImpl.readFileSync('/proc/self/stat', 'utf8');
+    const lastParen = statText.lastIndexOf(')');
+    if (lastParen === -1) return null;
+    const rest = statText.slice(lastParen + 1).trim();
+    const tokens = rest.split(/\s+/);
+    // After the last ')', field 3 (state) is index 0.
+    // field 16 (cutime) is index 13, field 17 (cstime) is index 14.
+    const cutime = parseInt(tokens[13], 10);
+    const cstime = parseInt(tokens[14], 10);
+    if (!Number.isFinite(cutime) || !Number.isFinite(cstime)) return null;
+    return cutime + cstime;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Test output failing files parser (088 G.3, IC-007).
+ * Extracts sorted unique repo-relative test file paths from TAP, spec, or pytest output.
+ * Drops non-test files, non-regular files (directories), files outside root, or parse faults.
+ * @param {unknown} text
+ * @param {Object} options
+ * @param {string} options.root project root
+ * @param {Object} options.convention convention object with isTest(path)
+ * @param {Object} [options.fsImpl=fs]
+ * @returns {Array<string>} sorted unique repo-relative paths
+ */
+function extractFailedFiles(
+  text: unknown,
+  {
+    root,
+    convention,
+    fsImpl = fs,
+  }: {
+    root?: string;
+    convention?: { isTest?: (file: string) => boolean };
+    fsImpl?: any;
+  } = {},
+): string[] {
+  if (typeof text !== 'string' || !root || !convention || typeof convention.isTest !== 'function') {
+    return [];
+  }
+
+  let realRoot: string;
+  try {
+    realRoot = fsImpl.realpathSync(root);
+  } catch {
+    realRoot = path.resolve(root);
+  }
+
+  const rawPaths = new Set<string>();
+
+  // 1. TAP: in a YAML block that follows a `not ok` line, ^\s*location:\s*'(.+):\d+:\d+'\s*$ (absolute, made relative to realpath(root))
+  const lines = text.split('\n');
+  let inNotOk = false;
+  let inYaml = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*not ok\b/.test(line)) {
+      inNotOk = true;
+      inYaml = false;
+    } else if (/^\s*ok\b/.test(line)) {
+      inNotOk = false;
+      inYaml = false;
+    } else if (inNotOk && /^\s*---\s*$/.test(line)) {
+      inYaml = true;
+    } else if (inYaml && /^\s*\.\.\.\s*$/.test(line)) {
+      inYaml = false;
+      inNotOk = false;
+    } else if (inNotOk && inYaml) {
+      const match = line.match(/^\s*location:\s*['"]?(.+?):\d+:\d+['"]?\s*$/);
+      if (match) {
+        rawPaths.add(match[1]);
+      }
+    }
+  }
+
+  // 2. Spec: after the `✖ failing tests:` line, ^\s*test at (.+):\d+:\d+\s*$ (relative to root)
+  let afterFailingTests = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/✖ failing tests:/.test(line)) {
+      afterFailingTests = true;
+      continue;
+    }
+    if (afterFailingTests) {
+      const match = line.match(/^\s*test at (.+?):\d+:\d+\s*$/);
+      if (match) {
+        rawPaths.add(match[1]);
+      }
+    }
+  }
+
+  // 3. Pytest: ^FAILED (\S+?)::
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^FAILED (\S+?)::/);
+    if (match) {
+      rawPaths.add(match[1]);
+    }
+  }
+
+  const validFiles = new Set<string>();
+
+  for (const raw of rawPaths) {
+    let relPath: string;
+    if (path.isAbsolute(raw)) {
+      relPath = path.relative(realRoot, raw);
+    } else {
+      relPath = path.normalize(raw);
+    }
+    if (path.isAbsolute(relPath) || relPath.startsWith('..')) {
+      continue;
+    }
+    const normalized = relPath.replace(/\\/g, '/');
+    const fullPath = path.join(realRoot, normalized);
+
+    let st: any;
+    try {
+      st = fsImpl.statSync(fullPath);
+    } catch {
+      continue;
+    }
+    if (!st || !st.isFile() || st.isDirectory()) {
+      continue;
+    }
+    if (!convention.isTest(normalized)) {
+      continue;
+    }
+    validFiles.add(normalized);
+  }
+
+  return [...validFiles].sort();
+}
+
 class VerificationContractRunner {
   cwd: string;
   defaultTimeoutMs: number;
@@ -104,9 +282,15 @@ class VerificationContractRunner {
   fsImpl: any;
   logDir: string;
   logWriteWarned?: boolean;
-  /** Check result → `{ startedAt (epoch ms), durationMs (monotonic, null on a clock fault) }` for
-   * every executed check; an in-run duplicate and a check with no command have no entry. */
-  metrics: WeakMap<object, { startedAt: number; durationMs: number | null }>;
+  platform: string;
+  env: Record<string, string | undefined>;
+  convention?: any;
+  configDir?: string;
+  inflightContext?: { enabled: boolean; dir: string };
+  _treeContext?: { head: string | null; tree: string | null };
+  /** Check result → `{ startedAt, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
+   * for every executed check; an in-run duplicate and a check with no command have no entry. */
+  metrics: WeakMap<object, any>;
 
   /**
    * @param {Object|string} [options] a string is accepted for parity with the Python's positional
@@ -116,6 +300,8 @@ class VerificationContractRunner {
    * @param {Function} [options.exec] injection seam for tests; same contract as `spawnSync`
    * @param {string} [options.logDir] where full check logs go; the verify verb passes its resolved
    *   store's (engine.ts `verifyStateRoot`), so `<cwd>/.doflow` is only the unconfigured default
+   * @param {string} [options.platform=process.platform]
+   * @param {Object} [options.env=process.env]
    */
   constructor(options: any = {}) {
     const opts = typeof options === 'string' ? { cwd: options } : options;
@@ -124,7 +310,23 @@ class VerificationContractRunner {
     this.exec = opts.exec || spawnSync;
     this.fsImpl = opts.fsImpl || fs;
     this.logDir = opts.logDir || path.join(this.cwd, '.doflow', 'state', 'verification', 'logs');
+    this.platform = opts.platform || process.platform;
+    this.env = opts.env || process.env;
+    this.convention = opts.convention || null;
+    this._treeContext = undefined;
     this.metrics = new WeakMap();
+    if (opts.context) this.beginContract(opts.context);
+  }
+
+  /** Explicit engine seam: call once per active V0 evaluation, including retries.
+   * No execution policy is inferred from the environment or leaked into compiled contracts. */
+  beginContract({ v0, registry, riskLevel, configDir }: any): void {
+    this._treeContext = undefined;
+    this.inflightContext = undefined;
+    this.configDir = configDir;
+    if (v0 === true && v0Applies(registry, riskLevel) && typeof configDir === 'string') {
+      this.inflightContext = { enabled: true, dir: path.join(configDir, 'state', 'verification', 'v0') };
+    }
   }
 
   /**
@@ -169,16 +371,51 @@ class VerificationContractRunner {
    * @param {string} [stdout]
    * @param {string} [stderr]
    */
-  decorate(result: any, command: string, stdout?: string, stderr?: string): void {
+  decorate(result: any, command: string, stdout?: string, stderr?: string, execution?: any): void {
+    if (execution?.bounded === true) {
+      for (const field of ['failedTests', 'failedFiles', 'logPath']) {
+        if (Object.hasOwn(execution, field)) result[field] = execution[field];
+      }
+      return;
+    }
     const full = `${stdout || ''}\n${stderr || ''}`;
     if (result.status === 'FAIL') {
       const failedTests = extractFailedTests(full);
       if (failedTests.length > 0) result.failedTests = failedTests;
+      if (this.convention) {
+        const failedFiles = extractFailedFiles(full, {
+          root: this.cwd,
+          convention: this.convention,
+          fsImpl: this.fsImpl,
+        });
+        if (failedFiles.length > 0) result.failedFiles = failedFiles;
+      }
     }
     const truncated = (stdout || '').length > MAX_STREAM_CHARS || (stderr || '').length > MAX_STREAM_CHARS;
     if ((result.status === 'FAIL' || truncated) && full.trim() !== '') {
       result.logPath = this.persistLog(result.name, command, stdout as string, stderr as string);
     }
+  }
+
+  /** Parse the full streams and write their log once, before publishing a bounded handoff.
+   * Keep the runner's existing head/tail excerpt so a follower reports the same diagnostics. */
+  summarizeExecution(res: any, name: string, command: string): any {
+    const diagnostics: any = { name, status: res.error || res.status !== 0 ? 'FAIL' : 'PASS' };
+    this.decorate(diagnostics, command, res.stdout, res.stderr);
+    const counts = parseTestCounts(`${res.stdout || ''}\n${res.stderr || ''}`);
+    return {
+      status: res.status,
+      signal: res.signal ?? null,
+      ...(res.error ? { error: { message: res.error.message, code: res.error.code ?? null } } : {}),
+      stdout: truncate(res.stdout),
+      stderr: truncate(res.stderr),
+      truncated: (res.stdout || '').length > MAX_STREAM_CHARS || (res.stderr || '').length > MAX_STREAM_CHARS,
+      bounded: true,
+      ...counts,
+      ...(diagnostics.failedTests ? { failedTests: diagnostics.failedTests } : {}),
+      ...(diagnostics.failedFiles ? { failedFiles: diagnostics.failedFiles } : {}),
+      ...(Object.hasOwn(diagnostics, 'logPath') ? { logPath: diagnostics.logPath } : {}),
+    };
   }
 
   /**
@@ -211,26 +448,85 @@ class VerificationContractRunner {
     if (dedupeCache && dedupeCache.has(dedupeKey)) {
       return { ...dedupeCache.get(dedupeKey), name: checkName, deduplicated: true };
     }
-    // Timing for telemetry (088 C.1, IC-006) lives in `this.metrics`, never in the result, so the
-    // report is the same with telemetry on or off. A clock fault leaves the duration null.
+    // Timing for telemetry (088 C.1, IC-006; 088 E.2, IC-007..IC-009) lives in `this.metrics`,
+    // never in the result, so the report is the same with telemetry on or off.
     const startedAt = Date.now();
     const t0 = monotonicNs();
+    const t0Cpu = childCpuTicks(this.fsImpl, this.platform);
+    let checkKeyVal: string | null = null;
+    try {
+      if (!telemetryOff(this.env) || this.inflightContext?.enabled) {
+        if (this._treeContext === undefined) {
+          const head = headCommit(this.cwd);
+          const tree = treeDigest(this.cwd, { fsImpl: this.fsImpl, configDir: this.configDir });
+          this._treeContext = { head, tree };
+        }
+        checkKeyVal = checkKey({
+          command,
+          timeoutMs,
+          cwd: this.cwd,
+          head: this._treeContext.head,
+          tree: this._treeContext.tree,
+          env: this.env,
+          fsImpl: this.fsImpl,
+        });
+      }
+    } catch {
+      checkKeyVal = null;
+    }
+
+    let sharing: any = { shared: 'none', sharedRef: null };
     let timing: any = null;
     const remember = (result: any) => {
-      if (timing) this.metrics.set(result, timing);
+      if (sharing.shared === 'follower') result.shared = { from: sharing.sharedRef };
+      if (timing) {
+        if (sharing.shared === 'follower') {
+          timing.durationMs = sharing.durationMs;
+          timing.cpuMs = null;
+          timing.resourceBasis = null;
+        }
+        this.metrics.set(result, timing);
+      }
       if (dedupeCache) dedupeCache.set(dedupeKey, result);
       return result;
     };
-    const stop = () => {
+    const stop = (res?: any) => {
       const t1 = monotonicNs();
-      timing = { startedAt, durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null };
+      const t1Cpu = childCpuTicks(this.fsImpl, this.platform);
+      let cpuMs: number | null = null;
+      let resourceBasis: string | null = null;
+      if (this.platform !== 'linux') {
+        cpuMs = null;
+        resourceBasis = 'unreached-platform';
+      } else if (t0Cpu === null || t1Cpu === null) {
+        cpuMs = null;
+        resourceBasis = 'unreached-read';
+      } else {
+        cpuMs = Math.max(0, (t1Cpu - t0Cpu) * 10);
+        resourceBasis = 'proc-children';
+      }
+      const full = `${res ? res.stdout || '' : ''}\n${res ? res.stderr || '' : ''}`;
+      const { tests, testsFailed } = res?.bounded === true ? res : parseTestCounts(full);
+      timing = {
+        startedAt,
+        durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null,
+        tests,
+        testsFailed,
+        cpuMs,
+        resourceBasis,
+        checkKey: checkKeyVal,
+        shared: sharing.shared,
+        sharedRef: sharing.sharedRef,
+        failedFirst: 'none',
+      };
     };
 
     let res: any;
     try {
-      res = this.exec(command, {
+      const execute = () => this.exec(command, {
         shell: true,
         cwd: this.cwd,
+        ...(this.inflightContext?.enabled ? { env: this.env } : {}),
         encoding: 'utf8',
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
@@ -239,6 +535,13 @@ class VerificationContractRunner {
         // past anything a check legitimately prints. Only the first 2,000 chars are ever kept.
         maxBuffer: 64 * 1024 * 1024,
       });
+      if (this.inflightContext?.enabled && checkKeyVal) {
+        sharing = runInflight({ dir: this.inflightContext.dir, key: checkKeyVal, timeoutMs,
+          execute, summarize: (result: any) => this.summarizeExecution(result, checkName, command), fsImpl: this.fsImpl });
+        res = sharing.result;
+      } else {
+        res = execute();
+      }
     } catch (error: any) {
       stop();
       // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a
@@ -251,7 +554,9 @@ class VerificationContractRunner {
         error: error.message,
       });
     }
-    stop();
+    stop(res);
+    const stdout = res.bounded === true ? res.stdout : truncate(res.stdout);
+    const stderr = res.bounded === true ? res.stderr : truncate(res.stderr);
 
     // Defect fix (2): the Python's TimeoutExpired arm returned neither stdout nor stderr, so a
     // check that hung after printing its first failure told you only that it hung. Whatever the
@@ -263,10 +568,10 @@ class VerificationContractRunner {
         status: 'FAIL',
         exitCode: TIMEOUT_EXIT_CODE,
         error: 'TimeoutExpired',
-        stdout: truncate(res.stdout),
-        stderr: truncate(res.stderr),
+        stdout,
+        stderr,
       };
-      this.decorate(result, command, res.stdout, res.stderr);
+      this.decorate(result, command, res.stdout, res.stderr, res);
       return remember(result);
     }
 
@@ -277,10 +582,10 @@ class VerificationContractRunner {
         status: 'FAIL',
         exitCode: 1,
         error: res.error.message,
-        stdout: truncate(res.stdout),
-        stderr: truncate(res.stderr),
+        stdout,
+        stderr,
       };
-      this.decorate(result, command, res.stdout, res.stderr);
+      this.decorate(result, command, res.stdout, res.stderr, res);
       return remember(result);
     }
 
@@ -295,13 +600,13 @@ class VerificationContractRunner {
       command,
       status: passed ? 'PASS' : 'FAIL',
       exitCode,
-      stdout: truncate(res.stdout),
-      stderr: truncate(res.stderr),
+      stdout,
+      stderr,
     };
     if (res.signal) {
       result.error = `Terminated by signal ${res.signal}`;
     }
-    this.decorate(result, command, res.stdout, res.stderr);
+    this.decorate(result, command, res.stdout, res.stderr, res);
     return remember(result);
   }
 
@@ -365,4 +670,7 @@ module.exports = {
   MAX_STREAM_CHARS,
   MAX_FAILED_TESTS,
   extractFailedTests,
+  extractFailedFiles,
+  parseTestCounts,
+  childCpuTicks,
 };

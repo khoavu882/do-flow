@@ -1,0 +1,438 @@
+{
+  "HIGH": {
+    "version": 1,
+    "taskId": "T-1",
+    "riskLevel": "HIGH",
+    "compiledAt": "2026-10-14T17:46:40.000Z",
+    "phase": "unknown",
+    "compiledBeforeImplementation": null,
+    "cwd": "/fixture",
+    "maxRecoveryIterations": 2,
+    "detection": {
+      "usable": true,
+      "manifestFound": false,
+      "manifests": [],
+      "absent": [],
+      "declaredNone": [
+        "typecheck"
+      ],
+      "errors": []
+    },
+    "scope": {
+      "maxFiles": null,
+      "allowedPaths": []
+    },
+    "tiers": [
+      {
+        "id": "parse",
+        "name": "Parse",
+        "kind": "deterministic",
+        "order": 10,
+        "required": true,
+        "advisory": false,
+        "fatal": true,
+        "modelBased": false,
+        "failureClass": "BUILD_FAILURE",
+        "checks": [
+          {
+            "name": "parse:parse",
+            "tier": "parse",
+            "role": "parse",
+            "command": "node -e 0",
+            "timeoutMs": 60000,
+            "source": "plan.md",
+            "derivation": "override",
+            "targetScoped": false
+          }
+        ],
+        "resolution": "RESOLVED",
+        "reason": null
+      },
+      {
+        "id": "build",
+        "name": "Build",
+        "kind": "deterministic",
+        "order": 20,
+        "required": true,
+        "advisory": false,
+        "fatal": true,
+        "modelBased": false,
+        "failureClass": "BUILD_FAILURE",
+        "checks": [
+          {
+            "name": "build:build",
+            "tier": "build",
+            "role": "build",
+            "command": "node -e 0",
+            "timeoutMs": 600000,
+            "source": "plan.md",
+            "derivation": "override",
+            "targetScoped": false
+          }
+        ],
+        "resolution": "RESOLVED",
+        "reason": null
+      },
+      {
+        "id": "static-analysis",
+        "name": "Static analysis",
+        "kind": "deterministic",
+        "order": 30,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "WRONG_IMPLEMENTATION",
+        "checks": [
+          {
+            "name": "static-analysis:lint",
+            "tier": "static-analysis",
+            "role": "lint",
+            "command": "node -e 0",
+            "timeoutMs": 300000,
+            "source": "plan.md",
+            "derivation": "override",
+            "targetScoped": false
+          }
+        ],
+        "resolution": "RESOLVED",
+        "reason": null
+      },
+      {
+        "id": "targeted-tests",
+        "name": "Targeted tests",
+        "kind": "behavioral",
+        "order": 40,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "TEST_FAILURE",
+        "checks": [],
+        "resolution": "SUBSUMED",
+        "reason": "Would run the same command as the required 'broad-tests' tier, which runs it once.",
+        "selection": {
+          "basis": "none",
+          "selectedCount": null,
+          "totalCount": null,
+          "fallback": "not-scopable"
+        },
+        "subsumedBy": "broad-tests"
+      },
+      {
+        "id": "broad-tests",
+        "name": "Broad tests",
+        "kind": "behavioral",
+        "order": 50,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "TEST_FAILURE",
+        "checks": [
+          {
+            "name": "broad-tests:test",
+            "tier": "broad-tests",
+            "role": "test",
+            "command": "node -e 0",
+            "timeoutMs": 1800000,
+            "source": "plan.md",
+            "derivation": "override",
+            "targetScoped": false
+          }
+        ],
+        "resolution": "RESOLVED",
+        "reason": null
+      },
+      {
+        "id": "structural-invariants",
+        "name": "Structural invariants",
+        "kind": "structural",
+        "order": 60,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "ARCHITECTURE_FAILURE",
+        "checks": [],
+        "resolution": "UNRESOLVED",
+        "reason": "No structural invariant checks were supplied, and this risk level requires structural evidence."
+      },
+      {
+        "id": "requirement-satisfaction",
+        "name": "Requirement satisfaction",
+        "kind": "requirement",
+        "order": 70,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "REQUIREMENT_FAILURE",
+        "checks": [],
+        "resolution": "UNRESOLVED",
+        "reason": "No requirement checks were supplied, and this risk level requires requirement evidence."
+      },
+      {
+        "id": "change-scope",
+        "name": "Change scope",
+        "kind": "scope",
+        "order": 80,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "WRONG_IMPLEMENTATION",
+        "checks": [],
+        "resolution": "UNRESOLVED",
+        "reason": "No change-scope bound was declared before implementation, so the actual scope has nothing to be compared against."
+      },
+      {
+        "id": "model-review",
+        "name": "Model-based review",
+        "kind": "advisory",
+        "order": 90,
+        "required": false,
+        "advisory": true,
+        "fatal": false,
+        "modelBased": true,
+        "failureClass": "WRONG_IMPLEMENTATION",
+        "checks": [],
+        "resolution": "RESOLVED",
+        "reason": "Advisory model review; supplied to runContract, never establishes PASS."
+      }
+    ],
+    "unresolvedRequiredTiers": [
+      {
+        "tier": "structural-invariants",
+        "reason": "No structural invariant checks were supplied, and this risk level requires structural evidence."
+      },
+      {
+        "tier": "requirement-satisfaction",
+        "reason": "No requirement checks were supplied, and this risk level requires requirement evidence."
+      },
+      {
+        "tier": "change-scope",
+        "reason": "No change-scope bound was declared before implementation, so the actual scope has nothing to be compared against."
+      }
+    ],
+    "runnableCheckCount": 4
+  },
+  "CRITICAL": {
+    "version": 1,
+    "taskId": "T-1",
+    "riskLevel": "CRITICAL",
+    "compiledAt": "2026-10-14T17:46:40.000Z",
+    "phase": "unknown",
+    "compiledBeforeImplementation": null,
+    "cwd": "/fixture",
+    "maxRecoveryIterations": 1,
+    "detection": {
+      "usable": true,
+      "manifestFound": false,
+      "manifests": [],
+      "absent": [],
+      "declaredNone": [
+        "typecheck"
+      ],
+      "errors": []
+    },
+    "scope": {
+      "maxFiles": null,
+      "allowedPaths": []
+    },
+    "tiers": [
+      {
+        "id": "parse",
+        "name": "Parse",
+        "kind": "deterministic",
+        "order": 10,
+        "required": true,
+        "advisory": false,
+        "fatal": true,
+        "modelBased": false,
+        "failureClass": "BUILD_FAILURE",
+        "checks": [
+          {
+            "name": "parse:parse",
+            "tier": "parse",
+            "role": "parse",
+            "command": "node -e 0",
+            "timeoutMs": 60000,
+            "source": "plan.md",
+            "derivation": "override",
+            "targetScoped": false
+          }
+        ],
+        "resolution": "RESOLVED",
+        "reason": null
+      },
+      {
+        "id": "build",
+        "name": "Build",
+        "kind": "deterministic",
+        "order": 20,
+        "required": true,
+        "advisory": false,
+        "fatal": true,
+        "modelBased": false,
+        "failureClass": "BUILD_FAILURE",
+        "checks": [
+          {
+            "name": "build:build",
+            "tier": "build",
+            "role": "build",
+            "command": "node -e 0",
+            "timeoutMs": 600000,
+            "source": "plan.md",
+            "derivation": "override",
+            "targetScoped": false
+          }
+        ],
+        "resolution": "RESOLVED",
+        "reason": null
+      },
+      {
+        "id": "static-analysis",
+        "name": "Static analysis",
+        "kind": "deterministic",
+        "order": 30,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "WRONG_IMPLEMENTATION",
+        "checks": [
+          {
+            "name": "static-analysis:lint",
+            "tier": "static-analysis",
+            "role": "lint",
+            "command": "node -e 0",
+            "timeoutMs": 300000,
+            "source": "plan.md",
+            "derivation": "override",
+            "targetScoped": false
+          }
+        ],
+        "resolution": "RESOLVED",
+        "reason": null
+      },
+      {
+        "id": "targeted-tests",
+        "name": "Targeted tests",
+        "kind": "behavioral",
+        "order": 40,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "TEST_FAILURE",
+        "checks": [],
+        "resolution": "SUBSUMED",
+        "reason": "Would run the same command as the required 'broad-tests' tier, which runs it once.",
+        "selection": {
+          "basis": "none",
+          "selectedCount": null,
+          "totalCount": null,
+          "fallback": "not-scopable"
+        },
+        "subsumedBy": "broad-tests"
+      },
+      {
+        "id": "broad-tests",
+        "name": "Broad tests",
+        "kind": "behavioral",
+        "order": 50,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "TEST_FAILURE",
+        "checks": [
+          {
+            "name": "broad-tests:test",
+            "tier": "broad-tests",
+            "role": "test",
+            "command": "node -e 0",
+            "timeoutMs": 1800000,
+            "source": "plan.md",
+            "derivation": "override",
+            "targetScoped": false
+          }
+        ],
+        "resolution": "RESOLVED",
+        "reason": null
+      },
+      {
+        "id": "structural-invariants",
+        "name": "Structural invariants",
+        "kind": "structural",
+        "order": 60,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "ARCHITECTURE_FAILURE",
+        "checks": [],
+        "resolution": "UNRESOLVED",
+        "reason": "No structural invariant checks were supplied, and this risk level requires structural evidence."
+      },
+      {
+        "id": "requirement-satisfaction",
+        "name": "Requirement satisfaction",
+        "kind": "requirement",
+        "order": 70,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "REQUIREMENT_FAILURE",
+        "checks": [],
+        "resolution": "UNRESOLVED",
+        "reason": "No requirement checks were supplied, and this risk level requires requirement evidence."
+      },
+      {
+        "id": "change-scope",
+        "name": "Change scope",
+        "kind": "scope",
+        "order": 80,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": false,
+        "failureClass": "WRONG_IMPLEMENTATION",
+        "checks": [],
+        "resolution": "UNRESOLVED",
+        "reason": "No change-scope bound was declared before implementation, so the actual scope has nothing to be compared against."
+      },
+      {
+        "id": "model-review",
+        "name": "Model-based review",
+        "kind": "advisory",
+        "order": 90,
+        "required": true,
+        "advisory": false,
+        "fatal": false,
+        "modelBased": true,
+        "failureClass": "WRONG_IMPLEMENTATION",
+        "checks": [],
+        "resolution": "RESOLVED",
+        "reason": "Advisory model review; supplied to runContract, never establishes PASS."
+      }
+    ],
+    "unresolvedRequiredTiers": [
+      {
+        "tier": "structural-invariants",
+        "reason": "No structural invariant checks were supplied, and this risk level requires structural evidence."
+      },
+      {
+        "tier": "requirement-satisfaction",
+        "reason": "No requirement checks were supplied, and this risk level requires requirement evidence."
+      },
+      {
+        "tier": "change-scope",
+        "reason": "No change-scope bound was declared before implementation, so the actual scope has nothing to be compared against."
+      }
+    ],
+    "runnableCheckCount": 4
+  }
+}

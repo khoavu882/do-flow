@@ -1239,6 +1239,8 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run
   node bench/runner.js baseline [--from N]            freeze an iteration as the committed baseline
   node bench/runner.js report --iteration N           per-case delta of a run against the baseline
+  node bench/runner.js verify-baseline --snapshot <dir> [--json] [--out <dir>]
+                                                      verification baseline computation over a recorded snapshot
   node bench/runner.js retrieval <verb> [flags]       retrieval benchmark: verify|run|rerun|capture|seal|migrate
   node bench/runner.js perf <verb> [flags]            latency and context budgets: measure|check
 
@@ -1264,6 +1266,24 @@ function parseArgs(argv) {
     }
     else if (a === '--iteration') opts.iteration = argv[++i];
     else if (a === '--from') opts.from = argv[++i];
+    else if (a === '--snapshot') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --snapshot requires a value');
+        process.exit(2);
+      }
+      opts.snapshot = value;
+      i += 1;
+    }
+    else if (a === '--out') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --out requires a value');
+        process.exit(2);
+      }
+      opts.out = value;
+      i += 1;
+    }
     else if (a === '--split') {
       opts.split = argv[++i];
       if (!SPLITS.includes(opts.split)) {
@@ -1291,6 +1311,128 @@ function parseArgs(argv) {
   return { cmd, opts };
 }
 
+function cmdVerifyBaseline(opts) {
+  if (!opts.snapshot) {
+    console.error('bench verify-baseline: --snapshot <dir> is required');
+    return 2;
+  }
+  const snapshotDir = path.resolve(opts.snapshot);
+  const manifestPath = path.join(snapshotDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    console.error(`missing manifest: ${manifestPath}`);
+    return 2;
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    console.error(`missing manifest: unparseable ${manifestPath}`);
+    return 2;
+  }
+  if (!manifest || typeof manifest !== 'object') {
+    console.error('bench verify-baseline: manifest must be an object');
+    return 2;
+  }
+  if (manifest.v !== 1) {
+    console.error(`bench verify-baseline: manifest version must be 1, got ${manifest.v}`);
+    return 2;
+  }
+  if (!manifest.commit || typeof manifest.commit !== 'string') {
+    console.error('bench verify-baseline: manifest commit is required');
+    return 2;
+  }
+  if (!Array.isArray(manifest.files)) {
+    console.error('bench verify-baseline: manifest files must be an array');
+    return 2;
+  }
+
+  const manifestPaths = new Set();
+  for (const file of manifest.files) {
+    if (!file || typeof file !== 'object' || typeof file.path !== 'string' || !file.path) {
+      console.error('bench verify-baseline: manifest file entry missing path');
+      return 2;
+    }
+    const fullPath = path.resolve(snapshotDir, file.path);
+    const rel = path.relative(snapshotDir, fullPath);
+    if (rel.startsWith('..') || path.isAbsolute(file.path)) {
+      console.error(`bench verify-baseline: path escapes snapshot directory: ${file.path}`);
+      return 2;
+    }
+    try {
+      const lstat = fs.lstatSync(fullPath);
+      if (lstat.isSymbolicLink()) {
+        console.error(`bench verify-baseline: symlink not permitted in snapshot: ${file.path}`);
+        return 2;
+      }
+    } catch {
+      // Missing file will fail sha256 check below
+    }
+    if (!fs.existsSync(fullPath)) {
+      console.error(`manifest sha256 mismatch: ${file.path}`);
+      return 1;
+    }
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex');
+    if (hash !== file.sha256) {
+      console.error(`manifest sha256 mismatch: ${file.path}`);
+      return 1;
+    }
+    manifestPaths.add(rel.split(path.sep).join('/'));
+  }
+
+  const stateDir = path.join(snapshotDir, 'state');
+  if (fs.existsSync(stateDir)) {
+    const stateFiles = new Set();
+    function collectFiles(dir) {
+      const entries = fs.readdirSync(dir);
+      for (const entry of entries) {
+        const p = path.join(dir, entry);
+        const lstat = fs.lstatSync(p);
+        if (lstat.isSymbolicLink()) {
+          return `symlink not permitted in snapshot: ${path.relative(snapshotDir, p)}`;
+        }
+        if (lstat.isDirectory()) {
+          const err = collectFiles(p);
+          if (err) return err;
+        } else if (lstat.isFile()) {
+          stateFiles.add(path.relative(snapshotDir, p).split(path.sep).join('/'));
+        }
+      }
+      return null;
+    }
+    const symlinkErr = collectFiles(stateDir);
+    if (symlinkErr) {
+      console.error(`bench verify-baseline: ${symlinkErr}`);
+      return 2;
+    }
+    for (const sf of stateFiles) {
+      if (!manifestPaths.has(sf)) {
+        console.error(`bench verify-baseline: unlisted file in snapshot state: ${sf}`);
+        return 2;
+      }
+    }
+  }
+
+  const { buildBaseline, renderReportMarkdown } = require('../src/runtime/trace/baseline.ts');
+  const { buildSpans } = require('../src/runtime/trace/spans.ts');
+  const spansView = buildSpans({ stateDir, fsImpl: fs });
+  const report = buildBaseline(spansView, manifest);
+  const md = renderReportMarkdown(report);
+
+  if (opts.out) {
+    const outDir = path.resolve(opts.out);
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(path.join(outDir, 'report.md'), md, 'utf8');
+  }
+
+  if (opts.json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else if (!opts.out) {
+    console.log(md);
+  }
+  return 0;
+}
+
 function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === 'retrieval') return require('./retrieval/runner.js').main(argv.slice(1));
@@ -1314,6 +1456,14 @@ function main() {
     console.error(`bench ${cmd}: --arm is not accepted`);
     return 2;
   }
+  if (opts.snapshot && cmd !== 'verify-baseline') {
+    console.error(`bench ${cmd}: --snapshot is not accepted`);
+    return 2;
+  }
+  if (opts.out && cmd !== 'verify-baseline') {
+    console.error(`bench ${cmd}: --out is not accepted`);
+    return 2;
+  }
   const cfg = loadConfig();
   switch (cmd) {
     case 'coverage': return cmdCoverage(cfg, opts);
@@ -1325,6 +1475,7 @@ function main() {
     case 'grade': return cmdGrade(cfg, opts);
     case 'baseline': return cmdBaseline(cfg, opts);
     case 'report': return cmdReport(cfg, opts);
+    case 'verify-baseline': return cmdVerifyBaseline(opts);
     default:
       console.error(`unknown command "${cmd}"\n`);
       console.log(USAGE);
@@ -1510,4 +1661,5 @@ module.exports = {
   ASSERTION_TYPES,
   SPLITS,
   ARMS,
+  cmdVerifyBaseline,
 };

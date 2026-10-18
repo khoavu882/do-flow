@@ -1711,6 +1711,10 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
+      "surfaceId": "hook.claude.post-shell-observe",
+      "unmeasured": "088 E.4 measures it; a ceiling is a user approval and none is set here"
+    },
+    {
       "surfaceId": "hook.claude.post-tool-failure",
       "unmeasured": "measurement deferred to V.2"
     },

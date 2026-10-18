@@ -8,6 +8,20 @@ const nodeFs = require('node:fs');
 const { SAFE_TOKEN, telemetryOff, TelemetryWriter } = require('../trace/telemetry.ts');
 const { resolveRunsLocation } = require('../trace/ledger.ts');
 const { DISPATCH_RUN_ID } = require('../dispatch/store.ts');
+const { levelOf, v0Applies, v0Enabled, loadVerificationRegistry } = require('./registry.ts');
+
+let defaultRegistry: any = null;
+function getDefaultRegistry(): any {
+  if (!defaultRegistry) {
+    try {
+      defaultRegistry = loadVerificationRegistry();
+    } catch {
+      defaultRegistry = null;
+    }
+  }
+  return defaultRegistry;
+}
+
 
 /**
  * Verify telemetry (088 C.1, IC-006, DD-4): one `verify.run` line per verify run, one `verify.tier`
@@ -51,6 +65,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
   let cursor = Number.isFinite(runStart) ? runStart : undefined;
   let checksRun = 0;
   const body: any[] = [];
+  const commandKeys = new Map<string, string | null>();
 
   for (const tier of Array.isArray(report.tiers) ? report.tiers : []) {
     const checks: any[] = [];
@@ -60,13 +75,41 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
       const timing = check && typeof check === 'object' && metrics ? metrics.get(check) : undefined;
       let durationMs: number | null = null;
       let at = cursor;
-      if (timing) {
-        checksRun += 1;
+      let checkKey: string | null = null;
+      let shared: string | null = null;
+      let sharedRef: string | null = null;
+      let tests: number | null = null;
+      let testsFailed: number | null = null;
+      let cpuMs: number | null = null;
+      let resourceBasis: string | null = null;
+      let failedFirst: string | null = null;
+
+      if (check && check.status === 'NOT_RUN') {
+        durationMs = null;
+        failedFirst = null;
+      } else if (timing) {
+        if (timing.shared !== 'follower') checksRun += 1;
         if (Number.isFinite(timing.startedAt)) at = timing.startedAt;
         if (Number.isFinite(timing.durationMs)) durationMs = Math.round(timing.durationMs);
         if (at !== undefined) cursor = Math.max(cursor ?? at, at + (durationMs ?? 0));
+        checkKey = timing.checkKey ?? null;
+        shared = timing.shared ?? 'none';
+        sharedRef = timing.sharedRef ?? null;
+        tests = typeof timing.tests === 'number' ? timing.tests : null;
+        testsFailed = typeof timing.testsFailed === 'number' ? timing.testsFailed : null;
+        cpuMs = typeof timing.cpuMs === 'number' ? timing.cpuMs : null;
+        resourceBasis = timing.resourceBasis ?? null;
+        failedFirst = timing.failedFirst ?? (check?.failedFirst ? (check.failedFirst.status === 'FAIL' ? 'fail' : 'pass') : 'none');
+        if (check && check.command && checkKey) {
+          commandKeys.set(check.command, checkKey);
+        }
       } else if (check && check.deduplicated) {
         durationMs = 0; // reused the result of an identical check earlier in this run (S-10)
+        shared = 'in-run';
+        failedFirst = 'none';
+        checkKey = (check.command && commandKeys.get(check.command)) ?? null;
+      } else if (check) {
+        failedFirst = check.failedFirst ? (check.failedFirst.status === 'FAIL' ? 'fail' : 'pass') : 'none';
       }
       if (durationMs !== null) tierMs = (tierMs ?? 0) + durationMs;
       if (tierStart === undefined) tierStart = at;
@@ -76,10 +119,16 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         verify_id: verifyId,
         tier: tier.id,
         status: check ? check.status : null,
-        exit_code: check ? check.exitCode ?? null : null,
+        exit_code: check ? (check.exitCode ?? null) : null,
         duration_ms: durationMs,
-        check_key: null,
-        shared: null,
+        tests,
+        tests_failed: testsFailed,
+        cpu_ms: cpuMs,
+        resource_basis: resourceBasis,
+        check_key: checkKey,
+        shared,
+        shared_ref: sharedRef,
+        failed_first: failedFirst,
       });
     }
     const selection = tier.selection || {};
@@ -98,6 +147,29 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
   }
 
   const dispatchRun = ctx.dispatchRun ?? ctx.dispatch_run;
+  const reg = ctx.registry || getDefaultRegistry();
+  const risk = ctx.risk ?? null;
+  const level = ctx.level ?? (risk ? levelOf(reg, risk) : null);
+  const applies = ctx.v0Applies !== undefined ? Boolean(ctx.v0Applies) : (risk ? v0Applies(reg, risk) : false);
+
+  let v0: 'on' | 'off' | null = null;
+  if (ctx.source === 'dispatch') {
+    v0 = null;
+  } else if (ctx.v0 === 'off' || ctx.v0 === false) {
+    v0 = 'off';
+  } else if (ctx.v0 === 'on' || ctx.v0 === true) {
+    v0 = applies ? 'on' : null;
+  } else if (ctx.v0 === null) {
+    v0 = null;
+  } else {
+    const isEnabled = v0Enabled(ctx.env || process.env, ctx.configDir);
+    if (!isEnabled) {
+      v0 = 'off';
+    } else {
+      v0 = applies ? 'on' : null;
+    }
+  }
+
   const run = {
     kind: 'verify.run',
     timestamp: isoAt(runStart),
@@ -107,14 +179,14 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
     dispatch_run: ctx.source === 'dispatch' && typeof dispatchRun === 'string' && DISPATCH_RUN_ID.test(dispatchRun)
       ? dispatchRun
       : null,
-    risk: ctx.risk ?? null,
-    level: null,
+    risk,
+    level,
     status: report.status,
     exit_code: ctx.exitCode ?? null,
     // Wall time between the report's own stamps: the engine clock, not a monotonic one.
     duration_ms: Number.isFinite(runStart) && Number.isFinite(runEnd) ? Math.max(0, runEnd - runStart) : null,
     checks_run: checksRun,
-    v0: null,
+    v0,
   };
   return [run, ...body];
 }
@@ -148,7 +220,7 @@ function emitVerifyTelemetry({ report, metrics = null, ctx, env = process.env, s
     if (telemetryOff(env)) return;
     const from = storeStart(start, env, fsImpl);
     if (from === null) return;
-    const records = buildVerifyRecords({ report, metrics, ctx: { ...ctx, verifyId: crypto.randomBytes(8).toString('hex') } });
+    const records = buildVerifyRecords({ report, metrics, ctx: { env: ctx?.env || env, ...ctx, verifyId: crypto.randomBytes(8).toString('hex') } });
     new TelemetryWriter({ env, fsImpl, start: from, ...(now ? { now } : {}) }).write(records);
   } catch {
     // Telemetry changes no outcome (FR-002, NFR-005).

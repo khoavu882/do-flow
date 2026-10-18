@@ -1,0 +1,18 @@
+{
+  "source": "088 E.1, Claude Code 2.1.292 PostToolUseFailure; sanitised failing capture",
+  "native": {
+    "session_id": "session-088-observer",
+    "transcript_path": "/sanitised/transcript.jsonl",
+    "cwd": "/sanitised/project",
+    "prompt_id": "prompt-088",
+    "permission_mode": "default",
+    "hook_event_name": "PostToolUseFailure",
+    "tool_name": "Bash",
+    "tool_input": { "command": "node --test fail.test.js" },
+    "tool_use_id": "toolu_02XXXXXXXXXXXXXXXXXXXXXX",
+    "error": "Exit code 1\n✖ fails (0.586ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 40.453708\n\n✖ failing tests:\n\ntest at fail.test.js:2:1\n✖ fails (0.586ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  2 !== 3\n      at TestContext.<anonymous> (/sanitised/project/fail.test.js:2:28)",
+    "is_interrupt": false,
+    "duration_ms": 93
+  },
+  "expect": { "exit": 0, "stdout": "", "stderrIncludes": null, "records": 1, "test_class": "test.scoped", "duration_ms": null, "tool_duration_ms": 93 }
+}

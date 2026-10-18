@@ -75,6 +75,27 @@
       ]
     },
     {
+      "id": "verification-v0",
+      "root": "project-state",
+      "path": "verification/v0",
+      "entry": "file",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 40,
+        "maxAgeDays": 7
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/engine.ts",
+        "src/runtime/verification/inflight.ts"
+      ]
+    },
+    {
       "id": "task-evidence",
       "root": "project-state",
       "path": "evidence",
@@ -370,6 +391,7 @@
       ],
       "writers": [
         "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "core/harnesses/claude/hooks/post-shell-observe.sh",
         "src/runtime/trace/telemetry.ts"
       ]
     },

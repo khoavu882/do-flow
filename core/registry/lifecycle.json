@@ -2238,7 +2238,7 @@
         "timing": "stop",
         "profile": "any",
         "wired": true,
-        "configSource": "core/harnesses/claude/settings/settings.json:138",
+        "configSource": "core/harnesses/claude/settings/settings.json:147",
         "harnessVersion": {
           "tested": "2.1.287 (Claude Code)"
         },
@@ -3261,6 +3261,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:199bb689b2034157ecb3ade2b47b70470a00e567fa27134fc0cf5ef467369768"
+    "rowsDigest": "sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead86c3a5533c328"
   }
 }

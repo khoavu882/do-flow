@@ -46,12 +46,27 @@ def decode_antigravity:
 def decode_pi:
   (canonical_tool(.toolName // ""; "pi")) as $t |
   {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.input; ["path"]) else null end),command:(if $t.operation == "command" then string_value(.input; ["command"]) else null end),identity:session_identity(.sessionId),correlation:(correlation(.toolCallId;.parentToolCallId))};
+# IC-005: only this closed vocabulary enters telemetry. The policy envelope keeps its command.
+def command_segment_class:
+  gsub("^\\s+|\\s+$"; "") | sub("^([A-Za-z_][A-Za-z0-9_]*=[^\\s]*\\s+)+"; "") |
+  if test("^cd\\s+") then "none"
+  elif test("^(doflow-run|doflow) verify( |$)") then "verify.verb"
+  elif test("^(npm|pnpm|yarn|bun)( run)? test$|^node --test( --[^ ]+)*( test/?)?$|^pytest( -[^ ]+)*$|^go test \\./\\.\\.\\.$|^cargo test$") then "test.full"
+  elif test("^(npm|pnpm|yarn|bun)( run)? test |^node --test |^pytest |^go test |^cargo test ") then "test.scoped"
+  elif test("(^| )(jest|vitest|mocha|playwright test)( |$)|^(npm|pnpm|yarn|bun) run test:[^ ]+") then "test.other"
+  else "none" end;
+def classify($cmd):
+  try (if ($cmd | type) != "string" then "none" else
+    ["verify.verb", "test.full", "test.scoped", "test.other", "none"] as $rank |
+    [$cmd | splits("&&|\\|\\||;|\\|") | command_segment_class | . as $c | $rank | index($c)] |
+    (min // 4) as $best | $rank[$best]
+  end) catch "none";
 # Telemetry tuple (IC-003): the first line in explicit `--arg mode encode`, read and stripped by
 # bridge.sh. Every telemetry expression sits inside the `try`, so a fault here yields {dft:1} and
 # never reaches the envelope; exactly one value comes out whatever the inside yields.
 def dft_token($v): if ($v | type) == "string" and ($v | test("^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")) then $v else null end;
 def dft_id($v): if ($v | type) == "string" and ($v | test("^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$")) then $v else null end;
-def dft_tuple($native; $d):
+def dft_tuple_base($native; $d):
   if $ENV.DOFLOW_TELEMETRY == "off" then {dft:1} else
   [try (now as $n | ($n | floor) as $s |
     {dft:1, date:($s | strftime("%Y-%m-%d")),
@@ -65,6 +80,15 @@ def dft_tuple($native; $d):
      role:(if $ENV.DOFLOW_SESSION_ROLE == "main" or $ENV.DOFLOW_SESSION_ROLE == "worker" then $ENV.DOFLOW_SESSION_ROLE else null end),
      worker_run:($ENV.DOFLOW_WORKER_RUN | if type == "string" and test("\\Aw-[0-9a-f]{12}\\z") then . else null end)}) catch {dft:1}]
   | if length == 1 then .[0] else {dft:1} end end;
+def dft_tuple($native; $d):
+  dft_tuple_base($native; $d) |
+  [try (
+    if . == {dft:1} then . else
+      (if $ARGS.named.mode == "observe" then . + {duration_ms:null, tool_duration_ms:($native.duration_ms |
+        if type == "number" and . >= 0 and . <= 9007199254740991 and . == floor then . else null end)} else . + {tool_duration_ms:null} end) |
+      if ($policy == "pre-bash-guard" or $ARGS.named.mode == "observe") and $d.operation == "command"
+      then . + {test_class:classify($d.command)} else . + {test_class:null} end
+    end) catch {dft:1}] | if length == 1 then .[0] else {dft:1} end;
 if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),harness:$harness,event:(event_name($event)),operation:event_operation($event)}} elif type != "object" then . else
   . as $native |
   ($ENV.DOFLOW_TASK_ID | nonempty(.)) as $task |
@@ -74,9 +98,15 @@ if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),h
   ($ENV.DOFLOW_WORKTREE | nonempty(.)) as $worktree |
   (if $ENV.DOFLOW_SESSION_ROLE == "main" or $ENV.DOFLOW_SESSION_ROLE == "worker" then $ENV.DOFLOW_SESSION_ROLE else null end) as $role |
   (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "gemini" then decode_gemini elif $harness == "kiro" then decode_kiro elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
+  if $ARGS.named.mode == "observe" then
+    if $harness == "claude" and $d.operation == "command" and $native.hook_event_name == $event and
+      ($event == "PostToolUse" or $event == "PostToolUseFailure")
+    then dft_tuple($native; $d) else {dft:1} end
+  else
   ({version:1,harness:$harness,event:(event_name($event)),operation:$d.operation,tool:$d.tool,paths:$d.paths,command:$d.command,patch:$d.patch,taskId:$task,
     identity:($d.identity + {run:$run,attempt:$attempt,lineage:$lineage,role:$role,worktree:$worktree} | with_entries(select(.value != null)) | if length > 0 then . else null end),
     correlation:(($d.correlation // {}) | with_entries(select(.value != null)) | if length > 0 then . else null end) } | with_entries(select(.value != null))) as $envelope |
   (if $ARGS.named.mode == "encode" then dft_tuple($native; $d) else empty end),
   $native + {doflow_event:$envelope}
+  end
 end

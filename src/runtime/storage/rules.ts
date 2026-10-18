@@ -236,14 +236,18 @@ function selectCandidates(store: any, entries: any, context: any) {
   const { now, fsImpl, storeDir, roots, shouldStop } = context;
   switch (store.rule) {
     case 'count-and-age': {
-      const ordered = [...entries].sort((a, b) => Number(b.name.slice(0, 13)) - Number(a.name.slice(0, 13)) || a.name.localeCompare(b.name));
+      const hasTimestamp = (entry: any) => /^[0-9]{13}/.test(entry.name);
+      const entryTime = (entry: any) => hasTimestamp(entry) ? Number(entry.name.slice(0, 13)) : entry.stat.mtimeMs;
+      const ordered = [...entries].sort((a, b) => entryTime(b) - entryTime(a) || a.name.localeCompare(b.name));
       if (stopped(context)) return null;
       const selected = [];
       for (let index = 0; index < ordered.length; index += 1) {
         if (shouldStop?.()) return null;
-        const entry = ordered[index], time = Number(entry.name.slice(0, 13));
-        if (index >= store.bound.keepNewest || now - time > store.bound.maxAgeDays * DAY)
-          selected.push({ name: entry.name, reason: index >= store.bound.keepNewest ? 'count' : 'age', bytes: entry.stat.size, mtimeMs: time });
+        const entry = ordered[index], time = entryTime(entry);
+        const beyondCount = index >= store.bound.keepNewest, beyondAge = now - time > store.bound.maxAgeDays * DAY;
+        // Preserve timestamped stores' count-or-age policy; mtime entries must exceed both bounds.
+        if (hasTimestamp(entry) ? beyondCount || beyondAge : beyondCount && beyondAge)
+          selected.push({ name: entry.name, reason: beyondCount ? 'count' : 'age', bytes: entry.stat.size, mtimeMs: time });
       }
       return selected;
     }

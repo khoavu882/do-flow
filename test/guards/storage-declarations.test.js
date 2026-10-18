@@ -339,6 +339,39 @@ fs.mkdirSync(worktree, { recursive: true });`;
 const { TelemetryWriter } = require(${JSON.stringify(path.join(REPO, 'src/runtime/trace/telemetry.ts'))});
 new TelemetryWriter({ start: process.argv[1], env: process.env }).write([{ kind: 'verify.tier' }]);
 if (!fs.readdirSync(path.join(process.argv[1], '.doflow', 'state', 'runs', 'telemetry')).length) process.exit(1);`;
+    // The verification-v0 store (088 IC-018): a real failed test goes through runContract's
+    // failed-first state write, so this scenario covers the production path rather than a helper.
+    const writeVerificationV0 = `const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const { VerificationEngine } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/engine.ts'))});
+const root=process.argv[1],configDir=path.join(root,'.doflow');
+// A nested Node test runner must not inherit the outer runner's child context.
+delete process.env.NODE_TEST_CONTEXT;
+fs.mkdirSync(path.join(root,'test'),{recursive:true});
+fs.writeFileSync(path.join(root,'test/g26.test.js'),"require('node:test')('G26 failure',()=>{throw new Error('expected G26 failure')});\\n");
+const command='npm test';
+fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({private:true,scripts:{test:'node --test "test/**/*.test.js"'}}));
+const plan=path.join(root,'g26-failed-first-plan.md');
+fs.writeFileSync(plan,'# Plan\\n\\n\`\`\`doflow-verification\\n'+JSON.stringify({parse:null,build:null,lint:null,typecheck:null})+'\\n\`\`\`\\n');
+const engine=new VerificationEngine({cwd:root,repoRoot:${JSON.stringify(REPO)},configDir,v0:true});
+const contract=engine.compileContract({taskId:'g26-task',riskLevel:'MEDIUM',projectRoot:root,planPath:plan,changedFiles:['test/g26.test.js'],scope:{allowedPaths:['test/']}});
+const report=engine.runContract(contract,{changedFiles:['test/g26.test.js']});
+assert.equal(report.status,'FAIL');
+const check=report.tiers.find(t=>t.id==='broad-tests').checks[0];
+assert.equal(check.status,'FAIL');
+assert.deepEqual(check.failedFiles,['test/g26.test.js']);
+const stateFile=path.join(configDir,'state','verification','v0','failed-first-g26-task.json');
+const state=JSON.parse(fs.readFileSync(stateFile,'utf8'));
+const sha16=text=>crypto.createHash('sha256').update(text).digest('hex').slice(0,16);
+assert.equal(fs.statSync(stateFile).mode&0o777,0o600);
+assert.equal(state.v,1);
+assert.equal(state.cwd,sha16(fs.realpathSync(root)));
+assert.deepEqual(state.checks[check.name],{cmd:sha16(command),files:[sha16('test/g26.test.js')]});`;
+    // G.4: exercise the inflight writer independently of the engine's failed-first writer.
+    const writeInflight = `const fs=require('node:fs'),path=require('node:path');
+const { runInflight } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/inflight.ts'))});
+const dir=path.join(process.argv[1], '.doflow', 'state', 'verification', 'v0');
+const out=runInflight({dir,key:'0123456789abcdef',timeoutMs:1000,execute:()=>({status:0,stdout:'',stderr:''})});
+if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json')))process.exit(1);`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps = [
@@ -363,6 +396,8 @@ if (!fs.readdirSync(path.join(process.argv[1], '.doflow', 'state', 'runs', 'tele
       ['lifecycle', verb('lifecycle'), 0],
       ['trace', verb('trace'), 0],
       ['telemetry write', node('-e', writeTelemetry, project), 0],
+      ['verification-v0 write', node('-e', writeVerificationV0, project), 0],
+      ['verification-v0 inflight write', node('-e', writeInflight, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
       ['summary-store.sh grant claim', summaryStore(grantWriteClaim), 0],
@@ -469,6 +504,61 @@ function checkStorageImports(files) {
 // --- Tests -------------------------------------------------------------------------------------
 
 const registry = loadStorageRegistry({ repoRoot: REPO });
+
+// `age` walks directory children. Applying it to files silently ignores ENOTDIR,
+// so no file is ever selected; file stores need a file-compatible retention rule.
+function checkRuleEntries(registry) {
+  return registry.stores.filter((store) => store.entry === 'file' && store.rule === 'age')
+    .map((store) => `${REGISTRY_FILE} store ${store.id}: entry:file cannot use directory-only rule:age`);
+}
+
+test('G26: file stores never use the directory-only age rule', () => {
+  assert.deepEqual(checkRuleEntries(registry), []);
+});
+
+test('G26 self-test: a fixture file store with rule:age is rejected', () => {
+  const fixture = structuredClone(registry);
+  const store = fixture.stores.find((entry) => entry.id === 'verification-v0');
+  store.rule = 'age';
+  const errors = checkRuleEntries(fixture);
+  assert.deepEqual(errors, [`${REGISTRY_FILE} store verification-v0: entry:file cannot use directory-only rule:age`]);
+});
+
+test('G26: verification-v0 uses mtime and requires both age and count for failed-first files', (t) => {
+  const { tempDir } = require('../helper/tmp');
+  const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
+  const dir = tempDir(t, 'doflow-rb-storage-age-');
+  const store = registry.stores.find((entry) => entry.id === 'verification-v0');
+  const day = 86400000, now = Date.parse('2026-10-10T12:00:00Z');
+  const oldest = 'failed-first-0000000000000000.json';
+  const touch = (name, time) => fs.utimesSync(path.join(dir, name), new Date(time), new Date(time));
+  const put = (name, time) => { fs.writeFileSync(path.join(dir, name), '{}'); touch(name, time); };
+  const entries = () => fs.readdirSync(dir).map((name) => ({ name, stat: fs.statSync(path.join(dir, name)) }));
+  const select = (time, list = entries()) => selectCandidates(store, list, { now: time, fsImpl: fs, storeDir: dir, roots: {} });
+
+  put(oldest, now - day);
+  for (let index = 1; index <= store.bound.keepNewest; index++) {
+    put(`failed-first-${index.toString(16).padStart(16, '0')}.json`, now - day / 2);
+  }
+  // First prune while every entry is recent. The old rule removes a recent file by count,
+  // leaving only keepNewest files, then returns [] below instead of selecting the old file.
+  const recent = select(now);
+  for (const entry of recent) fs.unlinkSync(path.join(dir, entry.name));
+  const later = now + 29 * day;
+  for (const name of fs.readdirSync(dir)) if (name !== oldest) touch(name, later - day);
+  const oldMtime = fs.statSync(path.join(dir, oldest)).mtimeMs;
+  const selected = select(later);
+  assert.deepEqual(selected.map((entry) => entry.name), [oldest]);
+  assert.equal(selected[0].mtimeMs, oldMtime);
+  assert.deepEqual(recent, [], 'a one-day-old file beyond keepNewest must survive');
+  assert.deepEqual(select(later, entries().reverse()), selected, 'mtime ordering must not depend on directory order');
+  assert.deepEqual(select(later, entries().filter((entry) => entry.name === oldest)), [], 'age alone must not remove a kept entry');
+
+  touch(oldest, later - store.bound.maxAgeDays * day);
+  assert.deepEqual(select(later), [], 'an entry exactly at maxAgeDays must survive');
+  touch(oldest, later - day);
+  assert.deepEqual(select(later), [], 'recent overflow must survive');
+});
 
 test('G26 (a): the storage registry has the IC-001 shape', () => {
   const raw = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));

@@ -117,6 +117,15 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-shell-observe.sh PostToolUse"
+          }
+        ]
+      },
+      {
         "matcher": "Edit",
         "hooks": [
           {
@@ -176,6 +185,15 @@
       }
     ],
     "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-shell-observe.sh PostToolUseFailure"
+          }
+        ]
+      },
       {
         "matcher": ".*",
         "hooks": [

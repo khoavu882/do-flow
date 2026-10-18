@@ -377,8 +377,8 @@ describe('NFR-004: no write-time hook or refusal was added', { skip: SKIP }, () 
   test('the only hook that runs before an Edit/Write/MultiEdit is the pre-existing pre-implement-gate', () => {
     assert.deepStrictEqual(wiring(settings, 'PreToolUse').filter(([m]) => m && /Edit|Write/.test(m)),
       [['Edit|Write|MultiEdit', ['pre-implement-gate.sh']]]);
-    assert.deepStrictEqual(wiring(settings, 'PostToolUse'), [['Edit', ['post-edit-lint.sh']], ['Write', ['post-edit-lint.sh']]],
-      'after a write only the existing lint hook runs');
+    assert.deepStrictEqual(wiring(settings, 'PostToolUse'), [['Bash', ['post-shell-observe.sh PostToolUse']], ['Edit', ['post-edit-lint.sh']], ['Write', ['post-edit-lint.sh']]],
+      'Bash has the observe-only shell hook; after a write only the existing lint hook runs');
   });
 
   test('every claude hook door is wired or sourced, and every wiring command resolves', () => {

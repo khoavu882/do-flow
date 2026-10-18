@@ -22,7 +22,7 @@ const REGISTRY_FILE = 'core/registry/telemetry.json';
 const WRITER_FILE = 'src/runtime/trace/telemetry.ts';
 const FIXTURE_DIR = 'test/fixtures/telemetry';
 const TUPLE_FIXTURE_FIELDS = {
-  hook: ['role', 'worker_run'],
+  hook: ['role', 'worker_run', 'test_class', 'tool_duration_ms'],
   'verify.run': ['dispatch_run'],
 };
 const TYPE_ATOMS = new Set(['token', 'id', 'uint', 'int', 'hex16', 'hex32', 'iso8601ms', 'date', 'null']);
@@ -167,12 +167,13 @@ function writerObservations(registry) {
 
 function shippedObservations(registry) {
   const observations = writerObservations(registry);
-  for (const spec of Object.values(registry.kinds)) {
-    for (const file of spec.writers.filter((writer) => writer.endsWith('.sh'))) {
-      const abs = path.join(REPO, file);
-      if (!fs.existsSync(abs)) continue;
-      for (const hit of printfKeys(fs.readFileSync(abs, 'utf8'))) observations.push({ source: `${file}:${hit.line}`, kind: hit.kind, keys: hit.keys });
-    }
+  // Scan the observer even before its declaration lands: missing registry keys must stay red.
+  const shellWriters = new Set(['core/harnesses/claude/hooks/post-shell-observe.sh',
+    ...Object.values(registry.kinds).flatMap((spec) => spec.writers.filter((writer) => writer.endsWith('.sh')))]);
+  for (const file of shellWriters) {
+    const abs = path.join(REPO, file);
+    if (!fs.existsSync(abs)) continue;
+    for (const hit of printfKeys(fs.readFileSync(abs, 'utf8'))) observations.push({ source: `${file}:${hit.line}`, kind: hit.kind, keys: hit.keys });
   }
   const dir = path.join(REPO, FIXTURE_DIR);
   if (fs.existsSync(dir)) {
@@ -212,6 +213,15 @@ const HOOK_ROOTS = ['core/harnesses/shared/hooks', 'core/harnesses/antigravity/h
 const PINNED_NODE_FILES = ['core/harnesses/pi/extensions/doflow-guard.js', 'core/harnesses/shared/hooks/adapters/antigravity.js', 'core/harnesses/shared/hooks/stream-hook-runner.js'];
 /** Front doors that hand the payload to the shared runner by design (`exec node .../stream-hook-runner.js`). */
 const PINNED_RUNNER_DOORS = ['core/harnesses/antigravity/hooks/pre-implementation-gate.sh', 'core/harnesses/antigravity/hooks/stop-check.sh'];
+/** Shell observation must remain covered by the same no-node scan as the pre-tool front doors. */
+const PINNED_SHELL_DOORS = [
+  ...['claude', 'codex', 'gemini', 'kiro'].map((harness) => `core/harnesses/${harness}/hooks/pre-bash-guard.sh`),
+  'core/harnesses/claude/hooks/post-shell-observe.sh',
+];
+function checkPinnedShellDoors(files) {
+  return PINNED_SHELL_DOORS.filter((door) => !files.some(({ rel }) => rel === door))
+    .map((door) => `pinned shell front door ${door} is gone: update PINNED_SHELL_DOORS`);
+}
 const NODE_COMMAND = /(^|[;&|(`]|\$\()\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+|(?:env|exec|command|sudo|then|do|else|elif|if|while|until|time)\s+)*(?:node|nodejs|npx|tsx|deno|bun)(?=\s|$|;|\))/;
 
 /** `files` is `[{ rel, text }]`: every file under the hook roots. */
@@ -228,7 +238,9 @@ function checkNoNodeOnHooks(files) {
     text.split('\n').forEach((line, index) => {
       if (/^\s*#/.test(line)) return;
       if (PINNED_RUNNER_DOORS.includes(rel) && /^\s*exec node "\$\(dirname "\$0"\)\/\.\.\/\.\.\/\.doflow\/shared\/hooks\/stream-hook-runner\.js" \w+\s*$/.test(line)) return;
-      if (NODE_COMMAND.test(line)) errors.push(`${rel}:${index + 1} starts a node process on a hook path`);
+      // jq regex strings name runners to classify them; quoted jq data cannot start a process.
+      const code = rel.endsWith('.jq') ? line.replace(/"(?:[^"\\]|\\.)*"/g, '""') : line;
+      if (NODE_COMMAND.test(code)) errors.push(`${rel}:${index + 1} starts a node process on a hook path`);
     });
   }
   for (const pinned of PINNED_NODE_FILES) {
@@ -345,10 +357,49 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
   assert.deepEqual(checkTupleFixtures(observations), []);
 });
 
+test('G45.1: observer runtime has its own measure and the prose states hook latency, L3 flag and line-size semantics', () => {
+  assert.deepEqual(registry.kinds.hook.fields.tool_duration_ms, {
+    name: 'doflow.hook.tool_duration_ms', class: 'T1', type: 'uint|null', phase: 'P3',
+  });
+  const contract = fs.readFileSync(path.join(REPO, 'docs/specs/telemetry-contract.md'), 'utf8');
+  const hookRows = contract.split('## Hook lines\n')[1].split('## Verify lines\n')[0];
+  const latency = hookRows.split('\n').find((line) => line.startsWith('| `duration_ms` |'));
+  const runtime = hookRows.split('\n').find((line) => line.startsWith('| `tool_duration_ms` |'));
+  assert.match(latency, /hook latency.*always null on `post-shell-observe`/);
+  assert.match(runtime, /T1 \| P3 \|.*native `duration_ms` runtime on the observer.*null on other hook lines/);
+  assert.match(hookRows, /Hook lines carry no content and may reach about 600 bytes with maximum-length ids/);
+  const v0 = contract.split('\n').find((line) => line.startsWith('| `verify.run` | `v0` |'));
+  assert.match(v0, /L3 is null with the flag on and `off` with the flag off; dispatch is null/);
+});
+
+test('088 docs name the shipped reports, manifest exits, guard inventory and observed baseline', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs/reference.md'), 'utf8');
+  assert.doesNotMatch(reference, /pVal|significant|summary\.md/);
+  const baseline = reference.split('\n').find((line) => line.startsWith('| `bench verify-baseline '));
+  assert.match(baseline, /`report\.json`, `report\.md`/);
+  assert.match(baseline, /manifest mismatch exits 1.*malformed snapshot\/manifest exits 2/);
+
+  const architecture = fs.readFileSync(path.join(REPO, 'docs/architecture.md'), 'utf8').split('### The guard suite\n')[1].split('## Contributor guardrails')[0];
+  const entries = [...architecture.matchAll(/^- \*\*(G\d+)\*\* \(`([^`]+\.test\.js)`/gm)];
+  const files = new Set(entries.map((entry) => entry[2]));
+  const numbers = new Set(entries.map((entry) => entry[1]));
+  const guards = fs.readdirSync(path.join(REPO, 'test/guards')).filter((file) => file.endsWith('.test.js'));
+  assert.ok(entries.length > 40 && guards.length > 50, 'the guard directory and inventory were found');
+  for (const file of files) assert.ok(guards.includes(file), `${file} is an actual guard`);
+  assert.match(architecture, new RegExp(`holds\\s+${guards.length} test files`));
+  assert.ok(architecture.includes(`${entries.length} entries across ${files.size} test files and carries ${numbers.size} distinct G-numbers`));
+
+  const release = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8').split('\n').find((line) => line.startsWith('- **Feature 088 '));
+  assert.match(release, /`tool_duration_ms`.*`duration_ms:null`/);
+  assert.match(release, /bounded output excerpts in the in-flight store with a short TTL/);
+  assert.match(release, /baseline shown as observed, not a result/);
+});
+
 test('G45.2: no node process is started on a shell hook path, and the node files are the pinned three', () => {
   const files = HOOK_ROOTS.flatMap((root) => filesUnder(root));
   assert.ok(files.length > 20, 'the hook roots were found');
   assert.deepEqual(checkNoNodeOnHooks(files), []);
+  assert.deepEqual(checkPinnedShellDoors(files), []);
 });
 
 test('G45.3: no network module or fetch under src/runtime outside the pinned advice client', () => {
@@ -484,6 +535,21 @@ test('G45.2 self-test: a hook file with node -e fails, a comment or a quoted wor
   const extra = checkNoNodeOnHooks([...PINNED_NODE_FILES.map((rel) => ({ rel, text: '' })), { rel: 'core/harnesses/claude/hooks/new.js', text: '' }]);
   assert.deepEqual(extra, ['core/harnesses/claude/hooks/new.js is a node file on a hook path and is not in the pinned list']);
   assert.match(checkNoNodeOnHooks([]).join('\n'), /pinned node file .* is gone/);
+});
+
+test('G45.2 self-test: the observer is a pinned shell front door and starting node in it fails', () => {
+  const files = [...PINNED_NODE_FILES, ...PINNED_SHELL_DOORS].map((rel) => ({ rel, text: '' }));
+  assert.deepEqual(checkPinnedShellDoors(files), []);
+  const observer = 'core/harnesses/claude/hooks/post-shell-observe.sh';
+  assert.deepEqual(checkPinnedShellDoors(files.filter(({ rel }) => rel !== observer)), [
+    `pinned shell front door ${observer} is gone: update PINNED_SHELL_DOORS`,
+  ]);
+  assert.deepEqual(checkNoNodeOnHooks(files.map((file) => file.rel === observer ? { ...file, text: 'node -e "1"' } : file)), [
+    `${observer}:1 starts a node process on a hook path`,
+  ]);
+  const jq = 'core/harnesses/shared/hooks/bridge/envelope.jq';
+  assert.deepEqual(checkNoNodeOnHooks([...files, { rel: jq, text: 'test("^(npm|pnpm|yarn|bun) test$|^node --test$")' }]), []);
+  assert.deepEqual(checkNoNodeOnHooks([...files, { rel: jq, text: 'node -e "1"' }]), [`${jq}:1 starts a node process on a hook path`]);
 });
 
 test('G45.3 self-test: a network require, import or fetch fails; the pinned client and comments do not', () => {
