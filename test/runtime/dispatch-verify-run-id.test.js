@@ -70,6 +70,15 @@ test('buildVerifyRecords: dispatch source writes dispatch_run token', () => {
   assert.equal(records[0].dispatch_run, DISPATCH_RUN_ID);
 });
 
+test('buildVerifyRecords: dispatch source drops malformed dispatch run id', () => {
+  const report = { status: 'PASS', startedAt: '2026-10-18T00:00:00.000Z', finishedAt: '2026-10-18T00:00:01.000Z', tiers: [] };
+  const records = buildVerifyRecords({
+    report,
+    ctx: { verifyId: 'g'.repeat(16), source: 'dispatch', taskId: 'A.1', dispatchRun: 'p-0123456789abc' },
+  });
+  assert.equal(records[0].dispatch_run, null, 'a token-shaped value that is not a dispatch run id is dropped');
+});
+
 test('buildVerifyRecords: cli/verb source writes null for dispatch_run', () => {
   const report = { status: 'PASS', startedAt: '2026-10-18T00:00:00.000Z', finishedAt: '2026-10-18T00:00:01.000Z', tiers: [] };
   const verbRecords = buildVerifyRecords({

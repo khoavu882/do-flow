@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const nodeFs = require('node:fs');
 const { SAFE_TOKEN, telemetryOff, TelemetryWriter } = require('../trace/telemetry.ts');
 const { resolveRunsLocation } = require('../trace/ledger.ts');
+const { DISPATCH_RUN_ID } = require('../dispatch/store.ts');
 
 /**
  * Verify telemetry (088 C.1, IC-006, DD-4): one `verify.run` line per verify run, one `verify.tier`
@@ -96,20 +97,20 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
     }, ...checks);
   }
 
-  const dispatchRun = ctx ? (ctx.dispatchRun ?? ctx.dispatch_run) : null;
+  const dispatchRun = ctx.dispatchRun ?? ctx.dispatch_run;
   const run = {
     kind: 'verify.run',
     timestamp: isoAt(runStart),
     verify_id: verifyId,
-    source: ctx ? ctx.source : null,
-    task: typeof ctx?.taskId === 'string' && SAFE_TOKEN.test(ctx.taskId) ? ctx.taskId : null,
-    dispatch_run: ctx?.source === 'dispatch' && typeof dispatchRun === 'string' && SAFE_TOKEN.test(dispatchRun)
+    source: ctx.source,
+    task: typeof ctx.taskId === 'string' && SAFE_TOKEN.test(ctx.taskId) ? ctx.taskId : null,
+    dispatch_run: ctx.source === 'dispatch' && typeof dispatchRun === 'string' && DISPATCH_RUN_ID.test(dispatchRun)
       ? dispatchRun
       : null,
-    risk: ctx?.risk ?? null,
+    risk: ctx.risk ?? null,
     level: null,
     status: report.status,
-    exit_code: ctx?.exitCode ?? null,
+    exit_code: ctx.exitCode ?? null,
     // Wall time between the report's own stamps: the engine clock, not a monotonic one.
     duration_ms: Number.isFinite(runStart) && Number.isFinite(runEnd) ? Math.max(0, runEnd - runStart) : null,
     checks_run: checksRun,

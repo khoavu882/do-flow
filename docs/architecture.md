@@ -184,9 +184,11 @@ lacking both keep the run-key closing rule. Line placement follows tiered preced
 identifiers beat time windows (hook lines join by `worker_run` and verification lines by
 `dispatch_run`), an ID-less line matching multiple segments joins if it fits exactly one worker or
 dispatch run activity window (labelled with `attrs.join: "activity"` as an inferred join), and lines
-held by a single segment join unlabelled by run key and window. ID-less records inside overlapping
+held by a single segment join by `(run, lineage)` and window. ID-less records inside overlapping
 concurrent activity windows cannot be attributed to a single activity and remain explicitly
-reported as ambiguous gaps. Hook lines record `role` (`main` or `worker`) and `worker_run`,
+reported as ambiguous gaps. A hook line records `DOFLOW_SESSION_ROLE` only when it equals `main` or
+`worker` exactly (case-sensitive), and records null otherwise. Identity resolution lowercases the
+value, maps unset to `main`, and maps unknown values to `worker`. Hook lines also record `worker_run`,
 dispatch-sourced verification lines record `dispatch_run`, and worker execution environments receive
 `DOFLOW_WORKER_RUN` (six launch environment variables, not part of the stored identity contract).
 One known gap: in the 109 live run the read-only worker wrote no hook lines at all, and the cause has

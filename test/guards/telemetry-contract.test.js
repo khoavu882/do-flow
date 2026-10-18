@@ -187,7 +187,7 @@ function shippedObservations(registry) {
   return observations;
 }
 
-/** New tuple fields stay covered by fixtures until their writers begin emitting them. */
+/** Tuple fields stay covered by fixtures even when their writers emit them directly. */
 function checkTupleFixtures(observations) {
   const errors = [];
   for (const [kind, fields] of Object.entries(TUPLE_FIXTURE_FIELDS)) {
@@ -338,6 +338,7 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
     harness: { owner: 'core/registry/harnesses.json', values: harnesses.harnesses.map((entry) => entry.id) },
     status: { owner: 'core/registry/verification.json tierStatuses', values: verification.tierStatuses },
     risk: { owner: 'core/registry/verification.json riskLevels', values: Object.keys(verification.riskLevels) },
+    role: { owner: 'core/harnesses/shared/hooks/bridge/envelope.jq role literals', values: ['main', 'worker'] },
   }), []);
   const observations = shippedObservations(registry);
   assert.deepEqual(checkAllowlist(registry, observations), []);
