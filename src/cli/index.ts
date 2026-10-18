@@ -344,6 +344,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--prompt-file', 'promptFile'],     // worker run: the brief the worker receives
   ['--timeout-seconds', 'timeoutSeconds'], // worker run: 1 to 14400
   ['--worker-run', 'workerRun'],       // worker status|cancel: a w-<12 hex> run id
+  ['--checks', 'checks'],              // worker evidence: checks file
+  ['--out', 'out'],                    // worker evidence: output record path
   ['--model-check', 'modelCheck'],     // worker probe: a declared model-check id
   // 082 dispatch (IC-001, IC-038) and worker --child-of (IC-015). Read as text and validated in
   // executeDispatchCommand / handleWorkerCommand. `--slug`, `--by`, `--reason`, `--mode`,
