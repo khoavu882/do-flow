@@ -202,8 +202,13 @@ resolve_config_dir() {
   dir="$(pwd -P 2>/dev/null || pwd)"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if [ -d "$dir/.doflow" ]; then
-      printf '%s' "$dir/.doflow"
-      return 0
+      case "$dir/" in
+        */.doflow/*) ;;
+        *)
+          printf '%s' "$dir/.doflow"
+          return 0
+          ;;
+      esac
     fi
     dir="$(dirname "$dir")"
   done

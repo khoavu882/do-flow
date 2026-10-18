@@ -46,6 +46,26 @@ function harness(t) {
   return { box, dispatch };
 }
 
+/** A dispatcher sandbox that deliberately leaves DOFLOW_CONFIG_DIR unset for store-walk cases. */
+function walkHarness(t) {
+  const box = makeDispatchSandbox(t, { systemTools: ['bash', 'dirname', 'date', 'mkdir'] });
+  const cli = path.join(box.dir, 'fake-cli.js');
+  fs.writeFileSync(cli, 'process.stdout.write("fake-out " + process.argv.slice(2).length + "\\n");\n');
+  fs.mkdirSync(box.env.XDG_CONFIG_HOME, { recursive: true });
+  const env = { ...box.env, DOFLOW_CLI: cli, DOFLOW_FAILURE_CAPTURE: 'off' };
+  delete env.DOFLOW_CONFIG_DIR;
+  const run = (cwd) => spawnSync(BASH, [RUN, 'git-state'], { cwd, env, encoding: 'utf8' });
+  return { box, run };
+}
+
+function ledgerLines(configDir) {
+  const runs = path.join(configDir, 'state', 'runs');
+  if (!fs.existsSync(runs)) return [];
+  return fs.readdirSync(runs).sort()
+    .filter((name) => name.endsWith('.jsonl'))
+    .flatMap((name) => fs.readFileSync(path.join(runs, name), 'utf8').split('\n').filter(Boolean));
+}
+
 /** The one ledger line a dispatch wrote, parsed; fails when it is not one valid JSON line. */
 function onlyRecord(r) {
   assert.equal(r.status, 0, r.stderr);
@@ -115,4 +135,32 @@ test('IC-035: trace_run starts no process but mkdir and date (NFR-007)', () => {
     assert.ok(assigns.length > 0, `${name} is assigned`);
     for (const line of assigns) assert.match(line, /^\s*if \[\[ .+ =~ .+ \]\]; then \w+_v="\\"/, `${name} assigned outside a [[ =~ ]] test: ${line}`);
   }
+});
+
+test('S3: a doflow-run verb from a dispatch worktree writes its ledger line to the project only', { skip: SKIP }, (t) => {
+  const { box, run } = walkHarness(t);
+  const project = box.root;
+  fs.mkdirSync(path.join(project, '.doflow/state/runs'), { recursive: true });
+  const worktree = path.join(project, '.doflow/state/dispatch-worktrees/d-000000000001');
+  const delivery = path.join(worktree, '.doflow/state/delivery');
+  fs.mkdirSync(delivery, { recursive: true });
+  fs.writeFileSync(path.join(delivery, 'A.1.json'), '{}\n');
+
+  const result = run(worktree);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(ledgerLines(path.join(project, '.doflow')).length, 1, 'the project gets one ledger line');
+  assert.deepEqual(ledgerLines(path.join(worktree, '.doflow')), [], 'the worktree gets no ledger line');
+  assert.equal(fs.existsSync(path.join(worktree, '.doflow/state/runs')), false, 'the worktree gets no state/runs');
+});
+
+test('C3: a doflow-run verb in a flat fresh project still bootstraps its own state/runs', { skip: SKIP }, (t) => {
+  const { box, run } = walkHarness(t);
+  const project = box.root;
+  fs.mkdirSync(path.join(project, '.doflow'));
+
+  const result = run(project);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(path.join(project, '.doflow/state/runs')), true, 'the project bootstraps state/runs');
+  assert.equal(ledgerLines(path.join(project, '.doflow')).length, 1, 'the project gets one ledger line');
+  assert.equal(fs.existsSync(path.join(box.home, '.doflow/state/runs')), false, 'HOME does not become the store');
 });

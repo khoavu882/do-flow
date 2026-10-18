@@ -57,6 +57,15 @@ function project({ state = 'runs', envelope } = {}) {
   return root;
 }
 
+/** The dispatch attempt layout leaves its delivery pack in a nested worktree-local .doflow. */
+function dispatchWorktree(root) {
+  const worktree = path.join(root, '.doflow/state/dispatch-worktrees/d-000000000001');
+  const delivery = path.join(worktree, '.doflow/state/delivery');
+  fs.mkdirSync(delivery, { recursive: true });
+  fs.writeFileSync(path.join(delivery, 'A.1.json'), '{}\n');
+  return worktree;
+}
+
 function baseEnv(root, extra) {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('DOFLOW_') || key === 'EPOCHREALTIME') delete env[key];
@@ -336,6 +345,52 @@ test('no write without <config>/state, and no directory above runs/telemetry is 
   const stateOnly = project({ state: 'state' });
   run(stateOnly, surface, fixtureNative(surface));
   assert.deepEqual(fs.readdirSync(path.join(stateOnly, '.doflow/state')), [], 'no runs directory under state');
+});
+
+test('S1: a hook from a dispatch worktree writes one line to the project store only', () => {
+  const root = project();
+  const worktree = dispatchWorktree(root);
+  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), { cwd: worktree });
+  assert.equal(hookLines(path.join(root, '.doflow')).length, 1, 'the project gets one line');
+  assert.deepEqual(hookLines(path.join(worktree, '.doflow')), [], 'the worktree gets no line');
+  assert.equal(fs.existsSync(path.join(worktree, '.doflow/state/runs')), false, 'the worktree gets no state/runs');
+});
+
+test('S2: an old worktree state/runs fragment does not shadow the project store', () => {
+  const root = project();
+  const worktree = dispatchWorktree(root);
+  fs.mkdirSync(path.join(worktree, '.doflow/state/runs'), { recursive: true });
+  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), { cwd: worktree });
+  assert.equal(hookLines(path.join(root, '.doflow')).length, 1, 'the project gets one line');
+  assert.deepEqual(hookLines(path.join(worktree, '.doflow')), [], 'the old fragment gets no line');
+  assert.equal(fs.existsSync(telemetryDir(path.join(worktree, '.doflow'))), false, 'the old fragment gets no telemetry directory');
+});
+
+test('C1: telemetry off writes nothing in the project or worktree store', () => {
+  const root = project();
+  const worktree = dispatchWorktree(root);
+  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), {
+    cwd: worktree, env: { DOFLOW_TELEMETRY: 'off' },
+  });
+  assert.deepEqual(hookLines(path.join(root, '.doflow')), [], 'the project gets no line');
+  assert.deepEqual(hookLines(path.join(worktree, '.doflow')), [], 'the worktree gets no line');
+  assert.equal(fs.existsSync(telemetryDir(path.join(root, '.doflow'))), false, 'the project gets no telemetry directory');
+  assert.equal(fs.existsSync(telemetryDir(path.join(worktree, '.doflow'))), false, 'the worktree gets no telemetry directory');
+});
+
+test('C2: a flat project without runs does not fall through to the HOME store', () => {
+  const root = project({ state: 'state' });
+  const home = scratch.path(`flat-home-${homes += 1}`);
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(path.join(home, '.doflow/state/runs'), { recursive: true });
+  const surface = SURFACES['codex:pre-bash-guard'];
+  run(root, surface, fixtureNative(surface), {
+    env: { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') },
+  });
+  assert.deepEqual(hookLines(path.join(root, '.doflow')), [], 'the flat project gets no line');
+  assert.deepEqual(hookLines(path.join(home, '.doflow')), [], 'HOME gets no line');
+  assert.equal(fs.existsSync(path.join(root, '.doflow/state/runs')), false, 'the project does not gain runs');
+  assert.equal(fs.existsSync(telemetryDir(path.join(home, '.doflow'))), false, 'HOME gets no telemetry directory');
 });
 
 test('a linked worktree subdirectory writes to the store of the checkout it lives in; DOFLOW_CONFIG_DIR wins', () => {
