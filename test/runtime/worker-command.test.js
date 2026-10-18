@@ -16,13 +16,13 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.js');
-const { linkBin, writeScenario } = require('../helper/fake-harness-cli.js');
+const { linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.js');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const { executeWorkerCommand, handleWorkerCommand, ACTIONS } = require(path.join(SRC, 'worker', 'command.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
-const { launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
+const { ENV_SET, launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
 const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
@@ -285,6 +285,23 @@ test('handleWorkerCommand maps dispositions to exits 0, 1 and 2', async (t) => {
   assert.deepEqual(ACTIONS, ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence']);
 });
 
+// ── 110: the worker process sees its own run id ───────────────────────────────────────────────
+
+test('110 a run through the command and supervisor gives the worker DOFLOW_WORKER_RUN equal to its run id', POSIX, async (t) => {
+  const p = project(t, { scenario: { run: [{ emit: SUCCESS }] } });
+  p.env.FAKE_HARNESS_LOG = path.join(p.dir, 'fake-log.jsonl');
+  await p.probe();
+  const { exit, body } = await p.run();
+  assert.equal(exit, 0, JSON.stringify(body));
+  const ended = await waitEnded(p, body.runId);
+  assert.equal(ended.phase, 'ended');
+  const runs = readLog(p.env.FAKE_HARNESS_LOG).filter((line) => line.argv.includes('--read-only'));
+  assert.equal(runs.length, 1, 'one worker run was launched');
+  assert.equal(runs[0].workerRun, body.runId, 'the worker process saw its own run id');
+  // The variable carries the run id and nothing else; the stored identity is still the four fields.
+  assert.deepEqual(Object.keys(ended.identity).sort(), ['attempt', 'lineage', 'run', 'runSource']);
+});
+
 // ── Started runs, run-exists, status and cancel ───────────────────────────────────────────────
 
 test('a started run returns started with its deadline; a second run on the token is run-exists', POSIX, async (t) => {
@@ -309,7 +326,9 @@ test('a started run returns started with its deadline; a second run on the token
   assert.deepEqual(record.prompt, { path: p.promptFile, sha256: crypto.createHash('sha256').update('do the task').digest('hex'), bytes: 11 });
   assert.equal(record.recipe.binary, 'fake-claude');
   assert.equal(record.envInherited, true);
-  assert.equal(record.envSet.length, 5);
+  assert.equal(record.envSet.length, 6);
+  assert.deepEqual(record.envSet, [...ENV_SET]);
+  assert.equal(record.envSet.at(-1), 'DOFLOW_WORKER_RUN');
   assert.deepEqual(record.identity, { run: 'r1', lineage: 'main', attempt: String(p.token), runSource: 'claim' });
   assert.deepEqual(record.caller, { cwd: p.dir, runKey: p.key.runKey, run: 'r1', lineage: 'main', attempt: null, role: 'main', lineageKind: p.key.identity.lineageKind });
   assert.ok(record.supervisor && record.supervisor.pid, 'the supervisor pid is recorded');

@@ -88,7 +88,7 @@ function boundedWait(promise: Promise<any>, ms: number): Promise<any> {
  */
 async function runVerification({
   root, slug, taskId, worktree, argv, argvSha256 = null, seconds, env = process.env, platform = process.platform,
-  onSpawn = null, escalate = processTree.escalate, procStart = processTree.procStart,
+  onSpawn = null, escalate = processTree.escalate, procStart = processTree.procStart, dispatchRunId = null,
 }: any): Promise<VerificationRun> {
   if (!Array.isArray(argv) || argv.length === 0 || !argv.every((part: any) => typeof part === 'string' && part.length > 0)) {
     throw new TypeError('runVerification: argv must be a non-empty array of non-empty strings');
@@ -170,7 +170,7 @@ async function runVerification({
   // 088 C.1 (IC-006): one verify.run line, `source: dispatch`; it never throws and changes nothing here.
   emitVerifyTelemetry({
     report: { status: exitCode === 0 && !timedOut ? 'PASS' : 'FAIL', startedAt: new Date(startedAt).toISOString(), finishedAt: new Date(startedAt + durationMs).toISOString(), tiers: [] },
-    ctx: { source: 'dispatch', taskId, risk: null, exitCode }, env, start: root,
+    ctx: { source: 'dispatch', taskId, risk: null, exitCode, dispatchRun: dispatchRunId }, env, start: root,
   });
 
   const ledger = new EvidenceLedger({ repoRoot: root, slug });

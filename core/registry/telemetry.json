@@ -29,7 +29,9 @@
         "duration_ms": { "name": "doflow.hook.duration_ms", "class": "T1", "type": "uint|null", "phase": "P2" },
         "session": { "name": "doflow.hook.session", "class": "T0", "type": "token|null", "phase": "P2" },
         "tool": { "name": "doflow.hook.tool", "class": "T2", "type": "token|null", "phase": "P2" },
-        "tool_call_id": { "name": "doflow.hook.tool_call_id", "class": "T0", "type": "token|null", "phase": "P2" }
+        "tool_call_id": { "name": "doflow.hook.tool_call_id", "class": "T0", "type": "token|null", "phase": "P2" },
+        "role": { "name": "doflow.hook.role", "class": "T2", "type": "enum:role|null", "phase": "P2" },
+        "worker_run": { "name": "doflow.hook.worker_run", "class": "T0", "type": "token|null", "phase": "P2" }
       }
     },
     "verify.run": {
@@ -39,6 +41,7 @@
         "verify_id": { "name": "doflow.verify.run.verify_id", "class": "T0", "type": "hex16", "phase": "P2" },
         "source": { "name": "doflow.verify.run.source", "class": "T2", "type": "enum:source", "phase": "P2" },
         "task": { "name": "doflow.verify.run.task", "class": "T0", "type": "token|null", "phase": "P2" },
+        "dispatch_run": { "name": "doflow.verify.run.dispatch_run", "class": "T0", "type": "token|null", "phase": "P2" },
         "risk": { "name": "doflow.verify.run.risk", "class": "T2", "type": "enum:risk|null", "phase": "P2" },
         "status": { "name": "doflow.verify.run.status", "class": "T2", "type": "enum:status|null", "phase": "P2" }
       }
@@ -82,6 +85,7 @@
     "source": ["verb", "dispatch"],
     "status": ["PASS", "FAIL", "UNRESOLVED", "SUBSUMED", "NOT_APPLICABLE", "SKIPPED", "NOT_RUN"],
     "risk": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+    "role": ["main", "worker"],
     "level": ["L0", "L1", "L2", "L3"],
     "selection_basis": ["changed-test-files", "explicit-pattern", "none"],
     "fallback": ["change-scope-unavailable", "no-changed-tests", "unsafe-path", "not-scopable"],

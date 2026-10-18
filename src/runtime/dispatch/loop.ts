@@ -1093,6 +1093,7 @@ async function complete(p: any, s: any, view: any, decideStarted: number) {
   const verification = await p.verify({
     root: p.root, slug: p.slug, taskId: p.slug, worktree: run.integration.worktree, argv: run.verify.argv,
     argvSha256: run.verify.argvSha256 ?? null, seconds: run.verify.timeoutSeconds, env: p.env,
+    dispatchRunId: run.dispatchRunId ?? null,
     onSpawn: (proc: any) => mutateDispatch(p.file, (st: any) => { st.run.verifying = proc; return { write: true, result: null }; }),
   });
   const passed = verification.exitCode === 0 && verification.timedOut === false;

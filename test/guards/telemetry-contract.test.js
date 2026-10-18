@@ -21,6 +21,10 @@ const { RunLedger } = require('../../src/runtime/trace/ledger.ts');
 const REGISTRY_FILE = 'core/registry/telemetry.json';
 const WRITER_FILE = 'src/runtime/trace/telemetry.ts';
 const FIXTURE_DIR = 'test/fixtures/telemetry';
+const TUPLE_FIXTURE_FIELDS = {
+  hook: ['role', 'worker_run'],
+  'verify.run': ['dispatch_run'],
+};
 const TYPE_ATOMS = new Set(['token', 'id', 'uint', 'int', 'hex16', 'hex32', 'iso8601ms', 'date', 'null']);
 const FIELD_KEY = /^[a-z][a-z0-9_]*$/;
 const READ_ONLY_TYPES = new Set(['runkey']); // recordFields only: a run key is `<hex16>/<run>/<lineage>`
@@ -183,6 +187,23 @@ function shippedObservations(registry) {
   return observations;
 }
 
+/** Tuple fields stay covered by fixtures even when their writers emit them directly. */
+function checkTupleFixtures(observations) {
+  const errors = [];
+  for (const [kind, fields] of Object.entries(TUPLE_FIXTURE_FIELDS)) {
+    const fixture = observations.find(({ source, kind: observedKind }) =>
+      source.startsWith(`${FIXTURE_DIR}/`) && observedKind === kind);
+    if (!fixture) {
+      errors.push(`${FIXTURE_DIR}: no fixture line for tuple kind ${kind}`);
+      continue;
+    }
+    for (const field of fields) {
+      if (!fixture.keys.includes(field)) errors.push(`${fixture.source}: kind ${kind} fixture line lacks '${field}'`);
+    }
+  }
+  return errors;
+}
+
 // --- G45.2: no node on a shell hook path --------------------------------------------------------
 
 const HOOK_ROOTS = ['core/harnesses/shared/hooks', 'core/harnesses/antigravity/hooks', 'core/harnesses/claude/hooks',
@@ -317,8 +338,11 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
     harness: { owner: 'core/registry/harnesses.json', values: harnesses.harnesses.map((entry) => entry.id) },
     status: { owner: 'core/registry/verification.json tierStatuses', values: verification.tierStatuses },
     risk: { owner: 'core/registry/verification.json riskLevels', values: Object.keys(verification.riskLevels) },
+    role: { owner: 'core/harnesses/shared/hooks/bridge/envelope.jq role literals', values: ['main', 'worker'] },
   }), []);
-  assert.deepEqual(checkAllowlist(registry, shippedObservations(registry)), []);
+  const observations = shippedObservations(registry);
+  assert.deepEqual(checkAllowlist(registry, observations), []);
+  assert.deepEqual(checkTupleFixtures(observations), []);
 });
 
 test('G45.2: no node process is started on a shell hook path, and the node files are the pinned three', () => {
@@ -386,6 +410,22 @@ test('G45.1 self-test: a declared key nothing writes fails, and a printf format 
   const errors = checkAllowlist(bare, printfKeys(format).map((hit) => ({ source: 'bridge.sh:1', kind: hit.kind, keys: hit.keys })));
   assert.equal(errors.length, 2, errors.join('\n'));
   assert.match(errors[0], /kind hook writes 'harness'/);
+});
+
+test('G45.1 self-test: tuple fixture lines fail when a new tuple key is missing', () => {
+  const complete = Object.entries(TUPLE_FIXTURE_FIELDS).map(([kind, fields]) => ({
+    source: `${FIXTURE_DIR}/${kind.replace('.', '-')}.jsonl:1`, kind, keys: fields,
+  }));
+  assert.deepEqual(checkTupleFixtures(complete), []);
+  for (const [kind, fields] of Object.entries(TUPLE_FIXTURE_FIELDS)) {
+    for (const field of fields) {
+      const fixture = complete.find((entry) => entry.kind === kind);
+      const missing = complete.map((entry) => entry.kind === kind
+        ? { ...entry, keys: entry.keys.filter((key) => key !== field) }
+        : entry);
+      assert.deepEqual(checkTupleFixtures(missing), [`${fixture.source}: kind ${kind} fixture line lacks '${field}'`]);
+    }
+  }
 });
 
 test('G45.1 self-test: the real writer drops a key the registry lacks and writes the one it declares', () => {

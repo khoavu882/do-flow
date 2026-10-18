@@ -597,3 +597,346 @@ test('C.2f: a completed dispatch beside a running orchestration keeps the trace 
   assert.equal(traceOf(both, ID4).window.to, ms('12:10:00.000'));
   assert.deepEqual(where(both, `${TELEMETRY}:1`), ['gap:unmatched']);
 });
+
+// ── 110: trace join scope: multi-slug sessions, activity windows and tiered placement ──
+
+const KEY_110 = '11001100/r110/l110';
+const IDA_110 = 'a110a110a110a110a110a110a110a110';
+const IDB_110 = 'b110b110b110b110b110b110b110b110';
+
+function seed110(t, { extraStores = {}, ledger = [], telemetry = [] } = {}) {
+  const dir = tempDir(t, 'doflow-trace-110-');
+  const state = path.join(dir, '.doflow', 'state');
+  const write = (rel, body) => {
+    const file = path.join(state, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, typeof body === 'string' ? body : JSON.stringify(body, null, 2));
+  };
+  const lines = (list) => `${list.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n')}\n`;
+  write(LEDGER, lines(ledger));
+  write(TELEMETRY, lines(telemetry));
+
+  // Base: slug A (claim-only, open)
+  write('task-attempts/slug-a.json', {
+    version: 1, revision: 1,
+    runs: {
+      [KEY_110]: {
+        runKey: KEY_110, worktreeKey: '11001100', run: 'r110', lineage: 'l110', worktree: '/w',
+        createdAt: at('10:00:00'), control: 'running', epoch: 1, traceId: IDA_110,
+        history: [{ at: at('10:00:00'), action: 'start', by: 'orchestrator', reason: null, epoch: 1, traceId: IDA_110 }],
+      },
+    },
+    tasks: {
+      'A.1': {
+        nextToken: 2,
+        attempts: [
+          { token: 1, owner: 'core-implementer', mode: 'manual', startedAt: at('10:05:00'), finishedAt: at('10:20:00'), state: 'finished', result: 'COMPLETED', runKey: KEY_110, epoch: 1 },
+        ],
+      },
+    },
+  });
+
+  write('worker-runs/slug-a.json', {
+    version: 1, revision: 1, slug: 'slug-a',
+    runs: {
+      'w-aaaaaaaaaaaa': {
+        runId: 'w-aaaaaaaaaaaa', task: 'A.1', token: 1, harness: 'codex', phase: 'ended', seq: 1,
+        createdAt: at('10:05:00'), startedAt: at('10:05:01'), end: { state: 'exited', at: at('10:15:00') },
+        caller: { cwd: '/w', runKey: KEY_110, run: 'r110', lineage: 'l110', attempt: null, role: 'main', lineageKind: 'session' },
+        identity: { run: 'r110', lineage: 'l110', attempt: '1', runSource: 'claim' },
+      },
+    },
+  });
+
+  // Base: slug B (dispatch)
+  write('task-attempts/slug-b.json', {
+    version: 1, revision: 1,
+    runs: {
+      [KEY_110]: {
+        runKey: KEY_110, worktreeKey: '11001100', run: 'r110', lineage: 'l110', worktree: '/w',
+        createdAt: at('10:30:00'), control: 'running', epoch: 1, traceId: IDB_110,
+        history: [{ at: at('10:30:00'), action: 'start', by: 'orchestrator', reason: null, epoch: 1, traceId: IDB_110 }],
+      },
+    },
+    tasks: {
+      'B.1': {
+        nextToken: 2,
+        attempts: [
+          { token: 1, owner: 'core-implementer', mode: 'manual', startedAt: at('10:35:00'), finishedAt: at('10:45:00'), state: 'finished', result: 'COMPLETED', runKey: KEY_110, epoch: 1 },
+        ],
+      },
+    },
+  });
+
+  write('worker-runs/slug-b.json', {
+    version: 1, revision: 1, slug: 'slug-b',
+    runs: {
+      'w-bbbbbbbbbbbb': {
+        runId: 'w-bbbbbbbbbbbb', task: 'B.1', token: 1, harness: 'codex', phase: 'ended', seq: 1,
+        createdAt: at('10:35:00'), startedAt: at('10:35:01'), end: { state: 'exited', at: at('10:45:00') },
+        caller: { cwd: '/w', runKey: KEY_110, run: 'r110', lineage: 'l110', attempt: null, role: 'main', lineageKind: 'session' },
+        identity: { run: 'r110', lineage: 'l110', attempt: '1', runSource: 'dispatch' },
+      },
+    },
+  });
+
+  write('dispatch/slug-b.json', {
+    version: 1, revision: 1, slug: 'slug-b',
+    run: {
+      dispatchRunId: 'p-bbbbbbbbbbbb', slug: 'slug-b', state: 'completed', runKey: KEY_110, run: 'r110', lineage: 'l110', epoch: 1,
+      createdAt: at('10:30:00'), completedAt: at('10:50:00'),
+    },
+    dispatches: {
+      'd-bbbbbbbbbbbb': { task: 'B.1', token: 1, workerRunId: 'w-bbbbbbbbbbbb' },
+    },
+  });
+
+  for (const [rel, body] of Object.entries(extraStores)) {
+    write(rel, typeof body === 'string' ? body : JSON.stringify(body, null, 2));
+  }
+
+  return { dir, state };
+}
+
+test('110 P1: B\'s worker joins B\'s attempt', (t) => {
+  const { dir } = seed110(t);
+  const v = view(dir);
+  assert.deepEqual(where(v, 'worker-runs/slug-b.json#w-bbbbbbbbbbbb'), [`trace:${IDB_110}`]);
+  const workerSpan = traceOf(v, IDB_110).spans.find((s) => s.locator === 'worker-runs/slug-b.json#w-bbbbbbbbbbbb');
+  const attemptSpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `task-attempts/slug-b.json#${KEY_110}/B.1/1`);
+  assert.ok(workerSpan, 'worker span exists in trace B');
+  assert.ok(attemptSpan, 'attempt span exists in trace B');
+  assert.equal(workerSpan.parentSpanId, attemptSpan.spanId);
+});
+
+test('110 P2: hooks with attempt 1 in B\'s worker lifetime only, one session, join under B\'s worker with join:activity', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:36:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-b', tool: 'Bash', tool_call_id: 'tc1' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDB_110}`]);
+  const hookSpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  const workerSpan = traceOf(v, IDB_110).spans.find((s) => s.locator === 'worker-runs/slug-b.json#w-bbbbbbbbbbbb');
+  assert.ok(hookSpan, 'hook span exists in trace B');
+  assert.ok(workerSpan, 'worker span exists in trace B');
+  assert.equal(hookSpan.attrs.join, 'activity');
+  assert.equal(hookSpan.parentSpanId, workerSpan.spanId);
+});
+
+test('110 P3: a dispatch verify.run in B\'s window joins B', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:40:00'), kind: 'verify.run', run: 'r110', lineage: 'l110', attempt: null, verify_id: VERIFY_ID, source: 'dispatch', task: 'B.1', risk: 'LOW', status: 'PASS' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDB_110}`]);
+  const verifySpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  assert.ok(verifySpan, 'verify span exists in trace B');
+  assert.equal(verifySpan.attrs.join, 'activity');
+});
+
+test('110 P4: a hook with worker_run = A\'s worker, at a time both windows hold, joins A (id beats window)', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:38:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-a', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-aaaaaaaaaaaa' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDA_110}`]);
+  const hookSpan = traceOf(v, IDA_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  const workerSpan = traceOf(v, IDA_110).spans.find((s) => s.locator === 'worker-runs/slug-a.json#w-aaaaaaaaaaaa');
+  assert.ok(hookSpan, 'hook span exists in trace A');
+  assert.ok(workerSpan, 'worker A span exists in trace A');
+  assert.equal(hookSpan.parentSpanId, workerSpan.spanId);
+  assert.equal(hookSpan.attrs.join, undefined);
+});
+
+test('110 P5: verify.run with dispatch_run joins that slug', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:38:00'), kind: 'verify.run', run: 'r110', lineage: 'l110', attempt: null, verify_id: VERIFY_ID, source: 'dispatch', task: 'B.1', risk: 'LOW', status: 'PASS', dispatch_run: 'p-bbbbbbbbbbbb' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDB_110}`]);
+  const verifySpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  assert.ok(verifySpan, 'verify span exists in trace B');
+  assert.equal(verifySpan.attrs.join, undefined);
+});
+
+test('110 P6: B\'s dispatch no longer closes A (window.to null)', (t) => {
+  const { dir } = seed110(t);
+  const v = view(dir);
+  const traceA = traceOf(v, IDA_110);
+  assert.ok(traceA, 'trace A exists');
+  assert.equal(traceA.window.to, null);
+});
+
+test('110 N1: two workers, same (run,lineage,attempt), overlapping lifetimes, hook with no worker_run is ambiguous', (t) => {
+  const { dir } = seed110(t, {
+    extraStores: {
+      'worker-runs/slug-b.json': {
+        version: 1, revision: 1, slug: 'slug-b',
+        runs: {
+          'w-bbbbbbbbbbbb': {
+            runId: 'w-bbbbbbbbbbbb', task: 'B.1', token: 1, harness: 'codex', phase: 'ended', seq: 1,
+            createdAt: at('10:35:00'), startedAt: at('10:35:01'), end: { state: 'exited', at: at('10:45:00') },
+            caller: { cwd: '/w', runKey: KEY_110, run: 'r110', lineage: 'l110', attempt: null, role: 'main', lineageKind: 'session' },
+            identity: { run: 'r110', lineage: 'l110', attempt: '1', runSource: 'dispatch' },
+          },
+          'w-cccccccccccc': {
+            runId: 'w-cccccccccccc', task: 'B.2', token: 2, harness: 'codex', phase: 'ended', seq: 2,
+            createdAt: at('10:40:00'), startedAt: at('10:40:01'), end: { state: 'exited', at: at('10:50:00') },
+            caller: { cwd: '/w', runKey: KEY_110, run: 'r110', lineage: 'l110', attempt: null, role: 'main', lineageKind: 'session' },
+            identity: { run: 'r110', lineage: 'l110', attempt: '1', runSource: 'dispatch' },
+          },
+        },
+      },
+    },
+    telemetry: [
+      { timestamp: at('10:42:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-n1', tool: 'Bash', tool_call_id: 'tc1' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:ambiguous']);
+});
+
+test('110 N2: one session whose lines fall in two workers\' lifetimes leaves the whole session ambiguous', (t) => {
+  const { dir } = seed110(t, {
+    extraStores: {
+      'worker-runs/slug-b.json': {
+        version: 1, revision: 1, slug: 'slug-b',
+        runs: {
+          'w-bbbbbbbbbbbb': {
+            runId: 'w-bbbbbbbbbbbb', task: 'B.1', token: 1, harness: 'codex', phase: 'ended', seq: 1,
+            createdAt: at('10:32:00'), startedAt: at('10:32:01'), end: { state: 'exited', at: at('10:38:00') },
+            caller: { cwd: '/w', runKey: KEY_110, run: 'r110', lineage: 'l110', attempt: null, role: 'main', lineageKind: 'session' },
+            identity: { run: 'r110', lineage: 'l110', attempt: '1', runSource: 'dispatch' },
+          },
+          'w-cccccccccccc': {
+            runId: 'w-cccccccccccc', task: 'B.2', token: 2, harness: 'codex', phase: 'ended', seq: 2,
+            createdAt: at('10:40:00'), startedAt: at('10:40:01'), end: { state: 'exited', at: at('10:48:00') },
+            caller: { cwd: '/w', runKey: KEY_110, run: 'r110', lineage: 'l110', attempt: null, role: 'main', lineageKind: 'session' },
+            identity: { run: 'r110', lineage: 'l110', attempt: '1', runSource: 'dispatch' },
+          },
+        },
+      },
+    },
+    telemetry: [
+      { timestamp: at('10:35:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-split', tool: 'Bash', tool_call_id: 'tc1' },
+      { timestamp: at('10:42:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-split', tool: 'Bash', tool_call_id: 'tc2' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:ambiguous']);
+  assert.deepEqual(where(v, `${TELEMETRY}:2`), ['gap:ambiguous']);
+});
+
+test('110 N3: two concurrent dispatch runs and an id-less dispatch verify is ambiguous', (t) => {
+  const { dir } = seed110(t, {
+    extraStores: {
+      'dispatch/slug-c.json': {
+        version: 1, revision: 1, slug: 'slug-c',
+        run: {
+          dispatchRunId: 'p-cccccccccccc', slug: 'slug-c', state: 'completed', runKey: KEY_110, run: 'r110', lineage: 'l110', epoch: 1,
+          createdAt: at('10:32:00'), completedAt: at('10:52:00'),
+        },
+        dispatches: {
+          'd-cccccccccccc': { task: 'B.1', token: 1, workerRunId: 'w-cccccccccccc' },
+        },
+      },
+    },
+    telemetry: [
+      { timestamp: at('10:40:00'), kind: 'verify.run', run: 'r110', lineage: 'l110', attempt: null, verify_id: VERIFY_ID, source: 'dispatch', task: 'B.1', risk: 'LOW', status: 'PASS' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:ambiguous']);
+});
+
+test('110 N4: a ledger line in the overlap is ambiguous', (t) => {
+  const { dir } = seed110(t, {
+    ledger: [
+      { timestamp: at('10:35:00'), verb: 'route', run: 'r110', lineage: 'l110' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${LEDGER}:1`), ['gap:ambiguous']);
+});
+
+test('110 N5: the existing two-worktree control (:214) unchanged', (t) => {
+  const other = 'bbbb2222/r1/l1';
+  const { dir } = seed(t, { extraStores: { 'task-attempts/other.json': { runs: { [other]: run080(other, { start: ID3, resume: null }) }, tasks: {} } } });
+  const v = view(dir);
+  for (const n of [1, 2, 3]) assert.deepEqual(where(v, `${LEDGER}:${n}`), ['gap:ambiguous']);
+});
+
+test('110 ADV1: hook whose worker_run names no worker is ambiguous, not joined with join:activity or parented to another worker', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:38:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-d', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-dddddddddddd' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:ambiguous']);
+  const spans = allSpans(v).filter((s) => s.locator === `${TELEMETRY}:1`);
+  assert.equal(spans.length, 0);
+});
+
+test('110 ADV2: verify.run whose dispatch_run names no dispatch run is ambiguous, not joined with join:activity', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:40:00'), kind: 'verify.run', run: 'r110', lineage: 'l110', attempt: null, verify_id: VERIFY_ID, source: 'dispatch', task: 'B.1', risk: 'LOW', status: 'PASS', dispatch_run: 'p-dddddddddddd' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:ambiguous']);
+  const spans = allSpans(v).filter((s) => s.locator === `${TELEMETRY}:1`);
+  assert.equal(spans.length, 0);
+});
+
+test('110 ADV3: verify.run with dispatch_run and task null joins its dispatch run under concurrent dispatches (bites T1-verify)', (t) => {
+  const { dir } = seed110(t, {
+    extraStores: {
+      'dispatch/slug-c.json': {
+        version: 1, revision: 1, slug: 'slug-c',
+        run: {
+          dispatchRunId: 'p-cccccccccccc', slug: 'slug-c', state: 'completed', runKey: KEY_110, run: 'r110', lineage: 'l110', epoch: 1,
+          createdAt: at('10:32:00'), completedAt: at('10:52:00'),
+        },
+        dispatches: {
+          'd-cccccccccccc': { task: 'B.1', token: 1, workerRunId: 'w-cccccccccccc' },
+        },
+      },
+    },
+    telemetry: [
+      { timestamp: at('10:40:00'), kind: 'verify.run', run: 'r110', lineage: 'l110', attempt: null, verify_id: VERIFY_ID, source: 'dispatch', task: null, risk: 'LOW', status: 'PASS', dispatch_run: 'p-bbbbbbbbbbbb' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDB_110}`]);
+  const verifySpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  assert.ok(verifySpan, 'verify span exists in trace B');
+  assert.equal(verifySpan.attrs.join, undefined);
+});
+
+test('110 P7: hook with worker_run overrides a single T3 candidate when worker slug window is closed', (t) => {
+  const { dir } = seed110(t, {
+    telemetry: [
+      { timestamp: at('10:52:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-b', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-bbbbbbbbbbbb' },
+    ],
+  });
+  const v = view(dir);
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), [`trace:${IDB_110}`]);
+  const hookSpan = traceOf(v, IDB_110).spans.find((s) => s.locator === `${TELEMETRY}:1`);
+  const workerSpan = traceOf(v, IDB_110).spans.find((s) => s.locator === 'worker-runs/slug-b.json#w-bbbbbbbbbbbb');
+  assert.ok(hookSpan, 'hook span exists in trace B');
+  assert.ok(workerSpan, 'worker B span exists in trace B');
+  assert.equal(hookSpan.parentSpanId, workerSpan.spanId);
+  assert.equal(hookSpan.attrs.join, undefined);
+});
+
+
