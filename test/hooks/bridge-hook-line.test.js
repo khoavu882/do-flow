@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { buildInstallMirror, createScratch } = require('../helper/hook-fixtures');
+const { tempDir } = require('../helper/tmp.js');
 
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
@@ -345,6 +346,51 @@ test('no write without <config>/state, and no directory above runs/telemetry is 
   const stateOnly = project({ state: 'state' });
   run(stateOnly, surface, fixtureNative(surface));
   assert.deepEqual(fs.readdirSync(path.join(stateOnly, '.doflow/state')), [], 'no runs directory under state');
+});
+
+test('no store above cwd: the bridge returns 0 without treating /state as a config', (t) => {
+  const cwd = tempDir(t, 'doflow-no-store-');
+  for (let dir = cwd; ; dir = path.dirname(dir)) {
+    assert.equal(fs.existsSync(path.join(dir, '.doflow')), false, `${dir} has no .doflow store`);
+    if (dir === path.dirname(dir)) break;
+  }
+
+  const marker = path.join(cwd, 'mkdir.log');
+  const startup = path.join(cwd, 'bash-env');
+  fs.writeFileSync(marker, '');
+  fs.writeFileSync(startup, [
+    '[() {',
+    '  if [[ "$#" -eq 3 && "$1" == -d && "$2" == /state && "$3" == "]" ]]; then return 0; fi',
+    '  builtin [ "$@"',
+    '}',
+    'mkdir() { printf "%s\\n" "$*" >> "$DOFLOW_TEST_MKDIR_LOG"; return 1; }',
+    '',
+  ].join('\n'));
+
+  const bridgePath = path.join(REPO, 'core/harnesses/shared/hooks/bridge/bridge.sh');
+  const result = spawnSync(BASH, [
+    '-c', 'source "$2"; source "$1"; doflow_bridge_hook_line codex PreToolUse pre-bash-guard', 'bash', bridgePath, startup,
+  ], {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      HOME: '',
+      XDG_CONFIG_HOME: '',
+      PATH: process.env.PATH,
+      DOFLOW_FAILURE_CAPTURE: 'off',
+      DOFLOW_TEST_MKDIR_LOG: marker,
+      DOFLOW_TELEMETRY: 'on',
+      DF_TUPLE: '{"dft":1,"date":"2026-10-18","timestamp":"2026-10-18T00:00:00.000Z"}',
+      DF_BRIDGE_OUTCOME: 'allow',
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, '');
+  assert.equal(fs.readFileSync(marker, 'utf8'), '', 'the bridge never attempts to create /state/runs/telemetry');
+  assert.deepEqual(fs.readdirSync(cwd).sort(), ['bash-env', 'mkdir.log'], 'the no-store call creates no files');
 });
 
 test('S1: a hook from a dispatch worktree writes one line to the project store only', () => {

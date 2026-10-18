@@ -90,14 +90,14 @@ doflow_bridge_hook_line() {
   else
     d=${PWD:-}
     case "$d" in /*) ;; *) return 0 ;; esac
-    while [ -n "$d" ]; do
+    while :; do
       if [ -d "$d/.doflow" ]; then
         case "$d/" in
           */.doflow/*) ;;
-          *) d=$d/.doflow; break ;;
+          *) d=${d%/}/.doflow; break ;;
         esac
       fi
-      [ "$d" != "/" ] || return 0
+      [ -n "$d" ] && [ "$d" != "/" ] || return 0
       d=${d%/*}
     done
   fi
