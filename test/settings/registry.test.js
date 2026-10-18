@@ -63,7 +63,7 @@ const V1 = {
     consumers: ['src/runtime/failure/home.ts'], description: "Capture of DoFlow's own failures on this machine; any layer saying off wins." },
   'guard.workerDropDatabases': { type: 'string', default: null, scope: 'project-only', combine: 'override',
     securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
-    consumers: ['src/runtime/worker/launch.ts', 'core/harnesses/shared/hooks/policies/pre-bash-guard.sh'],
+    consumers: ['src/runtime/worker/launch.ts'],
     description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
 };
 
