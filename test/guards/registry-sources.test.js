@@ -1,6 +1,6 @@
 'use strict';
 
-// G46 — registry source mode (feature 109, IC-001 / FR-001, FR-002).
+// G48 — registry source mode (feature 109, IC-001 / FR-001, FR-002).
 //
 // The source tree requires every declared source and asset to exist (package checkout / dev tree).
 // An installed runtime ships only bin/, src/, and core/registry/ (no shared assets or harness-native
@@ -22,7 +22,7 @@ function makeRuntimeShapedTree() {
   return root;
 }
 
-test('G46: the source tree loads in require mode with validation.sources === "require"', () => {
+test('G48: the source tree loads in require mode with validation.sources === "require"', () => {
   assert.equal(registrySourceMode(REPO), 'require');
   const registry = loadRegistry({ repoRoot: REPO });
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
@@ -36,7 +36,7 @@ test('G46: the source tree loads in require mode with validation.sources === "re
   assert.match(control.errors.join('\n'), /source does not exist inside repository: core\/shared\/nonexistent-for-g46\.md/);
 });
 
-test('G46: a runtime-shaped copy loads with skip mode and validation.sources === "skip"', () => {
+test('G48: a runtime-shaped copy loads with skip mode and validation.sources === "skip"', () => {
   const runtimeRoot = makeRuntimeShapedTree();
   assert.equal(registrySourceMode(runtimeRoot), 'skip');
 
@@ -53,7 +53,7 @@ test('G46: a runtime-shaped copy loads with skip mode and validation.sources ===
   assert.match(control.errors.join('\n'), /source does not exist inside repository: \.\.\/escaped-g46\.md/);
 });
 
-test('G46: a runtime-shaped copy fails in require mode with missing-source lines', () => {
+test('G48: a runtime-shaped copy fails in require mode with missing-source lines', () => {
   const runtimeRoot = makeRuntimeShapedTree();
   const registry = loadRegistry({ repoRoot: runtimeRoot });
 

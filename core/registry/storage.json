@@ -1279,6 +1279,10 @@
     {
       "file": "src/runtime/scaffold/generate.ts",
       "reason": "agent-docs deliverable (scaffold files and manifest)"
+    },
+    {
+      "file": "src/runtime/worker/evidence.ts",
+      "reason": "worker evidence record written to the caller-named --out path under core/worker-evidence/, not a DoFlow store"
     }
   ]
 }

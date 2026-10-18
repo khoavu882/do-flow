@@ -23,6 +23,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const registryModule = require('../../src/registry/index.ts');
 const { PARSERS } = require('../../src/runtime/worker/parsers.ts');
+const { tempDir } = require('../helper/tmp');
 
 const HARNESS_COUNT = 8;
 const WORKER_ERROR = " worker '";
@@ -214,51 +215,43 @@ test('G41.4: every supported worker entry cites a recorded evidence file that es
   }
 });
 
-test('G41.4 control: a record that no longer establishes structuredOutput gives exactly that one finding', () => {
-  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'doflow-g414-'));
-  try {
-    const registry = structuredClone(shipped().registry);
-    const codex = registry.harnesses.find((h) => h.id === 'codex');
-    const cited = codex.worker.structuredOutput.evidence[0];
-    const record = JSON.parse(fs.readFileSync(path.join(REPO, cited), 'utf8'));
-    record.establishes = record.establishes.filter((key) => key !== 'structuredOutput');
-    fs.mkdirSync(path.join(root, path.dirname(cited)), { recursive: true });
-    fs.writeFileSync(path.join(root, cited), JSON.stringify(record));
-    assert.deepEqual(establishingRecordFindings(registry, root), [
-      "G41.4: harness 'codex' worker 'structuredOutput': supported without a recorded evidence file that establishes it",
-    ]);
-    // The unmutated record satisfies the same entries, so the finding comes from the dropped key alone.
-    fs.writeFileSync(path.join(root, cited), fs.readFileSync(path.join(REPO, cited)));
-    assert.deepEqual(establishingRecordFindings(registry, root), []);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+test('G41.4 control: a record that no longer establishes structuredOutput gives exactly that one finding', (t) => {
+  const root = tempDir(t, 'doflow-g414-');
+  const registry = structuredClone(shipped().registry);
+  const codex = registry.harnesses.find((h) => h.id === 'codex');
+  const cited = codex.worker.structuredOutput.evidence[0];
+  const record = JSON.parse(fs.readFileSync(path.join(REPO, cited), 'utf8'));
+  record.establishes = record.establishes.filter((key) => key !== 'structuredOutput');
+  fs.mkdirSync(path.join(root, path.dirname(cited)), { recursive: true });
+  fs.writeFileSync(path.join(root, cited), JSON.stringify(record));
+  assert.deepEqual(establishingRecordFindings(registry, root), [
+    "G41.4: harness 'codex' worker 'structuredOutput': supported without a recorded evidence file that establishes it",
+  ]);
+  // The unmutated record satisfies the same entries, so the finding comes from the dropped key alone.
+  fs.writeFileSync(path.join(root, cited), fs.readFileSync(path.join(REPO, cited)));
+  assert.deepEqual(establishingRecordFindings(registry, root), []);
 });
 
-test('G41.4 control: a live-run record whose result was not offered, a missing file and another harness\'s record do not count', () => {
-  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'doflow-g414-'));
-  try {
-    const registry = structuredClone(shipped().registry);
-    const codex = registry.harnesses.find((h) => h.id === 'codex');
-    const dir = path.join(root, 'core', 'worker-evidence', 'codex');
-    fs.mkdirSync(dir, { recursive: true });
-    const live = (name, extra) => {
-      fs.writeFileSync(path.join(dir, name), JSON.stringify({
-        schema: EVIDENCE_SCHEMA, harness: 'codex', kind: 'live-run', cliVersion: 'codex-cli 0.0.0',
-        establishes: ['oneShot'], checks: [], ...extra,
-      }));
-      return `core/worker-evidence/codex/${name}`;
-    };
-    codex.worker.oneShot.evidence = [live('2026-10-18-live-run.json', { run: { resultOffered: false } })];
-    const oneShot = () => establishingRecordFindings(registry, root).filter((f) => f.includes("'oneShot'"));
-    assert.equal(oneShot().length, 1, 'resultOffered false does not establish');
-    codex.worker.oneShot.evidence = [live('2026-10-18-live-run-b.json', { run: { resultOffered: true } })];
-    assert.deepEqual(oneShot(), [], 'resultOffered true does');
-    codex.worker.oneShot.evidence = ['core/worker-evidence/codex/2026-10-18-missing.json'];
-    assert.equal(oneShot().length, 1, 'a missing file does not establish');
-    codex.worker.oneShot.evidence = ['core/worker-evidence/gemini/2026-10-18-cli-check.json'];
-    assert.equal(oneShot().length, 1, 'another harness directory does not establish');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+test('G41.4 control: a live-run record whose result was not offered, a missing file and another harness\'s record do not count', (t) => {
+  const root = tempDir(t, 'doflow-g414-');
+  const registry = structuredClone(shipped().registry);
+  const codex = registry.harnesses.find((h) => h.id === 'codex');
+  const dir = path.join(root, 'core', 'worker-evidence', 'codex');
+  fs.mkdirSync(dir, { recursive: true });
+  const live = (name, extra) => {
+    fs.writeFileSync(path.join(dir, name), JSON.stringify({
+      schema: EVIDENCE_SCHEMA, harness: 'codex', kind: 'live-run', cliVersion: 'codex-cli 0.0.0',
+      establishes: ['oneShot'], checks: [], ...extra,
+    }));
+    return `core/worker-evidence/codex/${name}`;
+  };
+  codex.worker.oneShot.evidence = [live('2026-10-18-live-run.json', { run: { resultOffered: false } })];
+  const oneShot = () => establishingRecordFindings(registry, root).filter((f) => f.includes("'oneShot'"));
+  assert.equal(oneShot().length, 1, 'resultOffered false does not establish');
+  codex.worker.oneShot.evidence = [live('2026-10-18-live-run-b.json', { run: { resultOffered: true } })];
+  assert.deepEqual(oneShot(), [], 'resultOffered true does');
+  codex.worker.oneShot.evidence = ['core/worker-evidence/codex/2026-10-18-missing.json'];
+  assert.equal(oneShot().length, 1, 'a missing file does not establish');
+  codex.worker.oneShot.evidence = ['core/worker-evidence/gemini/2026-10-18-cli-check.json'];
+  assert.equal(oneShot().length, 1, 'another harness directory does not establish');
 });
