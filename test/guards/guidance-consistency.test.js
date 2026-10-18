@@ -12,7 +12,7 @@ const POLICIES = 'core/harnesses/shared/hooks/policies';
 const BASELINE_THRESHOLD = '- **3+ files**: Auto-suggest parallel processing';
 const FIXED_THRESHOLD = '- **>3 files**: Auto-suggest parallel processing';
 const BASELINE_ENFORCEMENT = '3. BLOCK assumption-based configuration changes';
-const FIXED_ENFORCEMENT = 'Do not change configuration on an assumption; verify it against the official documentation first';
+const FIXED_ENFORCEMENT = '3. Do not change configuration on an assumption; verify it against the official documentation first';
 
 function walkMarkdown(dir, out = []) {
   for (const entry of fs.readdirSync(path.join(REPO, dir), { withFileTypes: true })) {
@@ -124,9 +124,12 @@ test('G47.2: re-seeding the baseline enforcement word reports the ungrounded cla
   const seeded = guidanceFiles.map((file) => file.rel === orchestrationRel
     ? { ...file, text: replaceOnce(file.text, FIXED_ENFORCEMENT, BASELINE_ENFORCEMENT) }
     : file);
+  const seededText = seeded.find((file) => file.rel === orchestrationRel).text;
+  const seededLine = seededText.split('\n').findIndex((line) => line.includes(BASELINE_ENFORCEMENT)) + 1;
+  assert.ok(seededLine > 0, 'the seeded baseline line was not found by content');
   const findings = checkEnforcementWords(seeded, policyScripts);
   assert.equal(findings.length, 1);
-  assert.match(findings[0], new RegExp(`${orchestrationRel}:47`));
+  assert.match(findings[0], new RegExp(`${orchestrationRel}:${seededLine}\\b`));
   assert.match(findings[0], /G47\.2 .*BLOCK has no matching shared policy script/);
 });
 

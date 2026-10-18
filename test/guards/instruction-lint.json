@@ -21,7 +21,7 @@
   "pairs": [
     {
       "id": "default-vs-disjoint-parallelism",
-      "a": "\\bparallel by default\\b|\\bdefault to parallel\\b|\\bsequential by default\\b|\\bdefault to sequential\\b",
+      "a": "\\bparallel by default\\b|\\bdefault to parallel\\b|\\bparallel[- ]first\\b|\\bsequential by default\\b|\\bdefault to sequential\\b",
       "b": "\\bdisjoint write sets?\\b",
       "reason": "C5: parallel work must be conditional on disjoint write sets"
     },

@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE, SKILLS, AGENT_SPECS } = require('./_shared');
+const { tempDir } = require('../helper/tmp');
 
 const CHAIN_REL = 'core/shared/guidance/references/DOFLOW_CHAIN.md';
 const CHAIN_FILE = path.join(REPO, CHAIN_REL);
@@ -16,16 +17,46 @@ const DO_SKILL_FILE = path.join(REPO, 'core/shared/skills/do/SKILL.md');
 const ASSETS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/assets.json'), 'utf8')).assets;
 const CODE_RE = /^[a-z]+(-[a-z]+)+$/;
 const GATE_LABEL = '**Implement gate (hard):**';
-const CANONICAL_GATE_RE = /\b(one|only|single)\b[^.]{0,40}\bhard gate\b|\bhard gate\b[^.]{0,60}\b(only|covers)\b/i;
+const CANONICAL_GATE_RE = /\b(one|only|single)\b[^.]{0,40}\bhard[- ](gate|hook)\b|\bhard[- ](gate|hook)\b[^.]{0,60}\b(only|covers)\b/i;
 
-const BASELINE_GATE_BULLET = [
-  '- **One hard gate:** source edits are blocked when a feature is started but `requirement.md`,',
+const BASELINE_GATE_BODY = [
+  'source edits are blocked when a feature is started but `requirement.md`,',
   '  `design.md`, or `plan.md` is missing. Every other gate is advisory/skippable (solo,',
   '  low-ceremony).',
 ].join('\n');
-const BASELINE_HOOK_ROW = '| `hooks/`               | `pre-implement-gate.sh` — PreToolUse(Edit\\|Write) backstop for the one hard gate |';
+const BASELINE_GATE_BULLET = `- **One hard gate:** ${BASELINE_GATE_BODY}`;
+const BASELINE_HOOK_BODY = '`pre-implement-gate.sh` — PreToolUse(Edit\\|Write) backstop for the one hard gate';
+const BASELINE_HOOK_ROW = `| \`shared/hooks/policies/\` | ${BASELINE_HOOK_BODY} |`;
+// Each pair is the current wording and the pre-107 wording of the same passage; a control swaps one for the other.
+const UNCITED_A = 'G46.2: a.md has a hard-gate scope claim without DOFLOW_CHAIN.md';
+const BASELINE_FIXED_CONSTITUTION = '  §2 "Constitution Check" and blocks nothing. Gate scope: `DOFLOW_CHAIN.md`.';
+const BASELINE_CONSTITUTION = [
+  '  §2 "Constitution Check" and does not block work; the chain\'s one hard gate covers artifact',
+  '  existence only.',
+].join('\n');
+const BASELINE_FIXED_PLAN_ADVISORY = [
+  'Empty packs are advisory; prerequisites check artifact existence only. Report',
+  '   them in this stage\'s report and `plan.md` §3 "Research & Decisions"; prose without a compiled',
+  '   pack cannot claim prior evidence. When non-empty, read it alongside `requirement.md`,',
+  '   `design.md`, and the constitution.',
+].join('\n');
+const BASELINE_PLAN_ADVISORY = [
+  'Treat it as advisory rather than blocking — plan\'s hard gate is artifact',
+  '   existence only — but note it in this stage\'s report and `plan.md` §3 "Research & Decisions": a',
+  '   decision written straight from prose without a compiled pack must not claim prior evidence. When',
+  '   non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.',
+].join('\n');
+const BASELINE_FIXED_PLAN_CHECK = [
+  'blocks on it; `references/DOFLOW_CHAIN.md` defines the only hard gate. Stopping is skill',
+  '   discipline, not hook enforcement.',
+].join('\n');
+const BASELINE_PLAN_CHECK = [
+  'blocks on it — the chain\'s one hard gate covers artifact existence only. Stopping on a violation',
+  '   is a discipline this skill observes, not something a hook enforces.',
+].join('\n');
 const BASELINE_TEMPLATE_ROW = '| `templates/doflow/`    | `requirement-template.md` (optional `**Ticket:**` header field) / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, supports optional `depends-on:` and `external-contract:` fields per task, and a Repo Branch Plan table for multi-repo features) / `state-template.md` (Repo Branch Status table) / `constitution-template.md` / `external-contract-template.md` (pinned structure for a `external-contract:` target — a documented external dependency `--scaffold` can generate a mechanical frame from) — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |';
-const BASELINE_REFERENCE_ROW = '| `references/`          | `CONSTITUTION_BASE.md` — tier-1 global constitution base |';
+const BASELINE_REFERENCE_BODY = '`CONSTITUTION_BASE.md` — tier-1 global constitution base';
+const BASELINE_REFERENCE_ROW = `| \`guidance/references/\` | ${BASELINE_REFERENCE_BODY} |`;
 const BASELINE_ROOT_NOTE = [
   "> Paths above are relative to the installed root (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}` globally,",
   "> or a project's own `.claude/` in project scope). Chain skills' resolver lookups check the global",
@@ -48,8 +79,8 @@ function readDirectoryFiles(relativeDir, keep = () => true) {
     .map((entry) => ({ name: entry.name, text: fs.readFileSync(path.join(absoluteDir, entry.name), 'utf8') }));
 }
 
-function markdownFiles(relativeDir, excludeFixtures = false) {
-  const absoluteDir = path.join(REPO, relativeDir);
+function markdownFiles(relativeDir, excludeFixtures = false, root = REPO) {
+  const absoluteDir = path.join(root, relativeDir);
   if (!fs.existsSync(absoluteDir)) return [];
   const out = [];
   (function walk(dir) {
@@ -60,7 +91,7 @@ function markdownFiles(relativeDir, excludeFixtures = false) {
         walk(absolute);
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         out.push({
-          rel: path.relative(REPO, absolute).split(path.sep).join('/'),
+          rel: path.relative(root, absolute).split(path.sep).join('/'),
           text: fs.readFileSync(absolute, 'utf8'),
         });
       }
@@ -69,19 +100,54 @@ function markdownFiles(relativeDir, excludeFixtures = false) {
   return out;
 }
 
-function guidanceCorpus() {
-  const skillDirs = fs.readdirSync(SKILLS, { withFileTypes: true })
+const GUIDANCE_REL = path.relative(REPO, GUIDANCE).split(path.sep).join('/');
+const SKILLS_REL = path.relative(REPO, SKILLS).split(path.sep).join('/');
+const AGENT_SPECS_REL = path.relative(REPO, AGENT_SPECS).split(path.sep).join('/');
+
+// The three roots G46.2 scans, read through one path for the real tree and for a scratch copy of it.
+function guidanceCorpus(root = REPO) {
+  const skillDirs = fs.readdirSync(path.join(root, SKILLS_REL), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(SKILLS, entry.name));
+    .map((entry) => `${SKILLS_REL}/${entry.name}`);
   return [
-    ...markdownFiles(GUIDANCE),
-    ...skillDirs.flatMap((dir) => markdownFiles(path.relative(REPO, dir), true)),
-    ...markdownFiles(path.relative(REPO, AGENT_SPECS)),
+    ...markdownFiles(GUIDANCE_REL, false, root),
+    ...skillDirs.flatMap((dir) => markdownFiles(dir, true, root)),
+    ...markdownFiles(AGENT_SPECS_REL, false, root),
   ];
+}
+
+// Copy only the markdown of the three scanned roots, then apply { rel: (text) => text } edits.
+function withScratchTree(t, edits, fn) {
+  const scratch = tempDir(t, 'doflow-g46-tree-');
+  for (const rel of [GUIDANCE_REL, SKILLS_REL, AGENT_SPECS_REL]) {
+    fs.cpSync(path.join(REPO, rel), path.join(scratch, rel), {
+      recursive: true,
+      filter: (src) => fs.statSync(src).isDirectory() || src.endsWith('.md'),
+    });
+  }
+  for (const [rel, edit] of Object.entries(edits)) {
+    const file = path.join(scratch, rel);
+    fs.writeFileSync(file, edit(fs.readFileSync(file, 'utf8')));
+  }
+  return fn(scratch);
+}
+
+function replaceOnce(text, from, to) {
+  assert.equal(text.split(from).length - 1, 1, `expected exactly one ${JSON.stringify(from)} anchor`);
+  return text.replace(from, to);
 }
 
 function paragraphs(text) {
   return text.split(/\r?\n\s*\r?\n/).map((part) => part.trim()).filter(Boolean);
+}
+
+// A claim sentence is cleared only by DOFLOW_CHAIN.md in that sentence or the one before or after it.
+function uncitedClaims(text) {
+  return paragraphs(text).flatMap((paragraph) => {
+    const sentences = paragraph.split(/(?<=[.!?])\s+/);
+    return sentences.filter((sentence, i) => CANONICAL_GATE_RE.test(sentence)
+      && !sentences.slice(Math.max(0, i - 1), i + 2).some((near) => near.includes('DOFLOW_CHAIN.md')));
+  });
 }
 
 function listItem(text, anchor) {
@@ -143,12 +209,12 @@ function checkGate({ chain, gate }) {
 
 function checkCanonicalGate(files) {
   if (!files.length) return ['G46.2: G24 corpus is empty'];
-  const candidates = files.flatMap(({ rel, text }) => rel === CHAIN_REL ? [] : paragraphs(text)
+  const claims = files.flatMap(({ rel, text }) => rel === CHAIN_REL ? [] : paragraphs(text)
     .filter((paragraph) => CANONICAL_GATE_RE.test(paragraph))
-    .map((paragraph) => ({ rel, paragraph })));
-  if (!candidates.length) return ['G46.2: found no canonical hard-gate statement anchor'];
-  return candidates.filter(({ paragraph }) => !paragraph.includes('DOFLOW_CHAIN.md'))
-    .map(({ rel }) => `G46.2: ${rel} has a hard-gate scope claim without DOFLOW_CHAIN.md`);
+    .map(() => rel));
+  if (!claims.length) return ['G46.2: found no canonical hard-gate statement anchor'];
+  return files.filter(({ rel }) => rel !== CHAIN_REL)
+    .flatMap(({ rel, text }) => uncitedClaims(text).map(() => `G46.2: ${rel} has a hard-gate scope claim without DOFLOW_CHAIN.md`));
 }
 
 function layoutRows(text) {
@@ -293,6 +359,12 @@ test('G46.1 control: re-seeding the baseline One hard gate bullet is caught', ()
   assert.ok(findings.some((finding) => finding.includes(GATE_LABEL)), findings.join('\n'));
 });
 
+test('G46.1 control: the current label over the baseline body is caught by the deny-code comparison', () => {
+  const findings = checkGate({ chain: `- ${GATE_LABEL} ${BASELINE_GATE_BODY}`, gate: GATE_TEXT });
+  assert.ok(findings.some((finding) => /^G46\.1: hard-gate deny codes differ.*missing \[[^\]]*readiness-missing/.test(finding)), findings.join('\n'));
+  assert.ok(!findings.some((finding) => finding.includes('found no')), findings.join('\n'));
+});
+
 test('G46.1 control: removing the implement-gate anchor is caught', () => {
   const findings = checkGate({ chain: '## Core design rules\n\n- Other gates are advisory.', gate: GATE_TEXT });
   assert.ok(findings.some((finding) => finding.includes('found no')), findings.join('\n'));
@@ -300,6 +372,49 @@ test('G46.1 control: removing the implement-gate anchor is caught', () => {
 
 test('G46.2: canonical hard-gate scope claims point to DOFLOW_CHAIN.md', () => {
   assert.deepEqual(checkCanonicalGate(CANONICAL_CORPUS), []);
+});
+
+test('G46.2 vacuity: each scanned root is read and holds a known file', () => {
+  const rels = new Set(CANONICAL_CORPUS.map(({ rel }) => rel));
+  for (const [root, known] of [
+    [GUIDANCE_REL, CHAIN_REL],
+    [SKILLS_REL, `${SKILLS_REL}/do-plan/SKILL.md`],
+    [AGENT_SPECS_REL, `${AGENT_SPECS_REL}/spec-analyst.md`],
+  ]) {
+    assert.ok([...rels].some((rel) => rel.startsWith(`${root}/`)), `G46.2 scanned nothing under ${root}`);
+    assert.ok(rels.has(known), `G46.2 did not scan ${known}`);
+  }
+});
+
+test('G46.2 control: re-seeding the baseline CONSTITUTION_BASE claim into a scratch tree is caught', (t) => {
+  const rel = `${GUIDANCE_REL}/references/CONSTITUTION_BASE.md`;
+  const findings = withScratchTree(t, {
+    [rel]: (text) => replaceOnce(text, BASELINE_FIXED_CONSTITUTION, BASELINE_CONSTITUTION),
+  }, (root) => checkCanonicalGate(guidanceCorpus(root)));
+  assert.deepEqual(findings, [`G46.2: ${rel} has a hard-gate scope claim without DOFLOW_CHAIN.md`]);
+});
+
+test('G46.2 control: re-seeding the baseline do-plan claims into a scratch tree is caught', (t) => {
+  const rel = `${SKILLS_REL}/do-plan/SKILL.md`;
+  const findings = withScratchTree(t, {
+    [rel]: (text) => replaceOnce(replaceOnce(text, BASELINE_FIXED_PLAN_ADVISORY, BASELINE_PLAN_ADVISORY),
+      BASELINE_FIXED_PLAN_CHECK, BASELINE_PLAN_CHECK),
+  }, (root) => checkCanonicalGate(guidanceCorpus(root)));
+  assert.ok(findings.length >= 2, findings.join('\n'));
+  assert.ok(findings.every((finding) => finding.includes(rel)), findings.join('\n'));
+});
+
+test('G46.2 control: a claim is cleared only by DOFLOW_CHAIN.md in its own or an adjacent sentence', () => {
+  const far = 'Intro sentence. The only hard gate covers artifact existence. Middle one. Another one. See DOFLOW_CHAIN.md.';
+  assert.deepEqual(checkCanonicalGate([{ rel: 'a.md', text: far }]), [UNCITED_A]);
+  const near = 'The only hard gate covers artifact existence. Gate scope: DOFLOW_CHAIN.md.';
+  assert.deepEqual(checkCanonicalGate([{ rel: 'a.md', text: near }]), []);
+});
+
+test('G46.2 control: hyphenated and hook spellings of the claim are caught', () => {
+  for (const text of ['The chain\'s one hard-gate covers artifact existence only.', 'The hard hook covers artifact existence only.', 'Only hard-gate hook.']) {
+    assert.deepEqual(checkCanonicalGate([{ rel: 'a.md', text }]), [UNCITED_A], text);
+  }
 });
 
 test('G46.2 control: re-seeding the baseline gate-scope claim is caught', () => {
@@ -319,10 +434,11 @@ test('G46.3: shared policy row matches policies that emit literal deny decisions
   assert.deepEqual(checkLayoutRow({ chain: CHAIN_TEXT, pathCell: POLICY_PATH, expected: POLICY_NAMES, suffixRe: /\.sh$/, label: 'G46.3', glob: '*.sh' }), []);
 });
 
-test('G46.3 control: re-seeding the baseline hooks row is caught', () => {
+test('G46.3 control: the current path cell over the baseline hooks body is caught by the name comparison', () => {
   const stale = replaceRow(CHAIN_TEXT, POLICY_PATH, BASELINE_HOOK_ROW);
   const findings = checkLayoutRow({ chain: stale, pathCell: POLICY_PATH, expected: POLICY_NAMES, suffixRe: /\.sh$/, label: 'G46.3', glob: '*.sh' });
-  assert.ok(findings.some((finding) => finding.includes('found no Layout row anchor')), findings.join('\n'));
+  assert.match(findings.join('\n'), /missing \[.*pre-implementation-gate\.sh.*extra \[pre-implement-gate\.sh\]/);
+  assert.ok(!findings.some((finding) => finding.includes('found no')), findings.join('\n'));
 });
 
 test('G46.3 control: both a missing policy and a planted ghost policy are caught', () => {
@@ -369,10 +485,11 @@ test('G46.5: references row matches guidance.context-layer references', () => {
   assert.deepEqual(checkLayoutRow({ chain: CHAIN_TEXT, pathCell: REFERENCE_PATH, expected: REFERENCE_NAMES, suffixRe: /\.md$/, label: 'G46.5', glob: '*.md' }), []);
 });
 
-test('G46.5 control: re-seeding the one-file references baseline row is caught', () => {
+test('G46.5 control: the current path cell over the one-file references baseline body is caught by the name comparison', () => {
   const stale = replaceRow(CHAIN_TEXT, REFERENCE_PATH, BASELINE_REFERENCE_ROW);
   const findings = checkLayoutRow({ chain: stale, pathCell: REFERENCE_PATH, expected: REFERENCE_NAMES, suffixRe: /\.md$/, label: 'G46.5', glob: '*.md' });
-  assert.ok(findings.some((finding) => finding.includes('found no Layout row anchor')), findings.join('\n'));
+  assert.match(findings.join('\n'), /missing \[.*ARTIFACT_FORMAT\.md/);
+  assert.ok(!findings.some((finding) => finding.includes('found no')), findings.join('\n'));
 });
 
 test('G46.5 control: a missing reference and a planted ghost reference are caught', () => {
