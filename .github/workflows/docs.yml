@@ -31,8 +31,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      # pymdown-extensions supplies the superfences Mermaid fence in mkdocs.yml.
-      - run: pip install -r requirements.txt "pymdown-extensions>=10,<13"
+      - run: pip install -r requirements.txt
       - run: mkdocs build --strict --site-dir site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
