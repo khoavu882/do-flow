@@ -19,7 +19,7 @@ const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const HOOK_FIXTURE = path.join(REPO, 'test/fixtures/telemetry/hook.jsonl');
 const ENVELOPE = '.doflow/shared/hooks/bridge/envelope.jq';
 const BASH = '/bin/bash';
-const LINE_KEYS = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt'];
+const LINE_KEYS = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt', 'role', 'worker_run'];
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const INJECT_FROM = 'session:dft_token($d.identity.session)';
 const INJECT_TO = 'session:error("088-injected-tuple-fault")';
@@ -223,7 +223,7 @@ test('one allowlisted hook line per harness fixture, with the contract keys and 
     assert.deepEqual({ ...line, timestamp: 'T' }, {
       kind: 'hook', harness: surface.harness, event: surface.event, policy: surface.policy, verdict: 'allow',
       duration_ms: null, timestamp: 'T', session: native.session_id || null, tool: surface.tool,
-      tool_call_id: surface.harness === 'pi' ? native.toolCallId : null, run: 'run-088', lineage: 'lineage-088', attempt: 2,
+      tool_call_id: surface.harness === 'pi' ? native.toolCallId : null, run: 'run-088', lineage: 'lineage-088', attempt: 2, role: null, worker_run: null,
     }, `${surface.harness}/${surface.policy}: line`);
     const content = native.prompt || native.tool_input?.command || native.input?.command || native.toolCall?.args?.CommandLine;
     assert.ok(content && !JSON.stringify(line).includes(content), `${surface.harness}/${surface.policy}: no command or prompt in the line`);
@@ -256,6 +256,49 @@ test('an MCP tool name is never recorded as the tool (canary)', () => {
   assert.equal(lines.length, 1);
   assert.equal(lines[0].tool, null);
   assert.ok(!JSON.stringify(lines).includes('canary088'));
+});
+
+const WORKER_RUN = 'w-0123456789ab';
+const STRIP_KEYS = (source) => source
+  .replace(/,\n\s*role:\(if \$ENV\.DOFLOW_SESSION_ROLE[^\n]*\),\n\s*worker_run:\([^\n]*\)\}\) catch/, '}) catch');
+
+/** The role and worker_run assertions, shared by the production test and its negative control. */
+function assertRoleAndWorkerRun(root) {
+  const surface = SURFACES['claude:pre-bash-guard'];
+  const config = path.join(root, '.doflow');
+  run(root, surface, fixtureNative(surface), { env: { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKER_RUN: WORKER_RUN } });
+  run(root, surface, fixtureNative(surface), { env: { DOFLOW_SESSION_ROLE: 'main' } });
+  run(root, surface, fixtureNative(surface));
+  const lines = hookLines(config);
+  assert.equal(lines.length, 3);
+  assert.deepEqual(lines.map((line) => [line.role, line.worker_run]), [['worker', WORKER_RUN], ['main', null], [null, null]]);
+  assert.deepEqual(Object.keys(lines[0]).slice(-2), ['role', 'worker_run']);
+}
+
+test('role and worker_run are written when the env has them and are null otherwise', () => {
+  assertRoleAndWorkerRun(project());
+});
+
+test('negative control: a tuple without the role and worker_run keys fails the role/worker_run test', () => {
+  const root = project({ envelope: STRIP_KEYS });
+  assert.throws(() => assertRoleAndWorkerRun(root), assert.AssertionError);
+});
+
+test('a role outside main|worker and a worker_run outside ^w-[0-9a-f]{12}$ are written as null', () => {
+  const root = project();
+  const surface = SURFACES['claude:pre-bash-guard'];
+  const bad = ['W-0123456789AB', 'w-0123456789a', 'w-0123456789abc', 'w-0123456789ag', 'x-0123456789ab', 'free text', 'w-0123456789ab\n', '../etc/passwd'];
+  for (const value of bad) run(root, surface, fixtureNative(surface), { env: { DOFLOW_SESSION_ROLE: 'intruder', DOFLOW_WORKER_RUN: value } });
+  const lines = hookLines(path.join(root, '.doflow'));
+  assert.equal(lines.length, bad.length);
+  for (const line of lines) assert.deepEqual([line.role, line.worker_run], [null, null]);
+  assert.ok(!JSON.stringify(lines).includes('intruder'));
+});
+
+test('telemetry off writes no file even with role and worker_run set', () => {
+  const root = project();
+  for (const surface of Object.values(SURFACES)) run(root, surface, fixtureNative(surface), { env: { DOFLOW_TELEMETRY: 'off', DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKER_RUN: WORKER_RUN } });
+  assert.equal(fs.existsSync(telemetryDir(path.join(root, '.doflow'))), false);
 });
 
 test('a deny is recorded as a deny on every pre-bash-guard harness', () => {
