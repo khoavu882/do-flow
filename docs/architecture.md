@@ -118,6 +118,10 @@ execution adapter has a fourth:
 
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 
+The pre-bash guard policy (`pre-bash-guard.sh`) enforces destructive-command blocking against `blocked-patterns.conf`. The git, rm, and find rules use command-position anchors and prefix/wrapper handling (`_CMDPOS` and `_WRAP`), which covers path-qualified binaries such as `/usr/bin/git reset --hard`, assignments such as `FOO=1 rm -rf /`, and piped commands such as `x | git clean -fd`. The chmod, dd, and curl-to-shell rules keep their previous anchors. SQL text exceptions use a positive allow-list matched against the raw command; a non-match keeps the SQL rule's prior verdict. The accepted text-writing forms are listed in [Enterprise governance](enterprise-governance.md#worker-exemptions-and-guard-scoping).
+
+A worker-only exemption allows a bare reset shape containing `--hard` (with optional `-q` or `--quiet` flags and one revision token) and a single-f `git clean` only when `DOFLOW_SESSION_ROLE` is exactly `worker`, `DOFLOW_WORKTREE` is an absolute path to an existing canonical dispatch worktree (`<project>/.doflow/state/dispatch-worktrees/d-<12 hex>`), and the hook's native cwd (`DF_ENV_CWD`) is equal to or inside that worktree. The hook rejects `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`, and any `GIT_CONFIG_KEY_*` variable. For the exempt shape it runs one `git rev-parse --path-format=absolute --git-dir --show-toplevel` from the cwd under a clean environment; the top level must be the dispatch worktree and the git directory must resolve below `<project>/.git/worktrees/` for that worktree. This rejects a planted `.git` file or a nested repository whose `core.worktree` points at the project. One terminal LF or CRLF is accepted before shape matching. Clean option groups match `(-[dfqxX]+|--force|--quiet)+` with exactly one `f` total; short groups may be split. Other commands keep the ordinary guard verdict.
+
 When an install or update changes shared hook files at a scope, lifecycle planning also refreshes
 outdated hook front doors for other installed harnesses at that scope. The companion changes share
 the backup, ledger write and rollback with the requested targets; edited companion doors make the
@@ -190,7 +194,9 @@ reported as ambiguous gaps. A hook line records `DOFLOW_SESSION_ROLE` only when 
 `worker` exactly (case-sensitive), and records null otherwise. Identity resolution lowercases the
 value, maps unset to `main`, and maps unknown values to `worker`. Hook lines also record `worker_run`,
 dispatch-sourced verification lines record `dispatch_run`, and worker execution environments receive
-`DOFLOW_WORKER_RUN` (six launch environment variables, not part of the stored identity contract).
+`DOFLOW_WORKER_RUN`. Under internal contract IC-012, the worker launch environment may set up to seven named variables (`DOFLOW_RUN_ID`, `DOFLOW_LINEAGE_ID`, `DOFLOW_ATTEMPT`, `DOFLOW_SESSION_ROLE`,
+`DOFLOW_WORKTREE`, `DOFLOW_WORKER_RUN`, and `DOFLOW_GUARD_DROP_DATABASES`); the seventh is optional and absent
+when no valid database list is set, and any caller-supplied value is removed before launch (not part of the stored identity contract).
 One known gap: in the 109 live run the read-only worker wrote no hook lines at all, and the cause has
 not been established (tracked as follow-up FU-hehzbq). ID-less windows across concurrent activities
 also remain ambiguous.

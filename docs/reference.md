@@ -242,12 +242,17 @@ Notes on three rows:
 | `storage.prune` | enum | `on` | project-overridable | — | `prune` |
 | `storage.retentionHours` | integer | `4320` | project-overridable | `DOFLOW_RETENTION_HOURS` | — |
 | `failure.capture` | enum | `on` | global-only | `DOFLOW_FAILURE_CAPTURE` | `failures/off` |
+| `guard.workerDropDatabases` | string | `—` | project-only | — | `—` |
 
 The default endpoint is the selected provider's `defaultEndpoint` in `advice.json`. `storage.retentionHours` defaults to the `lifecycle-events` bound in `storage.json`.
 
 `advise --action configure` writes advice settings to `settings.json`; an existing `decision-model.json` is left intact and remains readable with a deprecation note. The old `prune` file is also still read with a deprecation note. Settings written by this release are not seen by earlier betas or 2.0.x; the older files are left intact for those versions.
 
 `failure --action capture --set on|off` writes `failure.capture` in the global `settings.json`. An existing `failures/off` sentinel remains in place and still disables capture, including after `--set on`; remove the sentinel yourself to turn capture back on.
+
+`guard.workerDropDatabases` configures a space-separated list of exact lowercase database names (`[a-z][a-z0-9_]{0,62}`, at most 32 names, at most 1 KiB, all-or-nothing); each name is at most 63 characters. A worker session may drop one listed name with a single `psql -c` or `mysql -e` command running `DROP DATABASE [IF EXISTS] <name>`. The key has `project-only` scope: set it in `<project>/.doflow/settings.json` or `.doflow/settings.local.json`; global values, environment variables, and CLI flags do not set it. At launch, the launcher resolves and validates the list from the owning project and exports `DOFLOW_GUARD_DROP_DATABASES`; the hook reads only this snapshot. An unset, empty, or invalid list grants no relaxation. The hook cannot verify which host the database client contacts.
+
+Codex worker write access to `<project>/.doflow/settings.json` is measured only for the sandbox scope: Codex CLI 0.163 probes using `codex sandbox -P :workspace` denied the write when the project was outside sandbox-writable roots (not under `/tmp` or `$TMPDIR`, and not the command cwd), and allowed it when the project was under `/tmp` or `$TMPDIR`. The production launch flag `-s workspace-write` was not probed separately. FU-gxbryp tracks the possibility of a worker under a sandbox-writable root planting a database name for a later launch; the launch snapshot blocks self-authorization during the same run.
 
 ### Config home
 

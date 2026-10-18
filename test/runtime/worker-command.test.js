@@ -326,9 +326,11 @@ test('a started run returns started with its deadline; a second run on the token
   assert.deepEqual(record.prompt, { path: p.promptFile, sha256: crypto.createHash('sha256').update('do the task').digest('hex'), bytes: 11 });
   assert.equal(record.recipe.binary, 'fake-claude');
   assert.equal(record.envInherited, true);
-  assert.equal(record.envSet.length, 6);
+  // 112: the old six plus the optional project-only drop-database snapshot.
+  assert.equal(record.envSet.length, 7);
   assert.deepEqual(record.envSet, [...ENV_SET]);
-  assert.equal(record.envSet.at(-1), 'DOFLOW_WORKER_RUN');
+  assert.equal(record.envSet.at(-2), 'DOFLOW_WORKER_RUN');
+  assert.equal(record.envSet.at(-1), 'DOFLOW_GUARD_DROP_DATABASES');
   assert.deepEqual(record.identity, { run: 'r1', lineage: 'main', attempt: String(p.token), runSource: 'claim' });
   assert.deepEqual(record.caller, { cwd: p.dir, runKey: p.key.runKey, run: 'r1', lineage: 'main', attempt: null, role: 'main', lineageKind: p.key.identity.lineageKind });
   assert.ok(record.supervisor && record.supervisor.pid, 'the supervisor pid is recorded');

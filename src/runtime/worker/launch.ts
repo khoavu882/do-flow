@@ -3,7 +3,8 @@
 // Feature 081 B.3 (IC-003, IC-012; DEC-030, DEC-037, DEC-045): the real launcher.
 //
 // `launchEnv` names the worker in the caller's environment: the caller's variables are inherited
-// unchanged (DEC-045) and the five DOFLOW_* identity variables and DOFLOW_WORKER_RUN are set. The run segment of
+// unchanged (DEC-045), except for the five identity variables, DOFLOW_WORKER_RUN and the optional
+// project-only DOFLOW_GUARD_DROP_DATABASES launch snapshot (112). The run segment of
 // the claim's run key is the worker's run, or, when that segment is the default `local`, the run
 // id without its `w-` prefix (DEC-037), so the worker always resolves to a launched identity and
 // its 078 unit `L.<run>.<lineage>.<token>` is unique to this run. A child run (082 IC-015) is
@@ -19,21 +20,26 @@
 // `launchWorker` runs IC-012 steps 1 to 5: the environment, the optional 078 grant, the launch
 // emission in process, the emission text before the brief, then `spawn` with no shell. It returns a
 // promise that resolves once the process has spawned and rejects on any throw or a spawn `error`
-// (for example ENOENT); the supervisor ends such a run `not-started`. No variable is read for its
-// value, and the emission text is never returned for storage.
+// (for example ENOENT); the supervisor ends such a run `not-started`. No variable's value is stored,
+// and the emission text is never returned for storage.
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { emitContext, utf8Bytes } = require('../context/arbitrate.ts');
 const { grantSummary } = require('../context/summary-store.ts');
+const { loadSettings } = require('../settings/resolve.ts');
 
 type Env = Record<string, string | undefined>;
 
-/** IC-012: the variables a launch sets, in the order the run record lists them. The first five are the
+/** IC-012: the names a launch may set, in the order the run record lists them. The first five are the
  * identity contract; `DOFLOW_WORKER_RUN` (110) carries the worker run id `w-<12 hex>` and nothing else,
- * so the worker's telemetry can name its own run. It is not part of the stored identity. */
+ * so the worker's telemetry can name its own run. The seventh variable (112) is an optional
+ * snapshot of project-only database names. Neither is part of the stored identity. */
 const WORKER_RUN_VAR = 'DOFLOW_WORKER_RUN';
-const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', WORKER_RUN_VAR]);
+const DROP_DATABASES_VAR = 'DOFLOW_GUARD_DROP_DATABASES';
+const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', WORKER_RUN_VAR, DROP_DATABASES_VAR]);
 const PROMPT_ELEMENT = '{prompt}';
 const LAST_MESSAGE_FILE_ELEMENT = '{lastMessageFile}';
 /** IC-003 prompt limits in bytes. argv is one under Linux MAX_ARG_STRLEN, which counts the NUL (DEC-062). */
@@ -64,8 +70,31 @@ class LaunchUsageError extends Error {
   }
 }
 
-/** The caller's environment, unchanged, with the five identity variables set and `DOFLOW_WORKER_RUN` set
- * to `runId`. Without a `runId` the variable is removed, so a caller's own run id never reaches the worker. */
+/** 112: read the owning project's layers at launch, never the worker checkout, caller snapshot or
+ * the launcher's process environment. Every fault omits the exemption. A fresh env copy bypasses
+ * settings memoisation so an earlier launch cannot pin stale authorisation. */
+function dropDatabases(execWorktree: string, env: Env): string | null {
+  try {
+    if (!path.isAbsolute(execWorktree)) return null;
+    const canonical = fs.realpathSync(execWorktree);
+    if (!fs.statSync(canonical).isDirectory()) return null;
+    const dispatch = /^(.*)\/\.doflow\/state\/dispatch-worktrees\/d-[0-9a-f]{12}$/.exec(canonical);
+    if (!dispatch || dispatch[0] !== canonical) return null;
+    const projectRoot = dispatch[1] || path.parse(canonical).root;
+    const resolved = loadSettings({ projectRoot, env: { ...env } }).get('guard.workerDropDatabases', 'project');
+    // 086's linked-checkout fallback is not authority for this exemption. An invalid project file
+    // also voids the snapshot, even if a different layer could have supplied a usable value.
+    if (resolved.origin.checkout !== 'own' || !['project', 'local'].includes(resolved.origin.layer)
+      || resolved.candidates.some((c: any) => ['project', 'local'].includes(c.layer) && c.status === 'invalid')) return null;
+    const value = resolved.value;
+    if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > 1024
+      || /^[a-z][a-z0-9_]{0,62}( [a-z][a-z0-9_]{0,62})*$/.exec(value)?.[0] !== value || value.split(' ').length > 32) return null;
+    return value;
+  } catch { return null; }
+}
+
+/** The five identity variables, optional worker run id and project-only guard snapshot. Both
+ * launch-only values replace (or remove) caller values; the caller's environment is never mutated. */
 function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, runId?: string): Env {
   if (runId !== undefined && !RUN_ID.test(runId)) throw new LaunchUsageError('run-id-malformed', `launch: run id must match ${RUN_ID}: ${runId}`);
   const out: Env = {
@@ -78,6 +107,9 @@ function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, 
   };
   if (runId !== undefined) out[WORKER_RUN_VAR] = runId;
   else delete out[WORKER_RUN_VAR];
+  delete out[DROP_DATABASES_VAR];
+  const databases = dropDatabases(execWorktree, env);
+  if (databases !== null) out[DROP_DATABASES_VAR] = databases;
   return out;
 }
 

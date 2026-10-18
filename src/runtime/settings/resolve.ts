@@ -11,7 +11,8 @@
  * `-g` (the global view) omits the project layers, which also gives the prune and retention root split.
  * Each step is one candidate, and every candidate is kept with a status, so `config list` can say why a
  * value applies and what it beat. The rules, in order:
- *   1. a project or local value of a `global-only` key is `ignored-scope`, never validated;
+ *   1. a project or local value of a `global-only` key, or a non-project value of a
+ *      `project-only` key, is `ignored-scope`, never validated;
  *   2. an invalid value takes the key's fail-safe where its layer could have widened the key (user
  *      layers; project layers of a `project-overridable` key; env with `direction: any`), else it is
  *      skipped and the key falls through (FR-008, C7/C8/C13/C16);
@@ -367,6 +368,10 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
       candidates.push(c);
       const projectLayer = c.layer === 'project' || c.layer === 'local';
       const bound = c.layer === 'env' || c.layer === 'flag';
+      if (!projectLayer && spec.scope === 'project-only') {
+        Object.assign(c, { status: 'ignored-scope', value: null, reason: 'project-only: only a project can set it' });
+        continue;
+      }
       if (raw.noEffect) {
         Object.assign(c, { status: 'no-effect', value: null, reason: 'only off, 0, false or no has an effect' });
         continue;

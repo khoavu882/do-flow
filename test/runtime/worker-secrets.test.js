@@ -324,10 +324,11 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
     assert.ok(fs.existsSync(path.join(a.dir, '.doflow', 'state', 'worker-probes', 'claude.json')), 'the probe record was written');
     for (const run of [supervised, b.run(cancelledId)]) {
       assert.deepEqual(run.envSet, [...ENV_SET]);
-      // Five identity variables plus DOFLOW_WORKER_RUN (110), last; the stored identity is not the six.
+      // 112: the old six become seven with the optional snapshot; identity remains the first five.
       assert.deepEqual([...ENV_SET].slice(0, 5).sort(), [...IDENTITY_VARS].sort());
-      assert.equal(ENV_SET.at(-1), 'DOFLOW_WORKER_RUN');
-      assert.equal(ENV_SET.length, 6);
+      assert.equal(ENV_SET.at(-2), 'DOFLOW_WORKER_RUN');
+      assert.equal(ENV_SET.at(-1), 'DOFLOW_GUARD_DROP_DATABASES');
+      assert.equal(ENV_SET.length, 7);
       assert.equal(run.envInherited, true);
       const text = JSON.stringify(run);
       for (const value of ['FAKE_API_KEY', 'UNSHAPED_SECRET', KNOWN, UNSHAPED, home]) assert.equal(text.includes(value), false, value);
