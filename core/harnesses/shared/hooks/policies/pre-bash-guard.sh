@@ -89,24 +89,43 @@ PATTERNS_FILE="$_DOFLOW_POLDIR/blocked-patterns.conf"
 # byte-wise (much faster than multibyte-aware in a UTF-8 locale).
 export LC_ALL=C
 
+# Shape checks accept one terminal line ending, never an additional command.
+# Keep COMMAND raw for all ordinary pattern verdicts.
+SHAPE_COMMAND=$COMMAND
+case $SHAPE_COMMAND in
+  *$'\r\n') SHAPE_COMMAND=${SHAPE_COMMAND%$'\r\n'} ;;
+  *$'\n') SHAPE_COMMAND=${SHAPE_COMMAND%$'\n'} ;;
+esac
+
 # Lazy and cached: shape checks precede the shared scope's only two subshells
-# (cd/pwd builtins). Never infer worker identity from command text.
+# (cd/pwd builtins), then one git probe for reset/clean only.
+# Never infer worker identity from command text.
 _WORKER_EXEMPT=
 _worker_exempt() {
   case $_WORKER_EXEMPT in allow) return 0 ;; deny) return 1 ;; esac
   _WORKER_EXEMPT=deny
   local reset_re='^[[:blank:]]*git[[:blank:]]+reset([[:blank:]]+(--hard|-q|--quiet))+([[:blank:]]+[A-Za-z0-9_@][A-Za-z0-9_./^~@{}-]*)?[[:blank:]]*$'
   local clean_re='^[[:blank:]]*git[[:blank:]]+clean([[:blank:]]+(-[dfqxX]+|--force|--quiet))+[[:blank:]]*$'
-  local forces
-  if [[ $COMMAND =~ $reset_re ]]; then
-    case " $COMMAND " in *[[:blank:]]--hard[[:blank:]]*) ;; *) return 1 ;; esac
-  elif [[ $COMMAND =~ $clean_re ]]; then
-    forces=${COMMAND//[!f]/}
+  local forces command=$SHAPE_COMMAND
+  if [[ $command =~ $reset_re ]]; then
+    case " $command " in *[[:blank:]]--hard[[:blank:]]*) ;; *) return 1 ;; esac
+  elif [[ $command =~ $clean_re ]]; then
+    forces=${command//[!f]/}
     [ "${#forces}" -eq 1 ] || return 1
   else
     return 1
   fi
   _worker_scope || return 1
+  local project=${_WORKER_DIR%/.doflow/state/dispatch-worktrees/*}
+  local name=${_WORKER_DIR##*/} info git_dir top suffix
+  [ -d "$project/.git" ] || return 1
+  # No inherited GIT_* / config environment can redirect this read-only probe.
+  info=$(env -i PATH="$PATH" HOME="${HOME:-}" git -C "$_WORKER_CWD" rev-parse --path-format=absolute --git-dir --show-toplevel 2>/dev/null) || return 1
+  git_dir=${info%%$'\n'*}; top=${info#*$'\n'}
+  [ "$top" = "$_WORKER_DIR" ] || return 1
+  case $git_dir in "$project/.git/worktrees/$name"*) ;; *) return 1 ;; esac
+  suffix=${git_dir#"$project/.git/worktrees/$name"}
+  case $suffix in *[!0-9]*) return 1 ;; esac
   _WORKER_EXEMPT=allow
   return 0
 }
@@ -116,9 +135,10 @@ _WORKER_SCOPE=
 _worker_scope() {
   case $_WORKER_SCOPE in allow) return 0 ;; deny) return 1 ;; esac
   _WORKER_SCOPE=deny
-  local worktree cwd
+  local worktree cwd config_key
   [ "${DOFLOW_SESSION_ROLE:-}" = worker ] || return 1
-  [ -z "${GIT_DIR+x}${GIT_WORK_TREE+x}${GIT_INDEX_FILE+x}${GIT_COMMON_DIR+x}" ] || return 1
+  [ -z "${GIT_DIR+x}${GIT_WORK_TREE+x}${GIT_INDEX_FILE+x}${GIT_COMMON_DIR+x}${GIT_CONFIG_PARAMETERS+x}${GIT_CONFIG_COUNT+x}" ] || return 1
+  for config_key in ${!GIT_CONFIG_KEY_@}; do return 1; done
   case ${DOFLOW_WORKTREE:-} in /*) ;; *) return 1 ;; esac
   [ -d "$DOFLOW_WORKTREE" ] || return 1
   # A sentinel preserves path-ending newlines across command substitution.
@@ -130,6 +150,7 @@ _worker_scope() {
   cwd=$(CDPATH= cd -P -- "$DF_ENV_CWD" 2>/dev/null && pwd -P && printf '.') || return 1
   cwd=${cwd%.}; cwd=${cwd%$'\n'}
   case $cwd in "$worktree"|"$worktree"/*) ;; *) return 1 ;; esac
+  _WORKER_DIR=$worktree _WORKER_CWD=$cwd
   _WORKER_SCOPE=allow
   return 0
 }
@@ -138,18 +159,18 @@ _worker_scope() {
 # recognise one full bare client invocation and one statement. No shell eval,
 # substitutions, variables, wrappers, redirects, additional args or statements.
 _worker_dropdb_exempt() {
-  local list=${DOFLOW_GUARD_DROP_DATABASES:-} list_re='^[a-z][a-z0-9_]*( [a-z][a-z0-9_]*)*$'
+  local list=${DOFLOW_GUARD_DROP_DATABASES:-} list_re='^[a-z][a-z0-9_]{0,62}( [a-z][a-z0-9_]{0,62})*$'
   [ "${#list}" -le 1024 ] && [[ $list =~ $list_re ]] || return 1
-  local names=() name rest client quote statement id_re sql_re
+  local names=() name rest client quote statement id_re sql_re command=$SHAPE_COMMAND
   IFS=' ' read -r -a names <<< "$list"
   [ "${#names[@]}" -le 32 ] || return 1
   local psql_re='^[[:blank:]]*psql([[:blank:]]+(-[hpUd][[:blank:]]+[A-Za-z0-9_.:-]+|--(host|port|username|dbname)=[A-Za-z0-9_.:-]+|-w))*[[:blank:]]+-c[[:blank:]]+'
   local mysql_re='^[[:blank:]]*mysql([[:blank:]]+(-[hPu][[:blank:]]+[A-Za-z0-9_.:-]+|--(host|port|user)=[A-Za-z0-9_.:-]+))*[[:blank:]]+-e[[:blank:]]+'
-  if [[ $COMMAND =~ $psql_re ]]; then client=psql
-  elif [[ $COMMAND =~ $mysql_re ]]; then client=mysql
+  if [[ $command =~ $psql_re ]]; then client=psql
+  elif [[ $command =~ $mysql_re ]]; then client=mysql
   else return 1
   fi
-  rest=${COMMAND:${#BASH_REMATCH[0]}}
+  rest=${command:${#BASH_REMATCH[0]}}
   local single_re="^'([^']*)'[[:blank:]]*$" double_re='^"([^"]*)"[[:blank:]]*$'
   if [[ $rest =~ $single_re ]]; then quote=single
   elif [[ $rest =~ $double_re ]]; then quote=double
@@ -356,24 +377,54 @@ scrub_quotes() {
 scrub_quotes "$COMMAND"
 SHELL_TEXT=$SCRUBBED
 
-# SQL words are data only when every scrubbed segment is a known text-writing
-# command. Reject execution syntax even if quote/heredoc scrubbing hid it.
-DATA_ONLY=true
-case $COMMAND$SHELL_TEXT in
-  *'|'*|*'$('*|*\`*|*'<('*|*'>('*) DATA_ONLY=false ;;
-esac
-if [ "$DATA_ONLY" = true ]; then
-  _data_command='^[[:blank:]]*((echo|printf|cat|tee|mkdir|cd|true|:)([[:blank:]]|$)|(git[[:blank:]]+(commit|tag)|gh[[:blank:]]+(pr|issue))([[:blank:]]|$))'
-  # read/IFS splits in linear time; ${text//;/...} is quadratic on bash 3.2.
-  while IFS= read -r _data_line; do
-    [ -n "$_data_line" ] || continue
-    IFS=';&' read -r -a _data_segments <<< "$_data_line"
-    for _segment in "${_data_segments[@]}"; do
-      [[ $_segment =~ ^[[:blank:]]*$ ]] && continue
-      if ! [[ $_segment =~ $_data_command ]]; then DATA_ONLY=false; break 2; fi
-    done
-  done <<< "$SHELL_TEXT"
-fi
+# Positive SQL text-only allow-list, ALWAYS on raw COMMAND, never SHELL_TEXT.
+# Whole-command matches permit only commit messages, echo/printf literals,
+# cat with a single-quoted heredoc, and gh pr/issue create/comment/edit bodies.
+# Double quotes forbid $, backticks and backslashes; file paths have no dot-led
+# segment. Heredoc delimiters are single-quoted identifiers, close exactly once
+# on the final line, and allow one trailing newline. The sole substitution is
+# the exact Claude commit $(cat <<'WORD' ... WORD) idiom. No eval or shell parser:
+# every non-match keeps the original raw SQL verdict, including malformed input.
+_text_only_command() {
+  local text=${COMMAND%$'\n'} b='[[:blank:]]' single="'[^']*'" literal path git gh args re header body word line closed=false
+  literal="($single|\"[^\"\$\`\\\\]*\")"
+  path='/?[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*'
+  git="git${b}+commit(${b}+(-a|-q|--no-verify))*"
+  args="(${b}+([A-Za-z0-9_./:=,@%+-]+|$literal))*"
+  gh="gh${b}+(pr|issue)${b}+(create|comment|edit)$args"
+  re="^${b}*$git(${b}+-m${b}+$literal(${b}+(-a|-q|--no-verify))*)+${b}*$"
+  [[ $text =~ $re ]] && return 0
+  re="^${b}*(echo|printf)${b}+$literal(${b}*>>?${b}*$path)?${b}*$"
+  [[ $text =~ $re ]] && return 0
+  re="^${b}*$gh${b}+--body${b}+$single$args${b}*$"
+  [[ $text =~ $re ]] && return 0
+
+  # Split only the first line. The body is inert only if its first delimiter
+  # occurrence is also its last line; otherwise a hidden second command runs.
+  case $text in *$'\n'*) ;; *) return 1 ;; esac
+  header=${text%%$'\n'*}; body=${text#*$'\n'}
+  local hd="<<'([A-Za-z_][A-Za-z0-9_]*)'${b}*$" cat_start='"\$\(cat' cat_end=$'\n)"'
+  re="^${b}*($git${b}+-F${b}+-${b}+|cat(${b}+>${b}*$path)?${b}+|$gh${b}+--body-file${b}+-${b}+)$hd"
+  if [[ $header =~ $re ]]; then
+    # Match the delimiter separately so prefix capture groups cannot change its index.
+    [[ $header =~ $hd ]] || return 1
+    word=${BASH_REMATCH[1]}
+  else
+    re="^${b}*$git${b}+-m${b}+$cat_start${b}+$hd"
+    [[ $header =~ $re ]] || return 1
+    [[ $header =~ $hd ]] || return 1
+    word=${BASH_REMATCH[1]}
+    [[ $body == *"$cat_end" ]] || return 1
+    body=${body%"$cat_end"}
+  fi
+  while IFS= read -r line; do
+    [ "$closed" = false ] || return 1
+    [ "$line" != "$word" ] || closed=true
+  done <<< "$body"
+  [ "$closed" = true ]
+}
+DATA_ONLY=false
+_text_only_command && DATA_ONLY=true
 
 # Project-specific unanchored patterns keep their verdicts too: only these
 # three shipped SQL families participate in the text-only exception.

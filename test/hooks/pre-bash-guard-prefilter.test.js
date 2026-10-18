@@ -107,3 +107,16 @@ test('a backreference in a later live pattern bypasses the combined prefilter', 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /Backref rule/);
 });
+
+test('text-only allow-list skips only the three shipped SQL rows', () => {
+  const targetDir = scratch.path('project-sql-rule');
+  fs.mkdirSync(targetDir, { recursive: true });
+  for (const file of ['pre-bash-guard.sh', 'contract.sh', 'capture-failure.sh']) {
+    fs.copyFileSync(path.join(policyDir, file), path.join(targetDir, file));
+  }
+  fs.writeFileSync(path.join(targetDir, 'blocked-patterns.conf'),
+    `${fs.readFileSync(configPath, 'utf8')}\nDROP[[:space:]]+TABLE\tProject SQL restriction\n`);
+  const result = run("echo 'DROP TABLE users'", { policyPath: path.join(targetDir, 'pre-bash-guard.sh') });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Project SQL restriction/);
+});

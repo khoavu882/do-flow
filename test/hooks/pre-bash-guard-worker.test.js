@@ -4,6 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { encodeEnvelope, parseRecords, runPolicy } = require('../helper/hook-fixtures');
 
@@ -52,24 +53,15 @@ function policyRun({ harness = 'claude', event = 'PreToolUse', command, cwd, rol
   const controlled = [
     'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', 'DOFLOW_TELEMETRY',
     'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
+    'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0',
+    ...Object.keys(process.env).filter((key) => key.startsWith('GIT_CONFIG_KEY_')),
   ];
-  const saved = new Map(controlled.map((key) => [key, process.env[key]]));
-  try {
-    for (const key of controlled) {
-      if (Object.prototype.hasOwnProperty.call(envOverrides, key)) process.env[key] = envOverrides[key];
-      else delete process.env[key];
-    }
-    return runPolicy(POLICY, input, {
-      cwd: path.resolve(__dirname, '../..'),
-      decisionFd: true,
-      ...(POLICY_PATH ? { policyPath: POLICY_PATH } : {}),
-    });
-  } finally {
-    for (const [key, value] of saved) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  }
+  return runPolicy(POLICY, input, {
+    cwd: path.resolve(__dirname, '../..'),
+    decisionFd: true,
+    env: { ...Object.fromEntries(controlled.map((key) => [key, undefined])), ...envOverrides },
+    ...(POLICY_PATH ? { policyPath: POLICY_PATH } : {}),
+  });
 }
 
 function assertDenied(result, command) {
@@ -78,10 +70,25 @@ function assertDenied(result, command) {
   assert.equal(records.at(-1)?.outcome, 'deny', `${command}: decision record`);
 }
 
-function makeWorktree(root, suffix = 'd-0123456789ab') {
+function makeWorktree(root, suffix = 'd-0123456789ab', collision = false) {
   const worktree = path.join(root, '.doflow', 'state', 'dispatch-worktrees', suffix);
-  fs.mkdirSync(worktree, { recursive: true });
+  if (suffix === 'd-0123456789ab') {
+    git(root, 'init', '-q');
+    git(root, '-c', 'user.name=hook-test', '-c', 'user.email=hook@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'fixture');
+    if (collision) git(root, 'worktree', 'add', '-q', '--detach', path.join(root, 'other', suffix));
+    git(root, 'worktree', 'add', '-q', '--detach', worktree);
+  } else fs.mkdirSync(worktree, { recursive: true });
   return worktree;
+}
+
+// These git writes build scratch fixtures only. Commands under review are never executed.
+function git(cwd, ...args) {
+  const result = spawnSync('git', args, {
+    cwd, encoding: 'utf8',
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
 }
 
 test('only an exact dispatch worker may reset or clean from its worktree', async (t) => {
@@ -153,6 +160,8 @@ test('only an exact dispatch worker may reset or clean from its worktree', async
     ['double force clean', 'git clean -ffd'],
     ['compound reset and delete', 'git reset --hard; rm -rf x'],
     ['multi-line reset', 'git reset --hard\nprintf safe'],
+    ['clean newline then command', 'git clean -fd\nx'],
+    ['clean two newlines', 'git clean -fd\n\n'],
     ['worker force push', 'git push --force'],
     ['worker root delete', 'rm -rf /'],
     ['worker SQL drop table', "psql -c 'DROP TABLE t'"],
@@ -162,6 +171,88 @@ test('only an exact dispatch worker may reset or clean from its worktree', async
       const result = policyRun({ command, cwd: worktree, role, worktree });
       assertDenied(result, command);
     });
+  }
+});
+
+test('one trailing LF or CRLF is allowed, with no second command', (t) => {
+  const root = tempDir(t, 'doflow-worker-newline-');
+  const worktree = makeWorktree(root);
+  for (const ending of ['\n', '\r\n']) {
+    const result = policyRun({ command: `git clean -fd${ending}`, cwd: worktree, worktree });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(parseRecords(result.records).at(-1)?.code, 'worker-worktree');
+    assertDenied(policyRun({ command: `git clean -fd${ending}x`, cwd: worktree, worktree }), 'second line');
+  }
+});
+
+test('git exemptions verify the real repository and leave the parent HEAD/index untouched', (t) => {
+  const root = tempDir(t, 'doflow-worker-repository-');
+  const worktree = makeWorktree(root);
+  const x = path.join(worktree, 'x');
+  const sub = path.join(worktree, 'sub');
+  const nested = path.join(worktree, 'sub2');
+  for (const dir of [x, sub, nested]) fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(root, 'staged'), 'parent index sentinel\n');
+  git(root, 'add', 'staged');
+  const head = git(root, 'rev-parse', 'HEAD');
+  const index = fs.readFileSync(path.join(root, '.git/index'));
+  const checkParent = () => {
+    assert.equal(git(root, 'rev-parse', 'HEAD'), head);
+    assert.deepEqual(fs.readFileSync(path.join(root, '.git/index')), index);
+  };
+  const denyBoth = (cwd, extraEnv = {}) => {
+    for (const command of ['git reset --hard', 'git clean -fd']) {
+      assertDenied(policyRun({ command, cwd, worktree, extraEnv }), command);
+      checkParent(); // Mutation control: only the hook runs, never reset/clean in P.
+    }
+  };
+  for (const cwd of [worktree, x]) for (const command of ['git reset --hard', 'git clean -fd']) {
+    const result = policyRun({ command, cwd, worktree });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(parseRecords(result.records).at(-1)?.code, 'worker-worktree');
+  }
+  fs.writeFileSync(path.join(sub, '.git'), `gitdir: ${path.join(root, '.git')}\n`);
+  denyBoth(sub);
+  git(nested, 'init', '-q');
+  git(nested, 'config', 'core.worktree', root);
+  denyBoth(nested);
+  // Correct top level alone is insufficient: the private gitdir must also match.
+  git(nested, 'config', 'core.worktree', worktree);
+  denyBoth(nested);
+  const wrongSuffix = path.join(worktree, 'wrong-suffix');
+  fs.mkdirSync(wrongSuffix);
+  git(wrongSuffix, 'init', '-q', '--separate-git-dir', path.join(root, '.git/worktrees/d-0123456789abbad'));
+  git(wrongSuffix, 'config', 'core.worktree', worktree);
+  denyBoth(wrongSuffix);
+  for (const extraEnv of [
+    { GIT_CONFIG_PARAMETERS: `'core.worktree'='${root}'` },
+    { GIT_CONFIG_PARAMETERS: '' },
+    { GIT_CONFIG_COUNT: '0' },
+    { GIT_CONFIG_KEY_0: 'core.worktree' },
+    { GIT_CONFIG_KEY_42: '' },
+  ]) denyBoth(worktree, extraEnv);
+  // An inherited config file must not redirect the rev-parse probe itself.
+  const injectedConfig = path.join(root, 'injected-config');
+  fs.writeFileSync(injectedConfig, `[core]\nworktree = ${root}\n`);
+  assert.equal(policyRun({ command: 'git clean -fd', cwd: worktree, worktree,
+    extraEnv: { GIT_CONFIG_GLOBAL: injectedConfig } }).status, 0);
+  git(root, 'config', 'extensions.worktreeConfig', 'true');
+  git(worktree, 'config', '--worktree', 'core.worktree', root);
+  denyBoth(worktree);
+  git(worktree, 'config', '--worktree', '--unset', 'core.worktree');
+  // Non-zero rev-parse must fail closed even though the dispatch directory exists.
+  fs.writeFileSync(path.join(sub, '.git'), 'gitdir: /nonexistent/doflow-worker-gitdir\n');
+  denyBoth(sub);
+});
+
+test('a real worktree gitdir may have a numeric collision suffix', (t) => {
+  const root = tempDir(t, 'doflow-worker-gitdir-collision-');
+  const worktree = makeWorktree(root, 'd-0123456789ab', true);
+  assert.match(git(worktree, 'rev-parse', '--git-dir').trim(), /\/d-0123456789ab[0-9]+$/);
+  for (const command of ['git reset --hard', 'git clean -fd']) {
+    const result = policyRun({ command, cwd: worktree, worktree });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(parseRecords(result.records).at(-1)?.code, 'worker-worktree');
   }
 });
 

@@ -671,6 +671,10 @@ check_policy conf "$P" deny  'echo "$(git reset --hard)"' "Destructive reset"
 check_policy conf "$P" allow $'cat > notes.md <<\'EOF\'\nThis documents why DROP TABLE x must not run here.\nEOF'
 check_policy conf "$P" allow "echo 'Never DROP DATABASE prod from this example.'"
 check_policy conf "$P" allow 'git commit -m "docs: explain DROP SCHEMA public"'
+check_policy conf "$P" allow $'git commit -m "$(cat <<\'EOF\'\nExplain DROP TABLE x\nEOF\n)"'
+check_policy conf "$P" allow "gh pr create --body 'Explain TRUNCATE TABLE users'"
+check_policy conf "$P" deny "echo 'DROP TABLE x' > .git/hooks/pre-commit" "Destructive DDL"
+check_policy conf "$P" deny $'echo ${x/<<y/}\npsql -c \'DROP TABLE users\'\ny' "Destructive DDL"
 # Piped, substituted, or shell-wrapped SQL remains executable input.
 check_policy conf "$P" deny  $'cat <<EOF | psql\nDROP TABLE x;\nEOF' "Destructive DDL"
 check_policy conf "$P" deny  "echo 'DROP TABLE t' | sqlite3 x.db" "Destructive DDL"
