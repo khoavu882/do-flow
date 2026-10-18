@@ -454,20 +454,39 @@ underscore or dash (starting with a letter or digit, no `..`) is refused with ex
 
 ### Release checklist (beta cut)
 
-1. Run `npm run release:preflight`.
-2. Rehearse the package locally: set `scratch="$(mktemp -d)"`, run `npm run build:package`, then
-   `npm pack .pack --pack-destination "$scratch"`. Install the tarball separately for Node 22.18 and 24,
-   then run `doflow --version` in each:
-   - `npm install --prefix "$scratch/node22" "$scratch"/*.tgz`
-   - `PATH="$HOME/.npm/_npx/899bf9cc10daad37/node_modules/.bin:$PATH" "$scratch/node22/node_modules/.bin/doflow" --version`
-   - `npm install --prefix "$scratch/node24" "$scratch"/*.tgz`
-   - `PATH="$HOME/.npm/_npx/387698761821791d/node_modules/.bin:$PATH" "$scratch/node24/node_modules/.bin/doflow" --version`
-3. Cut and push `v2.0.0-beta.6` with `git tag v2.0.0-beta.6` and `git push origin v2.0.0-beta.6`.
-4. Watch the Release workflow, then check `npm view @khoavu882/doflow dist-tags`.
-5. To roll back a bad version, run `npm deprecate @khoavu882/doflow@2.0.0-beta.6 "Superseded by <good-version>"`,
-   then repoint `beta` with `npm dist-tag add @khoavu882/doflow@<good-version> beta`. Never unpublish a version.
+1. Preflight: run `node src/release/preflight.ts`.
+2. Rehearse: run `node src/release/rehearse.ts --node "$NODE22"` (resolve floor Node once via `NODE22="$(npx -y -p node@22.18.0 node -p process.execPath)"`).
+3. Tag and push: create and push the release tag (`git tag v<version>` and `git push origin v<version>`). Tagging and pushing remain the user's explicit action.
+4. Watch the workflow graph: the release workflow runs `preflight` and `test` in parallel, followed by `verify-artifact`, `draft-release`, `publish`, `verify-registry`, `promote`, and `publish-release`.
+5. Verify and record: inspect `npm view @khoavu882/doflow dist-tags` and record the outcome in the cut record below.
 
-The npm `latest` dist-tag currently points to `2.0.0-beta.4`; moving it is the user's decision.
+#### Dist-tag policy
+
+- `beta-candidate` holds a just-published prerelease until `verify-registry` passes and is empty otherwise.
+- `beta` is the newest verified prerelease, moved only by `promote`.
+- `latest` is moved only by the user (it points to `2.0.0-beta.4` now; UD-1 decides whether it follows each verified beta).
+- A stable version is refused until the user decides stable (UD-3).
+
+#### Rollback
+
+Every rollback command is the user's:
+1. Repoint the channel to the previous good version: `npm dist-tag add @khoavu882/doflow@<good> beta`
+2. Remove a stale candidate: `npm dist-tag rm @khoavu882/doflow beta-candidate`
+3. Deprecate the faulty version: `npm deprecate @khoavu882/doflow@<bad> "Superseded by <good>"`
+4. Never unpublish a version.
+5. Delete a draft Release left by a failed run: `gh release delete <tag> --yes`
+6. Record the row in the cut record below.
+
+#### Cut record
+
+| Slice | Tag | Re-cuts | Fault class | dist-tags after |
+|---|---|---|---|---|
+| unrecorded | v2.0.0-beta.1 | unrecorded | env-node-version | unpublished |
+| unrecorded | v2.0.0-beta.2 | unrecorded | env-host-tool | unpublished |
+| unrecorded | v2.0.0-beta.3 | unrecorded | artifact (version deprecated) | unrecorded |
+| unrecorded | v2.0.0-beta.4 | unrecorded | none | unrecorded |
+| unrecorded | v2.0.0-beta.5 | unrecorded | none | latest: 2.0.0-beta.4, beta: 2.0.0-beta.5 |
+| unrecorded | v2.0.0-beta.6 | unrecorded | unclassified | unpublished (latest: 2.0.0-beta.4, beta: 2.0.0-beta.5) |
 
 ## Full Skill List
 

@@ -17,9 +17,22 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Added
 - `worker --action evidence` records harness capability evidence from free CLI checks (`--checks <path>`) or completed worker runs (`--worker-run <w-id>`) into `core/worker-evidence/<harness>/` (FU-c1ydm1).
+- **Feature 085a:** `release:rehearse` exercises release checks in an isolated clone and includes
+  the `plantuml` and `raw-ts` seeded-fault modes. Preflight adds `stable-allowed`
+  (`--allow-stable`), `version-ahead`, `changelog-names-merges`, and `tag-at-head`
+  (`--tag-pushed`). Guards G50 (bare imports) and G51 (release-workflow rules) have negative
+  controls.
 
 ### Changed
 - With codex probed (a probe stays valid 24 h), `dispatch --mode auto` (the default) and `worker --action select --edit` pick codex as a subagent worker, and each such run spends model calls; `--mode sequential` is the kill switch and applies when a dispatch starts. Codex worker eligibility rests on the free CLI checks in `core/worker-evidence/codex/2026-10-18-cli-check.json` and on one read-only and one edit live run (`core/worker-evidence/codex/2026-10-18-live-run-read-only.json` and `core/worker-evidence/codex/2026-10-18-live-run-edit.json`): both ran once on codex-cli 0.163.0, both reported success with an offered result, and the edit run was integrated as a commit by `DoFlow dispatch`. What is not established: that `.git` is read-only under workspace-write, spawn denial and permission-denial events were not exercised, and the evidence is not tied to the installed codex version.
+- **Feature 085a:** The release workflow creates a draft GitHub Release, publishes prereleases
+  under `beta-candidate`, verifies the registry install, promotes the dist-tag, then publishes
+  the GitHub Release. Permissions are set per job; pins cover the external actions
+  (actions/checkout, actions/setup-node) in release.yml; the reusable workflow call is a local
+  path; `release-workflow` replaces the preflight `publish-dist-tag` check. See
+  [Dist-tag policy](docs/reference.md#dist-tag-policy). The workflow edit is committed locally
+  and takes effect when the user pushes it. Trusted publishing remains design-only; publish and
+  promotion use `NPM_TOKEN`.
 
 ### Fixed
 - Worker runs join through their slug; hook lines and dispatch verify records join by explicit `worker_run` and `dispatch_run` ids when writers emit them, or by a labelled inferred activity window (`attrs.join: "activity"`) otherwise. In the kept live codex stores, the eight hook lines and two verify lines joined only by that inferred tier; no id join has been exercised by a real worker session, and worker-session verify is unreached. A line in an overlapping window with no single fitting activity stays ambiguous. Hook lines carry `role` and `worker_run`; the launch env carries `DOFLOW_WORKER_RUN`.
