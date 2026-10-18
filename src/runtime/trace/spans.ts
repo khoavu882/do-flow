@@ -18,15 +18,30 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
  * (`dispatch/*.json`, read only for when a run ended). There is no span store.
  *
  * A trace is one epoch segment of one 080 run: a `start` or `resume` history entry with a `traceId`
- * opens `[at, next resume or closing cancel)`. The 080 record itself has no completion marker, so a
- * segment also closes, inclusive, at the latest end among the activities of its `runKey` that
- * started inside it, once every one of them has ended: an orchestration run ends at its last entry
- * after `complete-run` or a `reject` gate decision; a dispatch run at `completedAt` when
+ * opens `[at, next resume or closing cancel)`. The 080 store is per slug (`task-attempts/<slug>.json`)
+ * and its run key is per session, so one session working on two slugs has two segments under one
+ * run key; each segment carries its slug, the file stem (110). The 080 record itself has no
+ * completion marker, so a segment also closes, inclusive, at the latest end among the activities it
+ * owns that started inside it, once every one of them has ended: an orchestration run ends at its
+ * last entry after `complete-run` or a `reject` gate decision; a dispatch run at `completedAt` when
  * `completed`, `endedAt` when `cancelled` (`blocked`, `resume-required` and `cancelling` can still
- * move on). A dispatch record whose `run`/`lineage` disagree with its `runKey`, or with no end
- * stamp, closes nothing. A record with a run
+ * move on). A dispatch run owns the segments of its `run.slug`; an orchestration run those of its
+ * `traceId`, else of its `featureSlug`; a record with neither, or a slug that owns no segment of the
+ * run key, owns every segment of its `runKey` as before 110. A dispatch record whose `run`/`lineage`
+ * disagree with its `runKey`, or with no end stamp, closes nothing.
+ *
+ * A worker run joins through its slug: `(slug, task, token)` -> that slug's attempt -> the attempt's
+ * segment, else the segment of its slug and caller run key that holds its start. A record with a run
  * identity joins the one segment that holds it, or is a gap named by its locator: none holds it
  * (`unmatched`) or more than one does (`ambiguous`, e.g. one session identity under two worktrees).
+ * Ids beat windows (110 F3): a hook line's `worker_run` follows that worker, a verify.run's
+ * `dispatch_run` goes to that dispatch run's segment that holds it (T1). A line that more than one
+ * segment holds joins one of them only through the single activity it fits, labelled
+ * `attrs.join: "activity"` (T2): a hook line with an attempt fits the one worker whose identity and
+ * lifetime match and that every hook line of its session resolves to; a `source: dispatch`
+ * verify.run fits the one dispatch run of its identity whose window holds it, and whose task or slug
+ * is the line's task when it names one. A line T2 cannot settle stays `ambiguous`, and a line one
+ * segment holds joins it unlabelled, as before 110 (T3).
  * A line stamped to the whole second (doflow-run's ledger lines) is compared at that resolution:
  * the segment start is floored to its second, so the `dispatch start` line of the run's own start
  * second joins, and a second shared by two segments makes it `ambiguous`. A segment without a trace id
@@ -77,6 +92,8 @@ const safe = (v: any): any => (v === null || typeof v === 'boolean' || (typeof v
 const iso = (v: any): string | null => (typeof v === 'string' && ISO_UTC.test(v) && Number.isFinite(Date.parse(v)) ? v : null);
 const msOf = (v: string | null): number | null => (v === null ? null : Date.parse(v));
 const runKeyOf = (v: any): string | null => (typeof v === 'string' && RUN_KEY.test(v) ? v : null);
+/** A store file's slug: `task-attempts/<slug>.json` -> `<slug>`. */
+const stemOf = (file: string): string => path.basename(file, '.json');
 
 /** The allowlisted attributes of `source`, each an identifier or a number; anything else is left out. */
 function pick(source: any, pairs: Array<[string, string]>): any {
@@ -177,7 +194,7 @@ function segmentsOf(file: string, runKey: string, run: any, items: any[]): any[]
   const open = (entry: any, index: number) => {
     const traceId = entry && HEX32.test(entry.traceId) ? entry.traceId : null;
     const from = entry ? iso(entry.at) : iso(run.createdAt);
-    segments.push({ file, runKey, run: runId, lineage, index, traceId,
+    segments.push({ file, slug: stemOf(file), runKey, run: runId, lineage, index, traceId,
       traceLink: traceId && HEX32.test(entry.traceLink) ? entry.traceLink : null,
       epoch: entry ? (Number.isInteger(entry.epoch) ? entry.epoch : null) : 0, from, to: null as string | null, closeMs: null as number | null, opener: null as any, entries: [] as number[] });
   };
@@ -216,15 +233,29 @@ const holds = (seg: any, t: number | null, coarse = false): boolean => t !== nul
   && (seg.toMs === null || t < seg.toMs) && (seg.closeMs === null || t <= seg.closeMs);
 
 /**
- * Closes each segment whose activities (orchestration and dispatch runs of its `runKey`, started
+ * The segments of `runKey` that a record owned by `traceId`, else by `slug`, belongs to (110 F2).
+ * A trace id names its segment only. A slug that owns no segment of that run key (a store whose
+ * slug names no 080 record there) and a record with neither keep every segment of the run key, as
+ * before 110.
+ */
+function owned(segments: any[], runKey: string, { traceId = null, slug = null }: { traceId?: string | null; slug?: string | null } = {}): any[] {
+  const keyed = segments.filter((seg) => seg.runKey === runKey);
+  if (traceId) return keyed.filter((seg) => seg.traceId === traceId);
+  const mine = slug ? keyed.filter((seg) => seg.slug === slug) : [];
+  return mine.length ? mine : keyed;
+}
+
+/**
+ * Closes each segment whose activities (the orchestration and dispatch runs it owns, started
  * inside it) have all ended, at the latest end among them, when that is inside the segment. One
  * activity still going keeps it open.
  * @param {Object[]} segments
- * @param {Array<{runKey: string, startMs: number|null, ended: boolean, last: string|null}>} runs
+ * @param {Array<{runKey: string, traceId: string|null, slug: string|null, startMs: number|null, ended: boolean, last: string|null}>} runs
  */
 function closeEnded(segments: any[], runs: any[]): void {
+  const scope = new Map(runs.map((o) => [o, new Set(owned(segments, o.runKey, o))]));
   for (const seg of segments) {
-    const mine = runs.filter((o) => o.runKey === seg.runKey && holds(seg, o.startMs));
+    const mine = runs.filter((o) => scope.get(o)!.has(seg) && holds(seg, o.startMs));
     if (!mine.length || !mine.every((o) => o.ended && o.last !== null)) continue;
     const last = mine.map((o) => o.last).sort((a, b) => (msOf(a) as number) - (msOf(b) as number)).pop();
     const lastMs = msOf(last) as number;
@@ -253,6 +284,9 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
   const items: any[] = [];
   const segments: any[] = [];
   const aliases: any[] = []; // run-scoped worker identities -> the caller's run key
+  const attemptOf = new Map<string, any>(); // `${slug}\n${task}\n${token}` -> the attempt's placement
+  const workers: any[] = []; // each worker run with the identity and lifetime its hook lines match
+  const dispatchRuns: any[] = []; // each 082 dispatch run tied to its run key
 
   for (const { file, value } of readStores(fsImpl, stateDir, 'task-attempts', gaps, 'task-run')) {
     const runs = objects(value.runs);
@@ -265,10 +299,12 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
         if (!a || typeof a !== 'object') return;
         const runKey = runKeyOf(a.runKey);
         const token = Number.isInteger(a.token) ? a.token : n + 1;
+        const place = runKey ? { type: 'attempt', file, runKey, epoch: a.epoch } : { type: 'none' };
+        if (runKey) attemptOf.set(`${stemOf(file)}\n${taskId}\n${token}`, place);
         items.push(item('attempt', taskId, `${file}#${runKey ?? '-'}/${taskId}/${token}`, {
           start: iso(a.startedAt), end: iso(a.finishedAt) ?? iso(a.endedAt) ?? iso(a.cancel?.at),
           attrs: { ...pick(a, same(['token', 'state', 'mode', 'result', 'epoch'])), ...pick({ task: taskId }, same(['task'])) },
-          place: runKey ? { type: 'attempt', file, runKey, epoch: a.epoch } : { type: 'none' },
+          place,
           link: { attemptOf: { task: taskId, token: String(token) } },
         }));
       });
@@ -280,14 +316,18 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
       if (!WORKER_RUN_ID.test(runId)) continue;
       const start = iso(w.startedAt) ?? iso(w.createdAt);
       const callerKey = runKeyOf(w.caller?.runKey);
+      const end = iso(w.end?.at);
+      const token = Number.isInteger(w.token) ? String(w.token) : null;
       const worker = item('worker', w.harness, `${file}#${runId}`, {
-        start, end: iso(w.end?.at),
+        start, end,
         attrs: { ...pick(w, same(['task', 'token', 'harness', 'phase'])), ...pick({ runId, endState: w.end?.state }, same(['runId', 'endState'])) },
-        place: callerKey ? { type: 'runKey', runKey: callerKey, at: msOf(start) } : { type: 'none' },
-        link: { workerOf: { task: str(w.task), token: Number.isInteger(w.token) ? String(w.token) : null } },
+        place: callerKey ? { type: 'worker', slug: stemOf(file), task: str(w.task), token, runKey: callerKey, at: msOf(start) } : { type: 'none' },
+        link: { workerOf: { task: str(w.task), token } },
       });
       items.push(worker);
       const id = w.identity;
+      workers.push({ item: worker, runId, run: str(id?.run), lineage: str(id?.lineage),
+        attempt: id?.attempt === null || id?.attempt === undefined ? null : String(id.attempt), startMs: msOf(start), endMs: msOf(end) });
       if (callerKey && id && id.runSource === 'run-scoped' && str(id.run) && str(id.lineage)) aliases.push({ run: id.run, lineage: id.lineage, runKey: callerKey, worker });
     }
   }
@@ -300,7 +340,9 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     const ended = history.some((e) => e && (e.action === 'complete-run' || (e.action === 'decide-gate' && e.detail === 'reject')));
     const stamps = history.map((e) => (e && typeof e === 'object' ? iso(e.at) : null)).filter((a): a is string => a !== null);
     const last = stamps.sort((a, b) => (msOf(a) as number) - (msOf(b) as number)).pop() ?? null;
-    if (runKey) activities.push({ runKey, startMs: msOf(stageStart), ended, last });
+    if (runKey) {
+      activities.push({ runKey, traceId: HEX32.test(value.traceId) ? value.traceId : null, slug: str(value.featureSlug), startMs: msOf(stageStart), ended, last });
+    }
     history.forEach((entry, i) => {
       if (!entry || typeof entry !== 'object') return;
       const at = iso(entry.at);
@@ -316,14 +358,19 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     });
   }
 
-  for (const { value } of readStores(fsImpl, stateDir, 'dispatch', gaps, 'dispatch')) {
+  for (const { file, value } of readStores(fsImpl, stateDir, 'dispatch', gaps, 'dispatch')) {
     const d = value.run && typeof value.run === 'object' ? value.run : null;
     const runKey = d ? runKeyOf(d.runKey) : null;
     if (!runKey) continue;
     const [, keyRun, keyLineage] = runKey.split('/');
-    if ((d.run != null && d.run !== keyRun) || (d.lineage != null && d.lineage !== keyLineage)) continue; // not tied: no closer
+    if ((d.run != null && d.run !== keyRun) || (d.lineage != null && d.lineage !== keyLineage)) continue; // not tied: no closer, no join
+    const slug = str(d.slug) ?? stemOf(file);
+    const startMs = msOf(iso(d.createdAt));
     const last = d.state === 'completed' ? iso(d.completedAt) : d.state === 'cancelled' ? iso(d.endedAt) : null;
-    activities.push({ runKey, startMs: msOf(iso(d.createdAt)), ended: last !== null, last });
+    activities.push({ runKey, traceId: null, slug, startMs, ended: last !== null, last });
+    const tasks = new Set(objects(value.dispatches).map(([, x]) => str(x.task)).filter((x) => x !== null));
+    dispatchRuns.push({ id: str(d.dispatchRunId), slug, runKey, run: keyRun, lineage: keyLineage, startMs,
+      endMs: msOf(iso(d.completedAt) ?? iso(d.endedAt)), tasks });
   }
   closeEnded(segments, activities);
 
@@ -347,27 +394,39 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     }));
   }
 
-  return assemble({ items, segments, aliases, gaps, run });
+  return assemble({ items, gaps, run, ctx: { segments, aliases, attemptOf, workers, dispatchRuns } });
 }
 
-/** A ledger or telemetry line: placed by `(run, lineage)` when it carries both. */
+/**
+ * A ledger or telemetry line: placed by `(run, lineage)` when it carries both. The scope ids it
+ * carries (110: hook `worker_run`, `role`, `session`; verify.run `dispatch_run`, `source`, `task`)
+ * are kept for placement only, read defensively: absent is null.
+ */
 function identityItem(kind: string, name: any, locator: string, raw: any, opts: any): any {
   const run = str(raw.run);
   const lineage = str(raw.lineage);
   const attempt = raw.attempt === null || raw.attempt === undefined ? null : String(raw.attempt); // telemetry uint, ledger string
+  const workerRun = typeof raw.worker_run === 'string' && WORKER_RUN_ID.test(raw.worker_run) ? raw.worker_run : null;
   return item(kind, name, locator, {
     ...opts,
     place: run && lineage ? { type: 'identity', run, lineage, at: msOf(opts.start) } : { type: 'none' },
-    link: { ...(opts.link || {}), attempt },
+    link: { ...(opts.link || {}), attempt,
+      scope: { workerRun, dispatchRun: str(raw.dispatch_run), role: str(raw.role), session: str(raw.session), source: str(raw.source), task: str(raw.task) } },
   });
 }
 
 /** The segments that may hold `it`: one is a join, none `unmatched`, more `ambiguous`. */
-function candidates(it: any, segments: any[], aliases: any[]): any[] {
+function candidates(it: any, ctx: any): any[] {
+  const { segments, aliases, attemptOf } = ctx;
   const p = it.place;
   const coarse = typeof it.start === 'string' && WHOLE_SECOND.test(it.start);
   const found = new Set<any>();
+  const byAttempt = (a: any) => {
+    for (const seg of segments) if (seg.file === a.file && seg.runKey === a.runKey && seg.epoch === a.epoch) found.add(seg);
+  };
   if (p.type === 'identity') {
+    const tiered = tiers(it, ctx, coarse);
+    if (tiered) return tiered;
     for (const seg of segments) if (seg.run === p.run && seg.lineage === p.lineage && holds(seg, p.at, coarse)) found.add(seg);
     for (const alias of aliases) {
       if (alias.run !== p.run || alias.lineage !== p.lineage) continue;
@@ -375,12 +434,102 @@ function candidates(it: any, segments: any[], aliases: any[]): any[] {
         if (seg.runKey === alias.runKey && holds(seg, p.at, coarse)) { found.add(seg); it.link.viaWorker = alias.worker; }
       }
     }
+    if (found.size > 1) return activity(it, ctx, [...found]);
+  } else if (p.type === 'worker') {
+    // F1: (slug, task, token) -> that slug's attempt -> its segment; else run key + window, same slug only.
+    const a = p.task !== null && p.token !== null ? attemptOf.get(`${p.slug}\n${p.task}\n${p.token}`) : undefined;
+    if (a) byAttempt(a);
+    if (!found.size) for (const seg of segments) if (seg.slug === p.slug && seg.runKey === p.runKey && holds(seg, p.at, coarse)) found.add(seg);
   } else if (p.type === 'runKey') {
     for (const seg of segments) if (seg.runKey === p.runKey && holds(seg, p.at, coarse)) found.add(seg);
   } else if (p.type === 'attempt') {
-    for (const seg of segments) if (seg.file === p.file && seg.runKey === p.runKey && seg.epoch === p.epoch) found.add(seg);
+    byAttempt(p);
   }
   return [...found];
+}
+
+/** Where a worker run is placed, computed once: hook lines that name or match it follow it. */
+function placeOf(worker: any, ctx: any): any[] {
+  if (!ctx.placed.has(worker)) ctx.placed.set(worker, worker.place.type === 'none' ? [] : candidates(worker, ctx));
+  return ctx.placed.get(worker);
+}
+
+/** The segments of dispatch run `d` (its slug's, 110 F2) that hold `t`. */
+const dispatchSegments = (d: any, t: number | null, coarse: boolean, ctx: any): any[] => owned(ctx.segments, d.runKey, { slug: d.slug }).filter((seg) => holds(seg, t, coarse));
+
+/**
+ * T1 (110 F3): an id the line carries beats any window. A hook's `worker_run` follows that worker to
+ * its segment and parents to it; a verify.run's `dispatch_run` goes to the segment of that dispatch
+ * run's slug that holds the line. An id that names no record read here leaves the line to T2/T3.
+ */
+function tiers(it: any, ctx: any, coarse: boolean): any[] | null {
+  const s = it.link.scope;
+  if (it.kind === 'hook' && s.workerRun) {
+    const named = ctx.workers.filter((w: any) => w.runId === s.workerRun);
+    if (named.length === 1) it.link.viaWorker = named[0].item;
+    if (named.length) return [...new Set(named.flatMap((w: any) => placeOf(w.item, ctx)))];
+  }
+  if (it.kind === 'verify.run' && s.dispatchRun) {
+    const named = ctx.dispatchRuns.filter((d: any) => d.id === s.dispatchRun);
+    if (named.length) return [...new Set(named.flatMap((d: any) => dispatchSegments(d, it.place.at, coarse, ctx)))];
+  }
+  return null;
+}
+
+/**
+ * T2 (110 F3), for a line T3 finds in more than one segment: it joins the one candidate of the
+ * single activity it fits, labelled `join: activity` because the fit is inferred. A hook line with
+ * an attempt (role worker or absent) fits the one worker whose identity and lifetime match it, and
+ * only when every hook line of its session resolves to that same worker. A `source: dispatch`
+ * verify.run fits the one dispatch run of its identity whose window holds it and, when it names a
+ * task, has that task or slug. Anything else stays with its candidates (`ambiguous`).
+ */
+function activity(it: any, ctx: any, found: any[]): any[] {
+  const s = it.link.scope;
+  const coarse = typeof it.start === 'string' && WHOLE_SECOND.test(it.start);
+  let segs: any[] = [];
+  let via: any = null;
+  if (it.kind === 'hook') {
+    const w = s.resolved;
+    if (!w || (s.session !== null && ctx.sessions.get(s.session) !== w)) return found;
+    segs = placeOf(w.item, ctx);
+    via = w.item;
+  } else if (it.kind === 'verify.run' && s.source === 'dispatch') {
+    const p = it.place;
+    const fits = ctx.dispatchRuns.filter((d: any) => d.run === p.run && d.lineage === p.lineage && p.at !== null && d.startMs !== null
+      && d.startMs <= p.at && (d.endMs === null || p.at <= d.endMs) && (s.task === null || d.tasks.has(s.task) || d.slug === s.task));
+    if (fits.length !== 1) return found;
+    segs = dispatchSegments(fits[0], p.at, coarse, ctx);
+  } else return found;
+  const pick = segs.filter((seg) => found.includes(seg));
+  if (pick.length !== 1) return found;
+  if (via) it.link.viaWorker = via;
+  it.attrs = { ...it.attrs, join: 'activity' };
+  return pick;
+}
+
+/**
+ * The one worker each hook line resolves to (by its `worker_run`, else as the single worker whose
+ * identity `{run, lineage, attempt}` and lifetime `[start, end.at]` hold it), and per session the
+ * worker all its hook lines share, or null when any line resolves to none or to another worker.
+ */
+function resolveSessions(items: any[], ctx: any): void {
+  ctx.sessions = new Map<string, any>();
+  for (const it of items) {
+    if (it.kind !== 'hook' || !it.link.scope) continue;
+    const s = it.link.scope;
+    const p = it.place;
+    const t = msOf(it.start);
+    let hits: any[] = s.workerRun ? ctx.workers.filter((w: any) => w.runId === s.workerRun) : [];
+    if (!hits.length && p.type === 'identity' && it.link.attempt !== null && (s.role === null || s.role === 'worker') && t !== null) {
+      hits = ctx.workers.filter((w: any) => w.run === p.run && w.lineage === p.lineage && w.attempt === it.link.attempt
+        && w.startMs !== null && w.startMs <= t && (w.endMs === null || t <= w.endMs));
+    }
+    s.resolved = hits.length === 1 ? hits[0] : null;
+    if (s.session === null) continue;
+    const prior = ctx.sessions.has(s.session) ? ctx.sessions.get(s.session) : s.resolved;
+    ctx.sessions.set(s.session, prior === s.resolved ? prior : null);
+  }
 }
 
 function groupOf(it: any): string {
@@ -389,7 +538,10 @@ function groupOf(it: any): string {
 }
 
 /** Placement, ids, parents and the sorted output. */
-function assemble({ items, segments, aliases, gaps, run }: any): any {
+function assemble({ items, gaps, run, ctx }: any): any {
+  const { segments } = ctx;
+  ctx.placed = new Map<any, any[]>();
+  resolveSessions(items, ctx);
   const traces = new Map<any, any[]>();
   for (const seg of segments) if (seg.traceId) traces.set(seg, []);
   const ungrouped = new Map<string, any[]>();
@@ -403,7 +555,7 @@ function assemble({ items, segments, aliases, gaps, run }: any): any {
     let target: any = null;
     if (it.place.type === 'segment') target = it.place.seg;
     else if (it.place.type !== 'none') {
-      const found = candidates(it, segments, aliases);
+      const found = it.kind === 'worker' ? placeOf(it, ctx) : candidates(it, ctx);
       if (found.length !== 1) {
         const p = it.place;
         const [, keyRun, keyLineage] = p.runKey ? p.runKey.split('/') : [];
