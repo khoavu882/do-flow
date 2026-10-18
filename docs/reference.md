@@ -139,8 +139,11 @@ nothing.
 
 `trace`, `stats` and `discover` read the run ledger at `<config>/state/runs/YYYY-MM-DD.jsonl`,
 which `doflow-run` appends to once per dispatched verb. They locate it the way the dispatcher does
-— nearest `.doflow` walking up from the working directory, or the global one — so they work from a
-subdirectory. Records are metadata only: a verb, a capability, a provider, an exit code, a
+— nearest `.doflow` walking up from the working directory, or the global one — with the walk passing
+over a `.doflow` inside another `.doflow` (a dispatch worktree's) and continuing to the project's
+store; that worktree `.doflow` used to hide the project store because the launch writes the worker's
+delivery pack into its own `.doflow/state/delivery` — so they work from a subdirectory. Records are
+metadata only: a verb, a capability, a provider, an exit code, a
 duration, counts and byte volumes. No argument value, command output or file content is recorded.
 An empty ledger is a normal state and is reported as "no conclusion can be drawn", never as a
 clean bill of health.

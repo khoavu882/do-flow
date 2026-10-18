@@ -13,7 +13,10 @@ changes what a command prints, returns or decides.
 
 One JSON object per line, appended to `<config>/state/runs/telemetry/<UTC date>.jsonl`, where
 `<config>` is the resolved `.doflow` directory (`DOFLOW_CONFIG_DIR`, else the nearest `.doflow` above
-the working directory). The directory sits under `runs/` as a subdirectory, so the run ledger's
+the working directory, passing over a `.doflow` inside another `.doflow` (a dispatch worktree's) to
+continue to the project's store; that worktree `.doflow` used to hide the project store because the
+launch writes the worker's delivery pack into its own `.doflow/state/delivery`). The directory sits
+under `runs/` as a subdirectory, so the run ledger's
 readers, which list only `YYYY-MM-DD.jsonl` files directly under `runs/`, never see it. The store is
 `runs-telemetry` in `core/registry/storage.json`: date partitions, pruned after 180 days.
 
@@ -81,7 +84,10 @@ value validated in jq. Every telemetry expression sits inside `try`, so a fault 
 `{dft:1}` too.
 
 The target is `<config>/state/runs/telemetry/<UTC date>.jsonl`, with `<config>` from
-`DOFLOW_CONFIG_DIR`, else the nearest `.doflow` at or above the working directory; there is no
+`DOFLOW_CONFIG_DIR`, else the nearest `.doflow` at or above the working directory, passing over a
+`.doflow` inside another `.doflow` (a dispatch worktree's) to continue to the project's store; that
+worktree `.doflow` used to hide the project store because the launch writes the worker's delivery
+pack into its own `.doflow/state/delivery`. There is no
 install or global fallback beyond that walk. Nothing is written unless `<config>/state` exists;
 `telemetry/` is created non-recursively (so only when `state/runs` exists), and the target is
 appended to only when it is absent or a regular file. A FIFO, a directory or an unwritable target
@@ -113,9 +119,11 @@ and the first check's start for a tier line. Timing comes from the contract runn
 WeakMap (keyed by each check result, measured with the monotonic clock around the check's spawn),
 so the report and `verify --json` carry no timing and are the same bytes with telemetry on, off or
 faulted. The lines go to the nearest `.doflow` above the verify's working directory that holds
-`state/runs` (or `DOFLOW_CONFIG_DIR`): a failing check leaves a `.doflow/state/verification/logs`
-fragment in the working directory, and the walk passes over it. With no project store nothing is
-written; there is no global fallback.
+`state/runs` (or `DOFLOW_CONFIG_DIR`), passing over a `.doflow` inside another `.doflow` (a dispatch
+worktree's) to continue to the project's store; that worktree `.doflow` used to hide the project
+store because the launch writes the worker's delivery pack into its own `.doflow/state/delivery`.
+A failing check leaves a `.doflow/state/verification/logs` fragment in the working directory, and
+the walk passes over it. With no project store nothing is written; there is no global fallback.
 
 Exit code, durations, executed-check count, check key and sharing are measured but not declared
 yet, so the writer drops them; they are declared with phase P3. `level` and `v0` follow in P5.
