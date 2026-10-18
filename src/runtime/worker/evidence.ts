@@ -46,11 +46,19 @@ function argvProblem(argv: any): string | null {
   return null;
 }
 
-/** FR-006 / NFR-001: a check may only ask for the version, for help, or for the feature list; never a model session. */
+/**
+ * FR-006 / NFR-001: a check may only ask for the version, for help, or for the feature list; never a model session.
+ * Exact shapes only: `--version`; plain subcommand words then one final `--help`/`-h`; `features list` then
+ * `--disable <name>` pairs. Any `--` element or free-text token fails every shape, because `codex exec -- --help`
+ * reads `--help` as the prompt.
+ */
 function freeArgv(argv: string[]): boolean {
   if (argv.length === 1 && argv[0] === '--version') return true;
-  if (argv.includes('--help') || argv.includes('-h')) return true;
-  return argv[0] === 'features' && argv[1] === 'list';
+  const last = argv[argv.length - 1];
+  if ((last === '--help' || last === '-h') && argv.slice(0, -1).every((word) => /^[a-z][a-z-]*$/.test(word))) return true;
+  if (argv[0] !== 'features' || argv[1] !== 'list') return false;
+  const rest = argv.slice(2);
+  return rest.length % 2 === 0 && rest.every((token, index) => (index % 2 === 0 ? token === '--disable' : /^[a-z][a-z0-9_]*$/.test(token)));
 }
 
 function expression(value: any, where: string): RegExp {
@@ -71,7 +79,7 @@ function validateChecks(data: any, harness: string, worker: any) {
   if (!data.version || typeof data.version !== 'object' || Array.isArray(data.version)) usage('checks-invalid', 'checks file needs a version check');
   const versionArgvProblem = argvProblem(data.version.argv);
   if (versionArgvProblem) usage('checks-invalid', `version.argv ${versionArgvProblem}`);
-  if (!freeArgv(data.version.argv)) usage('checks-invalid', `version.argv is not a free check (only --version, --help/-h or 'features list' may run)`);
+  if (!freeArgv(data.version.argv)) usage('checks-invalid', `version.argv is not a free check (only --version, a subcommand path ending in --help/-h, or 'features list' with --disable pairs may run)`);
   expression(data.version.expect, 'version.expect');
   if (!Array.isArray(data.checks) || data.checks.length === 0) usage('checks-invalid', 'checks file needs at least one check');
 
@@ -87,7 +95,7 @@ function validateChecks(data: any, harness: string, worker: any) {
     const problem = argvProblem(check.argv);
     if (problem) usage('checks-invalid', `${where}.argv ${problem}`);
     if (!freeArgv(check.argv)) {
-      usage('checks-invalid', `check '${check.id}' (${where}) is not a free check: its argv must be --version, contain --help or -h, or start with 'features list'`);
+      usage('checks-invalid', `check '${check.id}' (${where}) is not a free check: its argv must be exactly --version, subcommand words ending in --help or -h, or 'features list' with --disable <name> pairs`);
     }
     if (!Array.isArray(check.expect) || check.expect.length === 0) usage('checks-invalid', `${where}.expect must be a non-empty array`);
     check.expect.forEach((pattern: any, expectIndex: number) => expression(pattern, `${where}.expect[${expectIndex}]`));

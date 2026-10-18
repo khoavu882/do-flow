@@ -310,7 +310,9 @@ test('negative control: a secret in the version line is masked in cliVersion', a
 });
 
 test('negative control: a checks file argv that could start a model session is refused before any process starts', async (t) => {
-  for (const argv of [['exec', '--json', 'write a poem'], ['exec'], ['--version', 'extra'], ['features', 'enable', 'x']]) {
+  for (const argv of [['exec', '--json', 'write a poem'], ['exec'], ['--version', 'extra'], ['features', 'enable', 'x'],
+    ['exec', '--', '--help'], ['features', 'list', '--', 'x'], ['exec', '--help', 'write a poem'], ['exec', '--help', 'prompt'],
+    ['features', 'list', '--disable'], ['features', 'list', '--disable', 'a b']]) {
     const p = project(t);
     rewriteChecks(p, (data) => {
       data.checks.push({ id: 'paid-session', argv, expect: ['.'], establishes: ['oneShot'] });
