@@ -235,17 +235,23 @@ const run = (text, policy = FIXTURE_POLICY, rel = 'core/shared/guidance/x.md') =
 
 // Sample lines that make each shipped pair fire, so every pair in instruction-lint.json is proven able to.
 const PAIR_SAMPLES = {
-  'parallel-vs-sequential-default': ['Parallel by default', 'sequential by default'],
+  'default-vs-disjoint-parallelism': ['Parallel by default', 'disjoint write sets'],
+  'imposed-layout-vs-project-conventions': ['tests → `tests/', 'existing code conventions'],
+  'universal-load-vs-pointer-read': ['loaded into **every** session', 'Codex does not expand `@file` imports'],
+  'confidence-bands-vs-no-confidence': ['confidence-banded estimates', 'percentage certainty'],
   'ask-only-vs-always-ask': ['Ask ONLY for decisions', 'Always ask first'],
   'continue-vs-wait-at-plan': ['continue into execution', 'wait for approval again'],
   'incremental-vs-no-commit': ['Commit incrementally', 'never commit'],
 };
 // Ordinary prose near each pair's second side, which must not fire it.
 const PAIR_NEAR_MISSES = {
-  'parallel-vs-sequential-default': 'Run tasks sequentially when they share a write set.',
+  'default-vs-disjoint-parallelism': 'Parallel work runs when write sets are disjoint.',
+  'imposed-layout-vs-project-conventions': 'Follow the repository\'s existing conventions for new modules.',
+  'universal-load-vs-pointer-read': 'Codex expands `@file` imports from this pointer.',
+  'confidence-bands-vs-no-confidence': 'Use numeric certainty only when the evidence supports it.',
   'ask-only-vs-always-ask': 'Ask one question at a time.',
   'continue-vs-wait-at-plan': 'At each gate, wait for approval before the next phase.',
-  'incremental-vs-no-commit': 'Do not commit secrets or .env files.',
+  'incremental-vs-no-commit': 'All mutating operations require explicit confirmation.',
 };
 
 test('G24: controls — the lint sees an unresolved path, an unknown verb and coexisting defaults', () => {
