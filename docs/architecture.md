@@ -772,8 +772,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   worker entry has evidence naming an existing repository path or an `https://` URL (G41.2);
   every declared `structuredOutput.parser` is a key of `PARSERS` in `src/runtime/worker/parsers.ts`
   (G41.3); and every `supported` worker entry other than `cli`, `profile`, `modelChecks` cites a recorded
-  evidence file under `core/worker-evidence/` establishing it, where a `live-run` record counts only when its
-  result was offered (G41.4).
+  evidence file under `core/worker-evidence/<harness>/` establishing it (G41.4). A `cli-check` record needs
+  non-empty `checks` and `run: null`; each check must equal its `checks.json` entry (id, argv, expect,
+  establishes), and a capability counts only when a check with result `pass`, exit 0 and matched lines
+  establishes it, whatever the record's own `establishes` says. A `live-run` record counts only when its
+  run report is `success` and its result was offered.
 - **G42** (`dispatch-loop.test.js`) - `core/registry/storage.json` declares the `dispatch`,
   `dispatch-envelopes` and `dispatch-worktrees` stores (G42.1); every harness declares
   `isolatedEdit`, the registry validator reports no `isolatedEdit` error, and the edit baseline is the
@@ -820,7 +823,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   uppercase enforcement words (`BLOCK`, `BLOCKS`, `BLOCKED`, `ENFORCED`) must not appear without a matching
   backticked `*.sh` name on the same line that exists in `core/harnesses/shared/hooks/policies/`; any script
   there counts, and the check does not read what the script enforces (G47.2).
-- **G48** (`registry-sources.test.js`) — registry source mode: the source tree requires every declared source and asset to exist (`require` mode), while a runtime-shaped tree (holding only `bin/`, `src/` and `core/registry/`) loads in `skip` mode without checking shared assets or native-projection sources, and fails in `require` mode.
+- **G48** (`registry-sources.test.js`) - registry source mode: the source tree requires every declared source and asset to exist (`require` mode), while a runtime-shaped tree (holding only `bin/`, `src/` and `core/registry/`) loads in `skip` mode without checking shared assets or native-projection sources, and fails in `require` mode.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

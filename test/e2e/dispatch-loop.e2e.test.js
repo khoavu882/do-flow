@@ -962,7 +962,7 @@ scenario('verified-harness', 'a harness whose isolated editing is unknown is ine
   return null;
 });
 
-scenario('honest-fallback', 'with no eligible harness each gap is named and every attempt records mode sequential', ['sequential', 'subagent'], async (t, mode) => {
+scenario('honest-fallback', 'with no eligible harness each gap is named (real registry: codex fails only on installed/runnable when not probed, the seven others on isolated-edit unknown) and every attempt records mode sequential', ['sequential', 'subagent'], async (t, mode) => {
   // sequential: the real registry (every isolatedEdit unknown). subagent: the claude fake unprobed,
   // so its effective facts are unknown, and every other fake fails the static gate.
   const p = await project(t, 'subagent', { plan: 'dependent', descriptors: mode === 'sequential' ? 'registry' : 'edit', probe: false });
