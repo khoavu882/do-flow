@@ -13,7 +13,7 @@
 // `fake-<harness>` so no real harness binary is ever hit. linkBin's returned PATH (bin/ plus the
 // node directory) is the 081 shape its existing callers assert; no new test uses it.
 //
-// Each invocation appends one JSON line `{ argv, cwd, doflowEnv }` to FAKE_HARNESS_LOG, where
+// Each invocation appends one JSON line `{ argv, cwd, doflowEnv[, workerRun] }` to FAKE_HARNESS_LOG, where
 // doflowEnv holds the five DOFLOW_* identity values (null when unset). It then classifies itself by
 // argv and runs the steps the scenario file named by FAKE_HARNESS_SCENARIO gives that kind:
 //
@@ -74,6 +74,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 
 const FAKE_CLI = __filename;
+// The five identity variables; DOFLOW_WORKER_RUN (110) is a sixth launch variable but not identity.
 const IDENTITY_VARS = ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
 const PROBE_KINDS = new Set(['runnable', 'hooks', 'guidance', 'login']);
 const ESCAPE_EXIT = 97;
@@ -134,7 +135,9 @@ async function main() {
     : path.basename(process.argv[1]);
   if (process.env.FAKE_HARNESS_LOG) {
     const doflowEnv = Object.fromEntries(IDENTITY_VARS.map((key) => [key, process.env[key] ?? null]));
-    fs.appendFileSync(process.env.FAKE_HARNESS_LOG, `${JSON.stringify({ argv, cwd, doflowEnv })}\n`);
+    // `workerRun` is logged only when DOFLOW_WORKER_RUN is set, so a line stays `{ argv, cwd, doflowEnv }` otherwise.
+    const workerRun = process.env.DOFLOW_WORKER_RUN ? { workerRun: process.env.DOFLOW_WORKER_RUN } : {};
+    fs.appendFileSync(process.env.FAKE_HARNESS_LOG, `${JSON.stringify({ argv, cwd, doflowEnv, ...workerRun })}\n`);
   }
   const scenarioFile = process.env.FAKE_HARNESS_SCENARIO;
   const scenario = scenarioFile ? JSON.parse(fs.readFileSync(scenarioFile, 'utf8')) : {};

@@ -3,8 +3,8 @@
 // 081 B.3 (IC-003, IC-012; DEC-030, DEC-037, DEC-045): the worker environment, the launch
 // emission, argv assembly and the spawn. Every spawn resolves to test/helper/fake-harness-cli.js
 // linked into a scratch bin/, and the child PATH is that bin/ plus the directory of
-// process.execPath only (NFR-002). The caller env given to each launch deletes the five DOFLOW_*
-// identity variables, so the launcher alone sets them and the developer's shell decides nothing.
+// process.execPath only (NFR-002). The caller env given to each launch deletes the DOFLOW_* identity
+// variables, so the launcher alone sets them and the developer's shell decides nothing.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -61,7 +61,7 @@ async function launchOnce(w, harness, prompt, { token = 1, runKey = 'abcdef01234
   return { result, end, lines: readLog(w.log) };
 }
 
-test('IC-012 a default claim run gives a run-scoped run: the run id without w-, set with the five variables', (t) => {
+test('IC-012 a default claim run gives a run-scoped run: the run id without w-, set with the six launch variables', (t) => {
   const w = world(t);
   const caller = { ...w.env, DOFLOW_RUN_ID: 'local', DOFLOW_LINEAGE_ID: 'main', DOFLOW_CONTEXT_MAX_BYTES: '9000' };
   const { env, identity } = launchEnv({ env: caller, runKey: 'abcdef0123456789/local/main', token: 3, execWorktree: w.worktree, runId: RUN_ID });
@@ -72,11 +72,12 @@ test('IC-012 a default claim run gives a run-scoped run: the run id without w-, 
   assert.equal(env.DOFLOW_ATTEMPT, '3');
   assert.equal(env.DOFLOW_SESSION_ROLE, 'worker');
   assert.equal(env.DOFLOW_WORKTREE, w.worktree);
+  assert.equal(env.DOFLOW_WORKER_RUN, RUN_ID, '110: the worker run id, whole');
   // DEC-045: everything else is the caller's environment, unchanged, provider keys included.
   const others = (e) => Object.fromEntries(Object.entries(e).filter(([k]) => !ENV_SET.includes(k)));
   assert.deepEqual(others(env), others(caller));
   assert.equal(env.PROVIDER_API_KEY, SECRET);
-  assert.deepEqual(Object.keys(env).filter((k) => !(k in caller)).sort(), ['DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE']);
+  assert.deepEqual(Object.keys(env).filter((k) => !(k in caller)).sort(), ['DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKER_RUN', 'DOFLOW_WORKTREE']);
   assert.equal(caller.DOFLOW_RUN_ID, 'local', 'the caller env is not mutated');
 });
 
@@ -199,13 +200,46 @@ test('IC-003 stdin mode writes the prompt to stdin and closes it; the argv carri
   assert.ok(!line.argv.some((a) => a.includes(brief)));
 });
 
+test('110 launchWorker sets DOFLOW_WORKER_RUN to the given run id for the child, and nothing but the id', POSIX_ONLY, async (t) => {
+  const w = world(t);
+  const { identity } = launchEnv({ env: w.env, runKey: 'abcdef0123456789/local/main', token: 1, execWorktree: w.worktree, runId: RUN_ID });
+  const result = await launchWorker({ recipe: recipeOf('claude'), prompt: 'brief', identity, execWorktree: w.worktree, env: w.env, runId: RUN_ID });
+  await exited(result.child);
+  assert.equal(result.env.DOFLOW_WORKER_RUN, RUN_ID);
+  const [line] = readLog(w.log);
+  assert.equal(line.workerRun, RUN_ID, 'the child process saw it');
+  assert.equal(result.env.PROVIDER_API_KEY, SECRET);
+  assert.ok(!Object.entries(result.env).some(([k, v]) => k !== 'PROVIDER_API_KEY' && v === SECRET), 'no credential is copied into another variable');
+});
+
+test('110 a launch with no runId leaves DOFLOW_WORKER_RUN unset, even when the caller env carries one', POSIX_ONLY, async (t) => {
+  const w = world(t);
+  w.env.DOFLOW_WORKER_RUN = 'w-aaaaaaaaaaaa';
+  const { identity } = launchEnv({ env: w.env, runKey: 'abcdef0123456789/local/main', token: 1, execWorktree: w.worktree, runId: RUN_ID });
+  const result = await launchWorker({ recipe: recipeOf('claude'), prompt: 'brief', identity, execWorktree: w.worktree, env: w.env });
+  await exited(result.child);
+  assert.equal(Object.hasOwn(result.env, 'DOFLOW_WORKER_RUN'), false);
+  const [line] = readLog(w.log);
+  assert.equal(Object.hasOwn(line, 'workerRun'), false, 'the child did not see the caller value either');
+});
+
+test('110 a malformed runId is a run-id-malformed usage error from launchWorker', POSIX_ONLY, async (t) => {
+  const w = world(t);
+  const { identity } = launchEnv({ env: w.env, runKey: 'abcdef0123456789/local/main', token: 1, execWorktree: w.worktree, runId: RUN_ID });
+  await assert.rejects(
+    launchWorker({ recipe: recipeOf('claude'), prompt: 'brief', identity, execWorktree: w.worktree, env: w.env, runId: 'w-NOT-HEX' }),
+    (error) => error.code === 'run-id-malformed',
+  );
+  assert.deepEqual(readLog(w.log), [], 'nothing was spawned');
+});
+
 test('IC-012 the record lists variable names only and no value of any variable', (t) => {
   const w = world(t);
   const caller = { ...w.env, DOFLOW_RUN_ID: 'local', DOFLOW_LINEAGE_ID: 'main' };
   const { env, identity } = launchEnv({ env: caller, runKey: 'abcdef0123456789/local/main', token: 2, execWorktree: w.worktree, runId: RUN_ID });
   const record = launchRecord(recipeOf('claude'), identity, 'the brief');
 
-  assert.deepEqual(record.envSet, ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE']);
+  assert.deepEqual(record.envSet, ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', 'DOFLOW_WORKER_RUN']);
   assert.equal(record.envInherited, true);
   assert.deepEqual(record.identity, { run: '0123456789ab', lineage: 'main', attempt: '2', runSource: 'run-scoped' });
   assert.deepEqual(Object.keys(record.recipe), ['binary', 'argvShape', 'promptVia', 'parser', 'profile']);

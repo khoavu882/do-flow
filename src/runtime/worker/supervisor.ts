@@ -401,7 +401,7 @@ async function superviseRun({
       fs.rmSync(lastMessageFile, { force: true });
     }
     launched = await launch({
-      recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity,
+      recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity, runId,
       execWorktree: run.execWorktree, env, taskId: run.task, ...(run.edit ? { edit: true } : {}),
       ...(lastMessageFile ? { lastMessageFile } : {}),
     });
