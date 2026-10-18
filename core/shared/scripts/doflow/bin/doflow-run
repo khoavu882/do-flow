@@ -555,7 +555,7 @@ dispatch_shell() {
 
 dispatch_node() {
   local verb="$1"; shift
-  local marker tmpfile rc first_line
+  local marker tmpfile rc first_line runtime_root second_line trimmed_second first_val total_errs more
   if ! resolve_node_cli; then
     if marker="$(has_doflow_marker_nearby)"; then
       fail 2 "unlinked-checkout" \
@@ -586,8 +586,28 @@ dispatch_node() {
           # anchored match against the registry loader's raw prefix never fires in practice.
           case "$first_line" in
             *"Invalid DoFlow registry:"*)
+              runtime_root="$(dirname "$(dirname "$NODE_CLI_PATH")")"
+              second_line=""
+              {
+                read -r _
+                IFS= read -r second_line || true
+              } <"$tmpfile"
+              second_line="${second_line%$'\r'}"
+              trimmed_second="${second_line#"${second_line%%[![:space:]]*}"}"
+              first_val="${trimmed_second#- }"
+              if [ -z "$first_val" ]; then
+                first_val="${first_line#*Invalid DoFlow registry:}"
+                first_val="${first_val#"${first_val%%[![:space:]]*}"}"
+              fi
+              first_val="${first_val%$'\r'}"
+              total_errs="$(grep -c '^[[:space:]]*- ' "$tmpfile" || true)"
+              case "$total_errs" in *[!0-9]*|"") total_errs=0 ;; esac
+              more=""
+              if [ "$total_errs" -gt 1 ]; then
+                more=" ($(( total_errs - 1 )) more)"
+              fi
               fail 2 "stale-runtime" \
-                "verb '$verb' failed against $NODE_CLI_PATH, which appears out of date relative to the working checkout; reinstall or re-run the doflow installer to refresh it"
+                "verb '$verb' failed: the registry at $runtime_root/core/registry is invalid: $first_val$more; reinstall DoFlow if this runtime was projected from another version"
               ;;
           esac
         fi
