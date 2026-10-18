@@ -46,6 +46,13 @@ function argvProblem(argv: any): string | null {
   return null;
 }
 
+/** FR-006 / NFR-001: a check may only ask for the version, for help, or for the feature list; never a model session. */
+function freeArgv(argv: string[]): boolean {
+  if (argv.length === 1 && argv[0] === '--version') return true;
+  if (argv.includes('--help') || argv.includes('-h')) return true;
+  return argv[0] === 'features' && argv[1] === 'list';
+}
+
 function expression(value: any, where: string): RegExp {
   if (typeof value !== 'string' || value === '') usage('checks-invalid', `${where} must be a non-empty regular expression`);
   try { return new RegExp(value); } catch (error: any) {
@@ -64,6 +71,7 @@ function validateChecks(data: any, harness: string, worker: any) {
   if (!data.version || typeof data.version !== 'object' || Array.isArray(data.version)) usage('checks-invalid', 'checks file needs a version check');
   const versionArgvProblem = argvProblem(data.version.argv);
   if (versionArgvProblem) usage('checks-invalid', `version.argv ${versionArgvProblem}`);
+  if (!freeArgv(data.version.argv)) usage('checks-invalid', `version.argv is not a free check (only --version, --help/-h or 'features list' may run)`);
   expression(data.version.expect, 'version.expect');
   if (!Array.isArray(data.checks) || data.checks.length === 0) usage('checks-invalid', 'checks file needs at least one check');
 
@@ -78,6 +86,9 @@ function validateChecks(data: any, harness: string, worker: any) {
     if (typeof check.id !== 'string' || check.id === '') usage('checks-invalid', `${where}.id must be a non-empty string`);
     const problem = argvProblem(check.argv);
     if (problem) usage('checks-invalid', `${where}.argv ${problem}`);
+    if (!freeArgv(check.argv)) {
+      usage('checks-invalid', `check '${check.id}' (${where}) is not a free check: its argv must be --version, contain --help or -h, or start with 'features list'`);
+    }
     if (!Array.isArray(check.expect) || check.expect.length === 0) usage('checks-invalid', `${where}.expect must be a non-empty array`);
     check.expect.forEach((pattern: any, expectIndex: number) => expression(pattern, `${where}.expect[${expectIndex}]`));
     if (!Array.isArray(check.establishes) || check.establishes.length === 0

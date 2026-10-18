@@ -60,7 +60,7 @@ function writeChecks(p) {
     version: { argv: ['--version'], expect: '^codex-cli \\d+\\.\\d+\\.\\d+' },
     checks: [{
       id: 'exec-help',
-      argv: ['check'],
+      argv: ['check', '--help'],
       expect: ['^Usage: codex exec \\[OPTIONS\\] \\[PROMPT\\]$', '^instructions are read from stdin$'],
       establishes: ['oneShot'],
     }],
@@ -89,7 +89,7 @@ test('worker evidence CLI forwards --checks and --out to a real evidence run', P
   assert.equal(record.checks.length, 1);
   assert.equal(record.checks[0].id, 'exec-help');
   assert.equal(record.checks[0].result, 'pass', 'the check expectations ran and matched');
-  assert.deepEqual(fs.readFileSync(p.calls, 'utf8').trim().split(/\r?\n/), ['--version', 'check']);
+  assert.deepEqual(fs.readFileSync(p.calls, 'utf8').trim().split(/\r?\n/), ['--version', 'check --help']);
 });
 
 test('worker evidence without --checks is refused naming --checks', POSIX_ONLY, (t) => {
