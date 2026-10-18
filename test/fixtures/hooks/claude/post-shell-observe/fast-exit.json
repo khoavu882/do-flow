@@ -1,0 +1,17 @@
+{
+  "source": "088 E.1, Claude Code 2.1.292 PostToolUse; sanitised shape, non-test command",
+  "native": {
+    "session_id": "session-088-observer",
+    "transcript_path": "/sanitised/transcript.jsonl",
+    "cwd": "/sanitised/project",
+    "prompt_id": "prompt-088",
+    "permission_mode": "default",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": { "command": "printf safe" },
+    "tool_response": { "stdout": "safe", "stderr": "", "interrupted": false, "isImage": false, "noOutputExpected": false },
+    "tool_use_id": "toolu_01XXXXXXXXXXXXXXXXXXXXXX",
+    "duration_ms": 1118
+  },
+  "expect": { "exit": 0, "stdout": "", "stderrIncludes": null, "records": 0 }
+}

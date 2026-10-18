@@ -370,6 +370,7 @@
       ],
       "writers": [
         "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "core/harnesses/claude/hooks/post-shell-observe.sh",
         "src/runtime/trace/telemetry.ts"
       ]
     },

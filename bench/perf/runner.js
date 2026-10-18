@@ -165,14 +165,15 @@ function enumerateHookSurfaces({
       const surfaceId = `hook.${harnessId}.${stem}`;
       const fixtureRel = path.join('bench', 'perf', 'fixtures', harnessId, `${stem}.json`);
       const fixtureAbs = path.join(repoRoot, fixtureRel);
-      const corpusRel = path.join('test', 'fixtures', 'hooks', harnessId, stem, 'perf.json');
+      const observer = harnessId === 'claude' && stem === 'post-shell-observe';
+      const corpusRel = path.join('test', 'fixtures', 'hooks', harnessId, stem, observer ? 'fast-exit.json' : 'perf.json');
       const corpusAbs = path.join(repoRoot, corpusRel);
       const hasFixture = fs.existsSync(fixtureAbs) || fs.existsSync(corpusAbs);
 
       const surface = {
         id: surfaceId,
         kind: 'hook',
-        argv: ['bash', `{mirror}/.${harnessId}/hooks/${file}`],
+        argv: ['bash', `{mirror}/.${harnessId}/hooks/${file}`, ...(observer ? ['PostToolUse'] : [])],
         harness: harnessId,
         intentClass: 'hook',
         enforced: false,
@@ -187,6 +188,17 @@ function enumerateHookSurfaces({
         }
       }
       surfaces.push(surface);
+
+      if (observer) {
+        surfaces.push({
+          ...surface,
+          id: `${surfaceId}.test-class`,
+          variant: 'test-class',
+          budgeted: false,
+          stdinFixture: path.join('test', 'fixtures', 'hooks', harnessId, stem, 'test-class.json'),
+          stdinField: 'native',
+        });
+      }
 
       // Kiro exposes the same front door from two config sources; keep both observable.
       const agentFixtureRel = path.join('test', 'fixtures', 'hooks', harnessId, stem, 'agent-perf.json');

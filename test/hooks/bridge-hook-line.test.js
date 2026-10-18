@@ -21,6 +21,7 @@ const HOOK_FIXTURE = path.join(REPO, 'test/fixtures/telemetry/hook.jsonl');
 const ENVELOPE = '.doflow/shared/hooks/bridge/envelope.jq';
 const BASH = '/bin/bash';
 const LINE_KEYS = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt', 'role', 'worker_run'];
+const TEST_CLASS_VALUES = new Set(['verify.verb', 'test.full', 'test.scoped', 'test.other', 'none']);
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const INJECT_FROM = 'session:dft_token($d.identity.session)';
 const INJECT_TO = 'session:error("088-injected-tuple-fault")';
@@ -228,25 +229,30 @@ test('one allowlisted hook line per harness fixture, with the contract keys and 
     const lines = hookLines(path.join(root, '.doflow'));
     assert.equal(lines.length, before + 1, `${surface.harness}/${surface.policy}: one line`);
     const line = lines.at(-1);
-    assert.deepEqual(Object.keys(line), LINE_KEYS, `${surface.harness}/${surface.policy}: key order`);
+    const expectedKeys = surface.policy === 'pre-bash-guard' ? [...LINE_KEYS, 'test_class'] : LINE_KEYS;
+    assert.deepEqual(Object.keys(line), expectedKeys, `${surface.harness}/${surface.policy}: key order`);
+    if (surface.policy === 'pre-bash-guard') {
+      assert.ok(Object.hasOwn(line, 'test_class') && TEST_CLASS_VALUES.has(line.test_class), `${surface.harness}/${surface.policy}: test_class uses the closed vocabulary`);
+    }
     assert.match(line.timestamp, TIMESTAMP);
     assert.deepEqual({ ...line, timestamp: 'T' }, {
       kind: 'hook', harness: surface.harness, event: surface.event, policy: surface.policy, verdict: 'allow',
       duration_ms: null, timestamp: 'T', session: native.session_id || null, tool: surface.tool,
       tool_call_id: surface.harness === 'pi' ? native.toolCallId : null, run: 'run-088', lineage: 'lineage-088', attempt: 2, role: null, worker_run: null,
+      ...(surface.policy === 'pre-bash-guard' ? { test_class: 'none' } : {}),
     }, `${surface.harness}/${surface.policy}: line`);
     const content = native.prompt || native.tool_input?.command || native.input?.command || native.toolCall?.args?.CommandLine;
     assert.ok(content && !JSON.stringify(line).includes(content), `${surface.harness}/${surface.policy}: no command or prompt in the line`);
   }
 });
 
-test('the committed hook fixture line carries exactly the keys the bridge writes', () => {
+test('the committed hook fixture line retains the base keys before the test_class extension', () => {
   const root = project();
   run(root, SURFACES['claude:pre-bash-guard'], fixtureNative(SURFACES['claude:pre-bash-guard']));
   const [written] = hookLines(path.join(root, '.doflow'));
   const fixture = fs.readFileSync(HOOK_FIXTURE, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
   assert.equal(fixture.length, 1);
-  assert.deepEqual(Object.keys(fixture[0]), Object.keys(written));
+  assert.deepEqual([...Object.keys(fixture[0]), 'test_class'], Object.keys(written));
 });
 
 test('identifiers that fail their rule are null: run local, a bad lineage, attempt 0, a session with a space', () => {
@@ -282,7 +288,7 @@ function assertRoleAndWorkerRun(root) {
   const lines = hookLines(config);
   assert.equal(lines.length, 3);
   assert.deepEqual(lines.map((line) => [line.role, line.worker_run]), [['worker', WORKER_RUN], ['main', null], [null, null]]);
-  assert.deepEqual(Object.keys(lines[0]).slice(-2), ['role', 'worker_run']);
+  assert.deepEqual(Object.keys(lines[0]).slice(-3), ['role', 'worker_run', 'test_class']);
 }
 
 test('role and worker_run are written when the env has them and are null otherwise', () => {
