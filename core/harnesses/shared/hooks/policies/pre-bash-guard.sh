@@ -5,14 +5,16 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # Intercepts every shell-command tool call and blocks dangerous commands by
 # matching against POSIX ERE patterns in blocked-patterns.conf (grep -E).
 #
-# Multi-session safe: stateless — reads only the conf file, no shared state.
+# Multi-session safe: reads the conf and canonical worker/cwd directories only.
+# Only reset/clean rules marked worker-worktree may exempt a dispatch worker;
+# every failed scope/command check retains the ordinary pattern verdict.
 # Must complete in <50ms.
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional; not required to
 #          evaluate this policy)
 #   stdin  a native payload with envelope v1 under doflow_event; only the
-#          envelope's operation, tool and command fields are used.
+#          envelope's operation, tool and command and native root cwd are used.
 #   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011.
 #
 # Reconciliation note (022-normalize-hooks, Phase A / D1): this also absorbs
@@ -86,6 +88,40 @@ PATTERNS_FILE="$_DOFLOW_POLDIR/blocked-patterns.conf"
 # ASCII-only patterns: the C locale keeps bash's substring/pattern operations
 # byte-wise (much faster than multibyte-aware in a UTF-8 locale).
 export LC_ALL=C
+
+# Lazy and cached: command shape, role and git environment precede the only
+# two subshells (cd/pwd builtins). Never infer worker identity from command text.
+_WORKER_EXEMPT=
+_worker_exempt() {
+  case $_WORKER_EXEMPT in allow) return 0 ;; deny) return 1 ;; esac
+  _WORKER_EXEMPT=deny
+  local reset_re='^[[:blank:]]*git[[:blank:]]+reset([[:blank:]]+(--hard|-q|--quiet))+([[:blank:]]+[A-Za-z0-9_@][A-Za-z0-9_./^~@{}-]*)?[[:blank:]]*$'
+  local clean_re='^[[:blank:]]*git[[:blank:]]+clean([[:blank:]]+(-[dfqxX]+|--force|--quiet))+[[:blank:]]*$'
+  local forces worktree cwd
+  if [[ $COMMAND =~ $reset_re ]]; then
+    case " $COMMAND " in *[[:blank:]]--hard[[:blank:]]*) ;; *) return 1 ;; esac
+  elif [[ $COMMAND =~ $clean_re ]]; then
+    forces=${COMMAND//[!f]/}
+    [ "${#forces}" -eq 1 ] || return 1
+  else
+    return 1
+  fi
+  [ "${DOFLOW_SESSION_ROLE:-}" = worker ] || return 1
+  [ -z "${GIT_DIR+x}${GIT_WORK_TREE+x}${GIT_INDEX_FILE+x}${GIT_COMMON_DIR+x}" ] || return 1
+  case ${DOFLOW_WORKTREE:-} in /*) ;; *) return 1 ;; esac
+  [ -d "$DOFLOW_WORKTREE" ] || return 1
+  # A sentinel preserves path-ending newlines across command substitution.
+  worktree=$(CDPATH= cd -P -- "$DOFLOW_WORKTREE" 2>/dev/null && pwd -P && printf '.') || return 1
+  worktree=${worktree%.}; worktree=${worktree%$'\n'}
+  local dispatch_re='/\.doflow/state/dispatch-worktrees/d-[0-9a-f]{12}$'
+  [[ $worktree =~ $dispatch_re ]] || return 1
+  [ -n "${DF_ENV_CWD:-}" ] || return 1
+  cwd=$(CDPATH= cd -P -- "$DF_ENV_CWD" 2>/dev/null && pwd -P && printf '.') || return 1
+  cwd=${cwd%.}; cwd=${cwd%$'\n'}
+  case $cwd in "$worktree"|"$worktree"/*) ;; *) return 1 ;; esac
+  _WORKER_EXEMPT=allow
+  return 0
+}
 
 # ── Quoted text, comments and heredoc bodies are not commands ────────────────
 # scrub_quotes <text> -> sets SCRUBBED. Anchored shell-command patterns must
@@ -164,7 +200,7 @@ scrub_quotes() {
     *) SCRUBBED=$text; return ;;
   esac
   case $text in
-    *rm[[:space:]]*|*git[[:space:]]*|*curl[[:space:]]*|*wget[[:space:]]*|*chmod[[:space:]]*|*dd[[:space:]]*|*find[[:space:]]*|*eval*|*sh[[:space:]]*) ;;
+    *rm[[:space:]]*|*git[[:space:]]*|*curl[[:space:]]*|*wget[[:space:]]*|*chmod[[:space:]]*|*dd[[:space:]]*|*find[[:space:]]*|*eval*|*sh[[:space:]]*|*echo[[:space:]]*|*printf[[:space:]]*|*cat[[:space:]]*|*tee[[:space:]]*|*mkdir[[:space:]]*|*cd[[:space:]]*|*true[[:space:]]*|*:[[:space:]]*|*gh[[:space:]]*) ;;
     *) SCRUBBED=$text; return ;;
   esac
   if [ "$SCRUB_DEPTH" -ge 8 ]; then SCRUBBED=$text; return; fi
@@ -269,12 +305,42 @@ scrub_quotes() {
 scrub_quotes "$COMMAND"
 SHELL_TEXT=$SCRUBBED
 
+# SQL words are data only when every scrubbed segment is a known text-writing
+# command. Reject execution syntax even if quote/heredoc scrubbing hid it.
+DATA_ONLY=true
+case $COMMAND$SHELL_TEXT in
+  *'|'*|*'$('*|*\`*|*'<('*|*'>('*) DATA_ONLY=false ;;
+esac
+if [ "$DATA_ONLY" = true ]; then
+  _data_command='^[[:blank:]]*((echo|printf|cat|tee|mkdir|cd|true|:)([[:blank:]]|$)|(git[[:blank:]]+(commit|tag)|gh[[:blank:]]+(pr|issue))([[:blank:]]|$))'
+  # read/IFS splits in linear time; ${text//;/...} is quadratic on bash 3.2.
+  while IFS= read -r _data_line; do
+    [ -n "$_data_line" ] || continue
+    IFS=';&' read -r -a _data_segments <<< "$_data_line"
+    for _segment in "${_data_segments[@]}"; do
+      [[ $_segment =~ ^[[:blank:]]*$ ]] && continue
+      if ! [[ $_segment =~ $_data_command ]]; then DATA_ONLY=false; break 2; fi
+    done
+  done <<< "$SHELL_TEXT"
+fi
+
+# Project-specific unanchored patterns keep their verdicts too: only these
+# three shipped SQL families participate in the text-only exception.
+_sql_pattern() {
+  case $1 in
+    'DROP[[:space:]]+(TABLE|DATABASE|SCHEMA)[[:space:]]'|\
+    'DELETE[[:space:]]+FROM[[:space:]]+[[:alnum:]_]+[[:space:]]*;'|\
+    'TRUNCATE[[:space:]]+TABLE') return 0 ;;
+  esac
+  return 1
+}
+
 # Hardcoded floor, used only when blocked-patterns.conf is missing: recursive
 # rm (any flag spelling, flag before or after the target) of a catastrophic
 # target — the same rule as the rm lines in blocked-patterns.conf. Subpaths
 # such as /tmp/x are not blocked.
 _CMDPOS='(^|[;&|(`])[[:space:]]*'
-_WRAP='((sudo([[:space:]]+(-[ugChprtUDR][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|--(user|group|host|prompt|role|type|chdir)[[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|xargs([[:space:]]+(-[nILPsdEa][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|env([[:space:]]+(-[uCS][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|(command|time|nohup|exec|eval|then|do|else)([[:space:]]+(-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*)[[:space:]]+)*'
+_WRAP='((sudo([[:space:]]+(-[ugChprtUDR][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|--(user|group|host|prompt|role|type|chdir)[[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|xargs([[:space:]]+(-[nILPsdEa][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|env([[:space:]]+(-[uCS][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*|(command|time|nohup|exec|eval|then|do|else)([[:space:]]+(-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*)[[:space:]]+)*'
 _PATHRM='(\\|/(usr/)?bin/)?rm'
 _RM_FLAG='(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)'
 _RM_ARGS='([[:space:]]+[^[:space:];&|]+)*'
@@ -315,9 +381,14 @@ fi
 # grep match or regex error falls through to the original per-line loop, which
 # still owns the reason and optional exclude semantics.
 _anchored_patterns="" _full_patterns="" _has_backreference=false
+_has_worker_marker=false
 while IFS=$'\t' read -r pattern _reason _exclude || [ -n "$pattern" ]; do
   [ -z "$pattern" ] && continue
-  case "$pattern" in \#*) continue ;; esac
+  case "$pattern" in
+    '#@exempt-next worker-worktree') _has_worker_marker=true; continue ;;
+    \#*) continue ;;
+  esac
+  if [ "$DATA_ONLY" = true ] && _sql_pattern "$pattern"; then continue; fi
   if [[ "$pattern" =~ \\[1-9] ]]; then _has_backreference=true; fi
   case "$pattern" in
     '(^|'*) _anchored_patterns="${_anchored_patterns:+$_anchored_patterns|}($pattern)" ;;
@@ -333,14 +404,26 @@ if [ -n "$_full_patterns" ]; then
   grep -qiE -- "$_full_patterns" <<<"$COMMAND" 2>/dev/null
   _full_status=$?
 fi
-if [ "$_anchored_status" -eq 1 ] && [ "$_full_status" -eq 1 ] && [ "$_has_backreference" != true ]; then exit 0; fi
+if [ "$_anchored_status" -eq 1 ] && [ "$_full_status" -eq 1 ] && [ "$_has_backreference" != true ]; then
+  # Some accepted worker shapes (reset -q --hard, clean -f) already match no
+  # deny rule. Give those allows the same scope code without widening a rule.
+  if [ "$_has_worker_marker" = true ] && _worker_exempt; then doflow_decide allow worker-worktree; fi
+  exit 0
+fi
 
 # ── Pattern matching ──────────────────────────────────────────────────────────
 
+_exempt_next= _worker_skipped=false
 while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   # Skip comments and empty lines
   [ -z "$pattern" ] && continue
-  case "$pattern" in \#*) continue ;; esac
+  case "$pattern" in
+    '#@exempt-next worker-worktree') _exempt_next=worker-worktree; continue ;;
+    \#*) continue ;;
+  esac
+  exemption=$_exempt_next
+  _exempt_next=
+  if [ "$DATA_ONLY" = true ] && _sql_pattern "$pattern"; then continue; fi
 
   # Match pattern against command (case-insensitive, POSIX extended regex: the default macOS
   # filesystem is case-insensitive, so RM and GIT run there).
@@ -368,6 +451,10 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   fi
 
   if [ "$matched" = "true" ]; then
+    if [ "$exemption" = worker-worktree ] && _worker_exempt; then
+      _worker_skipped=true
+      continue
+    fi
     echo "[pre-bash-guard] ${reason:-Command blocked by pre-bash-guard}" >&2
     doflow_decide deny blocked-pattern
     exit 2
@@ -375,4 +462,5 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
 done < "$PATTERNS_FILE"
 
 # No match — allow
+[ "$_worker_skipped" = true ] && doflow_decide allow worker-worktree
 exit 0

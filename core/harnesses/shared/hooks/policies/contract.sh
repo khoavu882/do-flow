@@ -43,6 +43,7 @@ doflow_read_envelope() {
     DF_ENV_TOOL=
     DF_ENV_PATHS=
     DF_ENV_COMMAND=
+    DF_ENV_CWD=
     DF_ENV_PATCH=
     DF_ENV_ROOT=
     DF_ENV_TASK=
@@ -67,6 +68,7 @@ doflow_read_envelope() {
      shellvar("DF_ENV_TOOL"; field("tool")),
      shellvar("DF_ENV_PATHS"; ([$fields.paths[]? | select(type == "string")] | join("\n"))),
      shellvar("DF_ENV_COMMAND"; field("command")),
+     shellvar("DF_ENV_CWD"; ($object.cwd // "") | if type=="string" then . else "" end),
      shellvar("DF_ENV_PATCH"; field("patch")),
      shellvar("DF_ENV_ROOT"; field("projectRoot")),
      shellvar("DF_ENV_TASK"; field("taskId"))][]
