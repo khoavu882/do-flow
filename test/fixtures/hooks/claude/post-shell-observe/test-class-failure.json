@@ -14,5 +14,5 @@
     "is_interrupt": false,
     "duration_ms": 93
   },
-  "expect": { "exit": 0, "stdout": "", "stderrIncludes": null, "records": 1, "test_class": "test.scoped", "duration_ms": 93 }
+  "expect": { "exit": 0, "stdout": "", "stderrIncludes": null, "records": 1, "test_class": "test.scoped", "duration_ms": null, "tool_duration_ms": 93 }
 }

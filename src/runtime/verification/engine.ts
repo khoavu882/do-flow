@@ -76,42 +76,6 @@ function saveFailedFirstFile(stateDir: string, stateFile: string, state: any, fs
   } catch {}
 }
 
-/**
- * Declared writer helper for the verification-v0 store (IC-016, IC-018).
- */
-function writeFailedFirstState({
-  configDir,
-  taskId,
-  root,
-  checks = {},
-  fsImpl = nodeFs,
-}: any): void {
-  const stateDir = path.join(configDir, 'state', 'verification', 'v0');
-  const stateFile = path.join(stateDir, `failed-first-${taskId}.json`);
-  let cwdDigest = '';
-  try {
-    const real = (typeof fsImpl.realpathSync === 'function')
-      ? fsImpl.realpathSync(root)
-      : path.resolve(root);
-    cwdDigest = sha16(real);
-  } catch {
-    cwdDigest = sha16(path.resolve(root));
-  }
-  const stateChecks: Record<string, any> = {};
-  for (const [name, check] of Object.entries(checks) as [string, any][]) {
-    stateChecks[name] = {
-      cmd: sha16(check.cmd || check.command || ''),
-      files: (check.files || []).map((f: string) => (f.length === 16 && /^[0-9a-f]{16}$/.test(f) ? f : sha16(f))),
-    };
-  }
-  const state = {
-    v: 1,
-    cwd: cwdDigest,
-    checks: stateChecks,
-  };
-  saveFailedFirstFile(stateDir, stateFile, state, fsImpl);
-}
-
 // `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
 // SCRIPT_DIR is bin/, so its repo root is path.dirname(SCRIPT_DIR). This module takes the same root
 // from src/helper/repo-root.js rather than counting its own depth.
@@ -1791,6 +1755,5 @@ module.exports = {
   handleVerifyCommand,
   verifyStateRoot,
   validateVerificationInput,
-  writeFailedFirstState,
   saveFailedFirstFile,
 };

@@ -13,5 +13,5 @@
     "tool_use_id": "toolu_01XXXXXXXXXXXXXXXXXXXXXX",
     "duration_ms": 1118
   },
-  "expect": { "exit": 0, "stdout": "", "stderrIncludes": null, "records": 1, "test_class": "test.scoped", "duration_ms": 1118 }
+  "expect": { "exit": 0, "stdout": "", "stderrIncludes": null, "records": 1, "test_class": "test.scoped", "duration_ms": null, "tool_duration_ms": 1118 }
 }

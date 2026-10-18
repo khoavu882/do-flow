@@ -339,11 +339,33 @@ fs.mkdirSync(worktree, { recursive: true });`;
 const { TelemetryWriter } = require(${JSON.stringify(path.join(REPO, 'src/runtime/trace/telemetry.ts'))});
 new TelemetryWriter({ start: process.argv[1], env: process.env }).write([{ kind: 'verify.tier' }]);
 if (!fs.readdirSync(path.join(process.argv[1], '.doflow', 'state', 'runs', 'telemetry')).length) process.exit(1);`;
-    // The verification-v0 store (088 IC-018): write a failed-first state file through the writer engine.ts ships.
-    const writeVerificationV0 = `const fs=require('node:fs'),path=require('node:path');
-const { writeFailedFirstState } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/engine.ts'))});
-writeFailedFirstState({ configDir: path.join(process.argv[1], '.doflow'), taskId: 'g26-task', root: process.argv[1], checks: { 'broad-tests:test': { cmd: 'node -e 1', files: ['f.js'] } } });
-if (!fs.existsSync(path.join(process.argv[1], '.doflow', 'state', 'verification', 'v0', 'failed-first-g26-task.json'))) process.exit(1);`;
+    // The verification-v0 store (088 IC-018): a real failed test goes through runContract's
+    // failed-first state write, so this scenario covers the production path rather than a helper.
+    const writeVerificationV0 = `const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const { VerificationEngine } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/engine.ts'))});
+const root=process.argv[1],configDir=path.join(root,'.doflow');
+// A nested Node test runner must not inherit the outer runner's child context.
+delete process.env.NODE_TEST_CONTEXT;
+fs.mkdirSync(path.join(root,'test'),{recursive:true});
+fs.writeFileSync(path.join(root,'test/g26.test.js'),"require('node:test')('G26 failure',()=>{throw new Error('expected G26 failure')});\\n");
+const command='npm test';
+fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({private:true,scripts:{test:'node --test "test/**/*.test.js"'}}));
+const plan=path.join(root,'g26-failed-first-plan.md');
+fs.writeFileSync(plan,'# Plan\\n\\n\`\`\`doflow-verification\\n'+JSON.stringify({parse:null,build:null,lint:null,typecheck:null})+'\\n\`\`\`\\n');
+const engine=new VerificationEngine({cwd:root,repoRoot:${JSON.stringify(REPO)},configDir,v0:true});
+const contract=engine.compileContract({taskId:'g26-task',riskLevel:'MEDIUM',projectRoot:root,planPath:plan,changedFiles:['test/g26.test.js'],scope:{allowedPaths:['test/']}});
+const report=engine.runContract(contract,{changedFiles:['test/g26.test.js']});
+assert.equal(report.status,'FAIL');
+const check=report.tiers.find(t=>t.id==='broad-tests').checks[0];
+assert.equal(check.status,'FAIL');
+assert.deepEqual(check.failedFiles,['test/g26.test.js']);
+const stateFile=path.join(configDir,'state','verification','v0','failed-first-g26-task.json');
+const state=JSON.parse(fs.readFileSync(stateFile,'utf8'));
+const sha16=text=>crypto.createHash('sha256').update(text).digest('hex').slice(0,16);
+assert.equal(fs.statSync(stateFile).mode&0o777,0o600);
+assert.equal(state.v,1);
+assert.equal(state.cwd,sha16(fs.realpathSync(root)));
+assert.deepEqual(state.checks[check.name],{cmd:sha16(command),files:[sha16('test/g26.test.js')]});`;
     // G.4: exercise the inflight writer independently of the engine's failed-first writer.
     const writeInflight = `const fs=require('node:fs'),path=require('node:path');
 const { runInflight } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/inflight.ts'))});

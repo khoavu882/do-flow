@@ -545,8 +545,8 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-fifty-eight test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-fifty-one entries across forty-seven test files and carries forty-nine distinct G-numbers.
+59 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+52 entries across 48 test files and carries 50 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
 historical rather than a convention; G52 is the highest number in use, so a new guard takes the next

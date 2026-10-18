@@ -13,7 +13,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { VerificationEngine, writeFailedFirstState } = require('../../src/runtime/verification/engine.ts');
+const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const sha16 = (x) => crypto.createHash('sha256').update(String(x)).digest('hex').slice(0, 16);
@@ -732,32 +732,6 @@ test('a full-scope failure replaces the two-strike entry and permits narrowing a
   assert.equal(next.report.status, 'FAIL');
   assert.deepEqual(next.executed, ['node --test test/alpha.test.js'], 'narrowing resumes after the full failure');
   assert.equal(JSON.parse(fs.readFileSync(sequence.stateFile, 'utf8')).checks['broad-tests:test'].strikes, 1);
-});
-
-test('writeFailedFirstState unlinks file when checks is empty', (t) => {
-  const dir = tempDir(t, 'doflow-write-state-');
-  const file = path.join(dir, 'state', 'verification', 'v0', 'failed-first-T-W.json');
-
-  // 1. Write non-empty state
-  writeFailedFirstState({
-    configDir: dir,
-    taskId: 'T-W',
-    root: dir,
-    checks: {
-      'check:one': { cmd: 'cmd1', files: ['f1'] },
-    },
-  });
-  assert.ok(fs.existsSync(file), 'file created');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'mode 0600');
-
-  // 2. Write empty state
-  writeFailedFirstState({
-    configDir: dir,
-    taskId: 'T-W',
-    root: dir,
-    checks: {},
-  });
-  assert.ok(!fs.existsSync(file), 'empty checks unlinked the file');
 });
 
 test('check name and failureSignature are unchanged by failed-first (no recovery iteration added)', (t) => {

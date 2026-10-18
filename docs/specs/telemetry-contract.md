@@ -50,7 +50,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 
 | Kind | Written by | Keys beyond the common ones |
 |---|---|---|
-| `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh`, `core/harnesses/claude/hooks/post-shell-observe.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `session`, `tool`, `tool_call_id`, `role`, `worker_run`, `test_class` (see Hook lines) |
+| `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh`, `core/harnesses/claude/hooks/post-shell-observe.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `tool_duration_ms`, `session`, `tool`, `tool_call_id`, `role`, `worker_run`, `test_class` (see Hook lines) |
 | `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `level`, `status`, `exit_code`, `duration_ms`, `checks_run`, `v0` (see Verify lines) |
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared`, `shared_ref`, `failed_first` |
@@ -70,7 +70,8 @@ paired perf run measures: `pre-bash-guard` on claude, codex, gemini, kiro, antig
 |---|---|---|---|---|
 | `harness`, `event`, `policy` | `enum:harness`, `enum:event`, `enum:policy` | T2 | P2 | the allowlist entry (Kiro's `preToolUse` is written `PreToolUse`) |
 | `verdict` | `enum:verdict` | T2 | P2 | the bridge's classified outcome |
-| `duration_ms` | `uint` or null | T1 | P2 | `EPOCHREALTIME` at bridge entry and at the write; null on bash below 5 (macOS `/bin/bash` 3.2) |
+| `duration_ms` | `uint` or null | T1 | P2 | hook latency from `EPOCHREALTIME` at bridge entry and at the write; null on bash below 5 (macOS `/bin/bash` 3.2), and always null on `post-shell-observe` (IC-005) |
+| `tool_duration_ms` | `uint` or null | T1 | P3 | the tool's native `duration_ms` runtime on the observer, validated as a nonnegative safe integer; null on other hook lines or when absent or invalid |
 | `session` | `token` or null | T0 | P2 | the decoded session id |
 | `tool` | `token` or null | T2 | P2 | the decoded tool name; null for an MCP tool, so an MCP server or tool name is never recorded |
 | `tool_call_id` | `token` or null | T0 | P2 | Pi `toolCallId`, Claude and Codex `tool_use_id`; else null |
@@ -78,7 +79,9 @@ paired perf run measures: `pre-bash-guard` on claude, codex, gemini, kiro, antig
 | `worker_run` | `token` or null | T0 | P2 | worker run identifier from `DOFLOW_WORKER_RUN` |
 | `test_class` | `enum:test_class` or null | T2 | P3 | command class on post-shell-observe or classified via `envelope.jq`, else null |
 
-The line is `kind, harness, event, policy, verdict, duration_ms, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, test_class`. Everything after `duration_ms` comes from a tuple that `envelope.jq` emits as its first line in `--arg mode encode` (only when that mode is passed explicitly): `{dft:1, date, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, test_class}`, every value validated in jq. Every telemetry expression sits inside `try`, so a fault there yields `{"dft":1}`, which writes nothing and leaves the envelope and the policy verdict untouched. Off emits `{"dft":1}` too.
+The bridge line is `kind, harness, event, policy, verdict, duration_ms, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, tool_duration_ms, test_class`. Everything after `duration_ms` comes from a tuple that `envelope.jq` emits as its first line in `--arg mode encode` (only when that mode is passed explicitly): `{dft:1, date, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, tool_duration_ms, test_class}`, every value validated in jq. Every telemetry expression sits inside `try`, so a fault there yields `{"dft":1}`, which writes nothing and leaves the envelope and the policy verdict untouched. Off emits `{"dft":1}` too.
+
+The observer uses `--arg mode observe` to emit only the tuple, adding `duration_ms:null` and `tool_duration_ms`; its front door writes that tuple with the observer's `test_class`. Hook lines carry no content and may reach about 600 bytes with maximum-length ids.
 
 ### Harness observation coverage (NFR-008)
 
@@ -126,7 +129,7 @@ spawn settles, and no tier or check line. All lines of one run share `verify_id`
 | `verify.run` | `exit_code` | `uint` or null | T1 | P3 | the verify run's exit code |
 | `verify.run` | `duration_ms` | `uint` or null | T1 | P3 | total elapsed milliseconds for the verify run |
 | `verify.run` | `checks_run` | `uint` or null | T1 | P3 | count of executed checks only |
-| `verify.run` | `v0` | `enum:v0` or null | T2 | P5.2 | whether V0 optimizations were enabled (`on`/`off`); null when V0 does not apply (e.g. L3 via `v0Applies`, or dispatch) |
+| `verify.run` | `v0` | `enum:v0` or null | T2 | P5.2 | whether V0 optimizations were enabled (`on`/`off`); L3 is null with the flag on and `off` with the flag off; dispatch is null |
 | `verify.tier`, `verify.check` | `tier` | `token` or null | T2 | P2 | the tier id |
 | `verify.tier`, `verify.check` | `status` | `enum:status` or null | T2 | P2 | the tier's or the check's status |
 | `verify.tier` | `selection_basis`, `fallback` | `enum:selection_basis`, `enum:fallback`, or null | T2 | P2 | the targeted tier's test selection; null on every other tier |

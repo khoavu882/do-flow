@@ -163,7 +163,8 @@ test('captured pass and failure shapes yield real duration, event status, safe i
     assert.deepEqual([line.kind, line.harness, line.event, line.policy, line.verdict], ['hook', 'claude', event, 'post-shell-observe', 'observe']);
     assert.deepEqual([line.session, line.tool, line.tool_call_id], [payload.session_id, 'Bash', payload.tool_use_id]);
     assert.deepEqual([line.run, line.lineage, line.attempt], ['run-088', 'lineage-088', 2]);
-    assert.equal(line.duration_ms, payload.duration_ms);
+    assert.equal(line.duration_ms, null, 'observer hook latency is unavailable (IC-005)');
+    assert.equal(line.tool_duration_ms, payload.duration_ms, 'native runtime is a separate measure');
     assert.match(line.timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     noContent([line]);
   }
@@ -180,6 +181,7 @@ test('all four captured-shape fixtures exercise their declared fast-exit or clas
     if (fixture.expect.records) {
       assert.equal(records.at(-1).test_class, fixture.expect.test_class);
       assert.equal(records.at(-1).duration_ms, fixture.expect.duration_ms);
+      assert.equal(records.at(-1).tool_duration_ms, fixture.expect.tool_duration_ms);
     }
   }
 });
@@ -215,7 +217,7 @@ test('invalid durations become null; unsafe ids are null; failure output is neve
     const payload = { ...native('npm test', EVENTS[1]), duration_ms: duration, session_id: '../session', tool_use_id: 'has space' };
     observe(root, payload);
     const line = lines(root).at(-1);
-    assert.deepEqual([line.duration_ms, line.session, line.tool_call_id], [null, null, null]);
+    assert.deepEqual([line.duration_ms, line.tool_duration_ms, line.session, line.tool_call_id], [null, null, null, null]);
     noContent([line]);
   }
 });

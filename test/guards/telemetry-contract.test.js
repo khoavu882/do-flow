@@ -22,7 +22,7 @@ const REGISTRY_FILE = 'core/registry/telemetry.json';
 const WRITER_FILE = 'src/runtime/trace/telemetry.ts';
 const FIXTURE_DIR = 'test/fixtures/telemetry';
 const TUPLE_FIXTURE_FIELDS = {
-  hook: ['role', 'worker_run'],
+  hook: ['role', 'worker_run', 'test_class', 'tool_duration_ms'],
   'verify.run': ['dispatch_run'],
 };
 const TYPE_ATOMS = new Set(['token', 'id', 'uint', 'int', 'hex16', 'hex32', 'iso8601ms', 'date', 'null']);
@@ -355,6 +355,44 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
   const observations = shippedObservations(registry);
   assert.deepEqual(checkAllowlist(registry, observations), []);
   assert.deepEqual(checkTupleFixtures(observations), []);
+});
+
+test('G45.1: observer runtime has its own measure and the prose states hook latency, L3 flag and line-size semantics', () => {
+  assert.deepEqual(registry.kinds.hook.fields.tool_duration_ms, {
+    name: 'doflow.hook.tool_duration_ms', class: 'T1', type: 'uint|null', phase: 'P3',
+  });
+  const contract = fs.readFileSync(path.join(REPO, 'docs/specs/telemetry-contract.md'), 'utf8');
+  const hookRows = contract.split('## Hook lines\n')[1].split('## Verify lines\n')[0];
+  const latency = hookRows.split('\n').find((line) => line.startsWith('| `duration_ms` |'));
+  const runtime = hookRows.split('\n').find((line) => line.startsWith('| `tool_duration_ms` |'));
+  assert.match(latency, /hook latency.*always null on `post-shell-observe`/);
+  assert.match(runtime, /T1 \| P3 \|.*native `duration_ms` runtime on the observer.*null on other hook lines/);
+  assert.match(hookRows, /Hook lines carry no content and may reach about 600 bytes with maximum-length ids/);
+  const v0 = contract.split('\n').find((line) => line.startsWith('| `verify.run` | `v0` |'));
+  assert.match(v0, /L3 is null with the flag on and `off` with the flag off; dispatch is null/);
+});
+
+test('088 docs name the shipped reports, manifest exits, guard inventory and observed baseline', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs/reference.md'), 'utf8');
+  assert.doesNotMatch(reference, /pVal|significant|summary\.md/);
+  const baseline = reference.split('\n').find((line) => line.startsWith('| `bench verify-baseline '));
+  assert.match(baseline, /`report\.json`, `report\.md`/);
+  assert.match(baseline, /manifest mismatch exits 1.*malformed snapshot\/manifest exits 2/);
+
+  const architecture = fs.readFileSync(path.join(REPO, 'docs/architecture.md'), 'utf8').split('### The guard suite\n')[1].split('## Contributor guardrails')[0];
+  const entries = [...architecture.matchAll(/^- \*\*(G\d+)\*\* \(`([^`]+\.test\.js)`/gm)];
+  const files = new Set(entries.map((entry) => entry[2]));
+  const numbers = new Set(entries.map((entry) => entry[1]));
+  const guards = fs.readdirSync(path.join(REPO, 'test/guards')).filter((file) => file.endsWith('.test.js'));
+  assert.ok(entries.length > 40 && guards.length > 50, 'the guard directory and inventory were found');
+  for (const file of files) assert.ok(guards.includes(file), `${file} is an actual guard`);
+  assert.match(architecture, new RegExp(`holds\\s+${guards.length} test files`));
+  assert.ok(architecture.includes(`${entries.length} entries across ${files.size} test files and carries ${numbers.size} distinct G-numbers`));
+
+  const release = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8').split('\n').find((line) => line.startsWith('- **Feature 088 '));
+  assert.match(release, /`tool_duration_ms`.*`duration_ms:null`/);
+  assert.match(release, /bounded output excerpts in the in-flight store with a short TTL/);
+  assert.match(release, /baseline shown as observed, not a result/);
 });
 
 test('G45.2: no node process is started on a shell hook path, and the node files are the pinned three', () => {

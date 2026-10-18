@@ -20,7 +20,7 @@ const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const HOOK_FIXTURE = path.join(REPO, 'test/fixtures/telemetry/hook.jsonl');
 const ENVELOPE = '.doflow/shared/hooks/bridge/envelope.jq';
 const BASH = '/bin/bash';
-const LINE_KEYS = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt', 'role', 'worker_run', 'test_class'];
+const LINE_KEYS = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt', 'role', 'worker_run', 'tool_duration_ms', 'test_class'];
 const TEST_CLASS_VALUES = new Set(['verify.verb', 'test.full', 'test.scoped', 'test.other', 'none']);
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const INJECT_FROM = 'session:dft_token($d.identity.session)';
@@ -241,6 +241,7 @@ test('one allowlisted hook line per harness fixture, with the contract keys and 
       kind: 'hook', harness: surface.harness, event: surface.event, policy: surface.policy, verdict: 'allow',
       duration_ms: null, timestamp: 'T', session: native.session_id || null, tool: surface.tool,
       tool_call_id: surface.harness === 'pi' ? native.toolCallId : null, run: 'run-088', lineage: 'lineage-088', attempt: 2, role: null, worker_run: null,
+      tool_duration_ms: null,
       test_class: surface.policy === 'pre-bash-guard' ? 'none' : null,
     }, `${surface.harness}/${surface.policy}: line`);
     const content = native.prompt || native.tool_input?.command || native.input?.command || native.toolCall?.args?.CommandLine;
@@ -248,13 +249,16 @@ test('one allowlisted hook line per harness fixture, with the contract keys and 
   }
 });
 
-test('the committed hook fixture line retains the base keys before the test_class extension', () => {
+test('the committed hook fixture strictly pins bridge keys, including test_class and tool_duration_ms', () => {
   const root = project();
   run(root, SURFACES['claude:pre-bash-guard'], fixtureNative(SURFACES['claude:pre-bash-guard']));
   const [written] = hookLines(path.join(root, '.doflow'));
   const fixture = fs.readFileSync(HOOK_FIXTURE, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
   assert.equal(fixture.length, 1);
-  assert.deepEqual([...Object.keys(fixture[0]), 'test_class'], Object.keys(written));
+  assert.deepEqual(Object.keys(fixture[0]), Object.keys(written));
+  assert.equal(written.test_class, fixture[0].test_class);
+  assert.equal(written.duration_ms, null);
+  assert.equal(written.tool_duration_ms, fixture[0].tool_duration_ms);
 });
 
 test('a non-command hook line carries "test_class":null, and telemetry off writes no line', () => {
@@ -307,7 +311,7 @@ function assertRoleAndWorkerRun(root) {
   const lines = hookLines(config);
   assert.equal(lines.length, 3);
   assert.deepEqual(lines.map((line) => [line.role, line.worker_run]), [['worker', WORKER_RUN], ['main', null], [null, null]]);
-  assert.deepEqual(Object.keys(lines[0]).slice(-3), ['role', 'worker_run', 'test_class']);
+  assert.deepEqual(Object.keys(lines[0]).slice(-4), ['role', 'worker_run', 'tool_duration_ms', 'test_class']);
 }
 
 test('role and worker_run are written when the env has them and are null otherwise', () => {
