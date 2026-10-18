@@ -169,9 +169,29 @@ missing from every searched path gets the documented exit-2 message naming each 
 `install -t <harness>` command that provides it, rather than a silent failure.
 
 **Tracing is free because it happens at the seam.** The dispatcher appends one metadata record per
-dispatched verb to a date-partitioned append-only run ledger under neutral state. No skill has to
-opt in, and `test/guards/runtime-unification.test.js` asserts the records carry metadata only — no
-source content, no secrets.
+dispatched verb to a date-partitioned append-only run ledger under neutral state (`runs/*.jsonl`),
+and hooks and verification append local telemetry (`runs/telemetry/*.jsonl`). No skill has to opt
+in, and `test/guards/runtime-unification.test.js` asserts the records carry metadata only — no
+source content, no secrets. When telemetry is turned off (`DOFLOW_TELEMETRY=off`), writers emit
+nothing and create no telemetry files.
+
+Offline, `trace spans` projects spans from existing ledger, telemetry, attempt, orchestration, and
+worker records without a dedicated span store. Trace segments are scoped to task-attempt slugs rather
+than session run keys alone: a worker run joins through its slug's attempt file, token, and task
+(falling back to caller run key and time window within that slug), while a dispatch run closes only
+its own slug's segment. Orchestration runs close by trace identifier or feature slug, and records
+lacking both keep the run-key closing rule. Line placement follows tiered precedence: explicit
+identifiers beat time windows (hook lines join by `worker_run` and verification lines by
+`dispatch_run`), an ID-less line matching multiple segments joins if it fits exactly one worker or
+dispatch run activity window (labelled with `attrs.join: "activity"` as an inferred join), and lines
+held by a single segment join unlabelled by run key and window. ID-less records inside overlapping
+concurrent activity windows cannot be attributed to a single activity and remain explicitly
+reported as ambiguous gaps. Hook lines record `role` (`main` or `worker`) and `worker_run`,
+dispatch-sourced verification lines record `dispatch_run`, and worker execution environments receive
+`DOFLOW_WORKER_RUN` (six launch environment variables, not part of the stored identity contract).
+One known gap: in the 109 live run the read-only worker wrote no hook lines at all, and the cause has
+not been established (tracked as follow-up FU-hehzbq). ID-less windows across concurrent activities
+also remain ambiguous.
 
 Behind the seam there is exactly one runtime. `src/runtime/` is canonical; the parallel Python tree
 that used to shadow it — a second guidance-projection compiler, a second health auditor, and the
