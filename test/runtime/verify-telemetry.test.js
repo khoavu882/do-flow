@@ -35,7 +35,7 @@ const KINDS = ['verify.run', 'verify.tier', 'verify.check'];
 const COMMON = ['timestamp', 'kind', 'run', 'lineage', 'attempt'];
 /** IC-006, P3 column (FR-016). P5 keys arrive with G.1..G.4. */
 const P3 = {
-  'verify.run': ['verify_id', 'source', 'task', 'dispatch_run', 'risk', 'level', 'status', 'exit_code', 'duration_ms', 'checks_run'],
+  'verify.run': ['verify_id', 'source', 'task', 'dispatch_run', 'risk', 'level', 'status', 'exit_code', 'duration_ms', 'checks_run', 'v0'],
   'verify.tier': ['verify_id', 'tier', 'status', 'selection_basis', 'selected', 'total', 'fallback', 'duration_ms'],
   'verify.check': ['verify_id', 'tier', 'status', 'exit_code', 'duration_ms', 'tests', 'tests_failed', 'cpu_ms', 'resource_basis', 'check_key', 'shared'],
 };
@@ -126,7 +126,7 @@ test('the registry declares exactly the IC-006 P2 and P3 keys for the three veri
   for (const kind of KINDS) {
     const fields = REGISTRY.kinds[kind].fields;
     assert.deepEqual(Object.keys(fields), P3[kind], kind);
-    for (const [key, field] of Object.entries(fields)) assert.ok(['P2', 'P3', 'P5.1'].includes(field.phase), `${kind}.${key}`);
+    for (const [key, field] of Object.entries(fields)) assert.ok(['P2', 'P3', 'P5.1', 'P5.2'].includes(field.phase), `${kind}.${key}`);
   }
 });
 
@@ -146,6 +146,7 @@ for (const name of ['pass', 'fail']) {
     assert.deepEqual({ source: run.source, task: run.task, risk: run.risk, status: run.status },
       { source: 'verb', task: 'T-1', risk: 'LOW', status: report.status });
     assert.equal(run.level, 'L1');
+    assert.equal(run.v0, 'on');
     assert.equal(run.timestamp, report.startedAt);
     assert.deepEqual([run.run, run.lineage, run.attempt], [null, null, null]);
     assert.equal(run.exit_code, name === 'pass' ? 0 : 1);
@@ -265,7 +266,7 @@ test('check durations are monotonic, timestamps never go backwards, and a tier d
   const run = records[0];
   assert.equal(run.checks_run, checks.length);
   assert.ok(run.duration_ms >= 0);
-  assert.deepEqual([run.level, run.v0, run.exit_code], ['L2', null, 1]);
+  assert.deepEqual([run.level, run.v0, run.exit_code], ['L2', 'on', 1]);
   for (const check of checks) assert.deepEqual([check.check_key, check.shared], [null, 'none']);
 });
 

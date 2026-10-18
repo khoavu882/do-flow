@@ -51,7 +51,8 @@
         "status": { "name": "doflow.verify.run.status", "class": "T2", "type": "enum:status|null", "phase": "P2" },
         "exit_code": { "name": "doflow.verify.run.exit_code", "class": "T1", "type": "uint|null", "phase": "P3" },
         "duration_ms": { "name": "doflow.verify.run.duration_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
-        "checks_run": { "name": "doflow.verify.run.checks_run", "class": "T1", "type": "uint|null", "phase": "P3" }
+        "checks_run": { "name": "doflow.verify.run.checks_run", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "v0": { "name": "doflow.verify.run.v0", "class": "T2", "type": "enum:v0|null", "phase": "P5.2" }
       }
     },
     "verify.tier": {

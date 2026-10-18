@@ -8,7 +8,7 @@ const nodeFs = require('node:fs');
 const { SAFE_TOKEN, telemetryOff, TelemetryWriter } = require('../trace/telemetry.ts');
 const { resolveRunsLocation } = require('../trace/ledger.ts');
 const { DISPATCH_RUN_ID } = require('../dispatch/store.ts');
-const { levelOf, loadVerificationRegistry } = require('./registry.ts');
+const { levelOf, v0Applies, v0Enabled, loadVerificationRegistry } = require('./registry.ts');
 
 let defaultRegistry: any = null;
 function getDefaultRegistry(): any {
@@ -137,6 +137,29 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
   }
 
   const dispatchRun = ctx.dispatchRun ?? ctx.dispatch_run;
+  const reg = ctx.registry || getDefaultRegistry();
+  const risk = ctx.risk ?? null;
+  const level = ctx.level ?? (risk ? levelOf(reg, risk) : null);
+  const applies = ctx.v0Applies !== undefined ? Boolean(ctx.v0Applies) : (risk ? v0Applies(reg, risk) : false);
+
+  let v0: 'on' | 'off' | null = null;
+  if (ctx.source === 'dispatch') {
+    v0 = null;
+  } else if (ctx.v0 === 'off' || ctx.v0 === false) {
+    v0 = 'off';
+  } else if (ctx.v0 === 'on' || ctx.v0 === true) {
+    v0 = applies ? 'on' : null;
+  } else if (ctx.v0 === null) {
+    v0 = null;
+  } else {
+    const isEnabled = v0Enabled(ctx.env || process.env, ctx.configDir);
+    if (!isEnabled) {
+      v0 = 'off';
+    } else {
+      v0 = applies ? 'on' : null;
+    }
+  }
+
   const run = {
     kind: 'verify.run',
     timestamp: isoAt(runStart),
@@ -146,14 +169,14 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
     dispatch_run: ctx.source === 'dispatch' && typeof dispatchRun === 'string' && DISPATCH_RUN_ID.test(dispatchRun)
       ? dispatchRun
       : null,
-    risk: ctx.risk ?? null,
-    level: ctx.level ?? (ctx.risk ? levelOf(ctx.registry || getDefaultRegistry(), ctx.risk) : null),
+    risk,
+    level,
     status: report.status,
     exit_code: ctx.exitCode ?? null,
     // Wall time between the report's own stamps: the engine clock, not a monotonic one.
     duration_ms: Number.isFinite(runStart) && Number.isFinite(runEnd) ? Math.max(0, runEnd - runStart) : null,
     checks_run: checksRun,
-    v0: null,
+    v0,
   };
   return [run, ...body];
 }
@@ -187,7 +210,7 @@ function emitVerifyTelemetry({ report, metrics = null, ctx, env = process.env, s
     if (telemetryOff(env)) return;
     const from = storeStart(start, env, fsImpl);
     if (from === null) return;
-    const records = buildVerifyRecords({ report, metrics, ctx: { ...ctx, verifyId: crypto.randomBytes(8).toString('hex') } });
+    const records = buildVerifyRecords({ report, metrics, ctx: { env: ctx?.env || env, ...ctx, verifyId: crypto.randomBytes(8).toString('hex') } });
     new TelemetryWriter({ env, fsImpl, start: from, ...(now ? { now } : {}) }).write(records);
   } catch {
     // Telemetry changes no outcome (FR-002, NFR-005).

@@ -16,6 +16,7 @@ const path = require('node:path');
 const nodeFs = require('node:fs');
 const { parseYamlFile } = require('../capability-router.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { configHome } = require('../config-home.ts');
 
 const REGISTRY_FILENAME = 'verification.json';
 
@@ -185,10 +186,42 @@ function v0Applies(registry: any, risk: string | null | undefined): boolean {
   return Array.isArray(v0Levels) && v0Levels.includes(level);
 }
 
+/**
+ * Resolves whether V0 behavior is enabled (IC-015, DD-8).
+ * False if env.DOFLOW_VERIFY_V0 === 'off', else false if <configDir>/verify-v0.off exists, else true.
+ * A stat fault counts as absent (on). Read once per verify command (handleVerifyCommand).
+ *
+ * @param {Object} [env=process.env]
+ * @param {string|null} [configDir] directory containing verify-v0.off sentinel; falls back to configHome(env).dir
+ * @param {Object} [fsImpl=nodeFs]
+ * @returns {boolean}
+ */
+function v0Enabled(env: any = process.env, configDir?: string | null, fsImpl: any = nodeFs): boolean {
+  if (env && env.DOFLOW_VERIFY_V0 === 'off') {
+    return false;
+  }
+  const dir = configDir !== undefined ? configDir : configHome(env).dir;
+  if (!dir) {
+    return true;
+  }
+  const io = fsImpl || nodeFs;
+  try {
+    const stat = io.statSync(path.join(dir, 'verify-v0.off'));
+    if (typeof stat.isFile === 'function' ? stat.isFile() : true) {
+      return false;
+    }
+  } catch {
+    // A stat fault counts as absent (on).
+    return true;
+  }
+  return true;
+}
+
 module.exports = {
   loadVerificationRegistry,
   levelOf,
   v0Applies,
+  v0Enabled,
   TIER_RESOLUTIONS,
   TIER_STATUSES,
   RECOVERY_OUTCOMES,

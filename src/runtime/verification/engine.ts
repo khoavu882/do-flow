@@ -52,6 +52,7 @@ const {
   TIER_STATUSES,
   RECOVERY_OUTCOMES,
   REGISTRY_FILENAME,
+  v0Enabled,
 } = require('./registry.ts');
 
 // `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
@@ -107,6 +108,7 @@ class VerificationEngine {
   policy: any;
   runner: any;
   recoveryOverride: any;
+  v0: boolean;
 
   /**
    * @param {Object} [options]
@@ -118,6 +120,7 @@ class VerificationEngine {
    * @param {Function} [options.clock] injection seam returning epoch milliseconds
    * @param {RecoveryManager} [options.recovery] overrides the per-risk-level manager
    * @param {string} [options.logDir] where failing checks' full logs go (`verifyStateRoot`)
+   * @param {boolean} [options.v0] whether V0 behavior is enabled (IC-015)
    */
   constructor(options: any = {}) {
     this.cwd = options.cwd || process.cwd();
@@ -134,6 +137,7 @@ class VerificationEngine {
     this.policy = this.registry.policy || {};
     this.runner = new VerificationContractRunner({ cwd: this.cwd, exec: this.exec, logDir: options.logDir });
     this.recoveryOverride = options.recovery || null;
+    this.v0 = options.v0 !== undefined ? Boolean(options.v0) : true;
   }
 
   /** @returns {string} ISO timestamp from the injected clock */
@@ -1296,7 +1300,7 @@ function verifyStateRoot({ start, env = process.env, homeDir = os.homedir(), ins
   return { configDir, projectRoot: path.basename(configDir) === '.doflow' ? path.dirname(configDir) : null };
 }
 
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null }: {
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null, env = process.env, fsImpl = nodeFs }: {
   taskId?: any;
   action?: string;
   risk?: any;
@@ -1308,6 +1312,8 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   verificationInput?: string | null;
   verificationPhase?: string | null;
   baselineRef?: string | null;
+  env?: any;
+  fsImpl?: any;
 } = {}): number {
   // The task id names state files here, so it obeys the rule every other task verb applies.
   try {
@@ -1370,11 +1376,12 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     if (!declared) declared = { paths: [...recordedScope], origin: 'readiness-record', record: recordRel };
   }
 
-  const state = verifyStateRoot({ start: cwd });
+  const state = verifyStateRoot({ start: cwd, env, fsImpl });
+  const v0 = v0Enabled(env, state.configDir, fsImpl);
   let engine: any;
   let contract: any;
   try {
-    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT, logDir: path.join(state.configDir, 'state', 'verification', 'logs') });
+    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT, logDir: path.join(state.configDir, 'state', 'verification', 'logs'), v0, fsImpl });
     // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
     // declared scope; with neither the change-scope tier is UNRESOLVED and says where it looked.
     const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared, baselineRef });
@@ -1464,7 +1471,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   const exitCode = report.status === 'PASS' ? 0 : 1;
   // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
-  emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode }, start: cwd });
+  emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode, v0: v0 ? 'on' : 'off' }, start: cwd, env, fsImpl });
   upkeepAfterVerify({ projectRoot: state.projectRoot });
   return finishRuntime(exitCode);
 }

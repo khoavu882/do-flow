@@ -115,6 +115,7 @@ spawn settles, and no tier or check line. All lines of one run share `verify_id`
 | `verify.run` | `exit_code` | `uint` or null | T1 | the verify run's exit code |
 | `verify.run` | `duration_ms` | `uint` or null | T1 | total elapsed milliseconds for the verify run |
 | `verify.run` | `checks_run` | `uint` or null | T1 | count of executed checks only |
+| `verify.run` | `v0` | `enum:v0` or null | T2 | whether V0 optimizations were enabled (`on`/`off`); null when V0 does not apply (e.g. L3 via `v0Applies`, or dispatch) |
 | `verify.tier`, `verify.check` | `tier` | `token` or null | T2 | the tier id |
 | `verify.tier`, `verify.check` | `status` | `enum:status` or null | T2 | the tier's or the check's status |
 | `verify.tier` | `selection_basis`, `fallback` | `enum:selection_basis`, `enum:fallback`, or null | T2 | the targeted tier's test selection; null on every other tier |
@@ -141,7 +142,7 @@ created `state/runs` in it.
 A failing check leaves a `.doflow/state/verification/logs` fragment in the working directory, and
 the walk passes over it. With no project store nothing is written; there is no global fallback.
 
-Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` follows in P5.2.
+Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` is declared with phase P5.2.
 
 `recordFields` are not line keys: they are the identifiers a run record carries
 (`task-run.run.traceId`, `task-run.history.traceId`, `task-run.history.traceLink`,
