@@ -328,7 +328,12 @@ function readLastMessage(parser: any, file: string): void {
     fd = fs.openSync(file, 'r');
     const bytes = Buffer.alloc(65536);
     const length = fs.readSync(fd, bytes, 0, bytes.length, 0);
-    parser.lastMessage(maskBody(bytes.subarray(0, length).toString('utf8')).text);
+    const masked = maskBody(bytes.subarray(0, length).toString('utf8')).text;
+    parser.lastMessage(masked);
+    // NFR-004: the retained copy holds only the masked, bounded text, never the raw worker output.
+    fs.closeSync(fd);
+    fd = undefined;
+    try { fs.writeFileSync(file, masked, 'utf8'); } catch { fs.rmSync(file, { force: true }); }
   } catch {
     // Codex may not have produced this optional file; that does not change the run outcome.
   } finally {

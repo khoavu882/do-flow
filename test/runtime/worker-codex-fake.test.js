@@ -142,6 +142,9 @@ test('fake codex final-message output is masked and a read-only and edit run are
       assert.equal(run.isolation, undefined);
     }
     assert.equal(fs.existsSync(p.lastFile(runId)), true, 'last message file remains for retention');
+    const retained = fs.readFileSync(p.lastFile(runId), 'utf8');
+    assert.equal(retained.includes('fake-secret-token-value'), false, 'the retained final-message file holds no raw secret');
+    assert.equal(retained, 'Authorization: <masked>');
     const invocation = readLog(p.sb.log).find((entry) => entry.argv.includes('--json'));
     const output = invocation.argv[invocation.argv.indexOf('-o') + 1];
     assert.equal(output, p.lastFile(runId));
@@ -184,7 +187,8 @@ test('negative control: the supervisor reads only the first 65536 final-message 
   const p = project(t, { jsonl: [{ type: 'turn.completed' }], lastMessage: `${' '.repeat(65536)}tail` });
   const { runId } = p.seed();
   const run = await p.supervise(runId);
-  assert.equal(fs.statSync(p.lastFile(runId)).size, 65540);
+  // The retained masked copy is bounded to what was read, so the 4 tail bytes are not kept.
+  assert.equal(fs.statSync(p.lastFile(runId)).size, 65536);
   assert.deepEqual([run.report.status, run.report.reason, run.report.summary], ['unparsed', 'no-final-message', null]);
   assert.equal(resultOfRun(run).resultOffered, false);
 });
