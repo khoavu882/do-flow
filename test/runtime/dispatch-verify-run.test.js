@@ -138,7 +138,8 @@ test('no evidence item, record or output holds an argv element', POSIX, async (t
   const item = evidenceOf(p, 'A.1', result.evidenceId);
   const texts = [JSON.stringify(result), JSON.stringify(item)];
   for (const file of filesUnder(path.join(p.root, '.doflow', 'state'))) texts.push(fs.readFileSync(file, 'utf8'));
-  for (const element of argv) {
+  // A flag such as -e is two characters and matches random ids (w-e...); the node path and the script text are what must stay out of every record.
+  for (const element of argv.filter((e) => e.length > 2)) {
     for (const text of texts) assert.ok(!text.includes(element), `argv element found: ${element.slice(0, 40)}`);
   }
   assert.ok(texts.every((text) => !text.includes(MARKER)));
