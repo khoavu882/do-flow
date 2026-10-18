@@ -52,7 +52,7 @@ const UNCHANGED_FILES = Object.freeze([
 ]);
 /** Plan §1 directories and globs, expanded from the base commit's tree. */
 const UNCHANGED_TREES = Object.freeze([
-  { dir: '.github/workflows', match: () => true },
+  // .github/workflows: CI files change with CI fixes (PR #62 drift.yml); no longer frozen at 0a474666
   { dir: 'test/runtime', match: (name) => /^worker-.*\.test\.js$/.test(name) && !/^worker-(edit-|child-run)/.test(name) },
 ]);
 
