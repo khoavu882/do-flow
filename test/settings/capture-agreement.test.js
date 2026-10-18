@@ -30,7 +30,16 @@ const { readLexicalCapture } = require('../../src/runtime/settings/lexical.ts');
 
 const POSIX = process.platform !== 'win32';
 const ROOT = POSIX && typeof process.getuid === 'function' && process.getuid() === 0;
-const BASH = '/bin/bash';
+// Keep macOS's Bash 3.2 as the default, but let this test file be exercised with another host Bash.
+const BASH = process.env.DOFLOW_TEST_BASH || '/bin/bash';
+const BASH_MAJOR = (() => {
+  const result = spawnSync(BASH, ['--version'], { encoding: 'utf8' });
+  const match = `${result.stdout || ''}\n${result.stderr || ''}`.match(/\bversion\s+(\d+)\./i);
+  return match ? Number(match[1]) : null;
+})();
+const BASH_3_REGEX_SKIP_REASON = BASH_MAJOR >= 4
+  ? `requires Bash 3.x regex semantics; detected Bash ${BASH_MAJOR}`
+  : false;
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const POLICY_HELPER = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'capture-failure.sh');
 const RUNNER = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js');
@@ -349,7 +358,9 @@ test('negative control: a bash block with DD-3\'s original bare class [^,}[:spac
 
 // bash 3.2's regex has no \s (DD-3 probe): `\s*` matches only an empty run, so `"k": "on"` captures
 // the empty bare value after the colon (off) and `"k"   :   "off"` does not match at all (no setting).
-test('negative control: a bash block whose regex uses \\s fails the corpus on bash 3.2', { skip: !POSIX }, (t) => {
+test('negative control: a bash block whose regex uses \\s fails the corpus on bash 3.2', {
+  skip: !POSIX ? 'requires POSIX' : BASH_3_REGEX_SKIP_REASON,
+}, (t) => {
   const helper = patchedHelper(t, '[[:space:]]*:[[:space:]]*', '\\s*:\\s*');
   const found = disagreements({ 'patched helper': policyReader(helper) }, CORPUS_ROWS, t).map((x) => x.row);
   assert.ok(found.includes('absolute xdg: corpus: pretty LF'), JSON.stringify(found));
