@@ -9,6 +9,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
+const { parsePlan } = require('../scaffold/artifacts.ts');
+const { buildGraph } = require('../task-graph.ts');
+const { CapabilityRouter } = require('../capability-router.ts');
+const { deriveStatus, check } = require('./rows.ts');
+const { validateFindings } = require('./gates.ts');
+const defaultExecFileSync = execFileSync;
 
 interface GitMergeInfo {
   sha: string;
@@ -152,7 +158,265 @@ function gatherGitFacts({
   };
 }
 
+/** CommonMark fences and exact-length backtick spans; unmatched spans remain prose. */
+function countMarkers(text: string): number {
+  const prose: string[] = [];
+  let fence: { char: string; length: number } | null = null;
+  for (const line of text.split('\n')) {
+    const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      if (match && match[1][0] === fence.char && match[1].length >= fence.length && /^\s*$/.test(match[2])) fence = null;
+      // Keep a block boundary: inline spans cannot cross a fenced block.
+      prose.push('\0');
+    } else if (match && (match[1][0] !== '`' || !match[2].includes('`'))) {
+      fence = { char: match[1][0], length: match[1].length };
+      prose.push('\0');
+    } else prose.push(line);
+  }
+  const visible = prose.join('\n');
+  let count = 0;
+  for (let i = 0; i < visible.length;) {
+    if (visible[i] === '\\' && visible[i + 1] === '`') { i += 2; continue; }
+    if (visible[i] === '`') {
+      let end = i;
+      while (visible[end] === '`') end++;
+      const length = end - i;
+      let cursor = end;
+      let closing = -1;
+      while (cursor < visible.length && visible[cursor] !== '\0') {
+        if (visible[cursor] !== '`') { cursor++; continue; }
+        let after = cursor;
+        while (visible[after] === '`') after++;
+        if (after - cursor === length) { closing = after; break; }
+        cursor = after;
+      }
+      i = closing < 0 ? end : closing;
+      continue;
+    }
+    if (visible.startsWith('[NEEDS CLARIFICATION', i)) count++;
+    i++;
+  }
+  return count;
+}
+
+interface GateFact {
+  name: string;
+  value: any;
+  locator: string;
+  sha256: string;
+  unreadable?: string;
+}
+
+/**
+ * Read only the selected gate's sources. Every derived fact and raw source binds its bytes.
+ * root is the feature checkout; mainRoot and registryRoot may point at the main checkout/install.
+ * execFileSync/fsImpl are test seams; production uses only literal, allow-listed git vectors.
+ */
+function gatherGateFacts(options: any): GateFact[] {
+  const { root, artifactRoot, gateId, policy, row } = options;
+  const fsImpl = options.fsImpl || fs;
+  const execFileSync = options.execFileSync || defaultExecFileSync;
+  const execOptions = { cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] };
+  const result: GateFact[] = [];
+  const predicates = policy?.classes?.[row?.class || 'feature']?.[gateId]?.predicates || [];
+  const uses = (predicate: string) => predicates.includes(predicate);
+  const add = (name: string, value: any, locator: string, bytes?: any, unreadable?: string): GateFact => {
+    const contentDigest = sha256Digest(bytes === undefined ? JSON.stringify(value) : bytes);
+    const fact: GateFact = { name, value, locator,
+      sha256: unreadable ? sha256Digest(JSON.stringify({ unreadable, contentDigest })) : contentDigest };
+    if (unreadable) fact.unreadable = unreadable;
+    result.push(fact);
+    return fact;
+  };
+  const failure = (error: any) => String(error?.code || 'unreadable');
+  const read = (candidates: string[]): any => {
+    for (const file of candidates) {
+      try { const bytes = fsImpl.readFileSync(file); return { locator: file, bytes, text: String(bytes) }; }
+      catch (error: any) {
+        if (error?.code !== 'ENOENT') return { locator: file, bytes: '', unreadable: failure(error) };
+      }
+    }
+    return { locator: candidates[0], bytes: '', unreadable: 'ENOENT' };
+  };
+  const source = (name: string, input: any) => add(`source:${name}`, null, input.locator, input.bytes, input.unreadable);
+  add('row', row || null, `${options.mainRoot || root}/agent-docs/roadmap/rows.json#${row?.id || 'unknown'}`);
+  if (!row) return result;
+
+  let plan: any = null;
+  if (uses('plan-parses') || uses('plan-within-write-set') || (uses('protected-paths') && gateId === 'gate-a')) {
+    const input = read([path.join(artifactRoot, 'plan.md'), path.join(artifactRoot, 'planning/plan.md')]);
+    let value: any = { ok: false, files: [] };
+    if (!input.unreadable) {
+      try {
+        const parsed = parsePlan(input.text);
+        const built = buildGraph(parsed);
+        value = { ok: parsed.gaps.length === 0 && built.ok, files: parsed.tasks.flatMap((task: any) => task.files) };
+      } catch { /* The plan-parses predicate denies; no guessed tasks. */ }
+    }
+    plan = add('plan', value, input.locator, input.bytes, input.unreadable);
+  }
+  for (const artifact of ['requirement', 'design', 'plan']) {
+    if (!uses(`markers-zero:${artifact}`)) continue;
+    const candidates = artifact === 'requirement' ? ['intention/requirement.md', 'requirement.md']
+      : artifact === 'design' ? ['design/design.md', 'design.md'] : ['plan.md', 'planning/plan.md'];
+    const input = read(candidates.map((entry) => path.join(artifactRoot, entry)));
+    add(`markers:${artifact}`, input.unreadable ? null : countMarkers(input.text), input.locator, input.bytes, input.unreadable);
+  }
+
+  let developHead = options.developHead;
+  let featureHead = options.featureHead;
+  if (uses('protected-paths') || uses('verify-pass-on-head') || uses('findings-valid') || uses('dispositions-backed')) {
+    let unreadable: string | undefined;
+    try {
+      if (!developHead) developHead = execFileSync('git', ['rev-parse', '--verify', options.developBranch || 'develop'], execOptions).trim();
+      if (!featureHead) featureHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], execOptions).trim();
+      if (!/^[0-9a-f]{40}$/.test(developHead) || !/^[0-9a-f]{40}$/.test(featureHead)) unreadable = 'invalid-head';
+    } catch (error: any) { unreadable = failure(error); }
+    add('heads', { developHead: developHead || null, featureHead: featureHead || null }, `${root}#heads`, undefined, unreadable);
+  }
+
+  if (uses('protected-paths')) {
+    const locator = `${root}#diff:${developHead}...${featureHead}`;
+    const changes: any[] = [];
+    const packages: any = {};
+    let unreadable: string | undefined;
+    try {
+      const text = execFileSync('git', ['diff', '--name-status', '-z', `${developHead}...${featureHead}`, '--'], execOptions);
+      add('source:diff', null, locator, text);
+      const fields = text.split('\0');
+      if (fields[fields.length - 1] === '') fields.pop();
+      for (let i = 0; i < fields.length;) {
+        const status = fields[i++];
+        if (!/^(?:[ADMTUXB]|[RC][0-9]{1,3})$/.test(status) || !fields[i]) throw new Error('invalid diff');
+        if (/^[RC]/.test(status)) {
+          const oldPath = fields[i++];
+          const file = fields[i++];
+          if (!file) throw new Error('invalid rename');
+          changes.push({ status, oldPath, path: file });
+        } else changes.push({ status, path: fields[i++] });
+      }
+      const base = execFileSync('git', ['show', `${developHead}:package.json`], execOptions);
+      add('source:package-base', null, `${root}#${developHead}:package.json`, base);
+      const head = execFileSync('git', ['show', `${featureHead}:package.json`], execOptions);
+      add('source:package-head', null, `${root}#${featureHead}:package.json`, head);
+      packages.base = JSON.parse(base);
+      packages.head = JSON.parse(head);
+    } catch (error: any) { unreadable = failure(error); }
+    const addedGuards: string[] = [];
+    if (gateId === 'gate-a' && !unreadable) {
+      for (const file of [...(row.writeSet || []), ...(plan?.value.files || [])]) {
+        if (!file.startsWith(policy.protected.guardDir) || file.endsWith('/')) continue;
+        if (changes.some((change) => change.path === file)) continue;
+        // A missing guard at the base is a planned addition; status 1/128 is only accepted after
+        // a readable tree listing proves absence, never by treating a failed command as absence.
+        try {
+          const listed = execFileSync('git', ['ls-files', '--with-tree', developHead, '-z', '--', file], execOptions);
+          add(`source:guard:${file}`, null, `${root}#${developHead}:${file}`, listed);
+          if (!listed.split('\0').includes(file)) addedGuards.push(file);
+        } catch (error: any) { unreadable = failure(error); }
+      }
+    }
+    add('protected-paths', { changes, packages, writeSet: row.writeSet || [], planFiles: plan?.value.files || [], addedGuards }, locator, undefined, unreadable);
+  }
+
+  if (uses('needs-merged')) {
+    const gathered = options.gitFacts || gatherGitFacts({ root: options.mainRoot || root, developBranch: options.developBranch || 'develop' });
+    const unreadable = gathered.unreadable || [];
+    const declaredRows = options.rows || [row];
+    const statuses = deriveStatus(declaredRows, gathered);
+    const integrity = check({ rows: declaredRows, gitFacts: gathered });
+    add('needs', (row.needs || []).map((id: string) => ({ id, status: integrity.offendingRowIds.includes(id) ? 'not-started' : statuses.rowStatus[id] || 'not-started' })),
+      `${options.mainRoot || root}#develop:${unreadable.length ? unreadable.join(',') : 'merges'}`,
+      JSON.stringify(gathered), unreadable.length ? `unreadable:${unreadable.join(',')}` : undefined);
+  }
+
+  if (uses('requires-reachable')) {
+    const registryRoot = options.registryRoot || path.resolve(__dirname, '../../..');
+    const input = read([path.join(registryRoot, 'core/registry/capabilities.json')]);
+    const values: any[] = [];
+    let unreadable = input.unreadable;
+    const env = options.env || process.env;
+    const binaryChecker = (binary: string): boolean => {
+      const candidates = binary.includes('/') || binary.includes('\\') ? [path.resolve(root, binary)]
+        : String(env.PATH || '').split(path.delimiter).filter(Boolean).flatMap((dir: string) => {
+          const suffixes = process.platform === 'win32' ? String(env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';') : [''];
+          return suffixes.map((suffix: string) => path.join(dir, `${binary}${suffix}`));
+        });
+      return candidates.some((file: string) => {
+        try { fsImpl.accessSync(file, fs.constants.X_OK); return fsImpl.statSync(file).isFile(); } catch { return false; }
+      });
+    };
+    if (!unreadable) {
+      try {
+        const capabilities = JSON.parse(input.text).capabilities;
+        if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) throw new Error('invalid capabilities');
+        const router = new CapabilityRouter({ repoRoot: registryRoot, projectRoot: root, fsImpl, capabilities, routes: {}, binaryChecker });
+        for (const id of row.requires || []) {
+          const declared = Object.hasOwn(capabilities, id);
+          const resolved = declared ? router.resolveCapability(id, { deepCheck: false }) : null;
+          values.push({ id, declared, reachable: Boolean(resolved?.provider && ['HEALTHY', 'FALLBACK'].includes(resolved.status)), provider: resolved?.provider?.id || null });
+        }
+      } catch (error: any) { unreadable = failure(error); }
+    }
+    source('capabilities', input);
+    add('requires', values, `${input.locator}#requires`, undefined, unreadable);
+  }
+
+  if (uses('verify-pass-on-head')) {
+    const input = read([path.join(root, '.doflow/state/verification/runs', `${row.slug}.jsonl`)]);
+    let records: any[] = [];
+    let unreadable = input.unreadable === 'ENOENT' ? undefined : input.unreadable;
+    if (!input.unreadable) {
+      try {
+        records = input.text.split('\n').filter((line: string) => line.trim()).map((line: string) => JSON.parse(line));
+        if (records.some((record: any) => !record || typeof record !== 'object' || Array.isArray(record))) throw new Error('invalid run');
+      } catch { unreadable = 'invalid-jsonl'; }
+    }
+    add('verification', records, input.locator, input.bytes, unreadable);
+  }
+
+  let findings: any = null;
+  if (predicates.some((predicate: string) => ['findings-valid', 'no-dropped-findings', 'dispositions-backed', 'blockers-zero'].includes(predicate))) {
+    const input = read([path.join(artifactRoot, 'review/findings.json')]);
+    if (!input.unreadable) {
+      try { findings = JSON.parse(input.text); } catch { findings = input.text; }
+    }
+    add('findings', findings, input.locator, input.bytes, input.unreadable === 'ENOENT' ? undefined : input.unreadable);
+  }
+  if (uses('dispositions-backed')) {
+    const ancestors: Record<string, boolean> = {};
+    let decisions: any[] = [];
+    let unreadable: string | undefined;
+    const converged = Array.isArray(findings?.converged) ? findings.converged : [];
+    for (const finding of converged) if (finding?.status === 'fixed' && /^[0-9a-f]{40}$/.test(finding.fixedIn)) {
+      try { execFileSync('git', ['merge-base', '--is-ancestor', finding.fixedIn, featureHead], execOptions); ancestors[finding.fixedIn] = true; }
+      catch (error: any) {
+        ancestors[finding.fixedIn] = false;
+        if (error?.status !== 1) unreadable = `${failure(error)}:ancestor:${finding.fixedIn}`;
+      }
+      add(`source:ancestor:${finding.fixedIn}`, ancestors[finding.fixedIn], `${root}#ancestor:${finding.fixedIn}:${featureHead}`);
+    }
+    if (converged.some((finding: any) => finding?.status === 'user-accepted')) {
+      const input = read([path.join(artifactRoot, 'decisions/register.json')]);
+      source('decisions', input);
+      if (input.unreadable) unreadable = `${input.unreadable}:${input.locator}`;
+      else {
+        try {
+          const register = JSON.parse(input.text);
+          if (register.version !== 1 || !Array.isArray(register.decisions) || !Number.isInteger(register.nextId)) throw new Error('invalid register');
+          decisions = register.decisions;
+        } catch { unreadable = `invalid-register:${input.locator}`; }
+      }
+    }
+    // The schema validator is deliberately pure and shared by gathering and gate evaluation.
+    add('dispositions', { ancestors, decisions, schemaValid: validateFindings(findings).ok }, `${artifactRoot}/review/findings.json#dispositions`, undefined, unreadable);
+  }
+  return result;
+}
+
 module.exports = {
   gatherGitFacts,
   sha256Digest,
+  countMarkers,
+  gatherGateFacts,
 };
