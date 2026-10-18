@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- Guidance truth and consistency (107-A): resolved contradictions across guidance, skills, and agent specs (C1–C8, including flag ownership in `FLAGS.md`, hard-gate scope in `DOFLOW_CHAIN.md`, install-root search order, repo layout conventions, parallelism conditional on disjoint write sets, orchestration thresholds, and range-and-assumption estimates without confidence bands, while recording C9 confirmation compatibility); checked `DOFLOW_CHAIN.md` Layout rows for shared policies, templates, references, and install-root order against registry assets and the resolver; updated `CONSTITUTION_BASE.md` to v1.0.1 (PATCH) for disjoint write sets and canonical gate references; added guards G46 (`guidance-truth.test.js`) and G47 (`guidance-consistency.test.js`) for data-backed chain, gate, threshold, and enforcement-word checks; and extended guards G4 (`flags.test.js`) for flag ownership and G24 (`instruction-lint.test.js`) with the stricter `default-vs-disjoint-parallelism` pair and new guidance lint pairs.
+
 ## [2.0.0-beta.6] - 2026-10-18
 
 ### Added
