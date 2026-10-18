@@ -766,8 +766,9 @@ class VerificationEngine {
     }
     let stateDirty = false;
 
-    let foundTargeted = contract.testTargeted || contract.detection?.commands?.testTargeted;
-    if (!foundTargeted && v0Active && taskIdValid) {
+    const hasTargeted = Object.hasOwn(contract, 'testTargeted');
+    let foundTargeted = hasTargeted ? contract.testTargeted : contract.detection?.commands?.testTargeted;
+    if (!hasTargeted && !foundTargeted && v0Active && taskIdValid) {
       try {
         const det = detectCommands({ projectRoot: this.cwd, fsImpl: this.fsImpl });
         foundTargeted = det?.commands?.testTargeted;
@@ -857,12 +858,16 @@ class VerificationEngine {
         let runNarrowed = false;
         let matchedFiles: string[] = [];
         let narrowedCommand: string | null = null;
+        let narrowedStrikes = 0;
 
         if (v0Active && taskIdValid && convention && !failedFirstAttempted && tier.kind === 'behavioral') {
           try {
             const savedCheck = failedFirstState?.checks?.[check.name]
               || (failedFirstState?.checks ? Object.values(failedFirstState.checks).find((c: any) => c && c.cmd === sha16(check.command)) : null);
-            if (savedCheck && savedCheck.cmd === sha16(check.command) && Array.isArray(savedCheck.files) && savedCheck.files.length > 0) {
+            const strikes = Number.isSafeInteger(savedCheck?.strikes) && savedCheck.strikes >= 0 ? savedCheck.strikes : 0;
+            // A file can fail in isolation while the full suite passes (for example, suite setup).
+            // After two narrowed failures, recheck the full scope so saved state cannot pin FAIL.
+            if (savedCheck && strikes < 2 && savedCheck.cmd === sha16(check.command) && Array.isArray(savedCheck.files) && savedCheck.files.length > 0) {
               const universeFiles = testFilesFor(foundTargeted, this.cwd, this.fsImpl);
               matchedFiles = universeFiles.filter((f: string) => savedCheck.files.includes(sha16(f)));
               if (matchedFiles.length > 0) {
@@ -871,6 +876,7 @@ class VerificationEngine {
                 if (sub.substituted && sub.command) {
                   narrowedCommand = sub.command;
                   runNarrowed = true;
+                  narrowedStrikes = strikes;
                 }
               }
             }
@@ -904,6 +910,7 @@ class VerificationEngine {
                 failedFirstState.checks[check.name] = {
                   cmd: sha16(check.command),
                   files: filesToSave.map(sha16),
+                  strikes: narrowedStrikes + 1,
                 };
                 stateDirty = true;
               }

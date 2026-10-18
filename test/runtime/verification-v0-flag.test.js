@@ -21,6 +21,18 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const sha16 = (x) => crypto.createHash('sha256').update(String(x)).digest('hex').slice(0, 16);
 
+function mutatedEngine(before, after) {
+  const Module = require('node:module');
+  const filename = path.join(REPO_ROOT, 'src/runtime/verification/engine.ts');
+  const source = fs.readFileSync(filename, 'utf8');
+  assert.ok(source.includes(before), `mutation target exists: ${before}`);
+  const instance = new Module(filename, module);
+  instance.filename = filename;
+  instance.paths = module.paths;
+  instance._compile(Module.stripTypeScriptTypes(source.replace(before, after)), filename);
+  return instance.exports;
+}
+
 function git(cwd, ...args) {
   const res = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, encoding: 'utf8' });
   assert.equal(res.status, 0, `git ${args.join(' ')}: ${res.stderr}`);
@@ -251,7 +263,7 @@ test('plain fixture: verdicts, check lists and exec order equal pre-088 engine (
   assert.ok(executedOn.length >= 2, 'checks were executed');
 });
 
-test('flag is read once per verify command (handleVerifyCommand), not per check; negative control fails per-check reading', (t) => {
+function assertFlagReadOnce(t, verifyCommand = handleVerifyCommand) {
   const fixture = createFixtureProject(t, { name: 'single-read' });
 
   let statCount = 0;
@@ -270,7 +282,7 @@ test('flag is read once per verify command (handleVerifyCommand), not per check;
   });
 
   // Run handleVerifyCommand through the counting fs
-  const exitCode = handleVerifyCommand({
+  const exitCode = verifyCommand({
     taskId: 'T-1',
     action: 'report',
     risk: 'LOW',
@@ -285,28 +297,21 @@ test('flag is read once per verify command (handleVerifyCommand), not per check;
 
   // Assert that verify-v0.off was stat'ed exactly ONCE for the entire verify command
   assert.equal(statCount, 1, 'v0Enabled was read exactly once per verify command');
+}
 
-  // Negative control:
-  // If the flag were read per check instead of once per command, statCount would equal the number of checks run.
-  // We prove that reading per check fails the single-read assertion:
-  const engine = new VerificationEngine({ cwd: fixture.root, repoRoot: REPO_ROOT });
-  const contract = engine.compileContract({
-    taskId: 'T-1',
-    riskLevel: 'LOW',
-    projectRoot: fixture.root,
-    planPath: fixture.plan,
-    scope: { allowedPaths: ['src/'] },
-  });
-  const checksCount = contract.tiers.flatMap((tier) => tier.checks || []).length;
-  assert.ok(checksCount > 1, 'multiple checks are configured in the contract');
+test('flag is read once per verify command (handleVerifyCommand), not per check', (t) => {
+  assertFlagReadOnce(t);
+});
 
+test('negative control: reading the flag per check fails the single-read case', (t) => {
+  const mutant = mutatedEngine(
+    '        let runNarrowed = false;',
+    '        v0Enabled({}, this.configDir, this.fsImpl);\n        let runNarrowed = false;'
+  );
   assert.throws(
-    () => {
-      const readsPerCheck = checksCount;
-      assert.equal(readsPerCheck, 1, 'reading flag per check must fail single-read assertion');
-    },
-    /AssertionError/,
-    'negative control: reading flag per check fails single-read assertion'
+    () => assertFlagReadOnce(t, mutant.handleVerifyCommand),
+    { code: 'ERR_ASSERTION', message: /v0Enabled was read exactly once per verify command/ },
+    'the real engine mutant fails the same sentinel-read assertion'
   );
 });
 

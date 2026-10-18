@@ -18,6 +18,18 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const sha16 = (x) => crypto.createHash('sha256').update(String(x)).digest('hex').slice(0, 16);
 
+function mutatedEngine(before, after) {
+  const Module = require('node:module');
+  const filename = path.join(REPO_ROOT, 'src/runtime/verification/engine.ts');
+  const source = fs.readFileSync(filename, 'utf8');
+  assert.ok(source.includes(before), `mutation target exists: ${before}`);
+  const instance = new Module(filename, module);
+  instance.filename = filename;
+  instance.paths = module.paths;
+  instance._compile(Module.stripTypeScriptTypes(source.replace(before, after)), filename);
+  return instance.exports;
+}
+
 function git(cwd, ...args) {
   const res = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, encoding: 'utf8' });
   assert.equal(res.status, 0, `git ${args.join(' ')}: ${res.stderr}`);
@@ -187,7 +199,7 @@ test('narrowed FAIL: narrowed runs first, reports FAIL, ends behavioural tiers e
 
   const contract = engine.compileContract({
     taskId: 'T-G3',
-    riskLevel: 'LOW',
+    riskLevel: 'MEDIUM',
     projectRoot: fixture.root,
     planPath: fixture.plan,
     changedFiles: ['test/alpha.test.js', 'test/beta.test.js'],
@@ -210,6 +222,16 @@ test('narrowed FAIL: narrowed runs first, reports FAIL, ends behavioural tiers e
   assert.equal(targetedCheck.status, 'FAIL');
   assert.deepEqual(targetedCheck.failedFirst, { ran: true, status: 'FAIL', files: 1 });
 
+  const broadTier = report.tiers.find((t) => t.id === 'broad-tests');
+  assert.equal(broadTier.status, 'NOT_RUN', 'later behavioural tier was halted');
+  assert.equal(broadTier.reason, 'failed-first-still-failing');
+  assert.ok(broadTier.checks.length > 0, 'the halted tier has a runnable check');
+  for (const check of broadTier.checks) {
+    assert.equal(check.status, 'NOT_RUN');
+    assert.equal(check.reason, 'failed-first-still-failing');
+    assert.ok(!executed.includes(check.command), 'halted behavioural command did not execute');
+  }
+
   // 3. Telemetry metric
   const metric = engine.runner.metrics.get(targetedCheck);
   assert.ok(metric);
@@ -224,7 +246,7 @@ test('narrowed FAIL: narrowed runs first, reports FAIL, ends behavioural tiers e
   assert.equal(parseTier.status, 'PASS', 'parse tier still ran');
 });
 
-test('narrowed PASS: narrowed runs first, full check runs and alone decides PASS, state file removed', (t) => {
+function assertNarrowedPassRunsFull(t, Engine = VerificationEngine) {
   const fixture = createFixture(t, { name: 'narrowed-pass' });
 
   // Seed state file with test/alpha.test.js
@@ -258,7 +280,7 @@ test('narrowed PASS: narrowed runs first, full check runs and alone decides PASS
     return { status: 0, stdout: PINNED_SPEC_PASS, stderr: '' };
   };
 
-  const engine = new VerificationEngine({
+  const engine = new Engine({
     cwd: fixture.root,
     repoRoot: REPO_ROOT,
     exec,
@@ -297,6 +319,10 @@ test('narrowed PASS: narrowed runs first, full check runs and alone decides PASS
 
   // 4. On full PASS, check entry deleted, and empty state file is removed (IC-016)
   assert.ok(!fs.existsSync(stateFile), 'empty state file was unlinked on full pass');
+}
+
+test('narrowed PASS: narrowed runs first, full check runs and alone decides PASS, state file removed', (t) => {
+  assertNarrowedPassRunsFull(t);
 });
 
 test('invariant: narrowed PASS but full check FAILS -> verdict is FAIL, full check alone decides', (t) => {
@@ -380,22 +406,14 @@ test('invariant: narrowed PASS but full check FAILS -> verdict is FAIL, full che
 });
 
 test('negative control: letting a narrowed PASS skip the full check fails the full-scope-runs case', (t) => {
-  // Negative control requested in plan row 308:
-  // "Negative control: letting a narrowed PASS skip the full check must fail the 'full scope runs' case (show it)."
-  const buggyExecutionTrace = [
-    'node --test test/alpha.test.js', // Narrowed check ran and passed, but full check was skipped!
-  ];
-  const fullCommand = 'node --test test/alpha.test.js test/beta.test.js';
-
+  const mutant = mutatedEngine(
+    'const fullResult = this.runner.runCheck(check.name, check.command, check.timeoutMs, dedupeCache);',
+    'const fullResult = narrowedResult;'
+  );
   assert.throws(
-    () => {
-      assert.ok(
-        buggyExecutionTrace.includes(fullCommand),
-        'full scope check must run even when narrowed check passes'
-      );
-    },
-    /AssertionError/,
-    'negative control: skipping full check on narrowed PASS fails full-scope-runs assertion'
+    () => assertNarrowedPassRunsFull(t, mutant.VerificationEngine),
+    { code: 'ERR_ASSERTION', message: /full check ran second/ },
+    'the real engine mutant fails the same full-scope execution assertion'
   );
 });
 
@@ -544,7 +562,7 @@ test('fallback to normal scope when: no template, no match in universe, or flag 
   assert.equal(targetedCheckFlagOff.failedFirst, undefined, 'no failedFirst field when v0 flag is off');
 });
 
-test('first behavioural tier is broad-tests when targeted-tests is not present', (t) => {
+test('plan testTargeted:null prevents package-template narrowing and passes on the first run', (t) => {
   // Plan with only broad tests
   const planOverrides = {
     parse: 'node -e "process.exit(0)"',
@@ -583,6 +601,9 @@ test('first behavioural tier is broad-tests when targeted-tests is not present',
       return spawnSync(cmd, rest[0], rest[1]);
     }
     executed.push(cmd);
+    if (cmd.startsWith('node --test')) {
+      return { status: 1, stdout: PINNED_TAP_FAIL_ALPHA(fixture.root), stderr: '' };
+    }
     return { status: 0, stdout: PINNED_SPEC_PASS, stderr: '' };
   };
 
@@ -606,17 +627,111 @@ test('first behavioural tier is broad-tests when targeted-tests is not present',
   // Verify contract has broad-tests as resolved behavioural tier (targeted-tests is subsumed)
   const resolvedBehaviouralTiers = contract.tiers.filter((t) => t.kind === 'behavioral' && t.resolution === 'RESOLVED');
   assert.equal(resolvedBehaviouralTiers[0].id, 'broad-tests');
+  assert.equal(contract.testTargeted, null, 'the plan explicitly disables the template');
 
   const report = engine.runContract(contract, { changedFiles: ['test/alpha.test.js'] });
   assert.equal(report.status, 'PASS');
 
-  // Narrowed command ran under broad-tests:test
+  // The plan's null remains authoritative even though package.json supplies a template.
   const testExecutions = executed.filter((c) => c.startsWith('node --test') || c === broadCmd);
-  assert.equal(testExecutions[0], 'node --test test/alpha.test.js', 'narrowed ran first under broad-tests');
-  assert.equal(testExecutions[1], broadCmd, 'full broad check ran second');
+  assert.deepEqual(testExecutions, [broadCmd], 'only the full broad check ran');
 
   const broadCheck = report.tiers.find((t) => t.id === 'broad-tests').checks[0];
-  assert.deepEqual(broadCheck.failedFirst, { ran: true, status: 'PASS', files: 1 });
+  assert.equal(broadCheck.failedFirst, undefined, 'the package template did not bypass the plan');
+  assert.ok(!fs.existsSync(stateFile), 'the full PASS cleared the saved failure');
+});
+
+function createRecoverySequence(t) {
+  const fixture = createFixture(t, { name: 'strikes', planOverrides: {
+    parse: 'node -e "process.exit(0)"',
+    build: 'node -e "process.exit(0)"',
+    typecheck: null,
+    lint: 'node -e "process.exit(0)"',
+  } });
+  const stateFile = path.join(fixture.configDir, 'state', 'verification', 'v0', 'failed-first-T-G3.json');
+  return {
+    stateFile,
+    run(fullFails) {
+      const executed = [];
+      // Each verify gets a new engine: the retry count must survive on disk.
+      const engine = new VerificationEngine({
+        cwd: fixture.root, repoRoot: REPO_ROOT, configDir: fixture.configDir, v0: true,
+        exec: (cmd, ...rest) => {
+          if (Array.isArray(rest[0])) return spawnSync(cmd, rest[0], rest[1]);
+          if (cmd === 'npm test' || cmd.startsWith('node --test')) {
+            executed.push(cmd);
+            // The file still fails alone after the full suite is fixed (missing suite setup).
+            if (cmd !== 'npm test' || fullFails) {
+              return { status: 1, stdout: PINNED_TAP_FAIL_ALPHA(fixture.root), stderr: '' };
+            }
+            return { status: 0, stdout: PINNED_SPEC_PASS, stderr: '' };
+          }
+          return { status: 0, stdout: '', stderr: '' };
+        },
+      });
+      const changedFiles = ['src/index.js'];
+      const contract = engine.compileContract({
+        taskId: 'T-G3', riskLevel: 'MEDIUM', projectRoot: fixture.root, planPath: fixture.plan,
+        changedFiles, scope: { allowedPaths: ['src/', 'test/'] },
+      });
+      assert.equal(contract.testTargeted.source, 'package.json', 'the template comes from the manifest');
+      assert.equal(contract.tiers.find((tier) => tier.id === 'targeted-tests').resolution, 'SUBSUMED');
+      const report = engine.runContract(contract, { changedFiles });
+      return { report, executed };
+    },
+  };
+}
+
+test('saved narrowed failures yield FAIL, FAIL, PASS after the full suite is fixed', (t) => {
+  const sequence = createRecoverySequence(t);
+  const initial = sequence.run(true);
+  assert.equal(initial.report.status, 'FAIL');
+  assert.deepEqual(initial.executed, ['npm test'], 'an initial full failure seeds the entry');
+
+  const statuses = [];
+  const savedStrikes = [];
+  const narrowedExecutions = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const next = sequence.run(false);
+    statuses.push(next.report.status);
+    narrowedExecutions.push(next.executed);
+    const entry = JSON.parse(fs.readFileSync(sequence.stateFile, 'utf8')).checks['broad-tests:test'];
+    savedStrikes.push(entry.strikes);
+  }
+  const full = sequence.run(false);
+  statuses.push(full.report.status);
+  assert.deepEqual(statuses, ['FAIL', 'FAIL', 'PASS']);
+  assert.deepEqual(savedStrikes, [1, 2], 'narrowed failures accumulate across verifies');
+  for (const executed of narrowedExecutions) {
+    assert.deepEqual(executed, ['node --test test/alpha.test.js']);
+  }
+  assert.deepEqual(full.executed, ['npm test'], 'two strikes force the full scope');
+  assert.ok(!fs.existsSync(sequence.stateFile), 'the full PASS removes stale failure state');
+  const next = sequence.run(false);
+  assert.equal(next.report.status, 'PASS');
+  assert.deepEqual(next.executed, ['npm test'], 'later verifies stay at the full passing scope');
+});
+
+test('a full-scope failure replaces the two-strike entry and permits narrowing again', (t) => {
+  const sequence = createRecoverySequence(t);
+  assert.equal(sequence.run(true).report.status, 'FAIL');
+  for (const strikes of [1, 2]) {
+    const next = sequence.run(true);
+    assert.equal(next.report.status, 'FAIL');
+    assert.deepEqual(next.executed, ['node --test test/alpha.test.js']);
+    assert.equal(JSON.parse(fs.readFileSync(sequence.stateFile, 'utf8')).checks['broad-tests:test'].strikes, strikes);
+  }
+  const full = sequence.run(true);
+  assert.equal(full.report.status, 'FAIL');
+  assert.deepEqual(full.executed, ['npm test']);
+  const entry = JSON.parse(fs.readFileSync(sequence.stateFile, 'utf8')).checks['broad-tests:test'];
+  assert.equal(entry.strikes ?? 0, 0, 'the full failure resets the narrowed retry count');
+  assert.equal(entry.cmd, sha16('npm test'));
+  assert.deepEqual(entry.files, [sha16('test/alpha.test.js')]);
+  const next = sequence.run(true);
+  assert.equal(next.report.status, 'FAIL');
+  assert.deepEqual(next.executed, ['node --test test/alpha.test.js'], 'narrowing resumes after the full failure');
+  assert.equal(JSON.parse(fs.readFileSync(sequence.stateFile, 'utf8')).checks['broad-tests:test'].strikes, 1);
 });
 
 test('writeFailedFirstState unlinks file when checks is empty', (t) => {
