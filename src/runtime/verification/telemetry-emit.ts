@@ -96,16 +96,20 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
     }, ...checks);
   }
 
+  const dispatchRun = ctx ? (ctx.dispatchRun ?? ctx.dispatch_run) : null;
   const run = {
     kind: 'verify.run',
     timestamp: isoAt(runStart),
     verify_id: verifyId,
-    source: ctx.source,
-    task: typeof ctx.taskId === 'string' && SAFE_TOKEN.test(ctx.taskId) ? ctx.taskId : null,
-    risk: ctx.risk ?? null,
+    source: ctx ? ctx.source : null,
+    task: typeof ctx?.taskId === 'string' && SAFE_TOKEN.test(ctx.taskId) ? ctx.taskId : null,
+    dispatch_run: ctx?.source === 'dispatch' && typeof dispatchRun === 'string' && SAFE_TOKEN.test(dispatchRun)
+      ? dispatchRun
+      : null,
+    risk: ctx?.risk ?? null,
     level: null,
     status: report.status,
-    exit_code: ctx.exitCode ?? null,
+    exit_code: ctx?.exitCode ?? null,
     // Wall time between the report's own stamps: the engine clock, not a monotonic one.
     duration_ms: Number.isFinite(runStart) && Number.isFinite(runEnd) ? Math.max(0, runEnd - runStart) : null,
     checks_run: checksRun,

@@ -319,7 +319,7 @@ function endStale(store: any, dispatch: any, reason: string, ctx: any, now: Date
  */
 async function integrateOnce({
   root, slug, ctx, env = process.env, holder = null, now = () => new Date(), beforeUpdateRef = null, afterLease = null,
-  storeFile = null, verify = runVerification,
+  storeFile = null, verify = runVerification, dispatchRunId = null,
 }: any) {
   const file = storeFile ?? storeFileFor(root, slug);
   const lockCtx = () => ({ ...ctx, now: now() });
@@ -345,6 +345,7 @@ async function integrateOnce({
       result: {
         outcome: 'taken', dispatch: structuredClone(dispatch), integration: structuredClone(run.integration),
         verify: run.verify ? structuredClone(run.verify) : null,
+        dispatchRunId: run.dispatchRunId ?? null,
       },
     };
   });
@@ -462,6 +463,7 @@ async function integrateOnce({
     const verification = await verify({
       root, slug, taskId: task, worktree: integration.worktree, argv: declared.argv, argvSha256: declared.argvSha256 ?? null,
       seconds: declared.timeoutSeconds, env,
+      dispatchRunId: dispatchRunId ?? taken.dispatchRunId ?? null,
       onSpawn: (proc: any) => mutateDispatch(file, (store: any) => {
         store.run.verifying = proc;
         return { write: true, result: null };
