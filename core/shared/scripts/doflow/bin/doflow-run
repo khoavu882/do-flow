@@ -555,7 +555,7 @@ dispatch_shell() {
 
 dispatch_node() {
   local verb="$1"; shift
-  local marker tmpfile rc first_line runtime_root second_line trimmed_second first_val total_errs more
+  local marker tmpfile outfile registry_msg rc first_line runtime_root second_line trimmed_second first_val total_errs more
   if ! resolve_node_cli; then
     if marker="$(has_doflow_marker_nearby)"; then
       fail 2 "unlinked-checkout" \
@@ -575,9 +575,27 @@ dispatch_node() {
         # verb legitimately reporting a finding (e.g. readiness's NEEDS_EVIDENCE) before either
         # reaches the caller.
         tmpfile="$(mktemp)"
-        trap 'rm -f "$tmpfile" 2>/dev/null || true' EXIT
+        outfile=""
+        # `worker` and `dispatch` catch the registry error themselves and, under --json, report it as
+        # a JSON body on stdout (error "registry-invalid") with nothing on stderr; the other verbs let
+        # it reach stderr. Only those two have stdout held back (their --json body is a single
+        # document written at the end), so the same stale-runtime report can be built for them.
+        case "$verb" in
+          worker|dispatch) if [ "$wants_json" = true ]; then outfile="$(mktemp)"; fi ;;
+        esac
+        trap 'rm -f "$tmpfile" "$outfile" 2>/dev/null || true' EXIT
         rc=0
-        node "$NODE_CLI_PATH" "$verb" "$@" 2>"$tmpfile" || rc=$?
+        if [ -n "$outfile" ]; then
+          node "$NODE_CLI_PATH" "$verb" "$@" >"$outfile" 2>"$tmpfile" || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            registry_msg="$(node -e 'try{const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));if(o&&o.error==="registry-invalid"&&typeof o.message==="string")process.stdout.write(o.message)}catch{}' "$outfile" 2>/dev/null)" || registry_msg=""
+            if [ -n "$registry_msg" ]; then
+              printf '[ERROR] %s\n' "$registry_msg" >"$tmpfile"
+            fi
+          fi
+        else
+          node "$NODE_CLI_PATH" "$verb" "$@" 2>"$tmpfile" || rc=$?
+        fi
         if [ "$rc" -ne 0 ]; then
           first_line=""
           IFS= read -r first_line <"$tmpfile" || true
@@ -611,8 +629,9 @@ dispatch_node() {
               ;;
           esac
         fi
+        if [ -n "$outfile" ]; then cat "$outfile"; fi
         cat "$tmpfile" >&2
-        rm -f "$tmpfile"
+        rm -f "$tmpfile" "$outfile"
         trap - EXIT
         return "$rc"
         ;;

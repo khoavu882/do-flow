@@ -307,14 +307,20 @@ test('009-unlinked-checkout: assertion 3 — a runtime/-sourced Node verb that h
   delete codex.worker;
   fs.writeFileSync(harnessesPath, JSON.stringify(harnesses, null, 2));
 
-  const r = runtime(locator, ['doctor', '--json'], { home, cwd, env: noPath });
-  assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
-  const reported = JSON.parse(r.stderr);
-  assert.equal(reported.error, 'stale-runtime');
-  assert.match(reported.message, /runtime[\\/]core[\\/]registry/, 'message must name the resolved runtime path');
-  assert.match(reported.message, /worker block is required/);
-  assert.doesNotMatch(reported.message, /appears out of date/);
-  assert.doesNotMatch(reported.message, /^\[ERROR\]/, 'the raw CLI error text must be replaced, not merely echoed');
+  // FR-003: `doctor` lets the loader error reach stderr; `worker --json` catches it and reports a
+  // `registry-invalid` body on stdout. Both must end as the same stale-runtime report.
+  for (const argv of [['doctor', '--json'], ['worker', '--action', 'discover', '--json']]) {
+    const r = runtime(locator, argv, { home, cwd, env: noPath });
+    assert.equal(r.status, 2, `${argv[0]}: expected a resolution-class failure, got stdout: ${r.stdout}`);
+    const reported = JSON.parse(r.stderr);
+    assert.equal(reported.error, 'stale-runtime', argv[0]);
+    assert.match(reported.message, new RegExp(`verb '${argv[0]}' failed`), `${argv[0]}: message must name the verb`);
+    assert.match(reported.message, /runtime[\\/]core[\\/]registry/, `${argv[0]}: message must name the resolved runtime path`);
+    assert.match(reported.message, /worker block is required/);
+    assert.doesNotMatch(reported.message, /appears out of date/);
+    assert.doesNotMatch(reported.message, /^\[ERROR\]/, 'the raw CLI error text must be replaced, not merely echoed');
+    assert.doesNotMatch(r.stdout, /registry-invalid/, `${argv[0]}: the raw registry-invalid body must not be printed`);
+  }
 });
 
 test('009-unlinked-checkout: assertion 4 — a bare bin/doflow.js with no package.json reports unlinked-checkout, naming npm link', () => {
