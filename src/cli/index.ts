@@ -362,6 +362,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--dispatch', 'dispatch'],          // dispatch submit: a d-<12 hex> dispatch id
   ['--child-of', 'childOf'],           // worker run: the granter's w-<12 hex> run id
   ['--run', 'run'],                    // trace spans: keep one run key or run id (088 IC-011)
+  ['--row', 'row'],                    // roadmap: restricts the step to one in-flight row (108 IC-001)
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -495,6 +496,7 @@ Commands:
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
+  roadmap              Session-driven autopilot runner (--action render|status)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
@@ -538,6 +540,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
+                       roadmap: render|status
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]

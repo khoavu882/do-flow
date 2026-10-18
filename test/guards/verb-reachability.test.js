@@ -90,6 +90,10 @@ const ALLOWLIST = new Map([
     'model-role',
     'advisory model routing verb: resolves a role from models.json to availability-annotated provider candidates; consumed by skills and orchestration snapshots at adoption time rather than named directly by any skill today',
   ],
+  [
+    'roadmap',
+    'roadmap loop verb (feature 108, plan gap §9-2): session-driven autopilot runner invoked by the operator or orchestrator session; no skill invokes it directly today',
+  ],
 ]);
 
 /** Parse all shell-backed verbs from shell_helper_for() in doflow-run. `\r?\n` keeps the parser

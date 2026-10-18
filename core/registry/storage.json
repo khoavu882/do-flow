@@ -1322,6 +1322,10 @@
       "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
     },
     {
+      "file": "src/runtime/roadmap/rows.ts",
+      "reason": "agent-docs deliverable (roadmap/ROADMAP.md, derived table written only when its bytes change)"
+    },
+    {
       "file": "src/runtime/scaffold/generate.ts",
       "reason": "agent-docs deliverable (scaffold files and manifest)"
     },

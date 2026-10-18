@@ -59,6 +59,7 @@ const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = req
 const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
 const { handleStorageCommand } = require('../runtime/storage/cli.ts');
+const { handleRoadmapCommand } = require('../runtime/roadmap/loop.ts');
 const NO_UPKEEP = new Set(['storage', 'config']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
@@ -319,6 +320,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, scope: o.scope, verificationInput: o.verificationInput, verificationPhase: o.verificationPhase, baselineRef: o.baselineRef, json: o.json, projectRoot: evidenceRoot(o) });
     case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
+    case 'roadmap': return handleRoadmapCommand({ action: o.actionGiven ? o.action : undefined, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
 }
