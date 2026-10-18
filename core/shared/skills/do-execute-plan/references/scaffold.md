@@ -422,9 +422,9 @@ rather than restated as prose.
   generated `code/`/`data/`/`mock/`/`default/` output directory — still not a write outside
   `agent-docs/doflow/<slug>/scaffold/` (the first Constraint above still holds), but visually
   confusing; not auto-detected or renamed.
-- The one hard gate is `do-execute-plan` step 1 (`"$DOFLOW" prereqs --require-plan`) — neither Part
-  of this file adds a gate of its own. The advisory notice Part 2 raises for a dependency it cannot
-  resolve is non-blocking, and Part 1's non-zero exit is a finding to report, not a stop.
+- Only hard-gate hook: `references/DOFLOW_CHAIN.md`; step 1:
+  `"$DOFLOW" prereqs --require-plan`. Neither Part adds gates. Part 2 unresolved dependencies do
+  not block; Part 1 non-zero exits are reportable, not stops.
 - A `depends-on:` value whose starting directory does not exist on disk at all is excluded from
   service-identity derivation *entirely* (Part 2 step 1) — it never reaches Part 2 step 5's local
   generation path. It gets a frame only if the same task also carries an `external-contract:` field

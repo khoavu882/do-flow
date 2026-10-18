@@ -1,7 +1,7 @@
 # Runtime Behavior and Flags
 
-Loaded into **every** session on every harness. What a flag used to request is now mostly
-unconditional, so this states the behavior once rather than listing knobs.
+What a flag used to request is now mostly unconditional, so this states the behavior once
+rather than listing knobs.
 
 ## Always on
 
@@ -16,8 +16,8 @@ a habitual tool.
 
 ## Flags
 
-What the user typed beats auto-detection. Every flag belongs to one skill and is declared in that
-skill's `argument-hint`, except this one, which crosses them:
+What the user typed beats auto-detection. A flag is declared in the `argument-hint` of every
+skill that consumes it; shared flags are `--depth` and `--type`.
 
 **--focus [quality|security|performance|architecture]** — narrows analysis to one domain. Consumed
 by `do-diagnose`.

@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- Guidance truth and consistency (107-A): fixed shipped guidance, skills, and agent specs that contradicted each other or the code. `FLAGS.md` now names which skills own each flag. `DOFLOW_CHAIN.md` is the one place that states what the implement gate denies, and the constitution base, `do-plan`, `do-flow`, and its task-class reference point to it. The install-root search order, the Layout rows for shared policies, templates, and references, and the repo-layout rule now match the code and registry. Parallel work is conditional on disjoint write sets everywhere, including `MODE_Orchestration.md`. File-count and task-count thresholds agree, estimates use a range and its assumptions without confidence bands, and enforcement words name the policy script behind them. `CONSTITUTION_BASE.md` is v1.0.1 (PATCH). New guards G46 (`guidance-truth.test.js`) and G47 (`guidance-consistency.test.js`) check these statements against the scripts and registries that own the facts, and G4 (`flags.test.js`) and G24 (`instruction-lint.test.js`) are extended, including the stricter `default-vs-disjoint-parallelism` pair.
+
 ## [2.0.0-beta.6] - 2026-10-18
 
 ### Added

@@ -70,10 +70,10 @@ not have.
    **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on
    `overflowAction.message` and report the gap.** By this point `do-design` should have batched
    evidence and claims (step 8), so an empty pack carries weight: either the batch never ran or the
-   task id mismatched. Treat it as advisory rather than blocking — plan's hard gate is artifact
-   existence only — but note it in this stage's report and `plan.md` §3 "Research & Decisions": a
-   decision written straight from prose without a compiled pack must not claim prior evidence. When
-   non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.
+   task id mismatched. Empty packs are advisory; prerequisites check artifact existence only. Report
+   them in this stage's report and `plan.md` §3 "Research & Decisions"; prose without a compiled
+   pack cannot claim prior evidence. When non-empty, read it alongside `requirement.md`,
+   `design.md`, and the constitution.
    **Also read `specs.md` when step 1's `has_specs` is true** — use that flag, never a filesystem
    check of your own, and read the `specs` path the resolver returned. `/do-design` moves the
    interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`
@@ -122,8 +122,8 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
 6. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
    step 4. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
    the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
-   blocks on it — the chain's one hard gate covers artifact existence only. Stopping on a violation
-   is a discipline this skill observes, not something a hook enforces.
+   blocks on it; `references/DOFLOW_CHAIN.md` defines the only hard gate. Stopping is skill
+   discipline, not hook enforcement.
 7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.
    Read the guidance tree's `references/ORCHESTRATION.md` and

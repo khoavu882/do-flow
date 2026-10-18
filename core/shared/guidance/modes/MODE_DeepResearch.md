@@ -54,7 +54,7 @@ Report the remaining gaps rather than searching to raise a citation count.
 
 ### Process Adaptations
 - Always create investigation plans
-- Default to parallel operations
+- Parallel operations only when inputs are independent and write sets are disjoint.
 - Record each item's source and provenance as it is found, not reconstructed afterwards
 
 ## Quality Focus

@@ -107,9 +107,8 @@ not declare is not run here, however familiar it is from the `feature` chain.
      tree's `references/WORKFLOW_HANDOFF.md` (stage `discovery`, channel `question`) so the answers
      are registered and cited; do-brainstorm already recorded discovery's handoff, so record none.
    - **`gate-a`** (after planning) — the conversational checkpoint on top of the already-existing
-     hard hook (`pre-implement-gate.sh`, which blocks source edits until `requirement.md`,
-     `design.md` and `plan.md` exist and remains the real enforcement regardless of what happens
-     here). Options: `Proceed` / `Let me review the artifacts first` / `Stop here`.
+     hard hook (`pre-implement-gate.sh`; its scope is in `references/DOFLOW_CHAIN.md`), which remains
+     the real enforcement regardless of what happens here. Options: `Proceed` / `Let me review the artifacts first` / `Stop here`.
    - **`gate-b`** (after review) — no enforcement hook exists for this today; `/do-git` is a
      separate, always-manually-invoked skill. Frame the question by the review's own approval
      status: on `CHANGES REQUESTED`, foreground addressing the findings rather than offering a bare
