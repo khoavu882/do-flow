@@ -278,6 +278,12 @@ function runScenario() {
     // A feature folder with one plan task, so `task-attempt claim` has a ledger to write (feature 070).
     fs.mkdirSync(path.join(project, 'agent-docs', 'doflow', 'g26-task'), { recursive: true });
     fs.writeFileSync(path.join(project, 'agent-docs', 'doflow', 'g26-task', 'plan.md'), '# Plan\n\n## Tasks\n\n- [ ] A.1 one task; owner: core-implementer; files: f.js\n');
+    fs.writeFileSync(path.join(project, '.gitignore'), '.doflow/\n');
+    // The verify report step needs a real head for IC-007; the runtime state stays ignored.
+    const seeded = spawnSync('git', ['-c', 'user.name=G26', '-c', 'user.email=g26@example.test', 'add', '.'], { cwd: project, env, encoding: 'utf8' });
+    assert.equal(seeded.status, 0, seeded.stderr);
+    const committed = spawnSync('git', ['-c', 'user.name=G26', '-c', 'user.email=g26@example.test', 'commit', '-q', '-m', 'G26 fixture'], { cwd: project, env, encoding: 'utf8' });
+    assert.equal(committed.status, 0, committed.stderr);
     const registry = loadStorageRegistry({ repoRoot: REPO });
     const roots = resolveRoots({ registry, projectRoot: project, env });
     const sessionPayload = { session_id: 'g26-session', cwd: project, source: 'startup' };
@@ -391,7 +397,7 @@ if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json'
       ['retrieval-plan attempt', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'attempt', '--need', 'locate-concept', '--provider', 'semble.search', '--status', 'UNREACHED', '--reason', 'provider-unavailable'), 0],
       ['evidence add absence', verb('evidence', '--task-id', 'g26-task', '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'native.rg', '--capability', 'code.exact-search', '--absence', '--need', 'locate-concept'), 0],
       ['task-attempt claim', verb('task-attempt', '--action', 'claim', '--slug', 'g26-task', '--task', 'A.1', '--owner', 'core-implementer', '--mode', 'manual'), 0],
-      ['verify', verb('verify', '--task-id', 'g26-task', '--plan-path', 'plan.md'), 1],
+      ['verify report (verification-runs)', verb('verify', '--action', 'report', '--task-id', 'g26-task', '--plan-path', 'plan.md'), 1],
       ['followup report', verb('followup', '--action', 'report', '--statement', 'a problem', '--text', 'its body'), 0],
       ['lifecycle', verb('lifecycle'), 0],
       ['trace', verb('trace'), 0],
@@ -567,6 +573,19 @@ test('G26 (a): the storage registry has the IC-001 shape', () => {
   const ids = raw.stores.map((store) => store.id);
   assert.equal(new Set(ids).size, ids.length, 'store ids collide');
   for (const store of raw.stores) assert.doesNotThrow(() => new RegExp(store.match), `store ${store.id} field match does not compile`);
+});
+
+test('G26: verification-runs is a per-task record pruned only after finished work', () => {
+  const store = registry.stores.find((entry) => entry.id === 'verification-runs');
+  assert.ok(store, 'the verify report writer has a declared state store');
+  assert.deepEqual({ root: store.root, path: store.path, entry: store.entry, rule: store.rule, bound: store.bound, writers: store.writers }, {
+    root: 'project-state',
+    path: 'verification/runs',
+    entry: 'record',
+    rule: 'work',
+    bound: { finishedDays: 30 },
+    writers: ['src/runtime/verification/engine.ts'],
+  });
 });
 
 test('G26 (b): every file with a write call is declared, and every declared writer writes', () => {

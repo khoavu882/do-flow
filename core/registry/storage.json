@@ -75,6 +75,25 @@
       ]
     },
     {
+      "id": "verification-runs",
+      "root": "project-state",
+      "path": "verification/runs",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.jsonl$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/engine.ts"
+      ]
+    },
+    {
       "id": "verification-v0",
       "root": "project-state",
       "path": "verification/v0",
