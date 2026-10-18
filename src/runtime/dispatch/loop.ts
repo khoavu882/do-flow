@@ -115,9 +115,12 @@ function checkCaller({ env, cwd, file }: { env: Env; cwd: string; file: string }
 
 // ── mode selection (IC-022) ──────────────────────────────────────────────────────────────────────
 
-/** DEC-052: the static gate's gaps from the declared worker block alone; nothing runs. */
-function staticGate(worker: any): any[] {
+/** DEC-052 / IC-012: static capability gaps plus the run's optional billing cap; nothing runs. */
+function staticGate(worker: any, billingCap?: string): any[] {
   const gaps: any[] = [];
+  if (billingCap === 'free' && (!worker || worker.billing !== 'free')) {
+    gaps.push({ requirement: 'billing', result: 'failed', reason: `billing:${worker && worker.billing !== undefined ? worker.billing : 'unknown'}` });
+  }
   const cli = worker ? worker.cli : null;
   if (!cli || cli.status !== 'supported') {
     gaps.push({ requirement: 'cli', result: cli && cli.status === 'unsupported' ? 'failed' : 'unknown', reason: (cli && cli.reason) || (cli ? cli.status : 'not-declared') });
@@ -138,12 +141,12 @@ function evaluateEdit({ harness, worker, needs, registry, coverage, env, cwd, ro
 }
 
 /** Every candidate harness in registry order (or only `harness`), each `{ harness, eligible, gaps }`. */
-function evaluateHarnesses({ harness = null, needs = [], descriptors, registry, coverage, env, cwd, root, now = Date.now, platform = process.platform, evaluateImpl = evaluateEdit }: any) {
+function evaluateHarnesses({ harness = null, needs = [], billingCap, descriptors, registry, coverage, env, cwd, root, now = Date.now, platform = process.platform, evaluateImpl = evaluateEdit }: any) {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
   const cov = coverage === undefined ? reg.coverage : coverage;
   const entries = readiness.workerDescriptors({ descriptors, registry: reg }).filter((e: any) => !harness || e.harness === harness);
   return entries.map((entry: any) => {
-    const gaps = staticGate(entry.worker);
+    const gaps = staticGate(entry.worker, billingCap);
     if (gaps.length) return { harness: entry.harness, eligible: false, gaps };
     const judged = evaluateImpl({ harness: entry.harness, worker: entry.worker, needs, registry: reg, coverage: cov, env, cwd, root, now, platform });
     return { harness: entry.harness, eligible: Boolean(judged.eligible), gaps: judged.gaps || [] };
@@ -169,7 +172,12 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
     if (cache) cache.candidates = candidates;
   }
   const chosen = candidates.find((c: any) => c.eligible);
-  const selection = { policy, chosen: chosen ? chosen.harness : 'sequential', candidates: structuredClone(candidates) };
+  const selection = {
+    policy,
+    chosen: chosen ? chosen.harness : 'sequential',
+    ...(!chosen && rest.billingCap === 'free' ? { reason: 'no-eligible-worker' } : {}),
+    candidates: structuredClone(candidates),
+  };
   return chosen ? { mode: 'subagent', harness: chosen.harness, selection } : { mode: 'sequential', harness: null, selection };
 }
 
@@ -938,6 +946,7 @@ async function admitAndLaunch(p: any) {
   const run = current.run;
   const modeFor = (task: string, { store: s }: any) => selectMode({
     policy: run.mode || 'auto', held: Boolean(run.held && Object.hasOwn(run.held, task)), lastFailureClass: lastFailure(s, task),
+    billingCap: run.billingCap,
     harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
     coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
     evaluateImpl: p.evaluateImpl, cache: p.cache,

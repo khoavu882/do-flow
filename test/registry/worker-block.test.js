@@ -132,6 +132,7 @@ test('worker: validateWorker accepts a full supported recipe in isolation', () =
   const errors = [];
   validateWorker({
     profile: 'user-headless',
+    billing: 'unknown',
     cli: supported({ binary: 'fake-cli', versionArgv: ['--version'] }),
     oneShot: supported({ argv: ['-p', '{prompt}'], promptVia: 'argv' }),
     structuredOutput: supported({ argv: ['--json'], parser: 'doflow-jsonl-v1' }),

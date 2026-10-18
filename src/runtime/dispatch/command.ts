@@ -80,6 +80,7 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   reason: { flag: '--reason', actions: ['pause', 'cancel', 'takeover', 'resume'] },
   concurrency: { flag: '--concurrency', actions: ['start'] },
   mode: { flag: '--mode', actions: ['start'] },
+  billingCap: { flag: '--billing-cap', actions: ['start'] },
   verifyArgv: { flag: '--verify-argv', actions: ['start'] },
   verifySeconds: { flag: '--verify-seconds', actions: ['start'] },
   attemptSeconds: { flag: '--attempt-seconds', actions: ['start'] },
@@ -175,6 +176,8 @@ function startSettings(o: any) {
   const concurrency = concurrencyOf(given(o.concurrency) ? (typeof o.concurrency === 'number' ? o.concurrency : String(o.concurrency)) : null);
   const mode = given(o.mode) ? String(o.mode) : 'auto';
   if (!MODES.includes(mode)) throw usage(`--mode expects ${MODES.join(', ')}, got '${o.mode}'`);
+  const billingCap = given(o.billingCap) ? String(o.billingCap) : null;
+  if (billingCap !== null && billingCap !== 'free') throw usage(`--billing-cap expects free, got '${billingCap}'`);
   const argv = verifyArgvOf(o.verifyArgv);
   const verifySeconds = digits(o.verifySeconds, '--verify-seconds', 1, VERIFY_SECONDS_MAX) ?? VERIFY_SECONDS_DEFAULT;
   const attemptSeconds = digits(o.attemptSeconds, '--attempt-seconds', 1, ATTEMPT_SECONDS_MAX) ?? loop.ATTEMPT_SECONDS_DEFAULT;
@@ -196,7 +199,7 @@ function startSettings(o: any) {
     }
     if (needs.length) readiness.validateNeeds(needs, o.coverage === undefined ? reg.coverage : o.coverage);
   }
-  return { by, concurrency, mode, argv, verifySeconds, attemptSeconds, reserveTokens, budgetAttempts, budgetTokens, spawnGrant, needs, harness };
+  return { by, concurrency, mode, billingCap, argv, verifySeconds, attemptSeconds, reserveTokens, budgetAttempts, budgetTokens, spawnGrant, needs, harness };
 }
 
 /**
@@ -322,6 +325,7 @@ function start(o: any, s: any) {
         dispatchRunId, slug, state: 'running', runKey: key.runKey,
         run: key.identity.run, lineage: key.identity.lineage, lineageKind: key.identity.lineageKind,
         epoch: res.epoch, by: s.by, concurrency: s.concurrency, mode: s.mode,
+        ...(s.billingCap ? { billingCap: s.billingCap } : {}),
         reserveTokens: s.reserveTokens, attemptSeconds: s.attemptSeconds, harness: s.harness, needs: s.needs,
         spawnGrant: s.spawnGrant, baseDirty, createdAt: iso(now), endedAt: null,
         integration: { worktree: integration.worktree, branch: integration.branch, base: integration.base, head: integration.head },
@@ -374,7 +378,7 @@ async function perform(action: string, o: any) {
 
 /**
  * IC-001: the `dispatch` verb. Options mirror the flags (camelCase: `action`, `slug`, `by`,
- * `reason`, `concurrency`, `mode`, `verifyArgv`, `verifySeconds`, `attemptSeconds`, `reserveTokens`,
+ * `reason`, `concurrency`, `mode`, `billingCap`, `verifyArgv`, `verifySeconds`, `attemptSeconds`, `reserveTokens`,
  * `budgetAttempts`, `budgetTokens`, `spawnGrant`, `harness`, `need`, `maxSeconds`, `dispatch`,
  * `status`, `summary`, `blocker`, `tokens`, `tokensBasis`, `promptFile`, `requestId`, `task`,
  * `ack`), plus `env`, `cwd`, `resolveSlug(cwd)`, `now`, and the in-process seams `platform`,

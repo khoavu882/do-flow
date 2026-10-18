@@ -154,6 +154,7 @@ test('placement rule: {lastMessageFile} once in structuredOutput.argv is accepte
   const errors = [];
   validateWorker({
     profile: 'user-headless',
+    billing: 'unknown',
     cli: supported({ binary: 'fake-cli', versionArgv: ['--version'] }),
     oneShot: supported({ argv: ['-p', '{prompt}'], promptVia: 'argv' }),
     structuredOutput: supported({ argv: ['--json', '-o', '{lastMessageFile}'], parser: 'codex-exec-json-v1' }),
@@ -184,6 +185,7 @@ test('placement rule: {lastMessageFile} once in structuredOutput.argv is accepte
 test('placement rule: {lastMessageFile} rejected anywhere else or twice (negative)', () => {
   const base = () => ({
     profile: 'user-headless',
+    billing: 'unknown',
     cli: supported({ binary: 'fake-cli', versionArgv: ['--version'] }),
     oneShot: supported({ argv: ['-p', '{prompt}'], promptVia: 'argv' }),
     structuredOutput: supported({ argv: ['--json'], parser: 'doflow-jsonl-v1' }),
