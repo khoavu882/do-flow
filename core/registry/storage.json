@@ -1261,6 +1261,10 @@
       "reason": "maintainer release tool: writes the staged npm package directory (no DoFlow root)"
     },
     {
+      "file": "src/release/rehearse.ts",
+      "reason": "maintainer release tool: writes a scratch directory under os.tmpdir() (no DoFlow root)"
+    },
+    {
       "file": "src/runtime/context/emission-rules.ts",
       "reason": "maintainer generator: --write rewrites the repo emission table core/harnesses/shared/hooks/policies/emission-rules.sh (no DoFlow root)"
     },
