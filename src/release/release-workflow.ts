@@ -1,5 +1,11 @@
 'use strict';
 
+// Finding ids are a stable interface: IC-004 keeps R1-R12 and adds R13-R14.
+// R3/R4 cover write-all, flow-map, and alias forms; R9 checks every publish invocation.
+const RELEASE_WORKFLOW_RULE_IDS = Object.freeze([
+  'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14',
+]);
+
 type WorkflowJob = {
   needs: string[],
   permissions: string | null,
@@ -22,7 +28,11 @@ function stripInlineComment(value: string): string {
   for (let index = 0; index < value.length; index++) {
     const character = value[index];
     if (quote) {
-      if (character === quote && value[index - 1] !== '\\') quote = '';
+      if (quote === "'" && character === "'" && value[index + 1] === "'") {
+        index++;
+      } else if (character === quote && !isEscaped(value, index)) {
+        quote = '';
+      }
     } else if (character === '"' || character === "'") {
       quote = character;
     } else if (character === '#' && (index === 0 || /\s/.test(value[index - 1]))) {
@@ -30,6 +40,43 @@ function stripInlineComment(value: string): string {
     }
   }
   return value.trimEnd();
+}
+
+function isEscaped(value: string, index: number): boolean {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor--) backslashes++;
+  return backslashes % 2 === 1;
+}
+
+function stripYamlComments(text: string): string {
+  const source = String(text);
+  let quote = '';
+  let result = '';
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (quote) {
+      if (quote === "'" && character === "'" && source[index + 1] === "'") {
+        result += "''";
+        index++;
+      } else {
+        if (character === quote && !isEscaped(source, index)) quote = '';
+        result += character;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      result += character;
+      continue;
+    }
+    if (character === '#' && (index === 0 || /\s/.test(source[index - 1]))) {
+      while (index < source.length && source[index] !== '\n') index++;
+      if (index < source.length) result += '\n';
+      continue;
+    }
+    result += character;
+  }
+  return result.split(/\r?\n/).map((line) => line.trimEnd()).join('\n');
 }
 
 function blockValue(lines: string[], lineIndex: number, keyIndent: number, inline: string): string {
@@ -61,6 +108,10 @@ function parseNeeds(value: string): string[] {
   if (clean.startsWith('[') && clean.endsWith(']')) {
     return clean.slice(1, -1).split(',').map(unquote).filter(Boolean);
   }
+  const blockItems = clean.split(/\r?\n/).map((line) => line.match(/^\s*-\s*(.*?)\s*$/));
+  if (blockItems.every(Boolean)) {
+    return blockItems.map((match) => unquote((match as RegExpMatchArray)[1])).filter(Boolean);
+  }
   return [unquote(clean)];
 }
 
@@ -80,7 +131,7 @@ function topLevelBlock(lines: string[], key: string): { start: number, end: numb
 }
 
 function parseWorkflow(text: string): ParsedWorkflow {
-  const lines = String(text).split(/\r?\n/);
+  const lines = stripYamlComments(text).split(/\r?\n/);
   let topPermissions: string | null = null;
   for (let index = 0; index < lines.length; index++) {
     const match = lines[index].match(/^permissions:\s*(.*)$/);
@@ -96,8 +147,8 @@ function parseWorkflow(text: string): ParsedWorkflow {
 
   const jobHeaders: Array<{ id: string, start: number }> = [];
   for (let index = jobsBlock.start + 1; index < jobsBlock.end; index++) {
-    const match = lines[index].match(/^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/);
-    if (match) jobHeaders.push({ id: match[1], start: index });
+    const match = lines[index].match(/^ {2}("[A-Za-z0-9_-]+"|'[A-Za-z0-9_-]+'|[A-Za-z0-9_-]+):\s*$/);
+    if (match) jobHeaders.push({ id: unquote(match[1]), start: index });
   }
 
   for (let index = 0; index < jobHeaders.length; index++) {
@@ -114,7 +165,7 @@ function parseWorkflow(text: string): ParsedWorkflow {
       const fieldIndent = indentation(line);
       if (fieldIndent === 4) {
         const needsMatch = line.match(/^ {4}needs:\s*(.*)$/);
-        if (needsMatch) needs = parseNeeds(needsMatch[1]);
+        if (needsMatch) needs = parseNeeds(blockValue(jobLines, offset, 4, needsMatch[1]));
         const permissionMatch = line.match(/^ {4}permissions:\s*(.*)$/);
         if (permissionMatch) {
           permissions = blockValue(jobLines, offset, 4, permissionMatch[1]);
@@ -138,12 +189,97 @@ function parseWorkflow(text: string): ParsedWorkflow {
 
 function hasPermission(permissions: string | null, name: string, access: string): boolean {
   if (permissions === null) return false;
-  const pattern = new RegExp('(?:^|\\n)\\s*' + name + '\\s*:\\s*' + access + '\\b');
-  return pattern.test(permissions);
+  if (access === 'write' && unquote(permissions) === 'write-all') return true;
+  const blockPattern = new RegExp('(?:^|\\n)\\s*' + name + '\\s*:\\s*' + access + '\\b');
+  const flowMapPattern = new RegExp('(?:^|[,{])\\s*["\']?' + name
+    + '["\']?\\s*:\\s*["\']?' + access + '["\']?(?=\\s*[,}])');
+  return blockPattern.test(permissions) || flowMapPattern.test(permissions);
+}
+
+function hasYamlAliasOrAnchor(text: string): boolean {
+  const source = String(text);
+  let quote = '';
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (quote) {
+      if (quote === "'" && character === "'" && source[index + 1] === "'") {
+        index++;
+      } else if (character === quote && !isEscaped(source, index)) {
+        quote = '';
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    const previous = source[index - 1];
+    const tokenBoundary = previous === undefined || /\s/.test(previous)
+      || [':', ',', '{', '['].includes(previous);
+    if (source.startsWith('<<:', index) && tokenBoundary) return true;
+    if ((character === '&' || character === '*') && tokenBoundary
+      && /[A-Za-z0-9_]/.test(source[index + 1] || '')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function jobHasCommand(job: WorkflowJob | undefined, command: RegExp): boolean {
   return Boolean(job && command.test(job.text));
+}
+
+function shellCommands(text: string): string[] {
+  const source = String(text).replace(/\\\r?\n/g, ' ');
+  const commands: string[] = [];
+  let current = '';
+  let quote = '';
+  const finish = () => {
+    const command = current.trim();
+    if (command) commands.push(command);
+    current = '';
+  };
+
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (quote) {
+      current += character;
+      if (character === quote && !isEscaped(source, index)) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+    } else if (character === '\n' || character === ';' || character === '&' || character === '|') {
+      finish();
+      if ((character === '&' || character === '|') && source[index + 1] === character) index++;
+    } else {
+      current += character;
+    }
+  }
+  finish();
+  return commands;
+}
+
+function npmPublishInvocations(text: string): string[] {
+  const invocations: string[] = [];
+  for (const command of shellCommands(text)) {
+    const pattern = /npm\s+publish\b/g;
+    for (const match of command.matchAll(pattern)) {
+      invocations.push(command.slice(match.index));
+    }
+  }
+  return invocations;
+}
+
+function jobFieldValue(job: WorkflowJob, field: string): string | null {
+  const pattern = new RegExp('^ {4}' + field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\s*(.*)$');
+  const lines = job.text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    const match = lines[index].match(pattern);
+    if (match) return blockValue(lines, index, 4, match[1]);
+  }
+  return null;
 }
 
 function caseMapsHyphenatedTagsToBeta(text: string): boolean {
@@ -196,7 +332,8 @@ function hasOnlyVersionTagPush(text: string): boolean {
 }
 
 function releaseWorkflowFindings(text: string): string[] {
-  const { topPermissions, jobs } = parseWorkflow(text);
+  const cleanText = stripYamlComments(text);
+  const { topPermissions, jobs } = parseWorkflow(cleanText);
   const findings: string[] = [];
   const report = (rule: string, owner: string, message: string) => {
     findings.push(rule + ' ' + owner + ': ' + message);
@@ -231,6 +368,10 @@ function releaseWorkflowFindings(text: string): string[] {
     report('R4', contentsViolations.length === 1 ? contentsViolations[0] : 'workflow',
       'contents: write is only allowed on draft-release and publish-release; found on '
         + contentsViolations.join(', '));
+  }
+
+  if (hasYamlAliasOrAnchor(cleanText)) {
+    report('R3', 'workflow', 'aliases are not allowed in release.yml');
   }
 
   const unpinnedJobs = [...jobs].filter(([, job]) => job.uses.some((value) => !value.startsWith('./')
@@ -284,10 +425,9 @@ function releaseWorkflowFindings(text: string): string[] {
   const publish = jobs.get('publish');
   const candidateTag = /--tag\s+(?:"\$\{channel\}-candidate"|"\$channel-candidate"|\$\{channel\}-candidate|\$channel-candidate)/;
   const literalChannelTag = /--tag\s+["']?(?:beta|latest)["']?(?:\s|$)/;
-  const publishLines = publish ? publish.text.split(/\r?\n/) : [];
-  const runsPublish = publishLines.some((line) => /npm\s+publish\b/.test(line));
-  if (!publish || !runsPublish || !publishLines.some((line) => candidateTag.test(line))
-    || publishLines.some((line) => literalChannelTag.test(line))
+  const publishCommands = publish ? npmPublishInvocations(publish.text) : [];
+  if (!publish || !publishCommands.length || publishCommands.some((command) => !candidateTag.test(command))
+    || publishCommands.some((command) => literalChannelTag.test(command))
     || /npm\s+dist-tag\b/.test(publish.text)) {
     report('R9', 'publish',
       'publish must use the channel-candidate tag and must not run npm dist-tag');
@@ -330,11 +470,35 @@ function releaseWorkflowFindings(text: string): string[] {
       'registry verification must install the tag version on the required Node and OS matrix without checkout or .pack');
   }
 
-  if (!hasOnlyVersionTagPush(text)) {
+  if (!hasOnlyVersionTagPush(cleanText)) {
     report('R12', 'workflow', 'trigger must be push of tags v* only');
+  }
+
+  const failureBypassJobs: string[] = [];
+  for (const id of ['verify-registry', 'promote', 'publish-release', 'publish']) {
+    const job = jobs.get(id);
+    if (job && jobFieldValue(job, 'continue-on-error') !== null) {
+      failureBypassJobs.push(id + ' declares continue-on-error');
+    }
+  }
+  for (const id of ['promote', 'publish-release']) {
+    const job = jobs.get(id);
+    const condition = job && jobFieldValue(job, 'if');
+    if (condition && /(?:always|cancelled|failure)\s*\(\s*\)/i.test(condition)) {
+      failureBypassJobs.push(id + ' has a failure-bypassing if condition');
+    }
+  }
+  if (failureBypassJobs.length) {
+    const owners = [...new Set(failureBypassJobs.map((violation) => violation.split(' ')[0]))];
+    report('R13', owners.length === 1 ? owners[0] : 'workflow',
+      'release chain jobs must not continue after failure: ' + failureBypassJobs.join('; '));
+  }
+
+  if (cleanText.includes('--allow-stable')) {
+    report('R14', 'workflow', '--allow-stable must not appear in release.yml');
   }
 
   return findings;
 }
 
-module.exports = { parseWorkflow, releaseWorkflowFindings };
+module.exports = { RELEASE_WORKFLOW_RULE_IDS, parseWorkflow, releaseWorkflowFindings };
