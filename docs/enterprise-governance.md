@@ -78,10 +78,22 @@ that derive from it:
 }
 ```
 
+Two separate guard mechanisms enforce safety: the static Claude `permissions.deny` configuration shown above, and the dynamic hook policy (`pre-bash-guard.sh`). The static Claude permissions block commands unconditionally and are role-blind, so wherever that deny list is installed, Claude workers stay blocked by it regardless of the hook exemption. Only the hook policy knows session roles and worktree boundaries.
+
 Plus an allow-list of ordinary build and test commands, and hook scripts on thirteen lifecycle events
 including `PermissionDenied` and `PreToolUse`. The hook layer is where DoFlow's own enforcement lives:
 hooks are deterministic and run on every matching action, which is why a blocked command produces a
 reason rather than a silent refusal.
+
+#### Worker exemptions and guard scoping
+
+The pre-bash guard distinguishes between main interactive sessions and subagent worker sessions:
+
+- **Worker git reset and clean exemptions:** The hook allows `git reset --hard [rev]` and a single-f `git clean` (`-f`, `-fd`, `-fdx`, `-fx`) ONLY when `DOFLOW_SESSION_ROLE` is exactly `worker` (case-sensitive), `DOFLOW_WORKTREE` is a canonical dispatch worktree (`<project>/.doflow/state/dispatch-worktrees/d-<12 hex>`), the hook's native cwd (`DF_ENV_CWD`) is equal to or inside that worktree, and none of `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, or `GIT_COMMON_DIR` is set in the environment. Any variation—such as `git -C`, compound commands, environment prefixes (`VAR=1 git ...`), double-force `clean -ff`, or commands in a main or unset session role—stays denied. Main sessions are unchanged.
+- **Codex sandbox interaction:** Probe measurements show that Codex's `workspace-write` sandbox itself denies `git reset --hard` inside a linked worktree (failing to create `index.lock` under `<project>/.git/worktrees/<id>/` with `Operation not permitted`), so for a Codex worker the hook exemption only affects `git clean`; `git clean -fd` is allowed there.
+- **Text-only SQL data:** Documentation and commit text that merely mentions SQL statements (`DROP TABLE/DATABASE/SCHEMA`, `DELETE FROM ... ;`, `TRUNCATE TABLE`)—such as in a `cat` heredoc written to a file, an `echo`, or a `git commit` message—is no longer blocked when nothing executes it. The same text piped into `psql` or `sqlite3`, enclosed in command substitutions (`$(...)`, backticks), or run through `sh -c` is still denied. This exception is strictly limited to the three shipped SQL rules.
+- **Project-scoped drop-database relaxation:** The settings key `guard.workerDropDatabases` specifies a space-separated list of lowercase database names (`[a-z][a-z0-9_]*`, at most 32 names, at most 1 KiB, all-or-nothing). Its scope is `project-only`: only the project configuration layer (`<project>/.doflow/settings.json` or `.doflow/settings.local.json`) is recognized; global configuration values are ignored, and no environment variable or CLI flag can set it (default is none). At worker launch, the launcher resolves and validates this list for the owning project root and exports a single environment variable: `DOFLOW_GUARD_DROP_DATABASES`. The hook reads only that variable. Exactly one command shape is relaxed, for worker sessions only: a single `psql -c` or `mysql -e` executing `DROP DATABASE [IF EXISTS] <listed name>` and nothing else. `DROP TABLE`, `TRUNCATE`, `DELETE`, an unlisted database name, compound commands, and main sessions remain denied.
+- **Residual risk (FU-gxbryp):** The launch snapshot closes self-authorisation inside a single run, but a Codex worker can write `<project>/.doflow/settings.json` within its sandbox, allowing it to plant a database name that a later launch on the same project will snapshot. The stronger mitigation (storing the list in the user-global config area keyed by project root) is not built and is tracked as follow-up FU-gxbryp. Additionally, the hook cannot verify which physical host or port a database client reaches when configured through environment variables or connection service files.
 
 ### Settings only your organization can enforce
 

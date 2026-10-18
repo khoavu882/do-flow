@@ -118,6 +118,8 @@ execution adapter has a fourth:
 
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 
+The pre-bash guard policy (`pre-bash-guard.sh`) enforces destructive-command blocking against `blocked-patterns.conf`. Its destructive-command rules are anchored at the command start through prefix and wrapper handling (`_CMDPOS` and `_WRAP`), ensuring that path-qualified binaries like `/usr/bin/git reset --hard`, prefixed assignments like `FOO=1 rm -rf /`, and piped commands like `x | git clean -fd` are denied. A worker-only exemption allows `git reset --hard [rev]` and a single-f `git clean` (`-f`, `-fd`, `-fdx`, `-fx`) ONLY when `DOFLOW_SESSION_ROLE` is exactly `worker`, `DOFLOW_WORKTREE` is a canonical dispatch worktree (`<project>/.doflow/state/dispatch-worktrees/d-<12 hex>`), the hook's native cwd (`DF_ENV_CWD`) is equal to or inside that worktree, and none of `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, or `GIT_COMMON_DIR` is set. Anything else—including `git -C`, compound commands, environment prefixes, double-force `clean -ff`, or main and unset session roles—stays denied. Main sessions are unchanged.
+
 When an install or update changes shared hook files at a scope, lifecycle planning also refreshes
 outdated hook front doors for other installed harnesses at that scope. The companion changes share
 the backup, ledger write and rollback with the requested targets; edited companion doors make the
@@ -190,7 +192,10 @@ reported as ambiguous gaps. A hook line records `DOFLOW_SESSION_ROLE` only when 
 `worker` exactly (case-sensitive), and records null otherwise. Identity resolution lowercases the
 value, maps unset to `main`, and maps unknown values to `worker`. Hook lines also record `worker_run`,
 dispatch-sourced verification lines record `dispatch_run`, and worker execution environments receive
-`DOFLOW_WORKER_RUN` (six launch environment variables, not part of the stored identity contract).
+`DOFLOW_WORKER_RUN`. Under internal contract IC-012, the worker launch environment (`ENV_SET`) grows
+from six to seven variables (`DOFLOW_RUN_ID`, `DOFLOW_LINEAGE_ID`, `DOFLOW_ATTEMPT`, `DOFLOW_SESSION_ROLE`,
+`DOFLOW_WORKTREE`, `DOFLOW_WORKER_RUN`, and `DOFLOW_GUARD_DROP_DATABASES`): the seventh is optional and absent
+when no database list is set, and any caller-supplied value is removed before launch (not part of the stored identity contract).
 One known gap: in the 109 live run the read-only worker wrote no hook lines at all, and the cause has
 not been established (tracked as follow-up FU-hehzbq). ID-less windows across concurrent activities
 also remain ambiguous.

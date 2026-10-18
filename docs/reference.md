@@ -242,12 +242,15 @@ Notes on three rows:
 | `storage.prune` | enum | `on` | project-overridable | — | `prune` |
 | `storage.retentionHours` | integer | `4320` | project-overridable | `DOFLOW_RETENTION_HOURS` | — |
 | `failure.capture` | enum | `on` | global-only | `DOFLOW_FAILURE_CAPTURE` | `failures/off` |
+| `guard.workerDropDatabases` | string | `—` | project-only | — | `—` |
 
 The default endpoint is the selected provider's `defaultEndpoint` in `advice.json`. `storage.retentionHours` defaults to the `lifecycle-events` bound in `storage.json`.
 
 `advise --action configure` writes advice settings to `settings.json`; an existing `decision-model.json` is left intact and remains readable with a deprecation note. The old `prune` file is also still read with a deprecation note. Settings written by this release are not seen by earlier betas or 2.0.x; the older files are left intact for those versions.
 
 `failure --action capture --set on|off` writes `failure.capture` in the global `settings.json`. An existing `failures/off` sentinel remains in place and still disables capture, including after `--set on`; remove the sentinel yourself to turn capture back on.
+
+`guard.workerDropDatabases` configures a space-separated list of exact lowercase database names (`[a-z][a-z0-9_]*`, at most 32 names, at most 1 KiB, all-or-nothing) that a worker session is permitted to drop via a single `psql -c` or `mysql -e` command running `DROP DATABASE [IF EXISTS] <name>`. It has `project-only` scope: it must be set in the project layer (`<project>/.doflow/settings.json` or `.doflow/settings.local.json`); global settings values are ignored, and no environment variable or CLI flag sets it. At worker launch, the launcher resolves and validates the list from the owning project root and exports the `DOFLOW_GUARD_DROP_DATABASES` environment variable; the hook reads only this snapshot variable. An unset, empty, or invalid list grants no relaxation. Setting this key carries the residual risk that the pre-bash guard cannot verify which host the database client contacts, and while in-run self-authorization is blocked by the launch snapshot, a worker process can write project settings in its sandbox to plant names for subsequent runs (tracked in FU-gxbryp).
 
 ### Config home
 
