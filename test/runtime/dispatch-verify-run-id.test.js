@@ -89,7 +89,7 @@ test('buildVerifyRecords: dispatch source with invalid token or path writes null
   const report = { status: 'PASS', startedAt: '2026-10-18T00:00:00.000Z', finishedAt: '2026-10-18T00:00:01.000Z', tiers: [] };
   const pathRecords = buildVerifyRecords({
     report,
-    ctx: { verifyId: 'd'.repeat(16), source: 'dispatch', taskId: 'A.1', dispatchRun: '/Users/kai/project/path' },
+    ctx: { verifyId: 'd'.repeat(16), source: 'dispatch', taskId: 'A.1', dispatchRun: path.join(__dirname, 'project', 'path') },
   });
   assert.equal(pathRecords[0].dispatch_run, null, 'a path is never written as dispatch_run');
 
