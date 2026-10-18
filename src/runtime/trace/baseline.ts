@@ -655,6 +655,4 @@ module.exports = {
   buildBaseline,
   renderReportMarkdown,
   sorted,
-  unionIntervals,
-  findIdleGaps,
 };
