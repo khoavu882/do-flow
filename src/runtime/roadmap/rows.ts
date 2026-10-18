@@ -22,6 +22,7 @@ interface RoadmapRow {
   writeSet?: string[];
   requires?: string[];
   mergeCommit?: string;
+  hold?: string;
 }
 
 interface RoadmapSeed {
@@ -167,6 +168,11 @@ function parseSeed(raw: string | any): RoadmapSeed {
     if (row.needs && !Array.isArray(row.needs)) {
       throw new SeedParseError('seed-invalid', `Row '${row.id}' needs must be an array of strings`, row.id);
     }
+
+    if (row.hold !== undefined && (typeof row.hold !== 'string' || row.hold.trim().length === 0
+      || Array.from(row.hold).length > 120 || /[\r\n\u2028\u2029]/.test(row.hold))) {
+      throw new SeedParseError('seed-invalid', `Row '${row.id}' hold must be a non-empty single-line string of at most 120 characters`, row.id);
+    }
   }
 
   if (duplicateIds.size > 0) {
@@ -296,6 +302,9 @@ function deriveStatus(
       }
     }
 
+    // A seed-level hold is reported for unmerged rows; an in-flight record's own hold (above) wins.
+    if (status !== 'merged' && holdReason === null && row.hold) holdReason = row.hold;
+
     const info: RowStatusInfo = {
       rowId: row.id,
       status,
@@ -342,6 +351,11 @@ function pick(
   let picked: RoadmapRow | null = null;
 
   for (const row of rows) {
+    if (row.hold) {
+      skips[row.id] = 'row-held';
+      continue;
+    }
+
     const status = getStatus(row.id);
     if (status === 'merged' || status === 'in-flight') {
       continue;
@@ -432,6 +446,8 @@ function render(
     let nextStr = '-';
     if (info.status === 'merged') {
       nextStr = '-';
+    } else if (row.hold) {
+      nextStr = `held: ${row.hold}`;
     } else if (info.status === 'in-flight') {
       nextStr = info.holdReason || info.nextStep || '-';
     } else {

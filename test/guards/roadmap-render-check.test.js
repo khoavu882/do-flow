@@ -23,7 +23,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { tempDir } = require('../helper/tmp');
-const { parseSeed, check } = require('../../src/runtime/roadmap/rows.ts');
+const { parseSeed, check, render } = require('../../src/runtime/roadmap/rows.ts');
 const { handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
 
 const FIXTURES_DIR = path.join(REPO, 'test', 'fixtures', 'roadmap', 'rows');
@@ -176,4 +176,25 @@ test('G57 negative control: check without commit-claimed-twice rule turns G57 re
   };
 
   assert.throws(mutatedCheck, /commit-claimed-twice finding was not reported/);
+});
+
+test('G57: render --check accepts held seed rows and preserves the rendered bytes', (t) => {
+  const temp = tempDir(t, 'doflow-g57-held-');
+  const roadmapDir = path.join(temp, 'agent-docs', 'roadmap');
+  fs.mkdirSync(roadmapDir, { recursive: true });
+  const seedRaw = JSON.stringify({ schema: 1, rows: [
+    { id: '113', slug: '113-held', title: 'Held', class: 'feature', needs: [], hold: 'awaiting owner input' },
+    { id: '114', slug: '114-ready', title: 'Ready', class: 'feature', needs: [] },
+  ] });
+  const rows = parseSeed(seedRaw).rows;
+  const rendered = render(rows, new Map());
+  fs.writeFileSync(path.join(roadmapDir, 'rows.json'), seedRaw, 'utf8');
+  fs.writeFileSync(path.join(roadmapDir, 'ROADMAP.md'), rendered, 'utf8');
+  const before = fs.readFileSync(path.join(roadmapDir, 'ROADMAP.md'), 'utf8');
+
+  const exitCode = handleRoadmapCommand({ action: 'render', check: true, root: temp,
+    gitFacts: { developHead: 'a'.repeat(40), merges: [], branches: [], claims: [] } });
+  assert.equal(exitCode, 0);
+  assert.match(rendered, /held: awaiting owner input/);
+  assert.equal(fs.readFileSync(path.join(roadmapDir, 'ROADMAP.md'), 'utf8'), before);
 });

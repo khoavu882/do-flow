@@ -845,3 +845,63 @@ test('Fix 3 negative control: old status --row --json printed not-started and ex
   assert.equal(oldJsonOutput.error, undefined, 'old behavior had no error field');
 });
 
+test('parseSeed: validates an optional hold as non-empty, single-line, and at most 120 characters', () => {
+  const row = { id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [] };
+  assert.equal(parseSeed({ schema: 1, rows: [{ ...row, hold: 'awaiting owner input' }] }).rows[0].hold, 'awaiting owner input');
+  assert.equal(parseSeed({ schema: 1, rows: [{ ...row, hold: 'x'.repeat(120) }] }).rows[0].hold.length, 120);
+  for (const hold of ['', '   ', 'x'.repeat(121), 'first line\nsecond line', 'first line\rsecond line', 7]) {
+    assert.throws(() => parseSeed({ schema: 1, rows: [{ ...row, hold }] }), (err) => err.code === 'seed-invalid');
+  }
+});
+
+test('pick: held ready rows are skipped before other checks and do not mask an unheld ready row', () => {
+  const held = { id: '113', slug: '113-held', title: 'Held', class: 'feature', needs: [], hold: 'awaiting owner input' };
+  const ready = { id: '114', slug: '114-ready', title: 'Ready', class: 'feature', needs: [] };
+  const outcome = pick([held, ready], new Map([['113', { status: 'not-started' }], ['114', { status: 'not-started' }]]));
+  assert.equal(outcome.picked.id, '114');
+  assert.equal(outcome.skips['113'], 'row-held');
+
+  const inFlightHeld = pick([held], new Map([['113', { status: 'in-flight' }]]));
+  assert.equal(inFlightHeld.picked, null);
+  assert.equal(inFlightHeld.skips['113'], 'row-held');
+});
+
+test('deriveStatus: a seed-held unmerged row reports its hold as holdReason; merged rows stay null; an in-flight record hold wins', () => {
+  const sha = 'a'.repeat(40);
+  const held = { id: '113', slug: '113-held', title: 'Held', class: 'feature', needs: [], hold: 'awaiting owner input' };
+  const merged = { id: '114', slug: '114-merged', title: 'Merged', class: 'feature', needs: [], hold: 'retired', mergeCommit: sha };
+  const flying = { id: '115', slug: '115-flying', title: 'Flying', class: 'feature', needs: [], hold: 'seed text' };
+  const plain = { id: '116', slug: '116-plain', title: 'Plain', class: 'feature', needs: [] };
+  const { statuses } = deriveStatus([held, merged, flying, plain], {
+    merges: [{ sha, parents: ['b'.repeat(40), 'c'.repeat(40)] }],
+  }, undefined, { rows: { 115: { hold: 'record text' } } });
+  assert.equal(statuses.get('113').status, 'not-started');
+  assert.equal(statuses.get('113').holdReason, 'awaiting owner input');
+  assert.equal(statuses.get('114').status, 'merged');
+  assert.equal(statuses.get('114').holdReason, null);
+  assert.equal(statuses.get('115').status, 'in-flight');
+  assert.equal(statuses.get('115').holdReason, 'record text');
+  assert.equal(statuses.get('116').holdReason, null);
+});
+
+test('held rows keep derived merge status and render held text only while not merged', () => {
+  const sha = 'a'.repeat(40);
+  const pointer = { id: '113', slug: '113-pointer', title: 'Pointer', class: 'feature', needs: [], hold: 'deferred', mergeCommit: sha };
+  const trailer = { id: '114', slug: '114-trailer', title: 'Trailer', class: 'feature', needs: [], hold: 'retired' };
+  const { statuses } = deriveStatus([pointer, trailer], { merges: [
+    { sha, parents: ['b'.repeat(40), 'c'.repeat(40)] },
+    { sha: 'd'.repeat(40), parents: ['b'.repeat(40), 'e'.repeat(40)], rowTrailer: '114' },
+  ] });
+  assert.equal(statuses.get('113').status, 'merged');
+  assert.equal(statuses.get('114').status, 'merged');
+  const mergedText = render([pointer, trailer], statuses);
+  assert.match(mergedText, /\| 113 \| Pointer \| feature \| - \| merged \| a{7} \(seeded\) \| - \|/);
+  assert.match(mergedText, /\| 114 \| Trailer \| feature \| - \| merged \| d{7} \(trailer\) \| - \|/);
+
+  const ready = { id: '115', slug: '115-held', title: 'Held', class: 'feature', needs: [], hold: 'awaiting owner input' };
+  const statusesForReady = new Map([['115', { rowId: '115', status: 'not-started', evidence: null }]]);
+  const first = render([ready], statusesForReady);
+  assert.match(first, /\| 115 \| Held \| feature \| - \| not-started \| - \| held: awaiting owner input \|/);
+  assert.equal(first, render([ready], statusesForReady), 'held rows render byte-stably');
+});
+
