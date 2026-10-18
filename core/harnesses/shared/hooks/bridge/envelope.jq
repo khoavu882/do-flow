@@ -87,7 +87,7 @@ def dft_tuple($native; $d):
       (if $ARGS.named.mode == "observe" then . + {duration_ms:($native.duration_ms |
         if type == "number" and . >= 0 and . <= 9007199254740991 and . == floor then . else null end)} else . end) |
       if ($policy == "pre-bash-guard" or $ARGS.named.mode == "observe") and $d.operation == "command"
-      then . + {test_class:classify($d.command)} else . end
+      then . + {test_class:classify($d.command)} else . + {test_class:null} end
     end) catch {dft:1}] | if length == 1 then .[0] else {dft:1} end;
 if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),harness:$harness,event:(event_name($event)),operation:event_operation($event)}} elif type != "object" then . else
   . as $native |

@@ -133,8 +133,8 @@ test('all six harness decoders classify the same command; other policies and mod
     assert.equal(encode(payload, { harness })[0].test_class, 'test.full', harness);
   }
   const payload = native(command);
-  assert.ok(!Object.hasOwn(encode(payload, { policy: 'mcp-tool-guard' })[0], 'test_class'));
-  assert.ok(!Object.hasOwn(encode({ ...payload, tool_name: 'Edit' })[0], 'test_class'));
+  assert.equal(encode(payload, { policy: 'mcp-tool-guard' })[0].test_class, null);
+  assert.equal(encode({ ...payload, tool_name: 'Edit' })[0].test_class, null);
   for (const mode of [null, 'minimal']) assert.equal(encode(payload, { mode }).length, 1);
   assert.equal(encode(payload, { mode: 'observe', policy: 'post-shell-observe' }).length, 1, 'observe returns only the tuple');
 });
