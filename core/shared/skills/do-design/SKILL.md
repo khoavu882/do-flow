@@ -193,7 +193,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 ## Embedded feature research
 
-For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+Run the ideation pass and the gap-or-request protocol of `../do-document/references/embedded-research.md` before completion; a skipped pass says `ideation: skipped (<reason>)` in the handoff note.
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read `requirement.md`, produce
