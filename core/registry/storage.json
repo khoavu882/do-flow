@@ -812,7 +812,7 @@
       "rule": "existing",
       "bound": {
         "value": 10000,
-        "text": "keep the last 10000 gate and merge entries"
+        "text": "keep the last 10000 gate, merge, render and cleanup entries"
       },
       "protect": null,
       "moments": [],

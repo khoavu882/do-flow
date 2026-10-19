@@ -13,15 +13,26 @@ const UNCHECKED = /^\s*- \[ \] /m;
 const UNCHECKED_TASK = /^\s*- \[ \] (\S+)/gm;
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-function recordStorePaths(fsImpl: any): Map<string, string> {
+/** The record extension a store declares in its `match` pattern: `.jsonl` for a JSON-lines store, else `.json`. */
+function recordExtension(match: any): string {
+  return typeof match === 'string' && /\\\.jsonl\$$/.test(match) ? '.jsonl' : '.json';
+}
+
+function workRecordStores(fsImpl: any): any[] {
   try {
     const registry = loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
-    return new Map(registry.stores
-      .filter((store: any) => store.root === 'project-state' && store.entry === 'record' && store.rule === 'work')
-      .map((store: any): [string, string] => [store.id, store.path]));
+    return registry.stores.filter((store: any) => store.root === 'project-state' && store.entry === 'record' && store.rule === 'work');
   } catch {
-    return new Map();
+    return [];
   }
+}
+
+function recordStorePaths(fsImpl: any): Map<string, string> {
+  return new Map(workRecordStores(fsImpl).map((store: any): [string, string] => [store.id, store.path]));
+}
+
+function recordStoreExtensions(fsImpl: any): Map<string, string> {
+  return new Map(workRecordStores(fsImpl).map((store: any): [string, string] => [store.id, recordExtension(store.match)]));
 }
 
 function createWorkCache({ projectRoot, fsImpl = fs }: { projectRoot: string; fsImpl?: any }): any {
@@ -29,6 +40,7 @@ function createWorkCache({ projectRoot, fsImpl = fs }: { projectRoot: string; fs
     projectRoot: path.resolve(projectRoot),
     fsImpl,
     recordStorePaths: recordStorePaths(fsImpl),
+    recordExtensions: recordStoreExtensions(fsImpl),
     runNames: null,
     runListError: false,
     featureNames: null,
@@ -120,16 +132,26 @@ function resolveRun(cache: any, taskId: string, namespace: any, shouldStop?: () 
   return read.ok ? { id, value: read.value, unreadable: false } : { id, value: null, unreadable: true };
 }
 
-function readRecord({ projectRoot, storePath, recordId, namespace, mtimeMs, fsImpl }: any): any {
+function parseJsonLines(text: string): any {
+  const lines = text.split('\n').filter((line: string) => line.trim() !== '');
+  if (lines.length === 0) throw new Error('empty JSON-lines record');
+  const values = lines.map((line: string) => JSON.parse(line));
+  return values[values.length - 1];
+}
+
+function readRecord({ projectRoot, storePath, recordId, namespace, mtimeMs, fsImpl, extension = '.json' }: any): any {
   const storeSegments = typeof storePath === 'string' && storePath !== '' ? storePath.split('/') : [];
   if (typeof storePath !== 'string' || storeSegments.some((segment: string) => !safeSegment(segment))
       || !safeSegment(recordId)
       || (namespace !== null && namespace !== undefined && !safeSegment(namespace))) {
     return { ok: false };
   }
-  const file = path.join(stateRoot(projectRoot), ...storeSegments, ...(namespace ? [namespace] : []), `${recordId}.json`);
+  const file = path.join(stateRoot(projectRoot), ...storeSegments, ...(namespace ? [namespace] : []), `${recordId}${extension}`);
   try {
-    const value = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
+    const text = fsImpl.readFileSync(file, 'utf8');
+    // A `.jsonl` record is one JSON value per line, appended over time: every line must parse (fail
+    // closed otherwise) and the last one is the record's current value.
+    const value = extension === '.jsonl' ? parseJsonLines(text) : JSON.parse(text);
     const mtime = mtimeMs === undefined ? fsImpl.statSync(file).mtimeMs : mtimeMs;
     if (!Number.isFinite(mtime)) return { ok: false };
     return { ok: true, value, mtimeMs: mtime };
@@ -343,7 +365,8 @@ function workStatus({
       record = { ok: false };
     }
   } else {
-    record = readRecord({ projectRoot: project, storePath, recordId, namespace, mtimeMs, fsImpl: fileSystem });
+    record = readRecord({ projectRoot: project, storePath, recordId, namespace, mtimeMs, fsImpl: fileSystem,
+      extension: pass.recordExtensions?.get(store) || '.json' });
   }
   if (shouldStop?.()) return incompleteAnswer(resolvedRun.id);
   if (!record.ok) return answer('undecidable', 'record-unreadable', resolvedRun.id, null);
@@ -409,4 +432,4 @@ function workStatus({
   return answer('finished', run ? 'run-finished' : 'no-run', resolvedRun.id, feature, since);
 }
 
-module.exports = { workStatus, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES };
+module.exports = { workStatus, recordExtension, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES };

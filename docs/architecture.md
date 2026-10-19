@@ -274,15 +274,15 @@ lifecycle status in `src/runtime/lifecycle/status.ts` and the roadmap answer "me
 Gate approvals are data: `core/registry/gates.json` lists, per class and gate, the predicates that
 must pass, the protected paths, the loop limits and the closed `denyReasons` list, and
 `orchestrate --action decide-gate --policy` evaluates it. The code is five modules under
-`src/runtime/roadmap/`, plus the verb's table entry in `src/cli/runtime-commands.ts`:
+`src/runtime/roadmap/`, plus the verb's table entry in `src/cli/runtime-commands.ts`. The kill switch itself is read by one function, `readKillSwitch` in `src/runtime/settings/autopilot.ts`, which the loop and `orchestrate --action decide-gate --policy` share, so the orchestrator never imports the loop:
 
 | Module | Does | Must not |
 |---|---|---|
 | `rows.ts` | Parses the seed (`agent-docs/roadmap/rows.json`), derives status, picks the next row (declared write sets disjoint, work in progress capped), renders `ROADMAP.md` and checks it (`render --check`). Pure apart from the one temp-and-rename write of `ROADMAP.md` | Read a status from the seed (`seed-typed-status`), read git or state |
 | `gates.ts` | Loads and narrows the policy (`loadPolicy`), evaluates the ordered predicates (`evaluate`) and validates `review/findings.json` (`validateFindings`). Pure, byte-stable output for the same inputs | Touch the filesystem or git, accept a project override that widens the policy |
 | `facts.ts` | Read-only gathering for status and for each gate: heads, merges and trailers, marker counts, plan parse, capability resolution, verify run records, findings ancestry, the diff against the protected paths. Each fact carries a locator and a sha256 | Write anything, run a git verb outside the read set |
-| `merge.ts` | The merge of an approved row by git plumbing (`merge-tree --write-tree`, `commit-tree` with a pinned identity, `merge --ff-only`), the intent record with its crash-resumable phases, the repair of a killed fast-forward, the render trigger and the non-force cleanup | Force anything (`-D`, `--force`), push, or touch a checkout that is dirty, on another branch or has moved (`develop-dirty`, `develop-wrong-branch`, `develop-moved`) |
-| `loop.ts` | The verb: kill switch, lease, run record and checkpoints, one step per `next` (pick, gate, merge, render, cleanup), the `perform` envelopes a session carries out, the dispatch-outcome mapping, `status`, `render`, `audit` | Launch a worker, run a model, or call a binary other than `git` |
+| `merge.ts` | The merge of an approved row by git plumbing (`merge-tree --write-tree`, `commit-tree` with a pinned identity, `merge --ff-only`), the intent record with its crash-resumable phases, the repair of a killed fast-forward, the render trigger and the non-force cleanup, which keeps the worktree and branch unless the branch tip is an ancestor of develop | Force anything (`-D`, `--force`), push, or touch a checkout that is dirty, on another branch or has moved (`develop-dirty`, `develop-wrong-branch`, `develop-moved`) |
+| `loop.ts` | The verb: the kill-switch read before every mutating act, lease (taken over through `lease.reclaim`, re-read at each boundary), run record and checkpoints, the audit file, one step per `next` (pick, gate, merge, render, cleanup), the `perform` envelopes a session carries out, the dispatch-outcome mapping, `status` (including run holds and the lease holder), `render`, `audit` | Launch a worker, run a model, or call a binary other than `git` |
 
 Two guards keep the mechanical side mechanical. G53 (`roadmap-git-verbs.test.js`) reads every git
 argument vector in `src/runtime/roadmap/**` and allows only the read verbs, the plumbing merge path and
@@ -294,7 +294,8 @@ worker launcher, the worker supervisor, the dispatch loop or a model client, or 
 inside a `perform` envelope that the session runs with `dispatch --billing-cap free`.
 
 The loop's state is machine-local under `.doflow/state/roadmap/` in the main checkout (`lease.json`,
-`runs/`, `intents/`, `done/`, `tripwire/`), with the verify run record under
+`lease.reclaim` while a stale lease is taken over, `audit.jsonl`, `runs/`, `intents/`, `done/`,
+`tripwire/`), with the verify run record under
 `.doflow/state/verification/runs/` and the kill-switch sentinel in the config home; the stores table
 in [Reference](reference.md#storage-stores) holds their bounds. The loop is local by construction:
 no step pushes, tags, publishes or installs, and the gate policy cannot approve a change to its own

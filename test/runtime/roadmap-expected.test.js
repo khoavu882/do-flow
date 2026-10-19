@@ -53,6 +53,7 @@ const GROUPS = {
   "TRAILER-ROW": "C11: the oracle's default history has a DoFlow-Row 101 merge for a row its seed subsets lack, and IC-003 makes that a finding.",
   "S8-TAIL": "C12: merge.ts runs ff-done to rendered to cleaned inside one next call; step reports cleanup with annotations.rendered.",
   "CLEANUP-NOTE": "C12: the kept state is annotations.cleanup; reason stays null.",
+  "USER-ACCEPTED": "C13: autopilot denies every user-accepted disposition (a question-channel register entry can be written by any session, review defect C5); a person-decided gate-b still accepts it.",
   "SEED-REJECTED": "C12: status fails closed on a seed the loop rejected.",
 };
 const known = (tags, diffs) => ({ tags, reading: tags.map((tag) => GROUPS[tag]).join(' '), diffs });
@@ -72,6 +73,10 @@ const KNOWN_MISMATCHES = {
   ]),
   "S22-gateb-refuted-without-evidence": known(["DENY-ORDER"], [
     "call 1 reason: expected \"refuted-without-evidence:C3\" actual \"findings-invalid\"",
+  ]),
+  "S27-gateb-pass-two-seats": known(["USER-ACCEPTED"], [
+    "call 1 outcome: expected \"acted\" actual \"denied\"",
+    "call 1 reason: expected null actual \"user-accepted-needs-person:C9\"",
   ]),
   "S28-policy-absent": known(["POLICY-LEVEL"], [
     "call 1 step: expected \"gate\" actual null",

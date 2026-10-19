@@ -410,7 +410,7 @@ status comes from git.
 ```bash
 doflow roadmap --action render --check   # exit 0: ROADMAP.md matches git and the seed; exit 1: findings
 doflow roadmap --action render           # write agent-docs/roadmap/ROADMAP.md if it changed
-doflow roadmap --action status           # merged / in-flight / not-started per row, open merge intents
+doflow roadmap --action status           # merged / in-flight / not-started per row, open merge intents, run holds, the lease holder
 ```
 
 **Drive `next`.** Call `doflow roadmap --action next --json` and read `outcome`:
@@ -432,7 +432,7 @@ doflow roadmap --action status           # merged / in-flight / not-started per 
 - `denied` or `blocked`: nothing advanced and the row waits. `reasons` says why (a gate predicate such as
   `blockers-open`, `stage-not-performed`, `lease-held`, or for `blocked`: `budget`, `stuck` or `quota`).
   Fix the cause; a denied gate is evaluated again when its inputs change.
-- `idle`: nothing is ready; `skips` lists each row's reason. `stopped`: the kill switch is off.
+- `idle`: nothing is ready; `skips` lists each row's reason (the full list is in [Reference](reference.md); a `held:<reason>` skip means the row's last deny or block repeated on unchanged inputs, so it is skipped without spending budget until something it reads changes). `stopped`: the kill switch is off.
 
 `--row <id>` restricts a call to one in-flight row and `--run <id>` names the run; the default is the
 open run. Only one `next` runs at a time (`lease-held` otherwise).
@@ -440,7 +440,7 @@ open run. Only one `next` runs at a time (`lease-held` otherwise).
 **Turn it on and off.** It ships off. To turn it on, put `{"schema":1,"autopilot.enabled":"on"}` in
 `~/.config/doflow/settings.json` (or under `$XDG_CONFIG_HOME/doflow`). To stop it: set
 `DOFLOW_AUTOPILOT_ENABLED=off`, set the value to `off`, or create the file `autopilot/off` in the same
-folder. The switch is read before each step, and a stopped call names the layer in `annotations.switch`.
+folder. The switch is read before every mutating act, not only at the start of a call (a switch turned off mid-call stops the next act), and a stopped call names the layer in `annotations.switch`. A sentinel file the loop cannot read counts as set, so a permissions error stops it rather than letting it run.
 The environment variable and the file can only switch it off. The loop itself creates `autopilot/off`
 when develop gets a revert of an autopilot merge or a merge fails its post-merge check
 (`merged-unverified`); only you remove it. `doflow config -g` can still show `on` while only that file
@@ -451,7 +451,14 @@ and a paid run. The loop only writes local state, local branches and worktrees, 
 row into your local develop; you push. Its code spawns only `git`, and G53 and G54 fail the build if
 that changes. Gate-b approval is by policy: it needs a clean verify run on the exact feature head and a
 valid `review/findings.json` with no open blockers, and a change to the gate policy or other protected
-paths is never approved by the loop.
+paths is never approved by the loop. Policy also never accepts a blocker marked `user-accepted`
+(`user-accepted-needs-person`; that gate is a person's) and never approves a plan that carries a
+`doflow-verification` block (`protected-path:plan-verification`), because that block would replace the
+post-merge check. Approval is not retroactive, with two exceptions: the loop reads develop's current
+policy again before it writes a merge intent (a gate-b set to `never` since then denies
+`policy-never`), and a plan edited after gate-b denies `plan-changed` at the post-merge step. The
+loop removes a finished worktree and branch only after proving the branch tip is already on develop;
+otherwise both are kept (`cleanup-kept`).
 
 **When it stops.** Every `next` prints a `checkpoint` path (`.doflow/state/roadmap/runs/<runId>.json`)
 holding the step log and per-row state. `doflow roadmap --action audit` prints every logged step and
@@ -459,7 +466,37 @@ deny. An open merge intent is in `.doflow/state/roadmap/intents/<row>.json`, and
 it. A tripwire stop is in `annotations.tripwire` and `.doflow/state/roadmap/tripwire/events.json`.
 `blocked: budget` means the run used its step cap (`loop.maxSteps` in `core/registry/gates.json`).
 The feature's decision register and orchestration journal live in its worktree and are removed with it
-by cleanup; the durable audit of automatic decisions is `roadmap --action audit` and the run record log.
+by cleanup. `roadmap --action audit` prints the decisions. The run record's log keeps only its last 500
+entries, and run records are pruned 30 days after their work finishes, so the run record log is not the
+durable audit; `.doflow/state/roadmap/audit.jsonl` is: it keeps the last 10000 gate, merge, render and
+cleanup entries with the locator and sha256 of every input they read.
+
+**When it is stuck.**
+
+- A merge intent denied `develop-moved` (someone committed on develop after the intent was written) or
+  `plan-changed` (the feature plan differs from the one gate-b approved) is held: the deny is logged
+  once, later calls skip the row as `held:develop-moved` or `held:plan-changed`, and other rows still
+  advance. The hold ends when the intent, develop's head or the plan changes, so restoring develop or
+  the plan lifts it. To give up that merge instead, with no `next` running, move
+  `.doflow/state/roadmap/intents/<row>.json` to `.doflow/state/roadmap/done/<row>.json` and set
+  `"status": "abandoned"` in it. The loop then skips the row as `intent-abandoned` and neither resumes
+  nor replaces the intent. Archived intents are pruned 30 days after they were written; once the
+  record is gone, the loop can write a new intent for the row.
+- A run that returned `blocked: budget` never closes, and every later call on it blocks again. Start a
+  new run by naming an unused id: `doflow roadmap --action next --run rl-<yyyymmdd>-<4 characters>`
+  (characters from `0-9` and `a-z` without `i`, `l`, `o` and `u`). Later calls without `--run` use the
+  newest open run. A gate-b the loop approved stays valid across runs, because the approved feature head
+  is kept in the approval itself. The blocked record stays until its `closedAt` is set; set it by hand
+  if you want retention to remove it.
+- `lease-held` with `annotations.holder` naming a process that is gone: on the same host the next call
+  takes the lease over itself. If the holder is on another host, its process id may have been reused, or
+  the lease file is unreadable, the loop refuses forever by design. Check that no `next` is running,
+  then delete `.doflow/state/roadmap/lease.json`, and `.doflow/state/roadmap/lease.reclaim` if it is
+  there (a stale `lease.reclaim` blocks every call the same way). A call that answers `lease-lost`
+  found its lease replaced mid-call and wrote nothing more; call `next` again.
+- Scheduling covers the rows in the seed only. A `feat/*` branch, worktree or run that no seeded row
+  names counts toward neither the cap on work in progress nor the write-set overlap check, and `status`
+  does not list it. Look for such leftovers yourself with `git worktree list` and `git branch --list 'feat/*'`.
 
 ## Work across supported tools
 

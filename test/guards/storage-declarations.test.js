@@ -616,7 +616,7 @@ test('G26: the loop writes the roadmap store, and the autopilot sentinel is a co
   const audit = registry.stores.find((entry) => entry.id === 'roadmap-audit');
   assert.deepEqual({ root: audit.root, path: audit.path, entry: audit.entry, rule: audit.rule, bound: audit.bound, writers: audit.writers }, {
     root: 'project-state', path: 'roadmap/audit.jsonl', entry: 'file', rule: 'existing',
-    bound: { value: 10000, text: 'keep the last 10000 gate and merge entries' }, writers: ['src/runtime/roadmap/loop.ts'],
+    bound: { value: 10000, text: 'keep the last 10000 gate, merge, render and cleanup entries' }, writers: ['src/runtime/roadmap/loop.ts'],
   });
   const settings = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
   assert.deepEqual(settings.keys['autopilot.enabled'].legacy, [{ layer: 'user', kind: 'sentinel', path: 'autopilot/off', value: 'off' }],
@@ -691,6 +691,35 @@ test('G26: roadmap run records are pruned once finished; the newest, an intent-n
   assert.deepEqual({ state: status('events', 'tripwire').state, reason: status('events', 'tripwire').reason }, { state: 'open', reason: 'roadmap-tripwire-kept' });
   fs.writeFileSync(path.join(storeDir, 'intents/113.json'), '{broken');
   assert.equal(status(named, 'runs').state, 'undecidable', 'an unreadable intent never reads as finished');
+});
+
+test('G26: verification-runs .jsonl records are selected by the 30-day finished bound; an unfinished task is never selected', (t) => {
+  const { tempDir } = require('../helper/tmp');
+  const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
+  const root = tempDir(t, 'doflow-verification-runs-retention-');
+  const state = path.join(root, '.doflow/state');
+  const storeDir = path.join(state, 'verification/runs');
+  const store = registry.stores.find((entry) => entry.id === 'verification-runs');
+  const now = Date.parse('2026-10-19T00:00:00Z');
+  const put = (name, days) => {
+    const file = path.join(storeDir, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const line = (verdict) => JSON.stringify({ schema: 1, taskId: name, head: 'a'.repeat(40), clean: true, verdict, at: '2026-01-01T00:00:00.000Z' });
+    fs.writeFileSync(file, `${line('FAIL')}\n${line('PASS')}\n`);
+    const when = new Date(now - days * 86400000);
+    fs.utimesSync(file, when, when);
+  };
+  const feature = path.join(root, 'agent-docs/doflow/114-open');
+  fs.mkdirSync(feature, { recursive: true });
+  fs.writeFileSync(path.join(feature, 'plan.md'), '- [ ] A.1 still open\n');
+  put('t-old.jsonl', 31);
+  put('t-recent.jsonl', 29);
+  put('114-open.jsonl', 31); // the task names an unchecked plan: unfinished work is never pruned by age
+  const entries = fs.readdirSync(storeDir).map((name) => ({ name, stat: fs.statSync(path.join(storeDir, name)) }));
+  const selected = selectCandidates(store, entries, { now, fsImpl: fs, storeDir, roots: { 'project-state': state }, settings: registry.settings });
+  assert.deepEqual(selected.map((entry) => entry.name), ['t-old.jsonl'],
+    'only the 31-day-old finished .jsonl record is eligible; 29 days and an unfinished task are kept');
+  assert.equal(selected[0].reason, 'finished-work');
 });
 
 test('G26 (b): every file with a write call is declared, and every declared writer writes', () => {
