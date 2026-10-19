@@ -3,13 +3,13 @@
 // 096 C.2: report decision block per scope and split from the noise artifact, with
 // --noise, --decision-out, comma iterations, overfit flag, preconditions and negative controls.
 
-const { test } = require('node:test');
+const { test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const runner = require('../../bench/runner.js');
 const noise = require('../../bench/noise.js');
-const { tempDir } = require('../helper/tmp.js');
+const { suiteTempDir } = require('../helper/tmp.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE_ROOT = path.join(__dirname, '..', 'fixtures', 'bench-noise');
@@ -30,8 +30,27 @@ function quiet(fn) {
   }
 }
 
-function setupFixture(t, iterationNames, overrides = {}) {
-  const root = tempDir(t, 'doflow-bench-report-');
+let f;
+let sharedNoiseFile;
+
+const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
+const candIters = ['banded-cand-r1', 'banded-cand-r2', 'banded-cand-r3'];
+const allIters = [
+  ...baseIters,
+  ...candIters,
+  'candidate-differ-r1',
+  'candidate-differ-r2',
+  'candidate-missing',
+  'candidate-infra',
+];
+
+const commitForIter = {
+  'candidate-differ-r1': 'c0ffee1111111111111111111111111111111111',
+  'candidate-differ-r2': 'deadbeef22222222222222222222222222222222',
+};
+
+before(() => {
+  const root = suiteTempDir('doflow-bench-report-');
   const runsRoot = path.join(root, 'runs');
   const baselineDir = path.join(root, 'baseline');
   const baselineFile = path.join(baselineDir, 'baseline.json');
@@ -45,7 +64,6 @@ function setupFixture(t, iterationNames, overrides = {}) {
     baselineDir: path.relative(REPO_ROOT, baselineDir),
     reportsDir: path.relative(REPO_ROOT, reportsDir),
     model: 'claude-noise-fixture',
-    ...overrides,
   };
 
   const evalsByKey = new Map();
@@ -55,13 +73,13 @@ function setupFixture(t, iterationNames, overrides = {}) {
     }
   }
 
-  for (const iterName of iterationNames) {
+  for (const iterName of allIters) {
     const iterRoot = path.join(runsRoot, iterName);
     fs.mkdirSync(iterRoot, { recursive: true });
 
     const stamp = {
-      model: overrides.modelForIter?.[iterName] || cfg.model,
-      sourceAt: overrides.commitForIter?.[iterName] || 'a4d64234567890abcdef1234567890abcdef12',
+      model: cfg.model,
+      sourceAt: commitForIter[iterName] || 'a4d64234567890abcdef1234567890abcdef12',
     };
     fs.writeFileSync(path.join(iterRoot, 'iteration.json'), `${JSON.stringify(stamp, null, 2)}\n`);
 
@@ -88,11 +106,19 @@ function setupFixture(t, iterationNames, overrides = {}) {
     quiet(() => runner.cmdGrade(cfg, { iteration: iterName, runsRoot }));
   }
 
-  return { cfg, runsRoot, baselineFile, baselineDir, reportsDir, root };
-}
+  quiet(() => runner.cmdBaseline(cfg, { from: 'banded-base-r1', runsRoot, baselineFile }));
 
-test('C.2: with no artifact, fixture baseline prints three no-noise-band lines and do-not-merge (S-3 on fixtures), exit 0', (t) => {
-  const f = setupFixture(t, ['banded-base-r1', 'banded-cand-r1']);
+  sharedNoiseFile = path.join(root, 'shared-noise.json');
+  quiet(() => runner.cmdNoise(cfg, {
+    iterations: baseIters.join(','),
+    runsRoot,
+    out: sharedNoiseFile,
+  }));
+
+  f = { cfg, runsRoot, baselineFile, baselineDir, reportsDir, root };
+});
+
+test('C.2: with no artifact, fixture baseline prints three no-noise-band lines and do-not-merge (S-3 on fixtures), exit 0', () => {
   quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
 
   // Run report without noise artifact
@@ -119,10 +145,7 @@ test('C.2: with no artifact, fixture baseline prints three no-noise-band lines a
   assert.deepEqual(noise.validateDecision(report.decision), []);
 });
 
-test('C.2: an explicit --noise that is missing exits 2', (t) => {
-  const f = setupFixture(t, ['banded-base-r1', 'banded-cand-r1']);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
+test('C.2: an explicit --noise that is missing exits 2', () => {
   const missingNoise = path.join(f.root, 'missing-noise.json');
   const run = quiet(() => runner.cmdReport(f.cfg, {
     iteration: 'banded-cand-r1',
@@ -135,24 +158,9 @@ test('C.2: an explicit --noise that is missing exits 2', (t) => {
   assert.match(run.err, new RegExp(`bench report: no noise artifact at ${missingNoise.replace(/\\/g, '\\\\')}`));
 });
 
-test('C.2: preconditions derived in design §4 order on their own fixtures', (t) => {
-  const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
-  const f = setupFixture(t, [...baseIters, 'banded-cand-r1', 'banded-cand-r2', 'candidate-differ-r1', 'candidate-differ-r2'], {
-    commitForIter: {
-      'candidate-differ-r1': 'c0ffee1111111111111111111111111111111111',
-      'candidate-differ-r2': 'deadbeef22222222222222222222222222222222',
-    },
-  });
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
-  const validNoiseFile = path.join(f.baselineDir, 'noise.json');
-  quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: baseIters.join(','),
-    runsRoot: f.runsRoot,
-    out: validNoiseFile,
-  }));
-  assert.ok(fs.existsSync(validNoiseFile));
-  const validNoise = JSON.parse(fs.readFileSync(validNoiseFile, 'utf8'));
+test('C.2: preconditions derived in design §4 order on their own fixtures', () => {
+  assert.ok(fs.existsSync(sharedNoiseFile));
+  const validNoise = JSON.parse(fs.readFileSync(sharedNoiseFile, 'utf8'));
 
   // 1. noise-artifact-invalid
   {
@@ -225,32 +233,20 @@ test('C.2: preconditions derived in design §4 order on their own fixtures', (t)
       iteration: 'candidate-differ-r1,candidate-differ-r2',
       runsRoot: f.runsRoot,
       baselineFile: f.baselineFile,
-      noise: validNoiseFile,
+      noise: sharedNoiseFile,
     }));
     assert.equal(run.status, 0);
     assert.match(run.out, /decision corpus: inconclusive \(candidate-repeats-differ\) -> do-not-merge/);
   }
 });
 
-test('C.2: banded fixture gives expected corpus, train and heldout verdicts, overfitSuspected and heldout headroomLimited', (t) => {
-  const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
-  const candIters = ['banded-cand-r1', 'banded-cand-r2', 'banded-cand-r3'];
-  const f = setupFixture(t, [...baseIters, ...candIters]);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
-  const noiseFile = path.join(f.baselineDir, 'noise.json');
-  quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: baseIters.join(','),
-    runsRoot: f.runsRoot,
-    out: noiseFile,
-  }));
-
+test('C.2: banded fixture gives expected corpus, train and heldout verdicts, overfitSuspected and heldout headroomLimited', () => {
   const decisionOutFile = path.join(f.root, 'standalone-decision.json');
   const run = quiet(() => runner.cmdReport(f.cfg, {
     iteration: candIters.join(','),
     runsRoot: f.runsRoot,
     baselineFile: f.baselineFile,
-    noise: noiseFile,
+    noise: sharedNoiseFile,
     'decision-out': decisionOutFile,
   }));
 
@@ -274,24 +270,13 @@ test('C.2: banded fixture gives expected corpus, train and heldout verdicts, ove
   assert.deepEqual(noise.validateDecision(dec), []);
 });
 
-test('C.2: an expected key with no candidate grading counts as excluded missing', (t) => {
-  const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
-  const f = setupFixture(t, [...baseIters, 'candidate-missing']);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
-  const noiseFile = path.join(f.baselineDir, 'noise.json');
-  quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: baseIters.join(','),
-    runsRoot: f.runsRoot,
-    out: noiseFile,
-  }));
-
+test('C.2: an expected key with no candidate grading counts as excluded missing', () => {
   const decisionFile = path.join(f.root, 'missing-decision.json');
   const run = quiet(() => runner.cmdReport(f.cfg, {
     iteration: 'candidate-missing',
     runsRoot: f.runsRoot,
     baselineFile: f.baselineFile,
-    noise: noiseFile,
+    noise: sharedNoiseFile,
     'decision-out': decisionFile,
   }));
 
@@ -301,24 +286,13 @@ test('C.2: an expected key with no candidate grading counts as excluded missing'
   assert.equal(dec.corpus.unpaired.baselineOnly, 1);
 });
 
-test('C.2: infra runs are excluded and counted', (t) => {
-  const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
-  const f = setupFixture(t, [...baseIters, 'candidate-infra']);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
-  const noiseFile = path.join(f.baselineDir, 'noise.json');
-  quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: baseIters.join(','),
-    runsRoot: f.runsRoot,
-    out: noiseFile,
-  }));
-
+test('C.2: infra runs are excluded and counted', () => {
   const decisionFile = path.join(f.root, 'infra-decision.json');
   const run = quiet(() => runner.cmdReport(f.cfg, {
     iteration: 'candidate-infra',
     runsRoot: f.runsRoot,
     baselineFile: f.baselineFile,
-    noise: noiseFile,
+    noise: sharedNoiseFile,
     'decision-out': decisionFile,
   }));
 
@@ -379,10 +353,7 @@ test('C.2: buildReport output is deepEqual to its pre-096 value on existing fixt
   assert.equal(report.summary.unchanged, 1);
 });
 
-test('C.2: report file naming: one iteration keeps <it>-vs-baseline.json; several give a+b+c-vs-baseline.json', (t) => {
-  const f = setupFixture(t, ['banded-cand-r1', 'banded-cand-r2', 'banded-cand-r3']);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-cand-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
+test('C.2: report file naming: one iteration keeps <it>-vs-baseline.json; several give a+b+c-vs-baseline.json', () => {
   // Single iteration
   quiet(() => runner.cmdReport(f.cfg, {
     iteration: 'banded-cand-r1',
@@ -400,19 +371,7 @@ test('C.2: report file naming: one iteration keeps <it>-vs-baseline.json; severa
   assert.ok(fs.existsSync(path.join(f.reportsDir, 'banded-cand-r1+banded-cand-r2+banded-cand-r3-vs-baseline.json')));
 });
 
-test('C.2: report and decision JSON are byte-equal across two runs', (t) => {
-  const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
-  const candIters = ['banded-cand-r1', 'banded-cand-r2', 'banded-cand-r3'];
-  const f = setupFixture(t, [...baseIters, ...candIters]);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
-  const noiseFile = path.join(f.baselineDir, 'noise.json');
-  quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: baseIters.join(','),
-    runsRoot: f.runsRoot,
-    out: noiseFile,
-  }));
-
+test('C.2: report and decision JSON are byte-equal across two runs', () => {
   const dec1 = path.join(f.root, 'dec1.json');
   const dec2 = path.join(f.root, 'dec2.json');
 
@@ -420,7 +379,7 @@ test('C.2: report and decision JSON are byte-equal across two runs', (t) => {
     iteration: candIters.join(','),
     runsRoot: f.runsRoot,
     baselineFile: f.baselineFile,
-    noise: noiseFile,
+    noise: sharedNoiseFile,
     'decision-out': dec1,
   }));
   const repFile = path.join(f.reportsDir, `${candIters.join('+')}-vs-baseline.json`);
@@ -431,7 +390,7 @@ test('C.2: report and decision JSON are byte-equal across two runs', (t) => {
     iteration: candIters.join(','),
     runsRoot: f.runsRoot,
     baselineFile: f.baselineFile,
-    noise: noiseFile,
+    noise: sharedNoiseFile,
     'decision-out': dec2,
   }));
   const repContent2 = fs.readFileSync(repFile, 'utf8');
@@ -441,29 +400,21 @@ test('C.2: report and decision JSON are byte-equal across two runs', (t) => {
   assert.equal(decContent1, decContent2, 'decision JSON byte-equal');
 });
 
-test('C.2: default noise path resolves beside baselineFileOf (RK4)', (t) => {
-  const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
-  const f = setupFixture(t, [...baseIters, 'banded-cand-r1']);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
+test('C.2: default noise path resolves beside baselineFileOf (RK4)', () => {
+  const defaultDir = path.join(f.root, 'default-noise-test');
+  fs.mkdirSync(defaultDir, { recursive: true });
+  const defaultBaseFile = path.join(defaultDir, 'baseline.json');
+  fs.copyFileSync(f.baselineFile, defaultBaseFile);
+  const defaultNoiseFile = path.join(defaultDir, 'noise.json');
+  fs.copyFileSync(sharedNoiseFile, defaultNoiseFile);
 
-  // Write noise.json directly beside baselineFile
-  const defaultNoiseFile = path.join(path.dirname(f.baselineFile), 'noise.json');
-  quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: baseIters.join(','),
-    runsRoot: f.runsRoot,
-    out: defaultNoiseFile,
-  }));
-  assert.ok(fs.existsSync(defaultNoiseFile));
-
-  // Run report WITHOUT --noise option
   const run = quiet(() => runner.cmdReport(f.cfg, {
     iteration: 'banded-cand-r1',
     runsRoot: f.runsRoot,
-    baselineFile: f.baselineFile,
+    baselineFile: defaultBaseFile,
   }));
 
   assert.equal(run.status, 0);
-  // It should pick up defaultNoiseFile and produce banded results rather than no-noise-band!
   assert.match(run.out, /decision corpus: gain-above-noise/);
   const reportPath = path.join(f.reportsDir, 'banded-cand-r1-vs-baseline.json');
   const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
@@ -471,34 +422,22 @@ test('C.2: default noise path resolves beside baselineFileOf (RK4)', (t) => {
   assert.notEqual(report.decision.corpus.reason, 'no-noise-band');
 });
 
-test('C.2 negative control: using baseline.json (k = 1) as the baseline side changes the banded verdict (red)', (t) => {
-  const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
-  const f = setupFixture(t, [...baseIters, 'banded-cand-r1']);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
-  // In our banded fixture, candidate train passes (1.0).
-  // The noise artifact baseline train mean is 0.5 (gain +0.50 -> gain-above-noise).
-  // Now modify baseline.json to record train passRate 1.0:
+test('C.2 negative control: using baseline.json (k = 1) as the baseline side changes the banded verdict (red)', () => {
+  const controlDir = path.join(f.root, 'control-test');
+  fs.mkdirSync(controlDir, { recursive: true });
   const baseJson = JSON.parse(fs.readFileSync(f.baselineFile, 'utf8'));
   for (const r of baseJson.results) {
     if (r.split === 'train') r.passRate = 1.0;
   }
-  fs.writeFileSync(f.baselineFile, `${JSON.stringify(baseJson, null, 2)}\n`);
+  const controlBaseFile = path.join(controlDir, 'baseline.json');
+  fs.writeFileSync(controlBaseFile, `${JSON.stringify(baseJson, null, 2)}\n`);
 
-  const noiseFile = path.join(f.baselineDir, 'noise.json');
-  quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: baseIters.join(','),
-    runsRoot: f.runsRoot,
-    out: noiseFile,
-  }));
-
-  // True runner uses noise artifact (train mean 0.5) as baseline side -> gain-above-noise
-  const decFile = path.join(f.root, 'banded-dec.json');
+  const decFile = path.join(controlDir, 'banded-dec.json');
   quiet(() => runner.cmdReport(f.cfg, {
     iteration: 'banded-cand-r1',
     runsRoot: f.runsRoot,
-    baselineFile: f.baselineFile,
-    noise: noiseFile,
+    baselineFile: controlBaseFile,
+    noise: sharedNoiseFile,
     'decision-out': decFile,
   }));
   const dec = JSON.parse(fs.readFileSync(decFile, 'utf8'));
@@ -523,19 +462,8 @@ test('C.2 negative control: using baseline.json (k = 1) as the baseline side cha
   assert.notEqual(wrongDecision.verdict, dec.splits.train.verdict);
 });
 
-test('C.2 negative control: dropping the model precondition turns the mismatch case red', (t) => {
-  const baseIters = ['banded-base-r1', 'banded-base-r2', 'banded-base-r3'];
-  const f = setupFixture(t, [...baseIters, 'banded-cand-r1']);
-  quiet(() => runner.cmdBaseline(f.cfg, { from: 'banded-base-r1', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
-
-  const validNoiseFile = path.join(f.baselineDir, 'noise.json');
-  quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: baseIters.join(','),
-    runsRoot: f.runsRoot,
-    out: validNoiseFile,
-  }));
-  const validNoise = JSON.parse(fs.readFileSync(validNoiseFile, 'utf8'));
-
+test('C.2 negative control: dropping the model precondition turns the mismatch case red', () => {
+  const validNoise = JSON.parse(fs.readFileSync(sharedNoiseFile, 'utf8'));
   const mismatchModelFile = path.join(f.root, 'mismatch-noise.json');
   const modelMismatch = { ...validNoise, model: 'other-model' };
   fs.writeFileSync(mismatchModelFile, `${JSON.stringify(modelMismatch, null, 2)}\n`);

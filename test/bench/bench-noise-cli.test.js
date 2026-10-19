@@ -3,21 +3,54 @@
 // 096 C.1: bench noise subcommand over k graded repeats with refusals,
 // in-memory grader re-run, stale-grade warnings and the noise artifact written only with --out.
 
-const { test } = require('node:test');
+const { test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const runner = require('../../bench/runner.js');
 const noise = require('../../bench/noise.js');
-const { tempDir } = require('../helper/tmp.js');
+const { suiteTempDir } = require('../helper/tmp.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE_ROOT = path.join(__dirname, '..', 'fixtures', 'bench-noise');
 const RUNNER_CLI = path.join(REPO_ROOT, 'bench', 'runner.js');
 
-function setupFixture(t, iterationNames, overrides = {}) {
-  const root = tempDir(t, 'doflow-bench-noise-cli-');
+function quiet(fn) {
+  const saved = { log: console.log, warn: console.warn, error: console.error };
+  const out = [];
+  const warn = [];
+  const err = [];
+  console.log = (...args) => out.push(args.join(' '));
+  console.warn = (...args) => warn.push(args.join(' '));
+  console.error = (...args) => err.push(args.join(' '));
+  try {
+    const status = fn();
+    return {
+      status,
+      out: out.join('\n'),
+      warn: warn.join('\n'),
+      err: err.join('\n'),
+      stdout: out.join('\n'),
+      stderr: err.join('\n'),
+    };
+  } finally {
+    Object.assign(console, saved);
+  }
+}
+
+let f;
+
+const allIters = [
+  'usable-r1', 'usable-r2', 'usable-r3',
+  'noise-exceeds-mde-r1', 'noise-exceeds-mde-r2', 'noise-exceeds-mde-r3',
+  'no-headroom-r1', 'no-headroom-r2', 'no-headroom-r3',
+  'inconclusive-r1', 'inconclusive-r2', 'inconclusive-r3',
+  'grader-unstable-r1', 'grader-unstable-r2', 'grader-unstable-r3',
+];
+
+before(() => {
+  const root = suiteTempDir('doflow-bench-noise-cli-');
   const runsRoot = path.join(root, 'runs');
   const scenarioSets = JSON.parse(fs.readFileSync(path.join(FIXTURE_ROOT, 'scenarios.json'), 'utf8'));
 
@@ -26,7 +59,6 @@ function setupFixture(t, iterationNames, overrides = {}) {
     benchRoot: 'test/fixtures/bench-noise/corpus',
     skillsRoot: 'test/fixtures/bench-noise/skills',
     model: 'claude-noise-fixture',
-    ...overrides,
   };
 
   const evalsByKey = new Map();
@@ -36,7 +68,7 @@ function setupFixture(t, iterationNames, overrides = {}) {
     }
   }
 
-  for (const iterName of iterationNames) {
+  for (const iterName of allIters) {
     const iterRoot = path.join(runsRoot, iterName);
     fs.mkdirSync(iterRoot, { recursive: true });
 
@@ -68,26 +100,10 @@ function setupFixture(t, iterationNames, overrides = {}) {
     }
   }
 
-  return { cfg, runsRoot, root };
-}
+  f = { cfg, runsRoot, root };
+});
 
-function quiet(fn) {
-  const saved = { log: console.log, warn: console.warn, error: console.error };
-  const out = [];
-  const warn = [];
-  const err = [];
-  console.log = (...args) => out.push(args.join(' '));
-  console.warn = (...args) => warn.push(args.join(' '));
-  console.error = (...args) => err.push(args.join(' '));
-  try {
-    const status = fn();
-    return { status, out: out.join('\n'), warn: warn.join('\n'), err: err.join('\n') };
-  } finally {
-    Object.assign(console, saved);
-  }
-}
-
-test('C.1: bench noise runs over 5 fixture scenarios giving exact repeatMeans, noise, baselineMean and verdicts', (t) => {
+test('C.1: bench noise runs over 5 fixture scenarios giving exact repeatMeans, noise, baselineMean and verdicts', () => {
   const scenarioSets = JSON.parse(fs.readFileSync(path.join(FIXTURE_ROOT, 'scenarios.json'), 'utf8'));
   const scenarios = scenarioSets.scenarios;
   assert.ok(scenarios, 'scenarios definition exists in scenarios.json');
@@ -95,7 +111,6 @@ test('C.1: bench noise runs over 5 fixture scenarios giving exact repeatMeans, n
   // 1. usable: exit 0
   {
     const s = scenarios.usable;
-    const f = setupFixture(t, s.iterations);
     const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: s.iterations.join(','),
       runsRoot: f.runsRoot,
@@ -110,7 +125,6 @@ test('C.1: bench noise runs over 5 fixture scenarios giving exact repeatMeans, n
   // 2. noise-exceeds-mde: exit 1
   {
     const s = scenarios['noise-exceeds-mde'];
-    const f = setupFixture(t, s.iterations);
     const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: s.iterations.join(','),
       runsRoot: f.runsRoot,
@@ -123,7 +137,6 @@ test('C.1: bench noise runs over 5 fixture scenarios giving exact repeatMeans, n
   // 3. no-headroom: exit 1
   {
     const s = scenarios['no-headroom'];
-    const f = setupFixture(t, s.iterations);
     const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: s.iterations.join(','),
       runsRoot: f.runsRoot,
@@ -136,7 +149,6 @@ test('C.1: bench noise runs over 5 fixture scenarios giving exact repeatMeans, n
   // 4. inconclusive: exit 1
   {
     const s = scenarios.inconclusive;
-    const f = setupFixture(t, s.iterations);
     const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: s.iterations.join(','),
       runsRoot: f.runsRoot,
@@ -149,7 +161,6 @@ test('C.1: bench noise runs over 5 fixture scenarios giving exact repeatMeans, n
   // 5. grader-unstable: exit 1, with seam opts.gradeRun
   {
     const s = scenarios['grader-unstable'];
-    const f = setupFixture(t, s.iterations);
     let callCount = 0;
     const nondeterministicGrader = (cfg, skill, e, arm, runDir, sourceAt) => {
       const g = runner.gradeRun(cfg, skill, e, arm, runDir, sourceAt);
@@ -175,9 +186,7 @@ test('C.1: bench noise runs over 5 fixture scenarios giving exact repeatMeans, n
   }
 });
 
-test('C.1: exit 2 on validation refusals with clear causes', (t) => {
-  const f = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
-
+test('C.1: exit 2 on validation refusals with clear causes', () => {
   // Missing --iterations
   {
     const run = quiet(() => runner.cmdNoise(f.cfg, { runsRoot: f.runsRoot }));
@@ -227,11 +236,16 @@ test('C.1: exit 2 on validation refusals with clear causes', (t) => {
 
   // Missing sourceAt in iteration.json
   {
-    const noSourceAt = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
-    fs.writeFileSync(path.join(noSourceAt.runsRoot, 'usable-r1', 'iteration.json'), JSON.stringify({ model: 'm' }));
-    const run = quiet(() => runner.cmdNoise(noSourceAt.cfg, {
+    const subRuns = path.join(f.root, 'refusal-nosourceat', 'runs');
+    fs.mkdirSync(path.join(subRuns, 'usable-r1'), { recursive: true });
+    fs.mkdirSync(path.join(subRuns, 'usable-r2'), { recursive: true });
+    fs.mkdirSync(path.join(subRuns, 'usable-r3'), { recursive: true });
+    fs.writeFileSync(path.join(subRuns, 'usable-r1', 'iteration.json'), JSON.stringify({ model: 'm' }));
+    fs.writeFileSync(path.join(subRuns, 'usable-r2', 'iteration.json'), JSON.stringify({ model: 'm', sourceAt: 's' }));
+    fs.writeFileSync(path.join(subRuns, 'usable-r3', 'iteration.json'), JSON.stringify({ model: 'm', sourceAt: 's' }));
+    const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: 'usable-r1,usable-r2,usable-r3',
-      runsRoot: noSourceAt.runsRoot,
+      runsRoot: subRuns,
     }));
     assert.equal(run.status, 2);
     assert.match(run.err, /usable-r1: measured commit unknown: re-grade with --source-at/);
@@ -239,11 +253,16 @@ test('C.1: exit 2 on validation refusals with clear causes', (t) => {
 
   // Missing model in iteration.json
   {
-    const noModel = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
-    fs.writeFileSync(path.join(noModel.runsRoot, 'usable-r1', 'iteration.json'), JSON.stringify({ sourceAt: 'c' }));
-    const run = quiet(() => runner.cmdNoise(noModel.cfg, {
+    const subRuns = path.join(f.root, 'refusal-nomodel', 'runs');
+    fs.mkdirSync(path.join(subRuns, 'usable-r1'), { recursive: true });
+    fs.mkdirSync(path.join(subRuns, 'usable-r2'), { recursive: true });
+    fs.mkdirSync(path.join(subRuns, 'usable-r3'), { recursive: true });
+    fs.writeFileSync(path.join(subRuns, 'usable-r1', 'iteration.json'), JSON.stringify({ sourceAt: 'c' }));
+    fs.writeFileSync(path.join(subRuns, 'usable-r2', 'iteration.json'), JSON.stringify({ model: 'm', sourceAt: 's' }));
+    fs.writeFileSync(path.join(subRuns, 'usable-r3', 'iteration.json'), JSON.stringify({ model: 'm', sourceAt: 's' }));
+    const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: 'usable-r1,usable-r2,usable-r3',
-      runsRoot: noModel.runsRoot,
+      runsRoot: subRuns,
     }));
     assert.equal(run.status, 2);
     assert.match(run.err, /usable-r1: model not recorded: re-grade/);
@@ -251,14 +270,17 @@ test('C.1: exit 2 on validation refusals with clear causes', (t) => {
 
   // Model mismatch across iterations
   {
-    const modelMismatch = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
+    const subRuns = path.join(f.root, 'refusal-modelmismatch', 'runs');
+    fs.cpSync(path.join(f.runsRoot, 'usable-r1'), path.join(subRuns, 'usable-r1'), { recursive: true });
+    fs.cpSync(path.join(f.runsRoot, 'usable-r2'), path.join(subRuns, 'usable-r2'), { recursive: true });
+    fs.cpSync(path.join(f.runsRoot, 'usable-r3'), path.join(subRuns, 'usable-r3'), { recursive: true });
     fs.writeFileSync(
-      path.join(modelMismatch.runsRoot, 'usable-r2', 'iteration.json'),
+      path.join(subRuns, 'usable-r2', 'iteration.json'),
       JSON.stringify({ model: 'different-model', sourceAt: 'a4d64234567890abcdef1234567890abcdef12' })
     );
-    const run = quiet(() => runner.cmdNoise(modelMismatch.cfg, {
+    const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: 'usable-r1,usable-r2,usable-r3',
-      runsRoot: modelMismatch.runsRoot,
+      runsRoot: subRuns,
     }));
     assert.equal(run.status, 2);
     assert.match(run.err, /model mismatch/);
@@ -266,14 +288,17 @@ test('C.1: exit 2 on validation refusals with clear causes', (t) => {
 
   // sourceAt mismatch across iterations
   {
-    const commitMismatch = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
+    const subRuns = path.join(f.root, 'refusal-commitmismatch', 'runs');
+    fs.cpSync(path.join(f.runsRoot, 'usable-r1'), path.join(subRuns, 'usable-r1'), { recursive: true });
+    fs.cpSync(path.join(f.runsRoot, 'usable-r2'), path.join(subRuns, 'usable-r2'), { recursive: true });
+    fs.cpSync(path.join(f.runsRoot, 'usable-r3'), path.join(subRuns, 'usable-r3'), { recursive: true });
     fs.writeFileSync(
-      path.join(commitMismatch.runsRoot, 'usable-r2', 'iteration.json'),
-      JSON.stringify({ model: commitMismatch.cfg.model, sourceAt: 'different-commit-123456' })
+      path.join(subRuns, 'usable-r2', 'iteration.json'),
+      JSON.stringify({ model: f.cfg.model, sourceAt: 'different-commit-123456' })
     );
-    const run = quiet(() => runner.cmdNoise(commitMismatch.cfg, {
+    const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: 'usable-r1,usable-r2,usable-r3',
-      runsRoot: commitMismatch.runsRoot,
+      runsRoot: subRuns,
     }));
     assert.equal(run.status, 2);
     assert.match(run.err, /sourceAt mismatch/);
@@ -281,12 +306,14 @@ test('C.1: exit 2 on validation refusals with clear causes', (t) => {
 
   // Case-set mismatch across iterations
   {
-    const caseMismatch = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
-    // Remove one case directory from usable-r2
-    fs.rmSync(path.join(caseMismatch.runsRoot, 'usable-r2', 'beta', 'eval-4-completed-run'), { recursive: true });
-    const run = quiet(() => runner.cmdNoise(caseMismatch.cfg, {
+    const subRuns = path.join(f.root, 'refusal-casemismatch', 'runs');
+    fs.cpSync(path.join(f.runsRoot, 'usable-r1'), path.join(subRuns, 'usable-r1'), { recursive: true });
+    fs.cpSync(path.join(f.runsRoot, 'usable-r2'), path.join(subRuns, 'usable-r2'), { recursive: true });
+    fs.cpSync(path.join(f.runsRoot, 'usable-r3'), path.join(subRuns, 'usable-r3'), { recursive: true });
+    fs.rmSync(path.join(subRuns, 'usable-r2', 'beta', 'eval-4-completed-run'), { recursive: true });
+    const run = quiet(() => runner.cmdNoise(f.cfg, {
       iterations: 'usable-r1,usable-r2,usable-r3',
-      runsRoot: caseMismatch.runsRoot,
+      runsRoot: subRuns,
     }));
     assert.equal(run.status, 2);
     assert.match(run.err, /case-set mismatch/);
@@ -315,14 +342,14 @@ test('C.1: CLI argument parsing and refusal flags via spawnSync', () => {
 
   // Flag without value: --iterations
   {
-    const res = spawnSync(process.execPath, [RUNNER_CLI, 'noise', '--iterations'], { encoding: 'utf8' });
+    const res = quiet(() => runner.main(['noise', '--iterations']));
     assert.equal(res.status, 2);
     assert.match(res.stderr, /bench: --iterations requires a value/);
   }
 
   // Unknown flag
   {
-    const res = spawnSync(process.execPath, [RUNNER_CLI, 'noise', '--unknown-flag'], { encoding: 'utf8' });
+    const res = quiet(() => runner.main(['noise', '--unknown-flag']));
     assert.equal(res.status, 2);
     assert.match(res.stderr, /bench: unknown option '--unknown-flag'/);
   }
@@ -334,17 +361,13 @@ test('C.1: CLI argument parsing and refusal flags via spawnSync', () => {
     ['--kind', 'triggering'],
     ['--snapshot', 'dir'],
   ]) {
-    const res = spawnSync(process.execPath, [RUNNER_CLI, 'noise', flag, val], { encoding: 'utf8' });
+    const res = quiet(() => runner.main(['noise', flag, val]));
     assert.equal(res.status, 2);
     assert.match(res.stderr, new RegExp(`bench noise: ${flag} is not accepted`));
   }
 });
 
-test('C.1: negative control: comparing only pass_rate in re-run hides a flip with an equal rate', (t) => {
-  const f = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
-
-  // Nondeterministic grader that flips two expectations between pass 1 and pass 2,
-  // keeping pass_rate identical (e.g. 0.5 in both passes).
+test('C.1: negative control: comparing only pass_rate in re-run hides a flip with an equal rate', () => {
   let callCount = 0;
   const flippingGrader = (cfg, skill, e, arm, runDir, sourceAt) => {
     const g = runner.gradeRun(cfg, skill, e, arm, runDir, sourceAt);
@@ -374,34 +397,35 @@ test('C.1: negative control: comparing only pass_rate in re-run hides a flip wit
   assert.equal(passedOnlyRate, true, 'equal pass_rate would hide the flip');
 });
 
-test('C.1: stale grading.json is listed as stale on stderr and does not cause grader-unstable', (t) => {
-  const f = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
-
-  // Write a pre-existing grading.json for usable-r1/alpha/1 that differs from fresh grading
+test('C.1: stale grading.json is listed as stale on stderr and does not cause grader-unstable', () => {
   const runDir = path.join(f.runsRoot, 'usable-r1', 'alpha', 'eval-1-timeout-run');
+  const gradingFile = path.join(runDir, 'grading.json');
+  const hadGrading = fs.existsSync(gradingFile);
   const staleGrading = {
     expectations: [{ text: 't', passed: false }],
     pass_rate: 0,
     infra: null,
   };
-  fs.writeFileSync(path.join(runDir, 'grading.json'), `${JSON.stringify(staleGrading)}\n`);
+  fs.writeFileSync(gradingFile, `${JSON.stringify(staleGrading)}\n`);
+  try {
+    const run = quiet(() => runner.cmdNoise(f.cfg, {
+      iterations: 'usable-r1,usable-r2,usable-r3',
+      runsRoot: f.runsRoot,
+    }));
 
-  const run = quiet(() => runner.cmdNoise(f.cfg, {
-    iterations: 'usable-r1,usable-r2,usable-r3',
-    runsRoot: f.runsRoot,
-  }));
+    // Stale warning emitted to stderr (via console.warn)
+    assert.match(run.warn, /warning: \d+ run\(s\) have stale grading\.json:/);
+    assert.match(run.warn, /usable-r1\/alpha\/1/);
 
-  // Stale warning emitted to stderr (via console.warn)
-  assert.match(run.warn, /warning: \d+ run\(s\) have stale grading\.json:/);
-  assert.match(run.warn, /usable-r1\/alpha\/1/);
-
-  // Verdict is usable (exit 0), NOT grader-unstable!
-  assert.equal(run.status, 0, 'stale grading.json does NOT cause grader-unstable');
-  assert.match(run.out, /verdict: usable/);
+    // Verdict is usable (exit 0), NOT grader-unstable!
+    assert.equal(run.status, 0, 'stale grading.json does NOT cause grader-unstable');
+    assert.match(run.out, /verdict: usable/);
+  } finally {
+    if (!hadGrading) fs.rmSync(gradingFile, { force: true });
+  }
 });
 
-test('C.1: --out writes valid noise artifact, two runs are byte-equal, and --json outputs object', (t) => {
-  const f = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
+test('C.1: --out writes valid noise artifact, two runs are byte-equal, and --json outputs object', () => {
   const outFile1 = path.join(f.root, 'noise-out-1.json');
   const outFile2 = path.join(f.root, 'noise-out-2.json');
 
@@ -445,26 +469,24 @@ test('C.1: --out writes valid noise artifact, two runs are byte-equal, and --jso
   assert.deepEqual(noise.validateNoiseArtifact(parsedStdout), []);
 });
 
-test('C.1: negative control: without --out nothing is written (default path does not exist)', (t) => {
-  const f = setupFixture(t, ['usable-r1', 'usable-r2', 'usable-r3']);
-  const defaultPath = path.join(REPO_ROOT, f.cfg.baselineDir, 'noise.json');
+test('C.1: negative control: without --out nothing is written (default path does not exist)', () => {
+  const defaultDir = path.join(f.root, 'default-test-baseline');
+  const defaultCfg = { ...f.cfg, baselineDir: path.relative(REPO_ROOT, defaultDir) };
+  const defaultPath = path.join(defaultDir, 'noise.json');
+  assert.equal(fs.existsSync(defaultPath), false);
 
-  // Ensure default path does not exist before run
-  const defaultExistedBefore = fs.existsSync(defaultPath);
-
-  const run = quiet(() => runner.cmdNoise(f.cfg, {
+  const run = quiet(() => runner.cmdNoise(defaultCfg, {
     iterations: 'usable-r1,usable-r2,usable-r3',
     runsRoot: f.runsRoot,
-    // NO out parameter passed
   }));
   assert.equal(run.status, 0);
 
   // Without --out, default path MUST NOT exist (A-3)
-  assert.equal(fs.existsSync(defaultPath), defaultExistedBefore, 'default noise path was NOT written without --out');
+  assert.equal(fs.existsSync(defaultPath), false, 'default noise path was NOT written without --out');
 });
 
 test('C.1: USAGE includes noise command and flags', () => {
-  const res = spawnSync(process.execPath, [RUNNER_CLI, 'noise', '--help'], { encoding: 'utf8' });
+  const res = quiet(() => runner.main(['noise', '--help']));
   assert.equal(res.status, 0);
   assert.match(res.stdout, /node bench\/runner\.js noise --iterations <a,b\[,c\.\.\.\]> \[--out <file>\] \[--json\]/);
 });

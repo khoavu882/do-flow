@@ -459,12 +459,21 @@ function safeRead(file) {
  * Falls back to the working tree when no commit is recorded, which is correct for a fresh
  * iteration graded against the tree that produced it.
  */
+const skillCommitShaCache = new Map();
+
 function skillSourceSha256(cfg, skill, atCommit = null) {
   const rel = path.posix.join(cfg.skillsRoot, skill, 'SKILL.md');
   if (atCommit) {
+    const key = `${atCommit}:${rel}`;
+    if (skillCommitShaCache.has(key)) {
+      return skillCommitShaCache.get(key);
+    }
     const show = spawnSync('git', ['show', `${atCommit}:${rel}`], { cwd: REPO_ROOT, encoding: 'buffer' });
-    if (show.status !== 0) return null;
-    return crypto.createHash('sha256').update(show.stdout).digest('hex');
+    const hash = show.status === 0
+      ? crypto.createHash('sha256').update(show.stdout).digest('hex')
+      : null;
+    skillCommitShaCache.set(key, hash);
+    return hash;
   }
   const file = path.join(REPO_ROOT, rel);
   return fs.existsSync(file) ? sha256File(file) : null;
@@ -1744,7 +1753,7 @@ function parseArgs(argv) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --kind requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts.kind = value;
       i += 1;
@@ -1753,7 +1762,7 @@ function parseArgs(argv) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --iterations requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts.iterations = value;
       i += 1;
@@ -1763,7 +1772,7 @@ function parseArgs(argv) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --noise requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts.noise = value;
       i += 1;
@@ -1772,7 +1781,7 @@ function parseArgs(argv) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --decision-out requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts['decision-out'] = value;
       i += 1;
@@ -1782,7 +1791,7 @@ function parseArgs(argv) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --snapshot requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts.snapshot = value;
       i += 1;
@@ -1791,7 +1800,7 @@ function parseArgs(argv) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --out requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts.out = value;
       i += 1;
@@ -1800,14 +1809,14 @@ function parseArgs(argv) {
       opts.split = argv[++i];
       if (!SPLITS.includes(opts.split)) {
         console.error('bench: --split must be train or heldout');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
     }
     else if (a === '--arm') {
       opts.arm = argv[++i];
       if (opts.arm !== 'without-skill') {
         console.error('bench: --arm must be without-skill');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
     }
     else if (a === '--source-at') opts['source-at'] = argv[++i];
@@ -1817,7 +1826,7 @@ function parseArgs(argv) {
     // been honoured.
     else if (a.startsWith('--')) {
       console.error(`bench: unknown option '${a}'`);
-      process.exit(2);
+      return { cmd: null, opts: { error: 2 } };
     }
   }
   return { cmd, opts };
@@ -1945,11 +1954,11 @@ function cmdVerifyBaseline(opts) {
   return 0;
 }
 
-function main() {
-  const argv = process.argv.slice(2);
+function main(argv = process.argv.slice(2)) {
   if (argv[0] === 'retrieval') return require('./retrieval/runner.js').main(argv.slice(1));
   if (argv[0] === 'perf') return require('./perf/runner.js').main(argv.slice(1));
   const { cmd, opts } = parseArgs(argv);
+  if (opts.error !== undefined) return opts.error;
   if (opts.help || !cmd) {
     console.log(USAGE);
     return cmd ? 0 : 2;
@@ -2188,4 +2197,5 @@ module.exports = {
   readRepeat,
   formatNoiseText,
   formatScopeDecision,
+  main,
 };
