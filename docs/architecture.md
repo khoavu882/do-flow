@@ -589,11 +589,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-66 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-59 entries across 55 test files and carries 57 distinct G-numbers.
+67 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+60 entries across 56 test files and carries 58 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G59 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G60 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -632,7 +632,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   both triggering and behavioral cases, the case files are internally consistent, every case has a
   side (`train` or `heldout`) and every skill a held-out case, every skill has a should-not-trigger
   case graded on by-path runs by `skill_not_routed`, every assertion type is one the runner knows,
-  and the config declares a valid token ceiling. The committed baseline still describes the
+  and the config declares a valid token ceiling and a valid noise block. The committed baseline still describes the
   committed corpus: a case missing from the baseline is reported as pending, awaiting a paid
   capture, and does not fail, while a removed, renamed or kind-changed case does, and so does a
   baseline entry recorded twice, and so does a case moved to the other side when its baseline result recorded `split` (the committed baseline
@@ -911,6 +911,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G57** (`roadmap-render-check.test.js`) — `roadmap --action render --check` reports each integrity finding on a fixture: `render-drift`, `duplicate-merge`, `trailer-unknown-row`, `commit-claimed-twice`, `trailered-and-seeded`, `pointer-not-merge`, `needs-unresolved`, `duplicate-id`, `slug-id-mismatch` and `seed-typed-status`; a clean fixture passes with no findings, and a held seed row keeps the rendered bytes. Control: a check without the `commit-claimed-twice` rule turns it red.
 - **G58** (`worker-billing.test.js`) — every worker block in `core/registry/harnesses.json` declares `billing`, and `validateWorker` accepts exactly `free`, `metered` and `unknown` and rejects a missing, `null`, object or other value. Every shipped descriptor must read `unknown` today, so recording a harness as `free` is a deliberate change to this guard.
 - **G59** (`review-findings-contract.test.js`) — `core/shared/skills/do-code-review/SKILL.md` names the `review/findings.json` schema 1 output contract (path, schema, `reviewedHead`, seats, converged dispositions, `converged.md` staying prose), and the shipped fixture `test/fixtures/roadmap/findings/schema-1.json` passes `validateFindings`. Controls: a scratch SKILL copy without the contract and a `user-accepted` entry without its decision turn it red.
+- **G60** (`eval-noise.test.js`) — every tracked `bench-decision` JSON under `bench/` or `test/` (top level or nested in a report) passes `validateDecision` and recomputes from its recorded inputs, cases, noise, thresholds and seed through `bench/noise.js`; model mismatch and unusable-artifact preconditions follow those inputs, and source `none` requires null noise and `no-noise-band` in every scope. Every tracked `bench-noise` JSON node passes `validateNoiseArtifact`, which recomputes its scope statistics and verdict from its cases and thresholds. No other tracked JSON under `bench/` or `test/` carries `gain-above-noise` or `merge-candidate`; the README vocabulary table equals the `bench/noise.js` vocabulary exports, including `EXCLUSION_MARKS`, in order; and no other tracked bench JS file holds an array literal of two or more words of one vocabulary. G60 carries its own comment masker. It scans `test/` as well as `bench/` so committed test fixtures containing forged or stale decision records receive the same consistency check. Controls: a gain inside the band stored as `gain-above-noise`, tampered `ci95`, `n` or gain, forged preconditions and noise stats, a stray verdict value in another JSON, README value/order faults, and a scratch bench JS vocabulary list turn it red; a decision nested in a report is validated, not flagged.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

@@ -1,0 +1,33 @@
+{
+  "skill_name": "beta",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "split": "train",
+      "name": "truncated-run",
+      "assertions": [{ "text": "beta one output is present", "type": "output_matches", "pattern": "beta-one-output" }]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "split": "train",
+      "name": "no-output-run",
+      "assertions": [{ "text": "beta two output is present", "type": "output_matches", "pattern": "beta-two-output" }]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "malformed-run",
+      "assertions": [{ "text": "beta three output is present", "type": "output_matches", "pattern": "beta-three-output" }]
+    },
+    {
+      "id": 4,
+      "kind": "behavioral",
+      "split": "heldout",
+      "name": "completed-run",
+      "assertions": [{ "text": "beta four output is present", "type": "output_matches", "pattern": "beta-four-output" }]
+    }
+  ]
+}

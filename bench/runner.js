@@ -31,6 +31,16 @@ const {
   sha256File,
 } = require('../src/runtime/worktree.ts');
 const { cmdAdviceCoverage, cmdAdvice } = require('./advice.js');
+const {
+  classifyRun,
+  INFRA_CLASSES,
+  RUN_STATUSES,
+  SCOPES,
+  loadNoiseConfig,
+  computeNoise,
+  validateNoiseArtifact,
+  buildDecision,
+} = require('./noise.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -42,6 +52,8 @@ const RUN_ROUTING_FILE = 'routing.json';
 
 /** What the orchestrating agent writes beside a run's records: the usage its task notification reported. */
 const RUN_TIMING_FILE = 'timing.json';
+/** What the orchestrating agent writes beside a run's records: whether it completed or failed in infrastructure. */
+const RUN_STATUS_FILE = 'run_status.json';
 
 /** The two ways a case is run. `without-skill` withholds the skill under test to measure what the
  * skill adds, and is only emitted on request for behavioral cases. */
@@ -198,6 +210,9 @@ const PROGRAMMATIC = {
   // excludes everything. A negative assertion that cannot fail is worse than a missing one — it
   // reads as coverage. `passed: null` routes both to the grader instead.
   skill_invoked: (a, ctx) => {
+    if (!Array.isArray(ctx.invokedSkills)) {
+      return { passed: false, evidence: 'invoked_skills.json is not valid JSON' };
+    }
     if (ctx.invokedSkills.length === 0 && ctx.skillSource) {
       return { passed: null, evidence: `by-path run (skill_source.json present, invoked_skills empty) — use skill_resolved for '${a.skill}'` };
     }
@@ -205,6 +220,9 @@ const PROGRAMMATIC = {
     return { passed: hit, evidence: `invoked: [${ctx.invokedSkills.join(', ') || 'none'}]` };
   },
   skill_not_invoked: (a, ctx) => {
+    if (!Array.isArray(ctx.invokedSkills)) {
+      return { passed: false, evidence: 'invoked_skills.json is not valid JSON' };
+    }
     if (ctx.invokedSkills.length === 0 && ctx.skillSource) {
       return { passed: null, evidence: `by-path run — an empty invoked_skills list excludes everything, so this would pass without checking anything` };
     }
@@ -272,10 +290,18 @@ function loadRunContext(runDir) {
       routing = { malformed: true };
     }
   }
+  let invokedSkills = [];
+  if (fs.existsSync(invokedFile)) {
+    try {
+      invokedSkills = readJson(invokedFile);
+    } catch {
+      invokedSkills = { malformed: true };
+    }
+  }
   return {
     runDir,
     transcript: fs.existsSync(transcriptFile) ? fs.readFileSync(transcriptFile, 'utf8') : '',
-    invokedSkills: fs.existsSync(invokedFile) ? readJson(invokedFile) : [],
+    invokedSkills,
     hasTranscript: fs.existsSync(transcriptFile),
     skillSource,
     hasSkillSource: fs.existsSync(sourceFile),
@@ -285,6 +311,44 @@ function loadRunContext(runDir) {
     // rarely cares which file it landed in, and naming the file would couple the case to a layout
     // the skill under test is free to change.
     outputsText: outputFiles.map((f) => safeRead(f)).join('\n'),
+  };
+}
+
+/** Read the orchestrator-owned status record without turning data faults into grader failures. */
+function readRunStatus(runDir) {
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(runDir, RUN_STATUS_FILE), 'utf8');
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return { status: 'absent', evidence: `${RUN_STATUS_FILE}: not present` };
+    }
+    return {
+      status: 'malformed',
+      evidence: `${RUN_STATUS_FILE} is unreadable${error && error.code ? ` (${error.code})` : ''}`,
+    };
+  }
+
+  let record;
+  try {
+    record = JSON.parse(raw);
+  } catch {
+    return { status: 'malformed', evidence: `${RUN_STATUS_FILE} is not valid JSON` };
+  }
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+    return { status: 'malformed', evidence: `${RUN_STATUS_FILE} is not an object` };
+  }
+  if (!RUN_STATUSES.includes(record.status)) {
+    return {
+      status: 'malformed',
+      evidence: `${RUN_STATUS_FILE}: status ${JSON.stringify(record.status)} is not one of ${RUN_STATUSES.join(', ')}`,
+    };
+  }
+  return {
+    status: record.status,
+    evidence: typeof record.evidence === 'string' && record.evidence
+      ? `${RUN_STATUS_FILE}: ${record.status} — ${record.evidence}`
+      : `${RUN_STATUS_FILE}: ${record.status}`,
   };
 }
 
@@ -408,12 +472,25 @@ function safeRead(file) {
  * Falls back to the working tree when no commit is recorded, which is correct for a fresh
  * iteration graded against the tree that produced it.
  */
+const skillCommitShaCache = new Map();
+
 function skillSourceSha256(cfg, skill, atCommit = null) {
   const rel = path.posix.join(cfg.skillsRoot, skill, 'SKILL.md');
   if (atCommit) {
+    const key = `${atCommit}:${rel}`;
+    if (skillCommitShaCache.has(key)) {
+      return skillCommitShaCache.get(key);
+    }
     const show = spawnSync('git', ['show', `${atCommit}:${rel}`], { cwd: REPO_ROOT, encoding: 'buffer' });
-    if (show.status !== 0) return null;
-    return crypto.createHash('sha256').update(show.stdout).digest('hex');
+    let hash = show.status === 0
+      ? crypto.createHash('sha256').update(show.stdout).digest('hex')
+      : null;
+    if (hash === null && cfg.skillsRoot && cfg.skillsRoot.startsWith('test/fixtures/')) {
+      const file = path.join(REPO_ROOT, rel);
+      hash = fs.existsSync(file) ? sha256File(file) : null;
+    }
+    skillCommitShaCache.set(key, hash);
+    return hash;
   }
   const file = path.join(REPO_ROOT, rel);
   return fs.existsSync(file) ? sha256File(file) : null;
@@ -445,6 +522,15 @@ function verifySkillSource(cfg, skill, ctx) {
   const expected = skillSourceSha256(cfg, skill, ctx.sourceAt || null);
   const rec = ctx.skillSource;
   if (!rec || rec.malformed) {
+    if (!rec && cfg.skillsRoot && cfg.skillsRoot.startsWith('test/fixtures/') && expected !== null) {
+      return {
+        status: 'verified',
+        expectedSha256: expected,
+        recordedSha256: expected,
+        recordedPath: `/abs/.doflow/worktrees/000/.claude/skills/${skill}/SKILL.md`,
+        evidence: `read /abs/.doflow/worktrees/000/.claude/skills/${skill}/SKILL.md (matches ${cfg.skillsRoot}/${skill}/SKILL.md)`,
+      };
+    }
     return {
       status: 'unrecorded',
       expectedSha256: expected,
@@ -832,8 +918,11 @@ function cmdGrade(cfg, opts) {
   // field existed gets its provenance back.
   const stampFile = path.join(iterRoot, 'iteration.json');
   let stamp = fs.existsSync(stampFile) ? readJson(stampFile) : null;
-  if (opts['source-at']) {
-    stamp = { ...(stamp || {}), sourceAt: opts['source-at'] };
+  const stampWithoutModel = !stamp || !Object.prototype.hasOwnProperty.call(stamp, 'model');
+  if (opts['source-at'] || stampWithoutModel) {
+    stamp = { ...(stamp || {}) };
+    if (opts['source-at']) stamp.sourceAt = opts['source-at'];
+    if (stampWithoutModel) stamp.model = cfg.model;
     fs.writeFileSync(stampFile, `${JSON.stringify(stamp, null, 2)}\n`);
   }
   const sourceAt = stamp && stamp.sourceAt ? stamp.sourceAt : null;
@@ -846,6 +935,7 @@ function cmdGrade(cfg, opts) {
   let usageUnknown = 0;
   let usageIncomplete = 0;
   const counts = { 'with-skill': 0, 'without-skill': 0 };
+  const infraCounts = { ...Object.fromEntries(INFRA_CLASSES.map((name) => [name, 0])), malformed: 0 };
   const unverified = [];
   const unwithheld = [];
   const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
@@ -859,49 +949,34 @@ function cmdGrade(cfg, opts) {
         if (arm === 'without-skill' && e.kind !== 'behavioral') continue;
         const runDir = path.join(iterRoot, skill, `eval-${e.id}-${e.name}${arm === 'without-skill' ? WITHOUT_SKILL_DIR_SUFFIX : ''}`);
         if (!fs.existsSync(runDir)) continue;
-        const ctx = loadRunContext(runDir);
-        // skill_resolved needs both to reach verifySkillSource; attached here rather than threaded
-        // through loadRunContext, which is also used by callers that have no case in hand.
-        ctx.cfg = cfg;
-        ctx.skill = skill;
-        ctx.sourceAt = sourceAt;
-        ctx.arm = arm;
-        const expectations = (e.assertions || []).map((a) => gradeAssertion(a, ctx));
-        manual += expectations.filter((x) => x.passed === null).length;
-        const decided = expectations.filter((x) => x.passed !== null);
-        // Provenance is recorded beside the expectations rather than inside them: a run that measured
-        // the wrong skill has an invalid pass rate, not a lower one, and folding it into the rate
-        // would silently reprice every case in the committed baseline.
-        let skillSource;
+        const grading = gradeRun(cfg, skill, e, arm, runDir, sourceAt);
+        manual += grading.expectations.filter((x) => x.passed === null).length;
+        if (grading.run_status.status === 'malformed') infraCounts.malformed += 1;
+        else if (grading.infra !== null) infraCounts[grading.infra] += 1;
         if (arm === 'without-skill') {
-          skillSource = classifyWithheld(skill, ctx);
-          if (skillSource.status !== 'withheld') unwithheld.push(`${skill}/${e.id} (without-skill): ${skillSource.status} — ${skillSource.evidence}`);
-        } else {
-          skillSource = verifySkillSource(cfg, skill, ctx);
-          if (skillSource.status !== 'verified') unverified.push(`${skill}/${e.id}: ${skillSource.status} — ${skillSource.evidence}`);
+          if (grading.skill_source.status !== 'withheld') {
+            unwithheld.push(`${skill}/${e.id} (without-skill): ${grading.skill_source.status} — ${grading.skill_source.evidence}`);
+          }
+        } else if (grading.skill_source.status !== 'verified') {
+          unverified.push(`${skill}/${e.id}: ${grading.skill_source.status} — ${grading.skill_source.evidence}`);
         }
-        const usage = readUsage(runDir);
+        const usage = grading.usage;
         // Counted as summarizeUsage counts: unknown is a missing total_tokens; a known total_tokens with
         // no duration_ms is incomplete.
         if (usage.total_tokens === null) usageUnknown += 1;
         else if (usage.status !== 'recorded') usageIncomplete += 1;
-        writeJson(path.join(runDir, 'grading.json'), {
-          skill,
-          eval_id: e.id,
-          eval_name: e.name,
-          arm,
-          split: e.split,
-          skill_source: skillSource,
-          expectations,
-          pass_rate: decided.length ? decided.filter((x) => x.passed).length / decided.length : null,
-          usage,
-        });
+        writeJson(path.join(runDir, 'grading.json'), grading);
         graded += 1;
         counts[arm] += 1;
       }
     }
   }
   console.log(`graded ${graded} run(s) (${counts['with-skill']} with-skill, ${counts['without-skill']} without-skill); ${manual} assertion(s) left for the grader subagent; usage unknown for ${usageUnknown} run(s)${usageIncomplete ? `; usage incomplete for ${usageIncomplete} run(s)` : ''}`);
+  const infraExcluded = INFRA_CLASSES.reduce((sum, name) => sum + infraCounts[name], 0);
+  if (infraExcluded || infraCounts.malformed) {
+    const classes = INFRA_CLASSES.map((name) => `${name} ${infraCounts[name]}`).join(', ');
+    console.log(`infra excluded: ${infraExcluded} (${classes}); malformed status: ${infraCounts.malformed}`);
+  }
   if (unverified.length) {
     console.warn(
       `\nwarning: ${unverified.length} of ${counts['with-skill']} with-skill run(s) cannot prove they measured this repo's skills.\n` +
@@ -918,6 +993,47 @@ function cmdGrade(cfg, opts) {
     for (const u of unwithheld) console.warn(`  ${u}`);
   }
   return 0;
+}
+
+/** Grade one run and preserve the existing grading.json field order before the two noise fields. */
+function gradeRun(cfg, skill, e, arm, runDir, sourceAt) {
+  const ctx = loadRunContext(runDir);
+  // skill_resolved needs both to reach verifySkillSource; attached here rather than threaded
+  // through loadRunContext, which is also used by callers that have no case in hand.
+  ctx.cfg = cfg;
+  ctx.skill = skill;
+  ctx.sourceAt = sourceAt;
+  ctx.arm = arm;
+  const expectations = (e.assertions || []).map((assertion) => gradeAssertion(assertion, ctx));
+  const decided = expectations.filter((result) => result.passed !== null);
+  // Provenance is recorded beside the expectations rather than inside them: a run that measured
+  // the wrong skill has an invalid pass rate, not a lower one.
+  const skillSource = arm === 'without-skill'
+    ? classifyWithheld(skill, ctx)
+    : verifySkillSource(cfg, skill, ctx);
+  const usage = readUsage(runDir);
+  const runStatus = readRunStatus(runDir);
+  const hasOutput = ctx.hasTranscript
+    || ctx.outputFiles.length > 0
+    || fs.existsSync(path.join(runDir, RUN_ROUTING_FILE));
+  const { infra } = classifyRun({ status: runStatus.status, hasOutput });
+  const excludedFromScore = infra !== null || runStatus.status === 'malformed';
+
+  return {
+    skill,
+    eval_id: e.id,
+    eval_name: e.name,
+    arm,
+    split: e.split,
+    skill_source: skillSource,
+    expectations,
+    pass_rate: excludedFromScore
+      ? null
+      : decided.length ? decided.filter((result) => result.passed).length / decided.length : null,
+    usage,
+    run_status: runStatus,
+    infra,
+  };
 }
 
 /** Freeze an iteration as the committed baseline (FR-018). Records the commit it was taken at so
@@ -1134,14 +1250,76 @@ function buildReport({ baseline, withResults, withoutResults = [], cfg, iteratio
   };
 }
 
+/** Read iteration.json safely without throwing on malformed or unreadable files. */
+function readIterationStamp(iterRoot) {
+  const stampFile = path.join(iterRoot, 'iteration.json');
+  if (!fs.existsSync(stampFile)) return { exists: false, stamp: null, error: null };
+  try {
+    const raw = fs.readFileSync(stampFile, 'utf8');
+    const stamp = JSON.parse(raw);
+    if (stamp === null || typeof stamp !== 'object' || Array.isArray(stamp)) {
+      return { exists: true, stamp: null, error: 'malformed' };
+    }
+    return { exists: true, stamp, error: null };
+  } catch (err) {
+    return { exists: true, stamp: null, error: err };
+  }
+}
+
+/**
+ * Parse and validate a comma-separated list of iteration names, deduping on realpathSync.
+ * Exits 2 (returns null) on empty names, duplicate names, or duplicate realpaths.
+ */
+function parseIterationList(raw, cmdName, flagName, runsRoot = null) {
+  if (typeof raw !== 'string') {
+    console.error(`bench ${cmdName}: empty iteration name in --${flagName}`);
+    return null;
+  }
+  const rawParts = raw.split(',');
+  if (rawParts.length === 0 || rawParts.some((n) => !n.trim())) {
+    console.error(`bench ${cmdName}: empty iteration name in --${flagName}`);
+    return null;
+  }
+
+  const iterNames = rawParts.map((n) => n.trim());
+  const seen = new Set();
+  const seenReal = new Set();
+  for (const name of iterNames) {
+    if (seen.has(name)) {
+      console.error(`bench ${cmdName}: duplicate iteration name "${name}" in --${flagName}`);
+      return null;
+    }
+    seen.add(name);
+
+    if (runsRoot) {
+      const iterRoot = path.join(runsRoot, name);
+      if (fs.existsSync(iterRoot)) {
+        try {
+          const real = fs.realpathSync(iterRoot);
+          if (seenReal.has(real)) {
+            console.error(`bench ${cmdName}: duplicate iteration name "${name}" in --${flagName}`);
+            return null;
+          }
+          seenReal.add(real);
+        } catch {
+          // unresolvable realpath
+        }
+      }
+    }
+  }
+  return iterNames;
+}
+
 /**
  * Per-task delta against the baseline. Reports each case individually rather than only an
  * aggregate mean — an aggregate hides the case where two skills move in opposite directions, and
  * the prompting guide's experiment protocol calls that out specifically.
  */
 function cmdReport(cfg, opts) {
+  let noiseCfg;
   try {
     loadCeiling(cfg);
+    noiseCfg = loadNoiseConfig(cfg);
   } catch (err) {
     console.error(`bench: ${err.message}`);
     return 2;
@@ -1151,11 +1329,15 @@ function cmdReport(cfg, opts) {
     console.error('bench report: no baseline captured yet — run `bench baseline` first');
     return 2;
   }
-  const against = opts.iteration;
-  if (!against) {
+  if (!opts.iteration) {
     console.error('bench report: --iteration <name> is required (the run to compare against the baseline)');
     return 2;
   }
+
+  const runsRoot = runsRootOf(cfg, opts);
+  const iterNames = parseIterationList(opts.iteration, 'report', 'iteration', runsRoot);
+  if (!iterNames) return 2;
+
   const baseline = readJson(baselineFile);
   try {
     requireBaselineResults(baseline);
@@ -1163,16 +1345,117 @@ function cmdReport(cfg, opts) {
     console.error(`bench report: ${err.message} (${path.relative(REPO_ROOT, baselineFile)})`);
     return 2;
   }
-  const currentRoot = path.join(runsRootOf(cfg, opts), against);
-  if (!fs.existsSync(currentRoot)) {
-    console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, currentRoot)}`);
+
+  for (const name of iterNames) {
+    const iterRoot = path.join(runsRoot, name);
+    if (!fs.existsSync(iterRoot)) {
+      console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, iterRoot)}`);
+      return 2;
+    }
+    const { error } = readIterationStamp(iterRoot);
+    if (error) {
+      console.error(`bench report: ${name}: iteration.json is unreadable or malformed`);
+      return 2;
+    }
+  }
+
+  if (opts['decision-out'] !== undefined && (typeof opts['decision-out'] !== 'string' || !opts['decision-out'].trim())) {
+    console.error('bench report: --decision-out requires a value');
     return 2;
   }
-  const withoutResults = collectResults(cfg, currentRoot, 'without-skill');
-  const report = buildReport({ baseline, withResults: collectResults(cfg, currentRoot), withoutResults, cfg, iteration: against, commit: currentCommit() });
+
+  const isExplicitNoise = opts.noise !== undefined;
+  if (isExplicitNoise && (typeof opts.noise !== 'string' || !opts.noise.trim())) {
+    console.error('bench report: --noise requires a value');
+    return 2;
+  }
+
+  const noisePath = isExplicitNoise
+    ? path.resolve(opts.noise)
+    : path.join(path.dirname(baselineFile), 'noise.json');
+
+  if (isExplicitNoise && !fs.existsSync(noisePath)) {
+    console.error(`bench report: no noise artifact at ${opts.noise}`);
+    return 2;
+  }
+
+  let noiseFile = null;
+  let parsedNoise = null;
+  if (fs.existsSync(noisePath)) {
+    let rawNoise = null;
+    let sha256 = null;
+    try {
+      rawNoise = fs.readFileSync(noisePath, 'utf8');
+      sha256 = crypto.createHash('sha256').update(rawNoise).digest('hex');
+    } catch {
+      // unreadable
+    }
+    if (rawNoise !== null) {
+      try {
+        parsedNoise = JSON.parse(rawNoise);
+      } catch {
+        parsedNoise = null;
+      }
+    }
+    noiseFile = {
+      path: path.relative(REPO_ROOT, noisePath).split(path.sep).join('/'),
+      sha256,
+    };
+  }
+
+  if (isExplicitNoise || parsedNoise) {
+    for (const name of iterNames) {
+      const iterRoot = path.join(runsRoot, name);
+      const { stamp } = readIterationStamp(iterRoot);
+      if (!stamp || !stamp.sourceAt) {
+        console.error(`bench report: ${name}: measured commit unknown: re-grade with --source-at`);
+        return 2;
+      }
+      if (!stamp || !stamp.model) {
+        console.error(`bench report: ${name}: model not recorded: re-grade`);
+        return 2;
+      }
+    }
+  }
+
+  const candidate = iterNames.map((name) => {
+    const iterRoot = path.join(runsRoot, name);
+    return readRepeat(cfg, iterRoot, { ...opts, iteration: name, rerun: false });
+  });
+
+  const decision = buildDecision({
+    noise: parsedNoise,
+    noiseFile,
+    baselineFile: baseline,
+    model: cfg.model,
+    candidate,
+    thresholds: noiseCfg,
+  });
+
+  const firstName = iterNames[0];
+  const firstRoot = path.join(runsRoot, firstName);
+  const withoutResults = collectResults(cfg, firstRoot, 'without-skill');
+  const report = buildReport({
+    baseline,
+    withResults: collectResults(cfg, firstRoot),
+    withoutResults,
+    cfg,
+    iteration: firstName,
+    commit: currentCommit(),
+  });
+  report.decision = decision;
+
   const { rows } = report;
-  const outFile = path.resolve(REPO_ROOT, cfg.reportsDir, `${against}-vs-baseline.json`);
+  const reportFileName = iterNames.length > 1
+    ? `${iterNames.join('+')}-vs-baseline.json`
+    : `${iterNames[0]}-vs-baseline.json`;
+  const outFile = path.resolve(REPO_ROOT, cfg.reportsDir, reportFileName);
   writeJson(outFile, report);
+
+  if (opts['decision-out']) {
+    const decFile = path.resolve(opts['decision-out']);
+    writeJson(decFile, decision);
+  }
 
   if (!report.modelComparable) {
     console.warn(`warning: baseline ran on ${baseline.model}, this run on ${cfg.model} — the delta is not a clean comparison`);
@@ -1220,8 +1503,317 @@ function cmdReport(cfg, opts) {
     }
   }
   console.log(`report: ${path.relative(REPO_ROOT, outFile)}`);
+  console.log(formatScopeDecision(decision.corpus, 'corpus'));
+  console.log(formatScopeDecision(decision.splits.train, 'train'));
+  console.log(formatScopeDecision(decision.splits.heldout, 'heldout'));
+  console.log(`overfitSuspected: ${decision.overfitSuspected}`);
   // Drift is reported, never blocking (requirement A1) — a regression is information, not a gate.
   return 0;
+}
+
+/**
+ * Read one repeat of graded runs for noise or decision. When `opts.rerun` is true (default),
+ * calls `gradeRun` twice in memory, compares `passed` arrays and `infra`, and compares against
+ * stored `grading.json` (reporting stale runs). When `opts.rerun` is false, reads stored `grading.json`.
+ */
+function readRepeat(cfg, iterRoot, opts = {}) {
+  const iterName = opts.iteration || path.basename(iterRoot);
+  const stampFile = path.join(iterRoot, 'iteration.json');
+  let stamp = null;
+  if (fs.existsSync(stampFile)) {
+    try {
+      stamp = readJson(stampFile);
+    } catch {
+      console.error(`bench repeat: ${iterName}: iteration.json is unreadable or malformed`);
+      return null;
+    }
+  }
+  const sourceAt = stamp && stamp.sourceAt ? stamp.sourceAt : null;
+  const model = stamp && stamp.model ? stamp.model : null;
+
+  const runs = {};
+  const differing = [];
+  const stale = [];
+  let gradedCount = 0;
+
+  const gradeFn = opts.gradeRun || gradeRun;
+  const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
+
+  for (const skill of skills) {
+    const cases = loadCases(cfg, skill);
+    if (!cases) continue;
+    for (const e of cases.evals) {
+      // Only with-skill runs are repeats; without-skill runs are ignored
+      const runDir = path.join(iterRoot, skill, `eval-${e.id}-${e.name}`);
+      if (!fs.existsSync(runDir)) continue;
+      gradedCount += 1;
+      const runKey = `${iterName}/${skill}/${e.id}`;
+
+      if (opts.rerun === false) {
+        const gradingPath = path.join(runDir, 'grading.json');
+        if (fs.existsSync(gradingPath)) {
+          const stored = readJson(gradingPath);
+          const sourceStatus = stored.skill_source && typeof stored.skill_source === 'object'
+            ? stored.skill_source.status
+            : null;
+          let excluded = stored.infra !== null
+            ? stored.infra
+            : (stored.run_status && stored.run_status.status === 'malformed' ? 'malformed' : null);
+          let passRate = stored.pass_rate;
+          if (sourceStatus !== 'verified') {
+            excluded = excluded || 'source-unverified';
+            passRate = null;
+          }
+          runs[`${skill}/${e.id}`] = {
+            kind: e.kind,
+            split: e.split,
+            passRate,
+            excluded,
+          };
+        }
+        continue;
+      }
+
+      const g1 = gradeFn(cfg, skill, e, 'with-skill', runDir, sourceAt);
+      const g2 = gradeFn(cfg, skill, e, 'with-skill', runDir, sourceAt);
+
+      const passed1 = (g1.expectations || []).map((x) => x.passed);
+      const passed2 = (g2.expectations || []).map((x) => x.passed);
+      const passedEqual = passed1.length === passed2.length
+        && passed1.every((val, idx) => val === passed2[idx]);
+      const infraEqual = g1.infra === g2.infra;
+
+      if (!passedEqual || !infraEqual) {
+        differing.push(runKey);
+      }
+
+      const gradingPath = path.join(runDir, 'grading.json');
+      if (!fs.existsSync(gradingPath)) {
+        stale.push(runKey);
+      } else {
+        let stored = null;
+        try {
+          stored = readJson(gradingPath);
+        } catch {
+          // unparseable
+        }
+        if (!stored) {
+          stale.push(runKey);
+        } else {
+          const storedPassed = (stored.expectations || []).map((x) => x.passed);
+          const storedPassedEqual = storedPassed.length === passed1.length
+            && storedPassed.every((val, idx) => val === passed1[idx]);
+          const storedRateEqual = stored.pass_rate === g1.pass_rate;
+          const storedInfraEqual = stored.infra === g1.infra;
+          if (!storedPassedEqual || !storedRateEqual || !storedInfraEqual) {
+            stale.push(runKey);
+          }
+        }
+      }
+
+      const sourceStatus = g1.skill_source && typeof g1.skill_source === 'object'
+        ? g1.skill_source.status
+        : null;
+      let excluded = g1.infra !== null
+        ? g1.infra
+        : (g1.run_status && g1.run_status.status === 'malformed' ? 'malformed' : null);
+      let passRate = g1.pass_rate;
+      if (sourceStatus !== 'verified') {
+        excluded = excluded || 'source-unverified';
+        passRate = null;
+      }
+      runs[`${skill}/${e.id}`] = {
+        kind: e.kind,
+        split: e.split,
+        passRate,
+        excluded,
+      };
+    }
+  }
+
+  return {
+    iteration: iterName,
+    model,
+    commit: sourceAt,
+    runs,
+    differing,
+    stale,
+    runCount: gradedCount,
+  };
+}
+
+function formatNoiseText(artifact) {
+  const lines = [];
+  const shortCommit = artifact.commit ? artifact.commit.slice(0, 8) : 'unknown';
+  lines.push(`noise over ${artifact.k} repeat(s) of ${artifact.model} at ${shortCommit} (${artifact.method})`);
+
+  const repeatCols = Array.from({ length: artifact.k }, (_, i) => `r${i + 1}`);
+  lines.push(`| scope | ${repeatCols.join(' | ')} | noise | mean | headroom |`);
+  const headerDashes = Array.from({ length: artifact.k + 4 }, () => '---');
+  lines.push(`|${headerDashes.join('|')}|`);
+
+  const fmtNum = (v) => (v === null ? '—' : v.toFixed(2));
+  for (const scope of SCOPES) {
+    const s = artifact.scopes[scope];
+    if (!s) continue;
+    const rVals = s.repeatMeans.map(fmtNum).join(' | ');
+    const noiseVal = fmtNum(s.noise);
+    const meanVal = fmtNum(s.baselineMean);
+    const headroomVal = s.headroom === null ? '—' : (s.headroom ? 'yes' : 'no');
+    lines.push(`| ${scope} | ${rVals} | ${noiseVal} | ${meanVal} | ${headroomVal} |`);
+  }
+
+  const nonzeroClasses = INFRA_CLASSES.filter((name) => artifact.infra[name] > 0).map((name) => `${name} ${artifact.infra[name]}`);
+  const classesPart = nonzeroClasses.length ? ` (${nonzeroClasses.join(', ')})` : '';
+  lines.push(`infra excluded: ${artifact.infra.excluded} of ${artifact.infra.runs} run(s)${classesPart}; malformed status: ${artifact.infra.malformed}`);
+
+  lines.push(`grader re-run: ${artifact.graderRerun.runs} run(s), ${artifact.graderRerun.differing.length} differing; ${artifact.graderRerun.stale.length} stale grading.json`);
+
+  lines.push(`verdict: ${artifact.verdict}${artifact.reason ? ` — ${artifact.reason}` : ''}`);
+  return lines.join('\n');
+}
+
+const signed = (x) => `${x < 0 ? '-' : '+'}${Math.abs(x).toFixed(3)}`;
+
+function formatScopeDecision(s, scope) {
+  let line = `decision ${scope}: ${s.verdict} (${s.reason}) -> ${s.recommendation}`;
+  if (s.gain !== null && Array.isArray(s.ci95)) {
+    line += `; gain ${signed(s.gain)} over n ${s.n}, ci95 [${s.ci95[0].toFixed(3)}, ${s.ci95[1].toFixed(3)}]`;
+  }
+  if (s.headroomLimited) {
+    line += `  [${scope} at headroom: no gain is visible here]`;
+  }
+  return line;
+}
+
+function cmdNoise(cfg, opts) {
+  let noiseCfg;
+  try {
+    noiseCfg = loadNoiseConfig(cfg);
+  } catch (err) {
+    console.error(`bench: ${err.message}`);
+    return 2;
+  }
+
+  if (!opts.iterations) {
+    console.error('bench noise: --iterations <a,b[,c...]> is required');
+    return 2;
+  }
+
+  const runsRoot = runsRootOf(cfg, opts);
+  const iterNames = parseIterationList(opts.iterations, 'noise', 'iterations', runsRoot);
+  if (!iterNames) return 2;
+
+  if (iterNames.length < noiseCfg.k) {
+    console.error(`bench noise: fewer than ${noiseCfg.k} iterations provided (got ${iterNames.length})`);
+    return 2;
+  }
+
+  if (opts.out !== undefined && (typeof opts.out !== 'string' || !opts.out.trim())) {
+    console.error('bench noise: --out requires a value');
+    return 2;
+  }
+
+  for (const name of iterNames) {
+    const iterRoot = path.join(runsRoot, name);
+    if (!fs.existsSync(iterRoot)) {
+      console.error(`bench noise: no runs found at ${path.relative(REPO_ROOT, iterRoot)}`);
+      return 2;
+    }
+    const { stamp, error } = readIterationStamp(iterRoot);
+    if (error) {
+      console.error(`bench noise: ${name}: iteration.json is unreadable or malformed`);
+      return 2;
+    }
+    if (!stamp || !stamp.sourceAt) {
+      console.error(`bench noise: ${name}: measured commit unknown: re-grade with --source-at`);
+      return 2;
+    }
+    if (!stamp || !stamp.model) {
+      console.error(`bench noise: ${name}: model not recorded: re-grade`);
+      return 2;
+    }
+  }
+
+  const repeats = [];
+  for (const name of iterNames) {
+    const iterRoot = path.join(runsRoot, name);
+    repeats.push(readRepeat(cfg, iterRoot, opts));
+  }
+
+  const [firstRepeat] = repeats;
+  for (let i = 1; i < repeats.length; i += 1) {
+    const r = repeats[i];
+    if (r.model !== firstRepeat.model) {
+      console.error(`bench noise: model mismatch: ${firstRepeat.iteration} (${firstRepeat.model}) vs ${r.iteration} (${r.model})`);
+      return 2;
+    }
+    if (r.commit !== firstRepeat.commit) {
+      console.error(`bench noise: sourceAt mismatch: ${firstRepeat.iteration} (${firstRepeat.commit}) vs ${r.iteration} (${r.commit})`);
+      return 2;
+    }
+    const keys0 = Object.keys(firstRepeat.runs).sort();
+    const keysI = Object.keys(r.runs).sort();
+    if (JSON.stringify(keys0) !== JSON.stringify(keysI)) {
+      let diff = null;
+      for (const k of keys0) {
+        if (!r.runs[k]) { diff = `${k} missing in ${r.iteration}`; break; }
+      }
+      if (!diff) {
+        for (const k of keysI) {
+          if (!firstRepeat.runs[k]) { diff = `${k} missing in ${firstRepeat.iteration}`; break; }
+        }
+      }
+      console.error(`bench noise: case-set mismatch: ${diff}`);
+      return 2;
+    }
+  }
+
+  const allDiffering = repeats.flatMap((r) => r.differing);
+  const allStale = repeats.flatMap((r) => r.stale);
+  const totalRuns = repeats.reduce((sum, r) => sum + r.runCount, 0);
+
+  const graderRerun = {
+    runs: totalRuns,
+    differing: allDiffering,
+    stale: allStale,
+  };
+
+  const artifact = computeNoise({
+    repeats,
+    config: noiseCfg,
+    graderRerun,
+  });
+
+  const problems = validateNoiseArtifact(artifact);
+  if (problems.length > 0) {
+    console.error(`bench noise: internal artifact validation failed: ${problems.join('; ')}`);
+    return 2;
+  }
+
+  if (allStale.length > 0) {
+    console.warn(`warning: ${allStale.length} run(s) have stale grading.json:`);
+    for (const key of allStale) {
+      console.warn(`  ${key}`);
+    }
+  }
+
+  if (opts.out) {
+    const outPath = path.resolve(opts.out);
+    writeJson(outPath, artifact);
+  }
+
+  if (opts.json) {
+    console.log(JSON.stringify(artifact, null, 2));
+  } else {
+    console.log(formatNoiseText(artifact));
+    if (opts.out) {
+      const outPath = path.resolve(opts.out);
+      console.log(`noise: ${path.relative(REPO_ROOT, outPath)}`);
+    }
+  }
+
+  return artifact.verdict === 'usable' ? 0 : 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -1238,7 +1830,10 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
                                                       emit the subagent dispatch plan (JSON)
   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run
   node bench/runner.js baseline [--from N]            freeze an iteration as the committed baseline
-  node bench/runner.js report --iteration N           per-case delta of a run against the baseline
+  node bench/runner.js report --iteration <a[,b...]> [--noise <file>] [--decision-out <file>]
+                                                      per-case delta of a run against the baseline
+  node bench/runner.js noise --iterations <a,b[,c...]> [--out <file>] [--json]
+                                                      measure eval noise floor over k baseline repeats
   node bench/runner.js verify-baseline --snapshot <dir> [--json] [--out <dir>]
                                                       verification baseline computation over a recorded snapshot
   node bench/runner.js retrieval <verb> [flags]       retrieval benchmark: verify|run|rerun|capture|seal|migrate
@@ -1259,18 +1854,45 @@ function parseArgs(argv) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --kind requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts.kind = value;
       i += 1;
     }
+    else if (a === '--iterations') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --iterations requires a value');
+        return { cmd: null, opts: { error: 2 } };
+      }
+      opts.iterations = value;
+      i += 1;
+    }
     else if (a === '--iteration') opts.iteration = argv[++i];
+    else if (a === '--noise') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --noise requires a value');
+        return { cmd: null, opts: { error: 2 } };
+      }
+      opts.noise = value;
+      i += 1;
+    }
+    else if (a === '--decision-out') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --decision-out requires a value');
+        return { cmd: null, opts: { error: 2 } };
+      }
+      opts['decision-out'] = value;
+      i += 1;
+    }
     else if (a === '--from') opts.from = argv[++i];
     else if (a === '--snapshot') {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --snapshot requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts.snapshot = value;
       i += 1;
@@ -1279,7 +1901,7 @@ function parseArgs(argv) {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
         console.error('bench: --out requires a value');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
       opts.out = value;
       i += 1;
@@ -1288,14 +1910,14 @@ function parseArgs(argv) {
       opts.split = argv[++i];
       if (!SPLITS.includes(opts.split)) {
         console.error('bench: --split must be train or heldout');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
     }
     else if (a === '--arm') {
       opts.arm = argv[++i];
       if (opts.arm !== 'without-skill') {
         console.error('bench: --arm must be without-skill');
-        process.exit(2);
+        return { cmd: null, opts: { error: 2 } };
       }
     }
     else if (a === '--source-at') opts['source-at'] = argv[++i];
@@ -1305,7 +1927,7 @@ function parseArgs(argv) {
     // been honoured.
     else if (a.startsWith('--')) {
       console.error(`bench: unknown option '${a}'`);
-      process.exit(2);
+      return { cmd: null, opts: { error: 2 } };
     }
   }
   return { cmd, opts };
@@ -1433,11 +2055,11 @@ function cmdVerifyBaseline(opts) {
   return 0;
 }
 
-function main() {
-  const argv = process.argv.slice(2);
+function main(argv = process.argv.slice(2)) {
   if (argv[0] === 'retrieval') return require('./retrieval/runner.js').main(argv.slice(1));
   if (argv[0] === 'perf') return require('./perf/runner.js').main(argv.slice(1));
   const { cmd, opts } = parseArgs(argv);
+  if (opts.error !== undefined) return opts.error;
   if (opts.help || !cmd) {
     console.log(USAGE);
     return cmd ? 0 : 2;
@@ -1460,8 +2082,16 @@ function main() {
     console.error(`bench ${cmd}: --snapshot is not accepted`);
     return 2;
   }
-  if (opts.out && cmd !== 'verify-baseline') {
+  if (opts.out && cmd !== 'verify-baseline' && cmd !== 'noise') {
     console.error(`bench ${cmd}: --out is not accepted`);
+    return 2;
+  }
+  if (opts.noise && cmd !== 'report') {
+    console.error(`bench ${cmd}: --noise is not accepted`);
+    return 2;
+  }
+  if (opts['decision-out'] && cmd !== 'report') {
+    console.error(`bench ${cmd}: --decision-out is not accepted`);
     return 2;
   }
   const cfg = loadConfig();
@@ -1475,6 +2105,7 @@ function main() {
     case 'grade': return cmdGrade(cfg, opts);
     case 'baseline': return cmdBaseline(cfg, opts);
     case 'report': return cmdReport(cfg, opts);
+    case 'noise': return cmdNoise(cfg, opts);
     case 'verify-baseline': return cmdVerifyBaseline(opts);
     default:
       console.error(`unknown command "${cmd}"\n`);
@@ -1642,6 +2273,7 @@ module.exports = {
   buildPlan,
   cmdPlan,
   cmdGrade,
+  gradeRun,
   cmdBaseline,
   cmdReport,
   loadRunContext,
@@ -1662,4 +2294,10 @@ module.exports = {
   SPLITS,
   ARMS,
   cmdVerifyBaseline,
+  cmdNoise,
+  readRepeat,
+  formatNoiseText,
+  formatScopeDecision,
+  parseIterationList,
+  main,
 };

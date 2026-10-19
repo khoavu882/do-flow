@@ -10,5 +10,13 @@
     "unit": "total_tokens",
     "maxTokensPerRun": 250000,
     "note": "Set from the first paid capture (cap1, claude-sonnet-5-5): 46 runs, 2,673,587 total_tokens, largest run 120,813; about twice the largest run. plan refuses a known projected breach, report warns."
+  },
+  "noise": {
+    "k": 3,
+    "mde": 0.05,
+    "headroom": 0.95,
+    "maxInfraShare": 0.10,
+    "seed": 96,
+    "note": "Defaults Q-1..Q-3 of 096. k repeats are k iterations named <name>-r1..rk; the band is measured by `bench noise`."
   }
 }
