@@ -41,6 +41,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      Rerun with the same `--since T` until nothing is pending. A product problem the user reports
      goes to `doflow-run followup --action report`; a large goal they state, to
      `doflow-run goal --action add`. It edits no source file.
+   - `/do program <goal>`, or an ask larger than one feature: follow `references/program_mode.md`.
 
 2. **Multi-Part / Ambiguous Request Routing (`--depth`)**:
    - When a request bundles 2+ unrelated asks across different files or domains, verify referenced files exist first.
