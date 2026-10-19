@@ -336,9 +336,11 @@ together must share the same model and measured commit (`sourceAt`).
 The orchestrating agent writes `run_status.json` into each run directory beside `timing.json` upon
 receiving task completion notifications. It specifies `status` (`completed`, `timeout`, `api-error`,
 or `truncated`) and optional `evidence` (the harness error message, never model output or transcript
-text). A completed run may omit `run_status.json`. Runs with infrastructure failures (`timeout`,
-`api-error`, `truncated`, or `no-output` when neither `transcript.txt` nor `outputs/` exists) or
-malformed records receive `pass_rate: null`. They are excluded from scoring and counted apart by class.
+text). A completed run may omit `run_status.json`. `no-output` is a derived infra class, not a
+`run_status` value: it applies when a completed or absent run has no `transcript.txt`, `routing.json`,
+or file under `outputs/`. Runs with infra failures or malformed records receive `pass_rate: null`.
+With-skill runs whose skill source is not `verified` are excluded as `source-unverified`, also with
+`pass_rate: null`. Exclusions are counted apart by class or mark.
 
 The words below are defined once, in `bench/noise.js`; guard G60 compares this table to that
 module's exports, row for row and value for value, in order.
@@ -351,6 +353,7 @@ module's exports, row for row and value for value, in order.
 | Infra error class | `timeout` · `api-error` · `truncated` · `no-output` |
 | Run status | `completed` · `timeout` · `api-error` · `truncated` |
 | Noise method | `aa-range` |
+| Exclusion mark | `timeout` · `api-error` · `truncated` · `no-output` · `malformed` · `source-unverified` |
 
 `noise` measures the eval noise floor across k baseline repeats (default k=3 in `bench/config.json`):
 
@@ -363,9 +366,13 @@ twice in memory to verify grader stability, and computes per-repeat means, noise
 between repeat means), headroom check, and a noise-check verdict (`usable`, `noise-exceeds-mde`,
 `no-headroom`, `grader-unstable`, or `inconclusive`). Exit 0 indicates `usable`; exit 1 indicates any
 other noise verdict; exit 2 indicates invalid configuration or inputs. `--out` writes the noise
-artifact (default path `bench/baseline/noise.json`).
+artifact to the supplied path and has no default. `report` reads `bench/baseline/noise.json` by
+default.
 
-`report` evaluates one or more candidate repeats against the baseline:
+`report` evaluates one or more candidate repeats against the baseline. The decision's baseline side
+comes from the noise artifact, which must match `baseline.json`'s model and case set. Its model must
+also match the configured and candidate models. Candidate iteration stamps must record both `model`
+and `sourceAt`; a missing value is refused with exit 2.
 
 ```bash
 node bench/runner.js report --iteration <a[,b...]> [--noise <file>] [--decision-out <file>]
@@ -379,13 +386,14 @@ interval across `corpus`, `train`, and `heldout` scopes. Decisions yield `gain-a
 Iterate against the `train` split only and use `heldout` solely to verify generalisation. When tuning
 or hill-climbing a skill, never paste failure content into a prompt or skill description: failure
 transcripts and error traces must not be leaked into instructions. If `train` achieves `gain-above-noise`
-while `heldout` does not, `report` flags `overfitSuspected: true`.
+while `heldout` is `within-noise` or `regression`, `report` flags `overfitSuspected: true`. An
+`inconclusive` heldout verdict gives `overfitSuspected: null`.
 
 When a split's baseline mean is at or above the headroom threshold (`headroom: 0.95`), no gain is
-detectable on that split (`headroomLimited: true`). In the baseline today, heldout sits at 1.000, so any
-train gain will flag overfit by construction until heldout headroom is expanded.
+detectable on that split (`headroomLimited: true`). In the baseline today, heldout sits at 1.000, so
+heldout may not show further quality gains; an inconclusive heldout result leaves overfit status unknown.
 
-no band is committed; every decision reads `inconclusive` until the paid k=3 capture runs (UD-3).
+No band is committed; every decision reads `inconclusive` until the paid k=3 capture runs (UD-3).
 
 ## Reusing skill-creator's tooling
 

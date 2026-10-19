@@ -2,9 +2,11 @@
 
 // G60 — eval noise floor (feature 096, FR-001, FR-010).
 //
-// Four things must stay equal, so the verdict vocabulary and the decision rule have one home:
+// Four checks keep the verdict vocabulary and decision rule in one home:
 //   (a) Every tracked JSON node with kind "bench-decision" passes validateDecision and recomputes from
-//       its own cases, noise, thresholds and seed through bench/noise.js (decide, ruleVerdict, overfitFlag).
+//       its own inputs, cases, noise, thresholds and seed through bench/noise.js. Model mismatch and
+//       noise-unusable follow those recorded inputs, never today's config; source "none" means no band
+//       in every scope. Every bench-noise node passes validateNoiseArtifact.
 //   (b) No other tracked JSON under bench/ or test/ holds the values `gain-above-noise` or
 //       `merge-candidate` (JSON values only: the README and bench/noise.js name them legitimately).
 //   (c) The vocabulary tables in bench/README.md equal the exports of bench/noise.js, row for row.
@@ -94,6 +96,11 @@ const VOCABULARIES = {
   'infra error class': noise.INFRA_CLASSES,
   'run status': noise.RUN_STATUSES,
   'noise method': noise.NOISE_METHODS,
+  'exclusion mark': noise.EXCLUSION_MARKS,
+};
+const README_VOCABULARIES = {
+  ...noise.VOCABULARY_LABELS,
+  'Exclusion mark': noise.EXCLUSION_MARKS,
 };
 
 /** Words of one vocabulary inside every array literal of the masked source; two or more is a duplicate list. */
@@ -147,7 +154,7 @@ function recomputeScope(at, scope, decision, scopeName) {
 }
 
 function checkDecision(rel, pointer, decision) {
-  const findings = validateFindings(rel, pointer, decision);
+  const findings = [...validateFindings(rel, pointer, decision), ...sourceNoneFindings(rel, pointer, decision)];
   if (findings.length) return findings;
   const scopes = [['corpus', decision.corpus], ['splits.train', decision.splits.train], ['splits.heldout', decision.splits.heldout]];
   const out = [];
@@ -161,19 +168,36 @@ function checkDecision(rel, pointer, decision) {
   return out;
 }
 
+function sourceNoneFindings(rel, pointer, decision) {
+  if (decision.inputs?.baseline?.source !== 'none') return [];
+  const findings = [];
+  if (decision.precondition !== null) {
+    findings.push(`${rel}: ${pointer}.precondition: baseline source is "none", so precondition must be null`);
+  }
+  for (const [name, scope] of [['corpus', decision.corpus], ['train', decision.splits?.train], ['heldout', decision.splits?.heldout]]) {
+    if (!scope || typeof scope !== 'object') continue;
+    const at = `${pointer}.${name === 'corpus' ? 'corpus' : `splits.${name}`}`;
+    if (scope.noise !== null) findings.push(`${rel}: ${at}.noise: baseline source is "none", so noise must be null`);
+    if (scope.reason !== 'no-noise-band') findings.push(`${rel}: ${at}.reason: baseline source is "none", so reason must be "no-noise-band"`);
+  }
+  return findings;
+}
+
 function validateFindings(rel, pointer, decision) {
   return noise.validateDecision(decision).map((problem) => `${rel}: ${pointer}${problem.replace(/^\$/, '')}`);
 }
 
 /** Visits every node; `inDecision` is true inside a bench-decision subtree (validated by (a), skipped by (b)). */
-function visit(node, pointer, onDecision, onValue, inDecision = false) {
+function visit(node, pointer, onDecision, onNoiseArtifact, onValue, inDecision = false) {
   if (typeof node === 'string') { if (!inDecision) onValue(node, pointer); return; }
   if (node === null || typeof node !== 'object') return;
   const isDecision = !Array.isArray(node) && node.kind === 'bench-decision';
+  const isNoiseArtifact = !Array.isArray(node) && node.kind === 'bench-noise';
   if (isDecision) { onDecision(node, pointer); }
+  if (isNoiseArtifact) { onNoiseArtifact(node, pointer); }
   const inside = inDecision || isDecision;
-  if (Array.isArray(node)) node.forEach((child, i) => visit(child, `${pointer}[${i}]`, onDecision, onValue, inside));
-  else for (const [key, child] of Object.entries(node)) visit(child, `${pointer}.${key}`, onDecision, onValue, inside);
+  if (Array.isArray(node)) node.forEach((child, i) => visit(child, `${pointer}[${i}]`, onDecision, onNoiseArtifact, onValue, inside));
+  else for (const [key, child] of Object.entries(node)) visit(child, `${pointer}.${key}`, onDecision, onNoiseArtifact, onValue, inside);
 }
 
 // ── (c) README tables ─────────────────────────────────────────────────────────────────────────────
@@ -188,11 +212,11 @@ function readmeFindings(readme) {
   const rows = body.split('\n').filter((line) => /^\|/.test(line)).map((line) => line.split('|').slice(1, -1).map((cell) => cell.trim()))
     .filter((cells) => cells.length === 2 && !/^-+$/.test(cells[0]) && cells[0] !== 'Vocabulary');
   const labels = rows.map((cells) => cells[0]);
-  const expectedLabels = Object.keys(noise.VOCABULARY_LABELS);
+  const expectedLabels = Object.keys(README_VOCABULARIES);
   if (!sameJson(labels, expectedLabels)) {
     findings.push(`${README}: table labels [${labels.join(', ')}] differ from [${expectedLabels.join(', ')}]`);
   }
-  for (const [label, expected] of Object.entries(noise.VOCABULARY_LABELS)) {
+  for (const [label, expected] of Object.entries(README_VOCABULARIES)) {
     const row = rows.find((cells) => cells[0] === label);
     if (!row) { findings.push(`${README}: no row for '${label}'`); continue; }
     const values = [...row[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]);
@@ -215,11 +239,16 @@ function checkEvalNoise(target = REPO) {
   const readme = options.readme !== undefined ? options.readme : read(README);
   const findings = [];
   let decisions = 0;
+  let noiseArtifacts = 0;
 
   for (const [rel, text] of jsonFiles) {
     let parsed;
     try { parsed = JSON.parse(text); } catch { continue; }
     visit(parsed, '$', (decision, pointer) => { decisions += 1; findings.push(...checkDecision(rel, pointer, decision)); },
+      (artifact, pointer) => {
+        noiseArtifacts += 1;
+        findings.push(...noise.validateNoiseArtifact(artifact).map((problem) => `${rel}: ${pointer}${problem.replace(/^\$/, '')}`));
+      },
       (value, pointer) => {
         if (DECISION_WORDS.includes(value)) findings.push(`${rel}: ${pointer}: value '${value}' outside a valid bench-decision`);
       });
@@ -231,7 +260,7 @@ function checkEvalNoise(target = REPO) {
     if (rel === NOISE_MODULE || text === null) continue;
     for (const what of duplicateLists(text)) findings.push(`${rel}: array literal repeats the ${what}; import them from ${NOISE_MODULE}`);
   }
-  return { findings, decisions, json: jsonFiles.size, js: jsFiles.size, readme: readme ? readme.length : 0 };
+  return { findings, decisions, noiseArtifacts, json: jsonFiles.size, js: jsFiles.size, readme: readme ? readme.length : 0 };
 }
 
 const REAL = checkEvalNoise();
@@ -267,6 +296,13 @@ function decisionOf(pairs) {
   const heldout = scopeOf('heldout', pairs);
   return {
     kind: 'bench-decision', schemaVersion: 1, thresholds: { ...THRESHOLDS }, precondition: null,
+    inputs: {
+      baseline: { source: 'noise-artifact', model: 'model-a' },
+      baselineFile: { model: 'model-a' },
+      candidate: { model: 'model-a' },
+      noiseArtifact: { sha256: null, verdict: 'usable' },
+    },
+    infra: { baseline: {}, candidate: {} },
     corpus, splits: { train, heldout }, overfitSuspected: noise.overfitFlag(train, heldout),
     verdict: corpus.verdict, recommendation: corpus.recommendation,
   };
@@ -275,14 +311,43 @@ const GAIN = [['a', 0.2, 0.6], ['b', 0.4, 0.7], ['c', 0.5, 0.9], ['d', 0.6, 0.85
 const FLAT = [['a', 0.5, 0.501], ['b', 0.6, 0.601], ['c', 0.7, 0.701], ['d', 0.4, 0.401]];
 
 const realReadme = () => fs.readFileSync(path.join(REPO, README), 'utf8');
+const validReadme = () => `## ${SECTION}\n\n| Vocabulary | Values |\n|---|---|\n${Object.entries(README_VOCABULARIES)
+  .map(([label, values]) => `| ${label} | ${values.map((value) => `\`${value}\``).join(' · ')} |`).join('\n')}\n`;
 const clean = (extra = {}) => ({
   root: REPO,
   jsonFiles: new Map([['bench/results/ok.json', JSON.stringify(decisionOf(GAIN))]]),
   jsFiles: new Map([['bench/ok.js', 'const a = 1;\n']]),
-  readme: realReadme(),
+  readme: validReadme(),
   ...extra,
 });
 const decisionFile = (decision) => new Map([['bench/results/x.json', JSON.stringify(decision)]]);
+
+function setDecisionNoiseAndRule(decision, precondition, scopeNoise) {
+  decision.precondition = precondition;
+  for (const [scope, name] of [[decision.corpus, 'corpus'], [decision.splits.train, 'train'], [decision.splits.heldout, 'heldout']]) {
+    scope.noise = scopeNoise;
+    scope.band = scopeNoise === null ? null : Math.max(scopeNoise, decision.thresholds.mde);
+    Object.assign(scope, noise.ruleVerdict({
+      precondition, noise: scopeNoise, mde: decision.thresholds.mde,
+      maxInfraShare: decision.thresholds.maxInfraShare, infraShare: scope.infraShare,
+      n: scope.n, gain: scope.gain, ci95: scope.ci95,
+    }));
+    scope.scope = name;
+  }
+  decision.verdict = decision.corpus.verdict;
+  decision.recommendation = decision.corpus.recommendation;
+  decision.overfitSuspected = noise.overfitFlag(decision.splits.train, decision.splits.heldout);
+  return decision;
+}
+
+function noiseArtifactOf() {
+  const config = { k: 2, mde: 0.05, headroom: 0.95, maxInfraShare: 0.1, seed: 7 };
+  const repeats = [0.2, 0.21].map((passRate, index) => ({
+    iteration: `rep-${index + 1}`, model: 'model-a', commit: 'abcdef0123456789',
+    runs: { 'skill/1': { kind: 'triggering', split: 'train', passRate, excluded: null } },
+  }));
+  return noise.computeNoise({ repeats, config, graderRerun: { runs: 2, differing: [], stale: [] } });
+}
 
 test('G60 control: a valid gain decision and a valid flat decision stay green, and are counted', () => {
   const result = checkEvalNoise(clean({ jsonFiles: new Map([['bench/a.json', JSON.stringify(decisionOf(GAIN))], ['bench/b.json', JSON.stringify(decisionOf(FLAT))]]) }));
@@ -306,6 +371,49 @@ test('G60 control: a tampered ci95 turns the guard red', () => {
   d.corpus.ci95 = [d.corpus.ci95[0] - 0.05, d.corpus.ci95[1]];
   const { findings } = checkEvalNoise(clean({ jsonFiles: decisionFile(d) }));
   assert.ok(findings.some((f) => f.includes('$.corpus: ci95 stored')), findings.join('\n'));
+});
+
+test('G60 control: required decision inputs, derived preconditions and source none stay consistent', () => {
+  const missing = decisionOf(GAIN);
+  delete missing.inputs;
+  delete missing.infra;
+  assert.ok(checkEvalNoise(clean({ jsonFiles: decisionFile(missing) })).findings.some((f) => f.includes('$.inputs: must be an object')));
+
+  const modelMismatch = decisionOf(GAIN);
+  modelMismatch.inputs.candidate.model = 'model-b';
+  const modelFindings = checkEvalNoise(clean({ jsonFiles: decisionFile(modelMismatch) })).findings;
+  assert.ok(modelFindings.some((f) => f.includes('model fields mismatch')), modelFindings.join('\n'));
+
+  const unusable = decisionOf(GAIN);
+  unusable.inputs.noiseArtifact.verdict = 'inconclusive';
+  const unusableFindings = checkEvalNoise(clean({ jsonFiles: decisionFile(unusable) })).findings;
+  assert.ok(unusableFindings.some((f) => f.includes('inputs.noiseArtifact.verdict')), unusableFindings.join('\n'));
+
+  const noBand = decisionOf(GAIN);
+  noBand.inputs.baseline = { source: 'none' };
+  noBand.inputs.baselineFile = {};
+  noBand.inputs.candidate = {};
+  noBand.inputs.noiseArtifact = null;
+  setDecisionNoiseAndRule(noBand, null, null);
+  assert.deepEqual(checkEvalNoise(clean({ jsonFiles: decisionFile(noBand) })).findings, []);
+
+  const forgedNoBand = setDecisionNoiseAndRule(structuredClone(noBand), 'noise-unusable', null);
+  const noBandFindings = checkEvalNoise(clean({ jsonFiles: decisionFile(forgedNoBand) })).findings;
+  assert.ok(noBandFindings.some((f) => f.includes('baseline source is "none", so precondition must be null')), noBandFindings.join('\n'));
+  assert.ok(noBandFindings.some((f) => f.includes('baseline source is "none", so reason must be "no-noise-band"')), noBandFindings.join('\n'));
+});
+
+test('G60 control: bench-noise nodes are validated with the exported pure validator', () => {
+  const valid = noiseArtifactOf();
+  const cleanArtifact = checkEvalNoise(clean({ jsonFiles: new Map([['bench/noise.json', JSON.stringify(valid)]]) }));
+  assert.deepEqual(cleanArtifact.findings, []);
+  assert.equal(cleanArtifact.noiseArtifacts, 1);
+
+  const forged = structuredClone(valid);
+  forged.scopes.corpus.noise = 0;
+  const result = checkEvalNoise(clean({ jsonFiles: new Map([['bench/noise.json', JSON.stringify(forged)]]) }));
+  assert.equal(result.noiseArtifacts, 1);
+  assert.ok(result.findings.some((f) => f.includes('$.scopes.corpus.noise: stored 0 does not match recomputed 0.01')), result.findings.join('\n'));
 });
 
 test('G60 control: n different from cases.length, a tampered gain and a wrong overfit flag turn the guard red', () => {
@@ -357,6 +465,11 @@ test('G60 control: a README row missing a value, an extra value, a reordered row
   assert.ok(checkEvalNoise(clean({ readme: swapped })).findings.some((f) => f.includes('table labels')));
   const dropped = real.replace(`${row('Noise method')}\n`, '');
   assert.ok(checkEvalNoise(clean({ readme: dropped })).findings.some((f) => f.includes("no row for 'Noise method'")));
+  assert.ok(row('Exclusion mark'), 'the README carries the exported exclusion-mark row');
+  const missingMark = mutate('Exclusion mark', (line) => line.replace(' · `source-unverified`', ''));
+  assert.ok(checkEvalNoise(clean({ readme: missingMark })).findings.some((f) => f.includes("row 'Exclusion mark'")));
+  const droppedMark = real.replace(`${row('Exclusion mark')}\n`, '');
+  assert.ok(checkEvalNoise(clean({ readme: droppedMark })).findings.some((f) => f.includes("no row for 'Exclusion mark'")));
   assert.ok(checkEvalNoise(clean({ readme: real.replace(`## ${SECTION}`, '## Something else') })).findings.some((f) => f.includes('not found')));
 });
 
@@ -380,7 +493,7 @@ test('G60 control: a bench JS file holding a vocabulary list turns the guard red
 test('G60 control: a scratch tree is found from the filesystem (not a git checkout), and the real tree is untouched', (t) => {
   const tmp = tempDir(t, 'doflow-g60-noise-');
   const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(tmp, rel)), { recursive: true }); fs.writeFileSync(path.join(tmp, rel), text); };
-  put(README, realReadme());
+  put(README, validReadme());
   put('bench/ok.json', JSON.stringify(decisionOf(GAIN)));
   put('bench/x.js', "const A = ['within-noise', 'regression'];\n");
   put('test/fixtures/stray.json', JSON.stringify({ recommendation: 'merge-candidate' }));
