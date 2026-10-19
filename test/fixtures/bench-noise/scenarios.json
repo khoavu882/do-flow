@@ -1,0 +1,32 @@
+{
+  "classes": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "timeout", "evidence": "fixture timeout" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"], "run_status": { "status": "api-error", "evidence": "fixture API error" } },
+    "alpha/3": { "routing": { "routed": true } },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"], "run_status": { "status": "truncated", "evidence": "fixture truncation" } },
+    "beta/2": { "noOutput": true },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "malformed": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "oom" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"], "run_status": "not valid json" },
+    "alpha/3": { "routing": { "routed": true } },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"], "run_status": "[]" },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "clean": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  }
+}

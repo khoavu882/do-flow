@@ -31,6 +31,7 @@ const {
   sha256File,
 } = require('../src/runtime/worktree.ts');
 const { cmdAdviceCoverage, cmdAdvice } = require('./advice.js');
+const { classifyRun, INFRA_CLASSES, RUN_STATUSES } = require('./noise.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -42,6 +43,8 @@ const RUN_ROUTING_FILE = 'routing.json';
 
 /** What the orchestrating agent writes beside a run's records: the usage its task notification reported. */
 const RUN_TIMING_FILE = 'timing.json';
+/** What the orchestrating agent writes beside a run's records: whether it completed or failed in infrastructure. */
+const RUN_STATUS_FILE = 'run_status.json';
 
 /** The two ways a case is run. `without-skill` withholds the skill under test to measure what the
  * skill adds, and is only emitted on request for behavioral cases. */
@@ -285,6 +288,44 @@ function loadRunContext(runDir) {
     // rarely cares which file it landed in, and naming the file would couple the case to a layout
     // the skill under test is free to change.
     outputsText: outputFiles.map((f) => safeRead(f)).join('\n'),
+  };
+}
+
+/** Read the orchestrator-owned status record without turning data faults into grader failures. */
+function readRunStatus(runDir) {
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(runDir, RUN_STATUS_FILE), 'utf8');
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      return { status: 'absent', evidence: `${RUN_STATUS_FILE}: not present` };
+    }
+    return {
+      status: 'malformed',
+      evidence: `${RUN_STATUS_FILE} is unreadable${error && error.code ? ` (${error.code})` : ''}`,
+    };
+  }
+
+  let record;
+  try {
+    record = JSON.parse(raw);
+  } catch {
+    return { status: 'malformed', evidence: `${RUN_STATUS_FILE} is not valid JSON` };
+  }
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+    return { status: 'malformed', evidence: `${RUN_STATUS_FILE} is not an object` };
+  }
+  if (!RUN_STATUSES.includes(record.status)) {
+    return {
+      status: 'malformed',
+      evidence: `${RUN_STATUS_FILE}: status ${JSON.stringify(record.status)} is not one of ${RUN_STATUSES.join(', ')}`,
+    };
+  }
+  return {
+    status: record.status,
+    evidence: typeof record.evidence === 'string' && record.evidence
+      ? `${RUN_STATUS_FILE}: ${record.status} — ${record.evidence}`
+      : `${RUN_STATUS_FILE}: ${record.status}`,
   };
 }
 
@@ -832,8 +873,11 @@ function cmdGrade(cfg, opts) {
   // field existed gets its provenance back.
   const stampFile = path.join(iterRoot, 'iteration.json');
   let stamp = fs.existsSync(stampFile) ? readJson(stampFile) : null;
-  if (opts['source-at']) {
-    stamp = { ...(stamp || {}), sourceAt: opts['source-at'] };
+  const stampWithoutModel = !stamp || !Object.prototype.hasOwnProperty.call(stamp, 'model');
+  if (opts['source-at'] || stampWithoutModel) {
+    stamp = { ...(stamp || {}) };
+    if (opts['source-at']) stamp.sourceAt = opts['source-at'];
+    if (stampWithoutModel) stamp.model = cfg.model;
     fs.writeFileSync(stampFile, `${JSON.stringify(stamp, null, 2)}\n`);
   }
   const sourceAt = stamp && stamp.sourceAt ? stamp.sourceAt : null;
@@ -846,6 +890,7 @@ function cmdGrade(cfg, opts) {
   let usageUnknown = 0;
   let usageIncomplete = 0;
   const counts = { 'with-skill': 0, 'without-skill': 0 };
+  const infraCounts = { ...Object.fromEntries(INFRA_CLASSES.map((name) => [name, 0])), malformed: 0 };
   const unverified = [];
   const unwithheld = [];
   const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
@@ -859,49 +904,34 @@ function cmdGrade(cfg, opts) {
         if (arm === 'without-skill' && e.kind !== 'behavioral') continue;
         const runDir = path.join(iterRoot, skill, `eval-${e.id}-${e.name}${arm === 'without-skill' ? WITHOUT_SKILL_DIR_SUFFIX : ''}`);
         if (!fs.existsSync(runDir)) continue;
-        const ctx = loadRunContext(runDir);
-        // skill_resolved needs both to reach verifySkillSource; attached here rather than threaded
-        // through loadRunContext, which is also used by callers that have no case in hand.
-        ctx.cfg = cfg;
-        ctx.skill = skill;
-        ctx.sourceAt = sourceAt;
-        ctx.arm = arm;
-        const expectations = (e.assertions || []).map((a) => gradeAssertion(a, ctx));
-        manual += expectations.filter((x) => x.passed === null).length;
-        const decided = expectations.filter((x) => x.passed !== null);
-        // Provenance is recorded beside the expectations rather than inside them: a run that measured
-        // the wrong skill has an invalid pass rate, not a lower one, and folding it into the rate
-        // would silently reprice every case in the committed baseline.
-        let skillSource;
+        const grading = gradeRun(cfg, skill, e, arm, runDir, sourceAt);
+        manual += grading.expectations.filter((x) => x.passed === null).length;
+        if (grading.run_status.status === 'malformed') infraCounts.malformed += 1;
+        else if (grading.infra !== null) infraCounts[grading.infra] += 1;
         if (arm === 'without-skill') {
-          skillSource = classifyWithheld(skill, ctx);
-          if (skillSource.status !== 'withheld') unwithheld.push(`${skill}/${e.id} (without-skill): ${skillSource.status} — ${skillSource.evidence}`);
-        } else {
-          skillSource = verifySkillSource(cfg, skill, ctx);
-          if (skillSource.status !== 'verified') unverified.push(`${skill}/${e.id}: ${skillSource.status} — ${skillSource.evidence}`);
+          if (grading.skill_source.status !== 'withheld') {
+            unwithheld.push(`${skill}/${e.id} (without-skill): ${grading.skill_source.status} — ${grading.skill_source.evidence}`);
+          }
+        } else if (grading.skill_source.status !== 'verified') {
+          unverified.push(`${skill}/${e.id}: ${grading.skill_source.status} — ${grading.skill_source.evidence}`);
         }
-        const usage = readUsage(runDir);
+        const usage = grading.usage;
         // Counted as summarizeUsage counts: unknown is a missing total_tokens; a known total_tokens with
         // no duration_ms is incomplete.
         if (usage.total_tokens === null) usageUnknown += 1;
         else if (usage.status !== 'recorded') usageIncomplete += 1;
-        writeJson(path.join(runDir, 'grading.json'), {
-          skill,
-          eval_id: e.id,
-          eval_name: e.name,
-          arm,
-          split: e.split,
-          skill_source: skillSource,
-          expectations,
-          pass_rate: decided.length ? decided.filter((x) => x.passed).length / decided.length : null,
-          usage,
-        });
+        writeJson(path.join(runDir, 'grading.json'), grading);
         graded += 1;
         counts[arm] += 1;
       }
     }
   }
   console.log(`graded ${graded} run(s) (${counts['with-skill']} with-skill, ${counts['without-skill']} without-skill); ${manual} assertion(s) left for the grader subagent; usage unknown for ${usageUnknown} run(s)${usageIncomplete ? `; usage incomplete for ${usageIncomplete} run(s)` : ''}`);
+  const infraExcluded = INFRA_CLASSES.reduce((sum, name) => sum + infraCounts[name], 0);
+  if (infraExcluded || infraCounts.malformed) {
+    const classes = INFRA_CLASSES.map((name) => `${name} ${infraCounts[name]}`).join(', ');
+    console.log(`infra excluded: ${infraExcluded} (${classes}); malformed status: ${infraCounts.malformed}`);
+  }
   if (unverified.length) {
     console.warn(
       `\nwarning: ${unverified.length} of ${counts['with-skill']} with-skill run(s) cannot prove they measured this repo's skills.\n` +
@@ -918,6 +948,47 @@ function cmdGrade(cfg, opts) {
     for (const u of unwithheld) console.warn(`  ${u}`);
   }
   return 0;
+}
+
+/** Grade one run and preserve the existing grading.json field order before the two noise fields. */
+function gradeRun(cfg, skill, e, arm, runDir, sourceAt) {
+  const ctx = loadRunContext(runDir);
+  // skill_resolved needs both to reach verifySkillSource; attached here rather than threaded
+  // through loadRunContext, which is also used by callers that have no case in hand.
+  ctx.cfg = cfg;
+  ctx.skill = skill;
+  ctx.sourceAt = sourceAt;
+  ctx.arm = arm;
+  const expectations = (e.assertions || []).map((assertion) => gradeAssertion(assertion, ctx));
+  const decided = expectations.filter((result) => result.passed !== null);
+  // Provenance is recorded beside the expectations rather than inside them: a run that measured
+  // the wrong skill has an invalid pass rate, not a lower one.
+  const skillSource = arm === 'without-skill'
+    ? classifyWithheld(skill, ctx)
+    : verifySkillSource(cfg, skill, ctx);
+  const usage = readUsage(runDir);
+  const runStatus = readRunStatus(runDir);
+  const hasOutput = ctx.hasTranscript
+    || ctx.outputFiles.length > 0
+    || fs.existsSync(path.join(runDir, RUN_ROUTING_FILE));
+  const { infra } = classifyRun({ status: runStatus.status, hasOutput });
+  const excludedFromScore = infra !== null || runStatus.status === 'malformed';
+
+  return {
+    skill,
+    eval_id: e.id,
+    eval_name: e.name,
+    arm,
+    split: e.split,
+    skill_source: skillSource,
+    expectations,
+    pass_rate: excludedFromScore
+      ? null
+      : decided.length ? decided.filter((result) => result.passed).length / decided.length : null,
+    usage,
+    run_status: runStatus,
+    infra,
+  };
 }
 
 /** Freeze an iteration as the committed baseline (FR-018). Records the commit it was taken at so
@@ -1642,6 +1713,7 @@ module.exports = {
   buildPlan,
   cmdPlan,
   cmdGrade,
+  gradeRun,
   cmdBaseline,
   cmdReport,
   loadRunContext,
