@@ -233,7 +233,7 @@ so skipping the read silently drops the posture it defines.
 
 ## Embedded feature research
 
-For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+Run the ideation pass of `../do-document/references/embedded-research.md` before the first question round and its gap-or-request protocol on a gap; a skip says `ideation: skipped (<reason>)` at handoff.
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, run Socratic discovery, log each

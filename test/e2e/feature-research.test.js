@@ -179,3 +179,112 @@ test('retracted answer reports why it blocks without changing the stored request
   assert.equal(stored.gap, null);
   assert.equal(stored.failureReason, undefined);
 });
+
+function textFiles(dir) {
+  const files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...textFiles(full));
+    else if (/\.(md|json|ya?ml|txt|js|ts|mjs|cjs|sh|py)$/.test(entry.name)) files.push(full);
+  }
+  return files;
+}
+
+test('no shipped prose limits research to a started feature or only a specific external fact', () => {
+  const stale = ['just because a feature started', 'merely because a feature began', 'only for a specific external fact'];
+  const hits = [];
+  for (const dir of ['core', 'docs']) {
+    for (const file of textFiles(path.join(repo, dir))) {
+      const text = fs.readFileSync(file, 'utf8');
+      for (const phrase of stale) if (text.includes(phrase)) hits.push(`${path.relative(repo, file)}: ${phrase}`);
+    }
+  }
+  assert.deepEqual(hits, []);
+});
+
+const SKILLS = path.join(repo, 'core/shared/skills');
+const EMBEDDED = path.join(SKILLS, 'do-document/references/embedded-research.md');
+const section = (text, heading) => {
+  const start = text.indexOf(`## ${heading}`);
+  assert.notEqual(start, -1, `${heading} section exists`);
+  const next = text.indexOf('\n## ', start + 1);
+  return text.slice(start, next === -1 ? undefined : next);
+};
+
+test('the stage pointers name the reference and when the pass runs, not just the word ideation', () => {
+  const expected = { 'do-brainstorm': 'before the first question round', 'do-design': 'before options are written' };
+  for (const [skill, timing] of Object.entries(expected)) {
+    const text = section(fs.readFileSync(path.join(SKILLS, skill, 'SKILL.md'), 'utf8'), 'Embedded feature research');
+    assert.ok(text.includes('../do-document/references/embedded-research.md'), `${skill} points at the reference`);
+    assert.ok(text.includes(timing), `${skill} says the pass runs ${timing}`);
+    assert.ok(text.includes('at handoff'), `${skill} records a skip at handoff`);
+    assert.ok(!text.includes('before completion'), `${skill} no longer says before completion`);
+  }
+});
+
+test('the reference research-request row lists exactly the accepted reasons in its flag list', () => {
+  const { REASONS } = require('../../src/runtime/research-request.ts');
+  const row = fs.readFileSync(path.join(repo, 'docs/reference.md'), 'utf8')
+    .split('\n').find(line => line.startsWith('| `doflow research-request'));
+  assert.ok(row, 'docs/reference.md has the research-request row');
+  const flag = row.match(/\[--reason ([^\]]+)\]/);
+  assert.ok(flag, 'the row has a [--reason ...] flag list');
+  assert.deepEqual(flag[1].replace(/\\/g, '').split('|').sort(), [...REASONS].sort());
+});
+
+test('the ideation protocol carries the stage start, the class limits and a Stop step the runtime accepts', () => {
+  const text = fs.readFileSync(EMBEDDED, 'utf8');
+  const when = text.split('\n').find(line => line.startsWith('1. **When.**'));
+  assert.ok(when, 'step 1 exists');
+  assert.ok(when.includes('orchestrate --action catch-up --task-id <slug> --task-class feature --stage discovery'), 'step 1 starts the run');
+  assert.ok(when.includes('Once the class check accepts `feature`'), 'step 1 gates the start on the class');
+  assert.ok(when.includes('Other classes and stages are refused'), 'step 1 names the refusals');
+  assert.ok(when.includes('on a trunk branch, once the slug is picked'), 'step 1 covers the trunk case');
+  assert.ok(when.includes('`reached-candidate`'), 'step 1 skips on any other reason');
+  const stop = text.split('\n').find(line => line.startsWith('5. **Stop.**'));
+  assert.ok(stop, 'step 5 exists');
+  assert.ok(stop.includes('a supported answer resolves `answered` and a stated gap `unresolved`'), stop);
+  assert.ok(!/gaps? stated[^;]*resolves `answered`/.test(stop), 'a stated gap never resolves answered');
+  assert.ok(text.split('\n').find(line => line.startsWith('4. **Rounds.**')).includes('`deep_research.md`'));
+  assert.ok(text.includes('fits the constitution and stated constraints'));
+  assert.ok(text.includes('opened per gap-or-request step 2'));
+});
+
+test('the documented stage-start command starts a fresh unseeded run, then the ideation pass holds and releases discovery', t => {
+  const root = tempDir(t, 'doflow-feature-research-fresh-');
+  homes.set(root, tempDir(t, 'doflow-feature-research-fresh-home-'));
+  const doc = fs.readFileSync(EMBEDDED, 'utf8').match(/`"\$DOFLOW" (orchestrate [^`]+)`/);
+  assert.ok(doc, 'embedded-research.md carries the orchestrate command');
+  const args = doc[1].split(' ').map(a => a.replace('<slug>', 'demo')).filter(a => a !== '--json');
+  assert.equal(cmd(root, 'orchestrate', '--action', 'status', '--task-id', 'demo').code === 0, false, 'no run exists before catch-up');
+  const first = cmd(root, ...args);
+  assert.equal(first.code, 0, first.message);
+  assert.equal(first.data.reason, 'reached-candidate');
+  assert.equal(first.data.current.id, 'discovery');
+  assert.equal(first.data.progress.done, 0, 'catch-up completes nothing');
+  const again = cmd(root, ...args);
+  assert.equal(again.code, 0, again.message);
+  assert.equal(again.data.reason, 'reached-candidate');
+  assert.equal(again.data.progress.done, 0, 'a repeated catch-up is idempotent');
+  const request = open(root, 'ideation', 'Which comparable tools already do this?');
+  assert.equal(request.reason, 'ideation');
+  const refused = cmd(root, 'orchestrate', '--action', 'complete-stage', '--task-id', 'demo', '--stage', 'discovery');
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.message, /blocks stage/);
+  const resolved = cmd(root, 'research-request', '--action', 'resolve', '--task-id', 'demo', '--request-id', request.id,
+    '--outcome', 'unresolved', '--gap', 'no web tool on this harness');
+  assert.equal(resolved.code, 0, resolved.message);
+  const done = cmd(root, 'orchestrate', '--action', 'complete-stage', '--task-id', 'demo', '--stage', 'discovery');
+  assert.equal(done.code, 0, done.message);
+  assert.equal(done.data.current.id, 'gate-0');
+  const rerun = cmd(root, ...args);
+  assert.equal(rerun.data.reason, 'already-completed:discovery');
+});
+
+test('an ideation re-open after a user-request still holds the stage end to end', t => {
+  const { root, orch } = setup(t);
+  open(root, 'user-request', 'Which prior art exists?');
+  const again = open(root, 'ideation', 'Which prior art exists?');
+  assert.equal(again.reason, 'ideation');
+  assert.throws(() => orch.completeStage({ taskId: 'demo', stageId: 'discovery' }), /blocks stage/);
+});

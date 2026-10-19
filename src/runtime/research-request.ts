@@ -14,7 +14,9 @@ const { resolveLocator } = require('./locator-resolve.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 
 const STATES = new Set(['OPEN', 'ANSWERED', 'UNRESOLVED']);
-const REASONS = new Set(['detected-gap', 'user-request']);
+const REASONS = new Set(['detected-gap', 'user-request', 'ideation']);
+// Stage kinds an ideation request may attach to (IC-001): the feature's discovery and design stages.
+const IDEATION_KINDS = new Set(['discovery', 'design']);
 const safeId = (value: any, label: any) => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) {
     throw new Error(`${label} must be a safe non-empty identifier`);
@@ -90,6 +92,7 @@ class ResearchRequestStore {
     if (current?.type !== 'stage' || current.id !== stageId) {
       throw new Error(`Current feature stage is '${current?.type === 'stage' ? current.id : 'none'}', not '${stageId}'`);
     }
+    return current;
   }
 
   open({ taskId, stageId, question, reason, blocking }: any = {}) {
@@ -103,13 +106,20 @@ class ResearchRequestStore {
     if (!this.fsImpl.existsSync(runFile)) throw new Error(`Task '${taskId}' has no active feature stage`);
     const release = acquireLock(this.fsImpl, runFile);
     try {
-      this.stageFor(taskId, stageId);
+      const stage = this.stageFor(taskId, stageId);
+      if (reason === 'ideation' && !IDEATION_KINDS.has(stage.kind)) {
+        throw new Error(`reason ideation is only valid on a feature discovery or design stage, not '${stage.kind ?? 'none'}'`);
+      }
       return this.change(taskId, (requests: any) => {
         const existing = requests.find((r: any) => r.stageId === stageId && r.question === question.trim() && r.status === 'OPEN');
         if (existing) {
-          if ((blocking ?? reason === 'detected-gap') && !existing.blocking) {
-            existing.blocking = true;
-            existing.reason = reason;
+          const upgradeBlocking = (blocking ?? reason === 'detected-gap') && !existing.blocking;
+          // A re-open as ideation makes the request ideation (so an OPEN one holds the stage); no
+          // re-open weakens it: an ideation request keeps its reason.
+          const nextReason = existing.reason === 'ideation' ? 'ideation' : reason === 'ideation' || upgradeBlocking ? reason : existing.reason;
+          if (upgradeBlocking || nextReason !== existing.reason) {
+            if (upgradeBlocking) existing.blocking = true;
+            existing.reason = nextReason;
             existing.updatedAt = new Date().toISOString();
           }
           return existing;
@@ -171,8 +181,12 @@ class ResearchRequestStore {
   }
 
   blockingGap(taskId: any, stageId: any) {
-    const requests = this.list(taskId).filter((r: any) => r.stageId === stageId && r.blocking);
-    for (const request of requests) {
+    const onStage = this.list(taskId).filter((r: any) => r.stageId === stageId);
+    // An OPEN ideation request holds the stage whatever its blocking flag (IC-002): the research
+    // is either answered or recorded UNRESOLVED before the stage completes.
+    const openIdeation = onStage.find((r: any) => r.reason === 'ideation' && r.status === 'OPEN');
+    if (openIdeation) return openIdeation;
+    for (const request of onStage.filter((r: any) => r.blocking)) {
       if (request.status !== 'ANSWERED') return request;
       try {
         this.validateAnswer(taskId, request);
@@ -228,4 +242,4 @@ function handleResearchRequestCommand({ action = 'list', taskId, stageId, questi
   }
 }
 
-module.exports = { ResearchRequestStore, handleResearchRequestCommand };
+module.exports = { ResearchRequestStore, handleResearchRequestCommand, REASONS };

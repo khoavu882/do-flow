@@ -459,6 +459,42 @@ test('blocking research request refuses handoff and direct completion without cu
   assert.equal(orch.status('feature-gap').state, 'RUNNING');
 });
 
+test('ideation research request on discovery: OPEN refuses completion, UNRESOLVED and a valid ANSWERED allow it', t => {
+  const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
+  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+  const { ClaimsManager } = require('../../src/runtime/claims.ts');
+  const make = (taskId) => {
+    const root = scratch(t);
+    const orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root,
+      stateDir: path.join(root, '.doflow/state/orchestration'), readinessEvaluate: READY });
+    orch.start({ taskId, taskClass: 'feature' });
+    const store = new ResearchRequestStore({ projectRoot: root });
+    const request = store.open({ taskId, stageId: 'discovery', question: 'Prior art?', reason: 'ideation' });
+    assert.equal(request.blocking, false);
+    return { root, orch, store, request };
+  };
+  // OPEN: refused, cursor stays.
+  const open = make('ideation-open');
+  assert.throws(() => open.orch.completeStage({ taskId: 'ideation-open', stageId: 'discovery' }), /blocks stage/);
+  assert.equal(open.orch.status('ideation-open').current.id, 'discovery');
+  // UNRESOLVED with a gap: allowed.
+  const gap = make('ideation-gap');
+  gap.store.resolve({ taskId: 'ideation-gap', requestId: gap.request.id, outcome: 'unresolved', gap: 'No source reachable' });
+  assert.equal(gap.orch.completeStage({ taskId: 'ideation-gap', stageId: 'discovery' }).current.id, 'gate-0');
+  // Valid ANSWERED: allowed.
+  const ans = make('ideation-answered');
+  const ledger = new EvidenceLedger({ repoRoot: ans.root });
+  const evId = ledger.addEvidence({ taskId: 'ideation-answered', kind: 'documentation', provenance: 'extracted',
+    source: { provider: 'web', capability: 'fetch' }, locator: { uri: 'https://example.org/prior-art' }, content: 'prior art' });
+  ledger.save('ideation-answered');
+  const claims = new ClaimsManager({ repoRoot: ans.root, evidenceLedger: ledger });
+  const claimId = claims.addClaim({ taskId: 'ideation-answered', statement: 'Prior art exists' });
+  claims.linkEvidence(claimId, evId, 'supports');
+  claims.save('ideation-answered');
+  ans.store.resolve({ taskId: 'ideation-answered', requestId: ans.request.id, outcome: 'answered', claimId, evidenceIds: [evId] });
+  assert.equal(ans.orch.completeStage({ taskId: 'ideation-answered', stageId: 'discovery' }).current.id, 'gate-0');
+});
+
 // ─────────────────────────────────────────────────────── readiness before the handoff writes
 
 /** An orchestrator over a state directory removed when the test ends. */
