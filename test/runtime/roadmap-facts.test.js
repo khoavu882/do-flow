@@ -96,6 +96,18 @@ test('requires-reachable uses CapabilityRouter with filesystem binary lookup and
   assert.deepEqual(evaluate(policy, 'feature', 'gate-a', input).reasons, ['capability-unreachable:test.absent', 'prerequisite-no-source:test.unknown']);
 });
 
+test('a hard prerequisite is reachable only on a HEALTHY primary provider; a grep fallback denies', (t) => {
+  const env = setup(t);
+  const rg = env.write('bin/rg', 'unused'); fs.chmodSync(rg, 0o755);
+  env.write('core/registry/capabilities.json', JSON.stringify({ capabilities: {
+    'code.semantic-search': { providers: [{ id: 'semble.search', kind: 'cli', binary: 'semble' }, { id: 'native.rg', kind: 'native', binary: 'rg' }] } } }));
+  const policy = structuredClone(env.options.policy); policy.classes.feature['gate-a'].predicates = ['requires-reachable'];
+  const input = env.gather('gate-a', { policy, registryRoot: env.root, env: { PATH: path.dirname(rg) },
+    row: { ...row, requires: ['code.semantic-search'] }, execFileSync: () => { assert.fail('capability resolution must not spawn'); } });
+  assert.deepEqual(input.find((f) => f.name === 'requires').value, [{ id: 'code.semantic-search', declared: true, reachable: false, provider: 'native.rg' }]);
+  assert.deepEqual(evaluate(policy, 'feature', 'gate-a', input).reasons, ['capability-unreachable:code.semantic-search']);
+});
+
 test('unreadable git facts never become an empty merged dependency answer', (t) => {
   const env = setup(t);
   const policy = structuredClone(env.options.policy); policy.classes.feature['gate-a'].predicates = ['needs-merged'];

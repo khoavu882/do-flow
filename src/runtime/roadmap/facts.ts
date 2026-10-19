@@ -362,7 +362,7 @@ function gatherGateFacts(options: any): GateFact[] {
         for (const id of row.requires || []) {
           const declared = Object.hasOwn(capabilities, id);
           const resolved = declared ? router.resolveCapability(id, { deepCheck: false }) : null;
-          values.push({ id, declared, reachable: Boolean(resolved?.provider && ['HEALTHY', 'FALLBACK'].includes(resolved.status)), provider: resolved?.provider?.id || null });
+          values.push({ id, declared, reachable: Boolean(resolved?.provider && resolved.status === 'HEALTHY'), provider: resolved?.provider?.id || null });
         }
       } catch (error: any) { unreadable = failure(error); }
     }

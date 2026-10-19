@@ -25,7 +25,7 @@ const {
 } = require('./rows.ts');
 const { gatherGitFacts, sha256Digest } = require('./facts.ts');
 const { loadPolicy } = require('./gates.ts');
-const { mergeRoadmapRow, readOpenIntents } = require('./merge.ts');
+const { mergeRoadmapRow, readOpenIntents, cleanupFeature } = require('./merge.ts');
 
 interface RoadmapCommandOptions {
   action?: string;
@@ -682,7 +682,12 @@ function auditLine(fields: any): string {
   return `${fields.step || fields.outcome} ${subject}`;
 }
 
-/** One output line, one log entry, one checkpoint write (FR-008). Idle is not a step and logs nothing. */
+/**
+ * One output line, one log entry, one checkpoint write (FR-008). Idle is not a step and logs nothing.
+ * `step` names pick|gate|merge|render|cleanup whenever the output concerns one: every `acted`, a gate
+ * or merge deny, a stop inside S8. It is null for perform, idle, blocked, lease-held, a stop at a step
+ * boundary and loop-level denies.
+ */
 function finish(ctx: any, fields: any): { code: number; result: any } {
   const { record } = ctx;
   const outcome = fields.outcome;
@@ -697,7 +702,7 @@ function finish(ctx: any, fields: any): { code: number; result: any } {
   const persisted = logged || !ctx.fresh;
   const result: any = {
     schema: 1, runId: persisted ? record.runId : null, n: persisted ? record.n : null, outcome,
-    step: outcome === 'acted' ? fields.step : null, row: fields.row ?? null, reason: fields.reason ?? null,
+    step: fields.step ?? null, row: fields.row ?? null, reason: fields.reason ?? null,
     reasons: fields.reasons ?? (fields.reason ? [fields.reason] : []), rule: fields.rule ?? null,
     evidence: fields.evidence ?? [], checkpoint: persisted ? relCheckpoint(record.runId) : null,
   };
@@ -746,7 +751,7 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
       const heads = readHeads(ctx, row);
       const input = (entry.inputs || []).find((i: any) => typeof i?.locator === 'string' && i.locator.endsWith('#heads'));
       if (input && input.sha256 === sha256Digest(JSON.stringify(heads))) approvedHead = heads.featureHead;
-      else return finish(ctx, { outcome: 'denied', reason: 'head-moved', row: row.id, slug: row.slug, rule: 'merge/head-moved' });
+      else return finish(ctx, { outcome: 'denied', step: 'merge', reason: 'head-moved', row: row.id, slug: row.slug, rule: 'merge/head-moved' });
     }
   }
   if (intent && intent.phase === 'ff-done' && intent.verifiedHead !== intent.commit && !intent.status
@@ -786,11 +791,13 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
     if (pending && result.annotations?.switch === 'verify-pending') {
       return finish(ctx, { ...base, outcome: 'acted', step, annotations: { commit: result.commit, pending: 'post-merge-verification' }, audit: `merge ${row.slug} ${result.commit}; post-merge verification pending` });
     }
-    return finish(ctx, { ...base, outcome: 'stopped', annotations: { switch: result.annotations?.switch || 'setting', phase: result.phase } });
+    // A stop before any intent is a step-boundary stop; inside S8 it names the phase it stopped after.
+    const at = !result.phase ? null : result.phase === 'rendered' ? 'render' : result.phase === 'cleaned' ? 'cleanup' : 'merge';
+    return finish(ctx, { ...base, outcome: 'stopped', step: at, annotations: { switch: result.annotations?.switch || 'setting', phase: result.phase } });
   }
   if (result.outcome === 'denied') {
     if (result.error === 'cannot-read-facts') return unreadableStep(ctx, new Unreadable(result.sources || ['merge-facts'], 'merge facts'), row);
-    return finish(ctx, { ...base, outcome: 'denied', reason: result.reason, rule: `merge/${result.reason}` });
+    return finish(ctx, { ...base, outcome: 'denied', step: 'merge', reason: result.reason, rule: `merge/${result.reason}` });
   }
   if (result.outcome === 'merged-unverified') {
     tripwireNote(ctx, 'unverified', result.commit, `merged-unverified ${row.id} ${result.commit}`);
@@ -830,7 +837,7 @@ async function gateStep(ctx: any, row: any, orch: any, gateId: string): Promise<
   const digest = result.inputsDigest || sha256Digest(JSON.stringify([result.reasons, result.policy || null]));
   if (slot.held && slot.held.kind === 'gate' && slot.held.gate === gateId && slot.held.inputsDigest === digest) return { skip: `held:${slot.held.reason}` };
   slot.held = { kind: 'gate', gate: gateId, reason: result.reason, rule: result.rule ?? null, inputsDigest: digest };
-  return finish(ctx, { ...base, outcome: 'denied', reason: result.reason, reasons: result.reasons,
+  return finish(ctx, { ...base, outcome: 'denied', step: 'gate', reason: result.reason, reasons: result.reasons,
     audit: `${gateId} ${row.slug} denied by policy: ${result.reasons.join(', ')}${result.rule ? ` (rule ${result.rule})` : ''}` });
 }
 
@@ -952,6 +959,29 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
   throw new Unreadable([`orchestration:${row.slug}`], `run state '${run.state}' has no actionable node`);
 }
 
+/** Render if stale (at most one write), then merge.ts's non-force cleanup; a kept row is held. */
+function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktree: string | null, worktrees: Map<string, string>): any {
+  const slot = (ctx.record.rows[row.id] ||= {});
+  const stop = boundary(ctx, row);
+  if (stop) return stop;
+  const develop = worktrees.get('refs/heads/develop');
+  if (!develop) return finish(ctx, { outcome: 'denied', step: 'cleanup', reason: 'no-develop-worktree', row: row.id, slug: row.slug, rule: 'cleanup/no-develop-worktree' });
+  const { written } = renderRoadmapFile({ roadmapPath: ctx.roadmapPath, content: render(rows, statuses), fsImpl: ctx.fsImpl });
+  let featureHead: string | null = null;
+  try { featureHead = String(ctx.execFileSync('git', ['-C', ctx.root, 'rev-parse', '--verify', `refs/heads/feat/${row.slug}`], ctx.gitOptions)).trim(); }
+  catch { /* branch already gone: only a leftover worktree remains */ }
+  const cleaned = cleanupFeature({ intent: { featureWorktree: worktree, featureBranch: `feat/${row.slug}`, featureHead },
+    root: ctx.root, develop, execFileSync: ctx.execFileSync, execOptions: ctx.gitOptions, fsImpl: ctx.fsImpl });
+  slot.done = true;
+  if (!cleaned) {
+    if (slot.held?.kind === 'cleanup' && !written) return { skip: 'cleanup-kept' };
+    slot.held = { kind: 'cleanup', reason: 'cleanup-kept' };
+  } else delete slot.held;
+  const cleanup = cleaned ? 'cleaned' : 'cleanup-kept';
+  return finish(ctx, { outcome: 'acted', step: 'cleanup', row: row.id, slug: row.slug, annotations: { cleanup, rendered: written },
+    audit: `cleanup ${row.slug} merged without an intent: ${cleanup}${written ? ', table rendered' : ''}` });
+}
+
 /** The seed layout, kept a sibling of the main checkout: seed text never chooses an arbitrary path. */
 function layoutPath(ctx: any, seed: any, row: any): string | null {
   const template = typeof seed.layout?.worktree === 'string' ? seed.layout.worktree : '{mainParent}/{mainName}-{id}';
@@ -1001,7 +1031,13 @@ async function underLease(ctx: any, options: any): Promise<any> {
   // Facts. A source that cannot be read is named; it is never read as "nothing changed".
   let seed: any;
   try { seed = parseSeed(fsImpl.readFileSync(ctx.seedPath, 'utf8')); }
-  catch (error: any) { throw new Unreadable(['seed'], error.message); }
+  catch (error: any) {
+    // A typed status is a closed-vocabulary deny, not an unreadable seed (C4).
+    if (error?.code === 'seed-typed-status') {
+      return finish(ctx, { outcome: 'denied', reason: 'seed-typed-status', row: error.rowId ?? null, rule: 'loop/seed' });
+    }
+    throw new Unreadable(['seed'], error.message);
+  }
   const facts = options.gitFacts || gatherGitFacts({ root: ctx.root });
   if (facts.unreadable?.length) throw new Unreadable(facts.unreadable, 'git facts');
   let intents: any[];
@@ -1050,6 +1086,19 @@ async function underLease(ctx: any, options: any): Promise<any> {
     let outcome: any;
     try { outcome = await stepRow(ctx, row, worktrees); }
     catch (error: any) { if (error instanceof Unreadable) return unreadableStep(ctx, error, row); throw error; }
+    if (outcome.skip) { skips[row.id] = outcome.skip; continue; }
+    return outcome;
+  }
+
+  // Merged rows with no intent (merged by a person, or archived before cleanup finished): render,
+  // then non-force cleanup (design §4 `merged -> render, then cleanup`).
+  for (const row of rows) {
+    // Only trailer evidence: a row merged by a seeded pre-108 pointer belongs to a person.
+    const info = statuses.get(row.id);
+    if (info?.status !== 'merged' || info.evidence?.kind !== 'trailer' || skips[row.id] || (options.row && row.id !== options.row)) continue;
+    const worktree = worktrees.get(`refs/heads/feat/${row.slug}`) || null;
+    if (!worktree && !facts.branches.includes(`feat/${row.slug}`)) continue;
+    const outcome = finishMergedRow(ctx, row, rows, statuses, worktree, worktrees);
     if (outcome.skip) { skips[row.id] = outcome.skip; continue; }
     return outcome;
   }

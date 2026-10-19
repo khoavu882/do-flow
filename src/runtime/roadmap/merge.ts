@@ -316,4 +316,4 @@ function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsIm
   } catch { return false; }
 }
 
-module.exports = { mergeRoadmapRow, classifyMerge, readOpenIntents, writeIntent };
+module.exports = { mergeRoadmapRow, classifyMerge, readOpenIntents, writeIntent, cleanupFeature };

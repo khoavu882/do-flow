@@ -182,7 +182,8 @@ test('a gate deny carries reason, rule and evidence, and holds the row until its
   writeRequirement(f, 'Open: [NEEDS CLARIFICATION: which store]\n');
   handoff(f);
   const denied = await f.next();
-  assert.deepEqual([denied.result.outcome, denied.result.step, denied.result.reason, denied.result.rule], ['denied', null, 'unresolved-clarifications', 'gate-0/markers-zero:requirement']);
+  assert.deepEqual([denied.result.outcome, denied.result.step, denied.result.reason, denied.result.rule], ['denied', 'gate', 'unresolved-clarifications', 'gate-0/markers-zero:requirement']);
+  assert.deepEqual(f.record(denied.result.runId).log.at(-1).step, 'gate', 'the run-record log carries the step too');
   assert.deepEqual(denied.result.reasons, ['unresolved-clarifications']);
   assert.ok(denied.result.evidence.some((e) => e.locator.endsWith('intention/requirement.md')));
   assert.equal(f.orch().readRun('113-toy').state, 'AWAITING_GATE', 'autopilot never rejects');
@@ -247,7 +248,7 @@ test('the switch is read again at the claim boundary: set after the lease, it st
     return cp.execFileSync(binary, args, options);
   };
   const out = await f.next({ env, execFileSync });
-  assert.deepEqual([out.result.outcome, out.result.annotations.switch], ['stopped', 'env']);
+  assert.deepEqual([out.result.outcome, out.result.step, out.result.annotations.switch], ['stopped', null, 'env']);
   assert.ok(out.result.checkpoint, 'stopped after the lease: a checkpoint is written');
   assert.equal(fs.existsSync(f.worktree()), false, 'no worktree add after the switch went off');
   assert.equal(f.record(out.result.runId).log.at(-1).outcome, 'stopped');
@@ -270,7 +271,7 @@ test('with the switch off, a fast-forward already started completes to ff-done a
 
   setSwitch(f.home, 'off');
   const out = await f.next();
-  assert.deepEqual([out.result.outcome, out.result.annotations.switch, out.result.annotations.phase], ['stopped', 'setting', 'ff-done']);
+  assert.deepEqual([out.result.outcome, out.result.step, out.result.annotations.switch, out.result.annotations.phase], ['stopped', 'merge', 'setting', 'ff-done']);
   assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), intent.commit, 'develop is never left partial by the switch');
   assert.equal(readOpenIntents({ root: f.root })[0].phase, 'ff-done');
   const again = await f.next();
@@ -619,4 +620,99 @@ test('a seed hold stops autopilot from advancing a row already in flight (C8)', 
   write(path.join(f.root, 'agent-docs/roadmap/rows.json'), JSON.stringify({ schema: 1, rows: [{ ...ROW, hold: 'waits for the owner' }] }));
   const out = await f.next();
   assert.deepEqual([out.result.outcome, out.result.skips['113']], ['idle', 'row-held']);
+});
+
+// ── follow-up rulings: step convention, merged rows without an intent, typed seed status ────────
+
+test('a merge deny carries step merge; perform, blocked and loop-level denies carry none', async (t) => {
+  const { f } = await completedRow(t);
+  write(path.join(f.worktree(), 'toy/b.txt'), 'moved after the gate\n');
+  f.git(f.worktree(), 'add', '.');
+  f.git(f.worktree(), 'commit', '-qm', 'after gate-b');
+  const moved = await f.next();
+  assert.deepEqual([moved.result.outcome, moved.result.step, moved.result.reason], ['denied', 'merge', 'head-moved']);
+  assert.equal(f.record(moved.result.runId).log.at(-1).step, 'merge');
+  write(path.join(f.root, '.doflow/state/roadmap/intents/113.json'), '{torn');
+  const unreadable = await f.next();
+  assert.deepEqual([unreadable.result.reason, unreadable.result.step], ['facts-unreadable', null]);
+});
+
+function personMerges(f, row = ROW) {
+  write(path.join(f.worktree(row), 'toy/a.txt'), 'feature\n');
+  f.git(f.worktree(row), 'add', '.');
+  f.git(f.worktree(row), 'commit', '-qm', 'toy');
+  f.git(f.develop, 'merge', '--no-ff', '-q', `feat/${row.slug}`, '-m', `merge: ${row.id} ${row.title}`, '-m', `DoFlow-Row: ${row.id}`);
+}
+
+test('a merged row with no intent is rendered and cleaned non-force in one call, then idle', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  personMerges(f);
+  const out = await f.next();
+  assert.deepEqual([out.result.outcome, out.result.step, out.result.row, out.result.annotations.cleanup, out.result.annotations.rendered], ['acted', 'cleanup', '113', 'cleaned', true]);
+  assert.equal(fs.existsSync(f.worktree()), false);
+  assert.throws(() => f.git(f.root, 'rev-parse', '--verify', 'refs/heads/feat/113-toy'));
+  assert.match(fs.readFileSync(path.join(f.root, 'agent-docs/roadmap/ROADMAP.md'), 'utf8'), /\| 113 \| Toy \| feature \| - \| merged \|/);
+  const idle = await f.next();
+  assert.deepEqual([idle.result.outcome, idle.result.skips['113']], ['idle', 'merged']);
+});
+
+test('a merged row whose worktree is dirty is kept once, then skipped, and never removed', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  personMerges(f);
+  write(path.join(f.worktree(), 'toy/notes.txt'), 'uncommitted\n');
+  const kept = await f.next();
+  assert.deepEqual([kept.result.outcome, kept.result.step, kept.result.annotations.cleanup], ['acted', 'cleanup', 'cleanup-kept']);
+  const again = await f.next();
+  assert.deepEqual([again.result.outcome, again.result.skips['113']], ['idle', 'cleanup-kept']);
+  assert.ok(fs.existsSync(path.join(f.worktree(), 'toy/notes.txt')));
+  assert.equal(f.git(f.root, 'rev-parse', '--verify', 'refs/heads/feat/113-toy').length, 40);
+});
+
+test('a merged row whose branch moved past the merge keeps the branch: branch -d refuses and nothing is forced', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  personMerges(f);
+  write(path.join(f.worktree(), 'toy/later.txt'), 'later\n');
+  f.git(f.worktree(), 'add', '.');
+  f.git(f.worktree(), 'commit', '-qm', 'after the merge');
+  const tip = f.git(f.root, 'rev-parse', 'feat/113-toy');
+  const kept = await f.next();
+  assert.deepEqual([kept.result.outcome, kept.result.step, kept.result.annotations.cleanup], ['acted', 'cleanup', 'cleanup-kept']);
+  assert.equal(f.git(f.root, 'rev-parse', 'feat/113-toy'), tip);
+});
+
+test('with the switch off a merged row is not cleaned', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  personMerges(f);
+  setSwitch(f.home, 'off');
+  assert.equal((await f.next()).result.outcome, 'stopped');
+  assert.ok(fs.existsSync(f.worktree()));
+});
+
+test('a typed status in the seed denies seed-typed-status naming the row; other seed errors stay facts-unreadable', async (t) => {
+  const f = fixture(t, { rows: [{ ...ROW, status: 'merged' }] });
+  const typed = await f.next();
+  assert.equal(typed.code, 1);
+  assert.deepEqual([typed.result.outcome, typed.result.reason, typed.result.step, typed.result.row], ['denied', 'seed-typed-status', null, '113']);
+  write(path.join(f.root, 'agent-docs/roadmap/rows.json'), '{not json');
+  const torn = await f.next();
+  assert.deepEqual([torn.result.reason, torn.result.annotations.unreadable], ['facts-unreadable', ['seed']]);
+});
+
+test('a row merged only by a seeded mergeCommit pointer is never cleaned: its branch and worktree belong to a person', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  write(path.join(f.worktree(), 'toy/a.txt'), 'feature\n');
+  f.git(f.worktree(), 'add', '.');
+  f.git(f.worktree(), 'commit', '-qm', 'toy');
+  f.git(f.develop, 'merge', '--no-ff', '-q', 'feat/113-toy', '-m', 'merge: 113 Toy (pre-108, no trailer)');
+  const mergeCommit = f.git(f.develop, 'rev-parse', 'HEAD');
+  write(path.join(f.root, 'agent-docs/roadmap/rows.json'), JSON.stringify({ schema: 1, rows: [{ ...ROW, mergeCommit }] }));
+  const out = await f.next();
+  assert.deepEqual([out.result.outcome, out.result.skips['113']], ['idle', 'merged']);
+  assert.ok(fs.existsSync(f.worktree()), 'the clean worktree is left alone');
+  assert.equal(f.git(f.root, 'rev-parse', '--verify', 'refs/heads/feat/113-toy').length, 40, 'the fully merged branch is left alone');
 });
