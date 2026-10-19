@@ -120,6 +120,56 @@
           "type": "manual"
         }
       ]
+    },
+    {
+      "id": 6,
+      "kind": "triggering",
+      "split": "train",
+      "name": "programme-ask-proposes-program-mode",
+      "prompt": "Build out an onboarding, billing and notification system for the product as one big goal.",
+      "expected_output": "do recognizes a programme-sized ask with multiple independently shippable outcomes and proposes program mode to the person before running research or writing roadmap rows",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do was invoked",
+          "type": "skill_resolved",
+          "skill": "do"
+        },
+        {
+          "text": "The response proposes program mode",
+          "type": "output_matches",
+          "pattern": "[Pp]rogram mode"
+        },
+        {
+          "text": "asks the person before any research and runs no roadmap write",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "single-feature-ask-skips-program-mode",
+      "prompt": "Add a --dry-run flag to `doflow roadmap seed` across src/cli/runtime-commands.ts, src/runtime/roadmap/seed.ts, and docs/reference.md.",
+      "expected_output": "do treats a single-feature request touching multiple files as an ordinary change, skips program mode, and states the task class",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do was invoked",
+          "type": "skill_resolved",
+          "skill": "do"
+        },
+        {
+          "text": "The response does not propose program mode",
+          "type": "output_not_matches",
+          "pattern": "[Pp]rogram mode"
+        },
+        {
+          "text": "routes as an ordinary change with the task class stated",
+          "type": "manual"
+        }
+      ]
     }
   ]
 }
