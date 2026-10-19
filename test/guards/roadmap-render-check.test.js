@@ -13,6 +13,10 @@
 // 8. duplicate-id
 // 9. slug-id-mismatch
 // Plus: seed-typed-status
+// Store seed rules reported by render --check (feature 113):
+// 10. class-unknown
+// 11. needs-cycle
+// 12. seed-unknown-key
 //
 // Negative control:
 //   A check implementation that omits the 'commit-claimed-twice' rule turns G57 red.
@@ -197,4 +201,84 @@ test('G57: render --check accepts held seed rows and preserves the rendered byte
   assert.equal(exitCode, 0);
   assert.match(rendered, /held: awaiting owner input/);
   assert.equal(fs.readFileSync(path.join(roadmapDir, 'ROADMAP.md'), 'utf8'), before);
+});
+
+const NO_FACTS = () => ({ developHead: 'a'.repeat(40), merges: [], branches: [], claims: [] });
+
+// Writes a store with the given seed rows, runs `render --check --json` through
+// handleRoadmapCommand and returns the exit code and the parsed JSON line.
+function runRenderCheckJson(t, prefix, seedRows) {
+  const temp = tempDir(t, prefix);
+  const roadmapDir = path.join(temp, 'agent-docs', 'roadmap');
+  fs.mkdirSync(roadmapDir, { recursive: true });
+  const seedRaw = JSON.stringify({ schema: 1, rows: seedRows });
+  fs.writeFileSync(path.join(roadmapDir, 'rows.json'), seedRaw, 'utf8');
+  let rendered = 'stale\n';
+  try {
+    rendered = render(parseSeed(seedRaw).rows, new Map());
+  } catch {
+    // invalid seed: the ROADMAP.md content is irrelevant
+  }
+  fs.writeFileSync(path.join(roadmapDir, 'ROADMAP.md'), rendered, 'utf8');
+
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (...args) => lines.push(args.join(' '));
+  let exitCode;
+  try {
+    exitCode = handleRoadmapCommand({ action: 'render', check: true, json: true, root: temp, gitFacts: NO_FACTS() });
+  } finally {
+    console.log = originalLog;
+    process.exitCode = 0;
+  }
+  assert.equal(lines.length, 1, 'render --check --json prints exactly one JSON line');
+  return { exitCode, out: JSON.parse(lines[0]) };
+}
+
+test('G57: render --check reports class-unknown for a row with an unregistered class', (t) => {
+  const { exitCode, out } = runRenderCheckJson(t, 'doflow-g57-class-', [
+    { id: '113', slug: '113-bad-class', title: 'Bad class', class: 'nonsense', needs: [] },
+  ]);
+  assert.equal(exitCode, 1);
+  assert.equal(out.exit, 1);
+  const findings = out.findings.filter((f) => f.rule === 'class-unknown');
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].rowId, '113');
+  assert.match(findings[0].message, /nonsense/);
+});
+
+test('G57: render --check reports needs-cycle once, rowIds in path order from the first row', (t) => {
+  const { exitCode, out } = runRenderCheckJson(t, 'doflow-g57-cycle-', [
+    { id: '113', slug: '113-a', title: 'A', class: 'feature', needs: ['114'] },
+    { id: '114', slug: '114-b', title: 'B', class: 'feature', needs: ['115'] },
+    { id: '115', slug: '115-c', title: 'C', class: 'feature', needs: ['113'] },
+  ]);
+  assert.equal(exitCode, 1);
+  assert.equal(out.exit, 1);
+  const findings = out.findings.filter((f) => f.rule === 'needs-cycle');
+  assert.equal(findings.length, 1);
+  assert.deepEqual(findings[0].rowIds, ['113', '114', '115']);
+});
+
+test('G57: render --check reports seed-unknown-key for a row with an extra key', (t) => {
+  const { exitCode, out } = runRenderCheckJson(t, 'doflow-g57-unknown-key-', [
+    { id: '113', slug: '113-extra', title: 'Extra', class: 'feature', needs: [], owner: 'someone' },
+  ]);
+  assert.equal(exitCode, 1);
+  assert.equal(out.exit, 1);
+  const findings = out.findings.filter((f) => f.rule === 'seed-unknown-key');
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].rowId, '113');
+  assert.match(findings[0].message, /owner/);
+});
+
+test('G57: render --check control: valid class and acyclic chain pass with exit 0', (t) => {
+  const { exitCode, out } = runRenderCheckJson(t, 'doflow-g57-control-', [
+    { id: '113', slug: '113-a', title: 'A', class: 'feature', needs: [] },
+    { id: '114', slug: '114-b', title: 'B', class: 'feature', needs: ['113'] },
+    { id: '115', slug: '115-c', title: 'C', class: 'feature', needs: ['114'] },
+  ]);
+  assert.equal(exitCode, 0);
+  assert.equal(out.exit, 0);
+  assert.deepEqual(out.findings, []);
 });
