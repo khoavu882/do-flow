@@ -1384,6 +1384,10 @@
       "reason": "agent-docs deliverable (roadmap/ROADMAP.md, derived table written only when its bytes change)"
     },
     {
+      "file": "src/runtime/roadmap/seed.ts",
+      "reason": "agent-docs deliverable (roadmap/rows.json written by temp+rename under the loop lease, person-only apply and amend)"
+    },
+    {
       "file": "src/runtime/scaffold/generate.ts",
       "reason": "agent-docs deliverable (scaffold files and manifest)"
     },
