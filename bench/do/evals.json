@@ -120,6 +120,46 @@
           "type": "manual"
         }
       ]
+    },
+    {
+      "id": 6,
+      "kind": "behavioral",
+      "split": "train",
+      "name": "programme-ask-proposes-program-mode",
+      "prompt": "Build out an onboarding, billing and notification system for the product as one big goal.",
+      "expected_output": "do recognizes a programme-sized ask with multiple independently shippable outcomes and proposes program mode to the person before running research or writing roadmap rows",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do was invoked",
+          "type": "skill_resolved",
+          "skill": "do"
+        },
+        {
+          "text": "proposes program mode through the question tool before any research; no roadmap write",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "kind": "behavioral",
+      "split": "heldout",
+      "name": "single-feature-ask-skips-program-mode",
+      "prompt": "Add a --dry-run flag to `doflow roadmap seed` across src/cli/runtime-commands.ts, src/runtime/roadmap/seed.ts, and docs/reference.md.",
+      "expected_output": "do treats a single-feature request touching multiple files as an ordinary change, skips program mode, and states the task class",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do was invoked",
+          "type": "skill_resolved",
+          "skill": "do"
+        },
+        {
+          "text": "routes as an ordinary change with the class stated; does not propose or enter program mode (saying it is not program-sized is compliant)",
+          "type": "manual"
+        }
+      ]
     }
   ]
 }

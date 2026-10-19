@@ -36,6 +36,20 @@ function makeRepo(t) {
   return dir;
 }
 
+/** A throwaway git repo on `develop` without an initialized roadmap store. */
+function makeRepoWithoutStore(t) {
+  const dir = tempDir(t, 'doflow-seed-cli-no-store-');
+  const git = (...args) => {
+    const r = cp.spawnSync('git', args, { cwd: dir, env: { ...process.env, ...GIT_ENV }, encoding: 'utf8' });
+    assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+  };
+  git('init', '-q', '-b', 'develop');
+  fs.writeFileSync(path.join(dir, 'README.md'), 'empty roadmap fixture\n', 'utf8');
+  git('add', 'README.md');
+  git('-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-q', '-m', 'initial commit');
+  return dir;
+}
+
 function writeDraft(t, rows) {
   const dir = tempDir(t, 'doflow-seed-cli-draft-');
   const file = path.join(dir, 'draft.json');
@@ -73,6 +87,21 @@ test('seed check: clean add draft exits 0 with JSON op check, ok true', (t) => {
   const out = JSON.parse(r.stdout);
   assert.equal(out.op, 'check');
   assert.equal(out.ok, true);
+});
+
+test('seed check: missing roadmap store is empty and returns the person-only land command', (t) => {
+  const repo = makeRepoWithoutStore(t);
+  const draft = writeDraft(t, [{ ...cleanRow, needs: [] }]);
+  const storeDir = path.join(repo, 'agent-docs', 'roadmap');
+  assert.equal(fs.existsSync(storeDir), false);
+
+  const r = run(t, repo, ['roadmap', 'seed', '--action', 'check', '--draft', draft, '--json']);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.ok, true);
+  assert.equal(out.seed.sha256, null);
+  assert.equal(out.land, `doflow roadmap seed ${repo} --action apply --draft ${draft}`);
+  assert.equal(fs.existsSync(storeDir), false, 'check does not create the missing store');
 });
 
 test('seed check: a finding exits 1 with JSON findings', (t) => {
