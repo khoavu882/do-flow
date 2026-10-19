@@ -102,6 +102,16 @@ before(() => {
           : `${JSON.stringify(scenario.run_status)}\n`;
         fs.writeFileSync(path.join(runDir, 'run_status.json'), contents);
       }
+      if (scenario.skill_source !== undefined) {
+        fs.writeFileSync(path.join(runDir, 'skill_source.json'), JSON.stringify(scenario.skill_source));
+      } else {
+        const skillSha = runner.skillSourceSha256(cfg, skill);
+        fs.writeFileSync(path.join(runDir, 'skill_source.json'), JSON.stringify({
+          skill,
+          path: `/abs/.doflow/worktrees/000/.claude/skills/${skill}/SKILL.md`,
+          sha256: skillSha,
+        }));
+      }
     }
     quiet(() => runner.cmdGrade(cfg, { iteration: iterName, runsRoot }));
   }
@@ -215,7 +225,7 @@ test('C.2: preconditions derived in design §4 order on their own fixtures', () 
   // 4. noise-unusable
   {
     const unusableFile = path.join(f.root, 'unusable-noise.json');
-    const unusable = { ...validNoise, verdict: 'inconclusive' };
+    const unusable = { ...validNoise, verdict: 'grader-unstable', graderRerun: { differing: ['alpha/1'] } };
     fs.writeFileSync(unusableFile, `${JSON.stringify(unusable, null, 2)}\n`);
     const run = quiet(() => runner.cmdReport(f.cfg, {
       iteration: 'banded-cand-r1',
@@ -304,7 +314,7 @@ test('C.2: infra runs are excluded and counted', () => {
   assert.equal(dec.corpus.cases.some((c) => c.key === 'alpha/1'), false);
 });
 
-test('C.2: buildReport output is deepEqual to its pre-096 value on existing fixtures', () => {
+test('C.2: buildReport omits decision and checks 6 fields on existing fixtures', () => {
   const baseline = {
     commit: 'a4d642',
     model: 'claude-noise-fixture',
@@ -494,4 +504,157 @@ test('C.2 negative control: dropping the model precondition turns the mismatch c
   assert.equal(droppedPreconditionDecision.precondition, null);
   assert.equal(droppedPreconditionDecision.corpus.verdict, 'gain-above-noise');
   assert.notEqual(droppedPreconditionDecision.corpus.verdict, dec.corpus.verdict);
+});
+
+test('C-1: cmdReport exits 2 when candidate stamp has no model or no sourceAt, or is missing', () => {
+  const candDir = path.join(f.root, 'c1-cand-stamp', 'runs');
+  fs.mkdirSync(path.join(candDir, 'cand-no-model'), { recursive: true });
+  fs.mkdirSync(path.join(candDir, 'cand-no-sourceat'), { recursive: true });
+  fs.mkdirSync(path.join(candDir, 'cand-no-stamp'), { recursive: true });
+
+  fs.writeFileSync(path.join(candDir, 'cand-no-model', 'iteration.json'), JSON.stringify({ sourceAt: 'abc1234', model: null }));
+  fs.writeFileSync(path.join(candDir, 'cand-no-sourceat', 'iteration.json'), JSON.stringify({ sourceAt: null, model: f.cfg.model }));
+
+  // Candidate with no model
+  const runNoModel = quiet(() => runner.cmdReport(f.cfg, {
+    iteration: 'cand-no-model',
+    runsRoot: candDir,
+    baselineFile: f.baselineFile,
+    noise: sharedNoiseFile,
+  }));
+  assert.equal(runNoModel.status, 2);
+  assert.match(runNoModel.err, /cand-no-model: model not recorded: re-grade/);
+
+  // Candidate with no sourceAt
+  const runNoSourceAt = quiet(() => runner.cmdReport(f.cfg, {
+    iteration: 'cand-no-sourceat',
+    runsRoot: candDir,
+    baselineFile: f.baselineFile,
+    noise: sharedNoiseFile,
+  }));
+  assert.equal(runNoSourceAt.status, 2);
+  assert.match(runNoSourceAt.err, /cand-no-sourceat: measured commit unknown: re-grade with --source-at/);
+
+  // Candidate with missing iteration.json
+  const runNoStamp = quiet(() => runner.cmdReport(f.cfg, {
+    iteration: 'cand-no-stamp',
+    runsRoot: candDir,
+    baselineFile: f.baselineFile,
+    noise: sharedNoiseFile,
+  }));
+  assert.equal(runNoStamp.status, 2);
+  assert.match(runNoStamp.err, /cand-no-stamp: measured commit unknown: re-grade with --source-at/);
+});
+
+test('C-1 negative control: valid model and sourceAt candidate stamp passes stamp checks', () => {
+  const candDir = path.join(f.root, 'c1-cand-valid', 'runs');
+  fs.mkdirSync(path.join(candDir, 'cand-valid'), { recursive: true });
+  fs.writeFileSync(path.join(candDir, 'cand-valid', 'iteration.json'), JSON.stringify({ sourceAt: 'abc1234', model: f.cfg.model }));
+
+  const runValid = quiet(() => runner.cmdReport(f.cfg, {
+    iteration: 'cand-valid',
+    runsRoot: candDir,
+    baselineFile: f.baselineFile,
+    noise: sharedNoiseFile,
+  }));
+  assert.notEqual(runValid.status, 2);
+});
+
+test('C-2: readRepeat excludes runs with unverified skill_source status as source-unverified with passRate null', () => {
+  const rootDir = path.join(f.root, 'c2-test');
+  const runsRoot = path.join(rootDir, 'runs');
+  const iterName = 'cand-fallback-r1';
+  const iterDir = path.join(runsRoot, iterName);
+
+  for (const skill of ['alpha', 'beta']) {
+    const evals = runner.loadCases(f.cfg, skill).evals;
+    for (const e of evals) {
+      const runDir = path.join(iterDir, skill, `eval-${e.id}-${e.name}`);
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'grading.json'), JSON.stringify({
+        skill,
+        eval_id: e.id,
+        arm: 'with-skill',
+        split: e.split,
+        skill_source: { status: 'global-fallback', recordedPath: '/some/fallback/path' },
+        expectations: [{ passed: true }],
+        pass_rate: 1.0,
+        infra: null,
+        run_status: { status: 'completed' },
+      }));
+    }
+  }
+  fs.writeFileSync(path.join(iterDir, 'iteration.json'), JSON.stringify({ sourceAt: 'abc1234', model: f.cfg.model }));
+
+  // 1. Stored path (rerun: false)
+  const storedRepeat = runner.readRepeat(f.cfg, iterDir, { iteration: iterName, rerun: false });
+  assert.equal(storedRepeat.runs['alpha/1'].excluded, 'source-unverified');
+  assert.equal(storedRepeat.runs['alpha/1'].passRate, null);
+  for (const k of Object.keys(storedRepeat.runs)) {
+    assert.equal(storedRepeat.runs[k].excluded, 'source-unverified', `stored run ${k} excluded`);
+    assert.equal(storedRepeat.runs[k].passRate, null, `stored run ${k} passRate null`);
+  }
+
+  // 2. Candidate with 8 global-fallback gradings against banded baseline yields inconclusive (infra-share)
+  const decFile = path.join(rootDir, 'fallback-decision.json');
+  const runReport = quiet(() => runner.cmdReport(f.cfg, {
+    iteration: iterName,
+    runsRoot,
+    baselineFile: f.baselineFile,
+    noise: sharedNoiseFile,
+    'decision-out': decFile,
+  }));
+  assert.equal(runReport.status, 0);
+  assert.match(runReport.out, /decision corpus: inconclusive \(infra-share\) -> do-not-merge/);
+  const dec = JSON.parse(fs.readFileSync(decFile, 'utf8'));
+  assert.equal(dec.corpus.verdict, 'inconclusive');
+  assert.equal(dec.corpus.reason, 'infra-share');
+  assert.equal(dec.recommendation, 'do-not-merge');
+  assert.equal(dec.infra.candidate['source-unverified'], 8);
+
+  // 3. Same runs used as baseline repeats for cmdNoise must not give usable
+  for (const r of ['fallback-noise-r1', 'fallback-noise-r2', 'fallback-noise-r3']) {
+    const rDir = path.join(runsRoot, r);
+    fs.cpSync(iterDir, rDir, { recursive: true });
+  }
+  const runNoise = quiet(() => runner.cmdNoise(f.cfg, {
+    iterations: 'fallback-noise-r1,fallback-noise-r2,fallback-noise-r3',
+    runsRoot,
+  }));
+  assert.equal(runNoise.status, 1, 'unverified repeats in noise must exit 1 (inconclusive)');
+  assert.match(runNoise.out, /verdict: inconclusive/);
+  assert.doesNotMatch(runNoise.out, /verdict: usable/);
+});
+
+test('C-2 negative control: dropping source-unverified check turns fallback candidate into merge-candidate', () => {
+  const fakeCandRuns = {};
+  for (const skill of ['alpha', 'beta']) {
+    for (let id = 1; id <= 4; id += 1) {
+      fakeCandRuns[`${skill}/${id}`] = {
+        kind: id % 2 === 1 ? 'triggering' : 'behavioral',
+        split: id <= 2 ? 'train' : 'heldout',
+        passRate: 1.0,
+        excluded: null,
+      };
+    }
+  }
+  const fakeRepeat = {
+    iteration: 'fake-fallback',
+    model: f.cfg.model,
+    commit: 'abc1234',
+    runs: fakeCandRuns,
+    differing: [],
+    stale: [],
+    runCount: 8,
+  };
+  const dDropped = noise.buildDecision({
+    noise: JSON.parse(fs.readFileSync(sharedNoiseFile, 'utf8')),
+    noiseFile: { path: 'noise.json', sha256: null },
+    baselineFile: JSON.parse(fs.readFileSync(f.baselineFile, 'utf8')),
+    model: f.cfg.model,
+    candidate: [fakeRepeat],
+    thresholds: noise.loadNoiseConfig(f.cfg),
+  });
+  assert.equal(dDropped.corpus.verdict, 'gain-above-noise');
+  assert.equal(dDropped.recommendation, 'merge-candidate');
 });

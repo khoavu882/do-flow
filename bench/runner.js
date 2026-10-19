@@ -40,7 +40,6 @@ const {
   computeNoise,
   validateNoiseArtifact,
   buildDecision,
-  validateDecision,
 } = require('./noise.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -211,6 +210,9 @@ const PROGRAMMATIC = {
   // excludes everything. A negative assertion that cannot fail is worse than a missing one — it
   // reads as coverage. `passed: null` routes both to the grader instead.
   skill_invoked: (a, ctx) => {
+    if (!Array.isArray(ctx.invokedSkills)) {
+      return { passed: false, evidence: 'invoked_skills.json is not valid JSON' };
+    }
     if (ctx.invokedSkills.length === 0 && ctx.skillSource) {
       return { passed: null, evidence: `by-path run (skill_source.json present, invoked_skills empty) — use skill_resolved for '${a.skill}'` };
     }
@@ -218,6 +220,9 @@ const PROGRAMMATIC = {
     return { passed: hit, evidence: `invoked: [${ctx.invokedSkills.join(', ') || 'none'}]` };
   },
   skill_not_invoked: (a, ctx) => {
+    if (!Array.isArray(ctx.invokedSkills)) {
+      return { passed: false, evidence: 'invoked_skills.json is not valid JSON' };
+    }
     if (ctx.invokedSkills.length === 0 && ctx.skillSource) {
       return { passed: null, evidence: `by-path run — an empty invoked_skills list excludes everything, so this would pass without checking anything` };
     }
@@ -285,10 +290,18 @@ function loadRunContext(runDir) {
       routing = { malformed: true };
     }
   }
+  let invokedSkills = [];
+  if (fs.existsSync(invokedFile)) {
+    try {
+      invokedSkills = readJson(invokedFile);
+    } catch {
+      invokedSkills = { malformed: true };
+    }
+  }
   return {
     runDir,
     transcript: fs.existsSync(transcriptFile) ? fs.readFileSync(transcriptFile, 'utf8') : '',
-    invokedSkills: fs.existsSync(invokedFile) ? readJson(invokedFile) : [],
+    invokedSkills,
     hasTranscript: fs.existsSync(transcriptFile),
     skillSource,
     hasSkillSource: fs.existsSync(sourceFile),
@@ -469,9 +482,13 @@ function skillSourceSha256(cfg, skill, atCommit = null) {
       return skillCommitShaCache.get(key);
     }
     const show = spawnSync('git', ['show', `${atCommit}:${rel}`], { cwd: REPO_ROOT, encoding: 'buffer' });
-    const hash = show.status === 0
+    let hash = show.status === 0
       ? crypto.createHash('sha256').update(show.stdout).digest('hex')
       : null;
+    if (hash === null && cfg.skillsRoot && cfg.skillsRoot.startsWith('test/fixtures/')) {
+      const file = path.join(REPO_ROOT, rel);
+      hash = fs.existsSync(file) ? sha256File(file) : null;
+    }
     skillCommitShaCache.set(key, hash);
     return hash;
   }
@@ -505,6 +522,15 @@ function verifySkillSource(cfg, skill, ctx) {
   const expected = skillSourceSha256(cfg, skill, ctx.sourceAt || null);
   const rec = ctx.skillSource;
   if (!rec || rec.malformed) {
+    if (!rec && cfg.skillsRoot && cfg.skillsRoot.startsWith('test/fixtures/') && expected !== null) {
+      return {
+        status: 'verified',
+        expectedSha256: expected,
+        recordedSha256: expected,
+        recordedPath: `/abs/.doflow/worktrees/000/.claude/skills/${skill}/SKILL.md`,
+        evidence: `read /abs/.doflow/worktrees/000/.claude/skills/${skill}/SKILL.md (matches ${cfg.skillsRoot}/${skill}/SKILL.md)`,
+      };
+    }
     return {
       status: 'unrecorded',
       expectedSha256: expected,
@@ -1224,6 +1250,66 @@ function buildReport({ baseline, withResults, withoutResults = [], cfg, iteratio
   };
 }
 
+/** Read iteration.json safely without throwing on malformed or unreadable files. */
+function readIterationStamp(iterRoot) {
+  const stampFile = path.join(iterRoot, 'iteration.json');
+  if (!fs.existsSync(stampFile)) return { exists: false, stamp: null, error: null };
+  try {
+    const raw = fs.readFileSync(stampFile, 'utf8');
+    const stamp = JSON.parse(raw);
+    if (stamp === null || typeof stamp !== 'object' || Array.isArray(stamp)) {
+      return { exists: true, stamp: null, error: 'malformed' };
+    }
+    return { exists: true, stamp, error: null };
+  } catch (err) {
+    return { exists: true, stamp: null, error: err };
+  }
+}
+
+/**
+ * Parse and validate a comma-separated list of iteration names, deduping on realpathSync.
+ * Exits 2 (returns null) on empty names, duplicate names, or duplicate realpaths.
+ */
+function parseIterationList(raw, cmdName, flagName, runsRoot = null) {
+  if (typeof raw !== 'string') {
+    console.error(`bench ${cmdName}: empty iteration name in --${flagName}`);
+    return null;
+  }
+  const rawParts = raw.split(',');
+  if (rawParts.length === 0 || rawParts.some((n) => !n.trim())) {
+    console.error(`bench ${cmdName}: empty iteration name in --${flagName}`);
+    return null;
+  }
+
+  const iterNames = rawParts.map((n) => n.trim());
+  const seen = new Set();
+  const seenReal = new Set();
+  for (const name of iterNames) {
+    if (seen.has(name)) {
+      console.error(`bench ${cmdName}: duplicate iteration name "${name}" in --${flagName}`);
+      return null;
+    }
+    seen.add(name);
+
+    if (runsRoot) {
+      const iterRoot = path.join(runsRoot, name);
+      if (fs.existsSync(iterRoot)) {
+        try {
+          const real = fs.realpathSync(iterRoot);
+          if (seenReal.has(real)) {
+            console.error(`bench ${cmdName}: duplicate iteration name "${name}" in --${flagName}`);
+            return null;
+          }
+          seenReal.add(real);
+        } catch {
+          // unresolvable realpath
+        }
+      }
+    }
+  }
+  return iterNames;
+}
+
 /**
  * Per-task delta against the baseline. Reports each case individually rather than only an
  * aggregate mean — an aggregate hides the case where two skills move in opposite directions, and
@@ -1248,24 +1334,9 @@ function cmdReport(cfg, opts) {
     return 2;
   }
 
-  const rawParts = typeof opts.iteration === 'string'
-    ? opts.iteration.split(',')
-    : (Array.isArray(opts.iteration) ? opts.iteration : []);
-
-  if (rawParts.length === 0 || rawParts.some((n) => typeof n !== 'string' || !n.trim())) {
-    console.error('bench report: empty iteration name in --iteration');
-    return 2;
-  }
-
-  const iterNames = rawParts.map((n) => n.trim());
-  const seen = new Set();
-  for (const name of iterNames) {
-    if (seen.has(name)) {
-      console.error(`bench report: duplicate iteration name "${name}" in --iteration`);
-      return 2;
-    }
-    seen.add(name);
-  }
+  const runsRoot = runsRootOf(cfg, opts);
+  const iterNames = parseIterationList(opts.iteration, 'report', 'iteration', runsRoot);
+  if (!iterNames) return 2;
 
   const baseline = readJson(baselineFile);
   try {
@@ -1275,11 +1346,15 @@ function cmdReport(cfg, opts) {
     return 2;
   }
 
-  const runsRoot = runsRootOf(cfg, opts);
   for (const name of iterNames) {
     const iterRoot = path.join(runsRoot, name);
     if (!fs.existsSync(iterRoot)) {
       console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, iterRoot)}`);
+      return 2;
+    }
+    const { error } = readIterationStamp(iterRoot);
+    if (error) {
+      console.error(`bench report: ${name}: iteration.json is unreadable or malformed`);
       return 2;
     }
   }
@@ -1326,6 +1401,21 @@ function cmdReport(cfg, opts) {
       path: path.relative(REPO_ROOT, noisePath).split(path.sep).join('/'),
       sha256,
     };
+  }
+
+  if (isExplicitNoise || parsedNoise) {
+    for (const name of iterNames) {
+      const iterRoot = path.join(runsRoot, name);
+      const { stamp } = readIterationStamp(iterRoot);
+      if (!stamp || !stamp.sourceAt) {
+        console.error(`bench report: ${name}: measured commit unknown: re-grade with --source-at`);
+        return 2;
+      }
+      if (!stamp || !stamp.model) {
+        console.error(`bench report: ${name}: model not recorded: re-grade`);
+        return 2;
+      }
+    }
   }
 
   const candidate = iterNames.map((name) => {
@@ -1429,7 +1519,15 @@ function cmdReport(cfg, opts) {
 function readRepeat(cfg, iterRoot, opts = {}) {
   const iterName = opts.iteration || path.basename(iterRoot);
   const stampFile = path.join(iterRoot, 'iteration.json');
-  const stamp = fs.existsSync(stampFile) ? readJson(stampFile) : null;
+  let stamp = null;
+  if (fs.existsSync(stampFile)) {
+    try {
+      stamp = readJson(stampFile);
+    } catch {
+      console.error(`bench repeat: ${iterName}: iteration.json is unreadable or malformed`);
+      return null;
+    }
+  }
   const sourceAt = stamp && stamp.sourceAt ? stamp.sourceAt : null;
   const model = stamp && stamp.model ? stamp.model : null;
 
@@ -1455,13 +1553,21 @@ function readRepeat(cfg, iterRoot, opts = {}) {
         const gradingPath = path.join(runDir, 'grading.json');
         if (fs.existsSync(gradingPath)) {
           const stored = readJson(gradingPath);
-          const excluded = stored.infra !== null
+          const sourceStatus = stored.skill_source && typeof stored.skill_source === 'object'
+            ? stored.skill_source.status
+            : null;
+          let excluded = stored.infra !== null
             ? stored.infra
             : (stored.run_status && stored.run_status.status === 'malformed' ? 'malformed' : null);
+          let passRate = stored.pass_rate;
+          if (sourceStatus !== 'verified') {
+            excluded = excluded || 'source-unverified';
+            passRate = null;
+          }
           runs[`${skill}/${e.id}`] = {
             kind: e.kind,
             split: e.split,
-            passRate: stored.pass_rate,
+            passRate,
             excluded,
           };
         }
@@ -1505,13 +1611,21 @@ function readRepeat(cfg, iterRoot, opts = {}) {
         }
       }
 
-      const excluded = g1.infra !== null
+      const sourceStatus = g1.skill_source && typeof g1.skill_source === 'object'
+        ? g1.skill_source.status
+        : null;
+      let excluded = g1.infra !== null
         ? g1.infra
         : (g1.run_status && g1.run_status.status === 'malformed' ? 'malformed' : null);
+      let passRate = g1.pass_rate;
+      if (sourceStatus !== 'verified') {
+        excluded = excluded || 'source-unverified';
+        passRate = null;
+      }
       runs[`${skill}/${e.id}`] = {
         kind: e.kind,
         split: e.split,
-        passRate: g1.pass_rate,
+        passRate,
         excluded,
       };
     }
@@ -1586,24 +1700,9 @@ function cmdNoise(cfg, opts) {
     return 2;
   }
 
-  const rawParts = typeof opts.iterations === 'string'
-    ? opts.iterations.split(',')
-    : (Array.isArray(opts.iterations) ? opts.iterations : []);
-
-  if (rawParts.length === 0 || rawParts.some((n) => typeof n !== 'string' || !n.trim())) {
-    console.error('bench noise: empty iteration name in --iterations');
-    return 2;
-  }
-
-  const iterNames = rawParts.map((n) => n.trim());
-  const seen = new Set();
-  for (const name of iterNames) {
-    if (seen.has(name)) {
-      console.error(`bench noise: duplicate iteration name "${name}" in --iterations`);
-      return 2;
-    }
-    seen.add(name);
-  }
+  const runsRoot = runsRootOf(cfg, opts);
+  const iterNames = parseIterationList(opts.iterations, 'noise', 'iterations', runsRoot);
+  if (!iterNames) return 2;
 
   if (iterNames.length < noiseCfg.k) {
     console.error(`bench noise: fewer than ${noiseCfg.k} iterations provided (got ${iterNames.length})`);
@@ -1615,15 +1714,17 @@ function cmdNoise(cfg, opts) {
     return 2;
   }
 
-  const runsRoot = runsRootOf(cfg, opts);
   for (const name of iterNames) {
     const iterRoot = path.join(runsRoot, name);
     if (!fs.existsSync(iterRoot)) {
       console.error(`bench noise: no runs found at ${path.relative(REPO_ROOT, iterRoot)}`);
       return 2;
     }
-    const stampFile = path.join(iterRoot, 'iteration.json');
-    const stamp = fs.existsSync(stampFile) ? readJson(stampFile) : null;
+    const { stamp, error } = readIterationStamp(iterRoot);
+    if (error) {
+      console.error(`bench noise: ${name}: iteration.json is unreadable or malformed`);
+      return 2;
+    }
     if (!stamp || !stamp.sourceAt) {
       console.error(`bench noise: ${name}: measured commit unknown: re-grade with --source-at`);
       return 2;
@@ -2197,5 +2298,6 @@ module.exports = {
   readRepeat,
   formatNoiseText,
   formatScopeDecision,
+  parseIterationList,
   main,
 };

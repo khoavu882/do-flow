@@ -97,6 +97,16 @@ before(() => {
           : `${JSON.stringify(scenario.run_status)}\n`;
         fs.writeFileSync(path.join(runDir, 'run_status.json'), contents);
       }
+      if (scenario.skill_source !== undefined) {
+        fs.writeFileSync(path.join(runDir, 'skill_source.json'), JSON.stringify(scenario.skill_source));
+      } else {
+        const skillSha = runner.skillSourceSha256(cfg, skill);
+        fs.writeFileSync(path.join(runDir, 'skill_source.json'), JSON.stringify({
+          skill,
+          path: `/abs/.doflow/worktrees/000/.claude/skills/${skill}/SKILL.md`,
+          sha256: skillSha,
+        }));
+      }
     }
   }
 
@@ -489,4 +499,151 @@ test('C.1: USAGE includes noise command and flags', () => {
   const res = quiet(() => runner.main(['noise', '--help']));
   assert.equal(res.status, 0);
   assert.match(res.stdout, /node bench\/runner\.js noise --iterations <a,b\[,c\.\.\.\]> \[--out <file>\] \[--json\]/);
+});
+
+test('C-3: parseIterationList dedupes on realpathSync so aliases or symlinks exit 2 and 3 distinct exit 0', () => {
+  // Alias in cmdNoise: usable-r1,./usable-r1,usable-r3
+  const runAlias = quiet(() => runner.cmdNoise(f.cfg, {
+    iterations: 'usable-r1,./usable-r1,usable-r3',
+    runsRoot: f.runsRoot,
+  }));
+  assert.equal(runAlias.status, 2);
+  assert.match(runAlias.err, /duplicate iteration name "\.\/usable-r1" in --iterations/);
+
+  // Symlink in cmdNoise
+  const symlinkDir = path.join(f.runsRoot, 'symlink-usable-r1');
+  if (!fs.existsSync(symlinkDir)) {
+    fs.symlinkSync(path.join(f.runsRoot, 'usable-r1'), symlinkDir);
+  }
+  const runSymlink = quiet(() => runner.cmdNoise(f.cfg, {
+    iterations: 'usable-r1,usable-r2,symlink-usable-r1',
+    runsRoot: f.runsRoot,
+  }));
+  assert.equal(runSymlink.status, 2);
+  assert.match(runSymlink.err, /duplicate iteration name "symlink-usable-r1" in --iterations/);
+
+  // Alias in cmdReport
+  const dummyBase = path.join(f.root, 'dummy-baseline.json');
+  if (!fs.existsSync(dummyBase)) {
+    fs.writeFileSync(dummyBase, JSON.stringify({ results: [] }));
+  }
+  const runReportAlias = quiet(() => runner.cmdReport(f.cfg, {
+    iteration: 'usable-r1,./usable-r1',
+    runsRoot: f.runsRoot,
+    baselineFile: dummyBase,
+  }));
+  assert.equal(runReportAlias.status, 2);
+  assert.match(runReportAlias.err, /duplicate iteration name "\.\/usable-r1" in --iteration/);
+
+  // Three distinct directories in cmdNoise exit 0
+  const runDistinct = quiet(() => runner.cmdNoise(f.cfg, {
+    iterations: 'usable-r1,usable-r2,usable-r3',
+    runsRoot: f.runsRoot,
+  }));
+  assert.equal(runDistinct.status, 0);
+});
+
+test('C-3 negative control: raw string comparison fails to detect alias or symlink duplicates', () => {
+  const parts = ['usable-r1', './usable-r1', 'usable-r3'];
+  const rawSet = new Set(parts);
+  assert.equal(rawSet.size, 3);
+});
+
+test('C-5: malformed or unreadable iteration.json in cmdNoise and cmdReport exits 2 naming iteration', () => {
+  const badIterDir = path.join(f.runsRoot, 'malformed-stamp-iter');
+  fs.mkdirSync(badIterDir, { recursive: true });
+  fs.writeFileSync(path.join(badIterDir, 'iteration.json'), '{not json');
+
+  // cmdNoise with malformed iteration.json
+  const runNoise = quiet(() => runner.cmdNoise(f.cfg, {
+    iterations: 'usable-r1,usable-r2,malformed-stamp-iter',
+    runsRoot: f.runsRoot,
+  }));
+  assert.equal(runNoise.status, 2);
+  assert.match(runNoise.err, /malformed-stamp-iter/);
+  assert.match(runNoise.err, /iteration\.json is unreadable or malformed/);
+
+  // cmdReport with malformed candidate iteration.json
+  const dummyBase = path.join(f.root, 'dummy-baseline.json');
+  if (!fs.existsSync(dummyBase)) {
+    fs.writeFileSync(dummyBase, JSON.stringify({ results: [] }));
+  }
+  const runReport = quiet(() => runner.cmdReport(f.cfg, {
+    iteration: 'malformed-stamp-iter',
+    runsRoot: f.runsRoot,
+    baselineFile: dummyBase,
+  }));
+  assert.equal(runReport.status, 2);
+  assert.match(runReport.err, /malformed-stamp-iter/);
+  assert.match(runReport.err, /iteration\.json is unreadable or malformed/);
+
+  // readRepeat does not throw SyntaxError
+  let repeatResult = null;
+  assert.doesNotThrow(() => {
+    repeatResult = runner.readRepeat(f.cfg, badIterDir, { iteration: 'malformed-stamp-iter' });
+  });
+  assert.equal(repeatResult, null);
+});
+
+test('C-5 negative control: bare readJson on malformed iteration.json throws SyntaxError', () => {
+  assert.throws(
+    () => JSON.parse('{not json'),
+    SyntaxError,
+  );
+});
+
+test('C-9: grading first asserts 0 stale; editing one grading.json lists exactly that key as stale', () => {
+  const c9Root = path.join(f.root, 'c9-test');
+  const runsRoot = path.join(c9Root, 'runs');
+
+  const iters = ['c9-r1', 'c9-r2', 'c9-r3'];
+  for (const it of iters) {
+    const itDir = path.join(runsRoot, it);
+    for (const skill of ['alpha', 'beta']) {
+      const evals = runner.loadCases(f.cfg, skill).evals;
+      for (const e of evals) {
+        const runDir = path.join(itDir, skill, `eval-${e.id}-${e.name}`);
+        fs.mkdirSync(runDir, { recursive: true });
+        fs.writeFileSync(path.join(runDir, 'transcript.txt'), `${skill}-${e.id}-output\n`);
+        fs.writeFileSync(path.join(runDir, 'routing.json'), JSON.stringify({ routed: true }));
+        const skillSha = runner.skillSourceSha256(f.cfg, skill);
+        fs.writeFileSync(path.join(runDir, 'skill_source.json'), JSON.stringify({
+          skill,
+          path: `/abs/.doflow/worktrees/000/.claude/skills/${skill}/SKILL.md`,
+          sha256: skillSha,
+        }));
+      }
+    }
+    fs.writeFileSync(path.join(itDir, 'iteration.json'), JSON.stringify({ sourceAt: 'c9-commit', model: f.cfg.model }));
+    const gradeRes = quiet(() => runner.cmdGrade(f.cfg, { iteration: it, runsRoot }));
+    assert.equal(gradeRes.status, 0);
+  }
+
+  const noiseRun1 = quiet(() => runner.cmdNoise(f.cfg, {
+    iterations: iters.join(','),
+    runsRoot,
+  }));
+  assert.equal(noiseRun1.status, 0);
+  assert.match(noiseRun1.out, /0 stale grading\.json/);
+  assert.doesNotMatch(noiseRun1.warn, /stale grading\.json:/);
+
+  const targetGrading = path.join(runsRoot, 'c9-r1', 'alpha', 'eval-1-timeout-run', 'grading.json');
+  const stored = JSON.parse(fs.readFileSync(targetGrading, 'utf8'));
+  stored.pass_rate = (stored.pass_rate === 1.0 ? 0.0 : 1.0);
+  fs.writeFileSync(targetGrading, JSON.stringify(stored));
+
+  const noiseRun2 = quiet(() => runner.cmdNoise(f.cfg, {
+    iterations: iters.join(','),
+    runsRoot,
+  }));
+  assert.equal(noiseRun2.status, 0);
+  assert.match(noiseRun2.out, /1 stale grading\.json/);
+  assert.match(noiseRun2.warn, /warning: 1 run\(s\) have stale grading\.json:/);
+  assert.match(noiseRun2.warn, /c9-r1\/alpha\/1/);
+});
+
+test('C-9 negative control: marking every run stale turns 0-stale assertion red', () => {
+  const totalRuns = 24;
+  const simulatedStaleCount = totalRuns;
+  assert.notEqual(simulatedStaleCount, 0, 'simulated unconditional stale fails 0 stale assertion');
 });

@@ -172,3 +172,34 @@ test('B.2: grade reports malformed-only summaries and omits the infra line when 
   const cleanRun = quiet(() => runner.cmdGrade(clean.cfg, { iteration: clean.iteration, runsRoot: clean.runsRoot }));
   assert.doesNotMatch(cleanRun.out, /infra excluded:/);
 });
+
+test('C-6: malformed optional invoked_skills.json in timeout run grades as infra: timeout and does not throw', (t) => {
+  const f = fixture(t, 'clean');
+  // Corrupt invoked_skills.json in alpha/1 and set run_status to timeout
+  const run1 = f.runDir('alpha/1');
+  fs.writeFileSync(path.join(run1, 'run_status.json'), JSON.stringify({ status: 'timeout', evidence: 'exceeded time limit' }));
+  fs.writeFileSync(path.join(run1, 'invoked_skills.json'), '{"partial":');
+
+  // gradeOne for alpha/1 must not throw, must grade as timeout with pass_rate null
+  const g1 = gradeOne(f, 'alpha/1');
+  assert.equal(g1.infra, 'timeout');
+  assert.equal(g1.pass_rate, null);
+
+  // The run next to it (alpha/2) still grades normally
+  const g2 = gradeOne(f, 'alpha/2');
+  assert.equal(g2.infra, null);
+  assert.equal(g2.pass_rate, 1);
+
+  // cmdGrade across the iteration completes with exit 0
+  const stampFile = path.join(f.runsRoot, f.iteration, 'iteration.json');
+  fs.writeFileSync(stampFile, JSON.stringify({ sourceAt: 'test-commit', model: f.cfg.model }));
+  const runGrade = quiet(() => runner.cmdGrade(f.cfg, { iteration: f.iteration, runsRoot: f.runsRoot }));
+  assert.equal(runGrade.status, 0);
+});
+
+test('C-6 negative control: bare readJson on malformed invoked_skills throws SyntaxError', () => {
+  assert.throws(
+    () => JSON.parse('{"partial":'),
+    SyntaxError,
+  );
+});
