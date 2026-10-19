@@ -103,6 +103,26 @@
           "skill": "do-design"
         }
       ]
+    },
+    {
+      "id": 5,
+      "kind": "behavioral",
+      "split": "train",
+      "name": "open-design-choice-runs-ideation",
+      "prompt": "/do-design Design how our order service retries failed payment-provider calls. A durable queue with a delayed-retry topic, an in-process scheduler with jittered backoff, and a provider-side idempotent replay are all credible; nothing is decided yet.",
+      "expected_output": "an ideation pass opens research requests with --reason ideation before options are written, and the design cites the sources it read",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The ideation pass opened a research request with --reason ideation",
+          "type": "output_matches",
+          "pattern": "--reason ideation"
+        },
+        {
+          "text": "The design cites the sources the ideation pass read",
+          "type": "manual"
+        }
+      ]
     }
   ]
 }

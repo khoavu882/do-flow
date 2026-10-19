@@ -106,6 +106,27 @@
           "skill": "do-brainstorm"
         }
       ]
+    },
+    {
+      "id": 5,
+      "kind": "behavioral",
+      "split": "heldout",
+      "name": "fully-specified-prompt-skips-ideation",
+      "prompt": "/do-brainstorm Add a --json flag to our `report export` CLI command. Who: data engineers piping the output into jq. Why: the table format cannot be parsed reliably. Scope: only `report export`; every other command is out of scope. Success: the flag prints one JSON array of the same rows, exit code unchanged, and the default output is byte-identical to today. Constraints: no new dependency; Node 18+. Edge cases: an empty result prints []; a failed export prints nothing on stdout and the error on stderr as today. Nothing else is open.",
+      "expected_output": "every question the stage would ask is already answered, so the ideation pass is skipped with a reason and no ideation research request is opened",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The stage records that the ideation pass was skipped",
+          "type": "output_matches",
+          "pattern": "ideation: skipped"
+        },
+        {
+          "text": "No research request was opened with --reason ideation",
+          "type": "output_not_matches",
+          "pattern": "--reason ideation"
+        }
+      ]
     }
   ]
 }
