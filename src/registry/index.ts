@@ -453,7 +453,8 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
 const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
   isolatedEdit: { allowed: ['argv'], required: ['argv'] },
 });
-const WORKER_KEYS = Object.freeze(['profile', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
+const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
+const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
 const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES)]);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker']);
@@ -484,6 +485,9 @@ function validateWorker(value: any, location: string, errors: string[]): void {
 
   if (Object.hasOwn(value, 'profile') && value.profile !== null && !COVERAGE_PROFILES.has(value.profile)) {
     fail('profile', 'must be a lifecycle coverage profile or null');
+  }
+  if (Object.hasOwn(value, 'billing') && !WORKER_BILLING.has(value.billing)) {
+    fail('billing', 'must be free, metered, or unknown');
   }
 
   for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {

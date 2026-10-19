@@ -4,7 +4,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { workStatus, createWorkCache, refreshedWorkCache } = require('./work-status.ts');
+const { workStatus, recordExtension, createWorkCache, refreshedWorkCache } = require('./work-status.ts');
 const { projectKey } = require('../lifecycle/report-store.ts');
 const { readEvents } = require('../lifecycle/event-store.ts');
 
@@ -50,7 +50,7 @@ function workCandidates(store: any, entries: any, context: any) {
   const project = projectRoot(roots);
   if (!project) return [];
   const cache = context.cache || createWorkCache({ projectRoot: project, fsImpl });
-  const recordMatch = new RegExp(store.match), selected: any[] = [];
+  const recordMatch = new RegExp(store.match), extensionLength = recordExtension(store.match).length, selected: any[] = [];
   const visit = (dir: any, namespace: any = null) => {
     let children;
     try { children = names(fsImpl, dir); } catch { return true; }
@@ -61,7 +61,7 @@ function workCandidates(store: any, entries: any, context: any) {
       if (TMP.test(name) && now - stat.mtimeMs > settings.staleTmpHours * HOUR) {
         selected.push({ name: namespace ? `${namespace}/${name}` : name, reason: 'stale-tmp', bytes: stat.size, mtimeMs: stat.mtimeMs, recordStat: stat });
       } else if (recordMatch.test(name)) {
-        const result = workStatus({ projectRoot: project, store: store.id, taskId: name.slice(0, -5), namespace, mtimeMs: stat.mtimeMs, cache, fsImpl, shouldStop });
+        const result = workStatus({ projectRoot: project, store: store.id, taskId: name.slice(0, -extensionLength), namespace, mtimeMs: stat.mtimeMs, cache, fsImpl, shouldStop });
         if (result.incomplete || shouldStop?.()) return false;
         if (result.state === 'finished' && now - result.since > store.bound.finishedDays * DAY)
           selected.push({ name: namespace ? `${namespace}/${name}` : name, reason: 'finished-work', bytes: stat.size, mtimeMs: result.since, recordStat: stat });
@@ -92,7 +92,7 @@ function recordStillCandidate(store: any, candidate: any, info: any, context: an
     if (!snapshot?.ok || JSON.stringify(current) !== JSON.stringify(snapshot.value)) return false;
   }
   const fresh = cache ? refreshedWorkCache(cache) : undefined;
-  const status = workStatus({ projectRoot: projectRoot(roots), store: store.id, taskId: name.slice(0, -5), namespace, mtimeMs: info.mtimeMs, cache: fresh, fsImpl, shouldStop });
+  const status = workStatus({ projectRoot: projectRoot(roots), store: store.id, taskId: name.slice(0, -recordExtension(store.match).length), namespace, mtimeMs: info.mtimeMs, cache: fresh, fsImpl, shouldStop });
   return !status.incomplete && !shouldStop?.() && status.state === 'finished'
     && status.since === candidate.mtimeMs && now - status.since > store.bound.finishedDays * DAY;
 }
@@ -138,7 +138,7 @@ function protectedLogs({ registry, roots, fsImpl, cache, shouldStop }: any) {
           continue;
         }
         if (!stat.isFile() || !recordMatch.test(name)) continue;
-        const status = workStatus({ projectRoot: project, store: store.id, taskId: name.slice(0, -5), namespace, mtimeMs: stat.mtimeMs, cache: workCache, fsImpl, shouldStop });
+        const status = workStatus({ projectRoot: project, store: store.id, taskId: name.slice(0, -recordExtension(store.match).length), namespace, mtimeMs: stat.mtimeMs, cache: workCache, fsImpl, shouldStop });
         if (status.incomplete || shouldStop?.()) return false;
         if (status.state === 'finished') continue;
         try {

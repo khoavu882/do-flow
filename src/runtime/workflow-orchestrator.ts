@@ -12,12 +12,13 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { WorkflowEngine } = require('./workflow-engine.ts');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
-const { compactDecisions } = require('./decision-register.ts');
+const { compactDecisions, addDecisions } = require('./decision-register.ts');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { resolveConsultations } = require('./mcp-consultations.ts');
 const { mcpReach } = require('./mcp-reach.ts');
@@ -59,6 +60,8 @@ function runState(state: any) {
 }
 
 const GATE_DECISIONS = Object.freeze(['approve', 'reject']);
+/** IC-005: the register stage a policy approval of each gate is recorded under. */
+const POLICY_GATE_STAGE: Record<string, string> = Object.freeze({ 'gate-0': 'discovery', 'gate-a': 'planning', 'gate-b': 'review' });
 /** What a completed stage established, separate from the fact it was walked past (review A1). */
 const STAGE_OUTCOMES = new Set(['passed', 'failed', 'unverified']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -112,6 +115,7 @@ class WorkflowOrchestrator {
   declare buildAdapters: any;
   declare env: any;
   declare cwd: any;
+  declare sourceRoot: string;
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot] install root owning core/registry + default state dir.
@@ -134,11 +138,12 @@ class WorkflowOrchestrator {
    * @param {() => object} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs
    *   through; without it install facts are unknown and no outcome is inferred from them
    */
-  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null, env = process.env, cwd = process.cwd() }: any = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, sourceRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null, env = process.env, cwd = process.cwd() }: any = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
     this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
       ? path.resolve(stateDir, '../../..') : repoRoot);
+    this.sourceRoot = sourceRoot || this.projectRoot;
     this.engine = engine || new WorkflowEngine({ repoRoot });
     this.stateDir = stateDir || path.join(this.projectRoot, '.doflow', 'state', 'orchestration');
     this.readinessEvaluate = readinessEvaluate || null;
@@ -670,15 +675,22 @@ class WorkflowOrchestrator {
    * `forced` decision (e.g. approving despite unresolved clarification markers) requires an
    * explicit `note` reason — never a silent override — and is flagged in history for
    * `render-audit.sh` to distinguish from a routine handoff. */
-  decideGate({ taskId, gateId, decision, note, forced = false, now }: any = {}) {
+  decideGate({ taskId, gateId, decision, policy, by, note, forced = false, now, bindHead }: any = {}) {
     assertSafeId(gateId, 'gateId');
-    if (!GATE_DECISIONS.includes(decision)) throw new Error(`Invalid gate decision '${decision}'; valid: ${GATE_DECISIONS.join(', ')}`);
+    if (bindHead !== undefined && (policy === undefined || !/^[0-9a-f]{40}$/.test(String(bindHead)))) throw new Error('bindHead is a 40-hex feature head and needs --policy');
+    // IC-005: the decider is derived, never named by a caller; `autopilot` is recorded only by --policy.
+    if (by !== undefined) throw new Error('decide-gate takes no decider (by); only --policy records autopilot');
+    if (policy !== undefined) {
+      if (policy !== gateId) throw new Error('--policy must name the gate being decided');
+      if (decision !== undefined || forced) throw new Error('--policy refuses --decision and --forced');
+    } else if (!GATE_DECISIONS.includes(decision)) throw new Error(`Invalid gate decision '${decision}'; valid: ${GATE_DECISIONS.join(', ')}`);
     if (forced && (!note || !String(note).trim())) throw new Error('A forced gate decision requires a --note reason');
     const run = this.requireRun(taskId);
     if (run.state !== 'AWAITING_GATE') throw new Error(`Run '${run.taskId}' is not awaiting a gate (state=${run.state})`);
     const node = this.currentNode(run);
     if (!node || node.type !== 'gate') throw new Error('Run state says AWAITING_GATE but no gate is at the cursor');
     if (node.id !== gateId) throw new Error(`Expected gate '${node.id}' next, got '${gateId}'`);
+    if (policy !== undefined) return this.decideGateByPolicy(run, node, policy, now, bindHead);
     node.status = decision === 'approve' ? 'approved' : 'rejected';
     node.decision = decision;
     run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, note: note ?? null, forced: Boolean(forced) });
@@ -691,6 +703,100 @@ class WorkflowOrchestrator {
     }
     this.writeRun(run, now);
     return this.snapshot(run);
+  }
+
+  /** IC-005: the feature checkout cannot grant itself a weaker gate policy. Denies write nothing. */
+  decideGateByPolicy(run: any, node: any, policyId: string, now: any, bindHead?: string) {
+    // Decision C9: the autopilot kill switch binds every policy decision, not only the loop's. Off on
+    // any layer (env, sentinel, settings; an unreadable setting fails safe to off) denies before any
+    // fact is read, and records nothing.
+    const { readKillSwitch } = require('./settings/autopilot.ts');
+    const killSwitch = readKillSwitch(this.env);
+    if (!killSwitch.enabled) {
+      return { ...this.snapshot(run), decision: 'deny', reason: 'autopilot-disabled', reasons: ['autopilot-disabled'],
+        rule: `${node.id}/autopilot`, policy: { id: policyId, digest: null }, inputs: [], annotations: { switch: killSwitch.switch } };
+    }
+    // Loaded here, not at module top: every other orchestrator path (and a dry-run install) must not import them.
+    const { listCheckouts } = require('./checkouts.ts');
+    const { projectLayerSource } = require('./settings/project-layers.ts');
+    const { parseSeed } = require('./roadmap/rows.ts');
+    const { loadPolicy, evaluate } = require('./roadmap/gates.ts');
+    const { gatherGateFacts } = require('./roadmap/facts.ts');
+    const root = this.sourceRoot;
+    const checkouts = listCheckouts({ cwd: root });
+    const mainRoot = checkouts.ok && checkouts.main ? checkouts.main : root;
+    const execOptions = { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] };
+    let developHead: string | undefined;
+    let baseBytes: string | null = null;
+    // The base policy is develop's committed blob, never the worktree or the feature branch: a
+    // branch that weakens `never` to `approve` must not approve itself. No textconv filter applies.
+    try {
+      const head: string = execFileSync('git', ['rev-parse', '--verify', 'refs/heads/develop'], execOptions).trim();
+      developHead = head;
+      if (/^[0-9a-f]{40}$/.test(head)) {
+        baseBytes = execFileSync('git', ['show', '--no-textconv', `${head}:core/registry/gates.json`], execOptions);
+      }
+    } catch { /* loadPolicy returns no-policy; never fall back to the feature copy. */ }
+    const layers = projectLayerSource(mainRoot, this.fsImpl);
+    let overrideBytes: string | null = null;
+    if (layers.layersFrom) {
+      try { overrideBytes = this.fsImpl.readFileSync(path.join(layers.layersFrom, 'gates.override.json'), 'utf8'); }
+      catch (error: any) { if (error.code !== 'ENOENT') overrideBytes = ''; }
+    }
+    const loaded = loadPolicy(baseBytes, overrideBytes);
+    const policy = { id: policyId, digest: loaded.digest };
+    if (!loaded.ok) return { ...this.snapshot(run), decision: 'deny', reasons: loaded.reasons, reason: loaded.reason, policy, inputs: [] };
+
+    const slug = runSlugOf(run, root) || this.featureSlug || run.taskId;
+    let seed: any = null;
+    let row: any = null;
+    try {
+      seed = parseSeed(this.fsImpl.readFileSync(path.join(mainRoot, 'agent-docs/roadmap/rows.json'), 'utf8'));
+      row = seed.rows.find((entry: any) => entry.slug === slug && entry.class === run.taskClass) || null;
+    } catch (error: any) {
+      if (error.code === 'seed-typed-status') return { ...this.snapshot(run), decision: 'deny', reason: error.code, reasons: [error.code], policy, inputs: [] };
+      // Invalid or unreadable seed means no trustworthy row; evaluate returns row-unknown.
+    }
+    // The feature folder follows the feature-store rule: the calling checkout's own, else the main
+    // checkout's when a linked worktree does not hold it. The resolver names `<checkout>/agent-docs/
+    // doflow/<slug>` whether or not it exists, so a linked worktree without the folder would read
+    // no artifacts (a false `unresolved-clarifications`) and register into a missing folder.
+    let feature = resolveActiveFeature({ projectRoot: root, slug });
+    if (!feature.error && !this.fsImpl.existsSync(feature.featureDir) && mainRoot !== root) {
+      feature = resolveActiveFeature({ projectRoot: mainRoot, slug });
+    }
+    if (feature.error) throw new Error(`Cannot resolve policy gate artifacts: ${feature.message}`);
+    const facts = gatherGateFacts({ root, mainRoot, registryRoot: this.repoRoot, artifactRoot: feature.featureDir,
+      gateId: node.id, policy: loaded.policy, row, rows: seed?.rows, developHead, featureBranch: `feat/${slug}`, fsImpl: this.fsImpl });
+    const evaluation = evaluate(loaded.policy, run.taskClass, node.id, facts);
+    // A deny changes nothing: the run stays AWAITING_GATE and autopilot never rejects.
+    if (evaluation.decision === 'deny') return { ...this.snapshot(run), ...evaluation, policy };
+
+    const audit = `approved by policy ${policyId}@${loaded.digest} (${evaluation.inputs.length} inputs)`;
+    node.status = 'approved';
+    node.decision = 'approve';
+    // `policy.digest` and every fact's {locator, sha256} let a later reader re-derive this decision.
+    // C15: the roadmap loop names the feature head it read before deciding (bindHead). The entry keeps
+    // it as `approvedHead` only when the gate's own heads fact evaluated that same head, so the merge
+    // binds to it across loop runs; an approval without it falls back to the both-heads digest.
+    const heads = facts.find((fact: any) => fact.name === 'heads' && !fact.unreadable)?.value;
+    const approvedHead = bindHead && heads?.featureHead === bindHead ? { approvedHead: bindHead } : {};
+    run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: 'approve', by: 'autopilot',
+      policy, inputs: evaluation.inputs, ...approvedHead, note: audit, forced: false });
+    run.state = runState('RUNNING');
+    run.cursor += 1;
+    this.settleCursor(run);
+    // The optimistic revision check runs before registering a decision, so a stale run cannot
+    // leave a forged approval. A register refusal likewise prevents the journal from advancing.
+    this.writeRun(run, now, () => {
+      const registered = addDecisions({ featureDir: feature.featureDir, slug, now: now ?? new Date(), fsImpl: this.fsImpl, items: [{
+        topic: node.id, statement: `${node.id} ${audit}.`, channel: 'policy', stage: POLICY_GATE_STAGE[node.id],
+        rationale: `Every predicate of ${node.id} passed on the inputs digest ${evaluation.inputsDigest}.`,
+        source: `git:${developHead}:core/registry/gates.json`,
+      }] });
+      if (registered.finding) throw new Error(`Cannot register policy approval: ${registered.finding}: ${registered.message}`);
+    });
+    return { ...this.snapshot(run), ...evaluation, policy };
   }
 
   /** Append a pure audit-trail entry — a stage re-run after its own handoff, or an artifact
@@ -832,7 +938,7 @@ function compactAfterHandoff({ taskId, projectRoot }: any) {
  * Completing a source-mutating gated stage needs a READY readiness record of the stage's template,
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
-  action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
+  action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false,
   verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, slug = null, buildAdapters = null,
 }: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
@@ -860,7 +966,7 @@ function handleOrchestrateCommand({
     if (found.status === 'found') runRoot = found.root;
   }
   const orchestrator = new WorkflowOrchestrator({
-    repoRoot: root, projectRoot: runRoot,
+    repoRoot: root, projectRoot: runRoot, sourceRoot: state,
     stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
     featureSlug, buildAdapters,
   });
@@ -901,6 +1007,9 @@ function handleOrchestrateCommand({
   }
 
   try {
+    if (policy !== undefined && (action !== 'decide-gate' || decision !== undefined || forced || policy !== gate)) {
+      return usageError('orchestrate', '--policy requires decide-gate with the matching --gate and refuses --decision and --forced', json);
+    }
     // `--forced` is only read by the two actions that can override a decision. Accepting it
     // silently on any other action lets an operator believe a stage completion or skip was
     // recorded as forced when nothing recorded it — refuse instead of dropping the flag.
@@ -940,8 +1049,8 @@ function handleOrchestrateCommand({
         snapshot = orchestrator.skipStage({ taskId, stageId: stage, reason: reason ?? note });
         break;
       case 'decide-gate':
-        if (!taskId || !gate || !decision) return usageError('orchestrate', 'decide-gate requires --task-id, --gate and --decision approve|reject', json);
-        snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, note, forced });
+        if (!taskId || !gate || (policy === undefined && !decision)) return usageError('orchestrate', 'decide-gate requires --task-id, --gate and --decision approve|reject or --policy <gateId>', json);
+        snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, policy, note, forced });
         break;
       case 'annotate':
         if (!taskId || !node || !note) return usageError('orchestrate', 'annotate requires --task-id, --node and --note', json);
@@ -963,6 +1072,9 @@ function handleOrchestrateCommand({
     if (snapshot.disposition === 'standalone') console.log(`Handoff: standalone (${snapshot.reason})`);
     else if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
     if (snapshot.compaction) console.log(`Compaction: ${snapshot.compaction.status}${snapshot.compaction.reason ? ` — ${snapshot.compaction.reason}` : ''}`);
+    if (snapshot.policy) console.log(snapshot.decision === 'pass'
+      ? `${gate} ${snapshot.taskId} approved by policy ${snapshot.policy.id}@${snapshot.policy.digest} (${snapshot.inputs.length} inputs)`
+      : `${gate} ${snapshot.taskId} denied by policy: ${snapshot.reasons.join(', ')}`);
     if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
     if (snapshot.current) {
       console.log(snapshot.awaitingGate

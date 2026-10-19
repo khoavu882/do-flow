@@ -253,6 +253,7 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 | `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. Every provider declares `sourceMode` (`live` or `index`) and may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
+| `core/registry/gates.json` | The roadmap loop's gate policy: per class and gate, whether autopilot may approve (`approve` or `never`), the ordered predicates and the minimum review seats; the protected paths; the loop and merge limits; and the closed `denyReasons` list. Read at develop's committed head by `orchestrate --action decide-gate --policy`, never from a feature branch; a project override can only narrow it. G55 holds its gate ids to `workflows.json` and its reasons to the code |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 | `core/registry/settings.json` | Every runtime settings key, its types, defaults, scopes, bindings, legacy files and consumers. `src/runtime/settings/registry.ts` reads it; G44 checks its consumers, reference defaults and documentation |
@@ -262,6 +263,43 @@ Two contracts follow from these files and should not be re-expressed as flags. R
 four-state verdict — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — with the missing
 item named, never a numeric confidence. Verification is risk-scaled: the tiers that run and the
 number of recovery attempts allowed are both derived from the risk level, not chosen per invocation.
+
+## The roadmap loop
+
+One verb, `doflow-run roadmap` (feature 108), advances the feature roadmap one step per call. A
+session drives it by calling `next` again after each step; nothing resident holds a lock while a model
+works. Status is derived from git, not typed: a row is merged when a first-parent two-parent merge of
+develop carries a `DoFlow-Row: <id>` trailer (or a seeded `mergeCommit` names such a merge), so the
+lifecycle status in `src/runtime/lifecycle/status.ts` and the roadmap answer "merged?" the same way.
+Gate approvals are data: `core/registry/gates.json` lists, per class and gate, the predicates that
+must pass, the protected paths, the loop limits and the closed `denyReasons` list, and
+`orchestrate --action decide-gate --policy` evaluates it. The code is five modules under
+`src/runtime/roadmap/`, plus the verb's table entry in `src/cli/runtime-commands.ts`. The kill switch itself is read by one function, `readKillSwitch` in `src/runtime/settings/autopilot.ts`, which the loop and `orchestrate --action decide-gate --policy` share, so the orchestrator never imports the loop:
+
+| Module | Does | Must not |
+|---|---|---|
+| `rows.ts` | Parses the seed (`agent-docs/roadmap/rows.json`), derives status, picks the next row (declared write sets disjoint, work in progress capped), renders `ROADMAP.md` and checks it (`render --check`). Pure apart from the one temp-and-rename write of `ROADMAP.md` | Read a status from the seed (`seed-typed-status`), read git or state |
+| `gates.ts` | Loads and narrows the policy (`loadPolicy`), evaluates the ordered predicates (`evaluate`) and validates `review/findings.json` (`validateFindings`). Pure, byte-stable output for the same inputs | Touch the filesystem or git, accept a project override that widens the policy |
+| `facts.ts` | Read-only gathering for status and for each gate: heads, merges and trailers, marker counts, plan parse, capability resolution, verify run records, findings ancestry, the diff against the protected paths. Each fact carries a locator and a sha256 | Write anything, run a git verb outside the read set |
+| `merge.ts` | The merge of an approved row by git plumbing (`merge-tree --write-tree`, `commit-tree` with a pinned identity, `merge --ff-only`), the intent record with its crash-resumable phases, the repair of a killed fast-forward, the render trigger and the non-force cleanup, which keeps the worktree and branch unless the branch tip is an ancestor of develop | Force anything (`-D`, `--force`), push, or touch a checkout that is dirty, on another branch or has moved (`develop-dirty`, `develop-wrong-branch`, `develop-moved`) |
+| `loop.ts` | The verb: the kill-switch read before every mutating act, lease (taken over through `lease.reclaim`, re-read at each boundary), run record and checkpoints, the audit file, one step per `next` (pick, gate, merge, render, cleanup), the `perform` envelopes a session carries out, the dispatch-outcome mapping, `status` (including run holds and the lease holder), `render`, `audit` | Launch a worker, run a model, or call a binary other than `git` |
+
+Two guards keep the mechanical side mechanical. G53 (`roadmap-git-verbs.test.js`) reads every git
+argument vector in `src/runtime/roadmap/**` and allows only the read verbs, the plumbing merge path and
+the tested repair verbs; `push`, `fetch`, `pull`, `tag`, `remote`, `reset`, `stash`, `checkout`,
+`switch`, `restore`, `clean`, `rebase`, `-D`, `--force` and `-f` fail it, and so does an argument vector
+it cannot read statically. G54 (`roadmap-imports.test.js`) fails when a roadmap module imports the
+worker launcher, the worker supervisor, the dispatch loop or a model client, or spawns anything but
+`git`. Workers appear only at the implementation stage, through the existing dispatch loop, and only
+inside a `perform` envelope that the session runs with `dispatch --billing-cap free`.
+
+The loop's state is machine-local under `.doflow/state/roadmap/` in the main checkout (`lease.json`,
+`lease.reclaim` while a stale lease is taken over, `audit.jsonl`, `runs/`, `intents/`, `done/`,
+`tripwire/`), with the verify run record under
+`.doflow/state/verification/runs/` and the kill-switch sentinel in the config home; the stores table
+in [Reference](reference.md#storage-stores) holds their bounds. The loop is local by construction:
+no step pushes, tags, publishes or installs, and the gate policy cannot approve a change to its own
+files (`protected.paths` in `gates.json`).
 
 ## The lifecycle loop
 
@@ -551,11 +589,11 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-59 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-52 entries across 48 test files and carries 50 distinct G-numbers.
+66 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+59 entries across 55 test files and carries 57 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G52 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G59 is the highest number in use, so a new guard takes the next
 one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -866,6 +904,13 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G50** (`bare-imports.test.js`) — every code module under `src/` and `bin/` (`.ts`, `.js`, `.mjs`, `.cjs`, ignoring `.d.ts` and files outside those directories) must use `node:` builtins or relative specifiers (`./` or `../`): bare package imports without `node:` prefixes, bare Node builtins (such as `'fs'`), and non-literal or dynamic `require()` calls are forbidden so unvendored dependencies and dynamic lookups cannot slip into shipped code. Specifiers are scanned across all five forms: `require()`, `require.resolve()`, `import()`, `from ...`, and bare `import`. Each check has a negative control: fixture-map tests assert that bare packages, bare Node builtins, dynamic `require()` arguments, and all five specifier forms are reported while safe specifiers are permitted, and a filesystem walk over directories copied into `tempDir` identifies a seeded fault by file and line without modifying tracked sources.
 - **G51** (`release-workflow.test.js`) — the committed release workflow (`.github/workflows/release.yml`) satisfies the IC-004 workflow rules and IC-005 job graph. Each check has a negative control: string mutations re-seed faults on workflow copies (leaving the committed file untouched) to verify that violations of rules R1 (empty top-level permissions), R3 (`id-token: write` restricted to `publish`), R5 (40-hex SHA pinning for external actions), R6 (`preflight` having no dependencies), R7 (`publish-release` dependency on `promote`), and R9 (`publish` publishing to `${channel}-candidate`) are detected and reported by their respective rules.
 - **G52** (`verification-levels.test.js`) — verification levels are data over tiers: L0 tiers exist and lead every risk level's `requiredTiers`; each risk level is in exactly one of L1..L3; L3 includes HIGH and CRITICAL; `policy.v0.levels` is a subset of {L1, L2}. Each check has a negative control.
+- **G53** (`roadmap-git-verbs.test.js`) — every git argument vector in `src/runtime/roadmap/**` is on the allow-list: the read verbs, `merge-tree --write-tree`, `commit-tree`, `merge --ff-only`, `worktree add -b`, `worktree remove` without force, `branch -d`, and the repair-only `read-tree`, three-argument `update-ref`, `checkout-index -a` and `update-index -q --refresh`. `push`, `fetch`, `pull`, `tag`, `remote`, `reset`, `stash`, `checkout`, `switch`, `restore`, `clean`, `rebase`, `-D`, `--force` and `-f` fail it, as does an argument vector that cannot be read statically (computed or spread arguments). Controls: scratch sources with `push`, `branch -D`, `worktree remove --force` and a computed argv turn it red; config reads pass and config writes fail; it passes on an empty tree and reports module count 0.
+- **G54** (`roadmap-imports.test.js`) — no module under `src/runtime/roadmap/**` imports `worker/launch`, `worker/supervisor`, `dispatch/loop`, `model-router` or a model client, and none spawns a binary other than `git`, in any invocation form, static or dynamic. Controls: a scratch `require('../worker/launch.ts')` and a scratch `spawn('node')` turn it red; it passes on an empty tree and reports module count 0.
+- **G55** (`gate-vocabulary.test.js`) — the gate ids in `core/registry/gates.json` equal those of `core/registry/workflows.json` per class; every reason code emitted by `src/runtime/roadmap/**` and by the decide-gate path in `workflow-orchestrator.ts` is in `denyReasons` (a `:<x>` suffix is a parameter, not a new reason; row outcomes that are not denies are named in the guard); every `denyReasons` entry appears in a test expectation, with an `ALLOWED_GAPS` list that is empty today and may only shrink. The scan reads reason sites only, never every string. Controls: a scratch emitter of a made-up reason, a row outcome moved into `denyReasons`, differing gate ids and an unmentioned listed reason each turn it red.
+- **G56** (`decider-channels.test.js`) — the decision register's channel-to-decider map and the lifecycle event store's map are equal, including `resolution` (`agent`) and `policy` (`autopilot`); the `decision`, `followup`, `lifecycle` and `goal` CLIs refuse `--channel policy` with `channel-reserved` (exit 2) before any write, and a decision batch cannot smuggle the reserved channel past whitespace.
+- **G57** (`roadmap-render-check.test.js`) — `roadmap --action render --check` reports each integrity finding on a fixture: `render-drift`, `duplicate-merge`, `trailer-unknown-row`, `commit-claimed-twice`, `trailered-and-seeded`, `pointer-not-merge`, `needs-unresolved`, `duplicate-id`, `slug-id-mismatch` and `seed-typed-status`; a clean fixture passes with no findings, and a held seed row keeps the rendered bytes. Control: a check without the `commit-claimed-twice` rule turns it red.
+- **G58** (`worker-billing.test.js`) — every worker block in `core/registry/harnesses.json` declares `billing`, and `validateWorker` accepts exactly `free`, `metered` and `unknown` and rejects a missing, `null`, object or other value. Every shipped descriptor must read `unknown` today, so recording a harness as `free` is a deliberate change to this guard.
+- **G59** (`review-findings-contract.test.js`) — `core/shared/skills/do-code-review/SKILL.md` names the `review/findings.json` schema 1 output contract (path, schema, `reviewedHead`, seats, converged dispositions, `converged.md` staying prose), and the shipped fixture `test/fixtures/roadmap/findings/schema-1.json` passes `validateFindings`. Controls: a scratch SKILL copy without the contract and a `user-accepted` entry without its decision turn it red.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

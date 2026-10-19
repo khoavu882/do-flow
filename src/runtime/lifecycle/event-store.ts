@@ -39,12 +39,12 @@ const MAX_EVENT_BYTES = 256 * 1024;
 const MAX_JOURNAL_BYTES = 16 * 1024 * 1024;
 const READ_CHUNK = 64 * 1024;
 /** The decision register's channel vocabulary: who the caller says is acting. */
-const CHANNEL_BY: Record<string, string> = { question: 'user', gate: 'user', prompt: 'user', default: 'agent' };
+const CHANNEL_BY: Record<string, string> = { question: 'user', gate: 'user', prompt: 'user', default: 'agent', resolution: 'agent', policy: 'autopilot' };
 
 function eventsDir(root: string): string { return path.join(root, EVENTS_REL); }
 function lockTarget(root: string): string { return path.join(root, EVENTS_REL); }
 
-/** @param {string} [channel] defaults to `default` @returns {'user'|'agent'|null} null for an unknown channel */
+/** @param {string} [channel] defaults to `default` @returns {'user'|'agent'|'autopilot'|null} null for an unknown channel */
 function byFromChannel(channel: string = 'default'): string | null { return CHANNEL_BY[channel] ?? null; }
 
 /** `length` random characters of the lowercase Crockford base32 alphabet. */

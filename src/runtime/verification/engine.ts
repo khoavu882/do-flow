@@ -1556,6 +1556,70 @@ function verifyStateRoot({ start, env = process.env, homeDir = os.homedir(), ins
   return { configDir, projectRoot: path.basename(configDir) === '.doflow' ? path.dirname(configDir) : null };
 }
 
+const VERIFY_GIT_TIMEOUT_MS = 2000;
+const VERIFY_GIT_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY'];
+
+/** Capture the checkout head and status before verification commands run. A moving head is unbound. */
+function verificationGitState(cwd: string, env = process.env): any | null {
+  const gitEnv = { ...env };
+  for (const key of VERIFY_GIT_ENV) delete gitEnv[key];
+  const git = (args: string[]) => spawnSync('git', args, {
+    cwd,
+    env: gitEnv,
+    encoding: 'utf8',
+    timeout: VERIFY_GIT_TIMEOUT_MS,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  try {
+    const before = git(['rev-parse', '--verify', 'HEAD']);
+    if (before.status !== 0) return null;
+    const head = before.stdout.trim();
+    if (!/^[0-9a-f]{40}$/.test(head)) return null;
+    const status = git(['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all']);
+    const after = git(['rev-parse', '--verify', 'HEAD']);
+    if (after.status !== 0 || after.stdout.trim() !== head) return null;
+    return {
+      head,
+      clean: status.status === 0 && status.stdout.length === 0,
+      projectRoot: verificationRunsRoot(cwd),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** IC-007: the checkout whose state holds the run records of a verify run in `cwd` (the lifecycle root). */
+function verificationRunsRoot(cwd: string): string {
+  return lifecycleProjectRoot(outerProjectRoot(path.resolve(cwd)));
+}
+
+/** IC-007: the one file the run records of `taskId` are appended to, under `verificationRunsRoot`. */
+function verificationRunRecordFile(root: string, taskId: string): string {
+  return path.join(root, '.doflow', 'state', 'verification', 'runs', `${taskId}.jsonl`);
+}
+
+/** Persist the already printed report as one JSONL line; state I/O never changes its answer. */
+function appendVerificationRunRecord({ taskId, report, gitState, fsImpl = nodeFs }: any): void {
+  if (!gitState) return;
+  try {
+    const reportJson = JSON.stringify(report, null, 2);
+    const record = {
+      schema: 1,
+      taskId,
+      head: gitState.head,
+      clean: gitState.clean,
+      verdict: report.status,
+      at: new Date().toISOString(),
+      reportSha256: `sha256:${nodeCrypto.createHash('sha256').update(reportJson, 'utf8').digest('hex')}`,
+    };
+    const file = verificationRunRecordFile(gitState.projectRoot, taskId);
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    fsImpl.appendFileSync(file, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
+  } catch {
+    // Reporting is authoritative. A read-only or unavailable state directory is only a lost record.
+  }
+}
+
 function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null, env = process.env, fsImpl = nodeFs }: {
   taskId?: any;
   action?: string;
@@ -1689,6 +1753,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract`, json);
   }
 
+  const runGitState = action === 'report' ? verificationGitState(cwd, env) : null;
   const report = engine.runContract(contract);
   // A task whose run still has its gated stage pending is not verified while no READY readiness
   // record exists: the checks passing says nothing about whether the work should have started.
@@ -1726,6 +1791,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   const exitCode = report.status === 'PASS' ? 0 : 1;
+  if (action === 'report') appendVerificationRunRecord({ taskId, report, gitState: runGitState, fsImpl });
   // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
   emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode, v0: v0 ? 'on' : 'off' }, start: state.projectRoot || cwd, env, fsImpl });
   upkeepAfterVerify({ projectRoot: state.projectRoot });
@@ -1748,6 +1814,8 @@ function sameSet(a: string[], b: string[]): boolean {
 }
 
 module.exports = {
+  verificationRunsRoot,
+  verificationRunRecordFile,
   VerificationContractRunner,
   VerificationEngine,
   loadVerificationRegistry,

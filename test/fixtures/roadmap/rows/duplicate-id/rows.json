@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "layout": {
+    "worktree": "{mainParent}/{mainName}-{id}",
+    "branch": "feat/{slug}"
+  },
+  "rows": [
+    {
+      "id": "108",
+      "slug": "108-alpha",
+      "title": "First 108",
+      "class": "feature",
+      "needs": []
+    },
+    {
+      "id": "108",
+      "slug": "108-beta",
+      "title": "Second 108",
+      "class": "feature",
+      "needs": []
+    }
+  ]
+}

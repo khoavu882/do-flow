@@ -75,6 +75,25 @@
       ]
     },
     {
+      "id": "verification-runs",
+      "root": "project-state",
+      "path": "verification/runs",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.jsonl$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/engine.ts"
+      ]
+    },
+    {
       "id": "verification-v0",
       "root": "project-state",
       "path": "verification/v0",
@@ -295,6 +314,23 @@
       ],
       "writers": [
         "src/runtime/task-state.ts"
+      ]
+    },
+    {
+      "id": "roadmap",
+      "root": "project-state",
+      "path": "roadmap",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/roadmap/merge.ts",
+        "src/runtime/roadmap/loop.ts"
       ]
     },
     {
@@ -745,6 +781,47 @@
       "source": {
         "file": "src/runtime/failure/capture.ts",
         "pattern": "KEEP_ROTATED = {value}"
+      }
+    },
+    {
+      "id": "autopilot-switch",
+      "root": "config-home",
+      "path": "autopilot",
+      "entry": "file",
+      "match": "^off$",
+      "rule": "existing",
+      "bound": {
+        "text": "one sentinel file; only a person removes it"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/settings/autopilot.ts"
+      ],
+      "source": {
+        "file": "src/runtime/settings/autopilot.ts",
+        "pattern": "path.join(home, 'autopilot', 'off')"
+      }
+    },
+    {
+      "id": "roadmap-audit",
+      "root": "project-state",
+      "path": "roadmap/audit.jsonl",
+      "entry": "file",
+      "match": "^audit\\.jsonl$",
+      "rule": "existing",
+      "bound": {
+        "value": 10000,
+        "text": "keep the last 10000 gate, merge, render and cleanup entries"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/roadmap/loop.ts"
+      ],
+      "source": {
+        "file": "src/runtime/roadmap/loop.ts",
+        "pattern": "AUDIT_LIMIT = {value}"
       }
     },
     {
@@ -1301,6 +1378,10 @@
     {
       "file": "src/runtime/lifecycle/intent-writer.ts",
       "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
+    },
+    {
+      "file": "src/runtime/roadmap/rows.ts",
+      "reason": "agent-docs deliverable (roadmap/ROADMAP.md, derived table written only when its bytes change)"
     },
     {
       "file": "src/runtime/scaffold/generate.ts",

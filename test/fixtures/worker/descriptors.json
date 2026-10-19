@@ -1,6 +1,7 @@
 {
   "claude": {
     "profile": null,
+    "billing": "unknown",
     "cli": {
       "status": "supported",
       "evidence": [
@@ -134,6 +135,7 @@
   },
   "codex": {
     "profile": null,
+    "billing": "unknown",
     "cli": {
       "status": "supported",
       "evidence": [
@@ -267,6 +269,7 @@
   },
   "gemini": {
     "profile": null,
+    "billing": "unknown",
     "cli": {
       "status": "supported",
       "evidence": [
@@ -396,6 +399,7 @@
   },
   "opencode": {
     "profile": null,
+    "billing": "unknown",
     "cli": {
       "status": "supported",
       "evidence": [

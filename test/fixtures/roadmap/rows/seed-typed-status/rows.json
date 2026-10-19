@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "layout": {
+    "worktree": "{mainParent}/{mainName}-{id}",
+    "branch": "feat/{slug}"
+  },
+  "rows": [
+    {
+      "id": "108",
+      "slug": "108-roadmap-loop",
+      "title": "Roadmap loop",
+      "class": "feature",
+      "needs": [],
+      "status": "merged"
+    }
+  ]
+}

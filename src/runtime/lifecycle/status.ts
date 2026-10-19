@@ -11,19 +11,20 @@
  * the release tags and the base tag) come from `do-git-state.sh --lifecycle`, so bash and Node never
  * derive them twice. The rest is a fixed number of plain `git` calls, however many features are
  * tracked: one `rev-parse` pins the ref, one `for-each-ref` lists the branches, one
- * `git log --first-parent --merges` lists the merges, one `git tag --list` (tagged mode) gives the
- * release tags' commits, and one `git rev-list --parents` reads the commit graph of the pinned ref
- * and those tags. Every ancestry question (which merge brought a branch tip in, which tag contains a
- * merge) is then answered from that graph in memory, not by a git call per feature.
+ * `git log --first-parent --merges` lists the merges and their `DoFlow-Row` trailers, one
+ * `git tag --list` (tagged mode) gives the release tags' commits, and one `git rev-list --parents`
+ * reads the commit graph of the pinned ref and those tags. Every ancestry question (which merge
+ * brought a branch tip in, which tag contains a merge) is then answered from that graph in memory,
+ * not by a git call per feature.
  *
  * Nothing here writes, fetches or reaches a network.
  *
  * Accepted ceilings, stated rather than hidden: a feature's merge evidence is only as good as the
- * merge commit's subject and the branch name (a squash, a rebase and a fast-forward leave none,
- * so they reach the user through `notDetected` and `lifecycle --action merged`); the merge log and
- * the graph are read in full, without `--since` or a lower cut (a skewed clock must not hide a
- * merge), so their cost grows with the history of the integration ref, once per call; git dates
- * have one-second resolution, so the lower bound is floored to the second.
+ * merge commit's `DoFlow-Row` trailer or subject and the branch name (a squash, a rebase and a
+ * fast-forward leave none, so they reach the user through `notDetected` and `lifecycle --action
+ * merged`); the merge log and the graph are read in full, without `--since` or a lower cut (a skewed
+ * clock must not hide a merge), so their cost grows with the history of the integration ref, once
+ * per call; git dates have one-second resolution, so the lower bound is floored to the second.
  */
 
 const fs = require('node:fs');
@@ -69,13 +70,18 @@ function subjectNames(subject: string, slug: string): boolean {
   return new RegExp(`(?:^|[^a-z0-9-])${escapeRegExp(slug)}(?:$|[^a-z0-9-])`).test(subject);
 }
 
-/** First-parent merges of `ref`, oldest first. */
-function readMerges(root: string, ref: string): Array<{ sha: string; parents: string[]; ct: number; subject: string }> {
-  const out = git(root, ['log', '--first-parent', '--merges', '--format=%H%x09%P%x09%ct%x09%s', ref]);
-  return out.split('\n').filter(Boolean).map((line) => {
-    const [sha, parents, ct, ...subject] = line.split('\t');
-    return { sha, parents: parents.split(' ').filter(Boolean), ct: Number(ct), subject: subject.join('\t') };
-  }).reverse();
+/** First-parent merges of `ref`, oldest first, with any `DoFlow-Row` trailer. */
+function readMerges(root: string, ref: string): Array<{ sha: string; parents: string[]; ct: number; subject: string; rowTrailer: string }> {
+  const out = git(root, ['log', '--first-parent', '--merges', '--format=%H%x00%P%x00%ct%x00%s%x00%(trailers:key=DoFlow-Row,separator=%x1f)%x00', ref]);
+  const fields = out.split('\0');
+  const merges: Array<{ sha: string; parents: string[]; ct: number; subject: string; rowTrailer: string }> = [];
+  for (let i = 0; i + 4 < fields.length; i += 5) {
+    const [rawSha, parents, ct, subject, rowTrailer] = fields.slice(i, i + 5);
+    const sha = rawSha.trim();
+    if (!sha) continue;
+    merges.push({ sha, parents: parents.split(' ').filter(Boolean), ct: Number(ct), subject, rowTrailer: rowTrailer.trim() });
+  }
+  return merges.reverse();
 }
 
 /** Branch refs by short name (`feat/x`, `origin/feat/x`) with their tips; local branches first. */
@@ -221,7 +227,18 @@ function findEvidence({ slug, lowerBound, merges, mergeBySha, newestCt, history,
     if (merge) return { kind: 'branch', ref: tip.short, commit: merge.sha };
   }
   for (let i = merges.length - 1; i >= 0; i -= 1) {
-    if (merges[i].ct >= lowerBound && subjectNames(merges[i].subject, slug)) return { kind: 'merge-subject', ref: merges[i].sha.slice(0, 7), commit: merges[i].sha };
+    const merge = merges[i];
+    if (merge.ct < lowerBound) continue;
+    if (merge.rowTrailer) {
+      // A present DoFlow-Row is authoritative: it can match only on an exact two-parent merge,
+      // and a mismatch must not fall through to a subject that names a different row.
+      const match = /^DoFlow-Row:\s*(.*?)\s*$/i.exec(merge.rowTrailer);
+      if (merge.parents.length === 2 && match && match[1] === slug) {
+        return { kind: 'trailer', ref: merge.sha.slice(0, 7), commit: merge.sha };
+      }
+      continue;
+    }
+    if (subjectNames(merge.subject, slug)) return { kind: 'merge-subject', ref: merge.sha.slice(0, 7), commit: merge.sha };
   }
   if (confirmed) return { kind: 'confirmed', ref: null, commit: null };
   return null;

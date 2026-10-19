@@ -278,6 +278,12 @@ function runScenario() {
     // A feature folder with one plan task, so `task-attempt claim` has a ledger to write (feature 070).
     fs.mkdirSync(path.join(project, 'agent-docs', 'doflow', 'g26-task'), { recursive: true });
     fs.writeFileSync(path.join(project, 'agent-docs', 'doflow', 'g26-task', 'plan.md'), '# Plan\n\n## Tasks\n\n- [ ] A.1 one task; owner: core-implementer; files: f.js\n');
+    fs.writeFileSync(path.join(project, '.gitignore'), '.doflow/\n');
+    // The verify report step needs a real head for IC-007; the runtime state stays ignored.
+    const seeded = spawnSync('git', ['-c', 'user.name=G26', '-c', 'user.email=g26@example.test', 'add', '.'], { cwd: project, env, encoding: 'utf8' });
+    assert.equal(seeded.status, 0, seeded.stderr);
+    const committed = spawnSync('git', ['-c', 'user.name=G26', '-c', 'user.email=g26@example.test', 'commit', '-q', '-m', 'G26 fixture'], { cwd: project, env, encoding: 'utf8' });
+    assert.equal(committed.status, 0, committed.stderr);
     const registry = loadStorageRegistry({ repoRoot: REPO });
     const roots = resolveRoots({ registry, projectRoot: project, env });
     const sessionPayload = { session_id: 'g26-session', cwd: project, source: 'startup' };
@@ -372,6 +378,10 @@ const { runInflight } = require(${JSON.stringify(path.join(REPO, 'src/runtime/ve
 const dir=path.join(process.argv[1], '.doflow', 'state', 'verification', 'v0');
 const out=runInflight({dir,key:'0123456789abcdef',timeoutMs:1000,execute:()=>({status:0,stdout:'',stderr:''})});
 if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json')))process.exit(1);`;
+    // Exercise the production intent writer without any merge or external process.
+    const writeRoadmap = `const path=require('node:path');
+const { writeIntent } = require(${JSON.stringify(path.join(REPO, 'src/runtime/roadmap/merge.ts'))});
+writeIntent(path.join(process.argv[1], '.doflow/state/roadmap/intents/113.json'), { schema:1, row:'113', phase:'intent' });`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps = [
@@ -391,12 +401,13 @@ if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json'
       ['retrieval-plan attempt', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'attempt', '--need', 'locate-concept', '--provider', 'semble.search', '--status', 'UNREACHED', '--reason', 'provider-unavailable'), 0],
       ['evidence add absence', verb('evidence', '--task-id', 'g26-task', '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'native.rg', '--capability', 'code.exact-search', '--absence', '--need', 'locate-concept'), 0],
       ['task-attempt claim', verb('task-attempt', '--action', 'claim', '--slug', 'g26-task', '--task', 'A.1', '--owner', 'core-implementer', '--mode', 'manual'), 0],
-      ['verify', verb('verify', '--task-id', 'g26-task', '--plan-path', 'plan.md'), 1],
+      ['verify report (verification-runs)', verb('verify', '--action', 'report', '--task-id', 'g26-task', '--plan-path', 'plan.md'), 1],
       ['followup report', verb('followup', '--action', 'report', '--statement', 'a problem', '--text', 'its body'), 0],
       ['lifecycle', verb('lifecycle'), 0],
       ['trace', verb('trace'), 0],
       ['telemetry write', node('-e', writeTelemetry, project), 0],
       ['verification-v0 write', node('-e', writeVerificationV0, project), 0],
+      ['roadmap intent write', node('-e', writeRoadmap, project), 0],
       ['verification-v0 inflight write', node('-e', writeInflight, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
@@ -567,6 +578,148 @@ test('G26 (a): the storage registry has the IC-001 shape', () => {
   const ids = raw.stores.map((store) => store.id);
   assert.equal(new Set(ids).size, ids.length, 'store ids collide');
   for (const store of raw.stores) assert.doesNotThrow(() => new RegExp(store.match), `store ${store.id} field match does not compile`);
+});
+
+test('G26: verification-runs is a per-task record pruned only after finished work', () => {
+  const store = registry.stores.find((entry) => entry.id === 'verification-runs');
+  assert.ok(store, 'the verify report writer has a declared state store');
+  assert.deepEqual({ root: store.root, path: store.path, entry: store.entry, rule: store.rule, bound: store.bound, writers: store.writers }, {
+    root: 'project-state',
+    path: 'verification/runs',
+    entry: 'record',
+    rule: 'work',
+    bound: { finishedDays: 30 },
+    writers: ['src/runtime/verification/engine.ts'],
+  });
+});
+
+test('G26: roadmap declares its intent writer and inherits dispatch retention', () => {
+  const store = registry.stores.find((entry) => entry.id === 'roadmap');
+  const dispatch = registry.stores.find((entry) => entry.id === 'dispatch');
+  assert.ok(store, 'roadmap intent phases need a declared store');
+  assert.equal(store.root, 'project-state');
+  assert.equal(store.path, 'roadmap');
+  assert.equal(store.rule, 'work');
+  assert.deepEqual(store.bound, dispatch.bound);
+  assert.ok(store.writers.includes('src/runtime/roadmap/merge.ts'));
+});
+
+test('G26: the loop writes the roadmap store, and the autopilot sentinel is a config-home file only a person removes', () => {
+  const roadmap = registry.stores.find((entry) => entry.id === 'roadmap');
+  assert.ok(roadmap.writers.includes('src/runtime/roadmap/loop.ts'), 'lease, run records and tripwire events live in the roadmap store');
+  const sentinel = registry.stores.find((entry) => entry.id === 'autopilot-switch');
+  assert.ok(sentinel, 'the tripwire sentinel needs a declared store');
+  assert.deepEqual({ root: sentinel.root, path: sentinel.path, entry: sentinel.entry, match: sentinel.match, rule: sentinel.rule, writers: sentinel.writers }, {
+    root: 'config-home', path: 'autopilot', entry: 'file', match: '^off$', rule: 'existing', writers: ['src/runtime/settings/autopilot.ts'],
+  });
+  // C17: gate and merge entries outlive the run record's 500-entry log in their own bounded file.
+  const audit = registry.stores.find((entry) => entry.id === 'roadmap-audit');
+  assert.deepEqual({ root: audit.root, path: audit.path, entry: audit.entry, rule: audit.rule, bound: audit.bound, writers: audit.writers }, {
+    root: 'project-state', path: 'roadmap/audit.jsonl', entry: 'file', rule: 'existing',
+    bound: { value: 10000, text: 'keep the last 10000 gate, merge, render and cleanup entries' }, writers: ['src/runtime/roadmap/loop.ts'],
+  });
+  const settings = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
+  assert.deepEqual(settings.keys['autopilot.enabled'].legacy, [{ layer: 'user', kind: 'sentinel', path: 'autopilot/off', value: 'off' }],
+    'the store and the settings key name the same sentinel');
+});
+
+test('G26: roadmap pruning keeps old open intents and selects only archived done intents', (t) => {
+  const { tempDir } = require('../helper/tmp');
+  const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
+  const { workStatus } = require('../../src/runtime/storage/work-status.ts');
+  const root = tempDir(t, 'doflow-roadmap-retention-');
+  const state = path.join(root, '.doflow/state');
+  const storeDir = path.join(state, 'roadmap');
+  const store = registry.stores.find((entry) => entry.id === 'roadmap');
+  const plan = path.join(root, 'agent-docs/doflow/113-toy');
+  fs.mkdirSync(plan, { recursive: true }); fs.writeFileSync(path.join(plan, 'plan.md'), '- [x] A.1 done\n');
+  fs.mkdirSync(path.join(storeDir, 'intents'), { recursive: true });
+  fs.mkdirSync(path.join(storeDir, 'done'), { recursive: true });
+  for (const name of ['intents/113.json', 'done/113.json']) {
+    const file = path.join(storeDir, name);
+    fs.writeFileSync(file, JSON.stringify({ schema: 1, row: '113', slug: '113-toy', phase: 'cleaned' }));
+    fs.utimesSync(file, new Date(0), new Date(0));
+  }
+  const openStatus = workStatus({ projectRoot: root, store: 'roadmap', taskId: '113', namespace: 'intents', mtimeMs: 0, fsImpl: fs });
+  assert.deepEqual({ state: openStatus.state, reason: openStatus.reason }, { state: 'open', reason: 'roadmap-intent-open' });
+  const doneStatus = workStatus({ projectRoot: root, store: 'roadmap', taskId: '113', namespace: 'done', mtimeMs: 0, fsImpl: fs });
+  assert.deepEqual({ state: doneStatus.state, since: doneStatus.since }, { state: 'finished', since: 0 });
+  const entries = fs.readdirSync(storeDir).map((name) => ({ name, stat: fs.statSync(path.join(storeDir, name)) }));
+  const selected = selectCandidates(store, entries, { now: Date.parse('2026-10-19'), fsImpl: fs,
+    storeDir, roots: { 'project-state': state }, settings: registry.settings });
+  assert.equal(selected.some((entry) => entry.name === 'intents/113.json'), false,
+    'a cleaned intent remains open until the archive move');
+  assert.deepEqual(selected.map((entry) => entry.name), ['done/113.json'], 'only the done namespace is eligible for pruning');
+});
+
+test('G26: roadmap run records are pruned once finished; the newest, an intent-named, a leased run and the tripwire are kept', (t) => {
+  const { tempDir } = require('../helper/tmp');
+  const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
+  const root = tempDir(t, 'doflow-roadmap-runs-');
+  const state = path.join(root, '.doflow/state');
+  const storeDir = path.join(state, 'roadmap');
+  const store = registry.stores.find((entry) => entry.id === 'roadmap');
+  const put = (name, value, seconds) => {
+    const file = path.join(storeDir, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(value));
+    fs.utimesSync(file, new Date(seconds * 1000), new Date(seconds * 1000));
+  };
+  const record = (runId, closedAt = '2026-01-05T00:00:00.000Z') => ({ schema: 1, runId, createdAt: '2026-01-01T00:00:00.000Z', closedAt, steps: 0, n: 0, rows: {}, log: [] });
+  const [old, named, leased, newest, unclosed] = ['rl-20260101-aaaa', 'rl-20260102-bbbb', 'rl-20260103-cccc', 'rl-20260104-dddd', 'rl-20260101-eeee'];
+  put(`runs/${old}.json`, record(old), 100);
+  put(`runs/${named}.json`, record(named), 200);
+  put(`runs/${leased}.json`, record(leased), 300);
+  put(`runs/${newest}.json`, record(newest), 400);
+  // C17: the loop resumes any run whose closedAt is null (a budget-blocked run never closes), so
+  // retention keeps it however old it is.
+  put(`runs/${unclosed}.json`, record(unclosed, null), 50);
+  put('intents/113.json', { schema: 1, row: '113', runId: named, phase: 'intent' }, 200);
+  put('lease.json', { schema: 1, pid: 1, host: 'h', runId: leased }, Date.parse('2026-10-19') / 1000); // a live lease is fresh
+  put('tripwire/events.json', { schema: 1, reverts: [], unverified: [] }, 100);
+  const select = () => selectCandidates(store, fs.readdirSync(storeDir).map((name) => ({ name, stat: fs.statSync(path.join(storeDir, name)) })),
+    { now: Date.parse('2026-10-19'), fsImpl: fs, storeDir, roots: { 'project-state': state }, settings: registry.settings });
+  assert.deepEqual(select().map((entry) => entry.name), [`runs/${old}.json`],
+    'only the closed, unreferenced, non-newest run record is eligible; an unclosed one and the tripwire are kept');
+  const { workStatus } = require('../../src/runtime/storage/work-status.ts');
+  const status = (taskId, namespace) => workStatus({ projectRoot: root, store: 'roadmap', taskId, namespace, mtimeMs: 100000, fsImpl: fs });
+  assert.equal(status(newest, 'runs').reason, 'roadmap-run-open');
+  assert.equal(status(named, 'runs').reason, 'roadmap-run-open');
+  assert.equal(status(leased, 'runs').reason, 'roadmap-run-open');
+  assert.deepEqual([status(unclosed, 'runs').state, status(unclosed, 'runs').reason], ['open', 'roadmap-run-open']);
+  assert.deepEqual({ state: status(old, 'runs').state, since: status(old, 'runs').since }, { state: 'finished', since: 100000 });
+  assert.deepEqual({ state: status('events', 'tripwire').state, reason: status('events', 'tripwire').reason }, { state: 'open', reason: 'roadmap-tripwire-kept' });
+  fs.writeFileSync(path.join(storeDir, 'intents/113.json'), '{broken');
+  assert.equal(status(named, 'runs').state, 'undecidable', 'an unreadable intent never reads as finished');
+});
+
+test('G26: verification-runs .jsonl records are selected by the 30-day finished bound; an unfinished task is never selected', (t) => {
+  const { tempDir } = require('../helper/tmp');
+  const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
+  const root = tempDir(t, 'doflow-verification-runs-retention-');
+  const state = path.join(root, '.doflow/state');
+  const storeDir = path.join(state, 'verification/runs');
+  const store = registry.stores.find((entry) => entry.id === 'verification-runs');
+  const now = Date.parse('2026-10-19T00:00:00Z');
+  const put = (name, days) => {
+    const file = path.join(storeDir, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const line = (verdict) => JSON.stringify({ schema: 1, taskId: name, head: 'a'.repeat(40), clean: true, verdict, at: '2026-01-01T00:00:00.000Z' });
+    fs.writeFileSync(file, `${line('FAIL')}\n${line('PASS')}\n`);
+    const when = new Date(now - days * 86400000);
+    fs.utimesSync(file, when, when);
+  };
+  const feature = path.join(root, 'agent-docs/doflow/114-open');
+  fs.mkdirSync(feature, { recursive: true });
+  fs.writeFileSync(path.join(feature, 'plan.md'), '- [ ] A.1 still open\n');
+  put('t-old.jsonl', 31);
+  put('t-recent.jsonl', 29);
+  put('114-open.jsonl', 31); // the task names an unchecked plan: unfinished work is never pruned by age
+  const entries = fs.readdirSync(storeDir).map((name) => ({ name, stat: fs.statSync(path.join(storeDir, name)) }));
+  const selected = selectCandidates(store, entries, { now, fsImpl: fs, storeDir, roots: { 'project-state': state }, settings: registry.settings });
+  assert.deepEqual(selected.map((entry) => entry.name), ['t-old.jsonl'],
+    'only the 31-day-old finished .jsonl record is eligible; 29 days and an unfinished task are kept');
+  assert.equal(selected[0].reason, 'finished-work');
 });
 
 test('G26 (b): every file with a write call is declared, and every declared writer writes', () => {

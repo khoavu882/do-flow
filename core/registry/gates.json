@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "classes": {
+    "feature": {
+      "gate-0": { "autopilot": "approve", "predicates": ["markers-zero:requirement"] },
+      "gate-a": { "autopilot": "approve", "predicates": ["protected-paths", "plan-verification-absent", "plan-parses", "markers-zero:design", "markers-zero:plan", "needs-merged", "requires-reachable", "plan-within-write-set"] },
+      "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] }
+    },
+    "bug": {},
+    "refactor": {},
+    "review": {},
+    "research": {},
+    "documentation": {},
+    "dependency-change": {},
+    "operations": {},
+    "trivial-edit": {}
+  },
+  "protected": {
+    "paths": ["core/registry/gates.json", "src/runtime/roadmap/", "core/registry/verification.json", "src/runtime/workflow-orchestrator.ts", "src/runtime/decision-register.ts", "core/registry/settings.json", "core/harnesses/shared/hooks/policies/", ".github/workflows/"],
+    "guardDir": "test/guards/",
+    "packageJsonKeys": ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+  },
+  "loop": { "maxSteps": 200, "wip": 2 },
+  "merge": { "staleLockSeconds": 120, "extraTrailers": [] },
+  "denyReasons": [
+    "no-policy", "policy-invalid", "policy-override-widens", "policy-override-invalid", "policy-never", "class-unsupported", "row-unknown", "seed-typed-status",
+    "unresolved-clarifications", "markers-open", "protected-path", "plan-unparsable", "need-unmerged", "prerequisite-no-source", "capability-unreachable", "write-set-exceeded",
+    "verify-missing", "verify-not-pass", "verify-flaky", "findings-missing", "findings-invalid", "review-stale-head", "seats-too-few", "finding-dropped", "refuted-without-evidence", "accepted-without-user-decision", "user-accepted-needs-person", "fixed-not-ancestor", "blockers-open",
+    "lease-held", "lease-lost", "stage-not-performed", "report-changed", "pause-not-machine", "facts-unreadable", "autopilot-disabled",
+    "git-too-old", "merge-conflict", "develop-wrong-branch", "develop-dirty", "ff-running", "develop-moved", "head-moved", "no-develop-worktree", "plan-changed"
+  ]
+}

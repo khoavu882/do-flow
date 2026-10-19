@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "layout": {
+    "worktree": "{mainParent}/{mainName}-{id}",
+    "branch": "feat/{slug}"
+  },
+  "rows": [
+    {
+      "id": "108",
+      "slug": "109-mismatched",
+      "title": "Mismatched slug",
+      "class": "feature",
+      "needs": []
+    }
+  ]
+}

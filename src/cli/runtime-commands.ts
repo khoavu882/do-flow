@@ -54,11 +54,12 @@ const { handleVerifyCommand, verifyStateRoot } = require('../runtime/verificatio
 const { handleLeakScanCommand } = require('../runtime/leak-scan.ts');
 const { handleRecoverCommand } = require('../runtime/recovery.ts');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate.ts');
-const { handleDecisionCommand } = require('../runtime/decision-register.ts');
+const { handleDecisionCommand, isReservedChannel, CHANNEL_RESERVED } = require('../runtime/decision-register.ts');
 const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli.ts');
 const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
 const { handleStorageCommand } = require('../runtime/storage/cli.ts');
+const { handleRoadmapCommand } = require('../runtime/roadmap/loop.ts');
 const NO_UPKEEP = new Set(['storage', 'config']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
@@ -186,6 +187,14 @@ function featureStoreRoot(o: any, checkouts: any): { root: string; slug: string 
  * to the engine module each case names.
  */
 function dispatchRuntimeCommandInner(o: any, moment: any): any {
+  // IC-005: no caller names a decider. orchestrate takes no --by, and the channel `policy` (decided
+  // by autopilot) is refused on every verb, before any state is read or written.
+  if (o.cmd === 'orchestrate' && o.by !== undefined) {
+    return usageError('orchestrate', '--by is not accepted; the runtime derives the gate decider', o.json);
+  }
+  if (isReservedChannel(o.channel)) {
+    return usageError(o.cmd, CHANNEL_RESERVED, o.json);
+  }
   // A slug becomes a directory name and a state key, so one that could name a path is refused
   // here, once, for every verb that reads `--slug`, before any of them reads or writes state
   // (FR-013, IC-009). A well-formed slug that names no feature is the verbs' own business.
@@ -290,7 +299,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // state and source tree, following the same scope rules as every other command.
     case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, request: o.request, requestFile: o.requestFile, taskId: o.taskId, projectRoot: evidenceRoot(o), json: o.json });
     case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
-    case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, mcpOutcome: o.mcpOutcome, callingSkill: o.callingSkill, slug: o.slug, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o), buildAdapters: buildAdapterRegistry });
+    case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, policy: o.policy, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, mcpOutcome: o.mcpOutcome, callingSkill: o.callingSkill, slug: o.slug, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o), buildAdapters: buildAdapterRegistry });
     case 'research-request': return handleResearchRequestCommand({ slug: o.slug, action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: evidenceRoot(o) });
     // The store is shared by every linked worktree of the clone (lifecycle's main-worktree root); the
     // feature is `--slug`, else the branch's, resolved the way decision and scaffold resolve it.
@@ -299,7 +308,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'worker': return handleWorkerCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, harness: o.harness, need: o.need, modelCheck: o.modelCheck, budgetTokens: o.budgetTokens, task: o.task, token: o.token, promptFile: o.promptFile, timeoutSeconds: o.timeoutSeconds, wait: Boolean(o.wait), edit: Boolean(o.edit), childOf: o.childOf, request: o.request, execWorktree: o.execWorktree, workerRun: o.workerRun, checks: o.checks, out: o.out, by: o.by, reason: o.reason, json: o.json, env: process.env, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
     // 082 IC-001, IC-038: the dispatch loop shares the main-worktree store root with task-attempt.
     // `--status` is parsed under `attemptStatus` (retrieval-plan's key), so it is renamed here.
-    case 'dispatch': return handleDispatchCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, by: o.by, reason: o.reason, concurrency: o.concurrency, mode: o.mode, verifyArgv: o.verifyArgv, verifySeconds: o.verifySeconds, attemptSeconds: o.attemptSeconds, reserveTokens: o.reserveTokens, budgetAttempts: o.budgetAttempts, budgetTokens: o.budgetTokens, spawnGrant: o.spawnGrant, harness: o.harness, need: o.need, maxSeconds: o.maxSeconds, dispatch: o.dispatch, status: o.attemptStatus, summary: o.summary, blocker: o.blocker, tokens: o.tokens, tokensBasis: o.tokensBasis, promptFile: o.promptFile, requestId: o.requestId, task: o.task, ack: o.ack, json: o.json, env: process.env, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
+    case 'dispatch': return handleDispatchCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, by: o.by, reason: o.reason, concurrency: o.concurrency, mode: o.mode, billingCap: o.billingCap, verifyArgv: o.verifyArgv, verifySeconds: o.verifySeconds, attemptSeconds: o.attemptSeconds, reserveTokens: o.reserveTokens, budgetAttempts: o.budgetAttempts, budgetTokens: o.budgetTokens, spawnGrant: o.spawnGrant, harness: o.harness, need: o.need, maxSeconds: o.maxSeconds, dispatch: o.dispatch, status: o.attemptStatus, summary: o.summary, blocker: o.blocker, tokens: o.tokens, tokensBasis: o.tokensBasis, promptFile: o.promptFile, requestId: o.requestId, task: o.task, ack: o.ack, json: o.json, env: process.env, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
     // Code scope keeps two roots: the search root is --root or cwd (the invoking checkout), the state root is
     // the feature store above. Guidance gets no stateRoot, exactly as before 079, so it resolves from cwd.
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json, scope: o.scope,
@@ -319,6 +328,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, scope: o.scope, verificationInput: o.verificationInput, verificationPhase: o.verificationPhase, baselineRef: o.baselineRef, json: o.json, projectRoot: evidenceRoot(o) });
     case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
+    case 'roadmap': return handleRoadmapCommand({ action: o.actionGiven ? o.action : undefined, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
 }

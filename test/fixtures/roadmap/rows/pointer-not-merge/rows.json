@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "layout": {
+    "worktree": "{mainParent}/{mainName}-{id}",
+    "branch": "feat/{slug}"
+  },
+  "rows": [
+    {
+      "id": "096",
+      "slug": "096-trace-store",
+      "title": "Trace store",
+      "class": "feature",
+      "needs": [],
+      "mergeCommit": "b0000000000000000000000000000000000000002"
+    },
+    {
+      "id": "108",
+      "slug": "108-roadmap-loop",
+      "title": "Roadmap loop",
+      "class": "feature",
+      "needs": [
+        "096"
+      ]
+    }
+  ]
+}

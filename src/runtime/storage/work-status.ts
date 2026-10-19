@@ -13,15 +13,26 @@ const UNCHECKED = /^\s*- \[ \] /m;
 const UNCHECKED_TASK = /^\s*- \[ \] (\S+)/gm;
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-function recordStorePaths(fsImpl: any): Map<string, string> {
+/** The record extension a store declares in its `match` pattern: `.jsonl` for a JSON-lines store, else `.json`. */
+function recordExtension(match: any): string {
+  return typeof match === 'string' && /\\\.jsonl\$$/.test(match) ? '.jsonl' : '.json';
+}
+
+function workRecordStores(fsImpl: any): any[] {
   try {
     const registry = loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
-    return new Map(registry.stores
-      .filter((store: any) => store.root === 'project-state' && store.entry === 'record' && store.rule === 'work')
-      .map((store: any): [string, string] => [store.id, store.path]));
+    return registry.stores.filter((store: any) => store.root === 'project-state' && store.entry === 'record' && store.rule === 'work');
   } catch {
-    return new Map();
+    return [];
   }
+}
+
+function recordStorePaths(fsImpl: any): Map<string, string> {
+  return new Map(workRecordStores(fsImpl).map((store: any): [string, string] => [store.id, store.path]));
+}
+
+function recordStoreExtensions(fsImpl: any): Map<string, string> {
+  return new Map(workRecordStores(fsImpl).map((store: any): [string, string] => [store.id, recordExtension(store.match)]));
 }
 
 function createWorkCache({ projectRoot, fsImpl = fs }: { projectRoot: string; fsImpl?: any }): any {
@@ -29,6 +40,7 @@ function createWorkCache({ projectRoot, fsImpl = fs }: { projectRoot: string; fs
     projectRoot: path.resolve(projectRoot),
     fsImpl,
     recordStorePaths: recordStorePaths(fsImpl),
+    recordExtensions: recordStoreExtensions(fsImpl),
     runNames: null,
     runListError: false,
     featureNames: null,
@@ -120,16 +132,26 @@ function resolveRun(cache: any, taskId: string, namespace: any, shouldStop?: () 
   return read.ok ? { id, value: read.value, unreadable: false } : { id, value: null, unreadable: true };
 }
 
-function readRecord({ projectRoot, storePath, recordId, namespace, mtimeMs, fsImpl }: any): any {
+function parseJsonLines(text: string): any {
+  const lines = text.split('\n').filter((line: string) => line.trim() !== '');
+  if (lines.length === 0) throw new Error('empty JSON-lines record');
+  const values = lines.map((line: string) => JSON.parse(line));
+  return values[values.length - 1];
+}
+
+function readRecord({ projectRoot, storePath, recordId, namespace, mtimeMs, fsImpl, extension = '.json' }: any): any {
   const storeSegments = typeof storePath === 'string' && storePath !== '' ? storePath.split('/') : [];
   if (typeof storePath !== 'string' || storeSegments.some((segment: string) => !safeSegment(segment))
       || !safeSegment(recordId)
       || (namespace !== null && namespace !== undefined && !safeSegment(namespace))) {
     return { ok: false };
   }
-  const file = path.join(stateRoot(projectRoot), ...storeSegments, ...(namespace ? [namespace] : []), `${recordId}.json`);
+  const file = path.join(stateRoot(projectRoot), ...storeSegments, ...(namespace ? [namespace] : []), `${recordId}${extension}`);
   try {
-    const value = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
+    const text = fsImpl.readFileSync(file, 'utf8');
+    // A `.jsonl` record is one JSON value per line, appended over time: every line must parse (fail
+    // closed otherwise) and the last one is the record's current value.
+    const value = extension === '.jsonl' ? parseJsonLines(text) : JSON.parse(text);
     const mtime = mtimeMs === undefined ? fsImpl.statSync(file).mtimeMs : mtimeMs;
     if (!Number.isFinite(mtime)) return { ok: false };
     return { ok: true, value, mtimeMs: mtime };
@@ -251,6 +273,47 @@ function incompleteAnswer(run: any = null, feature: any = null): any {
 }
 
 /**
+ * A loop run record (`roadmap/runs/<runId>.json`) is open while its `closedAt` is null (the loop
+ * resumes any such run), while it is the newest record in `runs/`, while a merge intent in
+ * `roadmap/intents/` names its `runId`, or while `roadmap/lease.json` names it. Any other record is
+ * finished as of its mtime. An unreadable source is never called finished.
+ */
+function roadmapRunStatus(project: string, fileSystem: any, runId: any, mtimeMs: any): any {
+  if (!safeSegment(runId)) return answer('undecidable', 'record-unreadable', null, null);
+  const dir = path.join(stateRoot(project), 'roadmap');
+  const unreadable = () => answer('undecidable', 'record-unreadable', runId, null);
+  let record: any;
+  try { record = JSON.parse(fileSystem.readFileSync(path.join(dir, 'runs', `${runId}.json`), 'utf8')); }
+  catch { return unreadable(); }
+  if (!record || typeof record !== 'object' || !Object.hasOwn(record, 'closedAt')) return unreadable();
+  if (record.closedAt === null) return answer('open', 'roadmap-run-open', runId, null);
+  const list = (folder: string): string[] | null => {
+    try { return fileSystem.readdirSync(folder); } catch (error: any) { return error.code === 'ENOENT' ? [] : null; }
+  };
+  const runs = list(path.join(dir, 'runs'));
+  if (runs === null) return unreadable();
+  let newest: { name: string; mtimeMs: number } | null = null;
+  for (const name of runs) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/.test(name)) continue;
+    let stat: any;
+    try { stat = fileSystem.statSync(path.join(dir, 'runs', name)); } catch { return unreadable(); }
+    if (!newest || stat.mtimeMs > newest.mtimeMs || (stat.mtimeMs === newest.mtimeMs && name > newest.name)) newest = { name, mtimeMs: stat.mtimeMs };
+  }
+  const open = answer('open', 'roadmap-run-open', runId, null);
+  if (newest?.name === `${runId}.json`) return open;
+  const intents = list(path.join(dir, 'intents'));
+  if (intents === null) return unreadable();
+  for (const name of intents) {
+    if (!name.endsWith('.json')) continue;
+    try { if (JSON.parse(fileSystem.readFileSync(path.join(dir, 'intents', name), 'utf8'))?.runId === runId) return open; }
+    catch { return unreadable(); }
+  }
+  try { if (JSON.parse(fileSystem.readFileSync(path.join(dir, 'lease.json'), 'utf8'))?.runId === runId) return open; }
+  catch (error: any) { if (error.code !== 'ENOENT') return unreadable(); }
+  return answer('finished', 'roadmap-run-finished', runId, null, Number.isFinite(mtimeMs) ? mtimeMs : null);
+}
+
+/**
  * The one definition of whether a per-task record is still open work (IC-004).
  * Reads fail closed: an unreadable run, record, or relevant plan is never called finished. An
  * optional pass deadline makes discovery cancellable; incomplete results must not be treated as
@@ -259,11 +322,23 @@ function incompleteAnswer(run: any = null, feature: any = null): any {
 function workStatus({
   projectRoot, store, taskId, namespace = null, mtimeMs, cache, fsImpl, shouldStop,
 }: any): any {
-  const project = path.resolve(projectRoot);
-  const fileSystem = fsImpl || cache?.fsImpl || fs;
-  const pass = cacheFor({ projectRoot: project, fsImpl: fileSystem, cache });
   const recordId = taskId;
   const workId = typeof taskId === 'string' ? taskId.replace(/_claims$/, '') : taskId;
+
+  // Roadmap archive location is authoritative: open intents never age out, while archived
+  // intents use their own mtime and do not depend on the feature plan remaining on disk.
+  if (store === 'roadmap' && namespace === 'intents')
+    return answer('open', 'roadmap-intent-open', workId, null);
+  if (store === 'roadmap' && namespace === 'done')
+    return answer('finished', 'roadmap-intent-done', workId, null, Number.isFinite(mtimeMs) ? mtimeMs : null);
+  // The tripwire's remembered event ids are tiny and bounded by those ids: kept.
+  if (store === 'roadmap' && namespace === 'tripwire')
+    return answer('open', 'roadmap-tripwire-kept', workId, null);
+
+  const project = path.resolve(projectRoot);
+  const fileSystem = fsImpl || cache?.fsImpl || fs;
+  if (store === 'roadmap' && namespace === 'runs') return roadmapRunStatus(project, fileSystem, workId, mtimeMs);
+  const pass = cacheFor({ projectRoot: project, fsImpl: fileSystem, cache });
 
   if (shouldStop?.()) return incompleteAnswer();
   if (!safeSegment(workId)) return answer('undecidable', 'record-unreadable', null, null);
@@ -290,7 +365,8 @@ function workStatus({
       record = { ok: false };
     }
   } else {
-    record = readRecord({ projectRoot: project, storePath, recordId, namespace, mtimeMs, fsImpl: fileSystem });
+    record = readRecord({ projectRoot: project, storePath, recordId, namespace, mtimeMs, fsImpl: fileSystem,
+      extension: pass.recordExtensions?.get(store) || '.json' });
   }
   if (shouldStop?.()) return incompleteAnswer(resolvedRun.id);
   if (!record.ok) return answer('undecidable', 'record-unreadable', resolvedRun.id, null);
@@ -356,4 +432,4 @@ function workStatus({
   return answer('finished', run ? 'run-finished' : 'no-run', resolvedRun.id, feature, since);
 }
 
-module.exports = { workStatus, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES };
+module.exports = { workStatus, recordExtension, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES };

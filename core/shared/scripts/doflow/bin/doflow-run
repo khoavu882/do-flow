@@ -415,6 +415,7 @@ Workflow and evidence:
   lifecycle        overview, init, status, release or merged: follow-ups and feature tracking for the project
   goal             add, check, link, list or close a goal and its checklist
   failure          list, settle or switch off the failures DoFlow captured on this machine
+  roadmap          session-driven autopilot runner: render or status the roadmap table
 
 Verification and recovery:
   verify           compile the contract, run checks, emit the report
@@ -540,7 +541,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap) return 0 ;;
     *) return 1 ;;
   esac
 }
