@@ -21,13 +21,16 @@ function fileHash(root: string, locator: any): string | null {
   } catch { return null; }
 }
 
-function measureFreshness(root: string, locator: any, gitCommit: any): any {
-  return { gitCommit, fileHash: fileHash(root, locator), observedAt: new Date().toISOString(), status: 'FRESH' };
+// IC-007: a relative locator.file is hashed in sourceRoot, the checkout the verb runs in; `root`
+// (the record store) is only the default. An absolute locator.file is hashed as is.
+function measureFreshness(root: string, locator: any, gitCommit: any, sourceRoot: string = root): any {
+  return { gitCommit, fileHash: fileHash(sourceRoot, locator), observedAt: new Date().toISOString(), status: 'FRESH' };
 }
 
 class FreshnessValidator {
   repoRoot: string;
   treeRoot: string;
+  sourceRoot: string;
   gitRunner: (args: string[], cwd?: string) => string | null;
   declare diffCache?: Map<string, Set<string>>;
   declare treeFingerprint?: string | null;
@@ -37,11 +40,13 @@ class FreshnessValidator {
    * @param {Object} [options]
    * @param {string} [options.repoRoot]
    * @param {string} [options.treeRoot]
+   * @param {string} [options.sourceRoot] checkout a relative locator.file is hashed in (default repoRoot)
    * @param {Function} [options.gitRunner]
    */
   constructor(options: any = {}) {
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.treeRoot = options.treeRoot || this.repoRoot;
+    this.sourceRoot = options.sourceRoot || this.repoRoot;
     this.gitRunner = options.gitRunner || this.defaultGitRunner.bind(this);
     this.validatingLedger = false;
   }
@@ -158,7 +163,7 @@ class FreshnessValidator {
     }
 
     if (item.freshness?.fileHash) {
-      const currentHash = fileHash(this.repoRoot, item.locator);
+      const currentHash = fileHash(this.sourceRoot, item.locator);
       return currentHash === item.freshness.fileHash
         ? { status: 'FRESH' }
         : { status: 'STALE', reason: currentHash ? 'Observed file contents changed' : 'Observed file is missing or unreadable' };

@@ -58,6 +58,7 @@ interface BuildContext {
   treeState?: any;
   absenceTreeState?: any;
   probeRoot?: string;
+  sourceRoot?: string;
   attemptRef?: string;
   attemptRoot?: string;
   slug?: string | null;
@@ -372,6 +373,7 @@ function toEvidence(
   const taskId = ctx.taskId;
   const root = ctx.root || process.cwd();
   const treeState = ctx.treeState || measureTreeState(root);
+  const sourceRoot = ctx.sourceRoot || root;
 
   let rawItem: any;
 
@@ -398,7 +400,7 @@ function toEvidence(
       if (typeof loc === 'string') {
         loc = parseLocator(loc);
       }
-      const sv = sourceVersionFor(root, loc, treeState);
+      const sv = sourceVersionFor(sourceRoot, loc, treeState);
       const measuredHash = sv.fileHash;
       const searchedHash = candidate.sourceVersion.fileHash;
       if (searchedHash !== measuredHash) {
@@ -433,7 +435,7 @@ function toEvidence(
   }
 
   const validated = validateEvidenceItem(rawItem, taskId, root, ctx.slug);
-  const sv = sourceVersionFor(root, validated.locator, treeState);
+  const sv = sourceVersionFor(sourceRoot, validated.locator, treeState);
 
   const source: Record<string, any> = { ...validated.source };
 
@@ -482,7 +484,7 @@ function toEvidence(
     }
   } else {
     freshness = {
-      ...measureFreshness(root, validated.locator, sv.gitCommit),
+      ...measureFreshness(root, validated.locator, sv.gitCommit, sourceRoot),
       isDirty: sv.isDirty,
     };
   }
