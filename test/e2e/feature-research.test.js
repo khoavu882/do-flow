@@ -179,3 +179,40 @@ test('retracted answer reports why it blocks without changing the stored request
   assert.equal(stored.gap, null);
   assert.equal(stored.failureReason, undefined);
 });
+
+function textFiles(dir) {
+  const files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...textFiles(full));
+    else if (/\.(md|json|ya?ml|txt|js|ts|mjs|cjs|sh|py)$/.test(entry.name)) files.push(full);
+  }
+  return files;
+}
+
+test('no shipped prose limits research to a started feature or only a specific external fact', () => {
+  const stale = ['just because a feature started', 'merely because a feature began', 'only for a specific external fact'];
+  const hits = [];
+  for (const dir of ['core', 'docs']) {
+    for (const file of textFiles(path.join(repo, dir))) {
+      const text = fs.readFileSync(file, 'utf8');
+      for (const phrase of stale) if (text.includes(phrase)) hits.push(`${path.relative(repo, file)}: ${phrase}`);
+    }
+  }
+  assert.deepEqual(hits, []);
+});
+
+test('feature discovery and design skills name the ideation pass', () => {
+  for (const skill of ['do-brainstorm', 'do-design']) {
+    const text = fs.readFileSync(path.join(repo, 'core/shared/skills', skill, 'SKILL.md'), 'utf8');
+    assert.ok(text.includes('ideation'), `${skill}/SKILL.md names ideation`);
+  }
+});
+
+test('the reference research-request row names every accepted reason', () => {
+  const { REASONS } = require('../../src/runtime/research-request.ts');
+  const row = fs.readFileSync(path.join(repo, 'docs/reference.md'), 'utf8')
+    .split('\n').find(line => line.startsWith('| `doflow research-request'));
+  assert.ok(row, 'docs/reference.md has the research-request row');
+  for (const reason of REASONS) assert.ok(row.includes(reason), `reference row names reason ${reason}`);
+});
