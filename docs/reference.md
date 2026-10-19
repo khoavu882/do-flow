@@ -240,6 +240,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `runs-user` | `~/.doflow/state/runs` | prune partitions older than 180 days |
 | `advice-picks-project` | `.doflow/state/advice/picks` | prune partitions older than 90 days |
 | `advice-picks-user` | `~/.doflow/state/advice/picks` | prune partitions older than 90 days |
+| `slots-user` | `~/.doflow/state/slots` | keep newest 64; prune entries older than 30 days |
 | `recovery-user` | `~/.doflow/state/recovery` | keep newest 3, plus the snapshot named by the ledger |
 | `recovery-project` | `.doflow/state/recovery` | keep newest 3, plus the snapshot named by the ledger |
 | `lifecycle-events` | `.doflow/state/lifecycle/events` | retain settled events for 4320 hours |
