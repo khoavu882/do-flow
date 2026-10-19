@@ -282,3 +282,20 @@ test('G57: render --check control: valid class and acyclic chain pass with exit 
   assert.equal(out.exit, 0);
   assert.deepEqual(out.findings, []);
 });
+
+// Doc clause (feature 113, IC-006): every SEED_RULES code is named in docs/reference.md.
+function missingSeedRuleCodes(referenceText) {
+  const { SEED_RULES } = require('../../src/runtime/roadmap/rows.ts');
+  return SEED_RULES.filter((code) => !referenceText.includes(code));
+}
+
+test('G57: every SEED_RULES code is named in docs/reference.md', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  assert.deepEqual(missingSeedRuleCodes(reference), []);
+});
+
+test('G57 control: a reference.md without needs-cycle reports needs-cycle missing', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  const mutated = reference.split('needs-cycle').join('');
+  assert.deepEqual(missingSeedRuleCodes(mutated), ['needs-cycle']);
+});
