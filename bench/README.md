@@ -317,6 +317,20 @@ The `source` column is the exception worth reading first. A row reading `unrecor
 carries a delta that is arithmetic, not evidence: neither side can prove which SKILL.md it measured.
 Runs captured before this provenance check existed all read that way, correctly.
 
+## Noise floor and verdicts
+
+The words below are defined once, in `bench/noise.js`; guard G60 compares this table to that
+module's exports, row for row and value for value, in order.
+
+| Vocabulary | Values |
+|---|---|
+| Noise-check verdict | `inconclusive` · `grader-unstable` · `no-headroom` · `noise-exceeds-mde` · `usable` |
+| Decision verdict | `gain-above-noise` · `within-noise` · `regression` · `inconclusive` |
+| Recommendation | `merge-candidate` · `do-not-merge` |
+| Infra error class | `timeout` · `api-error` · `truncated` · `no-output` |
+| Run status | `completed` · `timeout` · `api-error` · `truncated` |
+| Noise method | `aa-range` |
+
 ## Reusing skill-creator's tooling
 
 `grading.json` uses `text` / `passed` / `evidence` because `skill-creator`'s
