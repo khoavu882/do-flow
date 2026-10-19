@@ -66,7 +66,7 @@ const V1 = {
     env: { name: 'DOFLOW_AUTOPILOT_ENABLED', parse: 'off-words', direction: 'narrow' },
     flag: null, shellRead: null, needsConfigHome: true,
     legacy: [{ layer: 'user', kind: 'sentinel', path: 'autopilot/off', value: 'off' }],
-    consumers: ['src/runtime/roadmap/loop.ts'],
+    consumers: ['src/runtime/settings/autopilot.ts'],
     description: 'Roadmap autopilot kill switch, off until the owner turns it on; the env and the autopilot/off sentinel can only turn it off.' },
   'guard.workerDropDatabases': { type: 'string', default: null, scope: 'project-only', combine: 'override',
     securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],

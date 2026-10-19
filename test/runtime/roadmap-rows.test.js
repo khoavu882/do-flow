@@ -866,22 +866,26 @@ test('pick: held ready rows are skipped before other checks and do not mask an u
   assert.equal(inFlightHeld.skips['113'], 'row-held');
 });
 
-test('deriveStatus: a seed-held unmerged row reports its hold as holdReason; merged rows stay null; an in-flight record hold wins', () => {
+test('deriveStatus: a seed-held unmerged row reports its hold as holdReason; merged rows stay null; status comes from git alone', () => {
   const sha = 'a'.repeat(40);
   const held = { id: '113', slug: '113-held', title: 'Held', class: 'feature', needs: [], hold: 'awaiting owner input' };
   const merged = { id: '114', slug: '114-merged', title: 'Merged', class: 'feature', needs: [], hold: 'retired', mergeCommit: sha };
   const flying = { id: '115', slug: '115-flying', title: 'Flying', class: 'feature', needs: [], hold: 'seed text' };
   const plain = { id: '116', slug: '116-plain', title: 'Plain', class: 'feature', needs: [] };
   const { statuses } = deriveStatus([held, merged, flying, plain], {
-    merges: [{ sha, parents: ['b'.repeat(40), 'c'.repeat(40)] }],
-  }, undefined, { rows: { 115: { hold: 'record text' } } });
+    merges: [{ sha, parents: ['b'.repeat(40), 'c'.repeat(40)] }], branches: ['feat/115-flying'],
+  });
   assert.equal(statuses.get('113').status, 'not-started');
   assert.equal(statuses.get('113').holdReason, 'awaiting owner input');
   assert.equal(statuses.get('114').status, 'merged');
   assert.equal(statuses.get('114').holdReason, null);
   assert.equal(statuses.get('115').status, 'in-flight');
-  assert.equal(statuses.get('115').holdReason, 'record text');
+  assert.equal(statuses.get('115').holdReason, 'seed text');
   assert.equal(statuses.get('116').holdReason, null);
+  // C19: deriveStatus takes git facts only; a claim list or run record passed by an old caller changes nothing.
+  const extra = deriveStatus([flying, plain], { branches: [] }, ['116-plain'], { rows: { 115: { held: { reason: 'record text' } } } }).statuses;
+  assert.deepEqual([extra.get('115').status, extra.get('115').holdReason, extra.get('116').status], ['not-started', 'seed text', 'not-started']);
+  assert.equal(Object.hasOwn(statuses.get('115'), 'nextStep'), false);
 });
 
 test('held rows keep derived merge status and render held text only while not merged', () => {

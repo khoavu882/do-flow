@@ -290,3 +290,33 @@ test('git facts read the develop branch, never a tag named develop, and carry no
   const input = gatherGateFacts({ root, artifactRoot: path.join(root, 'agent-docs/doflow', row.slug), row, rows: [row], policy, gateId: 'gate-b', featureHead });
   assert.deepEqual(input.find((f) => f.name === 'heads').value, { developHead: branchHead, featureHead });
 });
+
+test('C6: gate-a and gate-b gather a plan-verification-block fact bound to the plan bytes, and the shipped policy denies a present block', (t) => {
+  const env = setup(t);
+  const planFile = path.join(env.artifactRoot, 'plan.md');
+  const fact = (gateId) => env.gather(gateId).find((f) => f.name === 'plan-verification-block');
+  for (const gateId of ['gate-a', 'gate-b']) {
+    assert.deepEqual(fact(gateId), { name: 'plan-verification-block', value: { present: false }, locator: planFile, sha256: sha256Digest(plan) }, gateId);
+  }
+  const block = `${plan}\n\`\`\`doflow-verification\n{"test":"true"}\n\`\`\`\n`;
+  env.write(`agent-docs/doflow/${row.slug}/plan.md`, block);
+  for (const gateId of ['gate-a', 'gate-b']) {
+    assert.deepEqual(fact(gateId), { name: 'plan-verification-block', value: { present: true }, locator: planFile, sha256: sha256Digest(block) }, gateId);
+    assert.ok(evaluate(env.options.policy, 'feature', gateId, env.gather(gateId)).reasons.includes('protected-path:plan-verification'), gateId);
+  }
+  // A malformed block is still a block: it would replace the commands or fail the verify run.
+  env.write(`agent-docs/doflow/${row.slug}/plan.md`, `${plan}\n\`\`\`doflow-verification\n{not json\n\`\`\`\n`);
+  assert.equal(fact('gate-a').value.present, true);
+  // planning/plan.md is read when plan.md is absent; neither file is present:false, never unreadable.
+  fs.rmSync(planFile);
+  const nested = env.write(`agent-docs/doflow/${row.slug}/planning/plan.md`, block);
+  assert.deepEqual([fact('gate-b').locator, fact('gate-b').value.present], [nested, true]);
+  fs.rmSync(nested);
+  assert.deepEqual(fact('gate-b'), { name: 'plan-verification-block', value: { present: false }, locator: planFile, sha256: sha256Digest('') });
+  // Any other read error is unreadable, and the gate denies on it.
+  fs.mkdirSync(planFile);
+  assert.ok(fact('gate-a').unreadable);
+  assert.ok(evaluate(env.options.policy, 'feature', 'gate-a', env.gather('gate-a')).reasons.includes(`protected-path:${planFile}`));
+  // gate-0 does not read the plan for this predicate.
+  assert.equal(env.gather('gate-0').some((f) => f.name === 'plan-verification-block'), false);
+});

@@ -42,7 +42,6 @@ interface GitFacts {
   developHead?: string;
   merges?: GitMergeCommit[];
   branches?: string[];
-  claims?: string[];
   commits?: Array<{ sha: string; parents: string[] }>;
   unreadable?: string[];
 }
@@ -50,14 +49,12 @@ interface GitFacts {
 interface RowStatusInfo {
   rowId: string;
   status: 'merged' | 'in-flight' | 'not-started';
-  subState?: 'held' | 'blocked' | 'paused';
   evidence: {
     kind: 'trailer' | 'seeded';
     sha: string;
     shortSha: string;
   } | null;
   holdReason?: string | null;
-  nextStep?: string | null;
 }
 
 interface DerivedStatusResult {
@@ -231,14 +228,13 @@ function writeSetsOverlap(ws1?: string[], ws2?: string[]): boolean {
 }
 
 /**
- * Derives the status of each row from git merges and worktree/claim facts.
+ * Derives the status of each row from git facts only (merges and `feat/<slug>` branches); the run
+ * record's holds and pauses are machine state, which `status` shows separately (C11, C19).
  * Trailed merges in git develop history take precedence; subjects are NEVER evidence.
  */
 function deriveStatus(
   rows: RoadmapRow[],
-  gitFacts: GitFacts = {},
-  claims?: any,
-  runRecord?: any
+  gitFacts: GitFacts = {}
 ): DerivedStatusResult {
   const statuses = new Map<string, RowStatusInfo>();
   const rowStatus: Record<string, 'merged' | 'in-flight' | 'not-started'> = {};
@@ -257,7 +253,6 @@ function deriveStatus(
     let status: 'merged' | 'in-flight' | 'not-started' = 'not-started';
     let evidence: { kind: 'trailer' | 'seeded'; sha: string; shortSha: string } | null = null;
     let holdReason: string | null = null;
-    let nextStep: string | null = null;
 
     const trailerMerges = trailerMergesByRow.get(row.id) || [];
     if (trailerMerges.length > 0) {
@@ -289,35 +284,17 @@ function deriveStatus(
         (gitFacts.branches || []).includes(branchName) ||
         (gitFacts.branches || []).includes(`refs/heads/${branchName}`);
 
-      const hasClaim =
-        claims &&
-        ((Array.isArray(claims) && (claims.includes(row.id) || claims.includes(row.slug))) ||
-          (claims instanceof Set && (claims.has(row.id) || claims.has(row.slug))) ||
-          Boolean(claims[row.id] || claims[row.slug]));
-
-      const inFlightRecord =
-        runRecord?.rows?.[row.id] ||
-        (Array.isArray(runRecord?.inFlight) && runRecord.inFlight.find((f: any) => f.row === row.id));
-
-      if (branchExists || hasClaim || inFlightRecord) {
-        status = 'in-flight';
-        if (inFlightRecord?.held) {
-          holdReason = typeof inFlightRecord.held === 'string' ? inFlightRecord.held : inFlightRecord.held.reason;
-        } else if (inFlightRecord?.hold) {
-          holdReason = typeof inFlightRecord.hold === 'string' ? inFlightRecord.hold : inFlightRecord.hold.reason;
-        }
-      }
+      if (branchExists) status = 'in-flight';
     }
 
-    // A seed-level hold is reported for unmerged rows; an in-flight record's own hold (above) wins.
-    if (status !== 'merged' && holdReason === null && row.hold) holdReason = row.hold;
+    // A seed-level hold is reported for unmerged rows.
+    if (status !== 'merged' && row.hold) holdReason = row.hold;
 
     const info: RowStatusInfo = {
       rowId: row.id,
       status,
       evidence,
       holdReason,
-      nextStep,
     };
     statuses.set(row.id, info);
     rowStatus[row.id] = status;
@@ -456,7 +433,7 @@ function render(
     } else if (row.hold) {
       nextStr = `held: ${row.hold}`;
     } else if (info.status === 'in-flight') {
-      nextStr = info.holdReason || info.nextStep || '-';
+      nextStr = info.holdReason || '-';
     } else {
       // not-started
       if (pickRes.picked && pickRes.picked.id === row.id) {

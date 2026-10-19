@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { loadPolicy, evaluate, validateFindings } = require('../../src/runtime/roadmap/gates.ts');
+const { loadPolicy, evaluate, validateFindings, verifyRecordReasons } = require('../../src/runtime/roadmap/gates.ts');
 const { sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
 const baseBytes = fs.readFileSync(path.join(__dirname, '../../core/registry/gates.json'));
 const HEAD = 'a'.repeat(40);
@@ -315,4 +315,31 @@ for (const mutation of mutations) test(`scratch negative control: ${mutation.nam
   assert.equal(run.status, 1, `${mutation.name} must turn its real test red: ${run.stdout}\n${run.stderr}`);
   assert.match(run.stdout + run.stderr, /ERR_ASSERTION/, 'negative control must reach the assertion');
   t.diagnostic(`scratch ${mutation.name}: original assertion rejected regression`);
+});
+
+test('C6: the shipped gate-a and gate-b carry plan-verification-absent right after protected-paths', () => {
+  const policy = JSON.parse(baseBytes);
+  for (const gate of ['gate-a', 'gate-b']) {
+    const predicates = policy.classes.feature[gate].predicates;
+    assert.equal(predicates.indexOf('plan-verification-absent'), predicates.indexOf('protected-paths') + 1, gate);
+  }
+  assert.equal(policy.classes.feature['gate-0'].predicates.includes('plan-verification-absent'), false);
+});
+
+test('C20: one verify-record rule serves gate-b and the post-merge check (task, head, clean, schema, flaky)', () => {
+  const run = (extra) => ({ schema: 1, taskId: '113-goal-order', head: HEAD, clean: true, verdict: 'PASS', ...extra });
+  assert.deepEqual(verifyRecordReasons([run()], HEAD, '113-goal-order'), []);
+  assert.deepEqual(verifyRecordReasons([run({ taskId: '999-other' })], HEAD, '113-goal-order'), ['verify-missing'], 'another task\'s PASS is not this row\'s');
+  assert.deepEqual(verifyRecordReasons([run({ clean: false }), run({ head: PARENT })], HEAD, '113-goal-order'), ['verify-missing']);
+  assert.deepEqual(verifyRecordReasons([run({ verdict: 'FAIL' }), run()], HEAD, '113-goal-order'), ['verify-flaky']);
+  assert.deepEqual(verifyRecordReasons([run(), run({ verdict: 'FAIL' })], HEAD, '113-goal-order'), ['verify-not-pass']);
+  assert.deepEqual(verifyRecordReasons([run({ schema: 2 })], HEAD, '113-goal-order'), ['verify-not-pass']);
+  assert.deepEqual(verifyRecordReasons([null, 'x', run()], HEAD, '113-goal-order'), []);
+  assert.deepEqual(verifyRecordReasons([run()], 'not-a-head', '113-goal-order'), ['verify-missing']);
+  // gate-b's predicate gives the same answer as the shared rule.
+  const policy = loadPolicy(baseBytes).policy;
+  policy.classes.feature['gate-b'].predicates = ['verify-pass-on-head'];
+  for (const records of [[run()], [run({ taskId: '999-other' })], [run({ verdict: 'FAIL' }), run()]]) {
+    assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ verification: records })).reasons, verifyRecordReasons(records, HEAD, '113-goal-order'));
+  }
 });

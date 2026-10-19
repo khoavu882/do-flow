@@ -242,6 +242,18 @@ function gatherGateFacts(options: any): GateFact[] {
     }
     plan = add('plan', value, input.locator, input.bytes, input.unreadable);
   }
+  if (uses('plan-verification-absent')) {
+    // C6: a `doflow-verification` block replaces the verify commands, so its presence (even a
+    // malformed one) is the fact. No plan at all is absent; any other read failure is unreadable.
+    const input = read([path.join(artifactRoot, 'plan.md'), path.join(artifactRoot, 'planning/plan.md')]);
+    const absent = input.unreadable === 'ENOENT';
+    let present: boolean | null = absent ? false : null;
+    if (!input.unreadable) {
+      const { parsePlanOverride } = require('../command-detect.ts');
+      present = ((r: any) => r.override !== null || r.errors.length > 0)(parsePlanOverride(input.text));
+    }
+    add('plan-verification-block', { present }, input.locator, input.bytes, absent ? undefined : input.unreadable);
+  }
   for (const artifact of ['requirement', 'design', 'plan']) {
     if (!uses(`markers-zero:${artifact}`)) continue;
     const candidates = artifact === 'requirement' ? ['intention/requirement.md', 'requirement.md']

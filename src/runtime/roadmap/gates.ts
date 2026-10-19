@@ -156,6 +156,22 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * C20: the one verify-record rule (IC-007, D12), shared by gate-b's verify-pass-on-head and the loop's
+ * post-merge check. Only lines for `taskId` on `head` from a clean tree count: none is verify-missing;
+ * the last must be a PASS and every one schema 1 (else verify-not-pass); a FAIL that a later PASS
+ * would hide is verify-flaky. An empty list passes.
+ */
+function verifyRecordReasons(records: any, head: any, taskId: any): string[] {
+  const runs = Array.isArray(records) && HEX_HEAD.test(head) && nonempty(taskId)
+    ? records.filter((run: any) => object(run) && run.head === head && run.taskId === taskId && run.clean === true) : [];
+  if (runs.length === 0) return ['verify-missing'];
+  const found: string[] = [];
+  if (runs[runs.length - 1].verdict !== 'PASS' || runs.some((run: any) => run.schema !== 1)) found.push('verify-not-pass');
+  if (runs.some((run: any, i: number) => run.verdict === 'FAIL' && runs.slice(i + 1).some((later: any) => later.verdict === 'PASS'))) found.push('verify-flaky');
+  return found;
+}
+
 /** All predicates run; the first failing predicate owns rule. Facts are data, never executable. */
 function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
   const reasons: string[] = [];
@@ -252,15 +268,7 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
         else for (const file of files) if (!validPath(file) || (row.writeSet?.length && !row.writeSet.some((p: string) => validPath(p) && covers(p, file)))) reasons.push(`write-set-exceeded:${file}`);
       }
     } else if (predicate === 'verify-pass-on-head') {
-      if (requireFact('verification', 'verify-missing') && requireFact('heads', 'verify-missing')) {
-        const runs = Array.isArray(get('verification')) ? get('verification').filter((run: any) => run.head === head && HEX_HEAD.test(head) && run.taskId === row.slug && run.clean === true) : [];
-        if (runs.length === 0) reasons.push('verify-missing');
-        else {
-          if (runs[runs.length - 1].verdict !== 'PASS' || runs.some((run: any) => run.schema !== 1)) reasons.push('verify-not-pass');
-          // D12: flaky is a FAIL that a later PASS on the same head would hide; one FAIL is only not-pass.
-          if (runs.some((run: any, i: number) => run.verdict === 'FAIL' && runs.slice(i + 1).some((later: any) => later.verdict === 'PASS'))) reasons.push('verify-flaky');
-        }
-      }
+      if (requireFact('verification', 'verify-missing') && requireFact('heads', 'verify-missing')) reasons.push(...verifyRecordReasons(get('verification'), head, row.slug));
     } else if (predicate === 'findings-valid') {
       if (requireFact('findings', 'findings-invalid')) {
         if (findings === null || findings === undefined) reasons.push('findings-missing');
@@ -297,4 +305,4 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
   return result();
 }
 
-module.exports = { loadPolicy, evaluate, validateFindings };
+module.exports = { loadPolicy, evaluate, validateFindings, verifyRecordReasons };

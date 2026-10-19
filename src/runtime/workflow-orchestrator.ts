@@ -675,8 +675,9 @@ class WorkflowOrchestrator {
    * `forced` decision (e.g. approving despite unresolved clarification markers) requires an
    * explicit `note` reason — never a silent override — and is flagged in history for
    * `render-audit.sh` to distinguish from a routine handoff. */
-  decideGate({ taskId, gateId, decision, policy, by, note, forced = false, now }: any = {}) {
+  decideGate({ taskId, gateId, decision, policy, by, note, forced = false, now, bindHead }: any = {}) {
     assertSafeId(gateId, 'gateId');
+    if (bindHead !== undefined && (policy === undefined || !/^[0-9a-f]{40}$/.test(String(bindHead)))) throw new Error('bindHead is a 40-hex feature head and needs --policy');
     // IC-005: the decider is derived, never named by a caller; `autopilot` is recorded only by --policy.
     if (by !== undefined) throw new Error('decide-gate takes no decider (by); only --policy records autopilot');
     if (policy !== undefined) {
@@ -689,7 +690,7 @@ class WorkflowOrchestrator {
     const node = this.currentNode(run);
     if (!node || node.type !== 'gate') throw new Error('Run state says AWAITING_GATE but no gate is at the cursor');
     if (node.id !== gateId) throw new Error(`Expected gate '${node.id}' next, got '${gateId}'`);
-    if (policy !== undefined) return this.decideGateByPolicy(run, node, policy, now);
+    if (policy !== undefined) return this.decideGateByPolicy(run, node, policy, now, bindHead);
     node.status = decision === 'approve' ? 'approved' : 'rejected';
     node.decision = decision;
     run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, note: note ?? null, forced: Boolean(forced) });
@@ -705,11 +706,11 @@ class WorkflowOrchestrator {
   }
 
   /** IC-005: the feature checkout cannot grant itself a weaker gate policy. Denies write nothing. */
-  decideGateByPolicy(run: any, node: any, policyId: string, now: any) {
+  decideGateByPolicy(run: any, node: any, policyId: string, now: any, bindHead?: string) {
     // Decision C9: the autopilot kill switch binds every policy decision, not only the loop's. Off on
     // any layer (env, sentinel, settings; an unreadable setting fails safe to off) denies before any
     // fact is read, and records nothing.
-    const { readKillSwitch } = require('./roadmap/loop.ts');
+    const { readKillSwitch } = require('./settings/autopilot.ts');
     const killSwitch = readKillSwitch(this.env);
     if (!killSwitch.enabled) {
       return { ...this.snapshot(run), decision: 'deny', reason: 'autopilot-disabled', reasons: ['autopilot-disabled'],
@@ -775,8 +776,13 @@ class WorkflowOrchestrator {
     node.status = 'approved';
     node.decision = 'approve';
     // `policy.digest` and every fact's {locator, sha256} let a later reader re-derive this decision.
+    // C15: the roadmap loop names the feature head it read before deciding (bindHead). The entry keeps
+    // it as `approvedHead` only when the gate's own heads fact evaluated that same head, so the merge
+    // binds to it across loop runs; an approval without it falls back to the both-heads digest.
+    const heads = facts.find((fact: any) => fact.name === 'heads' && !fact.unreadable)?.value;
+    const approvedHead = bindHead && heads?.featureHead === bindHead ? { approvedHead: bindHead } : {};
     run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: 'approve', by: 'autopilot',
-      policy, inputs: evaluation.inputs, note: audit, forced: false });
+      policy, inputs: evaluation.inputs, ...approvedHead, note: audit, forced: false });
     run.state = runState('RUNNING');
     run.cursor += 1;
     this.settleCursor(run);

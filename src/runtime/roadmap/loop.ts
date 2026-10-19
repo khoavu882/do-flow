@@ -24,7 +24,7 @@ const {
   check,
 } = require('./rows.ts');
 const { gatherGitFacts, sha256Digest } = require('./facts.ts');
-const { loadPolicy } = require('./gates.ts');
+const { loadPolicy, verifyRecordReasons } = require('./gates.ts');
 const { mergeRoadmapRow, readOpenIntents, cleanupFeature } = require('./merge.ts');
 
 interface RoadmapCommandOptions {
@@ -42,39 +42,9 @@ interface RoadmapCommandOptions {
   [seam: string]: any;
 }
 
-// ── kill switch (IC-011, FR-016, decision C9) ─────────────────────────────────────────────────────
-
-/**
- * The autopilot switch, read fresh on every call (never memoised: a copied env defeats the resolver
- * cache), so a switch set between two boundaries stops the next one. Any layer saying off wins and
- * is named: the DOFLOW_AUTOPILOT env, the `autopilot/off` sentinel in the config home, else the
- * settings file (absent, invalid or unreadable all read as off: fail safe).
- */
-function readKillSwitch(env: any = process.env): { enabled: boolean; switch: 'env' | 'sentinel' | 'setting' | null } {
-  const off = (layer: 'env' | 'sentinel' | 'setting') => ({ enabled: false, switch: layer });
-  try {
-    const { loadSettings } = require('../settings/resolve.ts');
-    const resolution = loadSettings({ global: true, env: { ...env } }).get('autopilot.enabled', 'global');
-    if (resolution.candidates.some((c: any) => c.layer === 'env' && c.value === 'off')) return off('env');
-    if (resolution.candidates.some((c: any) => c.legacy && c.value === 'off')) return off('sentinel');
-    return resolution.value === 'on' ? { enabled: true, switch: null } : off('setting');
-  } catch {
-    return off('setting');
-  }
-}
-
-/** Tripwire (narrowing only): writes the kill-switch sentinel; only a person removes it. */
-function tripSentinel(env: any, line: string, fsImpl: any = fs): boolean {
-  const { configHome } = require('../config-home.ts');
-  const home = configHome(env).dir;
-  // No config home already reads as off (needsConfigHome), so there is nothing to narrow.
-  if (!home) return false;
-  const file = path.join(home, 'autopilot', 'off');
-  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  try { fsImpl.writeFileSync(file, `${line}\n`, { flag: 'wx', mode: 0o600 }); }
-  catch (error: any) { if (error.code !== 'EEXIST') throw error; }
-  return true;
-}
+// The kill switch (IC-011, FR-016, decisions C9, C4) is settings/autopilot.ts: the env
+// DOFLOW_AUTOPILOT_ENABLED, the `autopilot/off` sentinel and the `autopilot.enabled` setting. It is
+// loaded on use, so commands that never step the loop (an install dry run) load no settings module.
 
 function resolveMainRoot(cwd: string = process.cwd()): string {
   try {
@@ -167,13 +137,24 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
 
   if (action === 'status') {
     let openIntents: any[];
-    try { openIntents = readOpenIntents({ root, fsImpl }); }
-    catch (error: any) {
-      if (json) console.log(JSON.stringify({ schema: 1, action, error: 'cannot-read-facts', sources: ['merge-intents'], message: error.message }));
-      else console.error(`doflow roadmap: cannot read merge-intents: ${error.message}`);
+    let operational: any;
+    try {
+      try { openIntents = readOpenIntents({ root, fsImpl }); }
+      catch (error: any) { throw new Unreadable(['merge-intents'], error.message); }
+      operational = operationalState(path.join(root, '.doflow', 'state', 'roadmap'), fsImpl);
+    } catch (error: any) {
+      const sources = error instanceof Unreadable ? error.sources : ['run-records'];
+      if (json) console.log(JSON.stringify({ schema: 1, action, error: 'cannot-read-facts', sources, message: error.message }));
+      else console.error(`doflow roadmap: cannot read ${sources.join(', ')}: ${error.message}`);
       process.exitCode = 1;
       return 1;
     }
+    const holdsOf = (id: string | null) => operational.holds.filter((hold: any) => !id || hold.row === id);
+    const printOperational = (id: string | null) => {
+      for (const hold of holdsOf(id)) console.log(`  Run hold ${hold.row}: ${hold.state}${hold.kind ? ` (${hold.kind})` : ''}: ${hold.reason}`);
+      const lease = operational.lease;
+      console.log(lease ? `  Lease: pid ${lease.pid} on ${lease.host}${lease.runId ? ` for ${lease.runId}` : ''}` : '  Lease: none');
+    };
     const displayStatus = (info: any) => openIntents.some((intent) => intent.row === info.rowId && intent.status === 'merged-unverified')
       ? 'merged-unverified' : info.status;
     const displayRows = Array.from(statuses.values() as Iterable<any>).map((info) => ({ ...info, status: displayStatus(info) }));
@@ -207,6 +188,9 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
             status: displayStatus(singleStatus),
             info: singleStatus,
             intent: openIntents.find((intent) => intent.row === filterRow) || null,
+            run: operational.run,
+            holds: holdsOf(filterRow),
+            lease: operational.lease,
           })
         );
       } else {
@@ -217,6 +201,7 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
         );
         const intent = openIntents.find((entry) => entry.row === filterRow);
         if (intent) console.log(`  Open merge intent: ${intent.phase}${intent.status ? ` (${intent.status})` : ''}`);
+        printOperational(filterRow);
       }
       return 0;
     }
@@ -229,6 +214,9 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
           rowStatus: displayRowStatus,
           rows: displayRows,
           openIntents,
+          run: operational.run,
+          holds: holdsOf(null),
+          lease: operational.lease,
         })
       );
     } else {
@@ -238,6 +226,7 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
         console.log(`  ${id.padEnd(6)} ${displayStatus(info).padEnd(12)} evidence: ${ev}`);
       }
       for (const intent of openIntents) console.log(`  Open merge intent ${intent.row}: ${intent.phase}${intent.status ? ` (${intent.status})` : ''}`);
+      printOperational(null);
     }
     return 0;
   }
@@ -347,6 +336,10 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
 const RUN_ID = /^rl-[0-9]{8}-[0-9a-hjkmnp-tv-z]{4}$/;
 const CROCKFORD = '0123456789abcdefghjkmnpqrstvwxyz';
 const LOG_LIMIT = 500;
+/** C17: gate and merge entries, with their input hashes, outlive the run record's log in audit.jsonl. */
+const AUDIT_LIMIT = 10000;
+const AUDIT_STEPS = ['gate', 'merge', 'render', 'cleanup'];
+const PLAN_FILES = ['plan.md', 'planning/plan.md'];
 /** `LOOP_BY` of dispatch/loop.ts, the dispatch loop's own actor; G54 keeps that module out of here. */
 const DISPATCH_ACTOR = 'doflow-dispatch';
 /** The actor this loop names in the dispatch commands it yields. */
@@ -356,7 +349,7 @@ const QUOTA = /^quota\b/i;
 const DOC_ARTIFACTS: Record<string, string[]> = {
   discovery: ['intention/requirement.md', 'requirement.md'],
   design: ['design/design.md', 'design.md'],
-  planning: ['plan.md', 'planning/plan.md'],
+  planning: PLAN_FILES,
   review: ['review/findings.json'],
 };
 
@@ -371,15 +364,36 @@ class Unreadable extends Error {
 
 const relCheckpoint = (runId: string): string => `.doflow/state/roadmap/runs/${runId}.json`;
 
-function writeJsonAtomic(file: string, value: any, fsImpl: any): void {
+function writeAtomic(file: string, text: string, fsImpl: any): void {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.tmp`;
   try {
-    fsImpl.writeFileSync(temp, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+    fsImpl.writeFileSync(temp, text, { mode: 0o600 });
     fsImpl.renameSync(temp, file);
   } finally {
     try { fsImpl.unlinkSync(temp); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
   }
+}
+
+function writeJsonAtomic(file: string, value: any, fsImpl: any): void {
+  writeAtomic(file, `${JSON.stringify(value)}\n`, fsImpl);
+}
+
+const auditFile = (dir: string): string => path.join(dir, 'audit.jsonl');
+
+/** The durable gate and merge audit (C17): one JSON line each, the last AUDIT_LIMIT kept. */
+function readAudit(dir: string, fsImpl: any): any[] {
+  let text: string;
+  try { text = fsImpl.readFileSync(auditFile(dir), 'utf8'); }
+  catch (error: any) { if (error.code === 'ENOENT') return []; throw new Unreadable(['roadmap-audit'], error.message); }
+  try { return text.split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line)); }
+  catch (error: any) { throw new Unreadable(['roadmap-audit'], error.message); }
+}
+
+function appendAudit(dir: string, entry: any, fsImpl: any): void {
+  const lines = readAudit(dir, fsImpl).map((value) => JSON.stringify(value));
+  lines.push(JSON.stringify(entry));
+  writeAtomic(auditFile(dir), `${lines.slice(-AUDIT_LIMIT).join('\n')}\n`, fsImpl);
 }
 
 function newRunId(now: Date): string {
@@ -411,6 +425,25 @@ function readRunRecords(dir: string, fsImpl: any): any[] {
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.runId < b.runId ? -1 : 1));
 }
 
+/**
+ * What `status` shows beside the three-valued git status (C18): the lease holder, and the holds and
+ * pauses the newest open run record keeps per row.
+ */
+function operationalState(dir: string, fsImpl: any): { run: string | null; lease: any; holds: any[] } {
+  let lease: any = null;
+  try {
+    const raw = JSON.parse(fsImpl.readFileSync(path.join(dir, 'lease.json'), 'utf8'));
+    lease = { pid: raw?.pid ?? null, host: raw?.host ?? null, runId: raw?.runId ?? null, acquiredAt: raw?.acquiredAt ?? null };
+  } catch (error: any) { if (error.code !== 'ENOENT') throw new Unreadable(['lease'], error.message); }
+  const run = readRunRecords(path.join(dir, 'runs'), fsImpl).filter((record) => !record.closedAt).at(-1) || null;
+  const holds: any[] = [];
+  for (const [row, slot] of Object.entries(run?.rows || {}) as Array<[string, any]>) {
+    if (slot?.held) holds.push({ row, state: 'held', kind: slot.held.kind ?? null, reason: slot.held.reason ?? null });
+    if (slot?.paused) holds.push({ row, state: 'paused', kind: null, reason: slot.paused.reason ?? null });
+  }
+  return { run: run?.runId ?? null, lease, holds };
+}
+
 /** The named run, else the newest open run, else a new one (not yet written). */
 function loadRunRecord(dir: string, requested: string | undefined, now: Date, fsImpl: any): { record: any; fresh: boolean } {
   const blank = (runId: string) => ({ schema: 1, runId, createdAt: now.toISOString(), closedAt: null, maxSteps: null, steps: 0, n: 0, rows: {}, log: [] });
@@ -431,37 +464,75 @@ function noPsAlive(proc: any): boolean | 'unknown' {
   return alive(proc, { run: () => null });
 }
 
-/** IC-010: `wx` create; a dead same-host holder is renamed aside (one renamer wins); anything else refuses. */
-function acquireLease(dir: string, me: any, alive: (proc: any) => boolean | 'unknown', fsImpl: any): { ok: boolean; holder?: any } {
+/**
+ * IC-010: `wx` create. A dead same-host holder is reclaimed only by the one caller holding
+ * `lease.reclaim` (itself created with `wx`), which re-reads the stale lease and unlinks it while it
+ * still has the bytes judged dead; nothing is ever moved aside and put back (C8). Anything else
+ * refuses. A caller re-reads its lease at every boundary (ownsLease), so one that lost it stops.
+ */
+function acquireLease(dir: string, me: any, alive: (proc: any) => boolean | 'unknown', fsImpl: any): { ok: boolean; holder?: any; text?: string } {
   const file = path.join(dir, 'lease.json');
-  const holderOf = (): any => { try { return JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { return null; } };
+  const reclaim = path.join(dir, 'lease.reclaim');
+  const text = `${JSON.stringify(me)}\n`;
+  const parse = (raw: string): any => { try { return JSON.parse(raw); } catch { return null; } };
+  const holderOf = (): any => { try { return parse(fsImpl.readFileSync(file, 'utf8')); } catch { return null; } };
+  // Only a dead holder on this host with a known pid can be proven gone; an unreadable one is unknown.
+  const dead = (holder: any): boolean => Boolean(holder) && typeof holder === 'object' && holder.host === me.host
+    && Number.isInteger(holder.pid) && alive({ pid: holder.pid, start: holder.start }) === false;
   fsImpl.mkdirSync(dir, { recursive: true });
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      fsImpl.writeFileSync(file, `${JSON.stringify(me)}\n`, { flag: 'wx', mode: 0o600 });
-      return { ok: true };
+      fsImpl.writeFileSync(file, text, { flag: 'wx', mode: 0o600 });
+      return { ok: true, text };
     } catch (error: any) { if (error.code !== 'EEXIST') throw error; }
     let raw: string;
     try { raw = fsImpl.readFileSync(file, 'utf8'); }
     catch (error: any) { if (error.code === 'ENOENT') continue; throw error; }
-    let holder: any = null;
-    try { holder = JSON.parse(raw); } catch { /* an unreadable holder is an unknown one: refused */ }
-    if (!holder || typeof holder !== 'object' || holder.host !== me.host || !Number.isInteger(holder.pid)) return { ok: false, holder };
-    if (alive({ pid: holder.pid, start: holder.start }) !== false) return { ok: false, holder };
-    const stale = `${file}.stale-${holder.pid}`;
-    try { fsImpl.renameSync(file, stale); }
-    catch (error: any) { if (error.code === 'ENOENT') continue; throw error; }
-    let moved: string | null = null;
-    try { moved = fsImpl.readFileSync(stale, 'utf8'); } catch { /* compared below */ }
-    if (moved !== raw) {
-      // A racer took over between the read and the rename: put its live lease back and yield.
-      try { fsImpl.linkSync(stale, file); } catch (error: any) { if (error.code !== 'EEXIST') throw error; }
-      try { fsImpl.unlinkSync(stale); } catch { /* already gone */ }
-      return { ok: false, holder: holderOf() };
+    const holder = parse(raw);
+    if (!dead(holder)) return { ok: false, holder };
+    try { fsImpl.writeFileSync(reclaim, text, { flag: 'wx', mode: 0o600 }); }
+    catch (error: any) {
+      if (error.code !== 'EEXIST') throw error;
+      // Another reclaimer is at work, unless it died holding the reclaim file.
+      let other: string;
+      try { other = fsImpl.readFileSync(reclaim, 'utf8'); } catch (readError: any) { if (readError.code === 'ENOENT') continue; throw readError; }
+      if (!dead(parse(other))) return { ok: false, holder };
+      try { if (fsImpl.readFileSync(reclaim, 'utf8') === other) fsImpl.unlinkSync(reclaim); } catch { /* gone */ }
+      continue;
     }
-    try { fsImpl.unlinkSync(stale); } catch { /* already gone */ }
+    try {
+      let current: string | null = null;
+      try { current = fsImpl.readFileSync(file, 'utf8'); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+      if (current === raw) fsImpl.unlinkSync(file);
+    } finally {
+      try { fsImpl.unlinkSync(reclaim); } catch { /* already gone */ }
+    }
   }
   return { ok: false, holder: holderOf() };
+}
+
+/** C8: the lease file still holds this call's own bytes. Gone, unreadable or another's is lost. */
+function ownsLease(ctx: any): boolean {
+  if (!ctx.leaseText) return true;
+  try { return ctx.fsImpl.readFileSync(path.join(ctx.dir, 'lease.json'), 'utf8') === ctx.leaseText; }
+  catch { return false; }
+}
+
+/** A caller that lost its lease writes nothing more, not even its checkpoint: another caller owns it. */
+function leaseLost(ctx: any): { code: number; result: any } {
+  let holder: any = null;
+  try {
+    const raw = JSON.parse(ctx.fsImpl.readFileSync(path.join(ctx.dir, 'lease.json'), 'utf8'));
+    holder = { pid: raw?.pid ?? null, host: raw?.host ?? null, runId: raw?.runId ?? null };
+  } catch { /* no holder, or an unreadable one */ }
+  return { code: 1, result: bare({ outcome: 'denied', reason: 'lease-lost', rule: 'loop/lease', runId: ctx.record?.runId,
+    checkpoint: ctx.record && !ctx.fresh ? relCheckpoint(ctx.record.runId) : null, annotations: { holder } }) };
+}
+
+function bare(fields: any): any {
+  return { schema: 1, runId: fields.runId ?? null, n: null, outcome: fields.outcome, step: null, row: null,
+    reason: fields.reason ?? null, reasons: fields.reason ? [fields.reason] : [], rule: fields.rule ?? null, evidence: [], checkpoint: fields.checkpoint ?? null,
+    ...(fields.annotations ? { annotations: fields.annotations } : {}) };
 }
 
 /** Unlinks the lease only when it is this call's own. */
@@ -694,20 +765,57 @@ function defaultResumeDigest(ctx: any, slug: string, cwd: string): { digest?: st
   return res.disposition === 'ack-required' && /^sha256:[0-9a-f]{64}$/.test(res.digest) ? { digest: res.digest } : { error: String(res.reason || res.disposition) };
 }
 
-/** IC-007 lines on the merge commit in the develop checkout: at least one clean, last PASS, none FAIL. */
-function postMergeRuns(row: any, cwd: string, head: string, fsImpl: any): any[] {
+/**
+ * The IC-007 verify lines of the row on `head`, judged by gate-b's own rule (C20, gates.ts
+ * verifyRecordReasons): [] passes, `verify-missing` means none was recorded yet.
+ */
+function postMergeReasons(row: any, cwd: string, head: string, fsImpl: any): string[] {
   const source = `verification-runs:${row.slug}`;
   let text = '';
   try { text = fsImpl.readFileSync(runRecordFileOf(cwd, row), 'utf8'); }
   catch (error: any) { if (error.code !== 'ENOENT') throw new Unreadable([source], error.message); }
-  const runs: any[] = [];
+  const records: any[] = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    let value: any;
-    try { value = JSON.parse(line); } catch (error: any) { throw new Unreadable([source], error.message); }
-    if (value && value.schema === 1 && value.head === head && value.clean === true) runs.push(value);
+    try { records.push(JSON.parse(line)); } catch (error: any) { throw new Unreadable([source], error.message); }
   }
-  return runs;
+  return verifyRecordReasons(records, head, row.slug);
+}
+
+const verifyPending = (reasons: string[]): boolean => reasons.includes('verify-missing');
+
+/** The feature plan file the post-merge verify reads (plan.md, else planning/plan.md) and its bytes' digest. */
+function featurePlan(ctx: any, row: any, worktree: string): { locator: string; sha256: string; exists: boolean } {
+  const root = artifactRootOf(ctx, row, worktree);
+  for (const rel of PLAN_FILES) {
+    const file = path.join(root, rel);
+    try { return { locator: file, sha256: sha256Digest(ctx.fsImpl.readFileSync(file)), exists: true }; }
+    catch (error: any) { if (error.code !== 'ENOENT') throw new Unreadable([`plan:${file}`], error.message); }
+  }
+  return { locator: path.join(root, PLAN_FILES[0]), sha256: sha256Digest(''), exists: false };
+}
+
+/**
+ * C6: the plan the post-merge verify reads (its `doflow-verification` block replaces the verify
+ * commands) must be the bytes gate-b approved. The baseline is the plan digest this run recorded at
+ * gate-b, else the gate-b journal entry's own input for that plan path (the shipped gate-b reads the
+ * plan through plan-verification-absent). A gate-b whose policy never read the plan, approved in an
+ * earlier run, has no baseline: the plan was not part of that approval, and it is not compared.
+ */
+function planChanged(ctx: any, row: any, intent: any): boolean {
+  if (!intent.featureWorktree) return false;
+  const current = featurePlan(ctx, row, intent.featureWorktree);
+  const recorded = ctx.record.rows[row.id]?.gateBPlan;
+  if (recorded) return recorded.locator !== current.locator || recorded.sha256 !== current.sha256;
+  let inputs: any[] = [];
+  try {
+    const { run } = orchestrationFor(ctx, row, intent.featureWorktree);
+    const entry = [...(run?.history || [])].reverse().find((h: any) => h?.action === 'decide-gate' && h.node === 'gate-b' && h.detail === 'approve');
+    inputs = Array.isArray(entry?.inputs) ? entry.inputs : [];
+  } catch { /* no readable journal: no baseline */ }
+  const root = artifactRootOf(ctx, row, intent.featureWorktree);
+  const planInputs = inputs.filter((input: any) => PLAN_FILES.some((rel) => input?.locator === path.join(root, rel)));
+  return planInputs.length > 0 && !planInputs.some((input: any) => input.locator === current.locator && input.sha256 === current.sha256);
 }
 
 // ── next (IC-001, design §4 step order) ───────────────────────────────────────────────────────────
@@ -729,10 +837,19 @@ function auditLine(fields: any): string {
  * boundary and loop-level denies.
  */
 function finish(ctx: any, fields: any): { code: number; result: any } {
+  // C8: a call that lost its lease mid-step writes nothing more.
+  if (!ownsLease(ctx)) return leaseLost(ctx);
   const { record } = ctx;
   const outcome = fields.outcome;
   const at = ctx.now().toISOString();
   const logged = outcome !== 'idle';
+  const step = fields.step ?? null;
+  if (logged && AUDIT_STEPS.includes(step)) {
+    // Written before the checkpoint, so a failed audit write leaves the run record as it was.
+    appendAudit(ctx.dir, { schema: 1, runId: record.runId, n: record.n + 1, at, row: fields.row ?? null, step, outcome,
+      reason: fields.reason ?? null, rule: fields.rule ?? null, inputs: fields.evidence ?? [], annotations: fields.annotations ?? null,
+      audit: fields.audit || auditLine(fields) }, ctx.fsImpl);
+  }
   if (logged) {
     record.n += 1;
     if (['acted', 'perform', 'denied'].includes(outcome)) record.steps += 1;
@@ -762,8 +879,12 @@ function unreadableStep(ctx: any, error: Unreadable, row: any = null): { code: n
     rule: 'loop/facts', annotations: { unreadable: error.sources } });
 }
 
-/** A switch read at a step boundary; off stops here, after the lease, with a checkpoint. */
+/**
+ * Read immediately before every mutating act: the lease must still be this call's (C8), and an off
+ * switch stops here, after the lease, with a checkpoint (C10).
+ */
 function boundary(ctx: any, row: any = null): { code: number; result: any } | null {
+  if (!ownsLease(ctx)) return leaseLost(ctx);
   const state = ctx.readSwitch();
   return state.enabled ? null : finish(ctx, { outcome: 'stopped', row: row?.id ?? null, annotations: { switch: state.switch } });
 }
@@ -771,72 +892,117 @@ function boundary(ctx: any, row: any = null): { code: number; result: any } | nu
 function tripwireNote(ctx: any, kind: 'reverts' | 'unverified', id: string, line: string): void {
   const tripwire = readTripwire(ctx);
   if (!tripwire[kind].includes(id)) tripwire[kind].push(id);
-  // Recorded first, so a person who clears the sentinel is not tripped again by the same event.
+  // C9: the sentinel first, then the event. A crash between the two writes leaves the stop set and
+  // the event unrecorded, so the next scan can only trip again (safe); never an event remembered
+  // with no stop.
+  require('../settings/autopilot.ts').tripSentinel(ctx.env, line, ctx.fsImpl);
   writeJsonAtomic(tripwireFile(ctx), tripwire, ctx.fsImpl);
-  tripSentinel(ctx.env, line, ctx.fsImpl);
 }
 
 /** The develop checkout holds no feature folder: point verify at the feature plan so scope resolves. */
 function postMergePlan(ctx: any, row: any, intent: any): string[] {
   if (!intent.featureWorktree) return [];
-  const root = artifactRootOf(ctx, row, intent.featureWorktree);
-  const plan = ['plan.md', 'planning/plan.md'].map((rel) => path.join(root, rel)).find((file) => ctx.fsImpl.existsSync(file));
-  return plan ? ['--plan-path', plan] : [];
+  const plan = featurePlan(ctx, row, intent.featureWorktree);
+  return plan.exists ? ['--plan-path', plan.locator] : [];
 }
 
-async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; worktree?: string }): Promise<any> {
+/** C16: the archived merge intent of a row (done/<row>.json), or null. */
+function archivedIntent(ctx: any, row: any): any {
+  const file = path.join(ctx.dir, 'done', `${row.id}.json`);
+  try { return JSON.parse(ctx.fsImpl.readFileSync(file, 'utf8')); }
+  catch (error: any) { if (error.code === 'ENOENT') return null; throw new Unreadable(['merge-intents'], error.message); }
+}
+
+/** Deny reasons of an open intent that only a person resolves: held per row by digest (C16, C6). */
+const INTENT_HOLDS = ['develop-moved', 'plan-changed'];
+
+/**
+ * A deny that repeats on unchanged inputs is logged once; while the inputs digest is the same the row
+ * is skipped, so other rows advance and no budget is spent.
+ */
+function heldDeny(ctx: any, row: any, kind: string, reason: string, inputsDigest: string, fields: any = {}): any {
+  const slot = (ctx.record.rows[row.id] ||= {});
+  if (slot.held && slot.held.kind === kind && slot.held.inputsDigest === inputsDigest) return { skip: `held:${slot.held.reason}` };
+  slot.held = { kind, reason, inputsDigest };
+  return finish(ctx, { outcome: 'denied', step: 'merge', reason, row: row.id, slug: row.slug, rule: `merge/${reason}`, ...fields });
+}
+
+async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; worktree?: string; held?: boolean; holdDigest?: string }): Promise<any> {
   const slot = (ctx.record.rows[row.id] ||= {});
   const intent = source.intent || null;
   let gate: any = null;
   let approvedHead: string | null = null;
+  if (intent && slot.held?.kind === 'intent') delete slot.held;
   if (!intent) {
     const entry = [...source.run.history].reverse().find((h: any) => h?.action === 'decide-gate' && h.node === 'gate-b' && h.detail === 'approve');
     if (!entry || entry.by !== 'autopilot' || typeof entry.policy?.digest !== 'string') return { skip: 'gate-b-not-by-policy' };
+    // C16: an intent a person archived as `abandoned` is neither resumed nor replaced by the loop
+    // (merge.ts would resume an archived intent); the row waits for that person.
+    if (archivedIntent(ctx, row)?.status === 'abandoned') return { skip: 'intent-abandoned' };
     gate = { id: 'gate-b', digest: entry.policy.digest };
-    approvedHead = slot.approved?.featureHead || null;
-    if (!approvedHead) {
+    // C15: the feature head the loop bound at its own gate-b approval, kept in the journal entry, so
+    // it holds across runs while develop moves (merge-tree runs on the current develop).
+    if (typeof entry.approvedHead === 'string' && /^[0-9a-f]{40}$/.test(entry.approvedHead)) approvedHead = entry.approvedHead;
+    else {
       // A gate-b decided outside this loop: bind to the heads its inputs digest names, else head-moved.
       const heads = readHeads(ctx, row);
       const input = (entry.inputs || []).find((i: any) => typeof i?.locator === 'string' && i.locator.endsWith('#heads'));
       if (input && input.sha256 === sha256Digest(JSON.stringify(heads))) approvedHead = heads.featureHead;
       else return finish(ctx, { outcome: 'denied', step: 'merge', reason: 'head-moved', row: row.id, slug: row.slug, rule: 'merge/head-moved' });
     }
+    // C7: approval is not retroactive, except that develop's current policy is reloaded before the
+    // first intent is written: a gate-b now `never` for this class denies, and nothing is written.
+    const current = loopPolicy(ctx);
+    const gateB = current.ok ? current.policy.classes?.[row.class]?.['gate-b'] : null;
+    const refusal = !current.ok ? current.reason : !gateB ? 'class-unsupported' : gateB.autopilot === 'never' ? 'policy-never' : null;
+    if (refusal) return heldDeny(ctx, row, 'merge-policy', refusal, sha256Digest(JSON.stringify([refusal, current.digest ?? null])));
+    if (slot.held?.kind === 'merge-policy') delete slot.held;
   }
-  if (intent && intent.phase === 'ff-done' && intent.verifiedHead !== intent.commit && !intent.status
-    && postMergeRuns(row, intent.developWorktree, intent.commit, ctx.fsImpl).length === 0) {
-    // The lean post-merge gate is performed by the session on the new develop head (no non-git spawn).
-    const before = { artifact: runRecordFileOf(intent.developWorktree, row), sha256: null };
-    const perform = { outcome: 'perform', runId: ctx.record.runId, row: row.id, slug: row.slug, stage: 'verification', skill: 'do-test',
-      purpose: 'post-merge', worktree: intent.developWorktree, artifactRoot: null, head: intent.commit, before, issuedAt: ctx.now().toISOString(),
-      after: ['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', intent.developHead, ...postMergePlan(ctx, row, intent)],
-      next: ['roadmap', '--action', 'next', '--run', ctx.record.runId] };
-    return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform });
+  if (intent && intent.phase === 'ff-done' && intent.verifiedHead !== intent.commit && !intent.status) {
+    // A held row is not advanced: no post-merge perform, no check, no render or cleanup (C2).
+    if (source.held) return { skip: 'row-held' };
+    // C6: the post-merge verify reads the feature plan, so it must be the plan gate-b approved.
+    if (planChanged(ctx, row, intent)) {
+      slot.held = { kind: 'intent', reason: 'plan-changed', inputsDigest: source.holdDigest ?? null };
+      return finish(ctx, { outcome: 'denied', step: 'merge', reason: 'plan-changed', row: row.id, slug: row.slug, rule: 'merge/plan-changed' });
+    }
+    if (verifyPending(postMergeReasons(row, intent.developWorktree, intent.commit, ctx.fsImpl))) {
+      // The lean post-merge gate is performed by the session on the new develop head (no non-git spawn).
+      const before = { artifact: runRecordFileOf(intent.developWorktree, row), sha256: null };
+      const perform = { outcome: 'perform', runId: ctx.record.runId, row: row.id, slug: row.slug, stage: 'verification', skill: 'do-test',
+        purpose: 'post-merge', worktree: intent.developWorktree, artifactRoot: null, head: intent.commit, before, issuedAt: ctx.now().toISOString(),
+        after: ['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', intent.developHead, ...postMergePlan(ctx, row, intent)],
+        next: ['roadmap', '--action', 'next', '--run', ctx.record.runId] };
+      return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform });
+    }
   }
   const startPhase = intent?.phase || null;
   let pending = false;
   const isEnabled = () => {
+    if (!ownsLease(ctx)) return { enabled: false, switch: 'lease-lost' };
     const state = ctx.readSwitch();
     if (!state.enabled) return state;
+    // A seed hold set after the fast-forward started settles like an off switch (C2, C3).
+    if (source.held) return { enabled: false, switch: 'row-held' };
     let open: any;
     try { open = readOpenIntents({ root: ctx.root, fsImpl: ctx.fsImpl }).find((entry: any) => entry.row === row.id); }
     catch (error: any) { throw new Unreadable(['merge-intents'], error.message); }
     if (open && open.phase === 'ff-done' && open.verifiedHead !== open.commit && !open.status
-      && postMergeRuns(row, open.developWorktree, open.commit, ctx.fsImpl).length === 0) {
+      && verifyPending(postMergeReasons(row, open.developWorktree, open.commit, ctx.fsImpl))) {
       pending = true;
       return { enabled: false, switch: 'verify-pending' };
     }
     return { enabled: true };
   };
-  const postMergeCheck = ({ cwd, head }: any) => {
-    const runs = postMergeRuns(row, cwd, head, ctx.fsImpl);
-    return { ok: runs.length > 0 && runs[runs.length - 1].verdict === 'PASS' && !runs.some((r: any) => r.verdict === 'FAIL') };
-  };
+  const postMergeCheck = ({ cwd, head }: any) => ({ ok: postMergeReasons(row, cwd, head, ctx.fsImpl).length === 0 });
   const result = await ctx.mergeImpl({ root: ctx.root, row, runId: ctx.record.runId, gate, approvedHead,
     featureWorktree: source.worktree, env: ctx.env, fsImpl: ctx.fsImpl, now: () => ctx.now().getTime(), isEnabled, postMergeCheck,
     seedPath: ctx.seedPath, roadmapPath: ctx.roadmapPath, staleLockSeconds: ctx.policy.merge.staleLockSeconds });
   const step = !startPhase || ['intent', 'built', 'ff-started'].includes(startPhase) ? 'merge' : startPhase === 'ff-done' ? 'render' : 'cleanup';
   const base = { row: row.id, slug: row.slug };
   if (result.outcome === 'stopped') {
+    if (result.annotations?.switch === 'lease-lost') return leaseLost(ctx);
+    if (result.annotations?.switch === 'row-held') return { skip: 'row-held' };
     if (pending && result.annotations?.switch === 'verify-pending') {
       return finish(ctx, { ...base, outcome: 'acted', step, annotations: { commit: result.commit, pending: 'post-merge-verification' }, audit: `merge ${row.slug} ${result.commit}; post-merge verification pending` });
     }
@@ -846,6 +1012,10 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
   }
   if (result.outcome === 'denied') {
     if (result.error === 'cannot-read-facts') return unreadableStep(ctx, new Unreadable(result.sources || ['merge-facts'], 'merge facts'), row);
+    // C16: an open intent denied develop-moved (a person committed on develop) is held per row; the
+    // way out is a person's: move .doflow/state/roadmap/intents/<row>.json to done/ with
+    // "status": "abandoned" (the loop then skips the row with intent-abandoned), or restore develop.
+    if (intent && INTENT_HOLDS.includes(result.reason)) slot.held = { kind: 'intent', reason: result.reason, inputsDigest: source.holdDigest ?? null };
     return finish(ctx, { ...base, outcome: 'denied', step: 'merge', reason: result.reason, rule: `merge/${result.reason}` });
   }
   if (result.outcome === 'merged-unverified') {
@@ -866,20 +1036,24 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
     audit: `cleanup ${row.slug} ${result.commit} (${result.cleanup}${rendered ? ', table rendered' : ''})` });
 }
 
-async function gateStep(ctx: any, row: any, orch: any, gateId: string): Promise<any> {
+async function gateStep(ctx: any, row: any, orch: any, gateId: string, worktree: string): Promise<any> {
   const slot = (ctx.record.rows[row.id] ||= {});
   const stop = boundary(ctx, row);
   if (stop) return stop;
-  const heads = gateId === 'gate-b' ? readHeads(ctx, row) : null;
+  // C15: gate-b binds the feature head read here; the journal entry keeps it only when the gate's own
+  // heads fact evaluated the same head, so the binding outlives this run.
+  const bindHead = gateId === 'gate-b' ? readHeads(ctx, row).featureHead : undefined;
   let result: any;
-  try { result = orch.decideGate({ taskId: row.slug, gateId, policy: gateId, now: ctx.now() }); }
+  try { result = orch.decideGate({ taskId: row.slug, gateId, policy: gateId, now: ctx.now(), ...(bindHead ? { bindHead } : {}) }); }
   catch (error: any) { throw new Unreadable([`gate:${gateId}:${row.slug}`], error.message); }
   const base = { row: row.id, slug: row.slug, rule: result.rule ?? null, evidence: result.inputs || [] };
   if (result.decision === 'pass') {
     delete slot.held;
-    if (heads) {
-      const input = (result.inputs || []).find((i: any) => typeof i?.locator === 'string' && i.locator.endsWith('#heads'));
-      slot.approved = input && input.sha256 === sha256Digest(JSON.stringify(heads)) ? { featureHead: heads.featureHead } : null;
+    if (gateId === 'gate-b') {
+      // C6: the plan bytes gate-b approved: its own plan input, else this loop's read right after it.
+      const plan = featurePlan(ctx, row, worktree);
+      const approved = (result.inputs || []).find((i: any) => i?.locator === plan.locator);
+      slot.gateBPlan = { locator: plan.locator, sha256: approved ? approved.sha256 : plan.sha256 };
     }
     return finish(ctx, { ...base, outcome: 'acted', step: 'gate',
       audit: `${gateId} ${row.slug} approved by policy ${result.policy.id}@${result.policy.digest} (${(result.inputs || []).length} inputs)` });
@@ -1052,7 +1226,7 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
     delete slot.perform;
   }
   if (run.state === 'REJECTED') return { skip: 'run-rejected' };
-  if (run.state === 'AWAITING_GATE' && node?.type === 'gate') return gateStep(ctx, row, orch, node.id);
+  if (run.state === 'AWAITING_GATE' && node?.type === 'gate') return gateStep(ctx, row, orch, node.id, worktree);
   if (run.state === 'COMPLETED') return mergeStep(ctx, row, { run, worktree });
   if (run.state === 'RUNNING' && node?.type === 'stage') {
     return node.id === 'implementation' ? implementationStep(ctx, row, worktree) : performStep(ctx, row, worktree, node);
@@ -1071,6 +1245,9 @@ function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktre
   let featureHead: string | null = null;
   try { featureHead = String(ctx.execFileSync('git', ['-C', ctx.root, 'rev-parse', '--verify', `refs/heads/feat/${row.slug}`], ctx.gitOptions)).trim(); }
   catch { /* branch already gone: only a leftover worktree remains */ }
+  // C10: the switch (and the lease) is read again after the render, right before the cleanup.
+  const stopCleanup = boundary(ctx, row);
+  if (stopCleanup) return stopCleanup;
   const cleaned = cleanupFeature({ intent: { featureWorktree: worktree, featureBranch: `feat/${row.slug}`, featureHead },
     root: ctx.root, develop, execFileSync: ctx.execFileSync, execOptions: ctx.gitOptions, fsImpl: ctx.fsImpl });
   slot.done = true;
@@ -1100,6 +1277,9 @@ async function claimStep(ctx: any, row: any, seed: any, developHead: string): Pr
   // Hooks are disabled: the claim launches only git.
   execFileSync('git', ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '-b', `feat/${row.slug}`, worktree, developHead], ctx.gitOptions);
   ctx.record.rows[row.id] = { claimedAt: ctx.now().toISOString(), claimHead: developHead, worktree };
+  // C10: read again before the next mutation; a stopped claim is finished by a later call (stepRow).
+  const stopStart = boundary(ctx, row);
+  if (stopStart) return stopStart;
   const { orch } = orchestrationFor(ctx, row, worktree);
   orch.start({ taskId: row.slug, taskClass: 'feature', now: ctx.now() });
   return finish(ctx, { outcome: 'acted', step: 'pick', row: row.id, slug: row.slug, annotations: { worktree, developHead },
@@ -1164,7 +1344,7 @@ async function underLease(ctx: any, options: any): Promise<any> {
 
   const rows = seed.rows;
   const byId = new Map<string, any>(rows.map((row: any) => [row.id, row]));
-  const { statuses } = deriveStatus(rows, facts, facts.claims);
+  const { statuses } = deriveStatus(rows, facts);
   const skips: Record<string, string> = {};
 
   // An open merge intent resumes S8 first (design §5).
@@ -1172,9 +1352,18 @@ async function underLease(ctx: any, options: any): Promise<any> {
     if (options.row && intent.row !== options.row) continue;
     const row = byId.get(intent.row);
     if (!row) { skips[intent.row] = 'row-unknown'; continue; }
+    // C2: a seed hold set after the intent stops the merge before the fast-forward starts; from
+    // ff-started on, mergeStep settles the row as under an off switch.
+    if (row.hold && ['intent', 'built'].includes(intent.phase)) { skips[row.id] = 'row-held'; continue; }
+    // C16, C6: a hold on this intent (develop-moved, plan-changed) stands while the intent, develop's
+    // head and the feature plan are unchanged.
+    const slot = (record.rows[row.id] ||= {});
+    const holdDigest = sha256Digest(JSON.stringify({ intent, developHead: facts.developHead,
+      plan: intent.featureWorktree ? featurePlan(ctx, row, intent.featureWorktree).sha256 : null }));
+    if (slot.held?.kind === 'intent' && slot.held.inputsDigest === holdDigest) { skips[row.id] = `held:${slot.held.reason}`; continue; }
     // A merged-unverified intent is retried once a person cleared the sentinel: merge.ts rechecks
     // the head before render and cleanup, and a fresh failure trips the sentinel again.
-    const outcome = await mergeStep(ctx, row, { intent });
+    const outcome = await mergeStep(ctx, row, { intent, held: Boolean(row.hold), holdDigest });
     if (outcome.skip) { skips[row.id] = outcome.skip; continue; }
     return outcome;
   }
@@ -1233,19 +1422,18 @@ async function next(options: any = {}): Promise<{ code: number; result: any }> {
     seedPath: options.seedPath || path.join(root, 'agent-docs', 'roadmap', 'rows.json'),
     roadmapPath: options.roadmapPath || path.join(root, 'agent-docs', 'roadmap', 'ROADMAP.md'),
     mergeImpl: options.mergeImpl || mergeRoadmapRow,
-    readSwitch: () => readKillSwitch(env),
+    readSwitch: () => require('../settings/autopilot.ts').readKillSwitch(env),
   };
   ctx.dispatchFacts = options.dispatchFacts || ((slug: string) => defaultDispatchFacts(ctx, slug));
   ctx.resumeDigest = options.resumeDigest || ((slug: string, cwd: string) => defaultResumeDigest(ctx, slug, cwd));
-  const bare = (fields: any) => ({ schema: 1, runId: fields.runId ?? null, n: null, outcome: fields.outcome, step: null, row: null,
-    reason: fields.reason ?? null, reasons: fields.reason ? [fields.reason] : [], rule: fields.rule ?? null, evidence: [], checkpoint: fields.checkpoint ?? null,
-    ...(fields.annotations ? { annotations: fields.annotations } : {}) });
   let known: any = null;
   try { known = options.run ? readRunFile(path.join(ctx.runsDir, `${options.run}.json`), fsImpl) : readRunRecords(ctx.runsDir, fsImpl).filter((r) => !r.closedAt).at(-1); }
   catch { /* named below, under the lease */ }
 
-  // 1. Kill switch, before anything is taken or written. An intent past `ff-started` still settles
-  //    to `ff-done` (merge.ts completes the started fast-forward, then stops at its next boundary).
+  // 1. Kill switch, before anything is taken or written. An intent at `ff-started` is only settled
+  //    (merge.ts, C3): a develop already at the commit records `ff-done` and a proven-dead partial is
+  //    repaired, then the call stops; a clean develop still at its old head returns `stopped` with
+  //    phase `ff-started` and no new fast-forward.
   const first = ctx.readSwitch();
   let settle = false;
   if (!first.enabled) {
@@ -1263,6 +1451,7 @@ async function next(options: any = {}): Promise<{ code: number; result: any }> {
     const holder = lease.holder && typeof lease.holder === 'object' ? { pid: lease.holder.pid ?? null, host: lease.holder.host ?? null, runId: lease.holder.runId ?? null } : null;
     return { code: 1, result: bare({ outcome: 'denied', reason: 'lease-held', runId: known?.runId, annotations: { holder } }) };
   }
+  ctx.leaseText = lease.text;
   try {
     if (settle) {
       const loaded = loadRunRecord(ctx.runsDir, options.run, ctx.now(), fsImpl);
@@ -1309,23 +1498,50 @@ async function nextCommand(options: any): Promise<number> {
   return out.code;
 }
 
-/** `audit`: every logged step of every run (or `--run`), oldest run first. */
+/**
+ * `audit`: every logged step of every run (or `--run`), oldest run first. Gate and merge entries
+ * the 500-entry log or retention dropped come from audit.jsonl, with their inputs (C17).
+ */
 function auditCommand(options: any): number {
   const json = Boolean(options.json);
   const fsImpl = options.fsImpl || fs;
   if (options.run !== undefined && !RUN_ID.test(String(options.run))) return usageError('--run must be rl-<yyyymmdd>-<4 crockford characters>', json);
   const root = options.root || resolveMainRoot(options.cwd || process.cwd());
+  const dir = path.join(root, '.doflow', 'state', 'roadmap');
   let records: any[];
-  try { records = readRunRecords(path.join(root, '.doflow', 'state', 'roadmap', 'runs'), fsImpl); }
-  catch (error: any) {
+  let durable: any[];
+  try {
+    records = readRunRecords(path.join(dir, 'runs'), fsImpl);
+    durable = readAudit(dir, fsImpl);
+  } catch (error: any) {
     const sources = error instanceof Unreadable ? error.sources : ['run-records'];
     if (json) console.log(JSON.stringify({ schema: 1, action: 'audit', error: 'cannot-read-facts', sources }));
     else console.error(`doflow roadmap: cannot read ${sources.join(', ')}`);
     process.exitCode = 1;
     return 1;
   }
-  const entries = records.filter((record) => !options.run || record.runId === options.run)
-    .flatMap((record) => record.log.map((entry: any) => ({ runId: record.runId, ...entry })));
+  // A run sorts by its record's createdAt, or by its first audit entry once the record is pruned; an
+  // entry in both places is shown once, with the audit file's inputs.
+  const byRun = new Map<string, { key: string; entries: Map<number, any> }>();
+  const add = (runId: string, entry: any, key: string) => {
+    if (options.run && runId !== options.run) return;
+    const run = byRun.get(runId) || { key, entries: new Map() };
+    byRun.set(runId, run);
+    if (key < run.key) run.key = key;
+    if (!run.entries.has(entry.n)) run.entries.set(entry.n, { runId, ...entry });
+  };
+  for (const entry of durable) {
+    if (entry && typeof entry.runId === 'string' && Number.isSafeInteger(entry.n)) {
+      const rest = { ...entry };
+      delete rest.schema;
+      delete rest.runId;
+      add(entry.runId, rest, String(entry.at));
+    }
+  }
+  for (const record of records) for (const entry of record.log) add(record.runId, entry, record.createdAt);
+  const entries = [...byRun.entries()]
+    .sort(([a, x], [b, y]) => (x.key < y.key ? -1 : x.key > y.key ? 1 : a < b ? -1 : 1))
+    .flatMap(([, run]) => [...run.entries.values()].sort((a, b) => a.n - b.n));
   if (json) console.log(JSON.stringify({ schema: 1, action: 'audit', entries }));
   else for (const entry of entries) console.log(`${entry.at} ${entry.runId} #${entry.n} ${entry.audit}`);
   return 0;
@@ -1334,5 +1550,6 @@ function auditCommand(options: any): number {
 module.exports = {
   handleRoadmapCommand,
   next,
-  readKillSwitch,
+  // The lease primitive, exported for its interleaving test (C8).
+  acquireLease,
 };

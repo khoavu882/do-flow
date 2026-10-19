@@ -12,7 +12,8 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { tempDir } = require('../helper/tmp');
-const { next } = require('../../src/runtime/roadmap/loop.ts');
+const { next, acquireLease } = require('../../src/runtime/roadmap/loop.ts');
+const { readKillSwitch } = require('../../src/runtime/settings/autopilot.ts');
 const { mergeRoadmapRow, readOpenIntents } = require('../../src/runtime/roadmap/merge.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const { initRegister } = require('../../src/runtime/decision-register.ts');
@@ -39,7 +40,7 @@ function setSwitch(home, value) {
   write(path.join(home, '.config/doflow/settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': value }));
 }
 
-function fixture(t, { rows = [ROW], on = true, envExtra = {}, name = 'doflow-roadmap-loop-', testScript = true } = {}) {
+function fixture(t, { rows = [ROW], on = true, envExtra = {}, name = 'doflow-roadmap-loop-', testScript = true, policy } = {}) {
   const dir = tempDir(t, name);
   const root = path.join(dir, 'main');
   const develop = path.join(dir, 'develop');
@@ -57,7 +58,7 @@ function fixture(t, { rows = [ROW], on = true, envExtra = {}, name = 'doflow-roa
   git(root, 'config', 'user.email', 'develop@example.test');
   git(root, 'config', 'core.hooksPath', '/dev/null');
   write(path.join(root, '.gitignore'), '.doflow/\nagent-docs/\n');
-  write(path.join(root, 'core/registry/gates.json'), policyBytes());
+  write(path.join(root, 'core/registry/gates.json'), policyBytes(policy));
   write(path.join(root, 'shared.txt'), 'base\n');
   if (testScript) write(path.join(root, 'package.json'), `${JSON.stringify({ private: true, scripts: { test: 'node -e 0' } })}\n`);
   git(root, 'add', '.');
@@ -325,7 +326,7 @@ for (const [name, holderHost, alive, expected] of [
   });
 }
 
-test('release unlinks only its own lease', async (t) => {
+test('release unlinks only its own lease; a lease lost mid-call stops at the next boundary and writes nothing (C8)', async (t) => {
   const f = fixture(t);
   const lease = path.join(f.root, '.doflow/state/roadmap/lease.json');
   const other = { schema: 1, pid: 1, start: null, host: 'other.example', runId: 'rl-20261019-yyyy', acquiredAt: '2026-10-19T00:00:00Z' };
@@ -334,8 +335,54 @@ test('release unlinks only its own lease', async (t) => {
     return cp.execFileSync(binary, args, options);
   };
   const out = await f.next({ execFileSync });
-  assert.equal(out.result.outcome, 'acted');
-  assert.deepEqual(JSON.parse(fs.readFileSync(lease, 'utf8')), other);
+  assert.deepEqual([out.code, out.result.outcome, out.result.reason, out.result.rule], [1, 'denied', 'lease-lost', 'loop/lease']);
+  assert.deepEqual(out.result.annotations.holder, { pid: 1, host: 'other.example', runId: 'rl-20261019-yyyy' });
+  assert.equal(f.orch().readRun('113-toy'), null, 'no run is started after the lease is lost');
+  assert.equal(fs.existsSync(path.join(f.root, '.doflow/state/roadmap/runs')), false, 'not even a checkpoint is written');
+  assert.deepEqual(JSON.parse(fs.readFileSync(lease, 'utf8')), other, 'the other holder keeps its lease');
+  // Once the lease is free, the interrupted claim is finished.
+  fs.rmSync(lease);
+  const resumed = await f.next();
+  assert.deepEqual([resumed.result.outcome, resumed.result.step], ['acted', 'pick']);
+  assert.equal(f.orch().readRun('113-toy').state, 'RUNNING');
+});
+
+test('C8: a stale-lease reclaim never removes a live lease; at most one of two racers holds it (BE-3 interleave)', (t) => {
+  const dir = path.join(tempDir(t, 'doflow-roadmap-lease-'), 'roadmap');
+  const file = path.join(dir, 'lease.json');
+  const host = os.hostname();
+  const holder = (pid) => ({ schema: 1, pid, start: null, host, runId: null, acquiredAt: `2026-10-19T00:00:0${pid % 10}Z` });
+  const stale = holder(4242);
+  write(file, `${JSON.stringify(stale)}\n`);
+  const alive = (proc) => (proc.pid === stale.pid ? false : 'unknown');
+  let judged = false;
+  let mutations = 0;
+  let a = null;
+  let c = null;
+  // B judges the old holder dead; then another reclaimer clears it and A acquires before B's first
+  // write; C tries at B's next write. Every real fs call of A and C goes straight to disk.
+  const seam = new Proxy(fs, { get(target, name) {
+    const real = target[name];
+    if (typeof real !== 'function') return real;
+    if (name === 'readFileSync') return (...args) => { const out = real.apply(target, args); if (String(args[0]) === file) judged = true; return out; };
+    if (!['renameSync', 'linkSync', 'unlinkSync', 'writeFileSync'].includes(name)) return real.bind(target);
+    return (...args) => {
+      if (judged && String(args[0]).startsWith(dir)) {
+        mutations += 1;
+        if (mutations === 1) { fs.rmSync(file, { force: true }); a = acquireLease(dir, holder(1001), alive, fs); }
+        else if (mutations === 2) c = acquireLease(dir, holder(1003), alive, fs);
+      }
+      return real.apply(target, args);
+    };
+  } });
+  const b = acquireLease(dir, holder(1002), alive, seam);
+  assert.ok(a && c, 'both racers ran inside the reclaim window');
+  assert.equal(a.ok && c.ok, false, `A and C must not both hold the lease (A ${a.ok}, C ${c.ok}, B ${b.ok})`);
+  const current = fs.readFileSync(file, 'utf8');
+  const holders = [a, b, c].filter((attempt) => attempt.ok && attempt.text === current);
+  assert.equal(holders.length, 1, 'exactly one caller still owns the lease file it acquired');
+  assert.equal([a, b, c].filter((attempt) => attempt.ok).length, 1, 'no second caller believes it holds the lease');
+  assert.equal(fs.existsSync(path.join(dir, 'lease.reclaim')), false, 'the reclaim file is released');
 });
 
 // ── budget and checkpoint (FR-017, IC-013) ───────────────────────────────────────────────────────
@@ -525,15 +572,26 @@ test('a revert of an autopilot merge sets the sentinel once; a person clears it'
   assert.deepEqual([cleared.result.outcome, cleared.result.step], ['acted', 'pick'], 'the same revert does not trip twice');
 });
 
-async function completedRow(t) {
-  const f = fixture(t);
+/** The plan input a gate-b approval records (plan-verification-absent): plan.md, else planning/plan.md, else absent. */
+function planInput(f, row = ROW) {
+  for (const rel of ['plan.md', 'planning/plan.md']) {
+    const file = path.join(f.featureDir(row), rel);
+    if (fs.existsSync(file)) return { locator: file, sha256: digest(fs.readFileSync(file)) };
+  }
+  return { locator: path.join(f.featureDir(row), 'plan.md'), sha256: digest('') };
+}
+
+async function completedRow(t, { rows, arrange, entry = {} } = {}) {
+  const f = fixture(t, rows ? { rows } : {});
   await f.next();
   write(path.join(f.worktree(), 'toy/a.txt'), 'feature\n');
   f.git(f.worktree(), 'add', '.');
   f.git(f.worktree(), 'commit', '-qm', 'toy');
+  if (arrange) arrange(f);
   const heads = { developHead: f.git(f.root, 'rev-parse', 'develop'), featureHead: f.git(f.root, 'rev-parse', 'feat/113-toy') };
   placeRun(f, null, [{ at: f.tick().toISOString(), action: 'decide-gate', node: 'gate-b', detail: 'approve', by: 'autopilot',
-    policy: { id: 'gate-b', digest: `sha256:${'d'.repeat(64)}` }, inputs: [{ locator: `${f.worktree()}#heads`, sha256: digest(JSON.stringify(heads)) }], note: 'approved by policy', forced: false }]);
+    policy: { id: 'gate-b', digest: `sha256:${'d'.repeat(64)}` }, inputs: [{ locator: `${f.worktree()}#heads`, sha256: digest(JSON.stringify(heads)) }, planInput(f)],
+    note: 'approved by policy', forced: false, ...entry }]);
   return { f, heads };
 }
 
@@ -829,8 +887,7 @@ test('B1, B3: the real verify verb, run from the envelope argv after an earlier 
 });
 
 test('B1, B3: the real post-merge verify, run from the envelope argv in the develop checkout, completes the merge', async (t) => {
-  const { f, heads } = await completedRow(t);
-  verifyPlan(f, ROW, 'toy/a.txt');
+  const { f, heads } = await completedRow(t, { arrange: (fx) => verifyPlan(fx, ROW, 'toy/a.txt') });
   const merged = await f.next();
   const verify = await f.next();
   const plan = path.join(f.featureDir(), 'plan.md');
@@ -839,4 +896,356 @@ test('B1, B3: the real post-merge verify, run from the envelope argv in the deve
   assert.deepEqual([report.status, report.scope.actual.files], ['PASS', ['toy/a.txt']]);
   const done = await f.next();
   assert.deepEqual([done.result.outcome, done.result.step, done.result.annotations.cleanup], ['acted', 'cleanup', 'cleaned'], `merge ${merged.result.annotations.commit}`);
+});
+
+// ── 108 review fixes, WP1: stop levers and run state ────────────────────────────────────────────
+
+const seedFile = (f) => path.join(f.root, 'agent-docs/roadmap/rows.json');
+const setSeed = (f, rows) => write(seedFile(f), JSON.stringify({ schema: 1, rows }));
+
+/** Leaves the row's merge intent at `phase`, as a call killed right after recording it would. */
+async function intentAt(f, phase) {
+  const featureHead = f.git(f.root, 'rev-parse', 'feat/113-toy');
+  await assert.rejects(mergeRoadmapRow({ root: f.root, row: ROW, runId: RUN, gate: { id: 'gate-b', digest: `sha256:${'a'.repeat(64)}` },
+    approvedHead: featureHead, env: f.env, now: () => 1792400000000, postMergeCheck: () => ({ ok: true }),
+    onPhase: (reached) => { if (reached === phase) throw new Error(`killed after ${phase}`); } }), /killed/);
+  const [intent] = readOpenIntents({ root: f.root });
+  assert.equal(intent.phase, phase);
+  return intent;
+}
+
+function spyMerge() {
+  const calls = [];
+  return { calls, mergeImpl: (options) => { calls.push(options.row.id); return mergeRoadmapRow(options); } };
+}
+
+function commitOnDevelop(f, name, text = `${name}\n`) {
+  write(path.join(f.develop, name), text);
+  f.git(f.develop, 'add', '.');
+  f.git(f.develop, 'commit', '-qm', `person: ${name}`);
+  return f.git(f.develop, 'rev-parse', 'HEAD');
+}
+
+test('C2: a seed hold added once the intent is built stops the merge: row-held, no merge call, develop unchanged', async (t) => {
+  const { f } = await completedRow(t);
+  const intent = await intentAt(f, 'built');
+  const developHead = f.git(f.develop, 'rev-parse', 'HEAD');
+  setSeed(f, [{ ...ROW, hold: 'owner reviews first' }]);
+  const spy = spyMerge();
+  const held = await f.next({ mergeImpl: spy.mergeImpl });
+  assert.deepEqual([held.result.outcome, held.result.skips['113']], ['idle', 'row-held']);
+  assert.deepEqual(spy.calls, [], 'the merge plumbing is never entered for a held row');
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), developHead);
+  assert.equal(readOpenIntents({ root: f.root })[0].phase, 'built');
+  // Control: without the hold the same intent merges.
+  setSeed(f, [ROW]);
+  const merged = await f.next({ mergeImpl: spy.mergeImpl });
+  assert.deepEqual([merged.result.outcome, merged.result.step, merged.result.annotations.pending], ['acted', 'merge', 'post-merge-verification']);
+  assert.deepEqual(spy.calls, ['113']);
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), intent.commit);
+});
+
+test('C2: from ff-started a held row is only settled, as under an off switch: no new fast-forward', async (t) => {
+  const { f } = await completedRow(t);
+  const intent = await intentAt(f, 'ff-started');
+  const developHead = f.git(f.develop, 'rev-parse', 'HEAD');
+  setSeed(f, [{ ...ROW, hold: 'owner reviews first' }]);
+  const held = await f.next();
+  assert.deepEqual([held.result.outcome, held.result.skips['113']], ['idle', 'row-held']);
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), developHead, 'a clean develop at its old head is not fast-forwarded');
+  // A fast-forward that had already landed is settled to ff-done, and nothing more runs while held.
+  f.git(f.develop, 'merge', '--ff-only', '-q', intent.commit);
+  const settled = await f.next();
+  assert.equal(settled.result.skips['113'], 'row-held');
+  assert.equal(readOpenIntents({ root: f.root })[0].phase, 'ff-done');
+  const still = await f.next();
+  assert.deepEqual([still.result.outcome, still.result.skips['113']], ['idle', 'row-held'], 'no post-merge perform for a held row');
+});
+
+test('C4: a sentinel the switch cannot stat (EACCES) reads as off, never as absent', (t) => {
+  const home = tempDir(t, 'doflow-roadmap-switch-');
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') };
+  delete env[SWITCH];
+  setSwitch(home, 'on');
+  const sentinel = path.join(home, '.config/doflow/autopilot/off');
+  assert.deepEqual(readKillSwitch(env), { enabled: true, switch: null }, 'control: settings on, sentinel absent (ENOENT)');
+  const denied = { ...fs, statSync: (file, ...rest) => {
+    if (String(file) === sentinel) throw Object.assign(new Error(`EACCES: permission denied, stat '${file}'`), { code: 'EACCES' });
+    return fs.statSync(file, ...rest);
+  } };
+  assert.deepEqual(readKillSwitch(env, denied), { enabled: false, switch: 'sentinel' });
+  if (typeof process.getuid === 'function' && process.getuid() !== 0) {
+    write(sentinel, '');
+    fs.chmodSync(path.dirname(sentinel), 0o000);
+    try {
+      assert.deepEqual(readKillSwitch(env), { enabled: false, switch: 'sentinel' }, 'a real unreadable autopilot/ directory');
+    } finally { fs.chmodSync(path.dirname(sentinel), 0o700); }
+  }
+});
+
+test('C9: the tripwire creates the sentinel before it records the event, so a crash between the two can only trip again', async (t) => {
+  const f = fixture(t, { rows: [{ ...ROW, id: '120', slug: '120-other', writeSet: ['other/'] }] });
+  f.git(f.develop, 'switch', '-qc', 'topic');
+  write(path.join(f.develop, 'topic.txt'), 'topic\n');
+  f.git(f.develop, 'add', '.');
+  f.git(f.develop, 'commit', '-qm', 'topic');
+  f.git(f.develop, 'switch', '-q', 'develop');
+  f.git(f.develop, 'merge', '--no-ff', '-q', 'topic', '-m', 'merge: 119 Topic', '-m', `DoFlow-Row: 119\nDoFlow-Policy: gate-b@sha256:${'c'.repeat(64)}`);
+  f.git(f.develop, 'revert', '-m', '1', '--no-edit', 'HEAD');
+  const sentinel = path.join(f.home, '.config/doflow/autopilot/off');
+  const events = path.join(f.root, '.doflow/state/roadmap/tripwire/events.json');
+  let writes = 0;
+  // The process dies at the second of the two durable writes, whichever order they come in.
+  const crashing = new Proxy(fs, { get(target, name) {
+    const real = target[name];
+    if (typeof real !== 'function') return real;
+    if (name === 'renameSync') return (from, to, ...rest) => { if (String(to) === events && ++writes === 2) throw new Error('killed'); return real.call(target, from, to, ...rest); };
+    if (name === 'writeFileSync') return (file, ...rest) => { if (String(file) === sentinel && ++writes === 2) throw new Error('killed'); return real.call(target, file, ...rest); };
+    return real.bind(target);
+  } });
+  await assert.rejects(f.next({ fsImpl: crashing }), /killed/);
+  const after = await f.next();
+  assert.deepEqual([after.result.outcome, after.result.annotations.switch], ['stopped', 'sentinel'], 'the stop survives the crash');
+  fs.rmSync(sentinel);
+  const again = await f.next();
+  assert.deepEqual([again.result.outcome, again.result.annotations.tripwire], ['stopped', 'revert'], 'the unrecorded event trips once more');
+  fs.rmSync(sentinel);
+  assert.deepEqual((await f.next()).result.step, 'pick');
+});
+
+test('C10: a switch turned off after the render stops before the cleanup: no worktree remove and no branch -d', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  personMerges(f);
+  let armed = false;
+  const env = { ...f.env };
+  Object.defineProperty(env, SWITCH, { enumerable: true, get: () => (armed ? 'off' : undefined) });
+  const roadmap = path.join(f.root, 'agent-docs/roadmap/ROADMAP.md');
+  const seam = new Proxy(fs, { get(target, name) {
+    const real = target[name];
+    if (typeof real !== 'function') return real;
+    if (name === 'renameSync') return (from, to, ...rest) => { const out = real.call(target, from, to, ...rest); if (String(to) === roadmap) armed = true; return out; };
+    return real.bind(target);
+  } });
+  const spawned = [];
+  const execFileSync = (binary, args, options) => { spawned.push(` ${args.join(' ')} `); return cp.execFileSync(binary, args, options); };
+  const out = await f.next({ env, fsImpl: seam, execFileSync });
+  assert.deepEqual([out.result.outcome, out.result.annotations.switch], ['stopped', 'env']);
+  assert.ok(fs.existsSync(roadmap), 'the render ran before the switch went off');
+  assert.equal(spawned.some((args) => args.includes(' worktree remove ')), false);
+  assert.equal(spawned.some((args) => args.includes(' branch -d ')), false);
+  assert.ok(fs.existsSync(f.worktree()));
+  assert.equal(f.git(f.root, 'rev-parse', '--verify', 'refs/heads/feat/113-toy').length, 40);
+  armed = false;
+  const cleaned = await f.next();
+  assert.deepEqual([cleaned.result.outcome, cleaned.result.step, cleaned.result.annotations.cleanup], ['acted', 'cleanup', 'cleaned']);
+});
+
+test('C10: a switch turned off right after worktree add stops before the run starts; a later call finishes the claim', async (t) => {
+  const f = fixture(t);
+  let armed = false;
+  const env = { ...f.env };
+  Object.defineProperty(env, SWITCH, { enumerable: true, get: () => (armed ? 'off' : undefined) });
+  const execFileSync = (binary, args, options) => {
+    const out = cp.execFileSync(binary, args, options);
+    if (args.includes('worktree') && args.includes('add')) armed = true;
+    return out;
+  };
+  const out = await f.next({ env, execFileSync });
+  assert.deepEqual([out.result.outcome, out.result.annotations.switch], ['stopped', 'env']);
+  assert.ok(fs.existsSync(f.worktree()), 'the worktree add ran before the switch went off');
+  assert.equal(f.orch().readRun('113-toy'), null, 'no orchestration start after the switch went off');
+  armed = false;
+  const resumed = await f.next({ env });
+  assert.deepEqual([resumed.result.outcome, resumed.result.step], ['acted', 'pick']);
+  assert.equal(f.orch().readRun('113-toy').state, 'RUNNING');
+});
+
+test('C7: a gate-b approval made before develop set gate-b to never denies policy-never, writes no intent, and holds the row', async (t) => {
+  const { f } = await completedRow(t, { entry: { approvedHead: null } });
+  const run = f.orch().readRun('113-toy');
+  run.history.at(-1).approvedHead = f.git(f.root, 'rev-parse', 'feat/113-toy');
+  f.orch().writeRun(run, f.tick());
+  write(path.join(f.develop, 'core/registry/gates.json'), policyBytes((p) => { p.classes.feature['gate-b'].autopilot = 'never'; }));
+  f.git(f.develop, 'commit', '-qam', 'tighten gate-b');
+  const denied = await f.next();
+  assert.deepEqual([denied.code, denied.result.outcome, denied.result.step, denied.result.reason, denied.result.rule], [1, 'denied', 'merge', 'policy-never', 'merge/policy-never']);
+  assert.equal(fs.existsSync(path.join(f.root, '.doflow/state/roadmap/intents/113.json')), false, 'no intent is written');
+  const steps = f.record(denied.result.runId).steps;
+  const again = await f.next();
+  assert.deepEqual([again.result.outcome, again.result.skips['113']], ['idle', 'held:policy-never']);
+  assert.equal(f.record(denied.result.runId).steps, steps, 'a repeated policy deny spends no budget');
+  // Control: develop's policy approves again, and the bound approval merges.
+  write(path.join(f.develop, 'core/registry/gates.json'), policyBytes());
+  f.git(f.develop, 'commit', '-qam', 'relax gate-b');
+  const merged = await f.next();
+  assert.deepEqual([merged.result.outcome, merged.result.step], ['acted', 'merge']);
+});
+
+test('C15: a gate-b the loop approved in one run binds its feature head in a later run after develop moved', async (t) => {
+  const f = fixture(t, { policy: (p) => { p.classes.feature['gate-b'].predicates = ['protected-paths']; } });
+  const runA = 'rl-20261019-aaaa';
+  const runB = 'rl-20261019-bbbb';
+  await f.next({ run: runA });
+  write(path.join(f.worktree(), 'toy/a.txt'), 'feature\n');
+  f.git(f.worktree(), 'add', '.');
+  f.git(f.worktree(), 'commit', '-qm', 'toy');
+  initRegister({ featureDir: f.featureDir(), slug: ROW.slug });
+  placeRun(f, 'gate-b');
+  const gate = await f.next({ run: runA });
+  assert.deepEqual([gate.result.outcome, gate.result.step, gate.result.rule], ['acted', 'gate', 'gate-b/pass']);
+  const featureHead = f.git(f.root, 'rev-parse', 'feat/113-toy');
+  const entry = f.orch().readRun('113-toy').history.at(-1);
+  assert.deepEqual([entry.by, entry.node, entry.approvedHead], ['autopilot', 'gate-b', featureHead], 'the journal entry keeps the bound head');
+  const moved = commitOnDevelop(f, 'other.txt');
+  const merged = await f.next({ run: runB });
+  assert.deepEqual([merged.result.outcome, merged.result.step, merged.result.runId], ['acted', 'merge', runB]);
+  const [intent] = readOpenIntents({ root: f.root });
+  assert.deepEqual([intent.featureHead, intent.developHead], [featureHead, moved]);
+});
+
+test('C15 control: a gate-b approved outside the loop still binds both heads, so a moved develop denies head-moved', async (t) => {
+  const { f } = await completedRow(t);
+  commitOnDevelop(f, 'other.txt');
+  const out = await f.next();
+  assert.deepEqual([out.result.outcome, out.result.step, out.result.reason], ['denied', 'merge', 'head-moved']);
+  assert.equal(fs.existsSync(path.join(f.root, '.doflow/state/roadmap/intents/113.json')), false);
+});
+
+test('C16: an open intent denied develop-moved is held per row: another row advances and repeats spend no budget', async (t) => {
+  const two = { ...ROW, id: '114', slug: '114-two', title: 'Two', writeSet: ['two/'] };
+  const { f } = await completedRow(t, { rows: [ROW, two] });
+  const merged = await f.next();
+  assert.deepEqual([merged.result.step, merged.result.row], ['merge', '113']);
+  await f.next();
+  verifyLine(f, merged.result.annotations.commit, 'FAIL');
+  assert.equal((await f.next()).result.annotations.status, 'merged-unverified');
+  fs.rmSync(path.join(f.home, '.config/doflow/autopilot/off'));
+  commitOnDevelop(f, 'fix.txt');
+  const denied = await f.next();
+  assert.deepEqual([denied.result.outcome, denied.result.row, denied.result.reason], ['denied', '113', 'develop-moved']);
+  const record = () => f.record(denied.result.runId);
+  const steps = record().steps;
+  assert.deepEqual(record().rows['113'].held && [record().rows['113'].held.kind, record().rows['113'].held.reason], ['intent', 'develop-moved']);
+  const other = await f.next();
+  assert.deepEqual([other.result.outcome, other.result.step, other.result.row], ['acted', 'pick', '114'], 'the other row advances');
+  assert.equal(record().steps, steps + 1, 'only the pick spent a step');
+  assert.equal(record().log.filter((entry) => entry.row === '113' && entry.reason === 'develop-moved').length, 1, 'the deny is logged once');
+});
+
+test('C16: the manual exit, an intent archived with status abandoned, is accepted: before the fast-forward the row is skipped', async (t) => {
+  const { f } = await completedRow(t);
+  await intentAt(f, 'built');
+  commitOnDevelop(f, 'fix.txt');
+  const denied = await f.next();
+  assert.deepEqual([denied.result.outcome, denied.result.reason], ['denied', 'develop-moved']);
+  const open = path.join(f.root, '.doflow/state/roadmap/intents/113.json');
+  const archived = { ...JSON.parse(fs.readFileSync(open, 'utf8')), status: 'abandoned' };
+  write(path.join(f.root, '.doflow/state/roadmap/done/113.json'), JSON.stringify(archived));
+  fs.rmSync(open);
+  const spy = spyMerge();
+  const out = await f.next({ mergeImpl: spy.mergeImpl });
+  assert.deepEqual([out.code, out.result.outcome, out.result.skips['113']], [0, 'idle', 'intent-abandoned']);
+  assert.deepEqual(spy.calls, [], 'an abandoned intent is neither resumed nor replaced');
+});
+
+test('C16: the manual exit after the fast-forward: the archived intent leaves a merged row that is cleaned like a person\'s merge', async (t) => {
+  const { f } = await completedRow(t);
+  const merged = await f.next();
+  await f.next();
+  verifyLine(f, merged.result.annotations.commit, 'FAIL');
+  await f.next();
+  fs.rmSync(path.join(f.home, '.config/doflow/autopilot/off'));
+  commitOnDevelop(f, 'fix.txt');
+  assert.equal((await f.next()).result.reason, 'develop-moved');
+  const open = path.join(f.root, '.doflow/state/roadmap/intents/113.json');
+  write(path.join(f.root, '.doflow/state/roadmap/done/113.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(open, 'utf8')), status: 'abandoned' }));
+  fs.rmSync(open);
+  const cleaned = await f.next();
+  assert.deepEqual([cleaned.result.outcome, cleaned.result.step, cleaned.result.annotations.cleanup], ['acted', 'cleanup', 'cleaned']);
+});
+
+test('C17: gate entries with their input hashes outlive the 500-entry run log in the bounded audit file', async (t) => {
+  const f = fixture(t);
+  await f.next({ run: RUN });
+  await f.next({ run: RUN });
+  writeRequirement(f, '# Settled\n');
+  handoff(f);
+  const gate = await f.next({ run: RUN });
+  assert.deepEqual([gate.result.outcome, gate.result.step], ['acted', 'gate']);
+  const file = path.join(f.root, '.doflow/state/roadmap/runs', `${RUN}.json`);
+  const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (let i = 0; i < 600; i++) {
+    record.n += 1;
+    record.log.push({ n: record.n, at: '2026-10-19T01:00:00.000Z', row: '113', step: null, outcome: 'denied', reason: 'stage-not-performed', audit: 'filler' });
+  }
+  fs.writeFileSync(file, JSON.stringify(record));
+  await f.next({ run: RUN });
+  assert.equal(f.record(RUN).log.length, 500);
+  assert.equal(f.record(RUN).log.some((entry) => entry.step === 'gate'), false, 'the run log alone has lost the gate entry');
+  const out = f.cli('--action', 'audit', '--json');
+  assert.equal(out.status, 0, out.stderr);
+  const kept = JSON.parse(out.stdout).entries.find((entry) => entry.step === 'gate' && entry.n === gate.result.n);
+  assert.ok(kept, 'audit still lists the gate decision');
+  assert.match(kept.audit, /^gate-0 113-toy approved by policy gate-0@sha256:[0-9a-f]{64} \(\d+ inputs\)$/);
+  assert.deepEqual(kept.inputs, gate.result.evidence, 'with the input hashes it was decided on');
+  const lines = fs.readFileSync(path.join(f.root, '.doflow/state/roadmap/audit.jsonl'), 'utf8').trim().split('\n');
+  assert.ok(lines.every((line) => ['gate', 'merge', 'render', 'cleanup'].includes(JSON.parse(line).step)), 'only gate and merge entries');
+});
+
+test('C18: status shows run-record holds and the lease holder beside the three-valued git status', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  await f.next();
+  writeRequirement(f, 'Open: [NEEDS CLARIFICATION: which store]\n');
+  handoff(f);
+  const denied = await f.next();
+  assert.equal(denied.result.reason, 'unresolved-clarifications');
+  write(path.join(f.root, '.doflow/state/roadmap/lease.json'), JSON.stringify({ schema: 1, pid: 4321, start: null, host: 'other.example', runId: denied.result.runId, acquiredAt: '2026-10-19T00:00:00Z' }));
+  const json = f.cli('--action', 'status', '--json');
+  assert.equal(json.status, 0, json.stderr);
+  const status = JSON.parse(json.stdout);
+  assert.equal(status.rowStatus['113'], 'in-flight', 'git status stays three-valued');
+  assert.equal(status.run, denied.result.runId);
+  assert.deepEqual(status.holds, [{ row: '113', state: 'held', kind: 'gate', reason: 'unresolved-clarifications' }]);
+  assert.deepEqual(status.lease, { pid: 4321, host: 'other.example', runId: denied.result.runId, acquiredAt: '2026-10-19T00:00:00Z' });
+  const one = JSON.parse(f.cli('--action', 'status', '--row', '113', '--json').stdout);
+  assert.deepEqual([one.status, one.holds.length, one.lease.pid], ['in-flight', 1, 4321]);
+  const text = f.cli('--action', 'status');
+  assert.match(text.stdout, /Run hold 113: held \(gate\): unresolved-clarifications/);
+  assert.match(text.stdout, /Lease: pid 4321 on other\.example/);
+});
+
+test('C6: a plan edited after gate-b makes the post-merge step deny plan-changed and hold the row; the approved bytes proceed', async (t) => {
+  const { f } = await completedRow(t, { arrange: (fx) => verifyPlan(fx, ROW, 'toy/a.txt') });
+  const plan = path.join(f.featureDir(), 'plan.md');
+  const approved = fs.readFileSync(plan);
+  const merged = await f.next();
+  assert.equal(merged.result.annotations.pending, 'post-merge-verification');
+  write(plan, `${approved}\`\`\`doflow-verification\n{"test":"true"}\n\`\`\`\n`);
+  const denied = await f.next();
+  assert.deepEqual([denied.result.outcome, denied.result.step, denied.result.reason, denied.result.rule], ['denied', 'merge', 'plan-changed', 'merge/plan-changed']);
+  assert.equal(denied.result.perform, undefined, 'no post-merge verify is issued on a changed plan');
+  const steps = f.record(denied.result.runId).steps;
+  const again = await f.next();
+  assert.deepEqual([again.result.outcome, again.result.skips['113']], ['idle', 'held:plan-changed']);
+  assert.equal(f.record(denied.result.runId).steps, steps);
+  fs.writeFileSync(plan, approved);
+  const verify = await f.next();
+  assert.deepEqual([verify.result.outcome, verify.result.perform.purpose, verify.result.perform.after.at(-1)], ['perform', 'post-merge', plan]);
+});
+
+test('C20: the post-merge check is gate-b\'s verify rule: a PASS recorded for another task is not this row\'s', async (t) => {
+  const { f } = await completedRow(t);
+  const merged = await f.next();
+  const commit = merged.result.annotations.commit;
+  await f.next();
+  write(path.join(f.root, '.doflow/state/verification/runs/113-toy.jsonl'),
+    `${JSON.stringify({ schema: 1, taskId: '999-other', head: commit, clean: true, verdict: 'PASS', at: '2026-10-19T00:00:00Z' })}\n`);
+  const pending = await f.next();
+  assert.deepEqual([pending.result.outcome, pending.result.perform && pending.result.perform.purpose], ['perform', 'post-merge']);
+  assert.ok(fs.existsSync(f.worktree()), 'nothing is cleaned on another task\'s PASS');
+  verifyLine(f, commit, 'PASS');
+  const done = await f.next();
+  assert.deepEqual([done.result.step, done.result.annotations.cleanup], ['cleanup', 'cleaned']);
 });

@@ -796,11 +796,32 @@
       "protect": null,
       "moments": [],
       "writers": [
+        "src/runtime/settings/autopilot.ts"
+      ],
+      "source": {
+        "file": "src/runtime/settings/autopilot.ts",
+        "pattern": "path.join(home, 'autopilot', 'off')"
+      }
+    },
+    {
+      "id": "roadmap-audit",
+      "root": "project-state",
+      "path": "roadmap/audit.jsonl",
+      "entry": "file",
+      "match": "^audit\\.jsonl$",
+      "rule": "existing",
+      "bound": {
+        "value": 10000,
+        "text": "keep the last 10000 gate and merge entries"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
         "src/runtime/roadmap/loop.ts"
       ],
       "source": {
         "file": "src/runtime/roadmap/loop.ts",
-        "pattern": "path.join(home, 'autopilot', 'off')"
+        "pattern": "AUDIT_LIMIT = {value}"
       }
     },
     {

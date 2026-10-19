@@ -251,14 +251,20 @@ function incompleteAnswer(run: any = null, feature: any = null): any {
 }
 
 /**
- * A loop run record (`roadmap/runs/<runId>.json`) is open while it is the newest record in `runs/`,
- * while a merge intent in `roadmap/intents/` names its `runId`, or while `roadmap/lease.json` names
- * it. Any other record is finished as of its mtime. An unreadable source is never called finished.
+ * A loop run record (`roadmap/runs/<runId>.json`) is open while its `closedAt` is null (the loop
+ * resumes any such run), while it is the newest record in `runs/`, while a merge intent in
+ * `roadmap/intents/` names its `runId`, or while `roadmap/lease.json` names it. Any other record is
+ * finished as of its mtime. An unreadable source is never called finished.
  */
 function roadmapRunStatus(project: string, fileSystem: any, runId: any, mtimeMs: any): any {
   if (!safeSegment(runId)) return answer('undecidable', 'record-unreadable', null, null);
   const dir = path.join(stateRoot(project), 'roadmap');
   const unreadable = () => answer('undecidable', 'record-unreadable', runId, null);
+  let record: any;
+  try { record = JSON.parse(fileSystem.readFileSync(path.join(dir, 'runs', `${runId}.json`), 'utf8')); }
+  catch { return unreadable(); }
+  if (!record || typeof record !== 'object' || !Object.hasOwn(record, 'closedAt')) return unreadable();
+  if (record.closedAt === null) return answer('open', 'roadmap-run-open', runId, null);
   const list = (folder: string): string[] | null => {
     try { return fileSystem.readdirSync(folder); } catch (error: any) { return error.code === 'ENOENT' ? [] : null; }
   };

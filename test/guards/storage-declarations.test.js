@@ -610,7 +610,13 @@ test('G26: the loop writes the roadmap store, and the autopilot sentinel is a co
   const sentinel = registry.stores.find((entry) => entry.id === 'autopilot-switch');
   assert.ok(sentinel, 'the tripwire sentinel needs a declared store');
   assert.deepEqual({ root: sentinel.root, path: sentinel.path, entry: sentinel.entry, match: sentinel.match, rule: sentinel.rule, writers: sentinel.writers }, {
-    root: 'config-home', path: 'autopilot', entry: 'file', match: '^off$', rule: 'existing', writers: ['src/runtime/roadmap/loop.ts'],
+    root: 'config-home', path: 'autopilot', entry: 'file', match: '^off$', rule: 'existing', writers: ['src/runtime/settings/autopilot.ts'],
+  });
+  // C17: gate and merge entries outlive the run record's 500-entry log in their own bounded file.
+  const audit = registry.stores.find((entry) => entry.id === 'roadmap-audit');
+  assert.deepEqual({ root: audit.root, path: audit.path, entry: audit.entry, rule: audit.rule, bound: audit.bound, writers: audit.writers }, {
+    root: 'project-state', path: 'roadmap/audit.jsonl', entry: 'file', rule: 'existing',
+    bound: { value: 10000, text: 'keep the last 10000 gate and merge entries' }, writers: ['src/runtime/roadmap/loop.ts'],
   });
   const settings = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
   assert.deepEqual(settings.keys['autopilot.enabled'].legacy, [{ layer: 'user', kind: 'sentinel', path: 'autopilot/off', value: 'off' }],
@@ -659,24 +665,28 @@ test('G26: roadmap run records are pruned once finished; the newest, an intent-n
     fs.writeFileSync(file, JSON.stringify(value));
     fs.utimesSync(file, new Date(seconds * 1000), new Date(seconds * 1000));
   };
-  const record = (runId) => ({ schema: 1, runId, createdAt: '2026-01-01T00:00:00.000Z', closedAt: null, steps: 0, n: 0, rows: {}, log: [] });
-  const [old, named, leased, newest] = ['rl-20260101-aaaa', 'rl-20260102-bbbb', 'rl-20260103-cccc', 'rl-20260104-dddd'];
+  const record = (runId, closedAt = '2026-01-05T00:00:00.000Z') => ({ schema: 1, runId, createdAt: '2026-01-01T00:00:00.000Z', closedAt, steps: 0, n: 0, rows: {}, log: [] });
+  const [old, named, leased, newest, unclosed] = ['rl-20260101-aaaa', 'rl-20260102-bbbb', 'rl-20260103-cccc', 'rl-20260104-dddd', 'rl-20260101-eeee'];
   put(`runs/${old}.json`, record(old), 100);
   put(`runs/${named}.json`, record(named), 200);
   put(`runs/${leased}.json`, record(leased), 300);
   put(`runs/${newest}.json`, record(newest), 400);
+  // C17: the loop resumes any run whose closedAt is null (a budget-blocked run never closes), so
+  // retention keeps it however old it is.
+  put(`runs/${unclosed}.json`, record(unclosed, null), 50);
   put('intents/113.json', { schema: 1, row: '113', runId: named, phase: 'intent' }, 200);
   put('lease.json', { schema: 1, pid: 1, host: 'h', runId: leased }, Date.parse('2026-10-19') / 1000); // a live lease is fresh
   put('tripwire/events.json', { schema: 1, reverts: [], unverified: [] }, 100);
   const select = () => selectCandidates(store, fs.readdirSync(storeDir).map((name) => ({ name, stat: fs.statSync(path.join(storeDir, name)) })),
     { now: Date.parse('2026-10-19'), fsImpl: fs, storeDir, roots: { 'project-state': state }, settings: registry.settings });
   assert.deepEqual(select().map((entry) => entry.name), [`runs/${old}.json`],
-    'only the finished, unreferenced, non-newest run record is eligible; the tripwire is kept');
+    'only the closed, unreferenced, non-newest run record is eligible; an unclosed one and the tripwire are kept');
   const { workStatus } = require('../../src/runtime/storage/work-status.ts');
   const status = (taskId, namespace) => workStatus({ projectRoot: root, store: 'roadmap', taskId, namespace, mtimeMs: 100000, fsImpl: fs });
   assert.equal(status(newest, 'runs').reason, 'roadmap-run-open');
   assert.equal(status(named, 'runs').reason, 'roadmap-run-open');
   assert.equal(status(leased, 'runs').reason, 'roadmap-run-open');
+  assert.deepEqual([status(unclosed, 'runs').state, status(unclosed, 'runs').reason], ['open', 'roadmap-run-open']);
   assert.deepEqual({ state: status(old, 'runs').state, since: status(old, 'runs').since }, { state: 'finished', since: 100000 });
   assert.deepEqual({ state: status('events', 'tripwire').state, reason: status('events', 'tripwire').reason }, { state: 'open', reason: 'roadmap-tripwire-kept' });
   fs.writeFileSync(path.join(storeDir, 'intents/113.json'), '{broken');

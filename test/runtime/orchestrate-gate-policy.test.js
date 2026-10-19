@@ -353,3 +353,48 @@ test('C9: the CLI denies with the switch off and exits 0 with the run unchanged'
   assert.deepEqual(JSON.parse(result.stdout).reasons, ['autopilot-disabled']);
   assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
 });
+
+for (const gateId of ['gate-a', 'gate-b']) {
+  test(`C6: a plan carrying a doflow-verification block denies ${gateId} by policy; the same plan without it passes`, t => {
+    const f = fixture(t, { gateId, predicates: ['plan-verification-absent'] });
+    const plan = path.join(f.featureDir, 'plan.md');
+    write(plan, '# Plan\n\n```doflow-verification\n{"test":"true"}\n```\n');
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    const denied = decide(f);
+    assert.deepEqual([denied.decision, denied.reasons], ['deny', ['protected-path:plan-verification']]);
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+    write(plan, '# Plan\n');
+    const passed = decide(f);
+    assert.equal(passed.decision, 'pass');
+    assert.ok(passed.inputs.some(i => i.locator === plan && i.sha256 === digest('# Plan\n')), 'the approval binds the plan bytes');
+  });
+}
+
+test('C15: a loop-bound feature head is kept in the gate-b entry only when the gate evaluated that same head', t => {
+  const f = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed'] });
+  const featureHead = fs.readFileSync(path.join(f.root, '.git/refs/heads/feat', SLUG), 'utf8').trim();
+  assert.throws(() => f.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', decision: 'approve', bindHead: featureHead, now: FIXED }), /bindHead/);
+  const result = f.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', policy: 'gate-b', bindHead: featureHead, now: FIXED });
+  assert.equal(result.decision, 'pass');
+  const entry = f.orch.readRun(SLUG).history.at(-1);
+  assert.deepEqual([entry.by, entry.approvedHead], ['autopilot', featureHead]);
+  // A head the gate did not evaluate is never recorded, and the CLI (outside the loop) records none.
+  const other = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed'] });
+  assert.equal(other.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', policy: 'gate-b', bindHead: 'c'.repeat(40), now: FIXED }).decision, 'pass');
+  assert.equal(Object.hasOwn(other.orch.readRun(SLUG).history.at(-1), 'approvedHead'), false);
+  const viaCli = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed'] });
+  assert.equal(cli(viaCli).status, 0);
+  assert.equal(Object.hasOwn(viaCli.orch.readRun(SLUG).history.at(-1), 'approvedHead'), false);
+});
+
+test('C20: the orchestrator reads the kill switch from settings/autopilot.ts and loads no roadmap module that loads it back', () => {
+  const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
+  const requires = (text) => [...text.matchAll(/\brequire\(\s*'([^']+)'\s*\)/g)].map(m => m[1]);
+  const orchestrator = requires(read('src/runtime/workflow-orchestrator.ts'));
+  assert.ok(orchestrator.includes('./settings/autopilot.ts'));
+  assert.equal(orchestrator.some(spec => spec.startsWith('./roadmap/') && !['./roadmap/rows.ts', './roadmap/gates.ts', './roadmap/facts.ts'].includes(spec)), false,
+    'only the pure policy modules (rows, gates, facts), never the loop shell');
+  for (const rel of ['src/runtime/roadmap/rows.ts', 'src/runtime/roadmap/gates.ts', 'src/runtime/roadmap/facts.ts', 'src/runtime/settings/autopilot.ts']) {
+    assert.equal(requires(read(rel)).some(spec => /workflow-orchestrator|roadmap\/loop|\.\/loop\.ts/.test(spec)), false, `${rel} does not load the orchestrator or the loop`);
+  }
+});
