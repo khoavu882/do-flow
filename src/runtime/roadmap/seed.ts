@@ -378,6 +378,9 @@ function printTextResult(
   if ((op === 'apply' || op === 'amend') && result.ok) {
     line1 += `, ${result.writes} files written`;
   }
+  if (result.seed && result.seed.sha256 === null) {
+    line1 += ', store absent';
+  }
 
   const detailLines: string[] = [];
 
@@ -419,7 +422,11 @@ function printTextResult(
   }
 
   const lines: string[] = [line1];
-  const maxDetails = 10;
+  let maxDetails = 10;
+  if (typeof result.land === 'string') {
+    lines.push(`  land (person only): ${result.land}`);
+    maxDetails = 9;
+  }
   if (detailLines.length <= maxDetails) {
     lines.push(...detailLines);
   } else {
@@ -432,6 +439,19 @@ function printTextResult(
   for (const line of lines) {
     printFn(line);
   }
+}
+
+function quoteLandArgument(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function makeLandCommand(op: string, ok: boolean, rows: any[], root: string, draftPath: string): string | null {
+  if (op !== 'check' || !ok || !Array.isArray(rows) || rows.length === 0) return null;
+  const change = rows[0]?.change;
+  if ((change !== 'add' && change !== 'amend') || !rows.every((row) => row?.change === change)) return null;
+  const action = change === 'add' ? 'apply' : 'amend';
+  return `doflow roadmap seed ${quoteLandArgument(path.resolve(root))} --action ${action} --draft ${quoteLandArgument(draftPath)}`;
 }
 
 function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
@@ -481,17 +501,24 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
 
   const storePath = path.join(root, 'agent-docs', 'roadmap', 'rows.json');
   const tablePath = path.join(root, 'agent-docs', 'roadmap', 'ROADMAP.md');
+  const emptySeedRaw = JSON.stringify({ schema: 1, rows: [] });
 
   let seedRaw: string;
+  let storeAbsent = false;
   try {
     seedRaw = fsImpl.readFileSync(storePath, 'utf8');
   } catch (error: any) {
-    return usage(`cannot read store file '${storePath}': ${error.message}`);
+    if (error?.code === 'ENOENT') {
+      seedRaw = emptySeedRaw;
+      storeAbsent = true;
+    } else {
+      return usage(`cannot read store file '${storePath}': ${error.message}`);
+    }
   }
 
   // 2. File digests
   const draftSha = sha256Digest(draftRaw);
-  const seedSha = sha256Digest(seedRaw);
+  const seedSha = storeAbsent ? null : sha256Digest(seedRaw);
 
   // 3. Check action
   if (action === 'check') {
@@ -535,6 +562,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       reason: null,
       switch: null,
       writes: 0,
+      land: makeLandCommand(action, judgement.ok, judgement.rows, root, absDraftPath),
     };
 
     if (json) {
@@ -564,6 +592,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       reason: 'needs-person',
       switch: null,
       writes: 0,
+      land: null,
     };
 
     if (json) {
@@ -609,6 +638,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       reason: 'lease-held',
       switch: null,
       writes: 0,
+      land: null,
     };
     const holderDesc = holder
       ? `pid ${safeText(holder.pid ?? 'unknown')} on ${safeText(holder.host ?? 'unknown')}`
@@ -626,8 +656,19 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
 
   // (c) Under lease
   try {
-    const freshSeedRaw = fsImpl.readFileSync(storePath, 'utf8');
-    const freshSeedSha = sha256Digest(freshSeedRaw);
+    let freshSeedRaw: string;
+    let freshStoreAbsent = false;
+    try {
+      freshSeedRaw = fsImpl.readFileSync(storePath, 'utf8');
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') {
+        freshSeedRaw = emptySeedRaw;
+        freshStoreAbsent = true;
+      } else {
+        return usage(`cannot read store file '${storePath}': ${error.message}`);
+      }
+    }
+    const freshSeedSha = freshStoreAbsent ? null : sha256Digest(freshSeedRaw);
 
     const facts = gitFacts || gatherGitFacts({ root });
     if (facts.unreadable && facts.unreadable.length > 0) {
@@ -670,6 +711,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
         reason: null,
         switch: null,
         writes: 0,
+        land: null,
       };
 
       if (json) {
@@ -761,6 +803,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       reason: null,
       switch: null,
       writes,
+      land: null,
     };
 
     if (json) {

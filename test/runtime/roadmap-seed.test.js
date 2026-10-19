@@ -45,6 +45,16 @@ function writeFixtureStore(root, rows, layout = { worktree: '{mainParent}/{mainN
   return { jsonContent, tableContent };
 }
 
+function runSeedJson(options) {
+  let output = '';
+  const exit = handleSeedCommand({
+    ...options,
+    json: true,
+    out: (line) => { output += `${line}\n`; },
+  });
+  return { exit, output, result: JSON.parse(output.trim()) };
+}
+
 test('check: per-row add and amend classification', (t) => {
   const dir = tempDir(t, 'doflow-roadmap-seed-check-');
   const storeRows = [
@@ -217,7 +227,264 @@ test('check: IC-004 top-level key order via Object.keys deepEqual', (t) => {
     'reason',
     'switch',
     'writes',
+    'land',
   ]);
+});
+
+test('check: IC-003 land reflects one clean change kind and is null for other outcomes', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-land-');
+  const root = dir;
+  writeFixtureStore(root, [{ id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [] }]);
+  const gitFacts = { developHead: 'h', merges: [], branches: [], unreadable: [] };
+  const writeDraft = (name, rows) => {
+    const draftPath = path.join(dir, name);
+    fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+    return draftPath;
+  };
+
+  const addDraft = writeDraft('draft-add.json', [
+    { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] },
+  ]);
+  const addCheck = runSeedJson({ action: 'check', draft: addDraft, root, gitFacts });
+  assert.equal(addCheck.exit, 0);
+  assert.equal(addCheck.result.land, `doflow roadmap seed ${root} --action apply --draft ${addDraft}`);
+
+  const textLines = [];
+  const textExit = handleSeedCommand({
+    action: 'check', draft: addDraft, root, gitFacts,
+    out: (line) => textLines.push(line), err: (line) => textLines.push(line),
+  });
+  assert.equal(textExit, 0);
+  assert.equal(textLines[1], `  land (person only): ${addCheck.result.land}`);
+
+  const amendDraft = writeDraft('draft-amend.json', [
+    { id: '113', slug: '113-toy', title: 'Toy updated', class: 'feature', needs: [] },
+  ]);
+  const amendCheck = runSeedJson({ action: 'check', draft: amendDraft, root, gitFacts });
+  assert.equal(amendCheck.exit, 0);
+  assert.equal(amendCheck.result.land, `doflow roadmap seed ${root} --action amend --draft ${amendDraft}`);
+
+  const mixedDraft = writeDraft('draft-mixed.json', [
+    { id: '113', slug: '113-toy', title: 'Toy updated', class: 'feature', needs: [] },
+    { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] },
+  ]);
+  const mixedCheck = runSeedJson({ action: 'check', draft: mixedDraft, root, gitFacts });
+  assert.equal(mixedCheck.exit, 0);
+  assert.equal(mixedCheck.result.land, null);
+
+  const badDraft = writeDraft('draft-findings.json', [
+    { id: '115', slug: '115-bad', title: 'Bad', class: 'unknown-class', needs: [] },
+  ]);
+  const findingsCheck = runSeedJson({ action: 'check', draft: badDraft, root, gitFacts });
+  assert.equal(findingsCheck.exit, 1);
+  assert.equal(findingsCheck.result.land, null);
+
+  const applyResult = runSeedJson({
+    action: 'apply', draft: addDraft, root, gitFacts,
+    readSwitch: () => ({ enabled: false, switch: null }),
+  });
+  assert.equal(applyResult.exit, 0);
+  assert.equal(applyResult.result.land, null);
+
+  const amendResult = runSeedJson({
+    action: 'amend', draft: amendDraft, root, gitFacts,
+    readSwitch: () => ({ enabled: false, switch: null }),
+  });
+  assert.equal(amendResult.exit, 0);
+  assert.equal(amendResult.result.land, null);
+
+  const refused = runSeedJson({
+    action: 'apply', draft: badDraft, root, gitFacts,
+    readSwitch: () => ({ enabled: true, switch: null }),
+  });
+  assert.equal(refused.exit, 1);
+  assert.equal(refused.result.land, null);
+
+});
+
+test('check: IC-003 single-quotes unsafe root and draft arguments for POSIX', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-land-quote-');
+  const root = path.join(dir, 'main root');
+  writeFixtureStore(root, []);
+  const draftPath = path.join(dir, "draft's plan.json");
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [
+    { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] },
+  ] }), 'utf8');
+
+  const { exit, result } = runSeedJson({
+    action: 'check', draft: draftPath, root,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+  });
+
+  assert.equal(exit, 0);
+  assert.equal(result.land, `doflow roadmap seed '${root}' --action apply --draft '${dir}/draft'\\''s plan.json'`);
+});
+
+test('missing store: check judges empty, reports null digest, marks text, and EACCES still exits 2', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-no-store-check-');
+  const storePath = path.join(dir, 'agent-docs', 'roadmap', 'rows.json');
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [
+    { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] },
+  ] }), 'utf8');
+  const missingFs = { ...fs, readFileSync(file, ...args) {
+    if (file === storePath) {
+      const error = new Error('store missing');
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return fs.readFileSync(file, ...args);
+  } };
+
+  const result = runSeedJson({
+    action: 'check', draft: draftPath, root: dir, fsImpl: missingFs,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+  });
+  assert.equal(result.exit, 0);
+  assert.equal(result.result.ok, true);
+  assert.equal(result.result.seed.sha256, null);
+  assert.deepEqual(result.result.rows.map((row) => row.change), ['add']);
+  assert.equal(result.result.land, `doflow roadmap seed ${dir} --action apply --draft ${draftPath}`);
+
+  const textLines = [];
+  const textExit = handleSeedCommand({
+    action: 'check', draft: draftPath, root: dir, fsImpl: missingFs,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    out: (line) => textLines.push(line), err: (line) => textLines.push(line),
+  });
+  assert.equal(textExit, 0);
+  assert.match(textLines[0], /, store absent$/);
+
+  const deniedFs = { ...fs, readFileSync(file, ...args) {
+    if (file === storePath) {
+      const error = new Error('store denied');
+      error.code = 'EACCES';
+      throw error;
+    }
+    return fs.readFileSync(file, ...args);
+  } };
+  const denied = runSeedJson({
+    action: 'check', draft: draftPath, root: dir, fsImpl: deniedFs,
+  });
+  assert.equal(denied.exit, 2);
+  assert.equal(denied.result.error, 'usage');
+  assert.match(denied.result.detail, /store denied/);
+});
+
+test('missing store: apply creates roadmap directory, store then table by temp rename', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-no-store-apply-');
+  const storeDir = path.join(dir, 'agent-docs', 'roadmap');
+  const storePath = path.join(storeDir, 'rows.json');
+  const tablePath = path.join(storeDir, 'ROADMAP.md');
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [
+    { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] },
+  ] }), 'utf8');
+  let storeReads = 0;
+  const renamed = [];
+  const missingFs = { ...fs,
+    readFileSync(file, ...args) {
+      if (file === storePath) {
+        storeReads += 1;
+        const error = new Error('store missing');
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return fs.readFileSync(file, ...args);
+    },
+    renameSync(from, to) {
+      renamed.push({ from, to });
+      return fs.renameSync(from, to);
+    },
+  };
+
+  assert.equal(fs.existsSync(storeDir), false);
+  const result = runSeedJson({
+    action: 'apply', draft: draftPath, root: dir, fsImpl: missingFs,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    readSwitch: () => ({ enabled: false, switch: null }),
+  });
+  assert.equal(result.exit, 0);
+  assert.equal(storeReads, 2, 'the missing store is re-read under the lease');
+  assert.equal(result.result.seed.sha256, null);
+  assert.equal(result.result.writes, 2);
+  assert.equal(result.result.land, null);
+  assert.deepEqual(JSON.parse(fs.readFileSync(storePath, 'utf8')), {
+    schema: 1,
+    rows: [{ id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] }],
+  });
+  assert.deepEqual(renamed.map((item) => item.to), [storePath, tablePath]);
+  assert.ok(renamed.every((item) => path.basename(item.from).startsWith('.tmp-')));
+
+  const renderCheckExit = handleRoadmapCommand({
+    action: 'render', check: true, root: dir,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+  });
+  assert.equal(renderCheckExit, 0);
+});
+
+test('missing store: amend reports row-not-found for every draft row', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-no-store-amend-');
+  const storePath = path.join(dir, 'agent-docs', 'roadmap', 'rows.json');
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [
+    { id: '114', slug: '114-one', title: 'One', class: 'feature', needs: [] },
+    { id: '115', slug: '115-two', title: 'Two', class: 'feature', needs: [] },
+  ] }), 'utf8');
+  const missingFs = { ...fs, readFileSync(file, ...args) {
+    if (file === storePath) {
+      const error = new Error('store missing');
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return fs.readFileSync(file, ...args);
+  } };
+
+  const result = runSeedJson({
+    action: 'amend', draft: draftPath, root: dir, fsImpl: missingFs,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    readSwitch: () => ({ enabled: false, switch: null }),
+  });
+  assert.equal(result.exit, 1);
+  assert.equal(result.result.seed.sha256, null);
+  assert.deepEqual(result.result.findings.map((finding) => [finding.rule, finding.rowId]), [
+    ['row-not-found', '114'], ['row-not-found', '115'],
+  ]);
+  assert.equal(result.result.land, null);
+});
+
+test('missing store: a store appearing before the lease re-read is judged as found', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-no-store-race-');
+  const storePath = path.join(dir, 'agent-docs', 'roadmap', 'rows.json');
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [
+    { id: '113', slug: '113-toy', title: 'Toy updated', class: 'feature', needs: [] },
+  ] }), 'utf8');
+  let storeReads = 0;
+  const racedFs = { ...fs, readFileSync(file, ...args) {
+    if (file !== storePath) return fs.readFileSync(file, ...args);
+    storeReads += 1;
+    if (storeReads === 1) {
+      const error = new Error('store missing before lease');
+      error.code = 'ENOENT';
+      throw error;
+    }
+    if (storeReads === 2) {
+      writeFixtureStore(dir, [{ id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [] }]);
+    }
+    return fs.readFileSync(file, ...args);
+  } };
+
+  const result = runSeedJson({
+    action: 'amend', draft: draftPath, root: dir, fsImpl: racedFs,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    readSwitch: () => ({ enabled: false, switch: null }),
+  });
+  assert.equal(result.exit, 0);
+  assert.equal(storeReads, 2);
+  assert.notEqual(result.result.seed.sha256, null);
+  assert.deepEqual(result.result.rows, [{ id: '113', change: 'amend', status: 'not-started' }]);
+  assert.equal(result.result.land, null);
 });
 
 test('check: double run byte-equal (--json and text)', (t) => {
@@ -325,6 +592,7 @@ test('apply: refuses an amend row with id-exists', (t) => {
   assert.equal(exit, 1);
   const result = JSON.parse(errData.trim());
   assert.equal(result.ok, false);
+  assert.equal(result.land, null);
   assert.equal(result.writes, 0);
   assert.equal(result.findings.length, 1);
   assert.equal(result.findings[0].rule, 'id-exists');
@@ -434,6 +702,7 @@ test('amend: refuses an add row with row-not-found', (t) => {
   assert.equal(exit, 1);
   const result = JSON.parse(outData.trim());
   assert.equal(result.ok, false);
+  assert.equal(result.land, null);
   assert.equal(result.findings.length, 1);
   assert.equal(result.findings[0].rule, 'row-not-found');
   assert.equal(result.findings[0].rowId, '114');
@@ -581,6 +850,7 @@ test('refusals: readSwitch enabled gives needs-person; live lease gives lease-he
   const personRes = JSON.parse(outPersonJson.trim());
   assert.equal(personRes.ok, false);
   assert.equal(personRes.reason, 'needs-person');
+  assert.equal(personRes.land, null);
   assert.equal(personRes.writes, 0);
   assert.deepEqual(personRes.rows, []);
   assert.deepEqual(personRes.findings, []);
@@ -635,6 +905,7 @@ test('refusals: readSwitch enabled gives needs-person; live lease gives lease-he
   const leaseRes = JSON.parse(outLeaseJson.trim());
   assert.equal(leaseRes.ok, false);
   assert.equal(leaseRes.reason, 'lease-held');
+  assert.equal(leaseRes.land, null);
   assert.equal(leaseRes.writes, 0);
   assert.equal(leaseRes.switch, null);
   assert.equal(leaseRes.switch, null);
@@ -1211,4 +1482,24 @@ test('N-9 non-draft seed schema must be exactly 1', () => {
     if (schema !== undefined) doc.schema = schema;
     assert.ok(seedFindings(doc).some((f) => f.rule === 'seed-invalid' && f.rowId === undefined && f.message === "Seed 'schema' must be 1"));
   }
+});
+
+test('IC-003 text cap: land line plus many overlaps still prints at most twelve lines', (t) => {
+  const dir = tempDir(t, 'doflow-seed-land-cap-');
+  writeFixtureStore(dir, [{ id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [] }]);
+  const rows = [];
+  for (let n = 0; n < 12; n += 1) {
+    rows.push({ id: String(200 + n), slug: `${200 + n}-r`, title: 'R', class: 'feature', needs: [], writeSet: ['src/shared/file.ts'] });
+  }
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+  const lines = [];
+  const exit = handleSeedCommand({ action: 'check', draft: draftPath, root: dir, json: false,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    out: (s) => lines.push(s), err: (s) => lines.push(s) });
+  assert.equal(exit, 0);
+  const all = lines.join('\n').split('\n');
+  assert.ok(all.length <= 12, `got ${all.length} lines`);
+  assert.ok(all[1].startsWith('  land (person only): '));
+  assert.ok(all.some((line) => /\.\.\. \d+ more/.test(line)), 'overflow summary present');
 });
