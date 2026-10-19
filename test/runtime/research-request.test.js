@@ -4,14 +4,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
+const { ResearchRequestStore, REASONS } = require('../../src/runtime/research-request.ts');
 const { updateTaskState } = require('../../src/runtime/task-state.ts');
 
-function fixture(t) {
+function fixture(t, kind) {
   const root = tempDir(t, 'doflow-research-request-');
   const file = path.join(root, '.doflow/state/orchestration/feature.json');
+  const stage = kind === undefined ? { type: 'stage', id: 'design' } : { type: 'stage', id: 'design', kind };
   updateTaskState({ fsImpl: fs, file, build: () => ({ taskId: 'feature', taskClass: 'feature',
-    state: 'RUNNING', cursor: 0, program: [{ type: 'stage', id: 'design' }], history: [] }) });
+    state: 'RUNNING', cursor: 0, program: [stage], history: [] }) });
   return { root, store: new ResearchRequestStore({ projectRoot: root }) };
 }
 
@@ -114,4 +115,86 @@ test('answered refuses non-web and credential-bearing URI locators', t => {
       outcome: 'answered', claimId, evidenceIds: [id] }), /not fresh, located support/);
   }
   assert.equal(store.list('feature')[0].status, 'OPEN');
+});
+
+// ───────────────────────────────────────────────────────────────── ideation reason (IC-001, IC-002)
+
+test('REASONS is exported and holds exactly the three reasons', () => {
+  assert.ok(REASONS instanceof Set);
+  assert.deepEqual([...REASONS].sort(), ['detected-gap', 'ideation', 'user-request']);
+});
+
+test('ideation is accepted on a discovery stage and on a design stage', t => {
+  for (const kind of ['discovery', 'design']) {
+    const { store } = fixture(t, kind);
+    const opened = store.open({ taskId: 'feature', stageId: 'design', question: `Prior art for ${kind}?`, reason: 'ideation' });
+    assert.equal(opened.reason, 'ideation', kind);
+    assert.equal(opened.status, 'OPEN', kind);
+  }
+});
+
+test('ideation is refused on any other stage kind, naming the kind, without a write', t => {
+  const { root, store } = fixture(t, 'implementation');
+  assert.throws(() => store.open({ taskId: 'feature', stageId: 'design', question: 'Q', reason: 'ideation' }),
+    /reason ideation is only valid on a feature discovery or design stage, not 'implementation'/);
+  assert.deepEqual(store.list('feature'), []);
+  assert.equal(fs.existsSync(path.join(root, '.doflow/state/research/feature.json')), false);
+});
+
+test('ideation is refused naming none when the stage carries no kind; other reasons ignore the kind', t => {
+  const { store } = fixture(t);
+  assert.throws(() => store.open({ taskId: 'feature', stageId: 'design', question: 'Q', reason: 'ideation' }),
+    /not 'none'/);
+  assert.equal(store.open({ taskId: 'feature', stageId: 'design', question: 'Q', reason: 'user-request' }).reason, 'user-request');
+  assert.equal(store.open({ taskId: 'feature', stageId: 'design', question: 'Q2', reason: 'detected-gap' }).blocking, true);
+});
+
+test('ideation defaults to non-blocking and honours an explicit blocking true', t => {
+  const { store } = fixture(t, 'design');
+  assert.equal(store.open({ taskId: 'feature', stageId: 'design', question: 'Default?', reason: 'ideation' }).blocking, false);
+  assert.equal(store.open({ taskId: 'feature', stageId: 'design', question: 'Explicit?', reason: 'ideation', blocking: true }).blocking, true);
+});
+
+test('re-opening an OPEN ideation request does not upgrade it unless blocking is explicit', t => {
+  const { store } = fixture(t, 'design');
+  const args = { taskId: 'feature', stageId: 'design', question: 'Same question?', reason: 'ideation' };
+  const first = store.open(args);
+  assert.equal(store.open(args).blocking, false);
+  const upgraded = store.open({ ...args, blocking: true });
+  assert.equal(upgraded.id, first.id);
+  assert.equal(upgraded.blocking, true);
+  assert.equal(store.list('feature').length, 1);
+});
+
+test('an OPEN ideation request is returned by blockingGap whatever its blocking flag; UNRESOLVED does not block', t => {
+  const { store } = fixture(t, 'design');
+  const opened = store.open({ taskId: 'feature', stageId: 'design', question: 'Ideas?', reason: 'ideation' });
+  assert.equal(opened.blocking, false);
+  assert.equal(store.blockingGap('feature', 'design').id, opened.id);
+  assert.equal(store.blockingGap('feature', 'other-stage'), null);
+  store.resolve({ taskId: 'feature', requestId: opened.id, outcome: 'unresolved', gap: 'No source reachable' });
+  assert.equal(store.blockingGap('feature', 'design'), null);
+});
+
+test('a blocking ANSWERED ideation request is validated like any blocking one', t => {
+  const { root, store } = fixture(t, 'design');
+  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+  const { ClaimsManager } = require('../../src/runtime/claims.ts');
+  const request = store.open({ taskId: 'feature', stageId: 'design', question: 'Blocking ideas?', reason: 'ideation', blocking: true });
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  const evId = ledger.addEvidence({ taskId: 'feature', kind: 'documentation', provenance: 'extracted',
+    locator: { uri: 'https://example.com/prior-art' }, source: { provider: 'web', capability: 'fetch' }, content: 'prior art' });
+  ledger.save('feature');
+  const claims = new ClaimsManager({ repoRoot: root, evidenceLedger: ledger });
+  const claimId = claims.addClaim({ taskId: 'feature', statement: 'Prior art exists' });
+  claims.linkEvidence(claimId, evId, 'supports');
+  claims.save('feature');
+  store.resolve({ taskId: 'feature', requestId: request.id, outcome: 'answered', claimId, evidenceIds: [evId] });
+  assert.equal(store.blockingGap('feature', 'design'), null);
+  // Make the evidence unsupported after the answer: the blocking ANSWERED request now fails validation.
+  const file = path.join(root, '.doflow/state/research/feature.json');
+  const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+  state.requests[0].evidenceIds = [];
+  fs.writeFileSync(file, JSON.stringify(state));
+  assert.match(store.blockingGap('feature', 'design').failureReason, /no linked evidence/);
 });
