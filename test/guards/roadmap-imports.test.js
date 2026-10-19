@@ -13,14 +13,22 @@
 //     Mechanical steps execute git commands only; workers appear only at implementation through 082
 //     dispatch (yielded to the orchestrator as a perform envelope).
 //
-// Person-only clause (feature 113, IC-007): `roadmap seed` is a person-run verb, never a loop step.
+// Person-only clause (feature 113, IC-007, review C-8): `roadmap seed` is a person-run verb, never a loop step.
 //   - src/runtime/roadmap/seed.ts is required only by src/cli/runtime-commands.ts (zero or one
 //     requirer; when present it is exactly that file); no other module under src/ requires it.
-//   - loop.ts, gates.ts, merge.ts and facts.ts carry no string literal 'seed' as an argv element
-//     (a single-line array literal holding 'seed' beside 'roadmap' or a '--flag' element), as a
-//     `skill:` field value, or as a literal argument of envelopeFor(...). A lone ['seed'] (the
-//     unreadable-sources list in loop.ts) is not an argv and is allowed.
+//   - All modules across src/** (except seed.ts and runtime-commands.ts) are scanned over comment-stripped
+//     whole text:
+//       * no array literal (single- or multi-line) holding 'seed' beside 'roadmap' or an element
+//         starting with '--action' or '--draft' (with or without =value);
+//       * no `skill:` field value of 'seed';
+//       * no `envelopeFor(...)` call where 'seed' is an argument;
+//       * under src/runtime/roadmap/** only: no variable binding whose value is exactly 'seed'
+//         (const|let|var NAME [: type] = 'seed').
+//     A lone ['seed'] (such as loop.ts's unreadable-sources list) or a stage name in rehearse.ts
+//     is not an argv and is allowed.
 //   - core/registry/gates.json names no `seed` predicate (equal to 'seed' or starting 'seed:').
+//   - core/shared/** and core/registry/** text files (.md, .json, .yaml, .yml, .txt) name no
+//     forbidden invocation matching `seed --action apply|amend` (with whitespace or '=').
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -257,7 +265,7 @@ function checkRoadmapImports(target = REPO) {
   return { findings, moduleCount };
 }
 
-// ── Person-only clause (113, IC-007) ─────────────────────────────────────────────────────────────
+// ── Person-only clause (113, IC-007, review C-8) ─────────────────────────────────────────────────────────────
 
 const SEED_PATH = 'src/runtime/roadmap/seed.ts';
 const SEED_ALLOWED_REQUIRER = 'src/cli/runtime-commands.ts';
@@ -266,8 +274,148 @@ const SEED_SPEC_RE = /(?:^|\/)seed(?:\.[a-z]+)?$/;
 const ALL_SPEC_RES = [RE_REQUIRE_RESOLVE, RE_REQUIRE, RE_IMPORT_CALL, RE_FROM, RE_BARE_IMPORT];
 const SEED_LIT = /(?:'seed'|"seed"|`seed`)/;
 const RE_SINGLE_ARRAY = /\[([^\[\]]*)\]/g;
-const RE_SKILL_SEED = /\bskill\s*:\s*(?:'seed'|"seed"|`seed`)/;
-const RE_ENVELOPE_CALL_SEED = /\benvelopeFor\s*\([^)]*(?:'seed'|"seed"|`seed`)/;
+const RE_ROADMAP_ELEM = /['"`]roadmap['"`]/;
+const RE_ACTION_OR_DRAFT_ELEM = /['"`]--(?:action|draft)(?:=[^'"`]*)?['"`]/;
+const RE_SKILL_SEED = /\bskill\s*:\s*(?:'seed'|"seed"|`seed`)/g;
+const RE_ENVELOPE_CALL = /\benvelopeFor\s*\(([\s\S]*?)\)/g;
+const RE_ROADMAP_BINDING = /\b(?:const|let|var)\s+[a-zA-Z_$][\w$]*\s*(?::\s*[^=;\n]+)?\s*=\s*(?:'seed'|"seed"|`seed`)(?=\s*(?:;|\/\/|\/\*|\r|\n|$))/g;
+const DOC_EXT_RE = /\.(md|json|yaml|yml|txt)$/i;
+const RE_DOC_SEED_ACTION = /\bseed\s+--action(?:\s+|=)(?:apply|amend)\b/g;
+
+/** String- and template-literal-aware comment stripper: // and /* * / outside quotes are removed, keeping newlines. */
+function stripComments(text) {
+  let out = '';
+  let i = 0;
+  const n = text.length;
+  const stack = [];
+
+  while (i < n) {
+    const ch = text[i];
+    const next = i + 1 < n ? text[i + 1] : '';
+    const currentContext = stack.length > 0 ? stack[stack.length - 1] : null;
+
+    if (currentContext === 'template') {
+      if (ch === '\\') {
+        out += ch;
+        i++;
+        if (i < n) {
+          out += text[i];
+          i++;
+        }
+        continue;
+      }
+      if (ch === '`') {
+        stack.pop();
+        out += ch;
+        i++;
+        continue;
+      }
+      if (ch === '$' && next === '{') {
+        stack.push({ type: 'expr', braces: 1 });
+        out += '${';
+        i += 2;
+        continue;
+      }
+      out += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === "'") {
+      out += ch;
+      i++;
+      while (i < n) {
+        const c = text[i];
+        out += c;
+        if (c === '\\') {
+          i++;
+          if (i < n) {
+            out += text[i];
+          }
+        } else if (c === "'") {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      out += ch;
+      i++;
+      while (i < n) {
+        const c = text[i];
+        out += c;
+        if (c === '\\') {
+          i++;
+          if (i < n) {
+            out += text[i];
+          }
+        } else if (c === '"') {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === '`') {
+      stack.push('template');
+      out += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      i += 2;
+      while (i < n && text[i] !== '\n' && text[i] !== '\r') {
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      i += 2;
+      let hasNewline = false;
+      while (i < n) {
+        if (text[i] === '*' && i + 1 < n && text[i + 1] === '/') {
+          i += 2;
+          break;
+        }
+        if (text[i] === '\n' || text[i] === '\r') {
+          out += text[i];
+          hasNewline = true;
+        }
+        i++;
+      }
+      if (!hasNewline) {
+        out += ' ';
+      }
+      continue;
+    }
+
+    if (currentContext && currentContext.type === 'expr') {
+      if (ch === '{') {
+        currentContext.braces++;
+      } else if (ch === '}') {
+        currentContext.braces--;
+        if (currentContext.braces === 0) {
+          stack.pop();
+          out += ch;
+          i++;
+          continue;
+        }
+      }
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
 
 /** Literal import/require specifiers in a file's text that name the seed module. */
 function seedSpecLines(text) {
@@ -299,21 +447,47 @@ function scanSeedRequirers(files) {
   return { requirers, findings };
 }
 
-/** 'seed' as an envelope argv element, a skill value or an envelopeFor() argument. */
+/** 'seed' as an envelope argv element, a skill value, an envelopeFor() argument, or a roadmap binding. */
 function scanSeedEnvelope(filePath, text) {
+  const stripped = stripComments(text);
   const findings = [];
-  text.split('\n').forEach((line, idx) => {
-    const at = `${filePath}:${idx + 1}`;
-    for (const m of line.matchAll(RE_SINGLE_ARRAY)) {
-      if (!SEED_LIT.test(m[1])) continue;
-      if (/(?:'roadmap'|"roadmap"|['"\x60]--[\w-]+['"\x60])/.test(m[1])) {
-        findings.push(`${at} string literal 'seed' in an argv array: [${m[1].trim()}]`);
+
+  // (a) Array literal holding 'seed' and roadmap or --action/--draft
+  for (const m of stripped.matchAll(RE_SINGLE_ARRAY)) {
+    const inner = m[1];
+    if (SEED_LIT.test(inner)) {
+      if (RE_ROADMAP_ELEM.test(inner) || RE_ACTION_OR_DRAFT_ELEM.test(inner)) {
+        const line = stripped.slice(0, m.index).split('\n').length;
+        findings.push({ line, msg: `${filePath}:${line} string literal 'seed' in an argv array: [${inner.trim()}]` });
       }
     }
-    if (RE_SKILL_SEED.test(line)) findings.push(`${at} string literal 'seed' as a skill value`);
-    if (RE_ENVELOPE_CALL_SEED.test(line)) findings.push(`${at} string literal 'seed' passed to envelopeFor()`);
-  });
-  return [...new Set(findings)];
+  }
+
+  // (b) skill: 'seed'
+  for (const m of stripped.matchAll(RE_SKILL_SEED)) {
+    const line = stripped.slice(0, m.index).split('\n').length;
+    findings.push({ line, msg: `${filePath}:${line} string literal 'seed' as a skill value` });
+  }
+
+  // (c) envelopeFor(...) with 'seed'
+  for (const m of stripped.matchAll(RE_ENVELOPE_CALL)) {
+    if (SEED_LIT.test(m[1])) {
+      const line = stripped.slice(0, m.index).split('\n').length;
+      findings.push({ line, msg: `${filePath}:${line} string literal 'seed' passed to envelopeFor()` });
+    }
+  }
+
+  // (d) bindings in src/runtime/roadmap/**
+  const normPath = filePath.replace(/\\/g, '/');
+  if (normPath.startsWith(`${ROADMAP_DIR}/`)) {
+    for (const m of stripped.matchAll(RE_ROADMAP_BINDING)) {
+      const line = stripped.slice(0, m.index).split('\n').length;
+      findings.push({ line, msg: `${filePath}:${line} string literal 'seed' as a binding value` });
+    }
+  }
+
+  findings.sort((a, b) => a.line - b.line);
+  return [...new Set(findings.map((f) => f.msg))];
 }
 
 /** Predicates of core/registry/gates.json equal to 'seed' or starting 'seed:'. */
@@ -331,11 +505,24 @@ function scanGatesSeedPredicates(gates) {
   return findings;
 }
 
-/** The whole clause over { files: Map<path,text>, gates: object }. Returns { findings, requirers }. */
-function checkSeedPersonOnly({ files = new Map(), gates = {} } = {}) {
-  const { requirers, findings } = scanSeedRequirers(files);
-  for (const [file, text] of files) {
-    if (SEED_ENVELOPE_FILES.includes(file)) findings.push(...scanSeedEnvelope(file, text));
+/** The whole clause over { files: Map<path,text>, gates: object, docs: Map<path,text> }. Returns { findings, requirers }. */
+function checkSeedPersonOnly({ files = new Map(), gates = {}, docs = new Map() } = {}) {
+  const filesMap = files instanceof Map ? files : new Map(Object.entries(files || {}));
+  const docsMap = docs instanceof Map ? docs : new Map(Object.entries(docs || {}));
+  const { requirers, findings } = scanSeedRequirers(filesMap);
+  for (const [file, text] of filesMap) {
+    const norm = file.replace(/\\/g, '/');
+    if (norm === SEED_PATH || norm === SEED_ALLOWED_REQUIRER) continue;
+    if (!CODE_EXT_RE.test(norm) || norm.endsWith('.d.ts')) continue;
+    findings.push(...scanSeedEnvelope(file, text));
+  }
+  for (const [file, text] of docsMap) {
+    const norm = file.replace(/\\/g, '/');
+    if (!DOC_EXT_RE.test(norm)) continue;
+    for (const m of text.matchAll(RE_DOC_SEED_ACTION)) {
+      const line = text.slice(0, m.index).split('\n').length;
+      findings.push(`${file}:${line} forbidden seed invocation: '${m[0]}'`);
+    }
   }
   findings.push(...scanGatesSeedPredicates(gates));
   return { findings, requirers };
@@ -354,6 +541,24 @@ function loadSrcFiles(rootDir) {
   };
   if (fs.existsSync(path.join(rootDir, 'src'))) walk(path.join(rootDir, 'src'));
   return files;
+}
+
+function loadDocFiles(rootDir) {
+  const docs = new Map();
+  const walk = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        walk(full);
+      } else if (DOC_EXT_RE.test(ent.name)) {
+        docs.set(path.relative(rootDir, full).split(path.sep).join('/'), fs.readFileSync(full, 'utf8'));
+      }
+    }
+  };
+  walk(path.join(rootDir, 'core/shared'));
+  walk(path.join(rootDir, 'core/registry'));
+  return docs;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────────────────────────
@@ -460,9 +665,13 @@ test('G54 control: filesystem tempDir identifies seeded fault without touching t
 test('G54 person-only: seed.ts is required only by runtime-commands.ts; no seed argv, skill or gates predicate', (t) => {
   const files = loadSrcFiles(REPO);
   assert.ok(files.has('src/runtime/roadmap/loop.ts'), 'scan must see loop.ts');
+  assert.ok(files.has('src/release/rehearse.ts'), 'scan must see rehearse.ts');
+  assert.ok(files.has('src/runtime/roadmap/rows.ts'), 'scan must see rows.ts');
   for (const f of SEED_ENVELOPE_FILES) assert.ok(files.has(f), `scan must see ${f}`);
+  const docs = loadDocFiles(REPO);
+  assert.ok(docs.size > 0, 'docs scan must not be vacuous');
   const gates = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
-  const { findings, requirers } = checkSeedPersonOnly({ files, gates });
+  const { findings, requirers } = checkSeedPersonOnly({ files, gates, docs });
   t.diagnostic(`G54 person-only: requirers of seed.ts = [${requirers.join(', ')}]`);
   assert.ok(requirers.length <= 1, `seed.ts has more than one requirer: ${requirers.join(', ')}`);
   if (requirers.length === 1) assert.equal(requirers[0], SEED_ALLOWED_REQUIRER);
@@ -514,6 +723,117 @@ test('G54 person-only control: filesystem tree where another src module requires
   assert.match(findings[0], /^src\/runtime\/roadmap\/merge\.ts:1 requires/);
 });
 
+test('G54 person-only green control: unmodified tree has no findings; loop.ts and rehearse.ts seed literals are present but allowed', () => {
+  const files = loadSrcFiles(REPO);
+  const docs = loadDocFiles(REPO);
+  const gates = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+
+  const loopText = files.get('src/runtime/roadmap/loop.ts');
+  const rehearseText = files.get('src/release/rehearse.ts');
+  assert.ok(loopText, 'loop.ts must exist');
+  assert.ok(rehearseText, 'rehearse.ts must exist');
+  assert.ok(loopText.includes("Unreadable(['seed']"), 'loop.ts must contain Unreadable([\'seed\']');
+  assert.ok(rehearseText.includes("'seed'"), 'rehearse.ts must contain \'seed\'');
+
+  assert.deepEqual(scanSeedEnvelope('src/runtime/roadmap/loop.ts', loopText), []);
+  assert.deepEqual(scanSeedEnvelope('src/release/rehearse.ts', rehearseText), []);
+
+  const { findings } = checkSeedPersonOnly({ files, gates, docs });
+  assert.deepEqual(findings, [], `unmodified real tree must have zero findings:\n${findings.join('\n')}`);
+});
+
+test('G54 person-only negative controls: mutating real loop.ts in memory turns guard red across single-line, multi-line, = flag, and constant forms', () => {
+  const realFiles = loadSrcFiles(REPO);
+  const docs = loadDocFiles(REPO);
+  const gates = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+  const origLoopText = realFiles.get('src/runtime/roadmap/loop.ts');
+  assert.ok(origLoopText, 'loop.ts must be loaded');
+
+  assert.deepEqual(scanSeedEnvelope('src/runtime/roadmap/loop.ts', origLoopText), []);
+  assert.deepEqual(checkSeedPersonOnly({ files: realFiles, gates, docs }).findings, []);
+
+  const mutations = [
+    { label: '(i) single-line', snippet: "const x = ['roadmap', 'seed', '--action', 'apply'];" },
+    { label: '(ii) multi-line array', snippet: "const x = [\n  'roadmap',\n  'seed',\n  '--action',\n  'apply',\n];" },
+    { label: '(iii) --action=apply form', snippet: "const x = ['roadmap', 'seed', '--action=apply'];" },
+    { label: '(iv) constant form', snippet: "const SUB = 'seed';" },
+  ];
+
+  for (const { label, snippet } of mutations) {
+    const mutatedText = `${origLoopText}\n${snippet}\n`;
+    const mutatedFiles = new Map(realFiles);
+    mutatedFiles.set('src/runtime/roadmap/loop.ts', mutatedText);
+
+    const envFindings = scanSeedEnvelope('src/runtime/roadmap/loop.ts', mutatedText);
+    assert.ok(envFindings.length >= 1, `${label} scanSeedEnvelope must turn red on mutated loop.ts`);
+
+    const { findings } = checkSeedPersonOnly({ files: mutatedFiles, gates, docs });
+    assert.ok(findings.length >= 1, `${label} checkSeedPersonOnly must turn red on mutated loop.ts`);
+    assert.ok(findings.some((f) => f.startsWith('src/runtime/roadmap/loop.ts:')), `${label} finding must locate loop.ts`);
+  }
+});
+
+test('G54 person-only negative controls: real rows.ts mutation is red, picker.ts scratch is red, but commented text is green', () => {
+  const realFiles = loadSrcFiles(REPO);
+  const docs = loadDocFiles(REPO);
+  const gates = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+  const origRowsText = realFiles.get('src/runtime/roadmap/rows.ts');
+  assert.ok(origRowsText, 'rows.ts must be loaded');
+
+  // Appending single-line snippet to real rows.ts (outside the old 4-file list)
+  const snippet = "const x = ['roadmap', 'seed', '--action', 'apply'];";
+  const mutatedRowsText = `${origRowsText}\n${snippet}\n`;
+  const mutatedFiles = new Map(realFiles);
+  mutatedFiles.set('src/runtime/roadmap/rows.ts', mutatedRowsText);
+  const rowsRes = checkSeedPersonOnly({ files: mutatedFiles, gates, docs });
+  assert.ok(rowsRes.findings.length >= 1, 'rows.ts mutation must turn guard red');
+  assert.ok(rowsRes.findings.some((f) => f.startsWith('src/runtime/roadmap/rows.ts:')), 'finding must name rows.ts');
+
+  // Scratch Map entry src/runtime/picker.ts with multi-line argv
+  const multilineArgv = "const x = [\n  'roadmap',\n  'seed',\n  '--action',\n  'apply',\n];\n";
+  const pickerFiles = new Map([['src/runtime/picker.ts', multilineArgv]]);
+  const pickerRes = checkSeedPersonOnly({ files: pickerFiles, gates, docs });
+  assert.ok(pickerRes.findings.length >= 1, 'picker.ts with multi-line argv must turn guard red');
+  assert.ok(pickerRes.findings.some((f) => f.startsWith('src/runtime/picker.ts:')));
+
+  // Same text inside // comment is green
+  const lineCommented = "// const x = [\n//   'roadmap',\n//   'seed',\n//   '--action',\n//   'apply',\n// ];\n";
+  const lineCommentFindings = scanSeedEnvelope('src/runtime/picker.ts', lineCommented);
+  assert.deepEqual(lineCommentFindings, [], 'multi-line argv inside // comments must be green');
+
+  // Same text inside /* */ comment is green
+  const blockCommented = "/*\nconst x = [\n  'roadmap',\n  'seed',\n  '--action',\n  'apply',\n];\n*/\n";
+  const blockCommentFindings = scanSeedEnvelope('src/runtime/picker.ts', blockCommented);
+  assert.deepEqual(blockCommentFindings, [], 'multi-line argv inside /* */ comments must be green');
+});
+
+test('G54 person-only docs clause: core skills/registry doc scan flags seed --action apply/amend and ignores safe check', () => {
+  const gates = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+
+  // (1) Scratch SKILL.md containing run roadmap seed --action apply --draft d.json is red
+  const applyDocs = new Map([['core/shared/skills/x/SKILL.md', 'run roadmap seed --action apply --draft d.json\n']]);
+  const applyRes = checkSeedPersonOnly({ gates, docs: applyDocs });
+  assert.ok(applyRes.findings.length >= 1, 'seed --action apply in docs must be red');
+  assert.ok(applyRes.findings.some((f) => f.startsWith('core/shared/skills/x/SKILL.md:1')));
+
+  // (2) seed --action=amend is red
+  const amendDocs = new Map([['core/shared/skills/x/SKILL.md', 'seed --action=amend\n']]);
+  const amendRes = checkSeedPersonOnly({ gates, docs: amendDocs });
+  assert.ok(amendRes.findings.length >= 1, 'seed --action=amend in docs must be red');
+  assert.ok(amendRes.findings.some((f) => f.startsWith('core/shared/skills/x/SKILL.md:1')));
+
+  // (3) seed --action check is green
+  const checkDocs = new Map([['core/shared/skills/x/SKILL.md', 'seed --action check\n']]);
+  const checkRes = checkSeedPersonOnly({ gates, docs: checkDocs });
+  assert.deepEqual(checkRes.findings, [], 'seed --action check in docs must be green');
+
+  // (4) Real core tree docs is green
+  const realDocs = loadDocFiles(REPO);
+  assert.ok(realDocs.size > 0, 'real docs must not be empty');
+  const realDocsRes = checkSeedPersonOnly({ gates, docs: realDocs });
+  assert.deepEqual(realDocsRes.findings, [], `real docs tree must have zero findings:\n${realDocsRes.findings.join('\n')}`);
+});
+
 module.exports = {
   checkSeedPersonOnly,
   scanSeedRequirers,
@@ -522,4 +842,7 @@ module.exports = {
   checkRoadmapImports,
   scanFileContent,
   checkForbiddenImport,
+  stripComments,
+  loadDocFiles,
+  loadSrcFiles,
 };
