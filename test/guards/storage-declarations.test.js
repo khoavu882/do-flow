@@ -400,6 +400,7 @@ writeIntent(path.join(process.argv[1], '.doflow/state/roadmap/intents/113.json')
       ['retrieval-plan', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'declare', '--need', 'locate-concept'), 0],
       ['retrieval-plan attempt', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'attempt', '--need', 'locate-concept', '--provider', 'semble.search', '--status', 'UNREACHED', '--reason', 'provider-unavailable'), 0],
       ['evidence add absence', verb('evidence', '--task-id', 'g26-task', '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'native.rg', '--capability', 'code.exact-search', '--absence', '--need', 'locate-concept'), 0],
+      ['slot run', verb('slot', '--action', 'run', '--name', 'g26', '--', 'true'), 0],
       ['task-attempt claim', verb('task-attempt', '--action', 'claim', '--slug', 'g26-task', '--task', 'A.1', '--owner', 'core-implementer', '--mode', 'manual'), 0],
       ['verify report (verification-runs)', verb('verify', '--action', 'report', '--task-id', 'g26-task', '--plan-path', 'plan.md'), 1],
       ['followup report', verb('followup', '--action', 'report', '--statement', 'a problem', '--text', 'its body'), 0],

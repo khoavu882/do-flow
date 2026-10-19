@@ -60,6 +60,8 @@ const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
 const { handleStorageCommand } = require('../runtime/storage/cli.ts');
 const { handleRoadmapCommand, resolveMainRoot } = require('../runtime/roadmap/loop.ts');
+const { handlePlanCheckCommand } = require('../runtime/plan-check.ts');
+const { handleSlotCommand } = require('../runtime/slot-command.ts');
 const NO_UPKEEP = new Set(['storage', 'config']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
@@ -236,6 +238,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
       moment.projectRoot = path.dirname(resolveRunsLocation({ start: traceViewRoot(o), global: o.global }).configDir);
     } else if (['followup', 'lifecycle', 'goal', 'task-attempt', 'worker', 'dispatch'].includes(o.cmd)) {
       moment.projectRoot = lifecycleProjectRoot(evidenceRoot(o));
+    } else if (o.cmd === 'plan-check' || o.cmd === 'slot') {
+      moment.projectRoot = process.cwd(); // the first positional of plan-check is a file, never a project root
     } else if (o.cmd === 'verify') {
       moment.projectRoot = verifyStateRoot({ start: evidenceRoot(o) }).projectRoot; // the store verify writes, never a cwd fragment
     } else {
@@ -341,6 +345,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
     case 'roadmap': return handleRoadmapVerbCommand(o);
+    case 'plan-check': return handlePlanCheckCommand({ positional: o.positional, extraFlags: o.extraFlags, json: o.json, cwd: process.cwd() });
+    case 'slot': return handleSlotCommand({ action: o.actionGiven ? o.action : undefined, name: o.name, label: o.label, timeout: o.timeout, noWait: Boolean(o.noWait), command: o.slotCommand, by: o.by, reason: o.reason, positional: o.positional, extraFlags: o.extraFlags, json: o.json, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
 }

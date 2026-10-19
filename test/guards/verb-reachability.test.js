@@ -94,6 +94,8 @@ const ALLOWLIST = new Map([
     'roadmap',
     'roadmap loop verb (feature 108, plan gap §9-2): session-driven autopilot runner invoked by the operator or orchestrator session; no skill invokes it directly today',
   ],
+  ['plan-check', 'called by validate-artifacts.sh, no skill calls it'],
+  ['slot', 'orchestrator tool, no skill calls it'],
 ]);
 
 /** Parse all shell-backed verbs from shell_helper_for() in doflow-run. `\r?\n` keeps the parser
