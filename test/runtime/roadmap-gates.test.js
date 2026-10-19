@@ -149,6 +149,19 @@ test('verification ignores dirty, stale-head, and other-task records and uses ap
   assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ verification: [{ schema: 2, taskId: '113-goal-order', head: HEAD, clean: true, verdict: 'PASS' }] })).reasons, ['verify-not-pass']);
 });
 
+test('verify-flaky needs a FAIL followed by a PASS on the head; a single FAIL or INCONCLUSIVE is only verify-not-pass (D12)', () => {
+  const policy = loadPolicy(baseBytes).policy;
+  policy.classes.feature['gate-b'].predicates = ['verify-pass-on-head'];
+  const run = (verdict) => ({ schema: 1, taskId: '113-goal-order', head: HEAD, clean: true, verdict });
+  const reasons = (...verdicts) => evaluate(policy, 'feature', 'gate-b', facts({ verification: verdicts.map(run) })).reasons;
+  assert.deepEqual(reasons('FAIL'), ['verify-not-pass']);
+  assert.deepEqual(reasons('INCONCLUSIVE'), ['verify-not-pass']);
+  assert.deepEqual(reasons('PASS', 'FAIL'), ['verify-not-pass']);
+  assert.deepEqual(reasons('FAIL', 'PASS'), ['verify-flaky']);
+  assert.deepEqual(reasons('FAIL', 'PASS', 'FAIL'), ['verify-not-pass', 'verify-flaky']);
+  assert.deepEqual(reasons('INCONCLUSIVE', 'PASS'), []);
+});
+
 test('findings validator rejects invalid and ambiguous records and missing disposition fields', () => {
   assert.equal(validateFindings(JSON.stringify(review())).ok, true);
   for (const value of [null, '{', {}, { ...review(), row: '114' , slug: '113-goal-order' }, { ...review(), reviewedHead: 'HEAD' },
@@ -199,7 +212,7 @@ const mutations = [
   { name: 'wip widening', from: 'value[limit] > base.loop[limit]', to: 'false', pattern: 'policy fixture: wip widening' },
   { name: 'stale parent review', from: 'findings.reviewedHead !== head', to: 'false', pattern: 'predicate fixture: review on parent' },
   { name: 'all predicates and declared order', from: 'for (const predicate of gate.predicates) {', to: 'for (const predicate of [...gate.predicates].reverse()) {', pattern: 'all predicates run and preserve declared reason order' },
-  { name: 'FAIL then PASS', from: "runs.some((run: any) => run.verdict === 'FAIL')", to: 'false', pattern: 'predicate fixture: FAIL then PASS remains flaky' },
+  { name: 'FAIL then PASS', from: "run.verdict === 'FAIL' && runs.slice(i + 1).some((later: any) => later.verdict === 'PASS')", to: 'false', pattern: 'predicate fixture: FAIL then PASS remains flaky' },
   { name: 'INCONCLUSIVE', from: "runs[runs.length - 1].verdict !== 'PASS'", to: 'false', pattern: 'predicate fixture: inconclusive verification' },
   { name: 'seat minimum', from: 'seats.length < (gate.minSeats || 0)', to: 'false', pattern: 'predicate fixture: too few seats' },
   { name: 'user-channel backing', from: "finding.status === 'user-accepted' && !decisions.some", to: 'false && !decisions.some', pattern: 'predicate fixture: agent acceptance' },

@@ -290,7 +290,7 @@ async function drive(f, options = {}) {
     const out = await f.next(options);
     last = out.result;
     if (last.outcome === 'perform' && last.perform.purpose === 'post-merge') {
-      put(path.join(f.develop, '.doflow/state/verification/runs/113-toy.jsonl'),
+      put(path.join(f.root, '.doflow/state/verification/runs/113-toy.jsonl'),
         `${JSON.stringify({ schema: 1, taskId: '113-toy', head: last.perform.head, clean: true, verdict: 'PASS', at: '2026-10-19T00:00:00Z', reportSha256: `sha256:${'e'.repeat(64)}` })}\n`);
     } else if (last.outcome === 'idle') return last;
     else if (last.outcome !== 'acted') throw new Error(`unexpected ${last.outcome} ${last.reason}`);

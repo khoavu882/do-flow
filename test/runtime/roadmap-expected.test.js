@@ -23,6 +23,9 @@ const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrato
 const { initRegister, addDecisions } = require('../../src/runtime/decision-register.ts');
 
 const REPO = path.resolve(__dirname, '../..');
+const { verificationRunsRoot, verificationRunRecordFile } = require('../../src/runtime/verification/engine.ts');
+/** Where the real verify verb appends the IC-007 run records of a checkout (the writer's own rule). */
+const runRecordFile = (checkout, slug) => verificationRunRecordFile(verificationRunsRoot(checkout), slug);
 const FIXTURES = path.join(__dirname, '../fixtures/roadmap/g-l1');
 const SCENARIOS_FILE = path.join(FIXTURES, 'scenarios.json');
 const EXPECTED_FILE = path.join(FIXTURES, 'expected.json');
@@ -55,6 +58,7 @@ const GROUPS = {
 const known = (tags, diffs) => ({ tags, reading: tags.map((tag) => GROUPS[tag]).join(' '), diffs });
 const KNOWN_MISMATCHES = {
   "S01-happy-path-full-cycle": known(["S8-TAIL"], [
+    "call 12 step: expected \"render\" actual \"cleanup\"",
     "call 13 step: expected \"cleanup\" actual \"pick\"",
     "call 13 row: expected \"110\" actual \"112\"",
     "call 14 outcome: expected \"acted\" actual \"perform\"",
@@ -92,14 +96,17 @@ const KNOWN_MISMATCHES = {
     "call 1 reason: expected \"develop-wrong-branch\" actual \"no-develop-worktree\"",
   ]),
   "S41-crash-cp1-after-intent": known(["S8-TAIL"], [
+    "call 2 step: expected \"render\" actual \"cleanup\"",
     "call 3 step: expected \"cleanup\" actual \"pick\"",
     "call 3 row: expected \"110\" actual \"112\"",
   ]),
   "S42-crash-cp2-after-commit-tree": known(["S8-TAIL"], [
+    "call 2 step: expected \"render\" actual \"cleanup\"",
     "call 3 step: expected \"cleanup\" actual \"pick\"",
     "call 3 row: expected \"110\" actual \"112\"",
   ]),
   "S43-crash-cp3-after-ff": known(["S8-TAIL"], [
+    "call 1 step: expected \"render\" actual \"cleanup\"",
     "call 2 step: expected \"cleanup\" actual \"pick\"",
     "call 2 row: expected \"110\" actual \"112\"",
   ]),
@@ -144,6 +151,7 @@ const KNOWN_MISMATCHES = {
     "call 1 offendingRowIds: expected [\"096\"] actual [\"101\",\"096\"]",
   ]),
   "S75-no-forbidden-verbs-with-remote": known(["S8-TAIL"], [
+    "call 2 step: expected \"render\" actual \"cleanup\"",
     "call 3 outcome: expected \"acted\" actual \"idle\"",
     "call 3 step: expected \"cleanup\" actual null",
     "call 3 row: expected \"110\" actual null",
@@ -226,7 +234,7 @@ async function build(t, sc) {
   git(root, 'config', 'user.email', 'owner@example.invalid');
   git(root, 'config', 'core.hooksPath', '/dev/null');
   write(path.join(root, '.gitignore'), '.doflow/\nagent-docs/\n');
-  write(path.join(root, 'package.json'), '{"name":"fixture","version":"1.0.0"}\n');
+  write(path.join(root, 'package.json'), '{"name":"fixture","version":"1.0.0","scripts":{"test":"node --test"}}\n');
   write(path.join(root, 'shared.txt'), 'base\n');
   write(path.join(root, 'src/alpha/a.js'), 'base\n');
   write(path.join(root, 'notes/owner-wip.md'), 'owner notes\n');
@@ -350,7 +358,7 @@ async function build(t, sc) {
       ? `## Tasks\n- [ ] A.1 Build — owner: core-implementer; files: ${file}\n${markers(a.planMarkers)}\n`
       : '## Tasks\n- [ ] A.1 X — files: src/x.ts; depends-on: A.2\n- [ ] A.2 Y — files: src/y.ts; depends-on: A.1\n');
     if (f.verifyLog) {
-      write(path.join(entry.wt, '.doflow/state/verification/runs', `${entry.slug}.jsonl`),
+      write(runRecordFile(entry.wt, entry.slug),
         f.verifyLog.map((line) => `${JSON.stringify({ schema: 1, taskId: entry.slug, head: sym(line.head), clean: line.clean, verdict: line.verdict, at: '2026-10-19T00:00:00Z' })}\n`).join(''));
     }
     if (f.findings && f.findings.present !== false) {
@@ -508,7 +516,7 @@ async function applyEvent(w, event) {
       if (event.stage === 'discovery') { initRegister({ featureDir: dirOf, slug: entry.slug }); write(path.join(dirOf, 'intention/requirement.md'), '# Requirement\nwritten\n'); }
       else if (event.stage === 'design') write(path.join(dirOf, 'design/design.md'), '# Design\nwritten\n');
       else if (event.stage === 'planning') write(path.join(dirOf, 'plan.md'), `## Tasks\n- [ ] A.1 Build — owner: core-implementer; files: ${first.endsWith('/') ? `${first}a.md` : first}\n`);
-      else if (event.stage === 'verification') write(path.join(entry.wt, '.doflow/state/verification/runs', `${entry.slug}.jsonl`),
+      else if (event.stage === 'verification') write(runRecordFile(entry.wt, entry.slug),
         `${JSON.stringify({ schema: 1, taskId: entry.slug, head: featureHead, clean: true, verdict: 'PASS', at: w.tick().toISOString() })}\n`);
       else if (event.stage === 'review') write(path.join(dirOf, 'review/findings.json'), JSON.stringify({ schema: 1, row: entry.id, slug: entry.slug, reviewedHead: featureHead,
         seats: [{ id: 'backend-expert', findings: [] }, { id: 'principle-software-engineer', findings: [] }], converged: [] }));
@@ -573,7 +581,7 @@ async function runScenario(t, sc, expected) {
       // The oracle predates amendment P1 (post-merge verification): answer that perform as the session
       // would, with the PASS line the loop reads back, and call again without using an expected call.
       for (let guard = 0; result.outcome === 'perform' && result.perform.purpose === 'post-merge' && guard < 3; guard += 1) {
-        write(path.join(result.perform.worktree, '.doflow/state/verification/runs', `${result.perform.slug}.jsonl`),
+        write(runRecordFile(result.perform.worktree, result.perform.slug),
           `${JSON.stringify({ schema: 1, taskId: result.perform.slug, head: result.perform.head, clean: true, verdict: 'PASS', at: w.tick().toISOString(), reportSha256: `sha256:${'e'.repeat(64)}` })}\n`);
         ({ result } = await runNext(w));
       }

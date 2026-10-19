@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const cp = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { gatherGateFacts, countMarkers, sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
 const { loadPolicy, evaluate } = require('../../src/runtime/roadmap/gates.ts');
@@ -142,6 +143,17 @@ test('gate-b reads head-bound verification and disposition ancestry and register
   assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', stale).reasons.includes('review-stale-head'));
 });
 
+test('a register that does not exist yet is an empty decision list; a malformed one stays unreadable', (t) => {
+  const env = setup(t);
+  env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify({ ...review, converged: [
+    { id: 'C2', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'user-accepted', decision: 'DEC-001' } ] }));
+  const missing = env.gather('gate-b');
+  assert.equal(missing.find((f) => f.name === 'dispositions').unreadable, undefined);
+  assert.deepEqual(evaluate(env.options.policy, 'feature', 'gate-b', missing).reasons, ['accepted-without-user-decision:C2']);
+  env.write(`agent-docs/doflow/${row.slug}/decisions/register.json`, '{broken');
+  assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', env.gather('gate-b')).reasons.some((r) => r.startsWith('findings-invalid:')));
+});
+
 test('unreadable and malformed inputs deny with named locators; missing artifact never passes', (t) => {
   const env = setup(t);
   const requirement = path.join(env.artifactRoot, 'intention/requirement.md');
@@ -229,4 +241,24 @@ test('diff parser preserves added guard files and both rename paths, including w
   assert.deepEqual(input.find((f) => f.name === 'protected-paths').value.changes, [
     { status: 'A', path: 'test/guards/new test.js' }, { status: 'R100', oldPath: 'test/guards/old test.js', path: 'test/other.js' } ]);
   assert.ok(evaluate(env.options.policy, 'feature', 'gate-a', input).reasons.includes('protected-path:test/guards/old test.js'));
+});
+
+test('verify-pass-on-head reads the run record where verify appends it: the main checkout of a linked feature worktree (G.3 B1)', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-facts-linked-');
+  const main = path.join(dir, 'main'), feature = path.join(dir, 'feature');
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'O', GIT_AUTHOR_EMAIL: 'o@example.test', GIT_COMMITTER_NAME: 'O', GIT_COMMITTER_EMAIL: 'o@example.test' };
+  const git = (cwd, ...args) => cp.execFileSync('git', ['-C', cwd, ...args], { env, encoding: 'utf8' }).trim();
+  fs.mkdirSync(main);
+  git(main, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(main, 'base'), 'base');
+  git(main, 'add', '.'); git(main, 'commit', '-qm', 'base');
+  git(main, 'worktree', 'add', '-q', '-b', `feat/${row.slug}`, feature);
+  const record = `${JSON.stringify({ schema: 1, taskId: row.slug, head: HEAD, clean: true, verdict: 'PASS' })}\n`;
+  fs.mkdirSync(path.join(main, '.doflow/state/verification/runs'), { recursive: true });
+  fs.writeFileSync(path.join(main, '.doflow/state/verification/runs', `${row.slug}.jsonl`), record);
+  const policy = loadPolicy(baseBytes).policy; policy.classes.feature['gate-b'].predicates = ['verify-pass-on-head'];
+  const input = gatherGateFacts({ root: feature, artifactRoot: path.join(feature, 'agent-docs/doflow', row.slug), row, rows: [row], policy,
+    gateId: 'gate-b', developHead: PARENT, featureHead: HEAD });
+  assert.equal(evaluate(policy, 'feature', 'gate-b', input).decision, 'pass');
+  assert.equal(fs.realpathSync(input.find((f) => f.name === 'verification').locator), fs.realpathSync(path.join(main, '.doflow/state/verification/runs', `${row.slug}.jsonl`)));
 });

@@ -371,7 +371,9 @@ function gatherGateFacts(options: any): GateFact[] {
   }
 
   if (uses('verify-pass-on-head')) {
-    const input = read([path.join(root, '.doflow/state/verification/runs', `${row.slug}.jsonl`)]);
+    // The record lives where `verify --action report` appends it (IC-007), not in the feature checkout.
+    const { verificationRunsRoot, verificationRunRecordFile } = require('../verification/engine.ts');
+    const input = read([verificationRunRecordFile(verificationRunsRoot(root), row.slug)]);
     let records: any[] = [];
     let unreadable = input.unreadable === 'ENOENT' ? undefined : input.unreadable;
     if (!input.unreadable) {
@@ -407,7 +409,9 @@ function gatherGateFacts(options: any): GateFact[] {
     if (converged.some((finding: any) => finding?.status === 'user-accepted')) {
       const input = read([path.join(artifactRoot, 'decisions/register.json')]);
       source('decisions', input);
-      if (input.unreadable) unreadable = `${input.unreadable}:${input.locator}`;
+      // A register not created yet holds no decisions; any other read or parse failure is unreadable.
+      if (input.unreadable === 'ENOENT') decisions = [];
+      else if (input.unreadable) unreadable = `${input.unreadable}:${input.locator}`;
       else {
         try {
           const register = JSON.parse(input.text);

@@ -905,3 +905,11 @@ test('held rows keep derived merge status and render held text only while not me
   assert.equal(first, render([ready], statusesForReady), 'held rows render byte-stably');
 });
 
+
+test('a seed verifyArgv is an array of 1 to 8 non-empty strings', () => {
+  const seed = (verifyArgv) => ({ schema: 1, rows: [{ id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [], verifyArgv }] });
+  assert.deepEqual(parseSeed(seed(['npm', 'test'])).rows[0].verifyArgv, ['npm', 'test']);
+  for (const bad of [[], 'npm test', ['npm', ''], ['npm', 1], Array(9).fill('x'), ['npm', '  ']]) {
+    assert.throws(() => parseSeed(seed(bad)), (error) => error.code === 'seed-invalid', JSON.stringify(bad));
+  }
+});

@@ -568,14 +568,26 @@ function artifactRootOf(ctx: any, row: any, worktree: string): string {
   return !ctx.fsImpl.existsSync(own) && ctx.fsImpl.existsSync(main) ? main : own;
 }
 
+/** The verify run-record file of a checkout, resolved by the writer's own rule (engine.ts). */
+function runRecordFileOf(checkout: string, row: any): string {
+  const { verificationRunsRoot, verificationRunRecordFile } = require('../verification/engine.ts');
+  return verificationRunRecordFile(verificationRunsRoot(checkout), row.slug);
+}
+
 /** IC-008: the bytes a stage must change. The implementation artifact is the feature branch head. */
 function stageArtifact(ctx: any, row: any, worktree: string, stage: string): { artifact: string; sha256: string | null } {
   if (stage === 'implementation') {
     const { featureHead } = readHeads(ctx, row);
     return { artifact: `refs/heads/feat/${row.slug}`, sha256: sha256Digest(featureHead) };
   }
-  const base = stage === 'verification' ? worktree : artifactRootOf(ctx, row, worktree);
-  const candidates = stage === 'verification' ? [`.doflow/state/verification/runs/${row.slug}.jsonl`] : DOC_ARTIFACTS[stage];
+  if (stage === 'verification') {
+    // Where `verify --action report` appends (IC-007): the lifecycle root, not the feature checkout.
+    const file = runRecordFileOf(worktree, row);
+    try { return { artifact: file, sha256: sha256Digest(ctx.fsImpl.readFileSync(file)) }; }
+    catch (error: any) { if (error.code === 'ENOENT') return { artifact: file, sha256: null }; throw new Unreadable([`artifact:${file}`], error.message); }
+  }
+  const base = artifactRootOf(ctx, row, worktree);
+  const candidates = DOC_ARTIFACTS[stage];
   if (!candidates) throw new Unreadable([`stage:${stage}`], `no artifact is declared for stage '${stage}'`);
   for (const rel of candidates) {
     try { return { artifact: rel, sha256: sha256Digest(ctx.fsImpl.readFileSync(path.join(base, rel))) }; }
@@ -584,15 +596,42 @@ function stageArtifact(ctx: any, row: any, worktree: string, stage: string): { a
   return { artifact: candidates[0], sha256: null };
 }
 
+/** The feature's change is measured from where it forked from local develop, never origin (G.3 B3). */
+function mergeBaseOf(ctx: any, row: any): string {
+  const { execFileSync } = ctx;
+  try {
+    const base = String(execFileSync('git', ['-C', ctx.root, 'merge-base', 'refs/heads/develop', `refs/heads/feat/${row.slug}`], ctx.gitOptions)).trim();
+    if (/^[0-9a-f]{40}$/.test(base)) return base;
+  } catch { /* named below */ }
+  throw new Unreadable([`merge-base:${row.slug}`], 'no merge base of develop and the feature branch');
+}
+
+/**
+ * The argv `dispatch start --verify-argv` takes (G.3 B2): the seed's `verifyArgv`, else `npm test`
+ * when the feature checkout's package.json declares a test script, else null (never guessed).
+ */
+function verifyArgvOf(ctx: any, row: any, worktree: string): string[] | null {
+  if (Array.isArray(row.verifyArgv)) return row.verifyArgv;
+  const file = path.join(worktree, 'package.json');
+  let manifest: any;
+  try { manifest = JSON.parse(ctx.fsImpl.readFileSync(file, 'utf8')); }
+  catch (error: any) { if (error.code === 'ENOENT') return null; throw new Unreadable([`package-json:${file}`], error.message); }
+  const script = manifest?.scripts?.test;
+  return typeof script === 'string' && script.trim() ? ['npm', 'test'] : null;
+}
+
 /** IC-008 envelope. Argv arrays only: the session runs them, nothing here is a shell string. */
-function envelopeFor(ctx: any, row: any, worktree: string, stage: string, skill: string, before: any): any {
+function envelopeFor(ctx: any, row: any, worktree: string, stage: string, skill: string, before: any, verifyCommand: string[] | null = null): any {
   const handoff = ['orchestrate', '--action', 'handoff', '--task-id', row.slug, '--calling-skill', skill, '--note', '<text>'];
   const base = { outcome: 'perform', runId: ctx.record.runId, row: row.id, slug: row.slug, stage, skill, worktree,
     artifactRoot: artifactRootOf(ctx, row, worktree), before, issuedAt: ctx.now().toISOString() };
   const next = ['roadmap', '--action', 'next', '--run', ctx.record.runId];
+  if (stage === 'verification') {
+    return { ...base, after: [['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', mergeBaseOf(ctx, row)], handoff], next };
+  }
   if (stage !== 'implementation') return { ...base, after: handoff, next };
   return { ...base, after: [
-    ['dispatch', '--action', 'start', '--slug', row.slug, '--by', LOOP_ACTOR, '--billing-cap', 'free'],
+    ['dispatch', '--action', 'start', '--slug', row.slug, '--by', LOOP_ACTOR, '--billing-cap', 'free', ...(verifyCommand ? ['--verify-argv', JSON.stringify(verifyCommand)] : [])],
     ['dispatch', '--action', 'run', '--slug', row.slug, '--by', LOOP_ACTOR],
     handoff,
   ], next };
@@ -636,7 +675,8 @@ function defaultDispatchFacts(ctx: any, slug: string): any {
   const run = store.run;
   const gaps = Array.isArray(run.blockedReport?.gaps) ? run.blockedReport.gaps : [];
   const facts: any = { state: run.state, cause: run.blockedReport?.cause ?? null, resumeReason: run.resumeReason ?? null,
-    repeated: gaps.some((gap: any) => typeof gap?.reason === 'string' && gap.reason.endsWith(': repeated')), pause: null };
+    repeated: gaps.some((gap: any) => typeof gap?.reason === 'string' && gap.reason.endsWith(': repeated')), pause: null,
+    integration: run.integration ? { branch: run.integration.branch ?? null, head: run.integration.head ?? null } : null };
   const ledger = readTaskState(ctx.fsImpl, storeFile(ctx.root, slug));
   const own = ledger?.runs && typeof run.runKey === 'string' && Object.hasOwn(ledger.runs, run.runKey) ? ledger.runs[run.runKey] : null;
   if (own?.control === 'paused') {
@@ -658,7 +698,7 @@ function defaultResumeDigest(ctx: any, slug: string, cwd: string): { digest?: st
 function postMergeRuns(row: any, cwd: string, head: string, fsImpl: any): any[] {
   const source = `verification-runs:${row.slug}`;
   let text = '';
-  try { text = fsImpl.readFileSync(path.join(cwd, '.doflow', 'state', 'verification', 'runs', `${row.slug}.jsonl`), 'utf8'); }
+  try { text = fsImpl.readFileSync(runRecordFileOf(cwd, row), 'utf8'); }
   catch (error: any) { if (error.code !== 'ENOENT') throw new Unreadable([source], error.message); }
   const runs: any[] = [];
   for (const line of text.split('\n')) {
@@ -736,6 +776,14 @@ function tripwireNote(ctx: any, kind: 'reverts' | 'unverified', id: string, line
   tripSentinel(ctx.env, line, ctx.fsImpl);
 }
 
+/** The develop checkout holds no feature folder: point verify at the feature plan so scope resolves. */
+function postMergePlan(ctx: any, row: any, intent: any): string[] {
+  if (!intent.featureWorktree) return [];
+  const root = artifactRootOf(ctx, row, intent.featureWorktree);
+  const plan = ['plan.md', 'planning/plan.md'].map((rel) => path.join(root, rel)).find((file) => ctx.fsImpl.existsSync(file));
+  return plan ? ['--plan-path', plan] : [];
+}
+
 async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; worktree?: string }): Promise<any> {
   const slot = (ctx.record.rows[row.id] ||= {});
   const intent = source.intent || null;
@@ -757,10 +805,11 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
   if (intent && intent.phase === 'ff-done' && intent.verifiedHead !== intent.commit && !intent.status
     && postMergeRuns(row, intent.developWorktree, intent.commit, ctx.fsImpl).length === 0) {
     // The lean post-merge gate is performed by the session on the new develop head (no non-git spawn).
-    const before = { artifact: `.doflow/state/verification/runs/${row.slug}.jsonl`, sha256: null };
+    const before = { artifact: runRecordFileOf(intent.developWorktree, row), sha256: null };
     const perform = { outcome: 'perform', runId: ctx.record.runId, row: row.id, slug: row.slug, stage: 'verification', skill: 'do-test',
       purpose: 'post-merge', worktree: intent.developWorktree, artifactRoot: null, head: intent.commit, before, issuedAt: ctx.now().toISOString(),
-      after: ['verify', '--action', 'report', '--task-id', row.slug], next: ['roadmap', '--action', 'next', '--run', ctx.record.runId] };
+      after: ['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', intent.developHead, ...postMergePlan(ctx, row, intent)],
+      next: ['roadmap', '--action', 'next', '--run', ctx.record.runId] };
     return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform });
   }
   const startPhase = intent?.phase || null;
@@ -811,8 +860,10 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
     if (slot.held?.kind === 'cleanup') return { skip: 'cleanup-kept' };
     slot.held = { kind: 'cleanup', reason: 'cleanup-kept' };
   } else delete slot.held;
-  return finish(ctx, { ...base, outcome: 'acted', step, annotations: { commit: result.commit, cleanup: result.cleanup },
-    audit: `${step} ${row.slug} ${result.commit} (${result.cleanup})` });
+  // Decision C12: the S8 tail is one cleanup step; `rendered` says whether this call wrote the table.
+  const rendered = result.fileWrites > 0;
+  return finish(ctx, { ...base, outcome: 'acted', step: 'cleanup', annotations: { commit: result.commit, cleanup: result.cleanup, rendered },
+    audit: `cleanup ${row.slug} ${result.commit} (${result.cleanup}${rendered ? ', table rendered' : ''})` });
 }
 
 async function gateStep(ctx: any, row: any, orch: any, gateId: string): Promise<any> {
@@ -869,12 +920,52 @@ function resumeStep(ctx: any, row: any, worktree: string): any {
   return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform });
 }
 
+function dispatchFactsOf(ctx: any, row: any): any {
+  try { return ctx.dispatchFacts(row.slug); } catch (error: any) { throw new Unreadable([`dispatch:${row.slug}`], error.message); }
+}
+
+/**
+ * G.3 B2: a completed dispatch leaves its work on `doflow/<slug>/p-*`. Land it on the feature branch
+ * by `merge --ff-only` in the feature checkout (switch read first); anything but a fast-forward is
+ * `blocked: stuck` with nothing changed. Returns null when there is nothing (more) to land.
+ */
+function landDispatch(ctx: any, row: any, worktree: string, facts: any): any {
+  const { execFileSync } = ctx;
+  const slot = (ctx.record.rows[row.id] ||= {});
+  const integration = facts?.integration;
+  if (facts?.state !== 'completed' || !integration) return null;
+  if (typeof integration.branch !== 'string' || !/^doflow\/[A-Za-z0-9][A-Za-z0-9._-]*\/p-[0-9a-f]{12}$/.test(integration.branch)
+    || !/^[0-9a-f]{40}$/.test(integration.head || '')) throw new Unreadable([`dispatch:${row.slug}`], 'integration branch or head is not recorded');
+  const { featureHead } = readHeads(ctx, row);
+  if (featureHead === integration.head) return null;
+  let fastForward = false;
+  try {
+    const branchHead = String(execFileSync('git', ['-C', ctx.root, 'rev-parse', '--verify', `refs/heads/${integration.branch}`], ctx.gitOptions)).trim();
+    execFileSync('git', ['-C', ctx.root, 'merge-base', '--is-ancestor', featureHead, integration.head], ctx.gitOptions);
+    fastForward = branchHead === integration.head;
+  } catch (error: any) { if (error.status !== 1) throw new Unreadable([`integration:${row.slug}`], error.message); }
+  const blocked = () => {
+    const digest = sha256Digest(JSON.stringify({ facts, featureHead }));
+    if (slot.held && slot.held.kind === 'dispatch' && slot.held.inputsDigest === digest) return { skip: `held:${slot.held.reason}` };
+    slot.held = { kind: 'dispatch', reason: 'stuck', inputsDigest: digest };
+    return finish(ctx, { outcome: 'blocked', reason: 'stuck', row: row.id, slug: row.slug, rule: 'dispatch/not-fast-forward',
+      annotations: { dispatch: 'not-fast-forward', branch: integration.branch } });
+  };
+  if (!fastForward) return blocked();
+  const stop = boundary(ctx, row);
+  if (stop) return stop;
+  // Hooks are disabled: the landing launches only git.
+  try { execFileSync('git', ['-C', worktree, '-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', '-q', integration.branch], ctx.gitOptions); }
+  catch { return blocked(); }
+  return null;
+}
+
 /** Design §4 dispatch map (FR-019, FR-020, FR-022, FR-023; rulings C2, C6). */
 function implementationStep(ctx: any, row: any, worktree: string): any {
   const slot = (ctx.record.rows[row.id] ||= {});
-  let facts: any;
-  try { facts = ctx.dispatchFacts(row.slug); } catch (error: any) { throw new Unreadable([`dispatch:${row.slug}`], error.message); }
-  const digest = sha256Digest(JSON.stringify(facts));
+  const facts = dispatchFactsOf(ctx, row);
+  const verifyCommand = verifyArgvOf(ctx, row, worktree);
+  const digest = sha256Digest(JSON.stringify({ facts, verifyCommand }));
   const base = { row: row.id, slug: row.slug };
   const hold = (reason: string, fields: any) => {
     if (slot.held && slot.held.kind === 'dispatch' && slot.held.inputsDigest === digest) return { skip: `held:${slot.held.reason}` };
@@ -895,19 +986,24 @@ function implementationStep(ctx: any, row: any, worktree: string): any {
   switch (facts?.state) {
     case 'none':
     case 'running': {
-      if (slot.held?.kind === 'dispatch') delete slot.held;
+      if (slot.held?.kind === 'dispatch' && verifyCommand) delete slot.held;
       delete slot.paused;
       delete slot.dispatch;
       if (!slot.perform || slot.perform.stage !== 'implementation') {
-        slot.perform = envelopeFor(ctx, row, worktree, 'implementation', 'do-execute-plan', stageArtifact(ctx, row, worktree, 'implementation'));
+        if (!verifyCommand) {
+          return hold('stuck', { outcome: 'blocked', reason: 'stuck', rule: 'dispatch/verify-argv', annotations: { dispatch: 'no-verify-argv' } });
+        }
+        slot.perform = envelopeFor(ctx, row, worktree, 'implementation', 'do-execute-plan', stageArtifact(ctx, row, worktree, 'implementation'), verifyCommand);
       }
       return finish(ctx, { ...base, outcome: 'perform', perform: slot.perform });
     }
     case 'completed': {
+      const landing = landDispatch(ctx, row, worktree, facts);
+      if (landing) return landing;
       // The run is still on implementation, so the stage's own handoff has not been recorded.
       if (!slot.perform || slot.perform.stage !== 'implementation') {
         slot.perform = envelopeFor(ctx, row, worktree, 'implementation', 'do-execute-plan',
-          { artifact: `refs/heads/feat/${row.slug}`, sha256: slot.claimHead ? sha256Digest(slot.claimHead) : null });
+          { artifact: `refs/heads/feat/${row.slug}`, sha256: slot.claimHead ? sha256Digest(slot.claimHead) : null }, verifyCommand);
       }
       return finish(ctx, { ...base, outcome: 'denied', reason: 'stage-not-performed', rule: 'perform/implementation', perform: slot.perform });
     }
@@ -943,6 +1039,11 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
   const node = run.cursor < run.program.length ? run.program[run.cursor] : null;
   const atImplementation = run.state === 'RUNNING' && node?.type === 'stage' && node.id === 'implementation';
   if (slot.perform && !(atImplementation && slot.perform.stage === 'implementation')) {
+    if (slot.perform.stage === 'implementation') {
+      // The session handed off right after `dispatch run`: land the dispatch before checking the head.
+      const landing = landDispatch(ctx, row, worktree, dispatchFactsOf(ctx, row));
+      if (landing) return landing;
+    }
     const checked = performedCheck(ctx, row, worktree, run, slot.perform);
     if (!checked.ok) {
       return finish(ctx, { outcome: 'denied', reason: 'stage-not-performed', row: row.id, slug: row.slug, rule: `perform/${slot.perform.stage}`,

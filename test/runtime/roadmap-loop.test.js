@@ -39,7 +39,7 @@ function setSwitch(home, value) {
   write(path.join(home, '.config/doflow/settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': value }));
 }
 
-function fixture(t, { rows = [ROW], on = true, envExtra = {}, name = 'doflow-roadmap-loop-' } = {}) {
+function fixture(t, { rows = [ROW], on = true, envExtra = {}, name = 'doflow-roadmap-loop-', testScript = true } = {}) {
   const dir = tempDir(t, name);
   const root = path.join(dir, 'main');
   const develop = path.join(dir, 'develop');
@@ -59,6 +59,7 @@ function fixture(t, { rows = [ROW], on = true, envExtra = {}, name = 'doflow-roa
   write(path.join(root, '.gitignore'), '.doflow/\nagent-docs/\n');
   write(path.join(root, 'core/registry/gates.json'), policyBytes());
   write(path.join(root, 'shared.txt'), 'base\n');
+  if (testScript) write(path.join(root, 'package.json'), `${JSON.stringify({ private: true, scripts: { test: 'node -e 0' } })}\n`);
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'base');
   git(root, 'worktree', 'add', '-qb', 'develop', develop);
@@ -369,7 +370,7 @@ test('implementation yields dispatch start with the free-only billing cap, then 
   const { perform } = out.result;
   assert.deepEqual([perform.stage, perform.skill, perform.before.artifact], ['implementation', 'do-execute-plan', 'refs/heads/feat/113-toy']);
   assert.deepEqual(perform.after, [
-    ['dispatch', '--action', 'start', '--slug', '113-toy', '--by', 'doflow-roadmap', '--billing-cap', 'free'],
+    ['dispatch', '--action', 'start', '--slug', '113-toy', '--by', 'doflow-roadmap', '--billing-cap', 'free', '--verify-argv', '["npm","test"]'],
     ['dispatch', '--action', 'run', '--slug', '113-toy', '--by', 'doflow-roadmap'],
     ['orchestrate', '--action', 'handoff', '--task-id', '113-toy', '--calling-skill', 'do-execute-plan', '--note', '<text>'],
   ]);
@@ -532,7 +533,7 @@ async function completedRow(t) {
 }
 
 function verifyLine(f, commit, verdict) {
-  write(path.join(f.develop, '.doflow/state/verification/runs/113-toy.jsonl'),
+  write(path.join(f.root, '.doflow/state/verification/runs/113-toy.jsonl'),
     `${JSON.stringify({ schema: 1, taskId: '113-toy', head: commit, clean: true, verdict, at: '2026-10-19T00:00:00Z', reportSha256: `sha256:${'e'.repeat(64)}` })}\n`);
 }
 
@@ -545,10 +546,10 @@ test('gate-b by policy merges by plumbing, yields the post-merge verification, a
   assert.equal(f.git(f.develop, 'show', '-s', '--format=%P', commit), `${heads.developHead} ${heads.featureHead}`);
   const verify = await f.next();
   assert.deepEqual([verify.result.outcome, verify.result.perform.purpose, verify.result.perform.worktree, verify.result.perform.head], ['perform', 'post-merge', f.develop, commit]);
-  assert.deepEqual(verify.result.perform.after, ['verify', '--action', 'report', '--task-id', '113-toy']);
+  assert.deepEqual(verify.result.perform.after, ['verify', '--action', 'report', '--task-id', '113-toy', '--baseline-ref', heads.developHead]);
   verifyLine(f, commit, 'PASS');
   const done = await f.next();
-  assert.deepEqual([done.result.outcome, done.result.step, done.result.annotations.cleanup], ['acted', 'render', 'cleaned']);
+  assert.deepEqual([done.result.outcome, done.result.step, done.result.annotations.cleanup, done.result.annotations.rendered], ['acted', 'cleanup', 'cleaned', true]);
   assert.equal(fs.existsSync(f.worktree()), false);
   assert.match(fs.readFileSync(path.join(f.root, 'agent-docs/roadmap/ROADMAP.md'), 'utf8'), /\| 113 \| Toy \| feature \| - \| merged \|/);
   const idle = await f.next();
@@ -578,7 +579,7 @@ test('a merged-unverified result trips the sentinel and the next call stops', as
   fs.rmSync(path.join(f.home, '.config/doflow/autopilot/off'));
   verifyLine(f, commit, 'PASS');
   const done = await f.next();
-  assert.deepEqual([done.result.outcome, done.result.annotations.cleanup], ['acted', 'cleaned']);
+  assert.deepEqual([done.result.outcome, done.result.step, done.result.annotations.cleanup], ['acted', 'cleanup', 'cleaned']);
 });
 
 test('audit lists every autopilot decision and deny with the policy digest', async (t) => {
@@ -605,13 +606,13 @@ test('a dirty feature worktree is kept once, then skipped until a person cleans 
   verifyLine(f, merged.result.annotations.commit, 'PASS');
   write(path.join(f.worktree(), 'toy/uncommitted.txt'), 'work in progress\n');
   const kept = await f.next();
-  assert.deepEqual([kept.result.outcome, kept.result.annotations.cleanup], ['acted', 'cleanup-kept']);
+  assert.deepEqual([kept.result.outcome, kept.result.step, kept.result.annotations.cleanup, kept.result.annotations.rendered], ['acted', 'cleanup', 'cleanup-kept', true]);
   const again = await f.next();
   assert.deepEqual([again.result.outcome, again.result.skips['113']], ['idle', 'cleanup-kept']);
   assert.ok(fs.existsSync(path.join(f.worktree(), 'toy/uncommitted.txt')), 'the person\'s work is untouched');
   fs.rmSync(path.join(f.worktree(), 'toy/uncommitted.txt'));
   const cleaned = await f.next();
-  assert.deepEqual([cleaned.result.outcome, cleaned.result.step, cleaned.result.annotations.cleanup], ['acted', 'cleanup', 'cleaned']);
+  assert.deepEqual([cleaned.result.outcome, cleaned.result.step, cleaned.result.annotations.cleanup, cleaned.result.annotations.rendered], ['acted', 'cleanup', 'cleaned', false]);
 });
 
 test('a seed hold stops autopilot from advancing a row already in flight (C8)', async (t) => {
@@ -715,4 +716,119 @@ test('a row merged only by a seeded mergeCommit pointer is never cleaned: its br
   assert.deepEqual([out.result.outcome, out.result.skips['113']], ['idle', 'merged']);
   assert.ok(fs.existsSync(f.worktree()), 'the clean worktree is left alone');
   assert.equal(f.git(f.root, 'rev-parse', '--verify', 'refs/heads/feat/113-toy').length, 40, 'the fully merged branch is left alone');
+});
+
+// ── G.3 integration-gate findings (B1, B2, B3) ──────────────────────────────────────────────────
+
+test('B2: the verify argv comes from the seed, else the package test script, else the step is blocked and nothing is guessed', async (t) => {
+  const seeded = fixture(t, { rows: [{ ...ROW, verifyArgv: ['node', '--test', 'toy/'] }] });
+  await seeded.next();
+  placeRun(seeded, 'implementation');
+  const fromSeed = await seeded.next({ dispatchFacts: () => ({ state: 'none', pause: null }) });
+  assert.deepEqual(fromSeed.result.perform.after[0].slice(-2), ['--verify-argv', '["node","--test","toy/"]']);
+
+  const bare = fixture(t, { testScript: false });
+  await bare.next();
+  placeRun(bare, 'implementation');
+  const none = await bare.next({ dispatchFacts: () => ({ state: 'none', pause: null }) });
+  assert.deepEqual([none.result.outcome, none.result.reason, none.result.annotations.dispatch], ['blocked', 'stuck', 'no-verify-argv']);
+  assert.equal(none.result.perform, undefined, 'no envelope without a verify argv');
+  const held = await bare.next({ dispatchFacts: () => ({ state: 'none', pause: null }) });
+  assert.match(held.result.skips['113'], /^held:/);
+  write(path.join(bare.worktree(), 'package.json'), JSON.stringify({ scripts: { test: 'node -e 0' } }));
+  const fixed = await bare.next({ dispatchFacts: () => ({ state: 'none', pause: null }) });
+  assert.equal(fixed.result.outcome, 'perform', 'a test script added later releases the hold');
+});
+
+/** A completed dispatch whose integration branch carries one commit past the feature branch. */
+function integrationBranch(f, { diverge = false } = {}) {
+  const branch = 'doflow/113-toy/p-0123456789ab';
+  const scratch = path.join(f.dir, 'integration');
+  f.git(f.root, 'worktree', 'add', '-q', '-b', branch, scratch, 'feat/113-toy');
+  write(path.join(scratch, 'toy/worker.txt'), 'worker output\n');
+  f.git(scratch, 'add', '.');
+  f.git(scratch, 'commit', '-qm', 'worker attempt');
+  const head = f.git(scratch, 'rev-parse', 'HEAD');
+  f.git(f.root, 'worktree', 'remove', scratch);
+  if (diverge) {
+    write(path.join(f.worktree(), 'toy/person.txt'), 'person\n');
+    f.git(f.worktree(), 'add', '.');
+    f.git(f.worktree(), 'commit', '-qm', 'person commit');
+  }
+  return { state: 'completed', pause: null, integration: { branch, head } };
+}
+
+test('B2: a completed dispatch is landed on the feature branch by fast-forward, then the performed check passes', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  placeRun(f, 'implementation');
+  const first = await f.next({ dispatchFacts: () => ({ state: 'none', pause: null }) });
+  assert.equal(first.result.perform.stage, 'implementation');
+  const facts = integrationBranch(f);
+  handoff(f, 'do-execute-plan');
+  const landed = await f.next({ dispatchFacts: () => facts });
+  assert.equal(f.git(f.root, 'rev-parse', 'feat/113-toy'), facts.integration.head, 'the feature branch now holds the dispatch work');
+  assert.equal(f.git(f.worktree(), 'status', '--porcelain'), '');
+  assert.deepEqual([landed.result.outcome, landed.result.perform.stage], ['perform', 'verification']);
+});
+
+test('B2: a completed dispatch that is not a fast-forward of the feature branch is blocked and changes nothing', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  placeRun(f, 'implementation');
+  await f.next({ dispatchFacts: () => ({ state: 'none', pause: null }) });
+  const facts = integrationBranch(f, { diverge: true });
+  const before = f.git(f.root, 'rev-parse', 'feat/113-toy');
+  const out = await f.next({ dispatchFacts: () => facts });
+  assert.deepEqual([out.result.outcome, out.result.reason, out.result.annotations.dispatch], ['blocked', 'stuck', 'not-fast-forward']);
+  assert.equal(f.git(f.root, 'rev-parse', 'feat/113-toy'), before);
+});
+
+function verifyPlan(f, row, file) {
+  initRegister({ featureDir: f.featureDir(row), slug: row.slug });
+  write(path.join(f.featureDir(row), 'plan.md'), `# Plan\n\n## Tasks\n\n- [ ] A.1 work; owner: core-implementer; files: ${file}\n\n`
+    + '```doflow-verification\n{"parse":null,"build":null,"lint":null,"typecheck":null,"test":"node -e 0"}\n```\n');
+}
+
+function runVerb(f, cwd, argv) {
+  const out = cp.spawnSync(process.execPath, [CLI, ...argv, '--json'], { cwd, env: f.env, encoding: 'utf8' });
+  return JSON.parse(out.stdout);
+}
+
+test('B1, B3: the real verify verb, run from the envelope argv after an earlier local merge, scopes only the row\'s own files and is seen by the loop', async (t) => {
+  const two = { ...ROW, id: '114', slug: '114-two', title: 'Two', writeSet: ['two/'] };
+  const f = fixture(t, { rows: [ROW, two] });
+  await f.next();
+  personMerges(f);
+  assert.equal((await f.next()).result.step, 'cleanup', 'the first row is finished');
+  const picked = await f.next();
+  assert.deepEqual([picked.result.step, picked.result.row], ['pick', '114']);
+  verifyPlan(f, two, 'two/a.txt');
+  write(path.join(f.worktree(two), 'two/a.txt'), 'two\n');
+  f.git(f.worktree(two), 'add', '.');
+  f.git(f.worktree(two), 'commit', '-qm', 'two');
+  placeRun(f, 'verification', [], two);
+  const yielded = await f.next();
+  const mergeBase = f.git(f.root, 'merge-base', 'develop', 'feat/114-two');
+  assert.deepEqual(yielded.result.perform.after[0], ['verify', '--action', 'report', '--task-id', '114-two', '--baseline-ref', mergeBase]);
+  const report = runVerb(f, f.worktree(two), yielded.result.perform.after[0]);
+  assert.deepEqual([report.status, report.scope.actual.files], ['PASS', ['two/a.txt']], 'only this row\'s own change is in scope');
+  assert.ok(fs.existsSync(path.join(f.root, '.doflow/state/verification/runs/114-two.jsonl')), 'the verb writes the record in the main checkout');
+  assert.equal(fs.existsSync(path.join(f.worktree(two), '.doflow/state/verification/runs/114-two.jsonl')), false);
+  handoff(f, 'do-test', two);
+  const review = await f.next();
+  assert.deepEqual([review.result.outcome, review.result.perform.stage], ['perform', 'review'], 'the loop reads the record where the verb wrote it');
+});
+
+test('B1, B3: the real post-merge verify, run from the envelope argv in the develop checkout, completes the merge', async (t) => {
+  const { f, heads } = await completedRow(t);
+  verifyPlan(f, ROW, 'toy/a.txt');
+  const merged = await f.next();
+  const verify = await f.next();
+  const plan = path.join(f.featureDir(), 'plan.md');
+  assert.deepEqual(verify.result.perform.after, ['verify', '--action', 'report', '--task-id', '113-toy', '--baseline-ref', heads.developHead, '--plan-path', plan]);
+  const report = runVerb(f, f.develop, verify.result.perform.after);
+  assert.deepEqual([report.status, report.scope.actual.files], ['PASS', ['toy/a.txt']]);
+  const done = await f.next();
+  assert.deepEqual([done.result.outcome, done.result.step, done.result.annotations.cleanup], ['acted', 'cleanup', 'cleaned'], `merge ${merged.result.annotations.commit}`);
 });

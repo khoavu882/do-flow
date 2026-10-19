@@ -1581,11 +1581,21 @@ function verificationGitState(cwd: string, env = process.env): any | null {
     return {
       head,
       clean: status.status === 0 && status.stdout.length === 0,
-      projectRoot: lifecycleProjectRoot(outerProjectRoot(path.resolve(cwd))),
+      projectRoot: verificationRunsRoot(cwd),
     };
   } catch {
     return null;
   }
+}
+
+/** IC-007: the checkout whose state holds the run records of a verify run in `cwd` (the lifecycle root). */
+function verificationRunsRoot(cwd: string): string {
+  return lifecycleProjectRoot(outerProjectRoot(path.resolve(cwd)));
+}
+
+/** IC-007: the one file the run records of `taskId` are appended to, under `verificationRunsRoot`. */
+function verificationRunRecordFile(root: string, taskId: string): string {
+  return path.join(root, '.doflow', 'state', 'verification', 'runs', `${taskId}.jsonl`);
 }
 
 /** Persist the already printed report as one JSONL line; state I/O never changes its answer. */
@@ -1602,9 +1612,9 @@ function appendVerificationRunRecord({ taskId, report, gitState, fsImpl = nodeFs
       at: new Date().toISOString(),
       reportSha256: `sha256:${nodeCrypto.createHash('sha256').update(reportJson, 'utf8').digest('hex')}`,
     };
-    const dir = path.join(gitState.projectRoot, '.doflow', 'state', 'verification', 'runs');
-    fsImpl.mkdirSync(dir, { recursive: true });
-    fsImpl.appendFileSync(path.join(dir, `${taskId}.jsonl`), `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
+    const file = verificationRunRecordFile(gitState.projectRoot, taskId);
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    fsImpl.appendFileSync(file, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
   } catch {
     // Reporting is authoritative. A read-only or unavailable state directory is only a lost record.
   }
@@ -1804,6 +1814,8 @@ function sameSet(a: string[], b: string[]): boolean {
 }
 
 module.exports = {
+  verificationRunsRoot,
+  verificationRunRecordFile,
   VerificationContractRunner,
   VerificationEngine,
   loadVerificationRegistry,

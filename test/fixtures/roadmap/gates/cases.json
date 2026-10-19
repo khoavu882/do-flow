@@ -10,7 +10,7 @@
   {"name":"outside write set", "gate":"gate-a", "predicate":"plan-within-write-set", "facts":{"plan":{"ok":true,"files":["other/x.ts"]}}, "reasons":["write-set-exceeded:other/x.ts"]},
   {"name":"missing verification", "gate":"gate-b", "predicate":"verify-pass-on-head", "facts":{"verification":[]}, "reasons":["verify-missing"]},
   {"name":"inconclusive verification", "gate":"gate-b", "predicate":"verify-pass-on-head", "verdicts":["INCONCLUSIVE"], "reasons":["verify-not-pass"]},
-  {"name":"failed verification", "gate":"gate-b", "predicate":"verify-pass-on-head", "verdicts":["FAIL"], "reasons":["verify-not-pass","verify-flaky"]},
+  {"name":"failed verification", "gate":"gate-b", "predicate":"verify-pass-on-head", "verdicts":["FAIL"], "reasons":["verify-not-pass"]},
   {"name":"FAIL then PASS remains flaky", "gate":"gate-b", "predicate":"verify-pass-on-head", "verdicts":["FAIL","PASS"], "reasons":["verify-flaky"]},
   {"name":"missing findings", "gate":"gate-b", "predicate":"findings-valid", "facts":{"findings":null}, "reasons":["findings-missing"]},
   {"name":"invalid findings", "gate":"gate-b", "predicate":"findings-valid", "facts":{"findings":{"schema":99}}, "reasons":["findings-invalid"]},

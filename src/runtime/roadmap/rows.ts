@@ -23,6 +23,7 @@ interface RoadmapRow {
   requires?: string[];
   mergeCommit?: string;
   hold?: string;
+  verifyArgv?: string[];
 }
 
 interface RoadmapSeed {
@@ -172,6 +173,12 @@ function parseSeed(raw: string | any): RoadmapSeed {
     if (row.hold !== undefined && (typeof row.hold !== 'string' || row.hold.trim().length === 0
       || Array.from(row.hold).length > 120 || /[\r\n\u2028\u2029]/.test(row.hold))) {
       throw new SeedParseError('seed-invalid', `Row '${row.id}' hold must be a non-empty single-line string of at most 120 characters`, row.id);
+    }
+
+    // The argv the loop gives `dispatch start --verify-argv` (108 G.3 B2); data, never a shell string.
+    if (row.verifyArgv !== undefined && (!Array.isArray(row.verifyArgv) || row.verifyArgv.length === 0 || row.verifyArgv.length > 8
+      || !row.verifyArgv.every((arg: any) => typeof arg === 'string' && arg.trim().length > 0))) {
+      throw new SeedParseError('seed-invalid', `Row '${row.id}' verifyArgv must be 1 to 8 non-empty strings`, row.id);
     }
   }
 

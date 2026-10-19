@@ -424,8 +424,11 @@ doflow roadmap --action status           # merged / in-flight / not-started per 
   it gives. If the artifact is missing or unchanged, or the stage was not handed off, `next` answers
   `denied: stage-not-performed` with the same envelope. The implementation envelope runs `dispatch`
   with `--billing-cap free`, so no worker launches until you have recorded a harness's `billing` as
-  `free`. After a merge, the envelope asks for the post-merge `verify --action report` in the develop
-  worktree.
+  `free`, and with `--verify-argv` from the row's seed `verifyArgv` or the worktree's `npm test`; when
+  the dispatch completes, the loop fast-forwards the feature branch to its integration branch. The
+  verification envelopes pass `--baseline-ref`, so a local merge you have not pushed does not widen the
+  next row's change scope. After a merge, the envelope asks for the post-merge `verify --action report`
+  in the develop worktree.
 - `denied` or `blocked`: nothing advanced and the row waits. `reasons` says why (a gate predicate such as
   `blockers-open`, `stage-not-performed`, `lease-held`, or for `blocked`: `budget`, `stuck` or `quota`).
   Fix the cause; a denied gate is evaluated again when its inputs change.
@@ -455,6 +458,8 @@ holding the step log and per-row state. `doflow roadmap --action audit` prints e
 deny. An open merge intent is in `.doflow/state/roadmap/intents/<row>.json`, and the next call resumes
 it. A tripwire stop is in `annotations.tripwire` and `.doflow/state/roadmap/tripwire/events.json`.
 `blocked: budget` means the run used its step cap (`loop.maxSteps` in `core/registry/gates.json`).
+The feature's decision register and orchestration journal live in its worktree and are removed with it
+by cleanup; the durable audit of automatic decisions is `roadmap --action audit` and the run record log.
 
 ## Work across supported tools
 

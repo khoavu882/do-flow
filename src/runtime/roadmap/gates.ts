@@ -240,7 +240,8 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
         if (runs.length === 0) reasons.push('verify-missing');
         else {
           if (runs[runs.length - 1].verdict !== 'PASS' || runs.some((run: any) => run.schema !== 1)) reasons.push('verify-not-pass');
-          if (runs.some((run: any) => run.verdict === 'FAIL')) reasons.push('verify-flaky');
+          // D12: flaky is a FAIL that a later PASS on the same head would hide; one FAIL is only not-pass.
+          if (runs.some((run: any, i: number) => run.verdict === 'FAIL' && runs.slice(i + 1).some((later: any) => later.verdict === 'PASS'))) reasons.push('verify-flaky');
         }
       }
     } else if (predicate === 'findings-valid') {
