@@ -179,6 +179,101 @@
     "beta/3": { "transcriptTokens": ["fail-token"] },
     "beta/4": { "transcriptTokens": ["fail-token"] }
   },
+  "banded-base-r1": {
+    "alpha/1": { "transcriptTokens": ["fail-token"] },
+    "alpha/2": { "transcriptTokens": ["fail-token"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["fail-token"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-base-r2": {
+    "alpha/1": { "transcriptTokens": ["fail-token"] },
+    "alpha/2": { "transcriptTokens": ["fail-token"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["fail-token"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-base-r3": {
+    "alpha/1": { "transcriptTokens": ["fail-token"] },
+    "alpha/2": { "transcriptTokens": ["fail-token"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["fail-token"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-cand-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-cand-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-cand-r3": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "candidate-infra": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "timeout", "evidence": "fixture timeout" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "candidate-missing": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] }
+  },
+  "candidate-differ-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "candidate-differ-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] }
+  },
   "scenarios": {
     "usable": {
       "iterations": ["usable-r1", "usable-r2", "usable-r3"],
@@ -223,6 +318,15 @@
         "noise": 0.0,
         "baselineMean": 0.75,
         "verdict": "grader-unstable"
+      }
+    },
+    "banded-base": {
+      "iterations": ["banded-base-r1", "banded-base-r2", "banded-base-r3"],
+      "expected": {
+        "repeatMeans": [0.5, 0.5, 0.5],
+        "noise": 0.0,
+        "baselineMean": 0.5,
+        "verdict": "usable"
       }
     }
   }

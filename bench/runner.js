@@ -39,6 +39,8 @@ const {
   loadNoiseConfig,
   computeNoise,
   validateNoiseArtifact,
+  buildDecision,
+  validateDecision,
 } = require('./noise.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -1219,8 +1221,10 @@ function buildReport({ baseline, withResults, withoutResults = [], cfg, iteratio
  * the prompting guide's experiment protocol calls that out specifically.
  */
 function cmdReport(cfg, opts) {
+  let noiseCfg;
   try {
     loadCeiling(cfg);
+    noiseCfg = loadNoiseConfig(cfg);
   } catch (err) {
     console.error(`bench: ${err.message}`);
     return 2;
@@ -1230,11 +1234,30 @@ function cmdReport(cfg, opts) {
     console.error('bench report: no baseline captured yet — run `bench baseline` first');
     return 2;
   }
-  const against = opts.iteration;
-  if (!against) {
+  if (!opts.iteration) {
     console.error('bench report: --iteration <name> is required (the run to compare against the baseline)');
     return 2;
   }
+
+  const rawParts = typeof opts.iteration === 'string'
+    ? opts.iteration.split(',')
+    : (Array.isArray(opts.iteration) ? opts.iteration : []);
+
+  if (rawParts.length === 0 || rawParts.some((n) => typeof n !== 'string' || !n.trim())) {
+    console.error('bench report: empty iteration name in --iteration');
+    return 2;
+  }
+
+  const iterNames = rawParts.map((n) => n.trim());
+  const seen = new Set();
+  for (const name of iterNames) {
+    if (seen.has(name)) {
+      console.error(`bench report: duplicate iteration name "${name}" in --iteration`);
+      return 2;
+    }
+    seen.add(name);
+  }
+
   const baseline = readJson(baselineFile);
   try {
     requireBaselineResults(baseline);
@@ -1242,16 +1265,98 @@ function cmdReport(cfg, opts) {
     console.error(`bench report: ${err.message} (${path.relative(REPO_ROOT, baselineFile)})`);
     return 2;
   }
-  const currentRoot = path.join(runsRootOf(cfg, opts), against);
-  if (!fs.existsSync(currentRoot)) {
-    console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, currentRoot)}`);
+
+  const runsRoot = runsRootOf(cfg, opts);
+  for (const name of iterNames) {
+    const iterRoot = path.join(runsRoot, name);
+    if (!fs.existsSync(iterRoot)) {
+      console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, iterRoot)}`);
+      return 2;
+    }
+  }
+
+  if (opts['decision-out'] !== undefined && (typeof opts['decision-out'] !== 'string' || !opts['decision-out'].trim())) {
+    console.error('bench report: --decision-out requires a value');
     return 2;
   }
-  const withoutResults = collectResults(cfg, currentRoot, 'without-skill');
-  const report = buildReport({ baseline, withResults: collectResults(cfg, currentRoot), withoutResults, cfg, iteration: against, commit: currentCommit() });
+
+  const isExplicitNoise = opts.noise !== undefined;
+  if (isExplicitNoise && (typeof opts.noise !== 'string' || !opts.noise.trim())) {
+    console.error('bench report: --noise requires a value');
+    return 2;
+  }
+
+  const noisePath = isExplicitNoise
+    ? path.resolve(opts.noise)
+    : path.join(path.dirname(baselineFile), 'noise.json');
+
+  if (isExplicitNoise && !fs.existsSync(noisePath)) {
+    console.error(`bench report: no noise artifact at ${opts.noise}`);
+    return 2;
+  }
+
+  let noiseFile = null;
+  let parsedNoise = null;
+  if (fs.existsSync(noisePath)) {
+    let rawNoise = null;
+    let sha256 = null;
+    try {
+      rawNoise = fs.readFileSync(noisePath, 'utf8');
+      sha256 = crypto.createHash('sha256').update(rawNoise).digest('hex');
+    } catch {
+      // unreadable
+    }
+    if (rawNoise !== null) {
+      try {
+        parsedNoise = JSON.parse(rawNoise);
+      } catch {
+        parsedNoise = null;
+      }
+    }
+    noiseFile = {
+      path: path.relative(REPO_ROOT, noisePath).split(path.sep).join('/'),
+      sha256,
+    };
+  }
+
+  const candidate = iterNames.map((name) => {
+    const iterRoot = path.join(runsRoot, name);
+    return readRepeat(cfg, iterRoot, { ...opts, iteration: name, rerun: false });
+  });
+
+  const decision = buildDecision({
+    noise: parsedNoise,
+    noiseFile,
+    baselineFile: baseline,
+    model: cfg.model,
+    candidate,
+    thresholds: noiseCfg,
+  });
+
+  const firstName = iterNames[0];
+  const firstRoot = path.join(runsRoot, firstName);
+  const withoutResults = collectResults(cfg, firstRoot, 'without-skill');
+  const report = buildReport({
+    baseline,
+    withResults: collectResults(cfg, firstRoot),
+    withoutResults,
+    cfg,
+    iteration: firstName,
+    commit: currentCommit(),
+  });
+  report.decision = decision;
+
   const { rows } = report;
-  const outFile = path.resolve(REPO_ROOT, cfg.reportsDir, `${against}-vs-baseline.json`);
+  const reportFileName = iterNames.length > 1
+    ? `${iterNames.join('+')}-vs-baseline.json`
+    : `${iterNames[0]}-vs-baseline.json`;
+  const outFile = path.resolve(REPO_ROOT, cfg.reportsDir, reportFileName);
   writeJson(outFile, report);
+
+  if (opts['decision-out']) {
+    const decFile = path.resolve(opts['decision-out']);
+    writeJson(decFile, decision);
+  }
 
   if (!report.modelComparable) {
     console.warn(`warning: baseline ran on ${baseline.model}, this run on ${cfg.model} — the delta is not a clean comparison`);
@@ -1299,6 +1404,10 @@ function cmdReport(cfg, opts) {
     }
   }
   console.log(`report: ${path.relative(REPO_ROOT, outFile)}`);
+  console.log(formatScopeDecision(decision.corpus, 'corpus'));
+  console.log(formatScopeDecision(decision.splits.train, 'train'));
+  console.log(formatScopeDecision(decision.splits.heldout, 'heldout'));
+  console.log(`overfitSuspected: ${decision.overfitSuspected}`);
   // Drift is reported, never blocking (requirement A1) — a regression is information, not a gate.
   return 0;
 }
@@ -1439,6 +1548,19 @@ function formatNoiseText(artifact) {
 
   lines.push(`verdict: ${artifact.verdict}${artifact.reason ? ` — ${artifact.reason}` : ''}`);
   return lines.join('\n');
+}
+
+const signed = (x) => `${x < 0 ? '-' : '+'}${Math.abs(x).toFixed(3)}`;
+
+function formatScopeDecision(s, scope) {
+  let line = `decision ${scope}: ${s.verdict} (${s.reason}) -> ${s.recommendation}`;
+  if (s.gain !== null && Array.isArray(s.ci95)) {
+    line += `; gain ${signed(s.gain)} over n ${s.n}, ci95 [${s.ci95[0].toFixed(3)}, ${s.ci95[1].toFixed(3)}]`;
+  }
+  if (s.headroomLimited) {
+    line += `  [${scope} at headroom: no gain is visible here]`;
+  }
+  return line;
 }
 
 function cmdNoise(cfg, opts) {
@@ -1598,7 +1720,8 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
                                                       emit the subagent dispatch plan (JSON)
   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run
   node bench/runner.js baseline [--from N]            freeze an iteration as the committed baseline
-  node bench/runner.js report --iteration N           per-case delta of a run against the baseline
+  node bench/runner.js report --iteration <a[,b...]> [--noise <file>] [--decision-out <file>]
+                                                      per-case delta of a run against the baseline
   node bench/runner.js noise --iterations <a,b[,c...]> [--out <file>] [--json]
                                                       measure eval noise floor over k baseline repeats
   node bench/runner.js verify-baseline --snapshot <dir> [--json] [--out <dir>]
@@ -1636,6 +1759,24 @@ function parseArgs(argv) {
       i += 1;
     }
     else if (a === '--iteration') opts.iteration = argv[++i];
+    else if (a === '--noise') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --noise requires a value');
+        process.exit(2);
+      }
+      opts.noise = value;
+      i += 1;
+    }
+    else if (a === '--decision-out') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --decision-out requires a value');
+        process.exit(2);
+      }
+      opts['decision-out'] = value;
+      i += 1;
+    }
     else if (a === '--from') opts.from = argv[++i];
     else if (a === '--snapshot') {
       const value = argv[i + 1];
@@ -1833,6 +1974,14 @@ function main() {
   }
   if (opts.out && cmd !== 'verify-baseline' && cmd !== 'noise') {
     console.error(`bench ${cmd}: --out is not accepted`);
+    return 2;
+  }
+  if (opts.noise && cmd !== 'report') {
+    console.error(`bench ${cmd}: --noise is not accepted`);
+    return 2;
+  }
+  if (opts['decision-out'] && cmd !== 'report') {
+    console.error(`bench ${cmd}: --decision-out is not accepted`);
     return 2;
   }
   const cfg = loadConfig();
@@ -2038,4 +2187,5 @@ module.exports = {
   cmdNoise,
   readRepeat,
   formatNoiseText,
+  formatScopeDecision,
 };
