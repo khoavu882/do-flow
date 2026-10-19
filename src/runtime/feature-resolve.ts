@@ -27,7 +27,7 @@ const PATHS_HELPER = resolveBashHelper('do-paths.sh');
  * @param {Object} options
  * @param {string} options.projectRoot working directory the resolution is relative to
  * @param {string|null} [options.slug] explicit feature override, passed straight through
- * @returns {{repoRoot:string, featureDir:string, paths:Object}|{error:string, message:string}}
+ * @returns {{repoRoot:string, featureRoot:string, featureDir:string, paths:Object}|{error:string, message:string}}
  *   `paths` is the resolver's own parsed JSON (repo-root-relative artifact paths and has_* flags),
  *   so a caller needs no second resolver call.
  */
@@ -73,7 +73,10 @@ function resolveActiveFeature({ projectRoot, slug = null }: { projectRoot: strin
   if (!paths.repo_root || !paths.feature_dir) {
     return { error: 'no-active-feature', message: 'the resolver named no active feature directory to scaffold' };
   }
-  return { repoRoot: paths.repo_root, featureDir: path.resolve(paths.repo_root, paths.feature_dir), paths };
+  // `featureRoot` is the checkout holding the feature folder (the main checkout when a linked worktree
+  // has none of its own); `repoRoot` stays the checkout asked about, for callers that mean source files.
+  const featureRoot = paths.feature_root || paths.repo_root;
+  return { repoRoot: paths.repo_root, featureRoot, featureDir: path.resolve(featureRoot, paths.feature_dir), paths };
 }
 
 module.exports = { resolveActiveFeature, PATHS_HELPER };

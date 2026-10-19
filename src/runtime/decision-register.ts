@@ -421,7 +421,7 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
     } else if (act === 'list') {
       result = listDecisions({ ...resolved, all: Boolean(flags.all), fsImpl });
     } else if (act === 'compact') {
-      result = compactDecisions({ ...resolved, repoRoot: feature.repoRoot, paths: feature.paths, now, fsImpl });
+      result = compactDecisions({ ...resolved, repoRoot: feature.featureRoot, paths: feature.paths, now, fsImpl });
     } else {
       let items: any;
       if (flags.batch) {
