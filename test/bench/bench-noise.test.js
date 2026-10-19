@@ -143,7 +143,7 @@ test('exports are the section 5 lists', () => {
 
 test('every exported list, the label map and the defaults are frozen', () => {
   for (const name of ['NOISE_VERDICTS', 'DECISION_VERDICTS', 'RECOMMENDATIONS', 'INFRA_CLASSES', 'RUN_STATUSES',
-    'NOISE_METHODS', 'DECISION_REASONS', 'SCOPES', 'VOCABULARY_LABELS', 'DEFAULTS']) {
+    'NOISE_METHODS', 'DECISION_REASONS', 'SCOPES', 'VOCABULARY_LABELS', 'DEFAULTS', 'EXCLUSION_MARKS']) {
     assert.ok(Object.isFrozen(noise[name]), `${name} is frozen`);
   }
 });
@@ -240,7 +240,7 @@ test('computeNoise gives exact repeat means, A/A range and baseline mean per sco
   assert.deepEqual(a.scopes.heldout, { repeatMeans: [1, 1, 0.875], noise: 0.125, baselineMean: (1 + 1 + 0.875) / 3, headroom: true, runs: 12, excluded: 0 });
   assert.deepEqual(Object.keys(a.byKind), ['behavioral', 'triggering']);
   assert.deepEqual(a.byKind.triggering.repeatMeans, [0.5, 0.625, 0.5]);
-  assert.deepEqual(a.infra, { timeout: 0, 'api-error': 0, truncated: 0, 'no-output': 0, malformed: 0, excluded: 0, runs: 24, share: 0 });
+  assert.deepEqual(a.infra, { timeout: 0, 'api-error': 0, truncated: 0, 'no-output': 0, malformed: 0, 'source-unverified': 0, excluded: 0, runs: 24, share: 0 });
   assert.deepEqual(a.graderRerun, { runs: 24, differing: [], stale: [] });
   assert.deepEqual(validateNoiseArtifact(a), []);
 });
@@ -290,7 +290,7 @@ test('computeNoise excludes infra and malformed runs, counts them, never scores 
   // r2 train mean over the three remaining runs, not over four with a 0.
   assert.equal(a.scopes.train.repeatMeans[1], 0.5);
   assert.equal(a.scopes.heldout.repeatMeans[1], 1);
-  assert.deepEqual(a.infra, { timeout: 1, 'api-error': 0, truncated: 0, 'no-output': 0, malformed: 1, excluded: 2, runs: 24, share: 2 / 24 });
+  assert.deepEqual(a.infra, { timeout: 1, 'api-error': 0, truncated: 0, 'no-output': 0, malformed: 1, 'source-unverified': 0, excluded: 2, runs: 24, share: 2 / 24 });
   assert.equal(a.scopes.corpus.excluded, 2);
   assert.notEqual(a.verdict, 'inconclusive', 'share 0.083 <= 0.1');
   // A third exclusion lifts the share to 0.125 > 0.1.
@@ -598,10 +598,10 @@ test('buildDecision with a band: per-scope verdicts, headroomLimited, overfitSus
   assert.equal(d.splits.heldout.headroomLimited, false);
   assert.equal(d.overfitSuspected, true);
   assert.deepEqual([d.verdict, d.recommendation], ['gain-above-noise', 'merge-candidate']);
-  assert.deepEqual(d.infra.candidate, { timeout: 0, 'api-error': 0, truncated: 0, 'no-output': 0, malformed: 0, missing: 0 });
+  assert.deepEqual(d.infra.candidate, { timeout: 0, 'api-error': 0, truncated: 0, 'no-output': 0, malformed: 0, 'source-unverified': 0, missing: 0 });
   assert.deepEqual(validateDecision(d), []);
   // Heldout at headroom is named per split.
-  const capped = decisionOf({ noise: flatArtifact({ headroom: 0.75 }) });
+  const capped = decisionOf({ noise: flatArtifact({ headroom: 0.75 }), thresholds: { ...CONFIG, headroom: 0.75 } });
   assert.equal(capped.splits.heldout.headroomLimited, true);
   assert.equal(capped.splits.train.headroomLimited, false);
 });
@@ -759,4 +759,180 @@ test('same inputs and seed give byte-identical noise and decision JSON', () => {
   const [d1, d2] = twice(mixed);
   assert.equal(d1, d2);
   assert.notDeepEqual(JSON.parse(d1).corpus.ci95, null);
+});
+
+// ---------------------------------------------------------------------------
+// 096 review fixes: C-1, C-2, C-4, C-7
+
+test('C-1: buildDecision raises noise-model-mismatch when candidate model differs from noise artifact', () => {
+  // Candidate on model B against noise on model A
+  const candB = [repeatOf('cand-r1', fill(1, 0.75), { model: 'model-B' })];
+  const dB = decisionOf({ candidate: candB });
+  assert.equal(dB.precondition, 'noise-model-mismatch');
+  assert.equal(dB.corpus.verdict, 'inconclusive');
+  assert.equal(dB.corpus.reason, 'noise-model-mismatch');
+  assert.match(dB.corpus.detail, /the candidate, noise artifact, baseline and config models must agree/);
+
+  // Candidate with model null counts as mismatch
+  const candNull = [repeatOf('cand-r1', fill(1, 0.75), { model: null })];
+  const dNull = decisionOf({ candidate: candNull });
+  assert.equal(dNull.precondition, 'noise-model-mismatch');
+
+  // Candidate commit is NOT required to equal baseline commit
+  const candDiffCommit = [1, 2, 3].map((i) => repeatOf(`cand-r${i}`, fill(1, 0.75), { commit: 'beef-new' }));
+  const dCommit = decisionOf({ candidate: candDiffCommit });
+  assert.equal(dCommit.precondition, null);
+  assert.equal(dCommit.corpus.verdict, 'gain-above-noise');
+});
+
+test('C-1 negative control: model A candidate gains above noise, model B candidate is blocked', () => {
+  const candA = [1, 2, 3].map((i) => repeatOf(`cand-r${i}`, fill(1, 0.75), { model: 'claude-test' }));
+  const dA = decisionOf({ candidate: candA });
+  assert.equal(dA.precondition, null);
+  assert.equal(dA.verdict, 'gain-above-noise');
+  assert.equal(dA.recommendation, 'merge-candidate');
+
+  const candB = [1, 2, 3].map((i) => repeatOf(`cand-r${i}`, fill(1, 0.75), { model: 'claude-other' }));
+  const dB = decisionOf({ candidate: candB });
+  assert.equal(dB.precondition, 'noise-model-mismatch');
+  assert.equal(dB.verdict, 'inconclusive');
+  assert.equal(dB.recommendation, 'do-not-merge');
+});
+
+test('C-2: EXCLUSION_MARKS export, source-unverified handling in tabulate, computeNoise, buildDecision', () => {
+  assert.ok(Array.isArray(noise.EXCLUSION_MARKS), 'EXCLUSION_MARKS is exported');
+  assert.ok(Object.isFrozen(noise.EXCLUSION_MARKS), 'EXCLUSION_MARKS is frozen');
+  assert.deepEqual(noise.EXCLUSION_MARKS, ['timeout', 'api-error', 'truncated', 'no-output', 'malformed', 'source-unverified']);
+
+  // Tabulate and computeNoise accept source-unverified and treat as null pass rate
+  const rUnverified = fill(0.5, 0.75);
+  rUnverified['a/1'] = 'source-unverified';
+  const a = noiseOf([repeatOf('base-r1', rUnverified), KNOWN[1], KNOWN[2]], { maxInfraShare: 0.2 });
+  assert.equal(a.cases['a/1'].scores[0], null);
+  assert.equal(a.cases['a/1'].excluded[0], 'source-unverified');
+  assert.equal(a.infra['source-unverified'], 1);
+
+  // buildDecision counts source-unverified in infra
+  const cand = [repeatOf('cand-r1', rUnverified), repeatOf('cand-r2', fill(0.5, 0.75)), repeatOf('cand-r3', fill(0.5, 0.75))];
+  const d = decisionOf({ candidate: cand, thresholds: { ...CONFIG, maxInfraShare: 0.2 } });
+  assert.equal(d.infra.candidate['source-unverified'], 1);
+
+  // Candidate runs carrying source-unverified exceeding maxInfraShare yield inconclusive with infra-share
+  const allUnverified = Object.fromEntries(Object.keys(META).map((k) => [k, 'source-unverified']));
+  const candFallback = [1, 2, 3].map((i) => repeatOf(`cand-r${i}`, allUnverified));
+  const dOver = decisionOf({ candidate: candFallback, thresholds: { ...CONFIG, maxInfraShare: 0.1 } });
+  assert.equal(dOver.corpus.verdict, 'inconclusive');
+  assert.equal(dOver.corpus.reason, 'infra-share');
+});
+
+test('C-4: validateNoiseArtifact rejects k < kMin, non-distinct iterations, and forged noise/headroom/verdict', () => {
+  const good = noiseOf(KNOWN);
+  assert.deepEqual(validateNoiseArtifact(good), []);
+
+  // k < kMin (k = 1)
+  const badK = clone(good);
+  badK.k = 1;
+  badK.iterations = ['base-r1'];
+  for (const k of badK.caseKeys) {
+    badK.cases[k].scores = [badK.cases[k].scores[0]];
+    badK.cases[k].excluded = [badK.cases[k].excluded[0]];
+  }
+  const pK = validateNoiseArtifact(badK);
+  assert.ok(pK.some((p) => /\$\.k: must be an integer >= 2/.test(p)), pK.join(' | '));
+
+  // non-distinct iterations
+  const badIter = clone(good);
+  badIter.iterations = ['base-r1', 'base-r1', 'base-r3'];
+  const pIter = validateNoiseArtifact(badIter);
+  assert.ok(pIter.some((p) => /\$\.iterations:.*distinct/.test(p)), pIter.join(' | '));
+
+  // forged noise
+  const forgedNoise = clone(good);
+  forgedNoise.scopes.corpus.noise = 0;
+  const pNoise = validateNoiseArtifact(forgedNoise);
+  assert.ok(pNoise.some((p) => /\$\.scopes\.corpus\.noise:.*match/.test(p)), pNoise.join(' | '));
+
+  // forged headroom
+  const forgedHeadroom = clone(good);
+  forgedHeadroom.scopes.heldout.headroom = false;
+  const pHeadroom = validateNoiseArtifact(forgedHeadroom);
+  assert.ok(pHeadroom.some((p) => /\$\.scopes\.heldout\.headroom:.*match/.test(p)), pHeadroom.join(' | '));
+
+  // forged verdict
+  const forgedVerdict = clone(good);
+  forgedVerdict.verdict = 'usable';
+  const pVerdict = validateNoiseArtifact(forgedVerdict);
+  assert.ok(pVerdict.some((p) => /\$\.verdict:.*match/.test(p)), pVerdict.join(' | '));
+});
+
+test('C-4: validateDecision checks required fields, sha256 format, and re-derives precondition', () => {
+  const good = decisionOf();
+  assert.deepEqual(validateDecision(good), []);
+
+  // Missing inputs
+  const noInputs = clone(good);
+  delete noInputs.inputs;
+  const pInputs = validateDecision(noInputs);
+  assert.ok(pInputs.some((p) => /\$\.inputs: must be an object/.test(p)), pInputs.join(' | '));
+
+  // Missing infra
+  const noInfra = clone(good);
+  delete noInfra.infra;
+  const pInfra = validateDecision(noInfra);
+  assert.ok(pInfra.some((p) => /\$\.infra: must be an object/.test(p)), pInfra.join(' | '));
+
+  // Invalid sha256 in noiseArtifact
+  const badSha = clone(good);
+  badSha.inputs.noiseArtifact.sha256 = 'not-64-hex';
+  const pSha = validateDecision(badSha);
+  assert.ok(pSha.some((p) => /\$\.inputs\.noiseArtifact\.sha256/.test(p)), pSha.join(' | '));
+
+  // Precondition model-mismatch forged to null
+  const forgedPreModel = clone(good);
+  forgedPreModel.inputs.candidate.model = 'different-model';
+  forgedPreModel.precondition = null;
+  const pPreModel = validateDecision(forgedPreModel);
+  assert.ok(pPreModel.some((p) => /\$\.precondition:.*model/.test(p)), pPreModel.join(' | '));
+
+  // Precondition noise-unusable forged to null
+  const forgedPreUnusable = clone(good);
+  forgedPreUnusable.inputs.noiseArtifact.verdict = 'grader-unstable';
+  forgedPreUnusable.precondition = null;
+  const pPreUnusable = validateDecision(forgedPreUnusable);
+  assert.ok(pPreUnusable.some((p) => /\$\.precondition:.*noise-unusable/.test(p)), pPreUnusable.join(' | '));
+
+  // Baseline source none with non-null noise
+  const forgedSourceNone = clone(good);
+  forgedSourceNone.inputs.baseline = { source: 'none' };
+  forgedSourceNone.corpus.noise = 0.05;
+  const pSourceNone = validateDecision(forgedSourceNone);
+  assert.ok(pSourceNone.some((p) => /\$\.corpus\.noise: baseline source is "none"/.test(p)), pSourceNone.join(' | '));
+});
+
+test('C-7: headroomLimited derived with the threshold recorded in the decision in both directions', () => {
+  // Direction 1: artifact captured with headroom 0.95 (heldout baselineMean 0.75 was headroom: false).
+  // Decision called with thresholds.headroom = 0.70.
+  // headroomLimited must be true!
+  const art95 = flatArtifact({ headroom: 0.95 });
+  assert.equal(art95.scopes.heldout.headroom, false);
+  const dLower = decisionOf({ noise: art95, thresholds: { ...CONFIG, headroom: 0.70 } });
+  assert.equal(dLower.thresholds.headroom, 0.70);
+  assert.equal(dLower.splits.heldout.headroomLimited, true);
+
+  // Direction 2: artifact captured with headroom 0.70 (heldout baselineMean 0.75 was headroom: true).
+  // Decision called with thresholds.headroom = 0.95.
+  // headroomLimited must be false!
+  const art70 = flatArtifact({ headroom: 0.70 });
+  assert.equal(art70.scopes.heldout.headroom, true);
+  const dHigher = decisionOf({ noise: art70, thresholds: { ...CONFIG, headroom: 0.95 } });
+  assert.equal(dHigher.thresholds.headroom, 0.95);
+  assert.equal(dHigher.splits.heldout.headroomLimited, false);
+});
+
+test('C-7 negative control: copying capture-time flag contradicts decision headroom threshold', () => {
+  const art95 = flatArtifact({ headroom: 0.95 });
+  // If we took art95.scopes.heldout.headroom (false), it would contradict 0.75 >= 0.70 - EPS
+  assert.equal(art95.scopes.heldout.headroom, false);
+  const d = decisionOf({ noise: art95, thresholds: { ...CONFIG, headroom: 0.70 } });
+  assert.notEqual(d.splits.heldout.headroomLimited, art95.scopes.heldout.headroom);
 });

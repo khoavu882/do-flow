@@ -48,10 +48,10 @@ const EPS = 1e-9;
 const MIN_PAIRED_CASES = 3;
 
 const PRECONDITIONS = DECISION_REASONS.slice(0, 5);
-/** What may mark a run excluded in a repeat: an infra class or a malformed run record. */
-const EXCLUSION_MARKS = [...INFRA_CLASSES, 'malformed'];
+/** What may mark a run excluded in a repeat: an infra class, malformed, or source-unverified. */
+const EXCLUSION_MARKS = Object.freeze([...INFRA_CLASSES, 'malformed', 'source-unverified']);
 /** Decision-side exclusion counts add `missing`: an expected case the candidate never graded. */
-const DECISION_MARKS = [...EXCLUSION_MARKS, 'missing'];
+const DECISION_MARKS = Object.freeze([...EXCLUSION_MARKS, 'missing']);
 /** The reasons that decide a verdict other than `inconclusive`. */
 const VERDICT_OF_REASON = Object.freeze({
   'above-band': 'gain-above-noise',
@@ -64,7 +64,7 @@ const NO_BAND_DETAIL = 'no noise band: run `bench noise --out bench/baseline/noi
 const PRECONDITION_DETAIL = Object.freeze({
   'candidate-repeats-differ': 'the candidate repeats differ in model, measured commit or case set',
   'noise-artifact-invalid': 'the noise artifact is missing its content or is not a valid bench-noise artifact',
-  'noise-model-mismatch': 'the noise artifact was measured on another model than the baseline or the config',
+  'noise-model-mismatch': 'the candidate, noise artifact, baseline and config models must agree',
   'noise-case-set-mismatch': 'the noise artifact covers another case set than the baseline',
   'noise-unusable': 'the noise artifact verdict is grader-unstable or inconclusive, so it gives no band',
 });
@@ -376,9 +376,10 @@ function buildDecision({ noise = null, noiseFile = null, baselineFile, model, ca
   const expected = new Map(baselineFile.results.map((r) => [r.key, { kind: r.kind, split: r.split }]));
   const expectedKeys = [...expected.keys()].sort();
 
+  const candModel = candidate.length ? candidate[0].model ?? null : null;
   let precondition = null;
   if (present && !artifact) precondition = 'noise-artifact-invalid';
-  else if (artifact && (artifact.model !== baselineFile.model || artifact.model !== model)) precondition = 'noise-model-mismatch';
+  else if (artifact && (artifact.model !== baselineFile.model || artifact.model !== model || candModel !== artifact.model)) precondition = 'noise-model-mismatch';
   else if (artifact && JSON.stringify(artifact.caseKeys) !== JSON.stringify(expectedKeys)) precondition = 'noise-case-set-mismatch';
   else if (artifact && (artifact.verdict === 'grader-unstable' || artifact.verdict === 'inconclusive')) precondition = 'noise-unusable';
   else if (candidate.some((r) => r.model !== candidate[0].model || r.commit !== candidate[0].commit
@@ -408,7 +409,12 @@ function buildDecision({ noise = null, noiseFile = null, baselineFile, model, ca
       mde: t.mde, maxInfraShare: t.maxInfraShare, seed: t.seed, precondition,
     });
   };
-  const split = (scope) => ({ ...decideScope(scope), headroomLimited: artifact ? artifact.scopes[scope].headroom : null });
+  const split = (scope) => {
+    const s = decideScope(scope);
+    const baseMean = artifact ? artifact.scopes[scope].baselineMean : null;
+    const headroomLimited = baseMean === null ? null : baseMean >= t.headroom - EPS;
+    return { ...s, headroomLimited };
+  };
   const corpus = decideScope('corpus');
   const splits = { train: split('train'), heldout: split('heldout') };
 
@@ -449,23 +455,33 @@ function validateNoiseArtifact(obj) {
   if (obj.kind !== 'bench-noise') p.push(`$.kind: must be "bench-noise", got ${show(obj.kind)}`);
   if (obj.schemaVersion !== 1) p.push(`$.schemaVersion: must be 1, got ${show(obj.schemaVersion)}`);
   if (!NOISE_METHODS.includes(obj.method)) p.push(`$.method: must be one of ${NOISE_METHODS.join(', ')}, got ${show(obj.method)}`);
+  if (!isObject(obj.thresholds)) p.push('$.thresholds: must be an object');
+  const kMin = (isObject(obj.thresholds) && Number.isInteger(obj.thresholds.kMin)) ? obj.thresholds.kMin : DEFAULTS.kMin;
+  if (!Number.isInteger(obj.k) || obj.k < kMin) {
+    p.push(`$.k: must be an integer >= ${kMin}, got ${show(obj.k)}`);
+  }
   if (!Array.isArray(obj.iterations) || obj.k !== obj.iterations.length) {
     p.push(`$.k: ${show(obj.k)} does not equal iterations.length ${Array.isArray(obj.iterations) ? obj.iterations.length : 'n/a'}`);
+  } else if (new Set(obj.iterations).size !== obj.iterations.length) {
+    p.push('$.iterations: must contain distinct iterations');
   }
   const cases = isObject(obj.cases) ? obj.cases : null;
   if (!cases) p.push('$.cases: must be an object');
   const keys = obj.caseKeys;
+  let caseErrors = false;
   if (!Array.isArray(keys) || keys.some((key, i) => typeof key !== 'string' || (i > 0 && key <= keys[i - 1]))) {
     p.push('$.caseKeys: must be sorted, unique strings');
+    caseErrors = true;
   } else if (cases && JSON.stringify(keys) !== JSON.stringify(Object.keys(cases).sort())) {
     p.push('$.caseKeys: must equal the keys of $.cases');
+    caseErrors = true;
   }
   for (const [key, entry] of Object.entries(cases || {})) {
     const at = `$.cases[${JSON.stringify(key)}]`;
-    if (!isObject(entry)) { p.push(`${at}: must be an object`); continue; }
+    if (!isObject(entry)) { p.push(`${at}: must be an object`); caseErrors = true; continue; }
     const { scores, excluded } = entry;
-    if (!Array.isArray(scores) || scores.length !== obj.k) p.push(`${at}.scores: length must be k ${show(obj.k)}`);
-    if (!Array.isArray(excluded) || excluded.length !== obj.k) p.push(`${at}.excluded: length must be k ${show(obj.k)}`);
+    if (!Array.isArray(scores) || scores.length !== obj.k) { p.push(`${at}.scores: length must be k ${show(obj.k)}`); caseErrors = true; }
+    if (!Array.isArray(excluded) || excluded.length !== obj.k) { p.push(`${at}.excluded: length must be k ${show(obj.k)}`); caseErrors = true; }
     if (!Array.isArray(scores) || !Array.isArray(excluded)) continue;
     const bad = [];
     scores.forEach((s, i) => {
@@ -474,14 +490,65 @@ function validateNoiseArtifact(obj) {
       if (mark !== null && !EXCLUSION_MARKS.includes(mark)) bad.push(`run ${i} excluded ${show(mark)} is not one of ${EXCLUSION_MARKS.join(', ')}`);
       else if (mark !== null && s !== null) bad.push(`run ${i} is excluded (${mark}) but has score ${show(s)}`);
     });
-    if (bad.length) p.push(`${at}: ${bad.join('; ')}`);
+    if (bad.length) { p.push(`${at}: ${bad.join('; ')}`); caseErrors = true; }
   }
-  if (!NOISE_VERDICTS.includes(obj.verdict)) p.push(`$.verdict: must be one of ${NOISE_VERDICTS.join(', ')}, got ${show(obj.verdict)}`);
+
+  const casesValid = Boolean(cases && Array.isArray(keys) && !caseErrors && Number.isInteger(obj.k) && isObject(obj.thresholds));
+  const recomputedScopes = {};
+  if (casesValid) {
+    for (const scope of SCOPES) {
+      const scopeKeys = keys.filter((key) => cases[key] && inScope(cases[key], scope));
+      recomputedScopes[scope] = scopeStats(cases, scopeKeys, obj.k, obj.thresholds.headroom);
+    }
+  }
+
   for (const scope of SCOPES) {
     const s = isObject(obj.scopes) ? obj.scopes[scope] : undefined;
     if (!isObject(s)) { p.push(`$.scopes.${scope}: missing scope`); continue; }
-    if (s.noise !== null && !(isNum(s.noise) && s.noise >= 0)) p.push(`$.scopes.${scope}.noise: must be null or a number >= 0, got ${show(s.noise)}`);
-    if (s.headroom !== null && typeof s.headroom !== 'boolean') p.push(`$.scopes.${scope}.headroom: must be true, false or null`);
+    const again = recomputedScopes[scope];
+    if (s.noise !== null && !(isNum(s.noise) && s.noise >= 0)) {
+      p.push(`$.scopes.${scope}.noise: must be null or a number >= 0, got ${show(s.noise)}`);
+    } else if (casesValid && again) {
+      if (s.noise === null && again.noise !== null) {
+        p.push(`$.scopes.${scope}.noise: stored null does not match recomputed ${fmt(again.noise)}`);
+      } else if (s.noise !== null && again.noise === null) {
+        p.push(`$.scopes.${scope}.noise: stored ${fmt(s.noise)} does not match recomputed null`);
+      } else if (s.noise !== null && again.noise !== null && Math.abs(s.noise - again.noise) > EPS) {
+        p.push(`$.scopes.${scope}.noise: stored ${fmt(s.noise)} does not match recomputed ${fmt(again.noise)}`);
+      }
+    }
+    if (s.headroom !== null && typeof s.headroom !== 'boolean') {
+      p.push(`$.scopes.${scope}.headroom: must be true, false or null`);
+    } else if (casesValid && again && s.headroom !== again.headroom) {
+      p.push(`$.scopes.${scope}.headroom: stored ${show(s.headroom)} does not match recomputed ${show(again.headroom)}`);
+    }
+  }
+
+  let expectedVerdict = null;
+  if (casesValid && recomputedScopes.corpus) {
+    const corpus = recomputedScopes.corpus;
+    const runs = corpus.runs;
+    const excluded = corpus.excluded;
+    const share = runs ? excluded / runs : null;
+    const causes = [];
+    if (isNum(obj.thresholds.k) && obj.k < obj.thresholds.k) causes.push('k < config k');
+    if (corpus.baselineMean === null) causes.push('no model run was scored');
+    else if (corpus.noise === null) causes.push('fewer than 2 repeats scored a run');
+    if (share !== null && isNum(obj.thresholds.maxInfraShare) && share > obj.thresholds.maxInfraShare + EPS) {
+      causes.push('infra share > maxInfraShare');
+    }
+    const differing = Array.isArray(obj.graderRerun?.differing) ? obj.graderRerun.differing : [];
+    if (causes.length) expectedVerdict = 'inconclusive';
+    else if (differing.length) expectedVerdict = 'grader-unstable';
+    else if (corpus.headroom) expectedVerdict = 'no-headroom';
+    else if (isNum(obj.thresholds.mde) && corpus.noise >= obj.thresholds.mde - EPS) expectedVerdict = 'noise-exceeds-mde';
+    else expectedVerdict = 'usable';
+  }
+
+  if (!NOISE_VERDICTS.includes(obj.verdict)) {
+    p.push(`$.verdict: must be one of ${NOISE_VERDICTS.join(', ')}, got ${show(obj.verdict)}`);
+  } else if (casesValid && expectedVerdict && obj.verdict !== expectedVerdict) {
+    p.push(`$.verdict: stored ${show(obj.verdict)} does not match recomputed ${show(expectedVerdict)}`);
   }
   return p;
 }
@@ -495,6 +562,58 @@ function validateDecision(obj) {
   if (obj.precondition !== null && !PRECONDITIONS.includes(obj.precondition)) {
     p.push(`$.precondition: must be null or one of ${PRECONDITIONS.join(', ')}, got ${show(obj.precondition)}`);
   }
+
+  const inputs = isObject(obj.inputs) ? obj.inputs : null;
+  if (!inputs) {
+    p.push('$.inputs: must be an object');
+  } else {
+    for (const f of ['baseline', 'baselineFile', 'candidate', 'noiseArtifact']) {
+      if (!(f in inputs)) p.push(`$.inputs.${f}: missing required field`);
+    }
+    if (inputs.baseline !== undefined && !isObject(inputs.baseline)) {
+      p.push('$.inputs.baseline: must be an object');
+    }
+    if (inputs.baselineFile !== undefined && !isObject(inputs.baselineFile)) {
+      p.push('$.inputs.baselineFile: must be an object');
+    }
+    if (inputs.candidate !== undefined && !isObject(inputs.candidate)) {
+      p.push('$.inputs.candidate: must be an object');
+    }
+    if (inputs.noiseArtifact !== null && inputs.noiseArtifact !== undefined) {
+      if (!isObject(inputs.noiseArtifact)) {
+        p.push('$.inputs.noiseArtifact: must be an object or null');
+      } else {
+        const sha = inputs.noiseArtifact.sha256;
+        if (sha !== null && !(typeof sha === 'string' && /^[0-9a-fA-F]{64}$/.test(sha))) {
+          p.push(`$.inputs.noiseArtifact.sha256: must be null or 64 hex characters, got ${show(sha)}`);
+        }
+      }
+    }
+
+    if (inputs.baseline?.source === 'noise-artifact') {
+      const baseModel = inputs.baseline.model;
+      const baseFileModel = inputs.baselineFile?.model;
+      const candModel = inputs.candidate?.model ?? null;
+      if (baseModel !== baseFileModel || candModel !== baseModel || candModel === null) {
+        if (obj.precondition !== 'noise-model-mismatch') {
+          p.push(`$.precondition: model fields mismatch, so precondition must be "noise-model-mismatch", got ${show(obj.precondition)}`);
+        }
+      } else if (inputs.noiseArtifact?.verdict === 'grader-unstable' || inputs.noiseArtifact?.verdict === 'inconclusive') {
+        if (obj.precondition !== 'noise-unusable' && obj.precondition !== 'noise-case-set-mismatch') {
+          p.push(`$.precondition: inputs.noiseArtifact.verdict is ${show(inputs.noiseArtifact.verdict)}, so precondition must be "noise-unusable", got ${show(obj.precondition)}`);
+        }
+      }
+    }
+  }
+
+  const infra = isObject(obj.infra) ? obj.infra : null;
+  if (!infra) {
+    p.push('$.infra: must be an object');
+  } else {
+    if (!isObject(infra.baseline)) p.push('$.infra.baseline: must be an object');
+    if (!isObject(infra.candidate)) p.push('$.infra.candidate: must be an object');
+  }
+
   const splits = isObject(obj.splits) ? obj.splits : {};
   for (const [at, s, name] of [['$.corpus', obj.corpus, 'corpus'], ['$.splits.train', splits.train, 'train'], ['$.splits.heldout', splits.heldout, 'heldout']]) {
     if (!isObject(s)) { p.push(`${at}: missing scope`); continue; }
@@ -518,6 +637,15 @@ function validateDecision(obj) {
     if (!Array.isArray(s.cases) || s.n !== s.cases.length) {
       p.push(`${at}.n: ${show(s.n)} does not equal cases.length ${Array.isArray(s.cases) ? s.cases.length : 'n/a'}`);
     }
+    if (inputs?.baseline?.source === 'none') {
+      if (s.noise !== null) p.push(`${at}.noise: baseline source is "none", so noise must be null, got ${show(s.noise)}`);
+      if (obj.precondition === null && s.reason !== 'no-noise-band') {
+        p.push(`${at}.reason: baseline source is "none", so reason must be "no-noise-band", got ${show(s.reason)}`);
+      }
+    }
+    if (s.headroomLimited !== undefined && s.headroomLimited !== null && typeof s.headroomLimited !== 'boolean') {
+      p.push(`${at}.headroomLimited: must be true, false or null, got ${show(s.headroomLimited)}`);
+    }
   }
   if (isObject(obj.corpus) && (obj.verdict !== obj.corpus.verdict || obj.recommendation !== obj.corpus.recommendation)) {
     p.push('$.verdict: verdict and recommendation must mirror $.corpus');
@@ -539,6 +667,7 @@ module.exports = {
   DEFAULTS,
   EPS,
   MIN_PAIRED_CASES,
+  EXCLUSION_MARKS,
   loadNoiseConfig,
   classifyRun,
   computeNoise,
