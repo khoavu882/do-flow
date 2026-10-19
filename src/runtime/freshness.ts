@@ -21,10 +21,23 @@ function fileHash(root: string, locator: any): string | null {
   } catch { return null; }
 }
 
+/**
+ * IC-007: the root a relative locator.file is read in: sourceRoot, the checkout the verb runs in,
+ * when the file is there; else the record store's root when it holds the file (a linked worktree's
+ * feature folder kept only in the main checkout, 115 IC-004); else sourceRoot. Ceiling: a file the
+ * worktree deleted is read from the main checkout's copy.
+ */
+function fileRootFor(sourceRoot: string, stateRoot: string, locator: any): string {
+  const file = locator?.file;
+  if (typeof file !== 'string' || file === '' || path.isAbsolute(file) || path.resolve(sourceRoot) === path.resolve(stateRoot)) return sourceRoot;
+  const exists = (root: string) => { try { return fs.statSync(path.resolve(root, file)).isFile(); } catch { return false; } };
+  return !exists(sourceRoot) && exists(stateRoot) ? stateRoot : sourceRoot;
+}
+
 // IC-007: a relative locator.file is hashed in sourceRoot, the checkout the verb runs in; `root`
 // (the record store) is only the default. An absolute locator.file is hashed as is.
 function measureFreshness(root: string, locator: any, gitCommit: any, sourceRoot: string = root): any {
-  return { gitCommit, fileHash: fileHash(sourceRoot, locator), observedAt: new Date().toISOString(), status: 'FRESH' };
+  return { gitCommit, fileHash: fileHash(fileRootFor(sourceRoot, root, locator), locator), observedAt: new Date().toISOString(), status: 'FRESH' };
 }
 
 class FreshnessValidator {
@@ -163,7 +176,7 @@ class FreshnessValidator {
     }
 
     if (item.freshness?.fileHash) {
-      const currentHash = fileHash(this.sourceRoot, item.locator);
+      const currentHash = fileHash(fileRootFor(this.sourceRoot, this.repoRoot, item.locator), item.locator);
       return currentHash === item.freshness.fileHash
         ? { status: 'FRESH' }
         : { status: 'STALE', reason: currentHash ? 'Observed file contents changed' : 'Observed file is missing or unreadable' };
@@ -215,5 +228,6 @@ class FreshnessValidator {
 
 module.exports = {
   measureFreshness,
+  fileRootFor,
   FreshnessValidator,
 };

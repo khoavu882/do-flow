@@ -340,7 +340,7 @@ class WorkflowOrchestrator {
             return ledger.queryEvidence({ taskId: id });
           },
         },
-        requests: new ResearchRequestStore({ projectRoot: this.projectRoot, fsImpl: this.fsImpl, slug: this.featureSlug }),
+        requests: new ResearchRequestStore({ projectRoot: this.projectRoot, sourceRoot: this.sourceRoot, fsImpl: this.fsImpl, slug: this.featureSlug }),
         briefRecords,
         readReport: (file: any) => {
           const target = path.resolve(repoRoot, file);
@@ -522,7 +522,7 @@ class WorkflowOrchestrator {
     this.advance(run, now);
     this.writeRun(run, now, () => {
       if (run.taskClass !== 'feature') return;
-      const request = new ResearchRequestStore({ projectRoot: this.projectRoot, fsImpl: this.fsImpl })
+      const request = new ResearchRequestStore({ projectRoot: this.projectRoot, sourceRoot: this.sourceRoot, fsImpl: this.fsImpl })
         .blockingGap(taskId, stageId);
       if (request) throw new Error(`Research request '${request.id}' blocks stage '${stageId}': ${request.failureReason || request.gap || request.status}`);
     });
@@ -939,7 +939,7 @@ function compactAfterHandoff({ taskId, projectRoot }: any) {
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false,
-  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, slug = null, buildAdapters = null,
+  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, buildAdapters = null,
 }: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
 
@@ -949,10 +949,13 @@ function handleOrchestrateCommand({
   // wrote its journal to $PWD while a `--global` `evidence`/`readiness` call on the same task read
   // and wrote $HOME — two roots disagreeing about where one task's state lives.
   const state = stateRoot || process.cwd();
+  // The checkout the verb runs in: its branch and feature folder name the feature; `state` (the main
+  // checkout for a linked worktree, 115 IC-004) holds the records.
+  const source = sourceRoot || state;
   const safeId = ID_PATTERN.test(String(taskId ?? ''));
   // The feature this task belongs to: recorded on a run this command starts, matched against a run
   // found in another checkout, and the namespace its readiness record is read from.
-  const featureSlug = safeId ? featureSlugFor({ projectRoot: state, taskId, slug }) : slug;
+  const featureSlug = safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
   // A run started in another checkout of this repository for the same feature is read and updated
   // where it is. `start` is always local: an unrelated run with the same id elsewhere neither
   // refuses nor satisfies it.
@@ -966,7 +969,7 @@ function handleOrchestrateCommand({
     if (found.status === 'found') runRoot = found.root;
   }
   const orchestrator = new WorkflowOrchestrator({
-    repoRoot: root, projectRoot: runRoot, sourceRoot: state,
+    repoRoot: root, projectRoot: runRoot, sourceRoot: source,
     stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
     featureSlug, buildAdapters,
   });
@@ -1065,7 +1068,7 @@ function handleOrchestrateCommand({
     }
     // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.
     if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {
-      snapshot = { ...snapshot, compaction: compactAfterHandoff({ taskId, projectRoot: state }) };
+      snapshot = { ...snapshot, compaction: compactAfterHandoff({ taskId, projectRoot: source }) };
     }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);

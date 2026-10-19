@@ -111,7 +111,7 @@ function handleReadinessCommand({
 
   let report;
   try {
-    report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state, treeRoot: sourceRoot || state, mode });
+    report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state, treeRoot: sourceRoot || state, sourceRoot: sourceRoot || state, mode });
   } catch (error: any) {
     return usageError('readiness', error.message, json, error);
   }
@@ -268,10 +268,8 @@ function addEvidence({ ledger, root, sourceRoot = root, attemptRoot, taskId, ite
 
   // The whole batch is validated before any of it is written. A half-written stage batch is worse
   // than a rejected one: the half that landed looks complete to every later reader.
-  const treeState = measureTreeState(root);
-  const hasAbsence = raws.some((raw: any) => raw?.absence === true);
-  const absenceTreeState = hasAbsence && path.resolve(sourceRoot) !== path.resolve(root)
-    ? measureTreeState(sourceRoot) : null;
+  // The tree observed is the checkout the verb runs in (115 IC-007), one measurement for every item.
+  const treeState = measureTreeState(sourceRoot);
   const providerFreshness = new Map();
   let sourceModeOf: any = null;
   const validated = [];
@@ -280,7 +278,7 @@ function addEvidence({ ledger, root, sourceRoot = root, attemptRoot, taskId, ite
       if (raw && raw.absence && !sourceModeOf) {
         sourceModeOf = sourceModeLookup(new CapabilityRouter({ repoRoot: REPO_ROOT }).capabilities);
       }
-      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, absenceTreeState, probeRoot: sourceRoot, attemptRoot, slug, providerFreshness, sourceModeOf }));
+      validated.push(toEvidence({ item: raw }, { taskId, root, treeState, probeRoot: sourceRoot, sourceRoot, attemptRoot, slug, providerFreshness, sourceModeOf }));
     } catch (error: any) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json, error);
@@ -318,8 +316,7 @@ function addEvidence({ ledger, root, sourceRoot = root, attemptRoot, taskId, ite
   }
   console.log('─'.repeat(78));
   console.log(`Wrote ${written.length} item(s) to ${stateFile}`);
-  const observedTree = absenceTreeState || treeState;
-  console.log(`Commit at observation: ${observedTree.gitCommit || (observedTree.prefix !== null ? 'not measured' : 'not a git worktree — freshness cannot expire by diff')}`);
+  console.log(`Commit at observation: ${treeState.gitCommit || (treeState.prefix !== null ? 'not measured' : 'not a git worktree — freshness cannot expire by diff')}`);
   console.log('═'.repeat(78) + '\n');
   return finish(0);
 }

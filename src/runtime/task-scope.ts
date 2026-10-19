@@ -49,6 +49,23 @@ function setDefaultSlug(slug: any): void {
   defaultSlug = typeof slug === 'string' && slug !== '' ? slug : null;
 }
 
+/** A redirected call's two roots (115 IC-004): records under `stateRoot` (the main checkout) belong
+ * to the feature as the checkout the verb runs in sees it. The dispatcher sets them once per call. */
+let scopeRoots: { stateRoot: string; sourceRoot: string } | null = null;
+
+function setScopeRoots(roots: { stateRoot: string; sourceRoot: string } | null): void {
+  scopeRoots = roots && roots.stateRoot && roots.sourceRoot
+    ? { stateRoot: path.resolve(roots.stateRoot), sourceRoot: path.resolve(roots.sourceRoot) } : null;
+}
+
+/** The checkout a store root's feature is resolved in: for the redirected state root, the caller's
+ * checkout when it holds feature folders (do-paths.sh then takes this folder, else the main
+ * checkout's), else the state root itself. Every other root is its own. */
+function featureRootFor(projectRoot: string): string {
+  if (!scopeRoots || path.resolve(projectRoot) !== scopeRoots.stateRoot) return projectRoot;
+  return hasFeatureFolderAbove(scopeRoots.sourceRoot) ? scopeRoots.sourceRoot : projectRoot;
+}
+
 function clearTaskScopeCache(): void {
   featureCache.clear();
   resolvedFeatureCache.clear();
@@ -116,7 +133,7 @@ function featureFor(projectRoot: string, slug: string | null | undefined): any {
  *   `feature-level-id`.
  */
 function resolveTaskScope({ projectRoot, taskId, slug = null }: { projectRoot: string; taskId: string; slug?: string | null }): { namespace: string | null; slug: string | null; reason: string } {
-  const feature = featureFor(projectRoot, slug || defaultSlug);
+  const feature = featureFor(featureRootFor(projectRoot), slug || defaultSlug);
   if (feature.reason) return { namespace: null, slug: null, reason: feature.reason };
   if (!feature.hasRegister) return { namespace: null, slug: feature.slug, reason: 'no-register' };
   if (taskId === feature.slug) return { namespace: null, slug: feature.slug, reason: 'feature-level-id' };
@@ -152,4 +169,4 @@ function taskStoreDir({ projectRoot, store, taskId, slug = null }: { projectRoot
   return namespace ? path.join(base, namespace) : base;
 }
 
-module.exports = { resolveFeature, resolveTaskScope, taskStoreDir, setDefaultSlug, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal, slugNamesNoFeature };
+module.exports = { resolveFeature, resolveTaskScope, taskStoreDir, setDefaultSlug, setScopeRoots, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal, slugNamesNoFeature };

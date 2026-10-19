@@ -348,6 +348,11 @@ HOOK_TEST('the hook reads records where the runtime does, and another feature\'s
   git(other.main, 'worktree', 'add', '-q', '-b', 'fix/other', path.join(other.root, 'w1'));
   const w1 = fs.realpathSync(path.join(other.root, 'w1'));
   walkTo(w1, '901-bug', 'bug', 'implementation');
+  // 115 IC-004: a linked worktree's run is created in the main checkout. The other-checkout scan
+  // (kept, O6) reads a run an earlier version left in the worktree, which this move reproduces.
+  assert.ok(!fs.existsSync(runFile(w1, '901-bug')));
+  fs.mkdirSync(path.dirname(runFile(w1, '901-bug')), { recursive: true });
+  fs.renameSync(runFile(other.main, '901-bug'), runFile(w1, '901-bug'));
   assert.strictEqual(JSON.parse(fs.readFileSync(runFile(w1, '901-bug'), 'utf8')).featureSlug, 'other');
   expectHook({ cwd: other.main, caseRoot: other.root, event: editEvent(path.join(other.main, 'src', 'a.js')), code: 0, stderr: '' });
 });

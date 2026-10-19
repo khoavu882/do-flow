@@ -129,7 +129,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -147,7 +148,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -166,7 +168,8 @@
       ],
       "writers": [
         "src/runtime/readiness-record.ts",
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -184,7 +187,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -202,7 +206,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/outcome.ts"
+        "src/runtime/outcome.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -221,7 +226,8 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/retrieval-record.ts"
+        "src/runtime/retrieval-record.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -389,7 +395,8 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/workflow-orchestrator.ts"
+        "src/runtime/workflow-orchestrator.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {

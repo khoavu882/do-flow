@@ -442,6 +442,11 @@ test('a run with the same id for another feature in another worktree neither blo
   t.after(() => fs.rmSync(w1, { recursive: true, force: true }));
   execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'fix/other', w1], { stdio: 'ignore' });
   json(w1, ['orchestrate', '--action', 'start', '--task-id', 'A.1', '--task-class', 'bug']);
+  // 115 IC-004: a linked worktree's run is created in the main checkout. The other-checkout scan
+  // (kept, O6) reads a run an earlier version left in the worktree, which this move reproduces.
+  assert.ok(!fs.existsSync(runFileOf(w1, 'A.1')), 'the worktree run is created under main');
+  fs.mkdirSync(path.dirname(runFileOf(w1, 'A.1')), { recursive: true });
+  fs.renameSync(runFileOf(cwd, 'A.1'), runFileOf(w1, 'A.1'));
   const theirs = fs.readFileSync(runFileOf(w1, 'A.1'));
 
   const missing = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1']);
