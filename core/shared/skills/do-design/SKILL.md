@@ -193,7 +193,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 ## Embedded feature research
 
-Run the ideation pass and the gap-or-request protocol of `../do-document/references/embedded-research.md` before completion; a skipped pass says `ideation: skipped (<reason>)` in the handoff note.
+Run the ideation pass of `../do-document/references/embedded-research.md` before options are written and its gap-or-request protocol on a gap; a skip says `ideation: skipped (<reason>)` at handoff.
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read `requirement.md`, produce

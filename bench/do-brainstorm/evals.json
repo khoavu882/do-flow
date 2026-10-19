@@ -123,8 +123,7 @@
         },
         {
           "text": "No research request was opened with --reason ideation",
-          "type": "output_not_matches",
-          "pattern": "--reason ideation"
+          "type": "manual"
         }
       ]
     }

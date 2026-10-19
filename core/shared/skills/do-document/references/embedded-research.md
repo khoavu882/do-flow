@@ -4,12 +4,12 @@ Research inside a feature run is a side operation of its current stage, not a `r
 
 ## Ideation pass (feature discovery and design)
 
-1. **When.** Discovery, before the first question round; design, before options are written. Other classes are refused.
+1. **When.** Discovery, before the first question round (on a trunk branch, once the slug is picked); design, before options are written. Other classes and stages are refused. Once the class check accepts `feature`, discovery first runs `"$DOFLOW" orchestrate --action catch-up --task-id <slug> --task-class feature --stage discovery --json`, which completes nothing; a `reason` other than `reached-candidate` skips the pass with it.
 2. **Skip.** Read the request list and context pack first. When the user, the repository or a resolved request already answers the stage's questions, retrieve nothing and put `ideation: skipped (<reason>)` in the handoff `--note`. Design opens only questions discovery left open.
-3. **Questions.** At most 3 per stage, each a decision to make, opened per protocol step 2 with `--reason ideation`. Cover prior art (comparable tools, vendor docs, public repositories), repository measurements, and rejected alternatives.
-4. **Rounds.** Per question: one broad round, at most one targeted, at most 6 sources read.
-5. **Stop.** Saturation (questions answered or gaps stated, last round added nothing new) resolves `answered`; a ceiling reached first resolves `unresolved` with gap `ceiling reached: <what is still unknown>`; with no web tool, gap `no web tool on this harness`.
-6. **Acceptance rule.** ACCEPT an idea only when its evidence is a primary source read, a repository measurement, or documented vendor behaviour (not a headline number, anecdote or unverified snippet), and it fits the constitution, is reversible or ships behind one rollback switch, names the test or measure that proves it, and decides nothing the user owns. Otherwise DEFER (evidence or ordering missing) or REJECT (conflicts with a constraint). Record one claim per idea: verdict and failing criterion; put rejected alternatives beside the decision they lost to.
+3. **Questions.** At most 3 per stage, each a decision to make, opened per gap-or-request step 2 with `--reason ideation`. Cover prior art (comparable tools, vendor docs, public repositories), repository measurements, and rejected alternatives.
+4. **Rounds.** Per question, following `deep_research.md`: one broad round, at most one targeted, at most 6 sources read.
+5. **Stop.** At saturation (last round added nothing new) a supported answer resolves `answered` and a stated gap `unresolved`; a ceiling reached first resolves `unresolved` with gap `ceiling reached: <what is still unknown>`; with no web tool, gap `no web tool on this harness`.
+6. **Acceptance rule.** ACCEPT an idea only when its evidence is a primary source read, a repository measurement, or documented vendor behaviour (not a headline number, anecdote or unverified snippet), and it fits the constitution and stated constraints, is reversible or ships behind one rollback switch, names the test or measure that proves it, and decides nothing the user owns. Otherwise DEFER (evidence or ordering missing) or REJECT (conflicts with a constraint). Record one claim per idea: verdict and failing criterion; put rejected alternatives beside the decision they lost to.
 7. **Record.** Resolve ideation requests before handoff; the `--note` says `ideation: <n> requests, <answered>/<unresolved>`.
 
 ## Gap or request protocol

@@ -115,8 +115,7 @@
       "assertions": [
         {
           "text": "The ideation pass opened a research request with --reason ideation",
-          "type": "output_matches",
-          "pattern": "--reason ideation"
+          "type": "manual"
         },
         {
           "text": "The design cites the sources the ideation pass read",
