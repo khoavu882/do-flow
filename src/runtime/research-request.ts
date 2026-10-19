@@ -113,9 +113,13 @@ class ResearchRequestStore {
       return this.change(taskId, (requests: any) => {
         const existing = requests.find((r: any) => r.stageId === stageId && r.question === question.trim() && r.status === 'OPEN');
         if (existing) {
-          if ((blocking ?? reason === 'detected-gap') && !existing.blocking) {
-            existing.blocking = true;
-            existing.reason = reason;
+          const upgradeBlocking = (blocking ?? reason === 'detected-gap') && !existing.blocking;
+          // A re-open as ideation makes the request ideation (so an OPEN one holds the stage); no
+          // re-open weakens it: an ideation request keeps its reason.
+          const nextReason = existing.reason === 'ideation' ? 'ideation' : reason === 'ideation' || upgradeBlocking ? reason : existing.reason;
+          if (upgradeBlocking || nextReason !== existing.reason) {
+            if (upgradeBlocking) existing.blocking = true;
+            existing.reason = nextReason;
             existing.updatedAt = new Date().toISOString();
           }
           return existing;

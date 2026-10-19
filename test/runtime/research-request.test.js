@@ -198,3 +198,48 @@ test('a blocking ANSWERED ideation request is validated like any blocking one', 
   fs.writeFileSync(file, JSON.stringify(state));
   assert.match(store.blockingGap('feature', 'design').failureReason, /no linked evidence/);
 });
+
+// ───────────────────────────────────────────────────────────────── re-open upgrades to ideation (IC-001, C-1)
+
+test('re-opening an OPEN user-request or non-blocking detected-gap as ideation upgrades it, and it then holds the stage', t => {
+  for (const first of [{ reason: 'user-request' }, { reason: 'detected-gap', blocking: false }]) {
+    const { store } = fixture(t, 'discovery');
+    const args = { taskId: 'feature', stageId: 'design', question: `Same question for ${first.reason}?` };
+    const opened = store.open({ ...args, ...first });
+    assert.equal(opened.blocking, false, first.reason);
+    assert.equal(store.blockingGap('feature', 'design'), null, first.reason);
+    const reopened = store.open({ ...args, reason: 'ideation' });
+    assert.equal(reopened.id, opened.id, first.reason);
+    assert.equal(reopened.reason, 'ideation', first.reason);
+    assert.equal(reopened.blocking, false, `${first.reason}: no re-open sets blocking on its own`);
+    assert.equal(store.list('feature').length, 1, first.reason);
+    assert.equal(store.blockingGap('feature', 'design').id, opened.id, `${first.reason}: OPEN ideation holds the stage`);
+    store.resolve({ taskId: 'feature', requestId: opened.id, outcome: 'unresolved', gap: 'No source reachable' });
+    assert.equal(store.blockingGap('feature', 'design'), null, first.reason);
+  }
+});
+
+test('re-opening a blocking request as ideation keeps blocking and still holds after UNRESOLVED; no re-open weakens it', t => {
+  const { store } = fixture(t, 'design');
+  const args = { taskId: 'feature', stageId: 'design', question: 'Blocking gap?' };
+  const opened = store.open({ ...args, reason: 'detected-gap' });
+  assert.equal(opened.blocking, true);
+  const reopened = store.open({ ...args, reason: 'ideation' });
+  assert.equal(reopened.reason, 'ideation');
+  assert.equal(reopened.blocking, true);
+  assert.equal(store.open({ ...args, reason: 'user-request' }).reason, 'ideation', 'a weaker reason does not downgrade');
+  assert.equal(store.open({ ...args, reason: 'user-request', blocking: false }).blocking, true);
+  assert.equal(store.open({ ...args, reason: 'detected-gap', blocking: true }).reason, 'ideation', 'a blocking re-open does not rename ideation');
+  store.resolve({ taskId: 'feature', requestId: opened.id, outcome: 'unresolved', gap: 'No source reachable' });
+  assert.equal(store.blockingGap('feature', 'design').id, opened.id, 'blocking UNRESOLVED still holds');
+});
+
+test('ideation re-open on a stage that is not discovery or design is still refused and leaves the request unchanged', t => {
+  const { store } = fixture(t, 'implementation');
+  const args = { taskId: 'feature', stageId: 'design', question: 'Plain?' };
+  const opened = store.open({ ...args, reason: 'user-request' });
+  assert.throws(() => store.open({ ...args, reason: 'ideation' }), /only valid on a feature discovery or design stage/);
+  assert.equal(store.list('feature')[0].reason, 'user-request');
+  assert.equal(store.blockingGap('feature', 'design'), null);
+  assert.equal(opened.id, store.list('feature')[0].id);
+});
