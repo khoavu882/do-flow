@@ -632,7 +632,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   both triggering and behavioral cases, the case files are internally consistent, every case has a
   side (`train` or `heldout`) and every skill a held-out case, every skill has a should-not-trigger
   case graded on by-path runs by `skill_not_routed`, every assertion type is one the runner knows,
-  and the config declares a valid token ceiling. The committed baseline still describes the
+  and the config declares a valid token ceiling and a valid noise block. The committed baseline still describes the
   committed corpus: a case missing from the baseline is reported as pending, awaiting a paid
   capture, and does not fail, while a removed, renamed or kind-changed case does, and so does a
   baseline entry recorded twice, and so does a case moved to the other side when its baseline result recorded `split` (the committed baseline
