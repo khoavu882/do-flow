@@ -123,7 +123,7 @@
     },
     {
       "id": 6,
-      "kind": "triggering",
+      "kind": "behavioral",
       "split": "train",
       "name": "programme-ask-proposes-program-mode",
       "prompt": "Build out an onboarding, billing and notification system for the product as one big goal.",
@@ -136,19 +136,14 @@
           "skill": "do"
         },
         {
-          "text": "The response proposes program mode",
-          "type": "output_matches",
-          "pattern": "[Pp]rogram mode"
-        },
-        {
-          "text": "asks the person before any research and runs no roadmap write",
+          "text": "proposes program mode through the question tool before any research; no roadmap write",
           "type": "manual"
         }
       ]
     },
     {
       "id": 7,
-      "kind": "triggering",
+      "kind": "behavioral",
       "split": "heldout",
       "name": "single-feature-ask-skips-program-mode",
       "prompt": "Add a --dry-run flag to `doflow roadmap seed` across src/cli/runtime-commands.ts, src/runtime/roadmap/seed.ts, and docs/reference.md.",
@@ -161,12 +156,7 @@
           "skill": "do"
         },
         {
-          "text": "The response does not propose program mode",
-          "type": "output_not_matches",
-          "pattern": "[Pp]rogram mode"
-        },
-        {
-          "text": "routes as an ordinary change with the task class stated",
+          "text": "routes as an ordinary change with the class stated; does not propose or enter program mode (saying it is not program-sized is compliant)",
           "type": "manual"
         }
       ]
