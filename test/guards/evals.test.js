@@ -20,6 +20,7 @@ const BENCH = path.join(REPO, 'bench');
 // run unconditionally. Only run transcripts and reports stay local (bench/runs/, bench/reports/).
 const HAS_BENCH = fs.existsSync(path.join(BENCH, 'runner.js'));
 const runner = HAS_BENCH ? require('../../bench/runner.js') : null;
+const { loadNoiseConfig } = HAS_BENCH ? require('../../bench/noise.js') : {};
 // buildPlan reads git state in-process; node --test gives each file its own process, so the scratch
 // environment keeps it off the developer's HOME and global git config.
 const scratch = createScratch('doflow-bench-guard-');
@@ -225,6 +226,36 @@ test('G11 control: a missing or malformed ceiling is refused', () => {
   const cfg = runner.loadConfig();
   for (const costCeiling of [undefined, null, { unit: 'usd', maxTokensPerRun: 1 }, { unit: 'total_tokens' }, { unit: 'total_tokens', maxTokensPerRun: -5 }]) {
     assert.throws(() => runner.loadCeiling({ ...cfg, costCeiling }), /costCeiling is invalid/);
+  }
+});
+
+// The noise block defines the A/A noise-floor thresholds (feature 096, IC-002) for bench noise
+// and bench report. Refused rather than defaulted so thresholds are never chosen implicitly.
+test('G11: the config declares a valid noise block', () => {
+  assert.doesNotThrow(() => loadNoiseConfig(runner.loadConfig()));
+  const parsed = loadNoiseConfig(runner.loadConfig());
+  assert.deepEqual(parsed, { k: 3, mde: 0.05, headroom: 0.95, maxInfraShare: 0.1, seed: 96 });
+});
+
+test('G11 control: a missing or malformed noise block is refused, naming the field', () => {
+  const cfg = runner.loadConfig();
+  const good = cfg.noise || { k: 3, mde: 0.05, headroom: 0.95, maxInfraShare: 0.1, seed: 96 };
+  const cases = [
+    [undefined, /noise is invalid: block/],
+    [null, /noise is invalid: block/],
+    [{ ...good, k: 1 }, /noise is invalid: k/],
+    [{ ...good, k: 2.5 }, /noise is invalid: k/],
+    [{ ...good, mde: 0 }, /noise is invalid: mde/],
+    [{ ...good, mde: 1 }, /noise is invalid: mde/],
+    [{ ...good, headroom: 0 }, /noise is invalid: headroom/],
+    [{ ...good, headroom: 1.2 }, /noise is invalid: headroom/],
+    [{ ...good, maxInfraShare: 1 }, /noise is invalid: maxInfraShare/],
+    [{ ...good, maxInfraShare: -0.1 }, /noise is invalid: maxInfraShare/],
+    [{ ...good, seed: -1 }, /noise is invalid: seed/],
+    [{ ...good, seed: 2 ** 32 }, /noise is invalid: seed/],
+  ];
+  for (const [noise, pattern] of cases) {
+    assert.throws(() => loadNoiseConfig({ ...cfg, noise }), pattern);
   }
 });
 
