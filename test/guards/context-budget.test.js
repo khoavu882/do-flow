@@ -187,7 +187,7 @@ const TASK_CONTEXT_RAILS = new Map([
   ['operations', 45000],
   ['review', 42000],
   // Measured 2026-10-11: research 35,302 B after the IC-019 second-opinion text in do/SKILL.md.
-  ['research', 35302],
+  ['research', 37840], // 114 raise: program mode reference and pointer, measured 37840 B, 2026-10-19
   ['trivial-edit', 30000],
 ]);
 
