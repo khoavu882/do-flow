@@ -446,12 +446,16 @@ function quoteLandArgument(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+const LAND_CONTROL_CHARS = /[\u0000-\u001f\u007f\u2028\u2029]/;
+
 function makeLandCommand(op: string, ok: boolean, rows: any[], root: string, draftPath: string): string | null {
   if (op !== 'check' || !ok || !Array.isArray(rows) || rows.length === 0) return null;
   const change = rows[0]?.change;
   if ((change !== 'add' && change !== 'amend') || !rows.every((row) => row?.change === change)) return null;
+  const resolvedRoot = path.resolve(root);
+  if (LAND_CONTROL_CHARS.test(resolvedRoot) || LAND_CONTROL_CHARS.test(draftPath)) return null;
   const action = change === 'add' ? 'apply' : 'amend';
-  return `doflow roadmap seed ${quoteLandArgument(path.resolve(root))} --action ${action} --draft ${quoteLandArgument(draftPath)}`;
+  return `doflow roadmap seed ${quoteLandArgument(resolvedRoot)} --action ${action} --draft ${quoteLandArgument(draftPath)}`;
 }
 
 function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {

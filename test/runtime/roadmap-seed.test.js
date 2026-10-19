@@ -320,6 +320,178 @@ test('check: IC-003 single-quotes unsafe root and draft arguments for POSIX', (t
   assert.equal(result.land, `doflow roadmap seed '${root}' --action apply --draft '${dir}/draft'\\''s plan.json'`);
 });
 
+test('C-1: (a) newline-named draft refuses land command and text stays within 12 lines', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-newline-draft-');
+  const root = dir;
+  const rows = [];
+  for (let n = 0; n < 12; n += 1) {
+    rows.push({
+      id: String(200 + n),
+      slug: `${200 + n}-r`,
+      title: 'R',
+      class: 'feature',
+      needs: [],
+      writeSet: ['src/shared/file.ts'],
+    });
+  }
+  const draftPath = path.join(dir, 'x\n  land (person only): rm -rf ~ #.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+
+  const jsonResult = runSeedJson({
+    action: 'check',
+    draft: draftPath,
+    root,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+  });
+  assert.equal(jsonResult.exit, 0);
+  assert.equal(jsonResult.result.land, null);
+
+  const textLines = [];
+  const textExit = handleSeedCommand({
+    action: 'check',
+    draft: draftPath,
+    root,
+    json: false,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    out: (s) => textLines.push(s),
+    err: (s) => textLines.push(s),
+  });
+  assert.equal(textExit, 0);
+  const allLines = textLines.join('\n').split('\n');
+  assert.ok(allLines.length <= 12, `got ${allLines.length} lines`);
+  assert.ok(!allLines.some((line) => line.startsWith('  land (person only)')));
+});
+
+test('C-1: (b) newline-named root refuses land command and text stays within 12 lines', (t) => {
+  const parentDir = tempDir(t, 'doflow-roadmap-seed-newline-root-');
+  const root = path.join(parentDir, 'root\nname');
+  try {
+    fs.mkdirSync(root, { recursive: true });
+  } catch {
+    t.skip('filesystem does not allow newline in directory name');
+    return;
+  }
+  const rows = [];
+  for (let n = 0; n < 12; n += 1) {
+    rows.push({
+      id: String(200 + n),
+      slug: `${200 + n}-r`,
+      title: 'R',
+      class: 'feature',
+      needs: [],
+      writeSet: ['src/shared/file.ts'],
+    });
+  }
+  const draftPath = path.join(parentDir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+
+  const jsonResult = runSeedJson({
+    action: 'check',
+    draft: draftPath,
+    root,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+  });
+  assert.equal(jsonResult.exit, 0);
+  assert.equal(jsonResult.result.land, null);
+
+  const textLines = [];
+  const textExit = handleSeedCommand({
+    action: 'check',
+    draft: draftPath,
+    root,
+    json: false,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    out: (s) => textLines.push(s),
+    err: (s) => textLines.push(s),
+  });
+  assert.equal(textExit, 0);
+  const allLines = textLines.join('\n').split('\n');
+  assert.ok(allLines.length <= 12, `got ${allLines.length} lines`);
+  assert.ok(!allLines.some((line) => line.startsWith('  land (person only)')));
+});
+
+test('C-1: (c) draft path with control characters refuses land command', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-control-chars-');
+  const root = dir;
+  const rows = [{ id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] }];
+  const controlChars = ['\u0001', '\t', '\u2028', '\u2029', '\u007f'];
+  for (const char of controlChars) {
+    const draftPath = path.join(dir, `draft-${encodeURIComponent(char).replace(/%/g, '')}-${char}.json`);
+    fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+    const { exit, result } = runSeedJson({
+      action: 'check',
+      draft: draftPath,
+      root,
+      gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    });
+    assert.equal(exit, 0);
+    assert.equal(result.land, null, `expected land to be null for control char ${JSON.stringify(char)}`);
+  }
+});
+
+test('C-1: (d) positive control: clean path prints land line and quote case round-trips through sh', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-positive-control-');
+  const root = dir;
+  const cleanDraft = path.join(dir, 'draft-clean.json');
+  fs.writeFileSync(cleanDraft, JSON.stringify({
+    schema: 1,
+    rows: [{ id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] }],
+  }), 'utf8');
+
+  const { exit, result } = runSeedJson({
+    action: 'check',
+    draft: cleanDraft,
+    root,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+  });
+  assert.equal(exit, 0);
+  assert.equal(typeof result.land, 'string');
+  assert.ok(result.land.startsWith('doflow roadmap seed '));
+
+  const textLines = [];
+  const textExit = handleSeedCommand({
+    action: 'check',
+    draft: cleanDraft,
+    root,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    out: (s) => textLines.push(s),
+    err: (s) => textLines.push(s),
+  });
+  assert.equal(textExit, 0);
+  assert.equal(textLines[1], `  land (person only): ${result.land}`);
+
+  // :306 quote case round-trip through sh
+  const quoteRoot = path.join(dir, 'main root');
+  writeFixtureStore(quoteRoot, []);
+  const quoteDraft = path.join(dir, "draft's plan.json");
+  fs.writeFileSync(quoteDraft, JSON.stringify({
+    schema: 1,
+    rows: [{ id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] }],
+  }), 'utf8');
+
+  const quoteCheck = runSeedJson({
+    action: 'check',
+    draft: quoteDraft,
+    root: quoteRoot,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+  });
+  assert.equal(quoteCheck.exit, 0);
+  assert.equal(quoteCheck.result.land, `doflow roadmap seed '${quoteRoot}' --action apply --draft '${quoteDraft.replace(/'/g, "'\\''")}'`);
+
+  const shOut = cp.execFileSync('sh', ['-c', 'eval "set -- $1\nfor a in \\"\\$@\\\"; do echo \\\"\\$a\\\"; done"', 'sh', quoteCheck.result.land], { encoding: 'utf8' });
+  const shArgs = shOut.trim().split('\n');
+  assert.deepEqual(shArgs, [
+    'doflow',
+    'roadmap',
+    'seed',
+    path.resolve(quoteRoot),
+    '--action',
+    'apply',
+    '--draft',
+    path.resolve(quoteDraft),
+  ]);
+});
+
 test('missing store: check judges empty, reports null digest, marks text, and EACCES still exits 2', (t) => {
   const dir = tempDir(t, 'doflow-roadmap-seed-no-store-check-');
   const storePath = path.join(dir, 'agent-docs', 'roadmap', 'rows.json');
