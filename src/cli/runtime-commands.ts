@@ -59,10 +59,12 @@ const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = req
 const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
 const { handleStorageCommand } = require('../runtime/storage/cli.ts');
-const { handleRoadmapCommand } = require('../runtime/roadmap/loop.ts');
+const { handleRoadmapCommand, resolveMainRoot } = require('../runtime/roadmap/loop.ts');
 const NO_UPKEEP = new Set(['storage', 'config']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
+// The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
+function handleSeedCommand(options: any): any { return require('../runtime/roadmap/seed.ts').handleSeedCommand(options); }
 // Settings support is needed only when the read-only config verb runs.
 function handleConfigCommand(options: any): any { return require('../runtime/settings/cli.ts').handleConfigCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
@@ -79,13 +81,23 @@ const { REPO_ROOT, buildAdapterRegistry } = require('./shared.ts');
  * commands are scope-aware like the rest of the CLI, rather than defaulting to the DoFlow install
  * directory — which for an npm install is inside node_modules/. */
 function evidenceRoot(o: any): string {
-  return o.global ? os.homedir() : path.resolve(o.positional[0] || '.');
+  if (o.global) return os.homedir();
+  // `roadmap seed [<project>]` (113 IC-001): the sub-verb takes the first positional slot, so the project root is the one after it.
+  if (o.cmd === 'roadmap' && o.positional[0] === 'seed') return path.resolve(o.positional[1] || '.');
+  return path.resolve(o.positional[0] || '.');
 }
 
 /** `trace spans [<project>]` (088 IC-011): the view name takes the first positional slot, so the
  * project root is the one after it. Every other call is `evidenceRoot(o)`. */
 function traceViewRoot(o: any): string {
   return o.cmd === 'trace' && o.positional[0] === 'spans' && !o.global ? path.resolve(o.positional[1] || '.') : evidenceRoot(o);
+}
+
+/** `roadmap`: the runner, or the `seed` sub-verb (113 IC-001), which takes the first positional slot and sets the exit code itself. */
+function handleRoadmapVerbCommand(o: any): number {
+  const action = o.actionGiven ? o.action : undefined;
+  if (o.positional[0] === 'seed') return finishRuntime(handleSeedCommand({ action, draft: o.draft, json: o.json, cwd: process.cwd(), root: resolveMainRoot(evidenceRoot(o)) }));
+  return handleRoadmapCommand({ action, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
 }
 
 /** `trace`: the ledger trajectory, unchanged, or the `spans` view, whose module loads only for that
@@ -328,7 +340,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, scope: o.scope, verificationInput: o.verificationInput, verificationPhase: o.verificationPhase, baselineRef: o.baselineRef, json: o.json, projectRoot: evidenceRoot(o) });
     case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
-    case 'roadmap': return handleRoadmapCommand({ action: o.actionGiven ? o.action : undefined, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
+    case 'roadmap': return handleRoadmapVerbCommand(o);
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
 }

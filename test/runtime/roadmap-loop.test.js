@@ -222,6 +222,11 @@ for (const [label, layer, arrange, options] of [
   });
 }
 
+test('C-2 loop kill switch still honors env off when settings are on', (t) => {
+  const f = fixture(t, { on: true });
+  assert.deepEqual(readKillSwitch({ ...f.env, [SWITCH]: 'off' }), { enabled: false, switch: 'env' });
+});
+
 test('a switch set mid-run stops the next call and names its layer; clearing it resumes', async (t) => {
   const f = fixture(t);
   const picked = await f.next();

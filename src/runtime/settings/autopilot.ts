@@ -43,6 +43,43 @@ function readKillSwitch(env: any = process.env, fsImpl: any = fs): { enabled: bo
   }
 }
 
+/** Seed writes require an independently verified durable off, so uncertainty refuses the write. */
+function readSeedSwitch(env: any = process.env, fsImpl: any = fs): { enabled: boolean; switch: SwitchLayer | null } {
+  const refuse = () => ({ enabled: true, switch: null });
+  const off = (layer: SwitchLayer) => ({ enabled: false, switch: layer });
+  try {
+    const { configHome } = require('../config-home.ts');
+    const home = configHome(env).dir;
+    if (!home) return refuse();
+
+    const settingsEnv = { ...env };
+    delete settingsEnv.DOFLOW_AUTOPILOT_ENABLED;
+    const { loadSettings } = require('./resolve.ts');
+    const settings = loadSettings({ global: true, env: settingsEnv, fsImpl });
+    const resolution = settings.get('autopilot.enabled', 'global');
+    if (resolution.state === 'invalid' || resolution.candidates.some((candidate: any) => candidate.status === 'invalid')) {
+      return refuse();
+    }
+    if (settings.errors.some((entry: any) => entry.key === 'autopilot.enabled' || entry.key === null)) {
+      return refuse();
+    }
+
+    const file = path.join(home, 'autopilot', 'off');
+    try {
+      fsImpl.statSync(file);
+      return off('sentinel');
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') return off('sentinel');
+    }
+
+    const legacyOff = resolution.candidates.some((candidate: any) => candidate.legacy && candidate.value === 'off');
+    if (resolution.value === 'off' || legacyOff) return off('setting');
+    return refuse();
+  } catch {
+    return refuse();
+  }
+}
+
 /** Tripwire (narrowing only): writes the kill-switch sentinel; only a person removes it. */
 function tripSentinel(env: any, line: string, fsImpl: any = fs): boolean {
   const file = sentinelFile(env);
@@ -54,4 +91,4 @@ function tripSentinel(env: any, line: string, fsImpl: any = fs): boolean {
   return true;
 }
 
-module.exports = { readKillSwitch, tripSentinel };
+module.exports = { readKillSwitch, readSeedSwitch, tripSentinel };

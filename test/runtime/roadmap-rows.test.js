@@ -15,6 +15,13 @@ const {
   check,
   pathsOverlap,
   writeSetsOverlap,
+  seedFindings,
+  validWriteSet,
+  safeText,
+  registryClasses,
+  SEED_RULES,
+  ROW_KEYS,
+  TOP_KEYS,
 } = require('../../src/runtime/roadmap/rows.ts');
 const { gatherGitFacts } = require('../../src/runtime/roadmap/facts.ts');
 const { handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
@@ -826,6 +833,34 @@ test('Fix 3: status --row <id> for unseeded row exits 1 in both text and json fo
   }
 });
 
+test('C-3 canonical writeSet paths preserve the pick overlap control and reject traversal', () => {
+  for (const value of ['src/a.ts', 'src/dir/', 'a']) assert.deepEqual(validWriteSet([value]), [value]);
+  for (const value of ['../outside', '/etc/passwd', 'C:/x', 'a\\b', 'a//b', './a', 'a/./b', 'src/../shared/x.ts', 'a/..', '/']) {
+    assert.equal(validWriteSet([value]), null, value);
+  }
+  const rows = parseSeed({ schema: 1, rows: [
+    { id: '100', slug: '100-base', title: 'Base', class: 'feature', needs: [], writeSet: ['shared/'] },
+    { id: '101', slug: '101-next', title: 'Next', class: 'feature', needs: [], writeSet: ['shared/x.ts'] },
+  ] }).rows;
+  const statuses = deriveStatus(rows, { branches: ['feat/100-base'] }).statuses;
+  const result = pick(rows, statuses, { wip: 2 });
+  assert.equal(result.picked, null);
+  assert.equal(result.skips['101'], 'write-set-overlap:100');
+
+  assert.throws(() => parseSeed({ schema: 1, rows: [
+    { id: '101', slug: '101-next', title: 'Next', class: 'feature', needs: [], writeSet: ['src/../shared/x.ts'] },
+  ] }), (error) => error.name === 'SeedParseError');
+});
+
+test('C-5 safeText escapes controls, bounds values, and never calls toString', () => {
+  assert.equal(safeText('line\nnext'), 'line\\nnext');
+  assert.equal(safeText('\u2028\u2029'), '\\u2028\\u2029');
+  assert.equal(safeText('x'.repeat(61)), `${'x'.repeat(57)}...`);
+  assert.equal(safeText(undefined), 'undefined');
+  assert.doesNotThrow(() => safeText({ toString: null }));
+  assert.equal(safeText({ toString: null }), '{"toString":null}');
+});
+
 test('Fix 3 negative control: old status --row --json printed not-started and exited 0 for unknown row', () => {
   const filterRow = '999';
   const statuses = new Map();
@@ -917,3 +952,397 @@ test('a seed verifyArgv is an array of 1 to 8 non-empty strings', () => {
     assert.throws(() => parseSeed(seed(bad)), (error) => error.code === 'seed-invalid', JSON.stringify(bad));
   }
 });
+
+// ── Feature 113 A.1: Roadmap seed validator tests ──────────────────────────────────────────
+
+test('113 A.1: exports constants and registryClasses', () => {
+  assert.ok(Array.isArray(SEED_RULES));
+  assert.deepEqual(SEED_RULES, [
+    'seed-invalid-json',
+    'seed-invalid',
+    'seed-unknown-key',
+    'seed-typed-status',
+    'slug-id-mismatch',
+    'duplicate-id',
+    'class-unknown',
+    'needs-unresolved',
+    'needs-cycle',
+    'id-exists',
+    'row-not-found',
+    'row-started',
+  ]);
+  assert.deepEqual(TOP_KEYS, ['schema', 'layout', 'rows']);
+  assert.deepEqual(ROW_KEYS, [
+    'id',
+    'slug',
+    'title',
+    'class',
+    'needs',
+    'writeSet',
+    'requires',
+    'hold',
+    'verifyArgv',
+    'mergeCommit',
+    'intent',
+    'acceptance',
+  ]);
+  const classes = registryClasses();
+  assert.ok(Array.isArray(classes));
+  assert.ok(classes.includes('feature'));
+  assert.ok(classes.includes('bug'));
+});
+
+test('113 A.1: one fixture per store rule with expected rule and rowId/rowIds', () => {
+  // 1. seed-invalid-json
+  const fJson = seedFindings('{not json');
+  assert.equal(fJson.length, 1);
+  assert.equal(fJson[0].rule, 'seed-invalid-json');
+
+  // 2. seed-invalid (doc level non-object)
+  const fInvDoc = seedFindings(null);
+  assert.equal(fInvDoc.length, 1);
+  assert.equal(fInvDoc[0].rule, 'seed-invalid');
+
+  // 2b. seed-invalid (row level: empty title)
+  const fInvRow = seedFindings({
+    schema: 1,
+    rows: [{ id: '101', slug: '101-title', title: '', class: 'feature', needs: [] }],
+  });
+  assert.equal(fInvRow.length, 1);
+  assert.equal(fInvRow[0].rule, 'seed-invalid');
+  assert.equal(fInvRow[0].rowId, '101');
+
+  // 3. seed-unknown-key
+  const fUnk = seedFindings({
+    schema: 1,
+    rows: [{ id: '101', slug: '101-unk', title: 'Unk', class: 'feature', needs: [], extraKey: 123 }],
+  });
+  assert.equal(fUnk.length, 1);
+  assert.equal(fUnk[0].rule, 'seed-unknown-key');
+  assert.equal(fUnk[0].rowId, '101');
+
+  // 4. seed-typed-status
+  const fStatus = seedFindings({
+    schema: 1,
+    rows: [{ id: '101', slug: '101-stat', title: 'Stat', class: 'feature', needs: [], status: 'merged' }],
+  });
+  assert.equal(fStatus.length, 1);
+  assert.equal(fStatus[0].rule, 'seed-typed-status');
+  assert.equal(fStatus[0].rowId, '101');
+
+  // 5. slug-id-mismatch
+  const fSlug = seedFindings({
+    schema: 1,
+    rows: [{ id: '101', slug: '102-wrong', title: 'Slug', class: 'feature', needs: [] }],
+  });
+  assert.equal(fSlug.length, 1);
+  assert.equal(fSlug[0].rule, 'slug-id-mismatch');
+  assert.equal(fSlug[0].rowId, '101');
+
+  // 6. duplicate-id
+  const fDup = seedFindings({
+    schema: 1,
+    rows: [
+      { id: '101', slug: '101-first', title: 'First', class: 'feature', needs: [] },
+      { id: '101', slug: '101-second', title: 'Second', class: 'feature', needs: [] },
+    ],
+  });
+  assert.equal(fDup.length, 1);
+  assert.equal(fDup[0].rule, 'duplicate-id');
+  assert.equal(fDup[0].rowId, '101');
+
+  // 7. class-unknown
+  const fClass = seedFindings({
+    schema: 1,
+    rows: [{ id: '101', slug: '101-cls', title: 'Cls', class: 'unknown-class-xyz', needs: [] }],
+  });
+  assert.equal(fClass.length, 1);
+  assert.equal(fClass[0].rule, 'class-unknown');
+  assert.equal(fClass[0].rowId, '101');
+  assert.ok(fClass[0].message.includes('valid classes:'));
+
+  // 8. needs-unresolved
+  const fUnres = seedFindings({
+    schema: 1,
+    rows: [{ id: '101', slug: '101-unres', title: 'Unres', class: 'feature', needs: ['999'] }],
+  });
+  assert.equal(fUnres.length, 1);
+  assert.equal(fUnres[0].rule, 'needs-unresolved');
+  assert.equal(fUnres[0].rowId, '101');
+
+  // 9. needs-cycle
+  const fCycle = seedFindings({
+    schema: 1,
+    rows: [
+      { id: '101', slug: '101-c1', title: 'C1', class: 'feature', needs: ['102'] },
+      { id: '102', slug: '102-c2', title: 'C2', class: 'feature', needs: ['101'] },
+    ],
+  });
+  assert.equal(fCycle.length, 1);
+  assert.equal(fCycle[0].rule, 'needs-cycle');
+  assert.deepEqual(fCycle[0].rowIds, ['101', '102']);
+  assert.equal(fCycle[0].message, 'needs cycle 101 -> 102 -> 101');
+});
+
+test('113 A.1: one document breaking six rules returns six findings in IC-006 order', () => {
+  const brokenDoc = {
+    schema: 1,
+    rows: [
+      {
+        id: '101',
+        slug: '101-broken',
+        title: '', // 1. seed-invalid
+        class: 'feature',
+        needs: [],
+        bogusProp: true, // 2. seed-unknown-key
+        phase: 'exploring', // 3. seed-typed-status
+      },
+      {
+        id: '102',
+        slug: '103-mismatched', // 4. slug-id-mismatch
+        title: 'Valid title',
+        class: 'feature',
+        needs: [],
+      },
+      {
+        id: '101', // 5. duplicate-id (second occurrence of 101)
+        slug: '101-dup',
+        title: 'Duplicate row',
+        class: 'feature',
+        needs: [],
+      },
+      {
+        id: '104',
+        slug: '104-unknown-class',
+        title: 'Class unknown',
+        class: 'not-a-real-class', // 6. class-unknown
+        needs: [],
+      },
+    ],
+  };
+
+  const findings = seedFindings(brokenDoc);
+  assert.equal(findings.length, 6);
+  assert.deepEqual(
+    findings.map((f) => f.rule),
+    [
+      'seed-invalid',
+      'seed-unknown-key',
+      'seed-typed-status',
+      'slug-id-mismatch',
+      'duplicate-id',
+      'class-unknown',
+    ]
+  );
+});
+
+test('113 A.1: three-row cycle reports once in path order, and start-in-middle starts at lowest-pos member', () => {
+  // Three-row cycle (A needs B needs C needs A)
+  const threeRowCycleDoc = {
+    schema: 1,
+    rows: [
+      { id: '101', slug: '101-a', title: 'A', class: 'feature', needs: ['102'] },
+      { id: '102', slug: '102-b', title: 'B', class: 'feature', needs: ['103'] },
+      { id: '103', slug: '103-c', title: 'C', class: 'feature', needs: ['101'] },
+    ],
+  };
+  const f3 = seedFindings(threeRowCycleDoc);
+  assert.equal(f3.length, 1);
+  assert.equal(f3[0].rule, 'needs-cycle');
+  assert.deepEqual(f3[0].rowIds, ['101', '102', '103']);
+  assert.equal(f3[0].message, 'needs cycle 101 -> 102 -> 103 -> 101');
+
+  // Self cycle
+  const selfCycleDoc = {
+    schema: 1,
+    rows: [
+      { id: '115', slug: '115-self', title: 'Self', class: 'feature', needs: ['115'] },
+    ],
+  };
+  const fSelf = seedFindings(selfCycleDoc);
+  assert.equal(fSelf.length, 1);
+  assert.equal(fSelf[0].rule, 'needs-cycle');
+  assert.deepEqual(fSelf[0].rowIds, ['115']);
+  assert.equal(fSelf[0].message, 'needs cycle 115 -> 115');
+
+  // Start-in-the-middle case:
+  // row 0 not in the cycle needs row 2 which is in a 1-2 cycle
+  // row 0: '100' needs '102'
+  // row 1: '101' needs '102'
+  // row 2: '102' needs '101'
+  const middleCycleDoc = {
+    schema: 1,
+    rows: [
+      { id: '100', slug: '100-entry', title: 'Entry', class: 'feature', needs: ['102'] },
+      { id: '101', slug: '101-in-cycle', title: 'In cycle 1', class: 'feature', needs: ['102'] },
+      { id: '102', slug: '102-in-cycle', title: 'In cycle 2', class: 'feature', needs: ['101'] },
+    ],
+  };
+  const fMid = seedFindings(middleCycleDoc);
+  assert.equal(fMid.length, 1);
+  assert.equal(fMid[0].rule, 'needs-cycle');
+  assert.deepEqual(fMid[0].rowIds, ['101', '102']);
+  assert.equal(fMid[0].message, 'needs cycle 101 -> 102 -> 101');
+});
+
+test('113 A.1: intent and acceptance boundary cases', () => {
+  const base = { id: '101', slug: '101-test', title: 'Test', class: 'feature', needs: [] };
+
+  // intent: 200 chars valid, 201 chars invalid, newline invalid
+  assert.deepEqual(seedFindings({ schema: 1, rows: [{ ...base, intent: 'a'.repeat(200) }] }), []);
+  const fIntent201 = seedFindings({ schema: 1, rows: [{ ...base, intent: 'a'.repeat(201) }] });
+  assert.equal(fIntent201.length, 1);
+  assert.equal(fIntent201[0].rule, 'seed-invalid');
+  assert.ok(fIntent201[0].message.includes('intent'));
+
+  const fIntentNl = seedFindings({ schema: 1, rows: [{ ...base, intent: 'line 1\nline 2' }] });
+  assert.equal(fIntentNl.length, 1);
+  assert.equal(fIntentNl[0].rule, 'seed-invalid');
+  assert.ok(fIntentNl[0].message.includes('intent'));
+
+  // acceptance: 8 items each 200 chars valid
+  const acc8 = Array(8).fill('b'.repeat(200));
+  assert.deepEqual(seedFindings({ schema: 1, rows: [{ ...base, acceptance: acc8 }] }), []);
+
+  // acceptance: 9 items invalid
+  const acc9 = Array(9).fill('b');
+  const fAcc9 = seedFindings({ schema: 1, rows: [{ ...base, acceptance: acc9 }] });
+  assert.equal(fAcc9.length, 1);
+  assert.equal(fAcc9[0].rule, 'seed-invalid');
+  assert.ok(fAcc9[0].message.includes('acceptance'));
+
+  // acceptance: item with 201 chars invalid
+  const fAcc201 = seedFindings({ schema: 1, rows: [{ ...base, acceptance: ['b'.repeat(201)] }] });
+  assert.equal(fAcc201.length, 1);
+  assert.equal(fAcc201[0].rule, 'seed-invalid');
+  assert.ok(fAcc201[0].message.includes('acceptance'));
+
+  // acceptance: item with newline invalid
+  const fAccNl = seedFindings({ schema: 1, rows: [{ ...base, acceptance: ['line 1\nline 2'] }] });
+  assert.equal(fAccNl.length, 1);
+  assert.equal(fAccNl[0].rule, 'seed-invalid');
+  assert.ok(fAccNl[0].message.includes('acceptance'));
+});
+
+test('113 A.1: draft mode rules', () => {
+  const validDraftRow = {
+    id: '115',
+    slug: '115-goal-board',
+    title: 'Goal board',
+    class: 'feature',
+    needs: ['999'], // unresolved needs allowed in draft mode!
+  };
+
+  // unresolved needs NOT reported in draft mode
+  assert.deepEqual(seedFindings({ schema: 1, rows: [validDraftRow] }, { draft: true }), []);
+
+  // layout -> seed-unknown-key
+  const fLayout = seedFindings(
+    { schema: 1, layout: { branch: 'feat/{slug}' }, rows: [validDraftRow] },
+    { draft: true }
+  );
+  assert.equal(fLayout.length, 1);
+  assert.equal(fLayout[0].rule, 'seed-unknown-key');
+  assert.ok(fLayout[0].message.includes('layout'));
+
+  // draft mergeCommit -> seed-typed-status
+  const fMergeCommit = seedFindings(
+    {
+      schema: 1,
+      rows: [{ ...validDraftRow, mergeCommit: 'a000000000000000000000000000000000000096' }],
+    },
+    { draft: true }
+  );
+  assert.equal(fMergeCommit.length, 1);
+  assert.equal(fMergeCommit[0].rule, 'seed-typed-status');
+  assert.ok(fMergeCommit[0].message.includes('mergeCommit'));
+
+  // schema 2 -> seed-invalid
+  const fSchema2 = seedFindings(
+    { schema: 2, rows: [validDraftRow] },
+    { draft: true }
+  );
+  assert.equal(fSchema2.length, 1);
+  assert.equal(fSchema2[0].rule, 'seed-invalid');
+  assert.ok(fSchema2[0].message.includes('schema'));
+
+  // empty rows -> seed-invalid
+  const fEmpty = seedFindings(
+    { schema: 1, rows: [] },
+    { draft: true }
+  );
+  assert.equal(fEmpty.length, 1);
+  assert.equal(fEmpty[0].rule, 'seed-invalid');
+  assert.ok(fEmpty[0].message.includes('rows'));
+});
+
+test('113 A.1: parseSeed throws the first finding code and preserves all error codes', () => {
+  // Document with multiple errors
+  const doc = {
+    schema: 1,
+    rows: [
+      {
+        id: '101',
+        slug: '101-test',
+        title: '', // seed-invalid (first)
+        class: 'feature',
+        needs: [],
+        badKey: true, // seed-unknown-key (second)
+      },
+    ],
+  };
+  assert.throws(
+    () => parseSeed(JSON.stringify(doc)),
+    (err) => err.code === 'seed-invalid' && err.rowId === '101'
+  );
+});
+
+test('113 A.1: check reports class-unknown and suppresses render-drift on invalid seed', () => {
+  const rows = [
+    {
+      id: '101',
+      slug: '101-test',
+      title: 'Test',
+      class: 'not-a-class',
+      needs: [],
+    },
+  ];
+  const renderedBogus = '# Different rendered content\n';
+  const result = check({ rows, rendered: renderedBogus, gitFacts: {} });
+  assert.equal(result.ok, false);
+  const classFinding = result.findings.find((f) => f.rule === 'class-unknown');
+  assert.ok(classFinding, 'must report class-unknown');
+  assert.equal(classFinding.rowId, '101');
+  const driftFinding = result.findings.find((f) => f.rule === 'render-drift');
+  assert.equal(driftFinding, undefined, 'render-drift must be suppressed when seed has errors');
+});
+
+test('113 A.1: fixture shaped like real store (46 rows) produces zero findings', () => {
+  // Generate 46 rows with keys: id, slug, title, class, needs, hold, mergeCommit
+  const rows = [];
+  for (let i = 0; i < 46; i++) {
+    const num = String(i + 1).padStart(3, '0');
+    const prevNum = i > 0 ? String(i).padStart(3, '0') : null;
+    const sha = i.toString(16).padStart(40, '0');
+    rows.push({
+      id: num,
+      slug: `${num}-feature-${num}`,
+      title: `Feature ${num}`,
+      class: 'feature',
+      needs: prevNum ? [prevNum] : [],
+      hold: i === 45 ? 'final review' : undefined,
+      mergeCommit: sha,
+    });
+  }
+  const storeDoc = {
+    schema: 1,
+    layout: {
+      worktree: '{mainParent}/{mainName}-{id}',
+      branch: 'feat/{slug}',
+    },
+    rows,
+  };
+  const findings = seedFindings(storeDoc);
+  assert.deepEqual(findings, []);
+});
+

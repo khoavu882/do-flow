@@ -13,9 +13,18 @@
 // 8. duplicate-id
 // 9. slug-id-mismatch
 // Plus: seed-typed-status
+// Store seed rules reported by render --check (feature 113):
+// 10. class-unknown
+// 11. needs-cycle
+// 12. seed-unknown-key
 //
 // Negative control:
 //   A check implementation that omits the 'commit-claimed-twice' rule turns G57 red.
+//
+// Doc and emission clauses (feature 113, NFR-005), at the end of the file: every SEED_RULES code is
+// named as a backticked whole token in docs/reference.md; every rule literal emitted in
+// src/runtime/roadmap/seed.ts and rows.ts is a SEED_RULES or check-only code; every SEED_RULES code
+// is emitted in those two files. Each clause has an in-memory mutation control that turns it red.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -197,4 +206,214 @@ test('G57: render --check accepts held seed rows and preserves the rendered byte
   assert.equal(exitCode, 0);
   assert.match(rendered, /held: awaiting owner input/);
   assert.equal(fs.readFileSync(path.join(roadmapDir, 'ROADMAP.md'), 'utf8'), before);
+});
+
+const NO_FACTS = () => ({ developHead: 'a'.repeat(40), merges: [], branches: [], claims: [] });
+
+// Writes a store with the given seed rows, runs `render --check --json` through
+// handleRoadmapCommand and returns the exit code and the parsed JSON line.
+function runRenderCheckJson(t, prefix, seedRows) {
+  const temp = tempDir(t, prefix);
+  const roadmapDir = path.join(temp, 'agent-docs', 'roadmap');
+  fs.mkdirSync(roadmapDir, { recursive: true });
+  const seedRaw = JSON.stringify({ schema: 1, rows: seedRows });
+  fs.writeFileSync(path.join(roadmapDir, 'rows.json'), seedRaw, 'utf8');
+  let rendered = 'stale\n';
+  try {
+    rendered = render(parseSeed(seedRaw).rows, new Map());
+  } catch {
+    // invalid seed: the ROADMAP.md content is irrelevant
+  }
+  fs.writeFileSync(path.join(roadmapDir, 'ROADMAP.md'), rendered, 'utf8');
+
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (...args) => lines.push(args.join(' '));
+  let exitCode;
+  try {
+    exitCode = handleRoadmapCommand({ action: 'render', check: true, json: true, root: temp, gitFacts: NO_FACTS() });
+  } finally {
+    console.log = originalLog;
+    process.exitCode = 0;
+  }
+  assert.equal(lines.length, 1, 'render --check --json prints exactly one JSON line');
+  return { exitCode, out: JSON.parse(lines[0]) };
+}
+
+test('G57: render --check reports class-unknown for a row with an unregistered class', (t) => {
+  const { exitCode, out } = runRenderCheckJson(t, 'doflow-g57-class-', [
+    { id: '113', slug: '113-bad-class', title: 'Bad class', class: 'nonsense', needs: [] },
+  ]);
+  assert.equal(exitCode, 1);
+  assert.equal(out.exit, 1);
+  const findings = out.findings.filter((f) => f.rule === 'class-unknown');
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].rowId, '113');
+  assert.match(findings[0].message, /nonsense/);
+});
+
+test('G57: render --check reports needs-cycle once, rowIds in path order from the first row', (t) => {
+  const { exitCode, out } = runRenderCheckJson(t, 'doflow-g57-cycle-', [
+    { id: '113', slug: '113-a', title: 'A', class: 'feature', needs: ['114'] },
+    { id: '114', slug: '114-b', title: 'B', class: 'feature', needs: ['115'] },
+    { id: '115', slug: '115-c', title: 'C', class: 'feature', needs: ['113'] },
+  ]);
+  assert.equal(exitCode, 1);
+  assert.equal(out.exit, 1);
+  const findings = out.findings.filter((f) => f.rule === 'needs-cycle');
+  assert.equal(findings.length, 1);
+  assert.deepEqual(findings[0].rowIds, ['113', '114', '115']);
+});
+
+test('G57: render --check reports seed-unknown-key for a row with an extra key', (t) => {
+  const { exitCode, out } = runRenderCheckJson(t, 'doflow-g57-unknown-key-', [
+    { id: '113', slug: '113-extra', title: 'Extra', class: 'feature', needs: [], owner: 'someone' },
+  ]);
+  assert.equal(exitCode, 1);
+  assert.equal(out.exit, 1);
+  const findings = out.findings.filter((f) => f.rule === 'seed-unknown-key');
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].rowId, '113');
+  assert.match(findings[0].message, /owner/);
+});
+
+test('G57: render --check control: valid class and acyclic chain pass with exit 0', (t) => {
+  const { exitCode, out } = runRenderCheckJson(t, 'doflow-g57-control-', [
+    { id: '113', slug: '113-a', title: 'A', class: 'feature', needs: [] },
+    { id: '114', slug: '114-b', title: 'B', class: 'feature', needs: ['113'] },
+    { id: '115', slug: '115-c', title: 'C', class: 'feature', needs: ['114'] },
+  ]);
+  assert.equal(exitCode, 0);
+  assert.equal(out.exit, 0);
+  assert.deepEqual(out.findings, []);
+});
+
+// Doc and emission clauses (feature 113, IC-006, NFR-005).
+//
+// Doc clause: a code counts as named in docs/reference.md only as a backticked whole token
+// (`code`); a longer code that contains it (`seed-invalid-json` for `seed-invalid`) does not count.
+// Emission clause, both directions, over the rule literals the two seed sources emit:
+//   - every emitted literal is in SEED_RULES or the 108 check-only set (no unlisted emitted rule);
+//   - every SEED_RULES code is emitted in src/runtime/roadmap/seed.ts or rows.ts (no listed-but-unemitted code).
+// Each clause has a control that runs the same helper on mutated text in memory and turns red.
+
+// The check-only codes reported by check() in src/runtime/roadmap/rows.ts (feature 108) that are not
+// in SEED_RULES; the list is the one in the `roadmap` row of docs/reference.md.
+const CHECK_ONLY_RULES = [
+  'render-drift',
+  'duplicate-merge',
+  'trailer-unknown-row',
+  'commit-claimed-twice',
+  'trailered-and-seeded',
+  'pointer-not-merge',
+];
+
+const SEED_SOURCES = ['seed.ts', 'rows.ts'].map((f) => path.join(REPO, 'src', 'runtime', 'roadmap', f));
+
+function seedRuleCodes() {
+  return [...require('../../src/runtime/roadmap/rows.ts').SEED_RULES];
+}
+
+// Remove // and /* */ comments, leaving string and template literals untouched.
+function stripComments(src) {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (c === '/' && n === '/') {
+      while (i < src.length && src[i] !== '\n') i++;
+    } else if (c === '/' && n === '*') {
+      const end = src.indexOf('*/', i + 2);
+      i = end === -1 ? src.length : end + 2;
+    } else if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c) j += src[j] === '\\' ? 2 : 1;
+      out += src.slice(i, j + 1);
+      i = j + 1;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+// Rule literals in the forms `rule: 'x'` and `add(<pos>, 'x', ...)`, comments excluded.
+function emittedRules(src) {
+  const text = stripComments(src);
+  const found = new Set();
+  for (const re of [/\brule:\s*(['"])([a-z][a-z-]*)\1/g, /\badd\(\s*[^,()]+,\s*(['"])([a-z][a-z-]*)\1/g]) {
+    for (const m of text.matchAll(re)) found.add(m[2]);
+  }
+  return found;
+}
+
+function missingDocCodes(codes, referenceText) {
+  return codes.filter((code) => !referenceText.includes('`' + code + '`'));
+}
+
+function unlistedEmitted(emitted, listed) {
+  return [...emitted].filter((code) => !listed.includes(code)).sort();
+}
+
+function unemittedCodes(codes, emitted) {
+  return codes.filter((code) => !emitted.has(code));
+}
+
+function readSeedSources() {
+  return SEED_SOURCES.map((p) => fs.readFileSync(p, 'utf8'));
+}
+
+function emittedInSources(sources) {
+  const all = new Set();
+  for (const src of sources) for (const code of emittedRules(src)) all.add(code);
+  return all;
+}
+
+test('G57: every SEED_RULES code is named as a backticked token in docs/reference.md', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  assert.deepEqual(missingDocCodes(seedRuleCodes(), reference), []);
+});
+
+test('G57: every rule literal emitted in seed.ts and rows.ts is a SEED_RULES or check-only code', () => {
+  const emitted = emittedInSources(readSeedSources());
+  assert.ok(emitted.size > 0, 'the emission scan found no rule literals');
+  assert.deepEqual(unlistedEmitted(emitted, [...seedRuleCodes(), ...CHECK_ONLY_RULES]), []);
+});
+
+test('G57: every SEED_RULES code is emitted in seed.ts or rows.ts', () => {
+  assert.deepEqual(unemittedCodes(seedRuleCodes(), emittedInSources(readSeedSources())), []);
+});
+
+test('G57 control: a reference.md without needs-cycle reports needs-cycle missing', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  const mutated = reference.split('`needs-cycle`').join('');
+  assert.deepEqual(missingDocCodes(seedRuleCodes(), mutated), ['needs-cycle']);
+});
+
+test('G57 control: a reference.md without `seed-invalid` but with `seed-invalid-json` reports seed-invalid missing', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  assert.ok(reference.includes('`seed-invalid-json`'), 'control premise: seed-invalid-json is named');
+  const mutated = reference.split('`seed-invalid`').join('');
+  assert.deepEqual(missingDocCodes(seedRuleCodes(), mutated), ['seed-invalid']);
+});
+
+test('G57 control: a seed.ts with an added rule: made-up-rule reports it as unlisted', () => {
+  const [seedSrc, rowsSrc] = readSeedSources();
+  const mutated = seedSrc + "\nconst extra = { rule: 'made-up-rule' };\n";
+  const emitted = emittedInSources([mutated, rowsSrc]);
+  assert.deepEqual(unlistedEmitted(emitted, [...seedRuleCodes(), ...CHECK_ONLY_RULES]), ['made-up-rule']);
+});
+
+test('G57 control: a rule literal inside a comment is not an emission', () => {
+  const [seedSrc, rowsSrc] = readSeedSources();
+  const mutated = seedSrc + "\n// rule: 'commented-rule'\n/* add(0, 'block-rule', 'x') */\n";
+  const emitted = emittedInSources([mutated, rowsSrc]);
+  assert.deepEqual(unlistedEmitted(emitted, [...seedRuleCodes(), ...CHECK_ONLY_RULES]), []);
+});
+
+test('G57 control: a SEED_RULES list with a code emitted nowhere reports it as unemitted', () => {
+  const extended = [...seedRuleCodes(), 'never-emitted-rule'];
+  assert.deepEqual(unemittedCodes(extended, emittedInSources(readSeedSources())), ['never-emitted-rule']);
 });
