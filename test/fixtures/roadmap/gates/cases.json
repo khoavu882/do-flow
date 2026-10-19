@@ -1,6 +1,8 @@
 [
   {"name":"requirement marker", "gate":"gate-0", "predicate":"markers-zero:requirement", "facts":{"markers:requirement":1}, "reasons":["unresolved-clarifications"]},
   {"name":"protected runtime", "gate":"gate-a", "predicate":"protected-paths", "facts":{"protected-paths":{"changes":[{"status":"M","path":"src/runtime/roadmap/facts.ts"}],"packages":{"base":{},"head":{}}}}, "reasons":["protected-path:src/runtime/roadmap/facts.ts"]},
+  {"name":"plan verification override at gate-a", "gate":"gate-a", "predicate":"plan-verification-absent", "facts":{"plan-verification-block":{"present":true}}, "reasons":["protected-path:plan-verification"]},
+  {"name":"plan verification override at gate-b", "gate":"gate-b", "predicate":"plan-verification-absent", "facts":{"plan-verification-block":{"present":true}}, "reasons":["protected-path:plan-verification"]},
   {"name":"bad plan", "gate":"gate-a", "predicate":"plan-parses", "facts":{"plan":{"ok":false,"files":[]}}, "reasons":["plan-unparsable"]},
   {"name":"design marker", "gate":"gate-a", "predicate":"markers-zero:design", "facts":{"markers:design":1}, "reasons":["markers-open:design/design.md"]},
   {"name":"plan marker", "gate":"gate-a", "predicate":"markers-zero:plan", "facts":{"markers:plan":1}, "reasons":["markers-open:plan.md"]},
@@ -18,7 +20,9 @@
   {"name":"too few seats", "gate":"gate-b", "predicate":"findings-valid", "reviewPatch":{"seats":[{"id":"only","findings":[]}]}, "reasons":["seats-too-few"]},
   {"name":"dropped seat blocker", "gate":"gate-b", "predicate":"no-dropped-findings", "reviewPatch":{"seats":[{"id":"one","findings":[{"id":"A1","severity":"blocker","locator":"src/x.ts:1","summary":"bug"}]},{"id":"two","findings":[]}]}, "reasons":["finding-dropped:A1"]},
   {"name":"unbacked refutation", "gate":"gate-b", "predicate":"dispositions-backed", "finding":{"id":"C1","from":[],"severity":"note","locator":"src/x.ts:1","status":"refuted"}, "reasons":["refuted-without-evidence:C1"]},
-  {"name":"agent acceptance", "gate":"gate-b", "predicate":"dispositions-backed", "finding":{"id":"C1","from":[],"severity":"blocker","locator":"src/x.ts:1","status":"user-accepted","decision":"DEC-001"}, "facts":{"dispositions":{"ancestors":{},"decisions":[{"id":"DEC-001","channel":"default"}]}}, "reasons":["accepted-without-user-decision:C1"]},
+  {"name":"prose refutation", "gate":"gate-b", "predicate":"dispositions-backed", "finding":{"id":"C1","from":[],"severity":"note","locator":"src/x.ts:1","status":"refuted","evidence":"because"}, "reasons":["refuted-without-evidence:C1"]},
+  {"name":"agent acceptance", "gate":"gate-b", "predicate":"dispositions-backed", "finding":{"id":"C1","from":[],"severity":"blocker","locator":"src/x.ts:1","status":"user-accepted","decision":"DEC-001"}, "facts":{"dispositions":{"ancestors":{},"decisions":[{"id":"DEC-001","channel":"default"}]}}, "reasons":["accepted-without-user-decision:C1","user-accepted-needs-person:C1"]},
+  {"name":"user-channel acceptance needs a person", "gate":"gate-b", "predicate":"dispositions-backed", "finding":{"id":"C1","from":[],"severity":"blocker","locator":"src/x.ts:1","status":"user-accepted","decision":"DEC-001"}, "facts":{"dispositions":{"ancestors":{},"decisions":[{"id":"DEC-001","channel":"question"}]}}, "reasons":["user-accepted-needs-person:C1"]},
   {"name":"fix outside ancestry", "gate":"gate-b", "predicate":"dispositions-backed", "finding":{"id":"C1","from":[],"severity":"blocker","locator":"src/x.ts:1","status":"fixed","fixedIn":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, "reasons":["fixed-not-ancestor:C1"]},
   {"name":"open blocker", "gate":"gate-b", "predicate":"blockers-zero", "finding":{"id":"C1","from":[],"severity":"blocker","locator":"src/x.ts:1","status":"open"}, "reasons":["blockers-open"]}
 ]

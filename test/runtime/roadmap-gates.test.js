@@ -19,7 +19,7 @@ function facts(overrides = {}) {
     'protected-paths': { changes: [], writeSet: [], planFiles: [], packages: { base: {}, head: {} } },
     plan: { ok: true, files: ['src/x.ts'] }, needs: [], requires: [],
     verification: [{ schema: 1, taskId: '113-goal-order', head: HEAD, clean: true, verdict: 'PASS' }],
-    findings: review(), dispositions: { ancestors: {}, decisions: [] }, ...overrides };
+    findings: review(), dispositions: { ancestors: {}, decisions: [] }, 'plan-verification-block': { present: false }, ...overrides };
   return Object.entries(values).map(([name, value]) => ({ name, value, locator: `fixture:${name}`, sha256: sha256Digest(JSON.stringify(value)) }));
 }
 
@@ -180,10 +180,65 @@ test('findings row/slug binding, complete dispositions and blockers derived from
     { id: 'C2', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'refuted', evidence: 'test/x.js:22' },
     { id: 'C3', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'user-accepted', decision: 'DEC-001' },
     { id: 'C4', from: [], severity: 'should-fix', locator: 'src/x.ts:1', status: 'open' }] };
-  for (const channel of ['question', 'gate', 'prompt']) assert.equal(evaluate(policy, 'feature', 'gate-b', facts({ findings,
-    dispositions: { ancestors: { [PARENT]: true }, decisions: [{ id: 'DEC-001', channel }] } })).decision, 'pass');
+  const accepted = findings.converged.filter((f) => f.status !== 'user-accepted');
+  assert.equal(evaluate(policy, 'feature', 'gate-b', facts({ findings: { ...findings, converged: accepted },
+    dispositions: { ancestors: { [PARENT]: true }, decisions: [] } })).decision, 'pass');
   policy.classes.feature['gate-b'].predicates = ['findings-valid'];
   assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ findings: { ...review(), row: '114', slug: '114-other' } })).reasons, ['findings-invalid']);
+});
+
+test('C5: autopilot gate-b denies an open blocker marked user-accepted, whatever user channel backs it', () => {
+  const policy = loadPolicy(baseBytes).policy;
+  const findings = { ...review(), converged: [
+    { id: 'C3', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'user-accepted', decision: 'DEC-001' }] };
+  for (const channel of ['question', 'gate', 'prompt']) {
+    const result = evaluate(policy, 'feature', 'gate-b', facts({ findings, dispositions: { ancestors: {}, decisions: [{ id: 'DEC-001', channel }] } }));
+    assert.equal(result.decision, 'deny');
+    assert.deepEqual(result.reasons, ['user-accepted-needs-person:C3']);
+    assert.equal(result.rule, 'gate-b/dispositions-backed');
+  }
+  assert.ok(JSON.parse(baseBytes).denyReasons.includes('user-accepted-needs-person'));
+});
+
+test('C6: plan-verification-absent passes only a readable present:false fact at gate-a and gate-b', () => {
+  const policy = loadPolicy(baseBytes).policy;
+  for (const gate of ['gate-a', 'gate-b']) {
+    policy.classes.feature[gate].predicates = ['plan-verification-absent'];
+    const reasons = (input) => evaluate(policy, 'feature', gate, input).reasons;
+    assert.deepEqual(reasons(facts()), []);
+    assert.deepEqual(reasons(facts({ 'plan-verification-block': { present: true } })), ['protected-path:plan-verification']);
+    // Until the fact is gathered, an absent fact denies; it is never read as present:false.
+    assert.deepEqual(reasons(facts().filter((f) => f.name !== 'plan-verification-block')), ['protected-path:plan-verification-block']);
+    const unreadable = facts().map((f) => f.name === 'plan-verification-block' ? { ...f, unreadable: 'EACCES' } : f);
+    assert.deepEqual(reasons(unreadable), ['protected-path:fixture:plan-verification-block']);
+    for (const value of [null, {}, { present: 'false' }]) {
+      assert.deepEqual(reasons(facts({ 'plan-verification-block': value })), ['protected-path:fixture:plan-verification-block']);
+    }
+  }
+});
+
+test('C21: refutation evidence must be a path:line or a test or reproducer file path, never prose', () => {
+  const refuted = (evidence) => ({ ...review(), converged: [{ id: 'C1', from: [], severity: 'note', locator: 'src/x.ts:1', status: 'refuted', evidence }] });
+  for (const evidence of ['src/x.ts:12', 'src/x.ts:12-14', 'test/runtime/x.test.js', 'scratch/repro.sh', 'Makefile:3']) {
+    assert.equal(validateFindings(refuted(evidence)).ok, true, evidence);
+  }
+  for (const evidence of ['because', 'see src/x.ts:12', 'src/x.ts:0', 'src/:3', '/abs/x.ts:1', '../x.ts:1', 'src/x.ts:', 'test/', 'fixed.', '']) {
+    assert.deepEqual(validateFindings(refuted(evidence)).errors, ['evidence:C1'], JSON.stringify(evidence));
+  }
+  const policy = loadPolicy(baseBytes).policy;
+  policy.classes.feature['gate-b'].predicates = ['dispositions-backed'];
+  assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ findings: refuted('because') })).reasons, ['refuted-without-evidence:C1']);
+  assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ findings: refuted('src/x.ts:12') })).reasons, []);
+});
+
+test('C23: override bytes that are unreadable or not a JSON object deny policy-override-invalid, not a widening', () => {
+  for (const bytes of ['', '{', 'null', '[]', '"loop"', '7']) {
+    const loaded = loadPolicy(baseBytes, bytes);
+    assert.deepEqual(loaded.reasons, ['policy-override-invalid'], JSON.stringify(bytes));
+    assert.equal(loaded.policy, null);
+  }
+  assert.ok(JSON.parse(baseBytes).denyReasons.includes('policy-override-invalid'));
+  assert.deepEqual(loadPolicy(baseBytes, '{"merge":{}}').reasons, ['policy-override-widens:merge']);
 });
 
 test('missing or unreadable predicate facts fail closed with the source named', () => {
@@ -215,6 +270,11 @@ const mutations = [
   { name: 'FAIL then PASS', from: "run.verdict === 'FAIL' && runs.slice(i + 1).some((later: any) => later.verdict === 'PASS')", to: 'false', pattern: 'predicate fixture: FAIL then PASS remains flaky' },
   { name: 'INCONCLUSIVE', from: "runs[runs.length - 1].verdict !== 'PASS'", to: 'false', pattern: 'predicate fixture: inconclusive verification' },
   { name: 'seat minimum', from: 'seats.length < (gate.minSeats || 0)', to: 'false', pattern: 'predicate fixture: too few seats' },
+  { name: 'person-only acceptance', from: "if (finding.status === 'user-accepted') reasons.push", to: 'if (false) reasons.push', pattern: 'C5: autopilot gate-b denies' },
+  { name: 'evidence locator in validation', from: "finding.status === 'refuted' && !evidenceLocator(finding.evidence)) errors", to: "finding.status === 'refuted' && !nonempty(finding.evidence)) errors", pattern: 'C21: refutation evidence' },
+  { name: 'evidence locator at dispositions', from: "!evidenceLocator(finding.evidence)) reasons", to: '!nonempty(finding.evidence)) reasons', pattern: 'C21: refutation evidence' },
+  { name: 'invalid override label', from: "denied('policy-override-invalid')", to: "denied('policy-override-widens:override')", pattern: 'C23: override bytes' },
+  { name: 'unreadable plan-verification fact', from: "requireFact('plan-verification-block', 'protected-path')", to: 'true', pattern: 'C6: plan-verification-absent passes only' },
   { name: 'user-channel backing', from: "finding.status === 'user-accepted' && !decisions.some", to: 'false && !decisions.some', pattern: 'predicate fixture: agent acceptance' },
   { name: 'fixed ancestry', from: "finding.status === 'fixed' && backing?.ancestors?.[finding.fixedIn] !== true", to: 'false', pattern: 'predicate fixture: fix outside ancestry' },
   { name: 'marker outside code', module: 'facts', from: "visible.startsWith('[NEEDS CLARIFICATION', i)", to: 'false', pattern: 'markers outside fences count' },

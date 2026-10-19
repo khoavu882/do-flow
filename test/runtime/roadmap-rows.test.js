@@ -534,7 +534,7 @@ test('gatherGitFacts: executes read verbs rev-parse, rev-list, and for-each-ref'
   assert.ok(typeof facts.developHead === 'string');
   assert.ok(Array.isArray(facts.merges));
   assert.ok(Array.isArray(facts.branches));
-  assert.ok(Array.isArray(facts.claims));
+  assert.equal('claims' in facts, false, 'no claims reader: nothing writes .doflow/state/claims (108 C19)');
   assert.ok(Array.isArray(facts.unreadable));
 });
 

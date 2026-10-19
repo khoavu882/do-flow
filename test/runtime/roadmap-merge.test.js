@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { mergeRoadmapRow, readOpenIntents } = require('../../src/runtime/roadmap/merge.ts');
+const { mergeRoadmapRow, readOpenIntents, cleanupFeature } = require('../../src/runtime/roadmap/merge.ts');
 
 function fixture(t, conflict = false) {
   const dir = tempDir(t, 'doflow-roadmap-merge-');
@@ -35,7 +35,7 @@ function fixture(t, conflict = false) {
   fs.writeFileSync(path.join(seed, 'rows.json'), JSON.stringify({ schema: 1, rows: [row] }));
   const options = { root, row, runId: 'rl-test', approvedHead: featureHead, developWorktree: develop,
     featureWorktree: feature, gate: { id: 'gate-b', digest: `sha256:${'a'.repeat(64)}` }, env,
-    now: () => 1792400000000, postMergeCheck: () => ({ ok: true }), touchedSuites: ['test/toy.test.js'] };
+    now: () => 1792400000000, postMergeCheck: () => ({ ok: true }) };
   return { dir, root, develop, feature, git, options, featureHead, developHead };
 }
 
@@ -56,7 +56,8 @@ test('plumbing makes a two-parent owner merge, renders once, cleans non-force, a
     execFileSync(binary, args, opts) { calls.push(args); return cp.execFileSync(binary, args, opts); },
     postMergeCheck(input) {
       assert.equal(input.cwd, f.develop); assert.equal(input.head, f.git(f.develop, 'rev-parse', 'HEAD'));
-      assert.equal(input.guards, true); assert.deepEqual(input.testFiles, ['test/toy.test.js']);
+      // The check reads a verify record for this head; the merge passes nothing else.
+      assert.deepEqual(Object.keys(input).sort(), ['cwd', 'head']);
       assert.ok(!fs.existsSync(path.join(f.root, 'agent-docs/roadmap/ROADMAP.md')));
       assert.ok(fs.existsSync(f.feature)); return { ok: true };
     } });
@@ -167,14 +168,127 @@ test('intent records keep only declared gate fields and never copy caller text o
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
-test('kill switch is re-read before commit, ff, render and cleanup; ff-started settles first', async (t) => {
+test('kill switch is re-read before commit, ff, render and cleanup; a recorded ff-started never spawns once off', async (t) => {
   for (const stopAt of ['intent', 'built', 'ff-started', 'ff-done', 'rendered']) {
     const f = fixture(t); let stopped = false;
     const result = await mergeRoadmapRow({ ...f.options, isEnabled: () => ({ enabled: !stopped, switch: 'sentinel' }),
       onPhase: (phase) => { if (phase === stopAt) stopped = true; } });
     assert.equal(result.outcome, 'stopped'); assert.equal(result.annotations.switch, 'sentinel');
-    if (['ff-started', 'ff-done', 'rendered'].includes(stopAt)) assert.equal(result.phase, stopAt === 'rendered' ? 'rendered' : 'ff-done');
+    if (['ff-started', 'ff-done', 'rendered'].includes(stopAt)) assert.equal(result.phase, stopAt);
+    if (stopAt === 'ff-started') assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), f.developHead, 'no fast-forward begins after the switch went off');
     assert.ok(fs.existsSync(f.feature));
+  }
+});
+
+/** A killed merge whose intent says ff-started, with a dead child recorded and develop still clean at its old head. */
+async function interruptedFf(t) {
+  const f = fixture(t);
+  await assert.rejects(mergeRoadmapRow({ ...f.options, onPhase: (p) => { if (p === 'built') throw new Error('crash'); } }), /crash/);
+  const file = path.join(f.root, '.doflow/state/roadmap/intents/113.json');
+  const intent = JSON.parse(fs.readFileSync(file, 'utf8'));
+  intent.phase = 'ff-started'; intent.ff = { pid: 2147483647, start: null, startedAt: '2026-01-01T00:00:00Z' };
+  fs.writeFileSync(file, JSON.stringify(intent));
+  const indexFile = path.resolve(f.develop, f.git(f.develop, 'rev-parse', '--git-path', 'index'));
+  return { ...f, file, intent, indexFile };
+}
+
+test('switch off: a started fast-forward on a clean develop at its old head is not begun (C3)', async (t) => {
+  const f = await interruptedFf(t);
+  const spawned = [];
+  const options = { ...f.options, alive: () => false, isEnabled: () => ({ enabled: false, switch: 'sentinel' }),
+    spawn: (...args) => { spawned.push(args[1]); return cp.spawn(...args); } };
+  const out = await mergeRoadmapRow(options);
+  assert.deepEqual([out.outcome, out.phase, out.annotations.switch], ['stopped', 'ff-started', 'sentinel']);
+  assert.deepEqual(spawned, [], 'no merge --ff-only is spawned under an off switch');
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), f.developHead);
+  assert.equal(readOpenIntents({ root: f.root })[0].phase, 'ff-started');
+  // Control: HEAD already at the commit (the ff finished before the kill) settles to ff-done, then stops.
+  f.git(f.develop, 'merge', '--ff-only', '-q', f.intent.commit);
+  const settled = await mergeRoadmapRow(options);
+  assert.deepEqual([settled.outcome, settled.phase], ['stopped', 'ff-done']);
+  assert.equal(readOpenIntents({ root: f.root })[0].phase, 'ff-done');
+  assert.deepEqual(spawned, []);
+});
+
+test('switch off: a proven-dead partial fast-forward is still repaired, then stops at ff-done (C3)', async (t) => {
+  const f = await interruptedFf(t);
+  fs.writeFileSync(path.join(f.develop, 'feature.txt'), 'feature\n');
+  const out = await mergeRoadmapRow({ ...f.options, alive: () => false, isEnabled: () => ({ enabled: false, switch: 'sentinel' }) });
+  assert.deepEqual([out.outcome, out.phase], ['stopped', 'ff-done']);
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), f.intent.commit);
+  assert.equal(f.git(f.develop, 'status', '--porcelain', '--untracked-files=all'), '');
+});
+
+test('a recorded fast-forward child that may still run is named ff-running, not develop-dirty (C23)', async (t) => {
+  const f = await interruptedFf(t);
+  for (const alive of [() => 'unknown', () => true]) {
+    assert.equal((await mergeRoadmapRow({ ...f.options, alive })).reason, 'ff-running');
+    assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), f.developHead);
+  }
+});
+
+test('repair refuses a staged blob that is neither head\'s version and leaves the index as it was (C11)', async (t) => {
+  const f = await interruptedFf(t);
+  fs.writeFileSync(path.join(f.develop, 'feature.txt'), 'third version\n');
+  f.git(f.develop, 'add', 'feature.txt');
+  // The working file equals the commit's blob, so only the staged blob tells the person's version apart.
+  fs.writeFileSync(path.join(f.develop, 'feature.txt'), 'feature\n');
+  const staged = f.git(f.develop, 'ls-files', '-s');
+  assert.equal((await mergeRoadmapRow({ ...f.options, alive: () => false })).reason, 'develop-dirty');
+  assert.equal(f.git(f.develop, 'ls-files', '-s'), staged, 'the staged third version is still in the index');
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), f.developHead);
+  assert.equal(f.git(f.develop, 'cat-file', '-p', ':feature.txt'), 'third version');
+});
+
+test('control: a staged blob equal to the commit\'s version is repaired (C11)', async (t) => {
+  const f = await interruptedFf(t);
+  fs.writeFileSync(path.join(f.develop, 'feature.txt'), 'feature\n');
+  f.git(f.develop, 'add', 'feature.txt');
+  const out = await mergeRoadmapRow({ ...f.options, alive: () => false });
+  assert.equal(out.outcome, 'merged');
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), f.intent.commit);
+});
+
+test('a failed compare-and-swap leaves the develop index byte-equal to the index before the repair (C12)', async (t) => {
+  const f = await interruptedFf(t);
+  fs.writeFileSync(path.join(f.develop, 'feature.txt'), 'feature\n');
+  let before = null;
+  const execFileSync = (bin, args, opts) => {
+    if (args.includes('read-tree')) before = fs.readFileSync(f.indexFile);
+    // A racer moves develop between the checks and the ref update: the 3-argument update-ref must fail.
+    if (args.includes('update-ref')) f.git(f.root, 'update-ref', 'refs/heads/develop', f.featureHead);
+    return cp.execFileSync(bin, args, opts);
+  };
+  await assert.rejects(mergeRoadmapRow({ ...f.options, alive: () => false, execFileSync }));
+  assert.ok(before, 'the repair reached read-tree');
+  assert.deepEqual(fs.readFileSync(f.indexFile), before);
+  assert.equal(f.git(f.root, 'rev-parse', 'refs/heads/develop'), f.featureHead, 'the racer\'s ref is kept');
+});
+
+test('cleanup keeps the worktree, its ignored files and the branch when the tip is not on develop (C1)', async (t) => {
+  for (const extra of [true, false]) {
+    const f = fixture(t);
+    f.git(f.develop, 'merge', '--no-ff', '-q', 'feat/113-toy', '-m', 'merge: 113 Toy', '-m', 'DoFlow-Row: 113');
+    fs.mkdirSync(path.join(f.feature, 'agent-docs'));
+    fs.writeFileSync(path.join(f.feature, 'agent-docs/notes.md'), 'person notes\n');
+    if (extra) {
+      fs.writeFileSync(path.join(f.feature, 'later.txt'), 'later\n');
+      f.git(f.feature, 'add', 'later.txt'); f.git(f.feature, 'commit', '-qm', 'after the merge');
+    }
+    const tip = f.git(f.root, 'rev-parse', 'refs/heads/feat/113-toy');
+    // The loop's no-intent call shape: the branch's current tip is passed as its own expected head.
+    const cleaned = cleanupFeature({ intent: { featureWorktree: f.feature, featureBranch: 'feat/113-toy', featureHead: tip },
+      root: f.root, develop: f.develop, execFileSync: cp.execFileSync, fsImpl: fs,
+      execOptions: { cwd: f.root, encoding: 'utf8', env: f.options.env, stdio: ['pipe', 'pipe', 'pipe'] } });
+    if (extra) {
+      assert.equal(cleaned, false);
+      assert.equal(fs.readFileSync(path.join(f.feature, 'agent-docs/notes.md'), 'utf8'), 'person notes\n');
+      assert.equal(f.git(f.root, 'rev-parse', 'refs/heads/feat/113-toy'), tip);
+    } else {
+      assert.equal(cleaned, true, 'control: a merged tip is cleaned');
+      assert.equal(fs.existsSync(f.feature), false);
+      assert.equal(f.git(f.root, 'branch', '--list', 'feat/113-toy'), '');
+    }
   }
 });
 

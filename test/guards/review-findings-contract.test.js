@@ -8,7 +8,7 @@
 //   - schema: 1
 //   - reviewedHead: 40-character hex commit
 //   - seats: array of review seats (the two lenses of the final review)
-//   - converged: array with dispositions rules (open, fixed with fixedIn, refuted with evidence, user-accepted with decision)
+//   - converged: array with dispositions rules (open, fixed with fixedIn, refuted with locator evidence, user-accepted with decision)
 //   - converged.md stays prose
 // Shipped fixture passes validateFindings from src/runtime/roadmap/gates.ts.
 
@@ -39,6 +39,7 @@ function checkSkillContract(text) {
   for (const field of ['fixedIn', 'evidence', 'decision']) {
     if (!new RegExp(`\\b${field}\\b`).test(text)) missing.push(`disposition field: ${field}`);
   }
+  if (!/`evidence` \(`path:line`/.test(text)) missing.push('refuted evidence is a locator (path:line)');
   if (!/converged\.md\b/.test(text) || !/\bstays prose\b/.test(text)) {
     missing.push('converged.md stays prose');
   }
@@ -92,6 +93,16 @@ test('G59 negative control: fixture with user-accepted entry lacking decision fa
     result.errors.includes(`decision:${userAccepted.id}`),
     `expected decision error on ${userAccepted.id}, got: ${result.errors.join(', ')}`
   );
+});
+
+test('G59 negative control: a refuted entry whose evidence is prose fails validation, and the SKILL names the locator', () => {
+  const mutated = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
+  const refuted = mutated.converged.find((f) => f.status === 'refuted');
+  assert.ok(refuted, 'shipped fixture must contain a refuted finding for control');
+  refuted.evidence = 'because';
+  assert.ok(validateFindings(mutated).errors.includes(`evidence:${refuted.id}`), 'prose evidence must fail validation');
+  const text = fs.readFileSync(SKILL_PATH, 'utf8').replace('`evidence` (`path:line` or test path)', '`evidence`');
+  assert.ok(checkSkillContract(text).missing.includes('refuted evidence is a locator (path:line)'));
 });
 
 module.exports = { checkSkillContract };

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { gatherGateFacts, countMarkers, sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
+const { gatherGateFacts, gatherGitFacts, countMarkers, sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
 const { loadPolicy, evaluate } = require('../../src/runtime/roadmap/gates.ts');
 const baseBytes = fs.readFileSync(path.join(__dirname, '../../core/registry/gates.json'));
 const HEAD = 'a'.repeat(40);
@@ -137,7 +137,8 @@ test('gate-b reads head-bound verification and disposition ancestry and register
     { id: 'C2', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'user-accepted', decision: 'DEC-001' } ] }));
   env.write(`agent-docs/doflow/${row.slug}/decisions/register.json`, JSON.stringify({ version: 1, nextId: 2, decisions: [{ id: 'DEC-001', channel: 'question' }] }));
   const input = env.gather('gate-b');
-  assert.equal(evaluate(env.options.policy, 'feature', 'gate-b', input).decision, 'pass');
+  // The question-channel entry backs C2 (no accepted-without-user-decision), but policy never accepts it (C5).
+  assert.deepEqual(evaluate(env.options.policy, 'feature', 'gate-b', input).reasons, ['user-accepted-needs-person:C2']);
   assert.ok(env.calls.some((v) => v[0] === 'merge-base' && v[1] === '--is-ancestor' && v[2] === PARENT && v[3] === HEAD));
   const stale = env.gather('gate-b', { featureHead: PARENT });
   assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', stale).reasons.includes('review-stale-head'));
@@ -149,7 +150,7 @@ test('a register that does not exist yet is an empty decision list; a malformed 
     { id: 'C2', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'user-accepted', decision: 'DEC-001' } ] }));
   const missing = env.gather('gate-b');
   assert.equal(missing.find((f) => f.name === 'dispositions').unreadable, undefined);
-  assert.deepEqual(evaluate(env.options.policy, 'feature', 'gate-b', missing).reasons, ['accepted-without-user-decision:C2']);
+  assert.deepEqual(evaluate(env.options.policy, 'feature', 'gate-b', missing).reasons, ['accepted-without-user-decision:C2', 'user-accepted-needs-person:C2']);
   env.write(`agent-docs/doflow/${row.slug}/decisions/register.json`, '{broken');
   assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', env.gather('gate-b')).reasons.some((r) => r.startsWith('findings-invalid:')));
 });
@@ -261,4 +262,31 @@ test('verify-pass-on-head reads the run record where verify appends it: the main
     gateId: 'gate-b', developHead: PARENT, featureHead: HEAD });
   assert.equal(evaluate(policy, 'feature', 'gate-b', input).decision, 'pass');
   assert.equal(fs.realpathSync(input.find((f) => f.name === 'verification').locator), fs.realpathSync(path.join(main, '.doflow/state/verification/runs', `${row.slug}.jsonl`)));
+});
+
+test('git facts read the develop branch, never a tag named develop, and carry no claims list (C13, C19)', (t) => {
+  const root = tempDir(t, 'doflow-roadmap-facts-ref-');
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'O', GIT_AUTHOR_EMAIL: 'o@example.test', GIT_COMMITTER_NAME: 'O', GIT_COMMITTER_EMAIL: 'o@example.test' };
+  const git = (...args) => cp.execFileSync('git', ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  git('init', '-q', '-b', 'develop');
+  fs.writeFileSync(path.join(root, 'base'), 'base'); git('add', '.'); git('commit', '-qm', 'base');
+  git('tag', 'develop');
+  git('switch', '-q', '-c', `feat/${row.slug}`);
+  fs.writeFileSync(path.join(root, 'x'), 'x'); git('add', '.'); git('commit', '-qm', 'feature');
+  const featureHead = git('rev-parse', 'HEAD');
+  git('switch', '-q', 'develop');
+  git('merge', '--no-ff', '-q', `feat/${row.slug}`, '-m', 'merge: 113 Goal order', '-m', 'DoFlow-Row: 113');
+  const branchHead = git('rev-parse', 'refs/heads/develop');
+  assert.notEqual(git('rev-parse', 'refs/tags/develop'), branchHead);
+  // A claims directory nothing writes any more must not reach the facts.
+  fs.mkdirSync(path.join(root, '.doflow/state/claims'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.doflow/state/claims/113_claims.json'), '{}');
+  const facts = gatherGitFacts({ root });
+  assert.deepEqual(facts.unreadable, []);
+  assert.equal(facts.developHead, branchHead);
+  assert.deepEqual(facts.merges.map((m) => m.rowTrailer), ['113']);
+  assert.equal('claims' in facts, false);
+  const policy = loadPolicy(baseBytes).policy; policy.classes.feature['gate-b'].predicates = ['verify-pass-on-head'];
+  const input = gatherGateFacts({ root, artifactRoot: path.join(root, 'agent-docs/doflow', row.slug), row, rows: [row], policy, gateId: 'gate-b', featureHead });
+  assert.deepEqual(input.find((f) => f.name === 'heads').value, { developHead: branchHead, featureHead });
 });

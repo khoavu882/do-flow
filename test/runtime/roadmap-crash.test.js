@@ -6,35 +6,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { mergeRoadmapRow, readOpenIntents, classifyMerge } = require('../../src/runtime/roadmap/merge.ts');
+const { mergeRoadmapRow, readOpenIntents } = require('../../src/runtime/roadmap/merge.ts');
 const { next, handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const { createHash } = require('node:crypto');
-
-test('pure crash classification uses heads before phases and never treats unknown liveness as dead', () => {
-  const intent = { phase: 'built', developHead: 'old', featureHead: 'feature', commit: 'merge' };
-  const facts = { developHead: 'old', featureHead: 'feature', clean: true, builtValid: true };
-  assert.deepEqual(classifyMerge(null, { ...facts, approvedHead: 'feature' }), { action: 'intent' });
-  assert.equal(classifyMerge(null, { ...facts, approvedHead: 'moved' }).reason, 'head-moved');
-  assert.deepEqual(classifyMerge({ ...intent, phase: 'intent' }, facts), { action: 'build' });
-  assert.deepEqual(classifyMerge(intent, facts), { action: 'ff' });
-  assert.deepEqual(classifyMerge(intent, { ...facts, builtValid: false }), { action: 'build' });
-  assert.deepEqual(classifyMerge({ ...intent, commit: 'old' }, { ...facts, builtValid: false }), { action: 'build' });
-  assert.deepEqual(classifyMerge(intent, { ...facts, developHead: 'merge' }), { action: 'render' });
-  assert.deepEqual(classifyMerge({ ...intent, phase: 'ff-started' }, { ...facts, developHead: 'merge', clean: false }), { action: 'render' });
-  assert.equal(classifyMerge(intent, { ...facts, developHead: 'other' }).reason, 'develop-moved');
-  assert.equal(classifyMerge(intent, { ...facts, featureHead: 'other' }).reason, 'head-moved');
-  assert.equal(classifyMerge(intent, { ...facts, clean: false }).reason, 'develop-dirty');
-  const interrupted = { ...intent, phase: 'ff-started' };
-  assert.deepEqual(classifyMerge(interrupted, { ...facts, ffAlive: false }), { action: 'ff' });
-  assert.deepEqual(classifyMerge(interrupted, { ...facts, clean: false, ffAlive: false, lockStale: true }), { action: 'repair' });
-  assert.equal(classifyMerge(interrupted, { ...facts, clean: false, ffAlive: 'unknown' }).reason, 'develop-dirty');
-  assert.equal(classifyMerge(interrupted, { ...facts, ffAlive: true }).reason, 'develop-dirty');
-  assert.equal(classifyMerge(interrupted, { ...facts, clean: false, ffAlive: false, lockStale: false }).reason, 'develop-dirty');
-  assert.equal(classifyMerge({ ...intent, phase: 'ff-done' }, facts).reason, 'develop-moved');
-  assert.deepEqual(classifyMerge({ ...intent, phase: 'rendered' }, { ...facts, developHead: 'merge' }), { action: 'cleanup' });
-  assert.deepEqual(classifyMerge({ ...intent, phase: 'cleaned' }, { ...facts, developHead: 'merge' }), { action: 'done' });
-});
 
 // A separate fixture keeps this suite independently runnable (no test-file imports).
 function fixture(t) {
@@ -56,6 +31,34 @@ function fixture(t) {
     approvedHead: git(feature, 'rev-parse', 'HEAD'), gate: { id: 'gate-b', digest: `sha256:${'b'.repeat(64)}` },
     env, now: () => 1792400000000, postMergeCheck: () => ({ ok: true }) };
   return { root, develop, feature, git, options, file: path.join(root, '.doflow/state/roadmap/intents/113.json') };
+}
+
+// Crash classification on the real merge path: git heads outrank the recorded phase, and a child whose
+// death is not proven is never treated as dead. Each case starts from a built intent with no ff yet.
+const resumeCases = {
+  'ff-done recorded, develop still at its old head': ['develop-moved', (f, intent) => { intent.phase = 'ff-done'; }],
+  'rendered recorded, develop still at its old head': ['develop-moved', (f, intent) => { intent.phase = 'rendered'; }],
+  'develop moved after built': ['develop-moved', (f) => f.git(f.develop, 'commit', '--allow-empty', '-qm', 'moved')],
+  'feature moved after built': ['head-moved', (f) => f.git(f.feature, 'commit', '--allow-empty', '-qm', 'moved')],
+  'develop dirty at built': ['develop-dirty', (f) => fs.writeFileSync(path.join(f.develop, 'human'), 'human bytes')],
+  'ff-started whose recorded child is this live process': ['ff-running', (f, intent) => {
+    intent.phase = 'ff-started'; intent.ff = { pid: process.pid, start: null, startedAt: '2026-01-01T00:00:00Z' };
+  }],
+};
+for (const [name, [reason, arrange]] of Object.entries(resumeCases)) {
+  test(`resume reads git before the phase: ${name} denies ${reason}`, async (t) => {
+    const f = fixture(t);
+    await assert.rejects(mergeRoadmapRow({ ...f.options, onPhase: (p) => { if (p === 'built') throw new Error('crash'); } }), /crash/);
+    const intent = JSON.parse(fs.readFileSync(f.file, 'utf8'));
+    arrange(f, intent);
+    fs.writeFileSync(f.file, JSON.stringify(intent));
+    const spawned = [];
+    const result = await mergeRoadmapRow({ ...f.options, spawn: (...args) => { spawned.push(args[1]); return cp.spawn(...args); } });
+    assert.deepEqual([result.outcome, result.reason], ['denied', reason]);
+    assert.deepEqual(spawned, [], 'no fast-forward is attempted');
+    assert.equal(f.git(f.root, 'rev-list', '--merges', '--count', 'refs/heads/develop'), '0');
+    assert.equal(JSON.parse(fs.readFileSync(f.file, 'utf8')).phase, intent.phase, 'the intent keeps its phase');
+  });
 }
 
 for (const phase of ['intent', 'built', 'ff-started', 'ff-done', 'rendered', 'cleaned']) {
@@ -149,7 +152,8 @@ for (const refusal of ['wrong-bytes', 'outside-path', 'live-child', 'unknown-chi
     if (refusal === 'missing-child') { delete f.intent.ff; fs.writeFileSync(f.file, JSON.stringify(f.intent)); }
     if (refusal === 'staged-bytes') { fs.writeFileSync(path.join(f.develop, 'base'), 'human edit'); f.git(f.develop, 'add', 'base'); }
     const before = f.git(f.develop, 'status', '--porcelain', '--untracked-files=all');
-    assert.equal((await mergeRoadmapRow({ ...f.options, alive })).reason, 'develop-dirty');
+    const expected = ['live-child', 'unknown-child'].includes(refusal) ? 'ff-running' : 'develop-dirty';
+    assert.equal((await mergeRoadmapRow({ ...f.options, alive })).reason, expected);
     assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), f.intent.developHead);
     assert.equal(f.git(f.develop, 'status', '--porcelain', '--untracked-files=all'), before);
     assert.ok(fs.existsSync(f.feature));

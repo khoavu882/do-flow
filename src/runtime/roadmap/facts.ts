@@ -26,12 +26,15 @@ interface GatheredGitFacts {
   developHead: string;
   merges: GitMergeInfo[];
   branches: string[];
-  claims: string[];
   unreadable: string[];
 }
 
 function sha256Digest(content: string | Buffer): string {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`;
+}
+
+function qualifiedBranch(name: string): string {
+  return name.startsWith('refs/') ? name : `refs/heads/${name}`;
 }
 
 /**
@@ -55,8 +58,10 @@ function gatherGitFacts({
   let developHead = '';
   let developBranchReadable = false;
 
+  // Always the branch: an unqualified name resolves a tag of the same name first.
+  const developRef = qualifiedBranch(developBranch);
   try {
-    developHead = execFileSync('git', ['-C', root, 'rev-parse', developBranch], execOptions).trim();
+    developHead = execFileSync('git', ['-C', root, 'rev-parse', '--verify', developRef], execOptions).trim();
     developBranchReadable = true;
   } catch {
     unreadable.push('develop-branch');
@@ -74,7 +79,7 @@ function gatherGitFacts({
         '--first-parent',
         '--merges',
         '--format=%H %P%x00%(trailers:key=DoFlow-Row,valueonly)',
-        developBranch,
+        developRef,
       ], execOptions);
 
       const lines = revListOut.split('\n');
@@ -132,28 +137,10 @@ function gatherGitFacts({
     unreadable.push('branches');
   }
 
-  // 3. Collect claims from state directory if present
-  const claims: string[] = [];
-  const claimsDir = path.join(root, '.doflow', 'state', 'claims');
-  try {
-    const entries = fs.readdirSync(claimsDir);
-    for (const ent of entries) {
-      if (ent.endsWith('_claims.json')) {
-        const taskId = ent.slice(0, -'_claims.json'.length);
-        claims.push(taskId);
-      }
-    }
-  } catch (err: any) {
-    if (err && err.code !== 'ENOENT') {
-      unreadable.push('claims');
-    }
-  }
-
   return {
     developHead,
     merges,
     branches,
-    claims,
     unreadable,
   };
 }
@@ -268,7 +255,7 @@ function gatherGateFacts(options: any): GateFact[] {
   if (uses('protected-paths') || uses('verify-pass-on-head') || uses('findings-valid') || uses('dispositions-backed')) {
     let unreadable: string | undefined;
     try {
-      if (!developHead) developHead = execFileSync('git', ['rev-parse', '--verify', options.developBranch || 'develop'], execOptions).trim();
+      if (!developHead) developHead = execFileSync('git', ['rev-parse', '--verify', qualifiedBranch(options.developBranch || 'develop')], execOptions).trim();
       if (!featureHead) {
         // The calling checkout's HEAD may be develop itself (a diff of develop against develop is
         // empty), so the head is only ever the feature branch's tip.

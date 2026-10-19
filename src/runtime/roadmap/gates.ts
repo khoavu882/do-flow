@@ -3,7 +3,7 @@
 // IC-004 / IC-006: byte-bound policy and pure, ordered gate evaluation. No filesystem or git I/O.
 const { createHash } = require('node:crypto');
 const PREDICATES = new Set(['markers-zero:requirement', 'markers-zero:design', 'markers-zero:plan',
-  'protected-paths', 'plan-parses', 'needs-merged', 'requires-reachable', 'plan-within-write-set',
+  'protected-paths', 'plan-verification-absent', 'plan-parses', 'needs-merged', 'requires-reachable', 'plan-within-write-set',
   'verify-pass-on-head', 'findings-valid', 'no-dropped-findings', 'dispositions-backed', 'blockers-zero']);
 const HEX_HEAD = /^[0-9a-f]{40}$/;
 const SEVERITIES = new Set(['blocker', 'should-fix', 'note']);
@@ -19,6 +19,14 @@ const digest = (bytes: string | Buffer): string => `sha256:${createHash('sha256'
 function validPath(value: any): boolean {
   return nonempty(value) && !/^[\/~]|[\\\x00-\x1f:*?\[\]{}]/.test(value)
     && !value.split('/').some((part: string, i: number, all: string[]) => part === '..' || part === '.' || (part === '' && i !== all.length - 1));
+}
+
+/** IC-006 refutation evidence is a locator: `path:line[-line]`, or a test or reproducer file path.
+ * Shape only: any repo-relative file path with an extension passes; existence is not checked. */
+function evidenceLocator(value: any): boolean {
+  if (!nonempty(value) || /\s/.test(value)) return false;
+  const at = /^(.+):[1-9][0-9]*(?:-[1-9][0-9]*)?$/.exec(value);
+  return at ? validPath(at[1]) && !at[1].endsWith('/') : validPath(value) && /[^/]\.[A-Za-z0-9]+$/.test(value);
 }
 
 function covers(parent: string, child: string): boolean {
@@ -49,7 +57,6 @@ function policyValid(policy: any): boolean {
 function narrow(base: any, override: any): { policy: any; key: string | null } {
   const policy = JSON.parse(JSON.stringify(base));
   const reject = (key: string) => ({ policy: null, key });
-  if (!object(override)) return reject('override');
   for (const key of Object.keys(override)) {
     const value = override[key];
     if (key === 'loop' && object(value)) {
@@ -97,7 +104,9 @@ function loadPolicy(baseBytes: string | Buffer | null | undefined, overrideBytes
   let policyDigest = digest(baseBytes);
   if (overrideBytes !== null && overrideBytes !== undefined) {
     let override: any;
-    try { override = JSON.parse(String(overrideBytes)); } catch { return denied('policy-override-widens:override'); }
+    try { override = JSON.parse(String(overrideBytes)); } catch { override = undefined; }
+    // Unreadable bytes (the caller passes '') or anything but a JSON object is not a widening.
+    if (!object(override)) return denied('policy-override-invalid');
     const narrowed = narrow(base, override);
     if (narrowed.key) return denied(`policy-override-widens:${narrowed.key}`);
     policy = narrowed.policy;
@@ -141,7 +150,7 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
     convergedIds.add(finding.id);
     if (!finding.from.every((id: string) => findingIds.has(id))) errors.push(`from:${finding.id}`);
     if (finding.status === 'fixed' && (typeof finding.fixedIn !== 'string' || !HEX_HEAD.test(finding.fixedIn))) errors.push(`fixedIn:${finding.id}`);
-    if (finding.status === 'refuted' && !nonempty(finding.evidence)) errors.push(`evidence:${finding.id}`);
+    if (finding.status === 'refuted' && !evidenceLocator(finding.evidence)) errors.push(`evidence:${finding.id}`);
     if (finding.status === 'user-accepted' && (typeof finding.decision !== 'string' || !/^DEC-[0-9]{3,}$/.test(finding.decision))) errors.push(`decision:${finding.id}`);
   }
   return { ok: errors.length === 0, errors };
@@ -215,6 +224,14 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
           reasons.push(...[...denied].map((file) => `protected-path:${file}`));
         }
       }
+    } else if (predicate === 'plan-verification-absent') {
+      // C6: a plan.md `doflow-verification` block replaces the post-merge verify commands, so the judged
+      // session would write its own check. An absent, unreadable or malformed fact denies.
+      if (requireFact('plan-verification-block', 'protected-path')) {
+        const present = get('plan-verification-block')?.present;
+        if (typeof present !== 'boolean') reasons.push(`protected-path:${source('plan-verification-block')}`);
+        else if (present) reasons.push('protected-path:plan-verification');
+      }
     } else if (predicate === 'plan-parses') {
       if (requireFact('plan', 'plan-unparsable') && get('plan')?.ok !== true) reasons.push('plan-unparsable');
     } else if (predicate === 'needs-merged' || predicate === 'requires-reachable') {
@@ -263,8 +280,11 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
         const backing = get('dispositions');
         const decisions = Array.isArray(backing?.decisions) ? backing.decisions.filter(object) : [];
         for (const finding of converged) {
-          if (finding.status === 'refuted' && !nonempty(finding.evidence)) reasons.push(`refuted-without-evidence:${finding.id}`);
+          if (finding.status === 'refuted' && !evidenceLocator(finding.evidence)) reasons.push(`refuted-without-evidence:${finding.id}`);
           if (finding.status === 'user-accepted' && !decisions.some((d: any) => d.id === finding.decision && USER_CHANNELS.has(d.channel))) reasons.push(`accepted-without-user-decision:${finding.id}`);
+          // C5: any session can add a question-channel register entry, so channel membership is not a
+          // person. Policy evaluation never accepts a user-accepted disposition; a person decides that gate.
+          if (finding.status === 'user-accepted') reasons.push(`user-accepted-needs-person:${finding.id}`);
           if (finding.status === 'fixed' && backing?.ancestors?.[finding.fixedIn] !== true) reasons.push(`fixed-not-ancestor:${finding.id}`);
         }
       }

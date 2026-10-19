@@ -255,7 +255,7 @@ test('the switch is read again at the claim boundary: set after the lease, it st
   assert.equal(f.record(out.result.runId).log.at(-1).outcome, 'stopped');
 });
 
-test('with the switch off, a fast-forward already started completes to ff-done and then stops', async (t) => {
+test('with the switch off, a recorded ff-started on a clean develop at its old head stops; one already on develop settles to ff-done', async (t) => {
   const f = fixture(t);
   await f.next();
   write(path.join(f.worktree(), 'toy/a.txt'), 'feature\n');
@@ -272,8 +272,13 @@ test('with the switch off, a fast-forward already started completes to ff-done a
 
   setSwitch(f.home, 'off');
   const out = await f.next();
-  assert.deepEqual([out.result.outcome, out.result.step, out.result.annotations.switch, out.result.annotations.phase], ['stopped', 'merge', 'setting', 'ff-done']);
-  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), intent.commit, 'develop is never left partial by the switch');
+  assert.deepEqual([out.result.outcome, out.result.step, out.result.annotations.switch, out.result.annotations.phase], ['stopped', 'merge', 'setting', 'ff-started']);
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), developHead, 'no new fast-forward starts while the switch is off');
+  assert.equal(readOpenIntents({ root: f.root })[0].phase, 'ff-started');
+  // Control: the fast-forward had already landed before the kill, so the off switch settles it to ff-done.
+  f.git(f.develop, 'merge', '--ff-only', '-q', intent.commit);
+  const settled = await f.next();
+  assert.deepEqual([settled.result.outcome, settled.result.annotations.phase], ['stopped', 'ff-done']);
   assert.equal(readOpenIntents({ root: f.root })[0].phase, 'ff-done');
   const again = await f.next();
   assert.equal(again.result.outcome, 'stopped');
@@ -678,10 +683,13 @@ test('a merged row whose branch moved past the merge keeps the branch: branch -d
   write(path.join(f.worktree(), 'toy/later.txt'), 'later\n');
   f.git(f.worktree(), 'add', '.');
   f.git(f.worktree(), 'commit', '-qm', 'after the merge');
+  write(path.join(f.worktree(), 'agent-docs/person-notes.md'), 'ignored notes\n');
   const tip = f.git(f.root, 'rev-parse', 'feat/113-toy');
   const kept = await f.next();
   assert.deepEqual([kept.result.outcome, kept.result.step, kept.result.annotations.cleanup], ['acted', 'cleanup', 'cleanup-kept']);
   assert.equal(f.git(f.root, 'rev-parse', 'feat/113-toy'), tip);
+  assert.ok(fs.existsSync(f.worktree()), 'the worktree of a tip not on develop is never removed');
+  assert.equal(fs.readFileSync(path.join(f.worktree(), 'agent-docs/person-notes.md'), 'utf8'), 'ignored notes\n');
 });
 
 test('with the switch off a merged row is not cleaned', async (t) => {

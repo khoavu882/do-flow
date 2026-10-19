@@ -61,31 +61,14 @@ function childAlive(proc: any): boolean | 'unknown' {
   catch (error: any) { return error.code === 'ESRCH' ? false : 'unknown'; }
 }
 
-/** Pure P0-P5 classifier. Git heads outrank the persisted phase; repair must prove child death. */
-function classifyMerge(intent: any, facts: any): any {
-  const deny = (reason: string) => ({ action: 'deny', reason });
-  if (!intent) return facts.featureHead === facts.approvedHead ? { action: 'intent' } : deny('head-moved');
-  if (facts.developHead === intent.commit && facts.builtValid !== false) {
-    if (facts.clean !== true && PHASES.indexOf(intent.phase) >= PHASES.indexOf('ff-done')) return deny('develop-dirty');
-    if (intent.phase === 'cleaned') return { action: 'done' };
-    return { action: intent.phase === 'rendered' ? 'cleanup' : 'render' };
-  }
-  if (facts.developHead !== intent.developHead || ['ff-done', 'rendered', 'cleaned'].includes(intent.phase)) return deny('develop-moved');
-  if (facts.featureHead !== intent.featureHead) return deny('head-moved');
-  if (intent.phase === 'ff-started') {
-    if (facts.ffAlive !== undefined && facts.ffAlive !== false) return deny('develop-dirty');
-    if (facts.clean === true && facts.lockStale !== false) return { action: 'ff' };
-    return facts.ffAlive === false && facts.lockStale !== false ? { action: 'repair' } : deny('develop-dirty');
-  }
-  if (facts.clean !== true) return deny('develop-dirty');
-  return { action: intent.phase === 'built' && facts.builtValid === true ? 'ff' : 'build' };
-}
-
 /**
  * Merge + lean gate + render + non-force cleanup. No model, shell, hooks or network launcher.
- * postMergeCheck is mandatory for completion: it runs guards and touched suites in cwd at head.
+ * postMergeCheck({cwd, head}) is mandatory for completion: the caller answers whether a passing
+ * verification is recorded for that develop head; this module runs no check itself.
  * onPhase is an in-process fault seam, called only after the phase is durably recorded.
- * isEnabled is re-read at each boundary; an ff already started is settled before stopping.
+ * isEnabled is re-read at each boundary. Under an off switch a recorded ff-started is only settled:
+ * a develop already at the commit records ff-done, a proven-dead partial is repaired, and no new
+ * fast-forward is spawned.
  */
 async function mergeRoadmapRow(options: any): Promise<any> {
   const { root, row, runId, gate, approvedHead, fsImpl = fs, env = process.env,
@@ -168,10 +151,8 @@ async function mergeRoadmapRow(options: any): Promise<any> {
     } catch { /* Missing or mismatched object: rebuild only while still before the ff. */ }
   }
   if (!builtValid && !['intent', 'built'].includes(intent.phase)) return deny('develop-moved');
-  const classification = classifyMerge(intent, { developHead: head(), featureHead: checkFeature() ? intent.featureHead : null,
-    clean: porcelain() === '', builtValid, ffAlive: intent.phase === 'ff-started' && intent.ff ? alive(intent.ff) : undefined });
-  if (classification.action === 'deny') return deny(classification.reason);
-  if (classification.action === 'render' && PHASES.indexOf(intent.phase) < PHASES.indexOf('ff-done')) await phase('ff-done');
+  // HEAD at the built commit outranks a stale phase: the merge already happened, never make another.
+  if (builtValid && head() === intent.commit && PHASES.indexOf(intent.phase) < PHASES.indexOf('ff-done')) await phase('ff-done');
   if (['intent', 'built'].includes(intent.phase)) {
     if (head() !== intent.developHead) return deny('develop-moved');
     if (!checkFeature()) return deny('head-moved');
@@ -202,12 +183,15 @@ async function mergeRoadmapRow(options: any): Promise<any> {
       if (head() !== intent.developHead) return deny('develop-moved');
       if (!checkFeature()) return deny('head-moved');
       // Any recorded child must be proven dead before retrying or touching an index lock.
-      if (intent.ff && alive(intent.ff) !== false) return deny('develop-dirty');
-      const lock = String(execFileSync('git', ['-C', develop, 'rev-parse', '--git-path', 'index.lock'], execOptions)).trim();
+      if (intent.ff && alive(intent.ff) !== false) return deny('ff-running');
+      const lock = gitPath(develop, 'index.lock', execFileSync, execOptions);
       if (porcelain() !== '' || fsImpl.existsSync(lock)) {
-        if (!intent.ff || alive(intent.ff) !== false) return deny('develop-dirty');
+        // Settling a proven-dead partial is allowed under an off switch; it starts no new merge.
+        if (!intent.ff) return deny('develop-dirty');
         if (!repairFastForward({ intent, root, develop, execFileSync, execOptions, fsImpl, now, staleLockSeconds: options.staleLockSeconds ?? 120 })) return deny('develop-dirty');
       } else {
+        // A clean develop at its old head: a new fast-forward would start here, so the switch decides.
+        const stop = stopped(); if (stop) return stop;
         // Disable repo hooks; only the supplied git binary is launched by mechanical work.
         await new Promise<void>((resolve, reject) => {
           const child = spawn('git', ['-C', develop, '-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', intent.commit], {
@@ -231,7 +215,7 @@ async function mergeRoadmapRow(options: any): Promise<any> {
   const stop = stopped(); if (stop) return stop;
   if (intent.phase === 'ff-done') {
     let checked: any;
-    try { checked = await options.postMergeCheck?.({ cwd: develop, head: intent.commit, guards: true, testFiles: options.touchedSuites || [] }); }
+    try { checked = await options.postMergeCheck?.({ cwd: develop, head: intent.commit }); }
     catch { checked = { ok: false }; }
     if (checked?.ok !== true || head() !== intent.commit || porcelain() !== '') {
       intent.status = 'merged-unverified'; writeIntent(file, intent, fsImpl);
@@ -262,31 +246,66 @@ async function mergeRoadmapRow(options: any): Promise<any> {
   return result({ outcome: 'merged', cleanup: 'cleaned' });
 }
 
-/** All dirty paths, including staged changes, must be changed by the merge and match its blob. */
+/** `rev-parse --git-path` answers relative to the checkout it ran in (a main checkout's `.git/...`). */
+function gitPath(checkout: string, name: string, execFileSync: any, execOptions: any): string {
+  return path.resolve(checkout, String(execFileSync('git', ['-C', checkout, 'rev-parse', '--git-path', name], execOptions)).trim());
+}
+
+/**
+ * All dirty paths must be changed by the merge. A working file must equal the commit's blob; a staged
+ * blob must equal the commit's or the old head's version of that path (a third version is a person's).
+ */
 function repairFastForward({ intent, root, develop, execFileSync, execOptions, fsImpl, now, staleLockSeconds }: any): boolean {
-  const lock = String(execFileSync('git', ['-C', develop, 'rev-parse', '--git-path', 'index.lock'], execOptions)).trim();
+  const lock = gitPath(develop, 'index.lock', execFileSync, execOptions);
   if (fsImpl.existsSync(lock) && now() - fsImpl.statSync(lock).mtimeMs <= staleLockSeconds * 1000) return false;
   const changed = new Set(String(execFileSync('git', ['-C', root, 'diff', '--name-only', '-z', intent.developHead, intent.commit], execOptions)).split('\0').filter(Boolean));
   const unstaged = String(execFileSync('git', ['-C', develop, 'diff', '--name-only', '-z'], execOptions));
-  const staged = String(execFileSync('git', ['-C', develop, 'diff', '--cached', '--name-only', '-z'], execOptions));
+  const staged = String(execFileSync('git', ['-C', develop, 'diff', '--cached', '--name-only', '-z'], execOptions)).split('\0').filter(Boolean);
   const untracked = String(execFileSync('git', ['-C', develop, 'ls-files', '-o', '--exclude-standard', '-z'], execOptions));
-  for (const name of new Set((unstaged + staged + untracked).split('\0').filter(Boolean))) {
+  const blob = (rev: string, name: string): string | null => {
+    try { return String(execFileSync('git', ['-C', root, 'rev-parse', '--verify', '-q', `${rev}:${name}`], execOptions)).trim(); }
+    catch { return null; }
+  };
+  for (const name of new Set([...(unstaged + untracked).split('\0').filter(Boolean), ...staged])) {
     if (!changed.has(name)) return false;
     const full = path.join(develop, name);
     // Symlinks, missing paths and type/mode changes need human resolution.
     let stat: any;
     try { stat = fsImpl.lstatSync(full); } catch { return false; }
     if (!stat.isFile() || stat.isSymbolicLink()) return false;
-    let expected: string;
-    try { expected = String(execFileSync('git', ['-C', root, 'rev-parse', `${intent.commit}:${name}`], execOptions)).trim(); }
-    catch { return false; }
+    const expected = blob(intent.commit, name);
+    if (!expected) return false;
     const actual = String(execFileSync('git', ['-C', develop, 'hash-object', '--no-filters', '--', name], execOptions)).trim();
     if (actual !== expected) return false;
   }
-  // All refusal checks precede the first write. The ref update compares the old head atomically.
+  if (staged.length) {
+    // `ls-files -s -z`: "<mode> <blob> <stage>\t<path>\0". Only stage-0 entries of a known version pass.
+    const index = new Map<string, string>();
+    for (const entry of String(execFileSync('git', ['-C', develop, 'ls-files', '-s', '-z'], execOptions)).split('\0').filter(Boolean)) {
+      const match = entry.match(/^[0-7]{6} ([0-9a-f]{40}) ([0-3])\t(.+)$/s);
+      if (!match) return false;
+      if (match[2] !== '0' || index.has(match[3])) index.set(match[3], 'unmerged');
+      else index.set(match[3], match[1]);
+    }
+    for (const name of staged) {
+      const sha = index.get(name);
+      if (!sha || (sha !== blob(intent.commit, name) && sha !== blob(intent.developHead, name))) return false;
+    }
+  }
+  // All refusal checks precede the first write. read-tree rewrites the index before the ref update,
+  // which compares the old head atomically; when that compare-and-swap fails the index bytes read
+  // here are put back, so a refused repair leaves develop's index as it found it.
   if (fsImpl.existsSync(lock)) fsImpl.unlinkSync(lock);
+  const indexFile = gitPath(develop, 'index', execFileSync, execOptions);
+  let saved: Buffer | null = null;
+  try { saved = fsImpl.readFileSync(indexFile); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
   execFileSync('git', ['-C', develop, 'read-tree', intent.commit], execOptions);
-  execFileSync('git', ['-C', develop, 'update-ref', 'refs/heads/develop', intent.commit, intent.developHead], execOptions);
+  try { execFileSync('git', ['-C', develop, 'update-ref', 'refs/heads/develop', intent.commit, intent.developHead], execOptions); }
+  catch (error) {
+    if (saved) fsImpl.writeFileSync(indexFile, saved);
+    else fsImpl.rmSync(indexFile, { force: true });
+    throw error;
+  }
   try { execFileSync('git', ['-C', develop, 'checkout-index', '-a'], execOptions); }
   catch (error: any) {
     // Without force, checkout-index reports already-existing paths with exit 1. It still writes
@@ -305,6 +324,10 @@ function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsIm
     try { featureHead = String(execFileSync('git', ['-C', root, 'rev-parse', '--verify', `refs/heads/${branch}`], execOptions)).trim(); }
     catch { return !feature || !fsImpl.existsSync(feature); }
     if (featureHead !== intent.featureHead) return false;
+    // Only a tip already on develop may lose its worktree: a branch someone kept committing on keeps
+    // both the worktree (and its gitignored agent-docs/.doflow files) and the branch.
+    try { execFileSync('git', ['-C', root, 'merge-base', '--is-ancestor', featureHead, 'refs/heads/develop'], execOptions); }
+    catch { return false; }
     if (feature && fsImpl.existsSync(feature)) {
       const current = String(execFileSync('git', ['-C', feature, 'symbolic-ref', '-q', 'HEAD'], execOptions)).trim();
       if (current !== `refs/heads/${branch}`) return false;
@@ -316,4 +339,4 @@ function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsIm
   } catch { return false; }
 }
 
-module.exports = { mergeRoadmapRow, classifyMerge, readOpenIntents, writeIntent, cleanupFeature };
+module.exports = { mergeRoadmapRow, readOpenIntents, writeIntent, cleanupFeature };

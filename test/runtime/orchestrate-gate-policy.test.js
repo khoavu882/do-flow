@@ -9,7 +9,7 @@ const { deflateSync } = require('node:zlib');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
-const { initRegister, readRegister } = require('../../src/runtime/decision-register.ts');
+const { initRegister, readRegister, addDecisions } = require('../../src/runtime/decision-register.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const SLUG = '001-policy';
@@ -48,12 +48,12 @@ function switchEnv(root) {
   return env;
 }
 function switchOn(root) { write(path.join(root, '.config/doflow/settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' })); }
-function fixture(t, { mode = 'approve', missing = false, markers = false, gateId = 'gate-0', protect = false } = {}) {
+function fixture(t, { mode = 'approve', missing = false, markers = false, gateId = 'gate-0', protect = false, predicates = null } = {}) {
   const root = tempDir(t, 'doflow-gate-policy-');
   switchOn(root);
   const policy = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
   // Keep each gate independently passable while exercising the real fact gatherer.
-  for (const gate of Object.values(policy.classes.feature)) { gate.autopilot = mode; gate.predicates = protect ? ['protected-paths'] : ['markers-zero:requirement']; }
+  for (const gate of Object.values(policy.classes.feature)) { gate.autopilot = mode; gate.predicates = predicates || (protect ? ['protected-paths'] : ['markers-zero:requirement']); }
   const baseBytes = JSON.stringify(policy);
   const pkg = protect ? { 'package.json': '{}' } : {};
   const developHead = commit(root, missing ? {} : { ...pkg, 'core/registry/gates.json': baseBytes });
@@ -155,6 +155,46 @@ test('a widening override denies atomically', t => {
   assert.equal(result.decision, 'deny');
   assert.deepEqual(result.reasons, ['policy-override-widens:loop.wip']);
   assert.equal(readRegister(f.featureDir).decisions.length, 0);
+});
+
+// C23: unreadable bytes reach loadPolicy as '' and malformed JSON is not a widening of anything.
+for (const [name, arrange] of [
+  ['a malformed', (file) => write(file, '{')],
+  ['an unreadable', (file) => fs.mkdirSync(file, { recursive: true })],
+]) {
+  test(`${name} override denies policy-override-invalid and records nothing`, t => {
+    const f = fixture(t);
+    arrange(path.join(f.root, '.doflow/gates.override.json'));
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    const result = decide(f);
+    assert.equal(result.decision, 'deny');
+    assert.deepEqual(result.reasons, ['policy-override-invalid']);
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+    assert.equal(readRegister(f.featureDir).decisions.length, 0);
+  });
+}
+
+test('C5: a blocker user-accepted on a question-channel decision denies autopilot gate-b; a person still decides it', t => {
+  const f = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed', 'blockers-zero'] });
+  // Any session can add a question-channel entry: the register write below needs no person.
+  const added = addDecisions({ featureDir: f.featureDir, slug: SLUG, now: FIXED, items: [{ topic: 'accept-blocker',
+    statement: 'Accept C1.', channel: 'question', stage: 'review', rationale: 'Written by the reviewed session.' }] });
+  assert.equal(added.finding, undefined, JSON.stringify(added));
+  const [decision] = readRegister(f.featureDir).decisions;
+  write(path.join(f.featureDir, 'review/findings.json'), JSON.stringify({ schema: 1, row: '001', slug: SLUG, reviewedHead: 'a'.repeat(40),
+    seats: [], converged: [{ id: 'C1', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'user-accepted', decision: decision.id }] }));
+  const before = fs.readFileSync(f.orch.runFile(SLUG));
+  const denied = decide(f);
+  assert.equal(denied.decision, 'deny');
+  assert.deepEqual(denied.reasons, ['user-accepted-needs-person:C1']);
+  assert.equal(denied.state, 'AWAITING_GATE');
+  assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+  assert.equal(readRegister(f.featureDir).decisions.length, 1, 'no policy approval was registered');
+  // Control: the person decide-gate path runs no predicate and approves the same run.
+  const person = f.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', decision: 'approve', now: FIXED });
+  assert.notEqual(person.state, 'AWAITING_GATE');
+  assert.equal(f.orch.readRun(SLUG).program.find(n => n.id === 'gate-b').status, 'approved');
+  assert.equal(f.orch.readRun(SLUG).history.at(-1).by, undefined);
 });
 
 test('unknown seed row cannot be approved by policy', t => {
