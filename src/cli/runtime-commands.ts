@@ -59,7 +59,7 @@ const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = req
 const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
 const { handleStorageCommand } = require('../runtime/storage/cli.ts');
-const { handleRoadmapCommand } = require('../runtime/roadmap/loop.ts');
+const { handleRoadmapCommand, resolveMainRoot } = require('../runtime/roadmap/loop.ts');
 const NO_UPKEEP = new Set(['storage', 'config']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
@@ -96,7 +96,7 @@ function traceViewRoot(o: any): string {
 /** `roadmap`: the runner, or the `seed` sub-verb (113 IC-001), which takes the first positional slot and sets the exit code itself. */
 function handleRoadmapVerbCommand(o: any): number {
   const action = o.actionGiven ? o.action : undefined;
-  if (o.positional[0] === 'seed') return finishRuntime(handleSeedCommand({ action, draft: o.draft, json: o.json, cwd: evidenceRoot(o) }));
+  if (o.positional[0] === 'seed') return finishRuntime(handleSeedCommand({ action, draft: o.draft, json: o.json, cwd: process.cwd(), root: resolveMainRoot(evidenceRoot(o)) }));
   return handleRoadmapCommand({ action, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
 }
 
