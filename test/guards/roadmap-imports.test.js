@@ -12,6 +12,15 @@
 //   - No roadmap module under src/runtime/roadmap/** may spawn any binary other than 'git'.
 //     Mechanical steps execute git commands only; workers appear only at implementation through 082
 //     dispatch (yielded to the orchestrator as a perform envelope).
+//
+// Person-only clause (feature 113, IC-007): `roadmap seed` is a person-run verb, never a loop step.
+//   - src/runtime/roadmap/seed.ts is required only by src/cli/runtime-commands.ts (zero or one
+//     requirer; when present it is exactly that file); no other module under src/ requires it.
+//   - loop.ts, gates.ts, merge.ts and facts.ts carry no string literal 'seed' as an argv element
+//     (a single-line array literal holding 'seed' beside 'roadmap' or a '--flag' element), as a
+//     `skill:` field value, or as a literal argument of envelopeFor(...). A lone ['seed'] (the
+//     unreadable-sources list in loop.ts) is not an argv and is allowed.
+//   - core/registry/gates.json names no `seed` predicate (equal to 'seed' or starting 'seed:').
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -248,6 +257,105 @@ function checkRoadmapImports(target = REPO) {
   return { findings, moduleCount };
 }
 
+// ── Person-only clause (113, IC-007) ─────────────────────────────────────────────────────────────
+
+const SEED_PATH = 'src/runtime/roadmap/seed.ts';
+const SEED_ALLOWED_REQUIRER = 'src/cli/runtime-commands.ts';
+const SEED_ENVELOPE_FILES = ['loop.ts', 'gates.ts', 'merge.ts', 'facts.ts'].map((f) => `${ROADMAP_DIR}/${f}`);
+const SEED_SPEC_RE = /(?:^|\/)seed(?:\.[a-z]+)?$/;
+const ALL_SPEC_RES = [RE_REQUIRE_RESOLVE, RE_REQUIRE, RE_IMPORT_CALL, RE_FROM, RE_BARE_IMPORT];
+const SEED_LIT = /(?:'seed'|"seed"|`seed`)/;
+const RE_SINGLE_ARRAY = /\[([^\[\]]*)\]/g;
+const RE_SKILL_SEED = /\bskill\s*:\s*(?:'seed'|"seed"|`seed`)/;
+const RE_ENVELOPE_CALL_SEED = /\benvelopeFor\s*\([^)]*(?:'seed'|"seed"|`seed`)/;
+
+/** Literal import/require specifiers in a file's text that name the seed module. */
+function seedSpecLines(text) {
+  const hits = [];
+  text.split('\n').forEach((line, idx) => {
+    for (const re of ALL_SPEC_RES) {
+      for (const m of line.matchAll(re)) {
+        const spec = (m[1] ?? m[2] ?? m[3] ?? '').replace(/\\/g, '/');
+        if (SEED_SPEC_RE.test(spec)) hits.push(idx + 1);
+      }
+    }
+  });
+  return [...new Set(hits)];
+}
+
+/** Files under src/ (from a Map of path -> text) that require the seed module, and findings. */
+function scanSeedRequirers(files) {
+  const requirers = [];
+  const findings = [];
+  for (const [file, text] of files) {
+    if (!file.startsWith('src/') || !CODE_EXT_RE.test(file) || file.endsWith('.d.ts') || file === SEED_PATH) continue;
+    const lines = seedSpecLines(text);
+    if (lines.length === 0) continue;
+    requirers.push(file);
+    if (file !== SEED_ALLOWED_REQUIRER) {
+      findings.push(`${file}:${lines[0]} requires ${SEED_PATH}; only ${SEED_ALLOWED_REQUIRER} may`);
+    }
+  }
+  return { requirers, findings };
+}
+
+/** 'seed' as an envelope argv element, a skill value or an envelopeFor() argument. */
+function scanSeedEnvelope(filePath, text) {
+  const findings = [];
+  text.split('\n').forEach((line, idx) => {
+    const at = `${filePath}:${idx + 1}`;
+    for (const m of line.matchAll(RE_SINGLE_ARRAY)) {
+      if (!SEED_LIT.test(m[1])) continue;
+      if (/(?:'roadmap'|"roadmap"|['"\x60]--[\w-]+['"\x60])/.test(m[1])) {
+        findings.push(`${at} string literal 'seed' in an argv array: [${m[1].trim()}]`);
+      }
+    }
+    if (RE_SKILL_SEED.test(line)) findings.push(`${at} string literal 'seed' as a skill value`);
+    if (RE_ENVELOPE_CALL_SEED.test(line)) findings.push(`${at} string literal 'seed' passed to envelopeFor()`);
+  });
+  return [...new Set(findings)];
+}
+
+/** Predicates of core/registry/gates.json equal to 'seed' or starting 'seed:'. */
+function scanGatesSeedPredicates(gates) {
+  const findings = [];
+  for (const [cls, gateSet] of Object.entries(gates?.classes ?? {})) {
+    for (const [gate, def] of Object.entries(gateSet ?? {})) {
+      for (const pred of def?.predicates ?? []) {
+        if (typeof pred === 'string' && (pred === 'seed' || pred.startsWith('seed:'))) {
+          findings.push(`core/registry/gates.json classes.${cls}.${gate}.predicates names '${pred}'`);
+        }
+      }
+    }
+  }
+  return findings;
+}
+
+/** The whole clause over { files: Map<path,text>, gates: object }. Returns { findings, requirers }. */
+function checkSeedPersonOnly({ files = new Map(), gates = {} } = {}) {
+  const { requirers, findings } = scanSeedRequirers(files);
+  for (const [file, text] of files) {
+    if (SEED_ENVELOPE_FILES.includes(file)) findings.push(...scanSeedEnvelope(file, text));
+  }
+  findings.push(...scanGatesSeedPredicates(gates));
+  return { findings, requirers };
+}
+
+function loadSrcFiles(rootDir) {
+  const files = new Map();
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else if (CODE_EXT_RE.test(ent.name)) {
+        files.set(path.relative(rootDir, full).split(path.sep).join('/'), fs.readFileSync(full, 'utf8'));
+      }
+    }
+  };
+  if (fs.existsSync(path.join(rootDir, 'src'))) walk(path.join(rootDir, 'src'));
+  return files;
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────────────────────────
 
 test('G54: shipped src/runtime/roadmap/** modules import no worker/launcher/models and spawn only git', (t) => {
@@ -349,7 +457,68 @@ test('G54 control: filesystem tempDir identifies seeded fault without touching t
   assert.ok(findings[0].includes('forbidden import of worker/launch'));
 });
 
+test('G54 person-only: seed.ts is required only by runtime-commands.ts; no seed argv, skill or gates predicate', (t) => {
+  const files = loadSrcFiles(REPO);
+  assert.ok(files.has('src/runtime/roadmap/loop.ts'), 'scan must see loop.ts');
+  for (const f of SEED_ENVELOPE_FILES) assert.ok(files.has(f), `scan must see ${f}`);
+  const gates = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+  const { findings, requirers } = checkSeedPersonOnly({ files, gates });
+  t.diagnostic(`G54 person-only: requirers of seed.ts = [${requirers.join(', ')}]`);
+  assert.ok(requirers.length <= 1, `seed.ts has more than one requirer: ${requirers.join(', ')}`);
+  if (requirers.length === 1) assert.equal(requirers[0], SEED_ALLOWED_REQUIRER);
+  assert.deepEqual(findings, [], `person-only clause violated:\n${findings.join('\n')}`);
+});
+
+test('G54 person-only control: loop.ts with require(\'./seed.ts\') turns guard red; runtime-commands.ts alone stays green', () => {
+  const bad = checkSeedPersonOnly({ files: new Map([
+    ['src/runtime/roadmap/loop.ts', "const seed = require('./seed.ts');\n"],
+    [SEED_ALLOWED_REQUIRER, "const seed = () => require('../runtime/roadmap/seed.ts');\n"],
+  ]) });
+  assert.deepEqual(bad.requirers.sort(), [SEED_ALLOWED_REQUIRER, 'src/runtime/roadmap/loop.ts']);
+  assert.ok(bad.findings.some((f) => f.startsWith('src/runtime/roadmap/loop.ts:1 requires')), bad.findings.join('\n'));
+  const other = checkSeedPersonOnly({ files: new Map([['src/cli/other.ts', "import { x } from '../runtime/roadmap/seed';\n"]]) });
+  assert.equal(other.findings.length, 1, 'import-from form must also be caught');
+  const ok = checkSeedPersonOnly({ files: new Map([[SEED_ALLOWED_REQUIRER, "const s = require('../runtime/roadmap/seed.ts');\n"]]) });
+  assert.deepEqual(ok.findings, []);
+  assert.deepEqual(ok.requirers, [SEED_ALLOWED_REQUIRER]);
+});
+
+test('G54 person-only control: a seed argv, skill or envelopeFor argument in loop.ts turns guard red', () => {
+  const argv = checkSeedPersonOnly({ files: new Map([
+    ['src/runtime/roadmap/loop.ts', "const after = [\"roadmap\",\"seed\",\"--action\",\"apply\"];\n"],
+  ]) });
+  assert.equal(argv.findings.length, 1, argv.findings.join('\n'));
+  assert.match(argv.findings[0], /argv array/);
+  const skill = scanSeedEnvelope('src/runtime/roadmap/loop.ts', "const p = { stage: 'x', skill: 'seed' };\n");
+  assert.equal(skill.length, 1);
+  const call = scanSeedEnvelope('src/runtime/roadmap/merge.ts', "envelopeFor(ctx, row, wt, 'implementation', 'seed', before);\n");
+  assert.equal(call.length, 1);
+  // The unreadable-sources list is not an argv and stays allowed.
+  assert.deepEqual(scanSeedEnvelope('src/runtime/roadmap/loop.ts', "throw new Unreadable(['seed'], error.message);\n"), []);
+  assert.deepEqual(scanSeedEnvelope('src/runtime/roadmap/loop.ts', "const a = ['roadmap', '--action', 'next'];\n"), []);
+});
+
+test('G54 person-only control: a gates object with a seed predicate turns guard red', () => {
+  const gates = { classes: { feature: { 'gate-a': { predicates: ['protected-paths', 'seed'] }, 'gate-b': { predicates: ['seed:ready'] } } } };
+  const { findings } = checkSeedPersonOnly({ gates });
+  assert.equal(findings.length, 2, findings.join('\n'));
+  assert.deepEqual(scanGatesSeedPredicates({ classes: { feature: { 'gate-a': { predicates: ['seeded', 'needs-merged'] } } } }), []);
+});
+
+test('G54 person-only control: filesystem tree where another src module requires ./seed.ts is caught', (t) => {
+  const tmp = tempDir(t, 'doflow-g54-seed-');
+  fs.mkdirSync(path.join(tmp, 'src/runtime/roadmap'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, 'src/runtime/roadmap/merge.ts'), "const s = require('./seed.ts');\n");
+  const { findings } = checkSeedPersonOnly({ files: loadSrcFiles(tmp) });
+  assert.equal(findings.length, 1);
+  assert.match(findings[0], /^src\/runtime\/roadmap\/merge\.ts:1 requires/);
+});
+
 module.exports = {
+  checkSeedPersonOnly,
+  scanSeedRequirers,
+  scanSeedEnvelope,
+  scanGatesSeedPredicates,
   checkRoadmapImports,
   scanFileContent,
   checkForbiddenImport,
