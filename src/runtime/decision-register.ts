@@ -414,7 +414,7 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
     if (isReservedChannel(flags.channel)) throw new DecisionUsageError(CHANNEL_RESERVED);
     const feature = resolveActiveFeature({ projectRoot, slug });
     if (feature.error) throw new DecisionUsageError(feature.message);
-    resolved = { featureDir: feature.featureDir, slug: feature.paths.feature_slug };
+    resolved = { featureDir: feature.featureFolder, slug: feature.paths.feature_slug };
     let result: any;
     if (act === 'init') {
       result = initRegister({ ...resolved, fsImpl });

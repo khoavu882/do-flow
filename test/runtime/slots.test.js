@@ -15,13 +15,11 @@ const MODULE = process.env.SLOTS_MODULE || path.join(__dirname, '..', '..', 'src
 const { runSlot, listSlots, releaseSlot } = require(MODULE);
 const { procStart } = require('../../src/runtime/worker/process-tree.ts');
 
-const scratch = [];
+const { suiteTempDir } = require('../helper/tmp');
+
 function scratchDir(prefix = 'doflow-slots-') {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  scratch.push(dir);
-  return dir;
+  return suiteTempDir(prefix);
 }
-test.after(() => { for (const dir of scratch) fs.rmSync(dir, { recursive: true, force: true }); });
 
 function scratchEnv() {
   const home = scratchDir();
