@@ -10,7 +10,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { parsePlan } = require('../scaffold/artifacts.ts');
-const { buildGraph } = require('../task-graph.ts');
+const { planVerdict } = require('../task-graph.ts');
 const { CapabilityRouter } = require('../capability-router.ts');
 const { deriveStatus, check } = require('./rows.ts');
 const { validateFindings } = require('./gates.ts');
@@ -236,8 +236,7 @@ function gatherGateFacts(options: any): GateFact[] {
     if (!input.unreadable) {
       try {
         const parsed = parsePlan(input.text);
-        const built = buildGraph(parsed);
-        value = { ok: parsed.gaps.length === 0 && built.ok, files: parsed.tasks.flatMap((task: any) => task.files) };
+        value = { ok: planVerdict(input.text).ok, files: parsed.tasks.flatMap((task: any) => task.files) };
       } catch { /* The plan-parses predicate denies; no guessed tasks. */ }
     }
     plan = add('plan', value, input.locator, input.bytes, input.unreadable);
