@@ -21,13 +21,34 @@ function scratch(t) {
   const cwdA = path.join(dir, 'a');
   const cwdB = path.join(dir, 'b');
   for (const d of [home, cwdA, cwdB]) fs.mkdirSync(d);
+  const livenessPreload = path.join(dir, 'slot-liveness-preload.cjs');
+  fs.writeFileSync(livenessPreload, `
+    const Module = require('node:module');
+    const originalLoad = Module._load;
+    Module._load = function(request, parent, isMain) {
+      const loaded = originalLoad.call(this, request, parent, isMain);
+      if (request.endsWith('process-tree.ts') && parent && parent.filename.endsWith('/src/runtime/slots.ts')) {
+        return { ...loaded,
+          procStart(pid) { return Number.isInteger(pid) && pid > 0 ? 'test-' + pid : null; },
+          alive(proc) {
+            if (!proc || !Number.isInteger(proc.pid) || proc.pid <= 0) return 'unknown';
+            try { process.kill(proc.pid, 0); return true; }
+            catch (error) { return error.code === 'ESRCH' ? false : error.code === 'EPERM' ? true : 'unknown'; }
+          },
+        };
+      }
+      return loaded;
+    };
+  `);
   const env = {
     ...process.env,
     HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
     GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
-    FORCE_COLOR: '', DOFLOW_CLI: CLI,
+    DOFLOW_CLI: CLI,
+    NODE_OPTIONS: `--require=${livenessPreload}`,
   };
   delete env.DOFLOW_SLOT;
+  delete env.FORCE_COLOR;
   const cli = (args, cwd = cwdA) => spawnSync(process.execPath, [CLI, 'slot', ...args], { cwd, env, encoding: 'utf8' });
   const dispatcher = (args, cwd = cwdA) => spawnSync('/bin/bash', [RUN, 'slot', ...args], { cwd, env, encoding: 'utf8' });
   const list = (cwd = cwdA) => {
@@ -54,7 +75,19 @@ function scratch(t) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   };
-  return { home, cwdA, cwdB, cli, dispatcher, list, holder, waitForHolder };
+  return { home, cwdA, cwdB, env, cli, dispatcher, list, holder, waitForHolder, livenessPreload };
+}
+
+function waitForFile(file, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const poll = () => {
+      if (fs.existsSync(file)) return resolve();
+      if (Date.now() >= deadline) return reject(new Error(`file was not created: ${file}`));
+      setTimeout(poll, 10);
+    };
+    poll();
+  });
 }
 
 test('slot run passes the child exit code and prints the grant line on stderr only', (t) => {
@@ -167,4 +200,73 @@ test('the doflow-run dispatcher forwards -- and every following argument unchang
   const listed = s.dispatcher(['--action', 'list']);
   assert.equal(listed.status, 0, listed.stderr);
   assert.equal(listed.stdout, 'no slots held\n');
+});
+
+test('SIGKILL between spawn and registration keeps the gated command from running; the next caller is granted', async (t) => {
+  const s = scratch(t);
+  const dir = path.dirname(s.home);
+  const runnerScript = path.join(dir, 'paused-slot-runner.cjs');
+  const pauseFile = path.join(dir, 'child-spawned');
+  const commandMarker = path.join(dir, 'command-ran');
+  const nextMarker = path.join(dir, 'next-command-ran');
+  const slotsFile = path.join(REPO_ROOT, 'src', 'runtime', 'slots.ts');
+  const commandCode = `setTimeout(()=>require('node:fs').writeFileSync(process.env.RUNNER_MARKER,'ran'),100)`;
+  fs.writeFileSync(runnerScript, `
+    const fs = require('node:fs');
+    const { runSlot } = require(process.env.SLOTS_MODULE || ${JSON.stringify(slotsFile)});
+    const deps = {
+      procStart(pid) {
+        if (process.env.PAUSE_ON_CHILD === '1' && pid !== process.pid) {
+          fs.writeFileSync(process.env.SLOT_PAUSE_FILE, 'spawned');
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15000);
+        }
+        return 'test-' + pid;
+      },
+      alive(proc) {
+        try { process.kill(proc.pid, 0); return true; }
+        catch (error) { return error.code === 'ESRCH' ? false : 'unknown'; }
+      },
+    };
+    runSlot({ name: 'killed-runner', command: [process.execPath, '-e', ${JSON.stringify(commandCode)}], env: process.env, deps })
+      .then((code) => { process.exitCode = code; }, (error) => { console.error(error); process.exitCode = 99; });
+  `);
+  const runEnv = {
+    ...s.env,
+    HOME: s.home,
+    XDG_CONFIG_HOME: path.join(s.home, '.config'),
+    SLOT_PAUSE_FILE: pauseFile,
+    PAUSE_ON_CHILD: '1',
+    RUNNER_MARKER: commandMarker,
+  };
+  const runner = spawn(process.execPath, [runnerScript], {
+    cwd: s.cwdA, env: runEnv, stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let runnerStderr = '';
+  runner.stderr.on('data', (chunk) => { runnerStderr += chunk; });
+  const exited = new Promise((resolve) => runner.on('exit', (code, signal) => resolve({ code, signal })));
+  t.after(async () => {
+    if (runner.exitCode === null && runner.signalCode === null) runner.kill('SIGKILL');
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 3000))]);
+  });
+
+  try {
+    await waitForFile(pauseFile, 3000);
+  } catch (error) {
+    runner.kill('SIGKILL');
+    await exited;
+    throw new Error(`${error.message}; runner stderr: ${runnerStderr}`);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  runner.kill('SIGKILL');
+  assert.deepEqual(await exited, { code: null, signal: 'SIGKILL' }, runnerStderr);
+  assert.equal(fs.existsSync(commandMarker), false, 'the child command did not cross the closed go gate');
+
+  const next = spawnSync(process.execPath, [runnerScript], {
+    cwd: s.cwdA,
+    env: { ...runEnv, PAUSE_ON_CHILD: '0', RUNNER_MARKER: nextMarker },
+    encoding: 'utf8',
+  });
+  assert.equal(next.status, 0, next.stderr);
+  assert.equal(fs.readFileSync(nextMarker, 'utf8'), 'ran');
+  assert.equal(fs.existsSync(commandMarker), false);
 });

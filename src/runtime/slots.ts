@@ -32,6 +32,9 @@ const POLL_MS = 1000;
 const LABEL_MAX = 80;
 const BUSY_EXIT = 75;
 const FORWARDED = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+const SLOT_LOCK_STALE_MS = 10_000;
+const SLOT_LOCK_WAIT_MS = 20;
+const SLOT_LOCK_RETRIES = 1500;
 
 function fail(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
@@ -67,6 +70,7 @@ type Deps = {
   stderr?: (line: string) => void;
   pid?: number;
   pollMs?: number;
+  platform?: string;
   proc?: any;
 };
 
@@ -83,6 +87,7 @@ function resolveDeps(deps: Deps = {}) {
     stderr: deps.stderr || ((line: string) => { process.stderr.write(`${line}\n`); }),
     pid: deps.pid ?? process.pid,
     pollMs: deps.pollMs ?? POLL_MS,
+    platform: deps.platform ?? process.platform,
     proc: deps.proc || process,
   };
 }
@@ -97,6 +102,91 @@ function shape(disk: any, name: string) {
     waiters: Array.isArray(disk?.waiters) ? disk.waiters.map((waiter: any) => ({ ...waiter })) : [],
     lastRelease: disk && disk.lastRelease ? disk.lastRelease : null,
   };
+}
+
+function blockingSleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function ownerFile(lockDir: string): string {
+  return path.join(lockDir, 'owner.json');
+}
+
+function readLockOwner(fsImpl: any, lockDir: string): any | null {
+  const file = ownerFile(lockDir);
+  try {
+    const stat = fsImpl.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) return null;
+    const owner = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
+    if (!Number.isInteger(owner?.pid) || owner.pid <= 0) return null;
+    return { pid: owner.pid, start: owner.start ?? null };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Slot writes need a stronger lock than task-state's age-only default: a slow live critical section
+ * must not be mistaken for a crashed writer. The owner token is written only after mkdir succeeds;
+ * stale directories are renamed aside before removal so competing reclaimers cannot delete a new
+ * owner's directory.
+ */
+function acquireSlotLock(fsImpl: any, file: string, deps: any): () => void {
+  const lockDir = `${file}.lock`;
+  const token = { pid: deps.pid, start: deps.procStart(deps.pid) };
+  const tokenFile = ownerFile(lockDir);
+  const sameOwner = (owner: any) => owner && owner.pid === token.pid && owner.start === token.start;
+
+  for (let attempt = 0; attempt < SLOT_LOCK_RETRIES; attempt += 1) {
+    try {
+      fsImpl.mkdirSync(lockDir);
+      try {
+        fsImpl.writeFileSync(tokenFile, JSON.stringify(token), 'utf8');
+      } catch (error) {
+        try { fsImpl.rmdirSync(lockDir); } catch { /* the failed writer still owns the empty directory */ }
+        throw error;
+      }
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        if (!sameOwner(readLockOwner(fsImpl, lockDir))) return;
+        try { fsImpl.unlinkSync(tokenFile); } catch (error: any) { if (error.code !== 'ENOENT') return; }
+        try { fsImpl.rmdirSync(lockDir); } catch { /* another process already removed or replaced it */ }
+      };
+    } catch (error: any) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+
+    let stat: any;
+    try { stat = fsImpl.statSync(lockDir); } catch (error: any) {
+      if (error.code === 'ENOENT') continue;
+      blockingSleep(SLOT_LOCK_WAIT_MS);
+      continue;
+    }
+    const ageMs = Date.now() - stat.mtimeMs;
+    const owner = readLockOwner(fsImpl, lockDir);
+    let ownerAlive: any = 'unknown';
+    if (owner) {
+      try { ownerAlive = deps.alive({ pid: owner.pid, start: owner.start }); } catch { ownerAlive = 'unknown'; }
+    }
+    const stale = owner
+      ? ownerAlive === false || (ownerAlive === 'unknown' && ageMs > SLOT_LOCK_STALE_MS)
+      : ageMs > SLOT_LOCK_STALE_MS;
+    if (stale) {
+      const abandoned = `${lockDir}.stale-${deps.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      try {
+        fsImpl.renameSync(lockDir, abandoned);
+        try { fsImpl.unlinkSync(ownerFile(abandoned)); } catch { /* a token may never have been written */ }
+        try { fsImpl.rmdirSync(abandoned); } catch { /* leave unexpected contents for inspection */ }
+        continue;
+      } catch (error: any) {
+        if (error.code === 'ENOENT' || error.code === 'EEXIST') continue;
+      }
+    }
+    if (attempt + 1 < SLOT_LOCK_RETRIES) blockingSleep(SLOT_LOCK_WAIT_MS);
+  }
+  throw new Error(`Could not lock '${file}' after ${(SLOT_LOCK_RETRIES * SLOT_LOCK_WAIT_MS) / 1000}s — another writer holds '${lockDir}'.`);
 }
 
 /** Holder liveness for a run: dead only when the runner and its recorded child are both `false`. */
@@ -125,6 +215,7 @@ function locked(file: string, name: string, deps: any, change: (state: any) => a
   updateTaskState({
     fsImpl: deps.fsImpl,
     file,
+    acquire: (fsImpl: any, target: string) => acquireSlotLock(fsImpl, target, deps),
     build: (disk: any) => {
       const next = change(shape(disk, name));
       if (next === false) return null;
@@ -205,8 +296,18 @@ async function runSlot({
     let outcome: any;
     for (;;) {
       locked(file, name, deps, (state) => {
-        outcome = step(sweep(state, deps.alive), self, noWait, deps, deps.now());
-        return state;
+        const clean = sweep(state, deps.alive);
+        const waited = deps.now() - startedAt;
+        if (timeoutSeconds && waited >= timeoutSeconds * 1000) {
+          outcome = {
+            kind: 'timeout',
+            ahead: clean.holder || clean.waiters.find((waiter: any) => !(waiter.pid === self.pid && waiter.since === self.since)) || null,
+            waited,
+          };
+          return clean;
+        }
+        outcome = step(clean, self, noWait, deps, deps.now());
+        return clean;
       });
       if (outcome.kind === 'granted') { holding = true; break; }
       if (outcome.kind === 'busy') {
@@ -214,30 +315,63 @@ async function runSlot({
         deps.stderr(`doflow slot: ${name} busy; held by ${describeAhead(outcome.ahead)}${since}`);
         return BUSY_EXIT;
       }
-      if (received) { release(); return signalExit(received); }
-      const waited = deps.now() - startedAt;
-      if (timeoutSeconds && waited >= timeoutSeconds * 1000) {
+      if (outcome.kind === 'timeout') {
         release();
-        deps.stderr(`doflow slot: ${name} timed out after ${Math.round(waited / 1000)} s; held by ${describeAhead(outcome.ahead)}`);
+        deps.stderr(`doflow slot: ${name} timed out after ${Math.round(outcome.waited / 1000)} s; held by ${describeAhead(outcome.ahead)}`);
         return BUSY_EXIT;
       }
+      if (received) { release(); return signalExit(received); }
       await deps.sleep(deps.pollMs);
     }
 
     if (received) return signalExit(received);
     deps.stderr(`doflow slot: ${name} granted after ${Math.round((deps.now() - startedAt) / 1000)} s (${self.label})`);
 
-    child = deps.spawn(command[0], command.slice(1), { stdio: 'inherit', env: { ...env, DOFLOW_SLOT: name }, cwd });
+    const gated = deps.platform !== 'win32';
+    const spawnCommand = gated ? 'sh' : command[0];
+    const spawnArgs = gated
+      ? ['-c', 'read _ <&3 || exit 125; exec 3<&-; exec "$@"', 'doflow-slot', ...command]
+      : command.slice(1);
+    child = deps.spawn(spawnCommand, spawnArgs, {
+      stdio: gated ? ['inherit', 'inherit', 'inherit', 'pipe'] : 'inherit',
+      env: { ...env, DOFLOW_SLOT: name },
+      cwd,
+    });
     const finished = new Promise<{ code: number | null; signal: string | null; error: any }>((resolve) => {
       child.on('error', (error: any) => resolve({ code: null, signal: null, error }));
       child.on('exit', (code: number | null, signal: string | null) => resolve({ code, signal, error: null }));
     });
-    if (Number.isInteger(child.pid)) {
-      const childStart = deps.procStart(child.pid);
-      locked(file, name, deps, (state) => {
-        if (state.holder && state.holder.pid === self.pid) state.holder = { ...state.holder, childPid: child.pid, childStart };
-        return state;
-      });
+    const exited = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+      child.on('exit', (code: number | null, signal: string | null) => resolve({ code, signal }));
+    });
+    const startGate = gated ? child.stdio?.[3] : null;
+    try {
+      let registered = false;
+      if (Number.isInteger(child.pid)) {
+        const childStart = deps.procStart(child.pid);
+        locked(file, name, deps, (state) => {
+          if (state.holder && state.holder.pid === self.pid) {
+            state.holder = { ...state.holder, childPid: child.pid, childStart };
+            registered = true;
+          }
+          return state;
+        });
+        if (!registered) throw new Error(`Could not register child ${child.pid} for slot '${name}': this process is no longer the holder.`);
+      }
+      if (startGate) {
+        if (!registered) throw new Error(`Could not register the child for slot '${name}': it has no process id.`);
+        if (typeof startGate.end === 'function') startGate.end('go\n');
+      }
+    } catch (registrationError) {
+      if (startGate) {
+        try {
+          if (typeof startGate.end === 'function') startGate.end();
+          else startGate.destroy?.();
+        } catch { /* the child still observes a closed pipe when its runner exits */ }
+      }
+      if (Number.isInteger(child.pid)) await exited;
+      else await finished;
+      throw registrationError;
     }
     if (received) { try { child.kill(received); } catch { /* already gone */ } }
     const result = await finished;

@@ -72,6 +72,32 @@ function baseDeps(overrides = {}) {
   };
 }
 
+function waitFor(predicate, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const poll = () => {
+      if (predicate()) return resolve();
+      if (Date.now() >= deadline) return reject(new Error('condition was not met before the deadline'));
+      setTimeout(poll, 10);
+    };
+    poll();
+  });
+}
+
+function gatedFakeChild(pid) {
+  const child = new EventEmitter();
+  const gate = new EventEmitter();
+  gate.closed = false;
+  gate.data = undefined;
+  gate.end = (data) => { gate.closed = true; gate.data = data; };
+  gate.destroy = () => { gate.closed = true; };
+  child.pid = pid;
+  child.killed = [];
+  child.stdio = [null, null, null, gate];
+  child.kill = (signal) => { child.killed.push(signal); };
+  return child;
+}
+
 test('eight concurrent runSlot calls: one holder at a time, grants in arrival order', async () => {
   const { env, home } = scratchEnv();
   const events = [];
@@ -79,7 +105,8 @@ test('eight concurrent runSlot calls: one holder at a time, grants in arrival or
   let maxHolders = 0;
   const { deps } = baseDeps({
     spawn: (command, args) => {
-      const id = Number(args[0]);
+      const commandArgs = command === 'sh' ? args.slice(3) : args;
+      const id = Number(command === 'sh' ? commandArgs[1] : commandArgs[0]);
       events.push(`enter ${id}`);
       holders += 1;
       maxHolders = Math.max(maxHolders, holders);
@@ -137,11 +164,17 @@ test('child exit code and death by signal are passed through; spawn gets DOFLOW_
   assert.equal(await run(() => fakeChild(6001, { code: 3 })), 3);
   assert.equal(await run(() => fakeChild(6002, { code: null, signal: 'SIGKILL' })), 137);
   assert.equal(await run(() => fakeChild(6003, { code: null, signal: 'SIGTERM' })), 143);
-  assert.equal(seen.command, 'tool');
-  assert.deepEqual(seen.args, ['-x', 'y']);
+  if (process.platform !== 'win32') {
+    assert.equal(seen.command, 'sh');
+    assert.deepEqual(seen.args, ['-c', 'read _ <&3 || exit 125; exec 3<&-; exec "$@"', 'doflow-slot', 'tool', '-x', 'y']);
+    assert.deepEqual(seen.options.stdio, ['inherit', 'inherit', 'inherit', 'pipe']);
+  } else {
+    assert.equal(seen.command, 'tool');
+    assert.deepEqual(seen.args, ['-x', 'y']);
+    assert.equal(seen.options.stdio, 'inherit');
+  }
   assert.equal(seen.options.env.DOFLOW_SLOT, 'codes');
   assert.equal(seen.options.cwd, '/work/a');
-  assert.equal(seen.options.stdio, 'inherit');
 });
 
 test('a spawn failure releases the slot and reports 127', async () => {
@@ -291,7 +324,15 @@ test('releaseSlot: refuses a live holder, frees a dead one, reports free, never 
   const { env, home } = scratchEnv();
   const kills = [];
   const kill = (pid, signal) => { kills.push(signal); return process.kill(pid, signal); };
-  const deps = { kill, stderr: () => {}, now: () => Date.UTC(2026, 9, 19, 12, 0, 0) };
+  const deps = {
+    kill,
+    alive: (proc) => {
+      try { kill(proc.pid, 0); return proc.pid === process.pid; }
+      catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+    },
+    stderr: () => {},
+    now: () => Date.UTC(2026, 9, 19, 12, 0, 0),
+  };
 
   assert.deepEqual(await releaseSlot({ name: 'rel', by: 'kai', reason: 'x', env, deps }), { ok: true, disposition: 'free' });
 
@@ -375,4 +416,184 @@ test('invalid names and empty commands are usage errors; a missing HOME is its o
   await assert.rejects(runSlot({ name: 'ok', command: ['tool'], env: {}, deps }), { code: 'no-home' });
   await assert.rejects(runSlot({ name: 'ok', command: ['tool'], env: { HOME: 'relative' }, deps }), { code: 'no-home' });
   await assert.rejects(listSlots({ env: {}, deps }), { code: 'no-home' });
+});
+
+test('a live slot lock is not stolen after ten seconds while its owner is paused inside locked()', async (t) => {
+  const { env } = scratchEnv();
+  const dir = scratchDir();
+  const pauseFile = path.join(dir, 'paused');
+  const eventsFile = path.join(dir, 'events');
+  const runner = path.join(dir, 'runner.cjs');
+  const childScript = `const fs=require('node:fs');fs.appendFileSync(${JSON.stringify(eventsFile)},process.env.RUNNER_LABEL+'-start\\n');setTimeout(()=>fs.appendFileSync(${JSON.stringify(eventsFile)},process.env.RUNNER_LABEL+'-end\\n'),3000)`;
+  fs.writeFileSync(runner, `
+    const fs = require('node:fs');
+    const { runSlot } = require(${JSON.stringify(MODULE)});
+    let calls = 0;
+    const pauseMs = Number(process.env.PAUSE_MS || 0);
+    const now = () => {
+      calls += 1;
+      if (calls === 2 && pauseMs) {
+        fs.writeFileSync(process.env.PAUSE_FILE, 'inside locked');
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pauseMs);
+      }
+      return Date.now();
+    };
+    runSlot({ name: 'paused-owner', command: [process.execPath, '-e', ${JSON.stringify(childScript)}], env: process.env,
+      deps: {
+        now,
+        pollMs: 10,
+        procStart: (pid) => 'test-' + pid,
+        alive: (proc) => { try { process.kill(proc.pid, 0); return true; } catch (error) { return error.code === 'ESRCH' ? false : 'unknown'; } },
+      } })
+      .then((code) => { process.exitCode = code; }, (error) => { console.error(error); process.exitCode = 99; });
+  `);
+  const run = (label, pauseMs = 0) => {
+    const child = realSpawn(process.execPath, [runner], {
+      env: { ...env, RUNNER_LABEL: label, PAUSE_MS: String(pauseMs), PAUSE_FILE: pauseFile },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    const exited = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal, stderr })));
+    t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+    return { child, exited };
+  };
+
+  const first = run('first', 11500);
+  await waitFor(() => fs.existsSync(pauseFile), 5000);
+  await new Promise((resolve) => setTimeout(resolve, 10200));
+  const second = run('second');
+  const [firstExit, secondExit] = await Promise.all([first.exited, second.exited]);
+  assert.equal(firstExit.code, 0, firstExit.stderr);
+  assert.equal(secondExit.code, 0, secondExit.stderr);
+  assert.deepEqual(fs.readFileSync(eventsFile, 'utf8').trim().split('\n'), [
+    'first-start', 'first-end', 'second-start', 'second-end',
+  ]);
+});
+
+test('a slot lock with a dead owner token is recovered', async () => {
+  const { env, home } = scratchEnv();
+  const file = slotFile(home, 'recover-lock');
+  const lockDir = `${file}.lock`;
+  fs.mkdirSync(lockDir, { recursive: true });
+  fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({ pid: 98765, start: null }));
+  let spawned = 0;
+  const { deps } = baseDeps({
+    alive: (proc) => proc.pid !== 98765,
+    spawn: () => { spawned += 1; return fakeChild(8801); },
+  });
+  assert.equal(await runSlot({ name: 'recover-lock', command: ['tool'], env, deps }), 0);
+  assert.equal(spawned, 1);
+  assert.equal(fs.existsSync(lockDir), false);
+});
+
+test('a lock release leaves a directory whose owner token changed', async () => {
+  const { env, home } = scratchEnv();
+  const file = slotFile(home, 'foreign-release');
+  const lockDir = `${file}.lock`;
+  const ownerFile = path.join(lockDir, 'owner.json');
+  let foreignTokenInstalled = false;
+  const fsImpl = new Proxy(fs, {
+    get(target, property) {
+      if (property === 'unlinkSync') return (targetPath) => {
+        const result = fs.unlinkSync(targetPath);
+        if (targetPath === file) {
+          fs.writeFileSync(ownerFile, JSON.stringify({ pid: 99999, start: 'foreign' }));
+          foreignTokenInstalled = true;
+        }
+        return result;
+      };
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  let removeAttempts = 0;
+  const trackedFs = new Proxy(fsImpl, {
+    get(target, property) {
+      if (property === 'rmdirSync') return (targetPath, ...args) => {
+        if (targetPath === lockDir && foreignTokenInstalled) removeAttempts += 1;
+        return fs.rmdirSync(targetPath, ...args);
+      };
+      return Reflect.get(target, property, target);
+    },
+  });
+  const { deps } = baseDeps({ fsImpl: trackedFs, spawn: () => fakeChild(8802) });
+  assert.equal(await runSlot({ name: 'foreign-release', command: ['tool'], env, deps }), 0);
+  assert.equal(fs.existsSync(lockDir), true);
+  assert.equal(removeAttempts, 0, 'a non-owner never attempts to remove the lock directory');
+  assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile, 'utf8')), { pid: 99999, start: 'foreign' });
+});
+
+test('a failed child registration keeps the slot until that child exits', async () => {
+  const { env, home } = scratchEnv();
+  const file = slotFile(home, 'registration-full');
+  let stateWrites = 0;
+  const fsImpl = new Proxy(fs, {
+    get(target, property) {
+      if (property === 'writeFileSync') return (targetPath, ...args) => {
+        if (String(targetPath).startsWith(file) && String(targetPath).endsWith('.tmp')) {
+          stateWrites += 1;
+          if (stateWrites === 2) throw Object.assign(new Error('ENOSPC: registration disk full'), { code: 'ENOSPC' });
+        }
+        return fs.writeFileSync(targetPath, ...args);
+      };
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const firstChild = gatedFakeChild(8901);
+  let spawnCount = 0;
+  const makeDeps = (pid) => ({
+    alive: () => true,
+    procStart: () => `start-${pid}`,
+    fsImpl,
+    pid,
+    spawn: () => {
+      spawnCount += 1;
+      if (spawnCount === 1) return firstChild;
+      const child = gatedFakeChild(8902);
+      setImmediate(() => child.emit('exit', 0, null));
+      return child;
+    },
+    now: () => Date.UTC(2026, 9, 19, 12, 0, 0),
+    sleep: () => new Promise((resolve) => setTimeout(resolve, 2)),
+    stderr: () => {},
+    pollMs: 2,
+    platform: 'linux',
+  });
+  const firstResult = runSlot({ name: 'registration-full', command: ['tool'], env, deps: makeDeps(1001) })
+    .then((value) => ({ value }), (error) => ({ error }));
+  await waitFor(() => stateWrites >= 2);
+
+  const secondResult = runSlot({ name: 'registration-full', command: ['tool'], env, deps: makeDeps(1002) });
+  await waitFor(() => spawnCount > 1 || readSlot(home, 'registration-full').waiters.length === 1);
+  assert.equal(spawnCount, 1, 'the queued caller does not spawn beside the unregistered live child');
+  assert.equal(readSlot(home, 'registration-full').holder.pid, 1001);
+  assert.equal(firstChild.stdio[3].closed, true, 'the failed registration closes the start gate');
+  assert.equal(firstChild.stdio[3].data, undefined, 'a failed registration never sends the go token');
+
+  firstChild.emit('exit', 125, null);
+  const failed = await firstResult;
+  assert.equal(failed.error?.code, 'ENOSPC');
+  assert.equal(await secondResult, 0);
+  assert.equal(spawnCount, 2);
+  assert.equal(fs.existsSync(file), false);
+});
+
+test('a slot that first becomes free at the deadline times out without spawning', async () => {
+  const { env, home } = scratchEnv();
+  writeSlot(home, 'deadline-free', { holder: holderRecord(7777) });
+  let clock = Date.UTC(2026, 9, 19, 12, 0, 0);
+  let polls = 0;
+  let spawned = 0;
+  const { deps } = baseDeps({
+    now: () => clock,
+    sleep: async (ms) => { clock += ms; polls += 1; },
+    pollMs: 1000,
+    alive: (proc) => proc.pid !== 7777 || polls === 0,
+    spawn: () => { spawned += 1; return fakeChild(8803); },
+  });
+  assert.equal(await runSlot({ name: 'deadline-free', command: ['tool'], timeoutSeconds: 1, env, deps }), 75);
+  assert.equal(spawned, 0);
+  assert.equal(fs.existsSync(slotFile(home, 'deadline-free')), false, 'the timed out waiter is removed with the empty slot');
 });
