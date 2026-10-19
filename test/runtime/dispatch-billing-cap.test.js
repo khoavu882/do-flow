@@ -9,6 +9,7 @@ const { spawnSync } = require('node:child_process');
 const { parseArgs } = require('../../src/cli/index.ts');
 const { executeDispatchCommand } = require('../../src/runtime/dispatch/command.ts');
 const readiness = require('../../src/runtime/worker/readiness.ts');
+const { readRuns, storeFileFor: workerRunsFile } = require('../../src/runtime/worker/run-store.ts');
 const { readDispatch, storeFileFor } = require('../../src/runtime/dispatch/store.ts');
 const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
 
@@ -21,6 +22,29 @@ function billingDescriptors(sb, claudeBilling) {
   for (const worker of Object.values(descriptors)) worker.billing = 'unknown';
   descriptors.claude.billing = claudeBilling;
   return descriptors;
+}
+
+// The real probe gives each probe command a fixed 2.5 s, which a loaded machine can exceed: the fact
+// then reads `unknown`, the worker is judged not eligible and the step falls back. These tests prove
+// the cap and the launch, not probe speed, so a timed-out probe is repeated until claude is eligible.
+async function probeUntilEligible(sb, descriptors) {
+  let last;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    last = await readiness.probe({ descriptors, env: sb.env, cwd: sb.root });
+    assert.equal(last.disposition, 'probed');
+    if (last.harnesses.find((entry) => entry.harness === 'claude')?.taskEligible.eligible) return last;
+  }
+  assert.fail(`claude never probed eligible: ${JSON.stringify(last.harnesses)}`);
+}
+
+// The launched fake worker keeps writing into the sandbox until its run ends; wait so cleanup is quiet.
+async function waitEnded(sb, runId, ms = 30000) {
+  const until = Date.now() + ms;
+  let run = readRuns(workerRunsFile(sb.root, SLUG))[runId];
+  while (run && run.phase !== 'ended' && Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    run = readRuns(workerRunsFile(sb.root, SLUG))[runId];
+  }
 }
 
 function command(sb, descriptors, extra) {
@@ -67,7 +91,6 @@ test('free cap leaves only metered and unknown workers sequential with billing g
   const descriptors = billingDescriptors(sb, 'metered');
   const started = await start(sb, descriptors, 'free');
   assert.equal(started.body.disposition, 'started', JSON.stringify(started.body));
-
   const stepped = await command(sb, descriptors, { action: 'step', by: 'main', evaluateImpl: () => ({ eligible: true, gaps: [] }) });
   assert.equal(stepped.body.disposition, 'stepped', JSON.stringify(stepped.body));
   const dispatch = readDispatch(storeFileFor(sb.root, SLUG));
@@ -95,7 +118,7 @@ test('a free fake worker launches under the cap', POSIX, async (t) => {
   const descriptors = billingDescriptors(sb, 'free');
   const started = await start(sb, descriptors, 'free');
   assert.equal(started.body.disposition, 'started', JSON.stringify(started.body));
-  assert.equal((await readiness.probe({ descriptors, env: sb.env, cwd: sb.root })).disposition, 'probed');
+  await probeUntilEligible(sb, descriptors);
 
   const stepped = await command(sb, descriptors, { action: 'step', by: 'main' });
   assert.equal(stepped.body.disposition, 'stepped', JSON.stringify(stepped.body));
@@ -103,6 +126,7 @@ test('a free fake worker launches under the cap', POSIX, async (t) => {
   assert.equal(dispatches.length, 1);
   assert.deepEqual([dispatches[0].mode, dispatches[0].harness, dispatches[0].selection.chosen], ['subagent', 'claude', 'claude']);
   assert.match(dispatches[0].workerRunId, /^w-[0-9a-f]{12}$/);
+  await waitEnded(sb, dispatches[0].workerRunId);
   assert.match(fs.readFileSync(sb.log, 'utf8'), /--edit-in-cwd/);
 });
 
@@ -115,12 +139,13 @@ test('without a cap, a metered fake worker keeps the existing launch path', POSI
   const descriptors = billingDescriptors(sb, 'metered');
   const started = await start(sb, descriptors);
   assert.equal(started.body.disposition, 'started', JSON.stringify(started.body));
-  assert.equal((await readiness.probe({ descriptors, env: sb.env, cwd: sb.root })).disposition, 'probed');
+  await probeUntilEligible(sb, descriptors);
 
   const stepped = await command(sb, descriptors, { action: 'step', by: 'main' });
   assert.equal(stepped.body.disposition, 'stepped', JSON.stringify(stepped.body));
   const [dispatch] = Object.values(readDispatch(storeFileFor(sb.root, SLUG)).dispatches);
   assert.deepEqual([dispatch.mode, dispatch.harness, dispatch.selection.chosen], ['subagent', 'claude', 'claude']);
   assert.match(dispatch.workerRunId, /^w-[0-9a-f]{12}$/);
+  await waitEnded(sb, dispatch.workerRunId);
   assert.match(fs.readFileSync(sb.log, 'utf8'), /--edit-in-cwd/);
 });
