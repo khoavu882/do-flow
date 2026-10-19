@@ -1552,4 +1552,5 @@ module.exports = {
   next,
   // The lease primitive, exported for its interleaving test (C8).
   acquireLease,
+  releaseLease, resolveMainRoot, noPsAlive,
 };
