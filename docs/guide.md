@@ -221,6 +221,7 @@ live, so the next feature can start from it instead of from someone's memory.
 - **Problems in the product can be reported.** A report is an open follow-up with a body that stays on your machine.
 - **Goals are optional.** A goal is one outcome with a checklist; a feature may serve one, and no feature has to.
 - **`/do maintain` goes through everything open.** It lists reports, open follow-ups and (in the DoFlow repository) DoFlow's own captured failures, and you settle each one: keep, dismiss, promote, start a fix, or mark done.
+- `/do program <goal>` researches a goal larger than one feature, offers roadmap shapes, writes a draft and checks it with `roadmap seed --action check`; it never writes the roadmap, you land the draft with the `land` command it shows.
 
 DoFlow proposes and you decide. A goal is closed only when you say so, and an item is dismissed only with a reason you give.
 
