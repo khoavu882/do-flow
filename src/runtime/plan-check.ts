@@ -14,6 +14,7 @@ const { planVerdict } = require('./task-graph.ts');
 const { finishRuntime } = require('./cli-result.ts');
 
 const TEXT_MAX = 200;
+const ALLOWED_FLAGS = new Set(['--json']);
 
 function refuse(error: string, message: string, json: boolean): number {
   if (json) console.log(JSON.stringify({ ok: false, error, message }));
@@ -28,8 +29,10 @@ function describe(file: string, verdict: any): string {
   return line.length > TEXT_MAX ? `${line.slice(0, TEXT_MAX - 3)}...` : line;
 }
 
-function handlePlanCheckCommand({ positional = [], extraFlags = [], json = false, cwd = process.cwd() }: any = {}): number {
-  if (extraFlags.length > 0) return refuse('usage', `unknown flag '${extraFlags[0]}'; usage: plan-check <plan path> [--json]`, json);
+function handlePlanCheckCommand({ positional = [], extraFlags = [], flagsGiven, json = false, cwd = process.cwd() }: any = {}): number {
+  const flags = flagsGiven || extraFlags;
+  const badFlag = flags.find((f: string) => !ALLOWED_FLAGS.has(f.split('=')[0]));
+  if (badFlag) return refuse('usage', `unknown flag '${badFlag}'; usage: plan-check <plan path> [--json]`, json);
   if (positional.length === 0) return refuse('usage', 'a plan path is required; usage: plan-check <plan path> [--json]', json);
   if (positional.length > 1) return refuse('usage', `exactly one plan path is accepted, got ${positional.length}; usage: plan-check <plan path> [--json]`, json);
   const file = positional[0];

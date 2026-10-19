@@ -146,3 +146,28 @@ test('the doflow-run dispatcher reaches plan-check and keeps its exit code', (t)
   assert.equal(s.dispatcher(['bad.md']).status, 1);
   assert.equal(s.dispatcher([]).status, 2);
 });
+
+test('plan-check p.md --scope x exits 2 with usage', (t) => {
+  const s = scratch(t);
+  s.write('plan.md', CLEAN);
+  const text = s.cli(['plan.md', '--scope', 'x']);
+  assert.equal(text.status, 2, text.stderr);
+  assert.equal(text.stdout, '');
+  assert.match(text.stderr, /unknown flag '--scope'/);
+  assert.match(text.stderr, /usage: plan-check <plan path> \[--json\]/);
+  const json = s.cli(['plan.md', '--scope', 'x', '--json']);
+  assert.equal(json.status, 2, json.stderr);
+  assert.deepEqual(JSON.parse(json.stdout), {
+    ok: false,
+    error: 'usage',
+    message: "unknown flag '--scope'; usage: plan-check <plan path> [--json]",
+  });
+});
+
+test('plan-check p.md --json alone exits 0 as before', (t) => {
+  const s = scratch(t);
+  s.write('plan.md', CLEAN);
+  const json = s.cli(['plan.md', '--json']);
+  assert.equal(json.status, 0, json.stderr);
+  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], file: 'plan.md' });
+});

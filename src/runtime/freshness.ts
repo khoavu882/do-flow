@@ -22,16 +22,27 @@ function fileHash(root: string, locator: any): string | null {
 }
 
 /**
- * IC-007: the root a relative locator.file is read in: sourceRoot, the checkout the verb runs in,
- * when the file is there; else the record store's root when it holds the file (a linked worktree's
- * feature folder kept only in the main checkout, 115 IC-004); else sourceRoot. Ceiling: a file the
- * worktree deleted is read from the main checkout's copy.
+ * IC-007: the root a relative locator.file is read in: sourceRoot, except for a locator under
+ * `agent-docs/doflow/<slug>/` whose folder is absent in sourceRoot and present in the state root
+ * (the IC-005 `feature_root` case), which resolves in the state root. Any other missing file stays
+ * missing in sourceRoot (=> STALE/missing as today for a non-redirected file).
  */
 function fileRootFor(sourceRoot: string, stateRoot: string, locator: any): string {
   const file = locator?.file;
   if (typeof file !== 'string' || file === '' || path.isAbsolute(file) || path.resolve(sourceRoot) === path.resolve(stateRoot)) return sourceRoot;
-  const exists = (root: string) => { try { return fs.statSync(path.resolve(root, file)).isFile(); } catch { return false; } };
-  return !exists(sourceRoot) && exists(stateRoot) ? stateRoot : sourceRoot;
+  const normalized = path.normalize(file).replace(/\\/g, '/');
+  const match = normalized.match(/^agent-docs\/doflow\/([^/]+)\/.+/);
+  if (match) {
+    const slug = match[1];
+    const folder = path.join('agent-docs', 'doflow', slug);
+    const isDir = (root: string) => {
+      try { return fs.statSync(path.resolve(root, folder)).isDirectory(); } catch { return false; }
+    };
+    if (!isDir(sourceRoot) && isDir(stateRoot)) {
+      return stateRoot;
+    }
+  }
+  return sourceRoot;
 }
 
 // IC-007: a relative locator.file is hashed in sourceRoot, the checkout the verb runs in; `root`

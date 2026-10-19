@@ -56,9 +56,11 @@ function parseArgs(argv: string[]): any {
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
     // `'default'`, and a JavaScript default parameter fires on `undefined` — so an *absent* key
     // silently reinstated exactly the identity defect readiness.ts fixed by failing closed.
-    taskClass: null, taskId: null };
+    taskClass: null, taskId: null,
+    flagsGiven: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a.startsWith('-')) o.flagsGiven.push(a);
     switch (a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': case '--version': o.version = true; break;
@@ -76,6 +78,7 @@ function parseArgs(argv: string[]): any {
       // own argv, never parsed here (115 IC-008). Any other verb still refuses a bare `--` below.
       case '--':
         if (o.cmd === 'slot') { o.slotCommand = argv.slice(i + 1); i = argv.length; break; }
+        if (o.cmd === 'plan-check') break;
         console.error(`doflow: unknown flag '${a}'`); process.exit(1);
         break;
       // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
@@ -211,14 +214,15 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // plan-check and slot report an unknown flag as their own usage error (exit 2, 115 IC-001/IC-008).
-        if (a.startsWith('-') && (o.cmd === 'plan-check' || o.cmd === 'slot')) (o.extraFlags = o.extraFlags || []).push(a);
-        else if (a.startsWith('-')) { console.error(`doflow: unknown flag '${a}'`); process.exit(1); }
+        // slot reports an unknown flag as its own usage error (exit 2, 115 IC-008).
+        if (a.startsWith('-') && o.cmd === 'slot') (o.extraFlags = o.extraFlags || []).push(a);
+        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(`doflow: unknown flag '${a}'`); process.exit(1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
       }
     }
   }
+  if (o.cmd === 'plan-check') o.extraFlags = o.flagsGiven;
   return o;
 }
 

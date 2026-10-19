@@ -84,3 +84,23 @@ test('toEvidence hashes in ctx.sourceRoot and defaults to the root', (t) => {
   assert.equal(plain.freshness.fileHash, hashOf(main));
   assert.deepEqual(Object.keys(withSource.freshness).sort(), Object.keys(plain.freshness).sort(), 'no new freshness field');
 });
+
+test('file deleted in the worktree but present in main (not under a feature folder): result STALE', (t) => {
+  const { main, wt } = pair(t);
+  fs.writeFileSync(path.join(wt, 'src', 'a.js'), fs.readFileSync(path.join(main, 'src', 'a.js')));
+  const item = { locator: { file: 'src/a.js' }, freshness: measureFreshness(main, { file: 'src/a.js' }, null, wt) };
+  assert.equal(check(item, { repoRoot: main, sourceRoot: wt }), 'FRESH');
+  fs.unlinkSync(path.join(wt, 'src', 'a.js'));
+  assert.equal(check(item, { repoRoot: main, sourceRoot: wt }), 'STALE');
+});
+
+test('a feature-folder locator (agent-docs/doflow/<slug>/x.md) that exists only in main (worktree lacks the folder): FRESH', (t) => {
+  const { main, wt } = pair(t);
+  const docRel = 'agent-docs/doflow/slug-1/x.md';
+  fs.mkdirSync(path.join(main, 'agent-docs', 'doflow', 'slug-1'), { recursive: true });
+  fs.writeFileSync(path.join(main, docRel), '# Spec\n');
+  const loc = { file: docRel };
+  const item = { locator: loc, freshness: measureFreshness(main, loc, null, main) };
+  assert.equal(fs.existsSync(path.join(wt, 'agent-docs', 'doflow', 'slug-1')), false);
+  assert.equal(check(item, { repoRoot: main, sourceRoot: wt }), 'FRESH');
+});
