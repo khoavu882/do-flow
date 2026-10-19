@@ -1232,7 +1232,6 @@ function auditCommand(options: any): number {
 
 module.exports = {
   handleRoadmapCommand,
-  resolveMainRoot,
   next,
   readKillSwitch,
 };
