@@ -433,7 +433,7 @@ const EMIT_MAX_BYTES = /^[1-9][0-9]{0,9}$/;
  * the environment alone (IC-007); no flag sets it. Exits 0 emitted or silent, 2 usage (including a
  * launch without a launched identity, or an invalid identity value), 3 refused.
  */
-function handleContextEmitCommand({ event, cwd, session, harness, nudge, maxBytes, taskId, slug, peek = false, json = false, env = process.env }: any = {}) {
+function handleContextEmitCommand({ event, cwd, session, harness, nudge, maxBytes, taskId, slug, stateRoot, peek = false, json = false, env = process.env }: any = {}) {
   // Required on use: context-pack.ts loads the whole pack compiler, which no other verb here needs.
   const { emitContext } = require('./context-pack.ts');
   const { resolveIdentity } = require('./context/identity.ts');
@@ -456,6 +456,7 @@ function handleContextEmitCommand({ event, cwd, session, harness, nudge, maxByte
       ...(maxBytes !== undefined ? { maxBytes: Number(maxBytes) } : {}),
       ...(taskId ? { taskId } : {}),
       ...(slug ? { slug } : {}),
+      ...(stateRoot ? { stateRoot } : {}),
     });
   } catch (error: any) {
     if (error?.code === 'USAGE_ERROR') return usageError('context-emit', error.message.replace(/^emitContext: /, ''), json);

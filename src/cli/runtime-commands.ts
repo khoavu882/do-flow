@@ -18,7 +18,6 @@
 // handle<Name>Command(...)` — to cross-check the dispatcher's verb table in both directions. Keep
 // every case in exactly that shape.
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
@@ -62,7 +61,8 @@ const { handleStorageCommand } = require('../runtime/storage/cli.ts');
 const { handleRoadmapCommand, resolveMainRoot } = require('../runtime/roadmap/loop.ts');
 const { handlePlanCheckCommand } = require('../runtime/plan-check.ts');
 const { handleSlotCommand } = require('../runtime/slot-command.ts');
-const NO_UPKEEP = new Set(['storage', 'config']);
+// `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
@@ -71,9 +71,9 @@ function handleSeedCommand(options: any): any { return require('../runtime/roadm
 function handleConfigCommand(options: any): any { return require('../runtime/settings/cli.ts').handleConfigCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
-const { setDefaultSlug, setScopeRoots, invalidSlugRefusal, slugNamesNoFeature, resolveFeature } = require('../runtime/task-scope.ts');
-const { listCheckouts } = require('../runtime/checkouts.ts');
-const { taskStateRoot, adoptWorktreeRecords } = require('../runtime/state-root.ts');
+const { setRecordSlug, callerFeatureSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
+const { listCheckouts, mayBeLinked } = require('../runtime/checkouts.ts');
+const { taskStateRoot, sweepWorktreeRecords } = require('../runtime/state-root.ts');
 const { featureSlugFor } = require('../runtime/implementation-gate.ts');
 const { handleBriefToolsCommand } = require('../runtime/brief-tools.ts');
 // Advice writers load settings/write.ts, so keep that surface off installer and other verb paths.
@@ -167,30 +167,20 @@ function evidenceItemFromFlags(o: any): any {
 }
 
 /** Verbs that read or write per-task records, and so accept `--slug` (IC-002). Their records, and
- * `orchestrate`'s run, live in `taskStateRoot` (115 IC-004). */
+ * `orchestrate`'s run and `context-emit`'s delivery, live in `taskStateRoot` (115 IC-004). */
 const TASK_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'context-pack', 'research-request', 'outcome', 'retrieval-plan', 'retrieve']);
 
-/** Whether `dir` can sit in a linked worktree: the nearest `.git` above it is a file (a worktree's
- * pointer), not the main checkout's directory. A main checkout then needs no `git worktree list`. */
-function mayBeLinked(dir: string): boolean {
-  for (let at = path.resolve(dir); ; at = path.dirname(at)) {
-    try { return fs.statSync(path.join(at, '.git')).isFile(); } catch { /* not here */ }
-    if (path.dirname(at) === at) return false;
-  }
+/** The checkout a call runs in: `context-emit`'s `--cwd`, else the positional project root. */
+function callerRoot(o: any): string {
+  return o.cmd === 'context-emit' && typeof o.cwd === 'string' && o.cwd !== '' ? path.resolve(o.cwd) : evidenceRoot(o);
 }
 
-/** The feature a redirected call's records belong to: `--slug`, else the branch's, whose folder is in
- * this checkout or the main one; null when neither names one. */
-function redirectSlug(o: any, checkouts: any): string | null {
-  let slug = o.slug || null;
-  if (!slug) {
-    try {
-      const feature = resolveFeature({ projectRoot: checkouts.current });
-      slug = !feature.error && feature.paths ? feature.paths.feature_slug : null;
-    } catch { /* a failed branch lookup cannot route state to a guessed feature */ }
-  }
-  const folder = (root: string) => fs.existsSync(path.join(root, 'agent-docs', 'doflow', slug || ''));
-  return slug && (folder(checkouts.current) || folder(checkouts.main)) ? slug : null;
+/** The store conflicts a sweep found, one line each (IC-006). */
+function conflictText(o: any, sweep: any): string {
+  const lines = sweep.conflicts.map((c: any) => (c.reason === 'link' ? `  ${c.worktree} -> ${c.main}: a link on the way, nothing is moved through it`
+    : c.reason === 'same-file' ? `  ${c.worktree} and ${c.main} are one file` : `  ${c.worktree} differs from ${c.main}`));
+  return `doflow ${o.cmd}: store-conflict: ${sweep.conflicts.length} record(s) in this worktree could not be moved to the main checkout; `
+    + `files already moved stay moved. Keep one copy of each pair and remove the other, then re-run.\n${lines.join('\n')}`;
 }
 
 /**
@@ -225,13 +215,13 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   // guidance retrieval and unbound code retrieval record nothing in a feature store, so they keep the
   // pre-079 dispatch (no checkout listing, no feature resolver, no store note).
   const storeVerb = (verbs: Set<string>) => verbs.has(o.cmd) && (o.cmd !== 'retrieve' || (o.scope === 'code' && Boolean(o.taskId || o.slug)));
-  const recordVerb = storeVerb(TASK_STORE_VERBS) || o.cmd === 'orchestrate';
+  const recordVerb = storeVerb(TASK_STORE_VERBS) || o.cmd === 'orchestrate' || o.cmd === 'context-emit';
+  const caller = callerRoot(o);
   // `evidence` always lists: its attempt lookup reuses the main checkout from this one listing.
-  const checkouts = recordVerb && !o.global && (o.cmd === 'evidence' || mayBeLinked(evidenceRoot(o)))
-    ? listCheckouts({ cwd: evidenceRoot(o) }) : null;
+  const checkouts = recordVerb && !o.global && (o.cmd === 'evidence' || mayBeLinked(caller))
+    ? listCheckouts({ cwd: caller }) : null;
   // 115 IC-004: a linked, non-sandbox worktree keeps every per-task record in the main checkout.
   const { root: storeRoot, redirected } = recordVerb ? taskStateRoot(o, checkouts) : { root: evidenceRoot(o), redirected: false };
-  const featureSlug = redirected ? redirectSlug(o, checkouts) : null;
   const attemptRoot = checkouts?.ok && !checkouts.sandbox ? (checkouts.main || checkouts.current || null) : null;
   // Use the same root resolver as the handler: task redirection, the nearest run ledger,
   // and lifecycle's shared main-worktree store are deliberately different scopes.
@@ -248,25 +238,36 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
       moment.projectRoot = storeRoot;
     }
   } catch { /* a failed upkeep lookup must not change the verb's answer */ }
-  const storeSlug = featureSlug || o.slug;
-  setDefaultSlug(storeVerb(TASK_STORE_VERBS) ? storeSlug : null);
-  setScopeRoots(redirected ? { stateRoot: storeRoot, sourceRoot: evidenceRoot(o) } : null);
-  if (featureSlug) {
-    console.error(`doflow ${o.cmd}: note: feature '${featureSlug}' lives in the main checkout ${storeRoot}; this task's records are read and written there`);
+  // 115 C-1: one record slug per call, `--slug`, else the feature of the checkout the verb runs in,
+  // used by every store the call touches (task-scope.ts). It is looked up on first use, so a
+  // `context-emit` event that compiles no pack spawns no resolver. Reset on every dispatch, so one
+  // invocation's slug can never carry into the next in-process call. `retrieve` is a task-store verb
+  // only as bound code retrieval (--scope code with --task-id or --slug).
+  let slugMemo: string | null | undefined;
+  const recordSlug = (): string | null => {
+    if (slugMemo === undefined) {
+      try { slugMemo = o.slug || callerFeatureSlug({ projectRoot: caller, taskId: o.taskId }) || null; } catch { slugMemo = null; }
+    }
+    return slugMemo as string | null;
+  };
+  setRecordSlug(recordVerb ? recordSlug : undefined);
+  const storeSlug = recordVerb && o.cmd !== 'context-emit' ? recordSlug() : undefined;
+  if (redirected && o.cmd !== 'context-emit') {
+    console.error(`doflow ${o.cmd}: note: records are kept in the main checkout ${storeRoot}`);
   }
-  // A well-formed slug that names no feature changes nothing (the records go to the shared task
-  // store), but the caller typed it expecting an effect, so say so once, on stderr only.
-  if (!featureSlug && storeVerb(TASK_STORE_VERBS) && typeof o.slug === 'string' && o.slug !== ''
-    && slugNamesNoFeature({ projectRoot: evidenceRoot(o), slug: o.slug })) {
-    console.error(`doflow ${o.cmd}: note: --slug '${o.slug}' names no feature; using the shared task store`);
+  // A well-formed slug that names no feature folder still names the records' namespace, but the
+  // caller typed it expecting a feature, so say so once, on stderr only.
+  if (storeVerb(TASK_STORE_VERBS) && typeof o.slug === 'string' && o.slug !== ''
+    && slugNamesNoFeature({ projectRoots: redirected ? [caller, storeRoot] : [caller], slug: o.slug })) {
+    console.error(`doflow ${o.cmd}: note: --slug '${o.slug}' names no feature folder; its records are kept under that slug`);
   }
-  // 115 IC-006: records this task left in the worktree's own store move to the main checkout first;
-  // a record held in both with different bytes refuses the call before anything is read or written.
-  if (redirected && typeof o.taskId === 'string') {
-    const adoption = adoptWorktreeRecords({ mainRoot: storeRoot, worktreeRoot: checkouts.current, taskId: o.taskId, slug: storeSlug });
-    if (!adoption.ok) {
-      if (o.json) console.log(JSON.stringify(adoption, null, 2));
-      else console.error(`doflow ${o.cmd}: ${adoption.error}: ${adoption.paths[1]} differs from ${adoption.paths[0]}; keep one and remove the other, then re-run`);
+  // 115 IC-006: every record left in the worktree's own store moves to the main checkout first, in one
+  // locked sweep; a record held in both with different bytes refuses the call before the verb runs.
+  if (redirected) {
+    const sweep = sweepWorktreeRecords({ mainRoot: storeRoot, worktreeRoot: checkouts.current, recordSlug });
+    if (!sweep.ok) {
+      if (o.json) console.log(JSON.stringify(sweep, null, 2));
+      else console.error(conflictText(o, sweep));
       return finishRuntime(2);
     }
   }
@@ -328,7 +329,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // state and source tree, following the same scope rules as every other command.
     case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, request: o.request, requestFile: o.requestFile, taskId: o.taskId, projectRoot: evidenceRoot(o), json: o.json });
     case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
-    case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, policy: o.policy, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, mcpOutcome: o.mcpOutcome, callingSkill: o.callingSkill, slug: o.slug, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o), buildAdapters: buildAdapterRegistry });
+    case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, policy: o.policy, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, mcpOutcome: o.mcpOutcome, callingSkill: o.callingSkill, slug: o.slug, recordSlug: storeSlug, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o), buildAdapters: buildAdapterRegistry });
     case 'research-request': return handleResearchRequestCommand({ slug: storeSlug, action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: storeRoot, sourceRoot: evidenceRoot(o) });
     // The store is shared by every linked worktree of the clone (lifecycle's main-worktree root); the
     // feature is `--slug`, else the branch's, resolved the way decision and scaffold resolve it.
@@ -350,7 +351,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'claim': return handleClaimCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: storeRoot });
     case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: storeRoot, sourceRoot: evidenceRoot(o), slug: storeSlug, mandatoryFile: o.mandatoryFile, harness: o.harness, maxBytes: o.maxBytes, bare: o.bare, noRecord: o.noRecord, reason: o.reason, since: o.since, expand: o.expand });
     // 078 IC-005 and IC-013: identity is the process environment's alone, never a flag.
-    case 'context-emit': return handleContextEmitCommand({ event: o.event, cwd: o.cwd, session: o.session, harness: o.harness, nudge: o.nudge, maxBytes: o.maxBytes, taskId: o.taskId || undefined, slug: o.slug || undefined, peek: o.peek, json: o.json });
+    case 'context-emit': return handleContextEmitCommand({ event: o.event, cwd: o.cwd, session: o.session, harness: o.harness, nudge: o.nudge, maxBytes: o.maxBytes, taskId: o.taskId || undefined, slug: o.slug || undefined, stateRoot: redirected ? storeRoot : undefined, peek: o.peek, json: o.json });
     case 'context-grant': return handleContextGrantCommand({ summary: o.summary, toRun: o.toRun, toLineage: o.toLineage, fromWorktree: o.fromWorktree, fromRun: o.fromRun, fromLineage: o.fromLineage, maxBytes: o.maxBytes, json: o.json });
     case 'retrieval-plan': return handleRetrievalPlanCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, provider: o.provider, attemptStatus: o.attemptStatus, reason: o.reason, note: o.note, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o) });
     case 'outcome': return handleOutcomeCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot });

@@ -15,6 +15,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { WorkflowEngine } = require('./workflow-engine.ts');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
+const { recordIn, isSafeSlug } = require('./task-scope.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
@@ -154,21 +155,31 @@ class WorkflowOrchestrator {
     this.cwd = cwd;
   }
 
+  /** The task's run (115 C-1): `<stateDir>/<featureSlug>/<taskId>.json` for a task id other than its
+   * feature's slug, else `<stateDir>/<taskId>.json`; a flat run of a namespaced id is read, and copied
+   * into the namespace on its next write, only when it is this feature's or names none (D-3). */
+  runRecord(taskId: any) {
+    const id = assertSafeId(taskId, 'taskId');
+    const namespace = isSafeSlug(this.featureSlug) && this.featureSlug !== id ? this.featureSlug : null;
+    return recordIn({ base: this.stateDir, namespace, name: `${id}.json`, fsImpl: this.fsImpl });
+  }
+
   runFile(taskId: any) {
-    return path.join(this.stateDir, `${assertSafeId(taskId, 'taskId')}.json`);
+    return this.runRecord(taskId).file;
   }
 
   readRun(taskId: any) {
-    const file = this.runFile(taskId);
+    const file = this.runRecord(taskId).read;
     if (!this.fsImpl.existsSync(file)) return null;
     return readTaskState(this.fsImpl, file);
   }
 
   writeRun(run: any, now: any, beforeWrite?: any) {
     run.updatedAt = iso(now);
-    this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
+    const { file, seed } = this.runRecord(run.taskId);
+    this.fsImpl.mkdirSync(path.dirname(file), { recursive: true });
     const expectedRevision = run.revision || 0;
-    updateTaskState({ file: this.runFile(run.taskId), fsImpl: this.fsImpl, build: (disk: any) => {
+    updateTaskState({ file, fsImpl: this.fsImpl, prepare: seed, build: (disk: any) => {
       if ((disk?.revision || 0) !== expectedRevision) {
         throw new Error(`Concurrent workflow update for '${run.taskId}'; reload the run before retrying. Nothing was written.`);
       }
@@ -330,8 +341,9 @@ class WorkflowOrchestrator {
       const harness = (registry.harnesses || []).find((item: any) => item.id === id);
       return harness ? harness.displayName || harness.id : id;
     };
-    const { briefRecords, repoRoot } = stageId ? this.readBriefRecords(taskId) : { briefRecords: [], repoRoot: this.projectRoot };
-    if (stageId) this.recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot });
+    const { briefRecords, repoRoot } = stageId ? this.readBriefRecords(taskId) : { briefRecords: [], repoRoot: this.sourceRoot };
+    // Advice picks are project state, kept with the run's records, not in the feature folder's checkout.
+    if (stageId) this.recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot: this.projectRoot });
     try {
       const result = resolveConsultations({
         taskId, stageId, skill, flags, registry, ledger: {
@@ -424,28 +436,28 @@ class WorkflowOrchestrator {
   }
 
   /** The brief records (`*-brief.json`) of the feature this run belongs to, parsed; unreadable ones
-   * are left out. Resolving the feature spawns the resolver, so it is only done where a feature
-   * folder exists above the project. */
+   * are left out. They are feature-folder files, so they are resolved from the checkout the verb runs
+   * in with the resolver's `feature_root` (that checkout's folder, else the main checkout's), never
+   * from the state root (115 C-10). Resolving the feature spawns the resolver, so it is only done
+   * where a feature folder exists above one of the two. */
   readBriefRecords(taskId: any) {
-    const none = { briefRecords: [], repoRoot: this.projectRoot };
+    const none = { briefRecords: [], repoRoot: this.sourceRoot };
     try {
-      let dir = path.resolve(this.projectRoot);
-      let hasFolder = false;
-      for (;;) {
-        if (this.fsImpl.existsSync(path.join(dir, 'agent-docs', 'doflow'))) { hasFolder = true; break; }
-        const parent = path.dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-      }
+      const hasFolder = [this.sourceRoot, this.projectRoot].some((root) => {
+        for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {
+          if (this.fsImpl.existsSync(path.join(dir, 'agent-docs', 'doflow'))) return true;
+          if (path.dirname(dir) === dir) return false;
+        }
+      });
       if (!hasFolder) return none;
-      const feature = resolveActiveFeature({ projectRoot: this.projectRoot, slug: taskId });
+      const feature = resolveActiveFeature({ projectRoot: this.sourceRoot, slug: taskId });
       if (feature.error) return none;
-      const exec = path.join(feature.featureDir, 'exec');
+      const exec = path.join(feature.featureFolder, 'exec');
       const briefRecords = [];
       for (const name of this.fsImpl.readdirSync(exec).filter((entry: any) => entry.endsWith('-brief.json')).sort()) {
         try { briefRecords.push(JSON.parse(this.fsImpl.readFileSync(path.join(exec, name), 'utf8'))); } catch { /* an unreadable record contributes nothing */ }
       }
-      return { briefRecords, repoRoot: feature.repoRoot };
+      return { briefRecords, repoRoot: feature.featureRoot };
     } catch { return none; }
   }
 
@@ -939,7 +951,7 @@ function compactAfterHandoff({ taskId, projectRoot }: any) {
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false,
-  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, buildAdapters = null,
+  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, recordSlug, buildAdapters = null,
 }: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
 
@@ -953,9 +965,10 @@ function handleOrchestrateCommand({
   // checkout for a linked worktree, 115 IC-004) holds the records.
   const source = sourceRoot || state;
   const safeId = ID_PATTERN.test(String(taskId ?? ''));
-  // The feature this task belongs to: recorded on a run this command starts, matched against a run
-  // found in another checkout, and the namespace its readiness record is read from.
-  const featureSlug = safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
+  // The feature this task belongs to: recorded on a run this command starts, the namespace its run
+  // and readiness record live under (115 C-1), and matched against a run found in another checkout.
+  // The dispatcher passes the call's record slug, computed once for every store the call touches.
+  const featureSlug = recordSlug !== undefined ? recordSlug : safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
   // A run started in another checkout of this repository for the same feature is read and updated
   // where it is. `start` is always local: an unrelated run with the same id elsewhere neither
   // refuses nor satisfies it.

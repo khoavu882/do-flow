@@ -54,7 +54,7 @@ const { boundedAcquire } = require('./task-state.ts');
 const pointerTools = require('./context/pointer.ts');
 const { arbitrate, emitContext } = require('./context/arbitrate.ts');
 const { updateTaskState } = require('./task-state.ts');
-const { taskStoreDir } = require('./task-scope.ts');
+const { taskRecord } = require('./task-scope.ts');
 
 let correctiveTrimFallbackCount = 0;
 function getCorrectiveTrimFallbackCount(): number { return correctiveTrimFallbackCount; }
@@ -127,10 +127,9 @@ function profileRetention(harnessId: string | null, profiles: any[] | null): any
 }
 
 function appendPointerExpansion({ projectRoot, taskId, slug, key, expansion, fsImpl = fs }: any): void {
-  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
-  const file = path.join(dir, `${taskId}.json`);
+  const { file, seed } = taskRecord({ projectRoot, store: 'delivery', taskId, slug, fsImpl });
   updateTaskState({
-    fsImpl, file,
+    fsImpl, file, prepare: seed,
     acquire: (impl: any, target: string) => boundedAcquire(impl, target, { retries: 3, waitMs: 5 }),
     build(disk: any) {
       const deliveries = Array.isArray(disk?.deliveries) ? disk.deliveries : [];
@@ -1310,12 +1309,14 @@ function gatherMandatory({ root, taskId, feature }: any) {
  * unit's last delivered pack digest (a delta when its entry qualifies, else widened to full).
  * `noRecord` (peek) leaves the delivery store untouched. Rendered as markdown.
  */
-function packForEmission({ root, taskId = 'default', taskClass = 'feature', slug = null, harness = null, maxBytes, since = null, noRecord = false, env = process.env }: any): { pack: any; output: string } {
+function packForEmission({ root, stateRoot = root, taskId = 'default', taskClass = 'feature', slug = null, harness = null, maxBytes, since = null, noRecord = false, env = process.env }: any): { pack: any; output: string } {
   const budget = resolveBudget({ taskClass, maxBytes, harnessFlag: harness, env });
   const feature = resolveFeature({ projectRoot: root, slug: slug || null });
-  const basis = resolveDeltaBasis({ root, taskId, slug, since, budget, profiles: null });
+  // 115 C-2: the delivery record goes where `context-pack` puts it, under the state root; the feature
+  // folder, the plan and the hashed source files are read in `root`, the checkout emitting.
+  const basis = resolveDeltaBasis({ root: stateRoot, source: root, taskId, slug, since, budget, profiles: null });
   return deliverPack({
-    root, taskId, slug, effectiveTaskClass: taskClass, objective: undefined, mandatory: gatherMandatory({ root, taskId, feature }),
+    root: stateRoot, source: root, taskId, slug, effectiveTaskClass: taskClass, objective: undefined, mandatory: gatherMandatory({ root, taskId, feature }),
     budget, harness, parsedMaxBytes: maxBytes, bare: false, noRecord, json: false, reason: null, since,
     sinceEntry: basis.sinceEntry, deltaRefused: basis.deltaRefused, deltaExpansions: basis.expansion ? [basis.expansion] : [],
     expand: null, retention: basis.retention, feature,

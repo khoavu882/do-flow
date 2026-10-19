@@ -8,7 +8,7 @@ const crypto = require('node:crypto');
 const { acquireLock, updateTaskState, readTaskState } = require('./task-state.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
-const { taskStoreDir } = require('./task-scope.ts');
+const { taskRecord } = require('./task-scope.ts');
 const { FreshnessValidator, fileRootFor } = require('./freshness.ts');
 const { resolveLocator } = require('./locator-resolve.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
@@ -54,18 +54,23 @@ class ResearchRequestStore {
     this.stateDir = path.join(projectRoot, '.doflow', 'state', 'research');
   }
 
-  /** The feature's namespace directory when the task has one (task-scope.js), else the flat store. */
-  file(taskId: any) {
-    const dir = taskStoreDir({ projectRoot: this.projectRoot, store: 'research', taskId: assertSafeTaskId(taskId), slug: this.slug });
-    return path.join(dir, `${taskId}.json`);
+  /** The task's request file in the feature's namespace when it has one (task-scope.ts), else the flat store. */
+  record(taskId: any) {
+    return taskRecord({ projectRoot: this.projectRoot, store: 'research', taskId: assertSafeTaskId(taskId), slug: this.slug, fsImpl: this.fsImpl });
   }
 
+  /** Where the task's requests are written. */
+  file(taskId: any) {
+    return this.record(taskId).file;
+  }
+
+  /** The task's run, read where the orchestrator keeps it (115 IC-004). */
   runFile(taskId: any) {
-    return path.join(this.projectRoot, '.doflow', 'state', 'orchestration', `${assertSafeTaskId(taskId)}.json`);
+    return taskRecord({ projectRoot: this.projectRoot, store: 'orchestration', taskId: assertSafeTaskId(taskId), slug: this.slug, fsImpl: this.fsImpl }).read;
   }
 
   read(taskId: any) {
-    const data = readTaskState(this.fsImpl, this.file(taskId));
+    const data = readTaskState(this.fsImpl, this.record(taskId).read);
     if (!data) return { taskId, revision: 0, requests: [] };
     if (data.taskId !== taskId || !Array.isArray(data.requests)
       || data.requests.some((r: any) => !STATES.has(r.status))) {
@@ -77,7 +82,8 @@ class ResearchRequestStore {
   // Re-read inside updateTaskState's lock: overlapping writers cannot lose a request.
   change(taskId: any, update: any) {
     let result;
-    updateTaskState({ fsImpl: this.fsImpl, file: this.file(taskId), build: (disk: any) => {
+    const { file, seed } = this.record(taskId);
+    updateTaskState({ fsImpl: this.fsImpl, file, prepare: seed, build: (disk: any) => {
       if (disk && (disk.taskId !== taskId || !Array.isArray(disk.requests))) {
         throw new Error(`Invalid research state for task '${taskId}'`);
       }

@@ -10,7 +10,7 @@ const { loadStorageRegistry } = require('./storage/registry.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // Where a task's records live (115 IC-004) and how records a linked worktree wrote before that rule
-// reach the main checkout (IC-006).
+// reach the main checkout (IC-006): one locked sweep per redirected call.
 //
 // A linked, non-sandbox worktree reads and writes every per-task record under the main checkout's
 // `.doflow/state`, whatever folders the worktree holds: a conditional rule flipped mid-run when
@@ -46,75 +46,172 @@ function adoptedStores(registry: any = loadStorageRegistry({ repoRoot: REPO_ROOT
     .map((store: any) => ({ id: store.id, path: store.path, match: new RegExp(store.match) }));
 }
 
-/** A task's record files in one store directory: `<taskId>.json` and `<taskId>_<kind>.json` (the claims file). */
-function taskFiles(dir: string, taskId: string, match: RegExp, fsImpl: any): string[] {
-  let names: string[];
-  try { names = fsImpl.readdirSync(dir); } catch { return []; }
-  return names.filter((name) => match.test(name) && (name === `${taskId}.json` || (name.startsWith(`${taskId}_`) && name.endsWith('.json'))))
-    .filter((name) => { try { return fsImpl.statSync(path.join(dir, name)).isFile(); } catch { return false; } })
-    .sort();
+/** Whether `name` is a namespace directory of a store (a feature slug), not a `<file>.lock` directory. */
+function isNamespaceDir(name: string): boolean {
+  return SAFE_ID.test(name) && !name.includes('..') && !name.endsWith('.lock');
+}
+
+/** The record files of one store directory of the worktree, by the store's exact `match`: flat files
+ * and the files of each `<slug>/` directory, as paths relative to the store. */
+function storeFiles(dir: string, match: RegExp, fsImpl: any): string[] {
+  const out: string[] = [];
+  let entries: any[];
+  try { entries = fsImpl.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const entry of entries) {
+    // A link is listed as it stands, file or directory, so the sweep refuses it instead of skipping it.
+    if (entry.isSymbolicLink() && (match.test(entry.name) || isNamespaceDir(entry.name))) out.push(entry.name);
+    else if (entry.isFile() && match.test(entry.name)) out.push(entry.name);
+    else if (entry.isDirectory() && isNamespaceDir(entry.name)) {
+      let inner: any[];
+      try { inner = fsImpl.readdirSync(path.join(dir, entry.name), { withFileTypes: true }); } catch { continue; }
+      for (const file of inner) if ((file.isFile() || file.isSymbolicLink()) && match.test(file.name)) out.push(path.join(entry.name, file.name));
+    }
+  }
+  return out.sort();
+}
+
+/** The first link among `root`'s own path components down to `file` (the root itself is the
+ * checkout and is not owned here), or null. A component that does not exist yet is not a link. */
+function linkOnTheWay(root: string, file: string, fsImpl: any): string | null {
+  let at = root;
+  for (const part of path.relative(root, file).split(path.sep)) {
+    at = path.join(at, part);
+    let stat: any;
+    try { stat = fsImpl.lstatSync(at); } catch { return null; }
+    if (stat.isSymbolicLink()) return at;
+  }
+  return null;
+}
+
+/** The task id a flat record file names: `<taskId>.json` or the claims file `<taskId>_claims.json`. */
+function taskIdOf(name: string): string {
+  const base = name.slice(0, -'.json'.length);
+  return base.endsWith('_claims') ? base.slice(0, -'_claims'.length) : base;
+}
+
+/** The feature a flat record names (`featureSlug` on a run, `slug` on a readiness record), or null. */
+function ownSlugOf(bytes: Buffer): string | null {
+  try {
+    const data = JSON.parse(bytes.toString('utf8'));
+    const named = [data?.featureSlug, data?.slug].find((v) => typeof v === 'string' && SAFE_ID.test(v) && !v.includes('..'));
+    return named || null;
+  } catch { return null; }
+}
+
+/** Writes `bytes` to `to` through a temporary file beside it and a rename, so a reader never sees a
+ * partial record. The one write path for a record copied between stores or checkouts. */
+function placeRecord(to: string, bytes: Buffer, fsImpl: any = fs): void {
+  const tmp = `${to}.${process.pid}.tmp`;
+  fsImpl.writeFileSync(tmp, bytes);
+  fsImpl.renameSync(tmp, to);
+}
+
+function realOrNull(p: string, fsImpl: any): string | null {
+  try { return fsImpl.realpathSync(p); } catch { return null; }
 }
 
 /**
- * IC-006: moves the records one task holds in the worktree's `.doflow/state` to the same relative
- * path under the main checkout's, before the verb reads any of them. Every file of the task is
- * checked before any is moved: a file in both checkouts with different bytes refuses the whole
- * adoption and writes nothing. Equal bytes delete the worktree copy (the leftover of a move that
- * stopped between the rename and the delete). A move writes the bytes to a temporary file beside
- * the target under the target's lock, renames it into place, and only then deletes the worktree copy.
+ * IC-006 (115 C-3, D-1, D-4): moves every record a linked worktree holds in its own `.doflow/state`
+ * to the main checkout's, before the verb reads any of them. One sweep per redirected call, over
+ * every adopted store, whatever task the call names.
+ *
+ * Nothing is swept when the two state directories are one directory (a worktree whose
+ * `.doflow/state` links to the main checkout's). Per file: a link on either side's own path, or a
+ * source and target that are one file (`dev:ino`), refuses that file; otherwise the target's lock and
+ * then the source's are taken, the source is re-read under them (gone means another sweep moved it),
+ * and it goes to the same relative path, except that a flat record of a task id other than its
+ * feature's slug goes under `<store>/<slug>/` (the slug it names, else the call's `recordSlug`, so it
+ * lands where every reader looks). Equal bytes at the target delete the source; no target means a
+ * copy to a temporary file, a rename into place, a re-read compared with the source, and only then
+ * the source's deletion; other bytes leave both and are reported. Files already moved stay moved.
  * @param {Object} options
  * @param {string} options.mainRoot the main checkout
  * @param {string} options.worktreeRoot the linked worktree the verb runs in
- * @param {string} options.taskId
- * @param {string|null} [options.slug] the feature; its `<store>/<slug>/` directory is adopted file by file
+ * @param {string|null|(() => string|null)} [options.recordSlug] the call's feature slug, asked for only
+ *   when a flat record names no feature of its own
  * @param {Object} [options.registry] storage registry (default: the shipped one)
  * @param {Object} [options.fsImpl]
- * @returns {{ok: true, adopted: string[], removed: string[]} | {ok: false, error: 'store-conflict', paths: [string, string]}}
+ * @returns {{ok: boolean, adopted: string[], removed: string[], error?: 'store-conflict',
+ *   conflicts?: Array<{worktree: string, main: string, reason: 'differs'|'link'|'same-file'}>}}
  */
-function adoptWorktreeRecords({ mainRoot, worktreeRoot, taskId, slug = null, registry, fsImpl = fs }: any): any {
+function sweepWorktreeRecords({ mainRoot, worktreeRoot, recordSlug = null, registry, fsImpl = fs }: any): any {
   const done = { ok: true, adopted: [] as string[], removed: [] as string[] };
-  if (typeof taskId !== 'string' || !SAFE_ID.test(taskId) || taskId.includes('..')) return done;
-  if (path.resolve(mainRoot) === path.resolve(worktreeRoot)) return done;
-  const subdirs = [''];
-  if (typeof slug === 'string' && SAFE_ID.test(slug) && !slug.includes('..')) subdirs.push(slug);
+  const conflicts: Array<{ worktree: string; main: string; reason: string }> = [];
+  const fromState = path.join(worktreeRoot, '.doflow', 'state');
+  const toState = path.join(mainRoot, '.doflow', 'state');
+  const fromReal = realOrNull(fromState, fsImpl);
+  if (fromReal === null || fromReal === realOrNull(toState, fsImpl)) return done;
+  let callSlug: string | null | undefined;
+  const slugOfCall = (): string | null => {
+    if (callSlug === undefined) {
+      let value: any = null;
+      try { value = typeof recordSlug === 'function' ? recordSlug() : recordSlug; } catch { /* no feature */ }
+      callSlug = typeof value === 'string' && SAFE_ID.test(value) && !value.includes('..') ? value : null;
+    }
+    return callSlug;
+  };
 
-  const pairs: Array<{ from: string; to: string; bytes: Buffer }> = [];
   for (const store of adoptedStores(registry)) {
-    for (const sub of subdirs) {
-      const rel = path.join('.doflow', 'state', store.path, sub);
-      for (const name of taskFiles(path.join(worktreeRoot, rel), taskId, store.match, fsImpl)) {
-        const from = path.join(worktreeRoot, rel, name);
-        const to = path.join(mainRoot, rel, name);
-        const bytes = fsImpl.readFileSync(from);
-        if (fsImpl.existsSync(to) && !bytes.equals(fsImpl.readFileSync(to))) {
-          return { ok: false, error: 'store-conflict', paths: [to, from] };
-        }
-        pairs.push({ from, to, bytes });
-      }
+    const fromDir = path.join(fromState, store.path);
+    let dirStat: any;
+    try { dirStat = fsImpl.lstatSync(fromDir); } catch { continue; }
+    if (dirStat.isSymbolicLink()) {
+      conflicts.push({ worktree: fromDir, main: path.join(toState, store.path), reason: 'link' });
+      continue;
     }
-  }
+    if (!dirStat.isDirectory()) continue;
+    for (const rel of storeFiles(fromDir, store.match, fsImpl)) {
+      const from = path.join(fromDir, rel);
+      if (linkOnTheWay(worktreeRoot, from, fsImpl)) {
+        conflicts.push({ worktree: from, main: path.join(toState, store.path, rel), reason: 'link' });
+        continue;
+      }
+      let toRel = rel;
+      if (!rel.includes(path.sep)) {
+        let bytes: Buffer | null = null;
+        try { bytes = fsImpl.readFileSync(from); } catch { continue; }
+        const slug = ownSlugOf(bytes as Buffer) || slugOfCall();
+        if (slug && slug !== taskIdOf(rel)) toRel = path.join(slug, rel);
+      }
+      const to = path.join(toState, store.path, toRel);
+      if (linkOnTheWay(mainRoot, to, fsImpl)) { conflicts.push({ worktree: from, main: to, reason: 'link' }); continue; }
+      try {
+        const a = fsImpl.lstatSync(from);
+        const b = fsImpl.lstatSync(to);
+        if (a.dev === b.dev && a.ino === b.ino) { conflicts.push({ worktree: from, main: to, reason: 'same-file' }); continue; }
+      } catch { /* one side is absent: not one file */ }
 
-  for (const { from, to, bytes } of pairs) {
-    fsImpl.mkdirSync(path.dirname(to), { recursive: true });
-    const release = acquireLock(fsImpl, to);
-    try {
-      if (fsImpl.existsSync(to)) {
-        // Written between the check above and this lock: equal bytes are the same record, anything
-        // else stops here, with the files already moved left in place in the main checkout.
-        if (!bytes.equals(fsImpl.readFileSync(to))) return { ok: false, error: 'store-conflict', paths: [to, from] };
-        done.removed.push(from);
-      } else {
-        const tmp = `${to}.${process.pid}.tmp`;
-        fsImpl.writeFileSync(tmp, bytes);
-        fsImpl.renameSync(tmp, to);
-        done.adopted.push(to);
+      fsImpl.mkdirSync(path.dirname(to), { recursive: true });
+      const releaseTarget = acquireLock(fsImpl, to);
+      try {
+        const releaseSource = acquireLock(fsImpl, from);
+        try {
+          let bytes: Buffer;
+          try { bytes = fsImpl.readFileSync(from); } catch (error: any) {
+            if (error.code === 'ENOENT') continue; // another sweep moved it
+            throw error;
+          }
+          let there: Buffer | null = null;
+          try { there = fsImpl.readFileSync(to); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+          if (there !== null) {
+            if (!bytes.equals(there)) { conflicts.push({ worktree: from, main: to, reason: 'differs' }); continue; }
+            fsImpl.unlinkSync(from);
+            done.removed.push(from);
+            continue;
+          }
+          placeRecord(to, bytes, fsImpl);
+          if (!bytes.equals(fsImpl.readFileSync(to))) { conflicts.push({ worktree: from, main: to, reason: 'differs' }); continue; }
+          fsImpl.unlinkSync(from);
+          done.adopted.push(to);
+        } finally {
+          releaseSource();
+        }
+      } finally {
+        releaseTarget();
       }
-      fsImpl.unlinkSync(from);
-    } finally {
-      release();
     }
   }
-  return done;
+  return conflicts.length ? { ...done, ok: false, error: 'store-conflict', conflicts } : done;
 }
 
-module.exports = { taskStateRoot, adoptWorktreeRecords, adoptedStores, ADOPTER };
+module.exports = { taskStateRoot, sweepWorktreeRecords, placeRecord, adoptedStores, ADOPTER };
