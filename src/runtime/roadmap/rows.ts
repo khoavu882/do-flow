@@ -24,6 +24,8 @@ interface RoadmapRow {
   mergeCommit?: string;
   hold?: string;
   verifyArgv?: string[];
+  intent?: string;
+  acceptance?: string[];
 }
 
 interface RoadmapSeed {
@@ -78,7 +80,15 @@ interface CheckFinding {
     | 'needs-unresolved'
     | 'duplicate-id'
     | 'slug-id-mismatch'
-    | 'seed-typed-status';
+    | 'seed-typed-status'
+    | 'seed-invalid-json'
+    | 'seed-invalid'
+    | 'seed-unknown-key'
+    | 'class-unknown'
+    | 'needs-cycle'
+    | 'id-exists'
+    | 'row-not-found'
+    | 'row-started';
   message: string;
   rowId?: string;
   rowIds?: string[];
@@ -93,6 +103,48 @@ interface CheckResult {
 const ID_PATTERN = /^[0-9]{3}([a-z]|-[A-Z])?$/;
 const FORBIDDEN_KEYS = new Set(['status', 'phase', 'evidence']);
 
+const SEED_RULES = [
+  'seed-invalid-json',
+  'seed-invalid',
+  'seed-unknown-key',
+  'seed-typed-status',
+  'slug-id-mismatch',
+  'duplicate-id',
+  'class-unknown',
+  'needs-unresolved',
+  'needs-cycle',
+  'id-exists',
+  'row-not-found',
+  'row-started',
+] as const;
+
+const TOP_KEYS: readonly string[] = ['schema', 'layout', 'rows'];
+const ROW_KEYS: readonly string[] = [
+  'id',
+  'slug',
+  'title',
+  'class',
+  'needs',
+  'writeSet',
+  'requires',
+  'hold',
+  'verifyArgv',
+  'mergeCommit',
+  'intent',
+  'acceptance',
+];
+
+let _cachedRegistryClasses: string[] | null = null;
+
+function registryClasses(): string[] {
+  if (_cachedRegistryClasses === null) {
+    const registryPath = path.join(__dirname, '../../../core/registry/workflows.json');
+    const doc = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+    _cachedRegistryClasses = Object.keys(doc.classes || {});
+  }
+  return _cachedRegistryClasses;
+}
+
 class SeedParseError extends Error {
   code: string;
   rowId?: string;
@@ -104,95 +156,419 @@ class SeedParseError extends Error {
   }
 }
 
+interface SeedFindingItem {
+  rowPos: number;
+  ruleIdx: number;
+  seq: number;
+  finding: CheckFinding;
+}
+
 /**
- * Validates and parses rows.json seed data.
- * Rejects status, phase, evidence (seed-typed-status), bad id/slug, duplicate id, unresolved needs.
+ * Validates a roadmap seed document (store or draft) without throwing.
+ * Returns every finding in stable IC-006 order.
  */
-function parseSeed(raw: string | any): RoadmapSeed {
+function seedFindings(
+  rawDoc: any,
+  opts?: { classes?: string[]; draft?: boolean }
+): CheckFinding[] {
   let doc: any;
-  if (typeof raw === 'string') {
+  if (typeof rawDoc === 'string') {
     try {
-      doc = JSON.parse(raw);
+      doc = JSON.parse(rawDoc);
     } catch (err: any) {
-      throw new SeedParseError('seed-invalid-json', `Seed is not valid JSON: ${err.message}`);
+      return [
+        {
+          rule: 'seed-invalid-json',
+          message: `Seed is not valid JSON: ${err.message}`,
+        },
+      ];
     }
   } else {
-    doc = raw;
+    doc = rawDoc;
   }
 
-  if (!doc || typeof doc !== 'object') {
-    throw new SeedParseError('seed-invalid', 'Seed must be an object');
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    return [
+      {
+        rule: 'seed-invalid',
+        message: 'Seed must be an object',
+      },
+    ];
   }
 
-  // Reject typed status on top-level
+  const isDraft = Boolean(opts?.draft);
+  const items: SeedFindingItem[] = [];
+  let seq = 0;
+
+  const add = (
+    rowPos: number,
+    rule: (typeof SEED_RULES)[number],
+    message: string,
+    rowId?: string,
+    rowIds?: string[]
+  ) => {
+    const finding: CheckFinding = { rule, message };
+    if (rowId !== undefined) finding.rowId = rowId;
+    if (rowIds !== undefined) finding.rowIds = rowIds;
+    items.push({
+      rowPos,
+      ruleIdx: SEED_RULES.indexOf(rule),
+      seq: ++seq,
+      finding,
+    });
+  };
+
+  // Document level checks (rowPos = -1)
+  // Top-level key status/phase/evidence -> seed-typed-status
   for (const k of Object.keys(doc)) {
     if (FORBIDDEN_KEYS.has(k)) {
-      throw new SeedParseError('seed-typed-status', `Top-level seed declares forbidden key '${k}'`);
+      add(-1, 'seed-typed-status', `Top-level seed declares forbidden key '${k}'`);
     }
   }
 
-  if (!Array.isArray(doc.rows)) {
-    throw new SeedParseError('seed-invalid', "Seed 'rows' must be an array");
+  // Any other key not in TOP_KEYS -> seed-unknown-key
+  // In draft mode TOP_KEYS is only schema and rows, so layout is seed-unknown-key
+  const allowedTop = isDraft ? new Set(['schema', 'rows']) : new Set(TOP_KEYS);
+  for (const k of Object.keys(doc)) {
+    if (!FORBIDDEN_KEYS.has(k) && !allowedTop.has(k)) {
+      add(-1, 'seed-unknown-key', `Top-level seed declares unknown key '${k}'`);
+    }
   }
+
+  // In draft mode additionally schema must be exactly 1
+  if (isDraft && doc.schema !== 1) {
+    add(-1, 'seed-invalid', `Draft 'schema' must be 1, got ${doc.schema}`);
+  }
+
+  // rows not an array -> seed-invalid ("rows must be an array")
+  if (!Array.isArray(doc.rows)) {
+    add(-1, 'seed-invalid', "Seed 'rows' must be an array");
+    items.sort((a, b) => a.rowPos - b.rowPos || a.ruleIdx - b.ruleIdx || a.seq - b.seq);
+    return items.map((x) => x.finding);
+  }
+
+  // In draft mode additionally rows non-empty
+  if (isDraft && doc.rows.length === 0) {
+    add(-1, 'seed-invalid', "Draft 'rows' must not be empty");
+  }
+
+  // Row level checks
+  const rowKeySet = new Set(ROW_KEYS);
+  const validClasses = opts?.classes ?? registryClasses();
+  const validClassSet = new Set(validClasses);
 
   const seenIds = new Set<string>();
-  const duplicateIds = new Set<string>();
+  const allRowIds = new Set<string>();
+  for (const r of doc.rows) {
+    if (r && typeof r === 'object' && typeof r.id === 'string') {
+      allRowIds.add(r.id);
+    }
+  }
 
-  for (const row of doc.rows) {
-    if (!row || typeof row !== 'object') {
-      throw new SeedParseError('seed-invalid', 'Each row must be an object');
+  for (let idx = 0; idx < doc.rows.length; idx++) {
+    const row = doc.rows[idx];
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      add(idx, 'seed-invalid', 'Each row must be an object');
+      continue;
     }
 
+    const rowId = typeof row.id === 'string' ? row.id : undefined;
+
+    // 1. seed-invalid:
+    // title: must be a non-empty single-line string (no \r \n U+2028 U+2029) of at most 120 characters (count with Array.from)
+    if (
+      typeof row.title !== 'string' ||
+      row.title.trim().length === 0 ||
+      Array.from(row.title).length > 120 ||
+      /[\r\n\u2028\u2029]/.test(row.title)
+    ) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${rowId ?? 'unknown'}' title must be a non-empty single-line string of at most 120 characters`,
+        rowId
+      );
+    }
+
+    // needs: if present must be an array of strings (the key may be absent)
+    if (
+      row.needs !== undefined &&
+      (!Array.isArray(row.needs) || !row.needs.every((n: any) => typeof n === 'string'))
+    ) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${rowId ?? 'unknown'}' needs must be an array of strings`,
+        rowId
+      );
+    }
+
+    // writeSet: if present an array of 1 to 32 non-empty strings
+    if (
+      row.writeSet !== undefined &&
+      (!Array.isArray(row.writeSet) ||
+        row.writeSet.length < 1 ||
+        row.writeSet.length > 32 ||
+        !row.writeSet.every((s: any) => typeof s === 'string' && s.trim().length > 0))
+    ) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${rowId ?? 'unknown'}' writeSet must be an array of 1 to 32 non-empty strings`,
+        rowId
+      );
+    }
+
+    // requires: if present an array of non-empty strings
+    if (
+      row.requires !== undefined &&
+      (!Array.isArray(row.requires) ||
+        !row.requires.every((s: any) => typeof s === 'string' && s.trim().length > 0))
+    ) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${rowId ?? 'unknown'}' requires must be an array of non-empty strings`,
+        rowId
+      );
+    }
+
+    // hold: as today (non-empty single-line string at most 120 chars)
+    if (
+      row.hold !== undefined &&
+      (typeof row.hold !== 'string' ||
+        row.hold.trim().length === 0 ||
+        Array.from(row.hold).length > 120 ||
+        /[\r\n\u2028\u2029]/.test(row.hold))
+    ) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${rowId ?? 'unknown'}' hold must be a non-empty single-line string of at most 120 characters`,
+        rowId
+      );
+    }
+
+    // verifyArgv: as today (1 to 8 non-empty strings)
+    if (
+      row.verifyArgv !== undefined &&
+      (!Array.isArray(row.verifyArgv) ||
+        row.verifyArgv.length === 0 ||
+        row.verifyArgv.length > 8 ||
+        !row.verifyArgv.every((arg: any) => typeof arg === 'string' && arg.trim().length > 0))
+    ) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${rowId ?? 'unknown'}' verifyArgv must be 1 to 8 non-empty strings`,
+        rowId
+      );
+    }
+
+    // mergeCommit: if present a 40-hex lowercase string (store mode only)
+    if (!isDraft && row.mergeCommit !== undefined) {
+      if (typeof row.mergeCommit !== 'string' || !/^[0-9a-f]{40}$/.test(row.mergeCommit)) {
+        add(
+          idx,
+          'seed-invalid',
+          `Row '${rowId ?? 'unknown'}' mergeCommit must be a 40-hex lowercase string`,
+          rowId
+        );
+      }
+    }
+
+    // intent: if present a non-empty single-line string at most 200 characters
+    if (
+      row.intent !== undefined &&
+      (typeof row.intent !== 'string' ||
+        row.intent.trim().length === 0 ||
+        Array.from(row.intent).length > 200 ||
+        /[\r\n\u2028\u2029]/.test(row.intent))
+    ) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${rowId ?? 'unknown'}' intent must be a non-empty single-line string of at most 200 characters`,
+        rowId
+      );
+    }
+
+    // acceptance: if present an array of 1 to 8 non-empty single-line strings, each at most 200 characters
+    if (
+      row.acceptance !== undefined &&
+      (!Array.isArray(row.acceptance) ||
+        row.acceptance.length < 1 ||
+        row.acceptance.length > 8 ||
+        !row.acceptance.every(
+          (s: any) =>
+            typeof s === 'string' &&
+            s.trim().length > 0 &&
+            Array.from(s).length <= 200 &&
+            !/[\r\n\u2028\u2029]/.test(s)
+        ))
+    ) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${rowId ?? 'unknown'}' acceptance must be an array of 1 to 8 non-empty single-line strings of at most 200 characters`,
+        rowId
+      );
+    }
+
+    // 2. seed-unknown-key: a key not in ROW_KEYS (excluding forbidden keys and draft mergeCommit)
+    for (const k of Object.keys(row)) {
+      if (!FORBIDDEN_KEYS.has(k) && !(isDraft && k === 'mergeCommit') && !rowKeySet.has(k)) {
+        add(idx, 'seed-unknown-key', `Row '${rowId ?? 'unknown'}' declares unknown key '${k}'`, rowId);
+      }
+    }
+
+    // 3. seed-typed-status: key status/phase/evidence; in draft mode also a mergeCommit key
     for (const k of Object.keys(row)) {
       if (FORBIDDEN_KEYS.has(k)) {
-        throw new SeedParseError('seed-typed-status', `Row '${row.id || 'unknown'}' declares forbidden key '${k}'`, row.id);
+        add(idx, 'seed-typed-status', `Row '${rowId ?? 'unknown'}' declares forbidden key '${k}'`, rowId);
       }
     }
+    if (isDraft && 'mergeCommit' in row) {
+      add(idx, 'seed-typed-status', `Draft row '${rowId ?? 'unknown'}' declares forbidden key 'mergeCommit'`, rowId);
+    }
 
+    // 4. slug-id-mismatch: id not matching pattern or slug not starting with id-
     if (typeof row.id !== 'string' || !ID_PATTERN.test(row.id)) {
-      throw new SeedParseError('slug-id-mismatch', `Row id '${row.id}' does not match pattern ^[0-9]{3}([a-z]|-[A-Z])?$`, row.id);
+      add(
+        idx,
+        'slug-id-mismatch',
+        `Row id '${row.id}' does not match pattern ^[0-9]{3}([a-z]|-[A-Z])?$`,
+        rowId
+      );
+    } else if (typeof row.slug !== 'string' || !row.slug.startsWith(`${row.id}-`)) {
+      add(
+        idx,
+        'slug-id-mismatch',
+        `Row slug '${row.slug}' must start with '${row.id}-'`,
+        rowId
+      );
     }
 
-    if (typeof row.slug !== 'string' || !row.slug.startsWith(`${row.id}-`)) {
-      throw new SeedParseError('slug-id-mismatch', `Row slug '${row.slug}' must start with '${row.id}-'`, row.id);
+    // 5. duplicate-id: reported on each repeated occurrence of an already-seen id (the later row)
+    if (typeof row.id === 'string' && ID_PATTERN.test(row.id)) {
+      if (seenIds.has(row.id)) {
+        add(idx, 'duplicate-id', `Duplicate row id: ${row.id}`, rowId);
+      } else {
+        seenIds.add(row.id);
+      }
     }
 
-    if (seenIds.has(row.id)) {
-      duplicateIds.add(row.id);
-    } else {
-      seenIds.add(row.id);
+    // 6. class-unknown: class not a string in opts.classes ?? registryClasses(); message lists the valid set
+    if (typeof row.class !== 'string' || !validClassSet.has(row.class)) {
+      add(
+        idx,
+        'class-unknown',
+        `Row '${rowId ?? 'unknown'}' class '${row.class}' is unknown; valid classes: ${validClasses.join(', ')}`,
+        rowId
+      );
     }
 
-    if (row.needs && !Array.isArray(row.needs)) {
-      throw new SeedParseError('seed-invalid', `Row '${row.id}' needs must be an array of strings`, row.id);
-    }
-
-    if (row.hold !== undefined && (typeof row.hold !== 'string' || row.hold.trim().length === 0
-      || Array.from(row.hold).length > 120 || /[\r\n\u2028\u2029]/.test(row.hold))) {
-      throw new SeedParseError('seed-invalid', `Row '${row.id}' hold must be a non-empty single-line string of at most 120 characters`, row.id);
-    }
-
-    // The argv the loop gives `dispatch start --verify-argv` (108 G.3 B2); data, never a shell string.
-    if (row.verifyArgv !== undefined && (!Array.isArray(row.verifyArgv) || row.verifyArgv.length === 0 || row.verifyArgv.length > 8
-      || !row.verifyArgv.every((arg: any) => typeof arg === 'string' && arg.trim().length > 0))) {
-      throw new SeedParseError('seed-invalid', `Row '${row.id}' verifyArgv must be 1 to 8 non-empty strings`, row.id);
-    }
-  }
-
-  if (duplicateIds.size > 0) {
-    const firstDup = Array.from(duplicateIds)[0];
-    throw new SeedParseError('duplicate-id', `Duplicate row id: ${firstDup}`, firstDup);
-  }
-
-  // Check unresolved needs
-  for (const row of doc.rows) {
-    for (const need of row.needs || []) {
-      if (!seenIds.has(need)) {
-        throw new SeedParseError('needs-unresolved', `Row '${row.id}' declares unresolved need '${need}'`, row.id);
+    // 7. needs-unresolved (skipped in draft mode)
+    if (!isDraft && Array.isArray(row.needs)) {
+      for (const need of row.needs) {
+        if (typeof need === 'string' && !allRowIds.has(need)) {
+          add(
+            idx,
+            'needs-unresolved',
+            `Row '${rowId ?? 'unknown'}' declares unresolved need '${need}'`,
+            rowId
+          );
+        }
       }
     }
   }
 
+  // 8. needs-cycle (skipped in draft mode)
+  if (!isDraft) {
+    const firstRowById = new Map<string, { row: any; docPos: number }>();
+    const firstRowList: Array<{ row: any; docPos: number }> = [];
+
+    for (let idx = 0; idx < doc.rows.length; idx++) {
+      const r = doc.rows[idx];
+      if (r && typeof r === 'object' && typeof r.id === 'string') {
+        if (!firstRowById.has(r.id)) {
+          const entry = { row: r, docPos: idx };
+          firstRowById.set(r.id, entry);
+          firstRowList.push(entry);
+        }
+      }
+    }
+
+    const WHITE = 0;
+    const GRAY = 1;
+    const BLACK = 2;
+    const color = new Map<string, number>();
+    const callStack: string[] = [];
+    const seenCycleKeys = new Set<string>();
+
+    const dfs = (u: string) => {
+      color.set(u, GRAY);
+      callStack.push(u);
+
+      const entry = firstRowById.get(u);
+      const uNeeds = entry && Array.isArray(entry.row.needs) ? entry.row.needs : [];
+
+      for (const v of uNeeds) {
+        if (typeof v !== 'string' || !firstRowById.has(v)) continue;
+        const vColor = color.get(v) ?? WHITE;
+        if (vColor === GRAY) {
+          // Cycle found
+          const cycleStartIdx = callStack.indexOf(v);
+          const cyclePath = callStack.slice(cycleStartIdx);
+
+          let minPos = Infinity;
+          let minIdx = 0;
+          for (let i = 0; i < cyclePath.length; i++) {
+            const pos = firstRowById.get(cyclePath[i])!.docPos;
+            if (pos < minPos) {
+              minPos = pos;
+              minIdx = i;
+            }
+          }
+          const canonicalPath = cyclePath.slice(minIdx).concat(cyclePath.slice(0, minIdx));
+          const cycleKey = canonicalPath.join('->');
+          if (!seenCycleKeys.has(cycleKey)) {
+            seenCycleKeys.add(cycleKey);
+            const msg = `needs cycle ${canonicalPath.join(' -> ')} -> ${canonicalPath[0]}`;
+            add(minPos, 'needs-cycle', msg, undefined, canonicalPath);
+          }
+        } else if (vColor === WHITE) {
+          dfs(v);
+        }
+      }
+
+      callStack.pop();
+      color.set(u, BLACK);
+    };
+
+    for (const entry of firstRowList) {
+      if ((color.get(entry.row.id) ?? WHITE) === WHITE) {
+        dfs(entry.row.id);
+      }
+    }
+  }
+
+  // Sort findings: document-level (-1) first, then by rowPos, then by ruleIdx, then seq
+  items.sort((a, b) => a.rowPos - b.rowPos || a.ruleIdx - b.ruleIdx || a.seq - b.seq);
+  return items.map((x) => x.finding);
+}
+
+/**
+ * Validates and parses rows.json seed data.
+ * Throws SeedParseError for the first finding if any finding exists.
+ */
+function parseSeed(raw: string | any): RoadmapSeed {
+  const findings = seedFindings(raw, {});
+  if (findings.length > 0) {
+    const first = findings[0];
+    throw new SeedParseError(first.rule, first.message, first.rowId ?? first.rowIds?.[0]);
+  }
+  const doc = typeof raw === 'string' ? JSON.parse(raw) : raw;
   return doc as RoadmapSeed;
 }
 
@@ -517,115 +893,40 @@ function check({
     }
   };
 
-  // 1. Check raw seed for typed status / duplicate ids / bad slugs if provided
+  // 1. Validate seed with seedFindings
+  const seedInput =
+    seedRaw !== undefined && seedRaw !== null
+      ? seedRaw
+      : {
+          schema: 1,
+          rows: rows.map((r) =>
+            r && typeof r === 'object'
+              ? { ...r, title: r.title ?? r.slug ?? r.id ?? 'row' }
+              : r
+          ),
+        };
+  const seedFindingList = seedFindings(seedInput, {});
+  for (const f of seedFindingList) {
+    addFinding(f);
+  }
+
+  // 2. Compute effectiveRows and rowIdSet for git checks
   let rawObj: any = null;
-  if (seedRaw) {
-    rawObj = typeof seedRaw === 'string' ? (() => { try { return JSON.parse(seedRaw); } catch { return null; } })() : seedRaw;
-    if (rawObj && typeof rawObj === 'object') {
-      for (const k of Object.keys(rawObj)) {
-        if (FORBIDDEN_KEYS.has(k)) {
-          addFinding({
-            rule: 'seed-typed-status',
-            message: `Top-level seed declares forbidden key '${k}'`,
-          });
-        }
+  if (seedRaw !== undefined && seedRaw !== null) {
+    if (typeof seedRaw === 'string') {
+      try {
+        rawObj = JSON.parse(seedRaw);
+      } catch {
+        rawObj = null;
       }
-      if (Array.isArray(rawObj.rows)) {
-        const seen = new Set<string>();
-        for (const r of rawObj.rows) {
-          if (!r || typeof r !== 'object') continue;
-          for (const k of Object.keys(r)) {
-            if (FORBIDDEN_KEYS.has(k)) {
-              addFinding({
-                rule: 'seed-typed-status',
-                message: `Row '${r.id || 'unknown'}' declares forbidden key '${k}'`,
-                rowId: r.id,
-              });
-            }
-          }
-          if (r.id) {
-            if (seen.has(r.id)) {
-              addFinding({
-                rule: 'duplicate-id',
-                message: `Duplicate row id: ${r.id}`,
-                rowId: r.id,
-              });
-            }
-            seen.add(r.id);
-
-            if (!ID_PATTERN.test(r.id)) {
-              addFinding({
-                rule: 'slug-id-mismatch',
-                message: `Invalid row id '${r.id}'`,
-                rowId: r.id,
-              });
-            }
-            if (typeof r.slug !== 'string' || !r.slug.startsWith(`${r.id}-`)) {
-              addFinding({
-                rule: 'slug-id-mismatch',
-                message: `Row slug '${r.slug}' does not match id '${r.id}'`,
-                rowId: r.id,
-              });
-            }
-          }
-
-          if (Array.isArray(r.needs)) {
-            const rawDeclaredIds = new Set(rawObj.rows.map((x: any) => x?.id).filter(Boolean));
-            for (const need of r.needs) {
-              if (!rawDeclaredIds.has(need)) {
-                if (!findings.some((f) => f.rule === 'needs-unresolved' && f.rowId === r.id)) {
-                  addFinding({
-                    rule: 'needs-unresolved',
-                    message: `Row '${r.id || 'unknown'}' declares unresolved need '${need}'`,
-                    rowId: r.id,
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
+    } else {
+      rawObj = seedRaw;
     }
   }
 
-  // 2. Structural checks on parsed rows
   const fallbackRawRows = (rawObj && Array.isArray(rawObj.rows)) ? rawObj.rows : [];
   const effectiveRows = rows.length > 0 ? rows : fallbackRawRows.filter((r: any) => r && typeof r === 'object' && r.id);
   const rowIdSet = new Set<string>(effectiveRows.map((r: any) => r.id));
-  const seenRowIds = new Set<string>();
-
-  for (const r of rows) {
-    if (seenRowIds.has(r.id)) {
-      if (!findings.some((f) => f.rule === 'duplicate-id' && f.rowId === r.id)) {
-        addFinding({
-          rule: 'duplicate-id',
-          message: `Duplicate row id: ${r.id}`,
-          rowId: r.id,
-        });
-      }
-    }
-    seenRowIds.add(r.id);
-
-    if (!ID_PATTERN.test(r.id) || !r.slug || !r.slug.startsWith(`${r.id}-`)) {
-      if (!findings.some((f) => f.rule === 'slug-id-mismatch' && f.rowId === r.id)) {
-        addFinding({
-          rule: 'slug-id-mismatch',
-          message: `Slug '${r.slug}' does not match row id '${r.id}'`,
-          rowId: r.id,
-        });
-      }
-    }
-
-    for (const need of r.needs || []) {
-      if (!rowIdSet.has(need)) {
-        addFinding({
-          rule: 'needs-unresolved',
-          message: `Row '${r.id}' declares unresolved need '${need}'`,
-          rowId: r.id,
-        });
-      }
-    }
-  }
 
   // 3. Git trailer checks
   const trailerMerges = (gitFacts.merges || []).filter(
@@ -707,13 +1008,8 @@ function check({
   }
 
   // 6. Render drift check (only when parsed rows are valid without seed syntax errors)
-  const hasSeedErrors = findings.some(
-    (f) =>
-      f.rule === 'seed-typed-status' ||
-      f.rule === 'duplicate-id' ||
-      f.rule === 'slug-id-mismatch' ||
-      f.rule === 'needs-unresolved'
-  );
+  const storeSeedRules = new Set(SEED_RULES.slice(0, 9));
+  const hasSeedErrors = findings.some((f) => storeSeedRules.has(f.rule as any));
   if (rendered !== undefined && rendered !== null && rows.length > 0 && !hasSeedErrors) {
     const { statuses } = deriveStatus(rows, gitFacts);
     const expected = render(rows, statuses);
@@ -742,4 +1038,9 @@ module.exports = {
   render,
   renderRoadmapFile,
   check,
+  seedFindings,
+  registryClasses,
+  SEED_RULES,
+  ROW_KEYS,
+  TOP_KEYS,
 };
