@@ -11,7 +11,8 @@ const os = require('node:os');
 const { sha256Digest, gatherGitFacts } = require('./facts.ts');
 const {
   seedFindings,
-  registryClasses,
+  safeText,
+  validWriteSet,
   SEED_RULES,
   deriveStatus,
   render,
@@ -25,7 +26,7 @@ const {
   resolveMainRoot,
   noPsAlive,
 } = require('./loop.ts');
-const { readKillSwitch } = require('../settings/autopilot.ts');
+const { readSeedSwitch } = require('../settings/autopilot.ts');
 
 interface JudgeDraftOptions {
   draftRaw: any;
@@ -75,7 +76,7 @@ function judgeDraft({
         findings: [
           {
             rule: 'seed-invalid-json',
-            message: `Draft is not valid JSON: ${err.message}`,
+            message: `Draft is not valid JSON: ${safeText(err.message)}`,
           },
         ],
         overlaps: [],
@@ -123,9 +124,36 @@ function judgeDraft({
 
   // 2. Draft findings (draft mode checks shape only: keys, field shapes, slug/id, duplicate id, class)
   const draftFindings = seedFindings(draftDoc, { draft: true, classes });
+  const storeDocumentFindings = seedFindings(seedDoc, { classes })
+    .filter((finding: any) => finding.rowId === undefined && finding.rowIds === undefined);
+  const findingKey = (finding: any) => `${finding.rule}|${finding.rowId ?? ''}|${(finding.rowIds || []).join(',')}|${finding.message}`;
+  const mergeUnique = (...lists: any[][]) => {
+    const seen = new Set<string>();
+    return lists.flat().filter((finding) => {
+      const key = findingKey(finding);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  if (!Array.isArray(seedDoc.rows)) {
+    const findings = mergeUnique(draftFindings, storeDocumentFindings)
+      .sort((a: any, b: any) => SEED_RULES.indexOf(a.rule) - SEED_RULES.indexOf(b.rule));
+    return {
+      schema: 1,
+      action: 'seed',
+      op,
+      ok: false,
+      rows: [],
+      findings: findings.map((finding: any) => ({ rule: finding.rule, message: finding.message })),
+      overlaps: [],
+      alone: [],
+    };
+  }
 
   // 3. Candidate document = store doc with draft amends replaced in place and draft adds appended
-  const storeRows = Array.isArray(seedDoc.rows) ? seedDoc.rows : [];
+  const storeRows = seedDoc.rows;
   const candidateRows = [...storeRows];
   const storeIndexMap = new Map<string, number>();
   for (let i = 0; i < storeRows.length; i++) {
@@ -156,24 +184,16 @@ function judgeDraft({
   const candidateFindings = seedFindings(candidate, { classes });
 
   // Merge draft and candidate findings, dropping a candidate finding whose key equals one already present
-  const mergedFindings: any[] = [...draftFindings];
-  const seenFindingKeys = new Set<string>();
-  for (const f of draftFindings) {
-    const key = `${f.rule}|${f.rowId ?? ''}|${(f.rowIds || []).join(',')}|${f.message}`;
-    seenFindingKeys.add(key);
-  }
-  for (const f of candidateFindings) {
-    const key = `${f.rule}|${f.rowId ?? ''}|${(f.rowIds || []).join(',')}|${f.message}`;
-    if (!seenFindingKeys.has(key)) {
-      seenFindingKeys.add(key);
-      mergedFindings.push(f);
-    }
-  }
+  const mergedFindings: any[] = mergeUnique(draftFindings, storeDocumentFindings, candidateFindings);
 
   // 4. Per draft row (object with a string id), in draft order:
   //    change = amend when its id is a store row id, else add
   //    status for an amend row = status of STORE row from deriveStatus(storeRows, gitFacts).rowStatus[id]
-  const storeValidRows = storeRows.filter((r: any) => r && typeof r === 'object' && typeof r.id === 'string');
+  const statusSafeRow = (r: any) => r && typeof r === 'object' && !Array.isArray(r) &&
+    typeof r.id === 'string' && typeof r.slug === 'string' &&
+    (r.mergeCommit === undefined || typeof r.mergeCommit === 'string') &&
+    (r.hold === undefined || typeof r.hold === 'string');
+  const storeValidRows = storeRows.filter(statusSafeRow);
   const { rowStatus: storeRowStatus } = deriveStatus(storeValidRows, gitFacts);
 
   const resultRows: any[] = [];
@@ -195,14 +215,14 @@ function judgeDraft({
         opFindings.push({
           rule: 'id-exists',
           rowId: id,
-          message: `Row '${id}' already exists in store; use --action amend to update`,
+          message: `Row '${safeText(id)}' already exists in store; use --action amend to update`,
         });
       } else if (op === 'check' || op === 'amend') {
         if (status === 'merged' || status === 'in-flight') {
           opFindings.push({
             rule: 'row-started',
             rowId: id,
-            message: `Row '${id}' has status '${status}' and cannot be amended`,
+            message: `Row '${safeText(id)}' has status '${safeText(status)}' and cannot be amended`,
           });
         }
       }
@@ -213,7 +233,7 @@ function judgeDraft({
         opFindings.push({
           rule: 'row-not-found',
           rowId: id,
-          message: `Row '${id}' not found in store; use --action apply to add`,
+          message: `Row '${safeText(id)}' not found in store; use --action apply to add`,
         });
       }
     }
@@ -257,9 +277,7 @@ function judgeDraft({
 
   // 7. Overlaps: statuses = deriveStatus(candidateValidRows, gitFacts)
   // Pairs (i<j) of rows not merged, with at least one in draft id set, whose writeSets overlap
-  const candidateValidRows = candidateRows.filter(
-    (r: any) => r && typeof r === 'object' && typeof r.id === 'string'
-  );
+  const candidateValidRows = candidateRows.filter(statusSafeRow);
   const { rowStatus: candRowStatus } = deriveStatus(candidateValidRows, gitFacts);
 
   const draftIdSet = new Set<string>();
@@ -277,11 +295,13 @@ function judgeDraft({
       const rJ = candidateValidRows[j];
       if (candRowStatus[rJ.id] === 'merged') continue;
       if (!draftIdSet.has(rI.id) && !draftIdSet.has(rJ.id)) continue;
-      if (!writeSetsOverlap(rI.writeSet, rJ.writeSet)) continue;
+      const writeSetI = validWriteSet(rI.writeSet);
+      const writeSetJ = validWriteSet(rJ.writeSet);
+      if (!writeSetI || !writeSetJ || !writeSetsOverlap(writeSetI, writeSetJ)) continue;
 
       const paths: Array<[string, string]> = [];
-      for (const pI of rI.writeSet || []) {
-        for (const pJ of rJ.writeSet || []) {
+      for (const pI of writeSetI) {
+        for (const pJ of writeSetJ) {
           if (pathsOverlap(pI, pJ)) {
             paths.push([pI, pJ]);
           }
@@ -309,7 +329,7 @@ function judgeDraft({
       const id = dRow.id;
       if (seenAlone.has(id)) continue;
       if (candRowStatus[id] !== 'merged') {
-        if (!dRow.writeSet || (Array.isArray(dRow.writeSet) && dRow.writeSet.length === 0)) {
+        if (validWriteSet(dRow.writeSet) === null) {
           seenAlone.add(id);
           alone.push(id);
         }
@@ -335,10 +355,10 @@ function printTextResult(
   err: (s: string) => void,
   opts?: { refusalDetail?: string }
 ): void {
-  const op = result.op;
+  const op = safeText(result.op);
   let statusPart: string;
   if (result.reason) {
-    statusPart = `refused: ${result.reason}`;
+    statusPart = `refused: ${safeText(result.reason)}`;
   } else if (result.findings.length === 0) {
     statusPart = 'ok';
   } else {
@@ -365,14 +385,20 @@ function printTextResult(
   for (const f of result.findings) {
     let idPart = '';
     if (Array.isArray(f.rowIds) && f.rowIds.length > 0) {
-      idPart = f.rowIds.join(' ');
+      idPart = f.rowIds.map(safeText).join(' ');
     } else if (f.rowId) {
-      idPart = f.rowId;
+      idPart = safeText(f.rowId);
     }
+    const rule = safeText(f.rule);
+    // seedFindings escapes each raw value as it builds this message; this guards any other
+    // finding producer while preserving the full, untruncated prose of valid messages.
+    const message = typeof f.message === 'string'
+      ? f.message.replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
+      : safeText(f.message);
     if (idPart) {
-      detailLines.push(`  [${f.rule}] ${idPart}: ${f.message}`);
+      detailLines.push(`  [${rule}] ${idPart}: ${message}`);
     } else {
-      detailLines.push(`  [${f.rule}] ${f.message}`);
+      detailLines.push(`  [${rule}] ${message}`);
     }
   }
 
@@ -382,9 +408,9 @@ function printTextResult(
     let pathDesc = '';
     if (pair) {
       const [pA, pB] = pair;
-      pathDesc = pA === pB ? pA : `${pA} ~ ${pB}`;
+      pathDesc = pA === pB ? safeText(pA) : `${safeText(pA)} ~ ${safeText(pB)}`;
     }
-    detailLines.push(`  overlap ${o.rows[0]} ${o.rows[1]}: ${pathDesc}`);
+    detailLines.push(`  overlap ${safeText(o.rows[0])} ${safeText(o.rows[1])}: ${pathDesc}`);
   }
 
   // Refusal single reason line
@@ -521,7 +547,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
 
   // 4. Apply / Amend action
   // (a) Kill switch check
-  const switchReader = readSwitch || readKillSwitch;
+  const switchReader = readSwitch || readSeedSwitch;
   const killSwitch = switchReader(env, fsImpl);
   if (killSwitch.enabled) {
     const result = {
@@ -543,8 +569,11 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
     if (json) {
       out(JSON.stringify(result));
     } else {
+      const { configHome } = require('../config-home.ts');
+      const home = configHome(env).dir;
+      const homeText = home ? safeText(home) : 'the config home (none resolves: set HOME or XDG_CONFIG_HOME)';
       printTextResult(result, out, err, {
-        refusalDetail: 'autopilot is enabled; turn autopilot off first to seed the roadmap',
+        refusalDetail: `autopilot is not verifiably off for this config home; a person sets autopilot.enabled to off in ${homeText}/settings.json or creates ${homeText}/autopilot/off`,
       });
     }
     return 1;
@@ -582,7 +611,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       writes: 0,
     };
     const holderDesc = holder
-      ? `pid ${holder.pid ?? 'unknown'} on ${holder.host ?? 'unknown'}`
+      ? `pid ${safeText(holder.pid ?? 'unknown')} on ${safeText(holder.host ?? 'unknown')}`
       : 'unknown holder';
 
     if (json) {
@@ -656,10 +685,12 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
     try {
       parsedStore = JSON.parse(freshSeedRaw);
     } catch {
-      parsedStore = { schema: 1, rows: [] };
+      throw new Error('Seed invariant failed after clean judgement: store JSON could not be parsed');
     }
-
-    const storeRows = Array.isArray(parsedStore.rows) ? parsedStore.rows : [];
+    if (!parsedStore || typeof parsedStore !== 'object' || Array.isArray(parsedStore) || !Array.isArray(parsedStore.rows)) {
+      throw new Error('Seed invariant failed after clean judgement: store rows must be an array');
+    }
+    const storeRows = parsedStore.rows;
     let newRows: any[];
     if (action === 'apply') {
       const draftAddRows: any[] = [];
@@ -695,8 +726,13 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       const storeDir = path.dirname(storePath);
       fsImpl.mkdirSync(storeDir, { recursive: true });
       const tmpStorePath = path.join(storeDir, `.tmp-rows-${pid ?? process.pid}-${Date.now()}`);
-      fsImpl.writeFileSync(tmpStorePath, newStoreRaw, 'utf8');
-      fsImpl.renameSync(tmpStorePath, storePath);
+      try {
+        fsImpl.writeFileSync(tmpStorePath, newStoreRaw, 'utf8');
+        fsImpl.renameSync(tmpStorePath, storePath);
+      } catch (error) {
+        try { fsImpl.unlinkSync(tmpStorePath); } catch { /* ignore temp cleanup failure */ }
+        throw error;
+      }
       writes += 1;
     }
 

@@ -8,6 +8,27 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+function safeText(value: any): string {
+  let text: string;
+  if (typeof value === 'string') {
+    try {
+      text = JSON.stringify(value).slice(1, -1)
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+    } catch {
+      text = '';
+    }
+  } else {
+    try {
+      const encoded = JSON.stringify(value);
+      text = encoded === undefined ? 'undefined' : encoded;
+    } catch {
+      text = '[unserializable]';
+    }
+  }
+  return text.length > 60 ? `${text.slice(0, 57)}...` : text;
+}
+
 interface SeedLayout {
   worktree?: string;
   branch?: string;
@@ -179,7 +200,7 @@ function seedFindings(
       return [
         {
           rule: 'seed-invalid-json',
-          message: `Seed is not valid JSON: ${err.message}`,
+          message: `Seed is not valid JSON: ${safeText(err.message)}`,
         },
       ];
     }
@@ -222,7 +243,7 @@ function seedFindings(
   // Top-level key status/phase/evidence -> seed-typed-status
   for (const k of Object.keys(doc)) {
     if (FORBIDDEN_KEYS.has(k)) {
-      add(-1, 'seed-typed-status', `Top-level seed declares forbidden key '${k}'`);
+      add(-1, 'seed-typed-status', `Top-level seed declares forbidden key '${safeText(k)}'`);
     }
   }
 
@@ -231,13 +252,15 @@ function seedFindings(
   const allowedTop = isDraft ? new Set(['schema', 'rows']) : new Set(TOP_KEYS);
   for (const k of Object.keys(doc)) {
     if (!FORBIDDEN_KEYS.has(k) && !allowedTop.has(k)) {
-      add(-1, 'seed-unknown-key', `Top-level seed declares unknown key '${k}'`);
+      add(-1, 'seed-unknown-key', `Top-level seed declares unknown key '${safeText(k)}'`);
     }
   }
 
   // In draft mode additionally schema must be exactly 1
   if (isDraft && doc.schema !== 1) {
-    add(-1, 'seed-invalid', `Draft 'schema' must be 1, got ${doc.schema}`);
+    add(-1, 'seed-invalid', `Draft 'schema' must be 1, got ${safeText(doc.schema)}`);
+  } else if (!isDraft && doc.schema !== 1) {
+    add(-1, 'seed-invalid', "Seed 'schema' must be 1");
   }
 
   // rows not an array -> seed-invalid ("rows must be an array")
@@ -285,7 +308,7 @@ function seedFindings(
       add(
         idx,
         'seed-invalid',
-        `Row '${rowId ?? 'unknown'}' title must be a non-empty single-line string of at most 120 characters`,
+        `Row '${safeText(rowId ?? 'unknown')}' title must be a non-empty single-line string of at most 120 characters`,
         rowId
       );
     }
@@ -298,23 +321,17 @@ function seedFindings(
       add(
         idx,
         'seed-invalid',
-        `Row '${rowId ?? 'unknown'}' needs must be an array of strings`,
+        `Row '${safeText(rowId ?? 'unknown')}' needs must be an array of strings`,
         rowId
       );
     }
 
-    // writeSet: if present an array of 1 to 32 non-empty strings
-    if (
-      row.writeSet !== undefined &&
-      (!Array.isArray(row.writeSet) ||
-        row.writeSet.length < 1 ||
-        row.writeSet.length > 32 ||
-        !row.writeSet.every((s: any) => typeof s === 'string' && s.trim().length > 0))
-    ) {
+    // writeSet: if present, an array of 1 to 32 canonical repo-relative paths.
+    if (row.writeSet !== undefined && validWriteSet(row.writeSet) === null) {
       add(
         idx,
         'seed-invalid',
-        `Row '${rowId ?? 'unknown'}' writeSet must be an array of 1 to 32 non-empty strings`,
+        `Row '${safeText(rowId ?? 'unknown')}' writeSet must be 1 to 32 repo-relative paths with no leading slash, drive letter, backslash, empty, '.' or '..' segment`,
         rowId
       );
     }
@@ -328,7 +345,7 @@ function seedFindings(
       add(
         idx,
         'seed-invalid',
-        `Row '${rowId ?? 'unknown'}' requires must be an array of non-empty strings`,
+        `Row '${safeText(rowId ?? 'unknown')}' requires must be an array of non-empty strings`,
         rowId
       );
     }
@@ -344,7 +361,7 @@ function seedFindings(
       add(
         idx,
         'seed-invalid',
-        `Row '${rowId ?? 'unknown'}' hold must be a non-empty single-line string of at most 120 characters`,
+        `Row '${safeText(rowId ?? 'unknown')}' hold must be a non-empty single-line string of at most 120 characters`,
         rowId
       );
     }
@@ -360,7 +377,7 @@ function seedFindings(
       add(
         idx,
         'seed-invalid',
-        `Row '${rowId ?? 'unknown'}' verifyArgv must be 1 to 8 non-empty strings`,
+        `Row '${safeText(rowId ?? 'unknown')}' verifyArgv must be 1 to 8 non-empty strings`,
         rowId
       );
     }
@@ -371,7 +388,7 @@ function seedFindings(
         add(
           idx,
           'seed-invalid',
-          `Row '${rowId ?? 'unknown'}' mergeCommit must be a 40-hex lowercase string`,
+          `Row '${safeText(rowId ?? 'unknown')}' mergeCommit must be a 40-hex lowercase string`,
           rowId
         );
       }
@@ -388,7 +405,7 @@ function seedFindings(
       add(
         idx,
         'seed-invalid',
-        `Row '${rowId ?? 'unknown'}' intent must be a non-empty single-line string of at most 200 characters`,
+        `Row '${safeText(rowId ?? 'unknown')}' intent must be a non-empty single-line string of at most 200 characters`,
         rowId
       );
     }
@@ -410,7 +427,7 @@ function seedFindings(
       add(
         idx,
         'seed-invalid',
-        `Row '${rowId ?? 'unknown'}' acceptance must be an array of 1 to 8 non-empty single-line strings of at most 200 characters`,
+        `Row '${safeText(rowId ?? 'unknown')}' acceptance must be an array of 1 to 8 non-empty single-line strings of at most 200 characters`,
         rowId
       );
     }
@@ -418,18 +435,18 @@ function seedFindings(
     // 2. seed-unknown-key: a key not in ROW_KEYS (excluding forbidden keys and draft mergeCommit)
     for (const k of Object.keys(row)) {
       if (!FORBIDDEN_KEYS.has(k) && !(isDraft && k === 'mergeCommit') && !rowKeySet.has(k)) {
-        add(idx, 'seed-unknown-key', `Row '${rowId ?? 'unknown'}' declares unknown key '${k}'`, rowId);
+        add(idx, 'seed-unknown-key', `Row '${safeText(rowId ?? 'unknown')}' declares unknown key '${safeText(k)}'`, rowId);
       }
     }
 
     // 3. seed-typed-status: key status/phase/evidence; in draft mode also a mergeCommit key
     for (const k of Object.keys(row)) {
       if (FORBIDDEN_KEYS.has(k)) {
-        add(idx, 'seed-typed-status', `Row '${rowId ?? 'unknown'}' declares forbidden key '${k}'`, rowId);
+        add(idx, 'seed-typed-status', `Row '${safeText(rowId ?? 'unknown')}' declares forbidden key '${safeText(k)}'`, rowId);
       }
     }
     if (isDraft && 'mergeCommit' in row) {
-      add(idx, 'seed-typed-status', `Draft row '${rowId ?? 'unknown'}' declares forbidden key 'mergeCommit'`, rowId);
+      add(idx, 'seed-typed-status', `Draft row '${safeText(rowId ?? 'unknown')}' declares forbidden key 'mergeCommit'`, rowId);
     }
 
     // 4. slug-id-mismatch: id not matching pattern or slug not starting with id-
@@ -437,14 +454,14 @@ function seedFindings(
       add(
         idx,
         'slug-id-mismatch',
-        `Row id '${row.id}' does not match pattern ^[0-9]{3}([a-z]|-[A-Z])?$`,
+        `Row id '${safeText(row.id)}' does not match pattern ^[0-9]{3}([a-z]|-[A-Z])?$`,
         rowId
       );
     } else if (typeof row.slug !== 'string' || !row.slug.startsWith(`${row.id}-`)) {
       add(
         idx,
         'slug-id-mismatch',
-        `Row slug '${row.slug}' must start with '${row.id}-'`,
+        `Row slug '${safeText(row.slug)}' must start with '${safeText(row.id)}-'`,
         rowId
       );
     }
@@ -452,7 +469,7 @@ function seedFindings(
     // 5. duplicate-id: reported on each repeated occurrence of an already-seen id (the later row)
     if (typeof row.id === 'string' && ID_PATTERN.test(row.id)) {
       if (seenIds.has(row.id)) {
-        add(idx, 'duplicate-id', `Duplicate row id: ${row.id}`, rowId);
+        add(idx, 'duplicate-id', `Duplicate row id: ${safeText(row.id)}`, rowId);
       } else {
         seenIds.add(row.id);
       }
@@ -463,7 +480,7 @@ function seedFindings(
       add(
         idx,
         'class-unknown',
-        `Row '${rowId ?? 'unknown'}' class '${row.class}' is unknown; valid classes: ${validClasses.join(', ')}`,
+        `Row '${safeText(rowId ?? 'unknown')}' class '${safeText(row.class)}' is unknown; valid classes: ${validClasses.join(', ')}`,
         rowId
       );
     }
@@ -475,7 +492,7 @@ function seedFindings(
           add(
             idx,
             'needs-unresolved',
-            `Row '${rowId ?? 'unknown'}' declares unresolved need '${need}'`,
+            `Row '${safeText(rowId ?? 'unknown')}' declares unresolved need '${safeText(need)}'`,
             rowId
           );
         }
@@ -534,7 +551,7 @@ function seedFindings(
           const cycleKey = canonicalPath.join('->');
           if (!seenCycleKeys.has(cycleKey)) {
             seenCycleKeys.add(cycleKey);
-            const msg = `needs cycle ${canonicalPath.join(' -> ')} -> ${canonicalPath[0]}`;
+            const msg = `needs cycle ${canonicalPath.map(safeText).join(' -> ')} -> ${safeText(canonicalPath[0])}`;
             add(minPos, 'needs-cycle', msg, undefined, canonicalPath);
           }
         } else if (vColor === WHITE) {
@@ -591,6 +608,18 @@ function pathsOverlap(p1: string, p2: string): boolean {
     if (n1.startsWith(`${n2}/`)) return true;
   }
   return false;
+}
+
+function validWriteSet(value: any): string[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 32) return null;
+  const canonical = (entry: any): entry is string => {
+    if (typeof entry !== 'string' || entry.trim().length === 0 || entry.startsWith('/') || /^[A-Za-z]:/.test(entry) || entry.includes('\\')) {
+      return false;
+    }
+    const withoutDirectoryMarker = entry.endsWith('/') ? entry.slice(0, -1) : entry;
+    return withoutDirectoryMarker.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+  };
+  return value.every(canonical) ? value : null;
 }
 
 function writeSetsOverlap(ws1?: string[], ws2?: string[]): boolean {
@@ -853,8 +882,13 @@ function renderRoadmapFile({
   const dir = path.dirname(roadmapPath);
   fsImpl.mkdirSync(dir, { recursive: true });
   const tmpPath = path.join(dir, `.tmp-roadmap-${process.pid}-${Date.now()}`);
-  fsImpl.writeFileSync(tmpPath, content, 'utf8');
-  fsImpl.renameSync(tmpPath, roadmapPath);
+  try {
+    fsImpl.writeFileSync(tmpPath, content, 'utf8');
+    fsImpl.renameSync(tmpPath, roadmapPath);
+  } catch (error) {
+    try { fsImpl.unlinkSync(tmpPath); } catch { /* ignore temp cleanup failure */ }
+    throw error;
+  }
   return { written: true, bytes };
 }
 
@@ -1031,6 +1065,8 @@ function check({
 
 module.exports = {
   parseSeed,
+  safeText,
+  validWriteSet,
   pathsOverlap,
   writeSetsOverlap,
   deriveStatus,

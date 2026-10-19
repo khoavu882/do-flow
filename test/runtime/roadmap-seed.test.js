@@ -13,6 +13,8 @@ const {
   renderRoadmapFile,
   deriveStatus,
   SEED_RULES,
+  seedFindings,
+  parseSeed,
 } = require('../../src/runtime/roadmap/rows.ts');
 const { handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
 const { sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
@@ -595,7 +597,8 @@ test('refusals: readSwitch enabled gives needs-person; live lease gives lease-he
     err: (s) => { textPersonErr += s + '\n'; },
   });
   assert.ok(textPersonErr.includes('refused: needs-person'));
-  assert.ok(textPersonErr.includes('turn autopilot off first'));
+  assert.ok(textPersonErr.includes('a person sets autopilot.enabled to off'));
+  assert.equal(personRes.switch, null);
 
   // Store and table unchanged
   assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), jsonContent);
@@ -633,6 +636,8 @@ test('refusals: readSwitch enabled gives needs-person; live lease gives lease-he
   assert.equal(leaseRes.ok, false);
   assert.equal(leaseRes.reason, 'lease-held');
   assert.equal(leaseRes.writes, 0);
+  assert.equal(leaseRes.switch, null);
+  assert.equal(leaseRes.switch, null);
 
   // Other holder's lease file untouched
   assert.equal(fs.readFileSync(path.join(leaseDir, 'lease.json'), 'utf8'), otherLeaseContent);
@@ -919,4 +924,291 @@ test('real-git case (NFR-002): gatherGitFacts against real repository', (t) => {
   assert.equal(result.rows.length, 1);
   assert.equal(result.rows[0].id, '114');
   assert.equal(result.rows[0].change, 'add');
+});
+
+function seedApplyFixture(t, { setting = 'on', envOff = false, noHome = false, sentinel = false } = {}) {
+  const dir = tempDir(t, 'doflow-seed-runtime-');
+  writeFixtureStore(dir, [{ id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [] }]);
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [
+    { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] },
+  ] }));
+  const home = path.join(dir, 'home');
+  const config = path.join(home, '.config');
+  fs.mkdirSync(home, { recursive: true });
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: config };
+  delete env.DOFLOW_AUTOPILOT_ENABLED;
+  if (noHome) {
+    delete env.HOME;
+    delete env.XDG_CONFIG_HOME;
+  } else {
+    fs.mkdirSync(path.join(config, 'doflow'), { recursive: true });
+    if (setting !== undefined) {
+      const bytes = setting === 'bad-json' ? '{bad json' : JSON.stringify({ schema: 1, 'autopilot.enabled': setting });
+      fs.writeFileSync(path.join(config, 'doflow', 'settings.json'), bytes);
+    }
+    if (sentinel) {
+      fs.mkdirSync(path.join(config, 'doflow', 'autopilot'), { recursive: true });
+      fs.writeFileSync(path.join(config, 'doflow', 'autopilot', 'off'), '');
+    }
+  }
+  if (envOff) env.DOFLOW_AUTOPILOT_ENABLED = 'off';
+  return { dir, config, env, draftPath };
+}
+
+function runSeedApply(fixture, { json = true, fsImpl = fs } = {}) {
+  let out = '';
+  let err = '';
+  const exit = handleSeedCommand({
+    action: 'apply', draft: fixture.draftPath, root: fixture.dir, env: fixture.env, json, fsImpl,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    out: (s) => { out += `${s}\n`; }, err: (s) => { err += `${s}\n`; },
+  });
+  return { exit, result: json ? JSON.parse((out || err).trim()) : null, out, err };
+}
+
+test('C-1 malformed store rows are rejected by judgement and apply/amend leave both files unchanged', (t) => {
+  for (const [label, rows, includeRows] of [['missing', undefined, false], ['null', null, true], ['object', { lost: true }, true]]) {
+    const dir = tempDir(t, `doflow-seed-c1-${label}-`);
+    const storeDir = path.join(dir, 'agent-docs', 'roadmap');
+    fs.mkdirSync(storeDir, { recursive: true });
+    const doc = { schema: 1 };
+    if (includeRows) doc.rows = rows;
+    const storeBytes = `${JSON.stringify(doc, null, 2)}\n`;
+    const tableBytes = 'original table\n';
+    fs.writeFileSync(path.join(storeDir, 'rows.json'), storeBytes);
+    fs.writeFileSync(path.join(storeDir, 'ROADMAP.md'), tableBytes);
+    const draftPath = path.join(dir, 'draft.json');
+    const draftBytes = JSON.stringify({ schema: 1, rows: [
+      { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] },
+    ] });
+    fs.writeFileSync(draftPath, draftBytes);
+    const judgement = judgeDraft({ draftRaw: draftBytes, seedRaw: storeBytes });
+    assert.equal(judgement.ok, false, label);
+    assert.ok(judgement.findings.some((f) => f.rule === 'seed-invalid' && f.rowId === undefined && f.rowIds === undefined));
+    for (const action of ['apply', 'amend']) {
+      let output = '';
+      const exit = handleSeedCommand({ action, draft: draftPath, root: dir, json: true,
+        gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+        readSwitch: () => ({ enabled: false, switch: null }), out: (s) => { output += `${s}\n`; } });
+      assert.equal(exit, 1, `${label} ${action}`);
+      assert.ok(JSON.parse(output.trim()).findings.some((f) => f.rule === 'seed-invalid'));
+      assert.equal(fs.readFileSync(path.join(storeDir, 'rows.json'), 'utf8'), storeBytes);
+      assert.equal(fs.readFileSync(path.join(storeDir, 'ROADMAP.md'), 'utf8'), tableBytes);
+    }
+  }
+});
+
+test('C-2 seed reader fails closed for env-off, invalid settings, no config home, and resolver faults', (t) => {
+  const settings = require('../../src/runtime/settings/resolve.ts');
+  const cases = [
+    ['settings on plus env off', { setting: 'on', envOff: true }],
+    ['unparsable settings', { setting: 'bad-json' }],
+    ['no config home', { noHome: true }],
+    ['resolver throws', { setting: 'on', resolverThrows: true }],
+  ];
+  for (const [label, options] of cases) {
+    const fixture = seedApplyFixture(t, options);
+    const original = settings.loadSettings;
+    try {
+      if (options.resolverThrows) settings.loadSettings = () => { throw new Error('resolver failed'); };
+      const { exit, result } = runSeedApply(fixture);
+      assert.equal(exit, 1, label);
+      assert.equal(result.reason, 'needs-person', label);
+      assert.equal(result.switch, null, label);
+    } finally {
+      settings.loadSettings = original;
+    }
+  }
+  const text = runSeedApply(seedApplyFixture(t, { setting: 'on' }), { json: false });
+  assert.equal(text.exit, 1);
+  assert.match(text.err, /a person sets autopilot\.enabled to off/);
+  assert.doesNotMatch(text.err, /DOFLOW_AUTOPILOT_ENABLED/);
+  const noHomeText = runSeedApply(seedApplyFixture(t, { noHome: true }), { json: false });
+  assert.equal(noHomeText.exit, 1);
+  assert.match(noHomeText.err, /the config home \(none resolves: set HOME or XDG_CONFIG_HOME\)/);
+  assert.doesNotMatch(noHomeText.err, /DOFLOW_AUTOPILOT_ENABLED/);
+});
+
+test('C-2 seed reader allows a durable off setting or sentinel', (t) => {
+  for (const [label, options] of [
+    ['settings off', { setting: 'off' }], ['sentinel', { setting: 'on', sentinel: true }],
+  ]) {
+    const { exit, result } = runSeedApply(seedApplyFixture(t, options));
+    assert.equal(exit, 0, label);
+    assert.equal(result.ok, true, label);
+    assert.equal(result.writes, 2, label);
+  }
+  const unreadableSentinel = seedApplyFixture(t, { setting: 'on' });
+  const fsImpl = { ...fs, statSync(file, ...args) {
+    if (file === path.join(unreadableSentinel.config, 'doflow', 'autopilot', 'off')) {
+      const error = new Error('sentinel stat denied');
+      error.code = 'EACCES';
+      throw error;
+    }
+    return fs.statSync(file, ...args);
+  } };
+  const result = runSeedApply(unreadableSentinel, { fsImpl });
+  assert.equal(result.exit, 0, 'non-ENOENT sentinel stat error is present');
+  assert.equal(result.result.writes, 2);
+});
+
+test('C-3 noncanonical writeSet paths are rejected by judgeDraft and apply', (t) => {
+  const invalid = ['../outside', '/etc/passwd', 'C:/x', 'a\\b', 'a//b', './a', 'a/./b', 'src/../shared/x.ts', 'a/..', '/'];
+  for (const [index, writePath] of invalid.entries()) {
+    const dir = tempDir(t, `doflow-seed-c3-${index}-`);
+    const { jsonContent, tableContent } = writeFixtureStore(dir, [
+      { id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [], writeSet: ['src/shared/'] },
+    ]);
+    const draftPath = path.join(dir, 'draft.json');
+    const draftBytes = JSON.stringify({ schema: 1, rows: [
+      { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [], writeSet: [writePath] },
+    ] });
+    fs.writeFileSync(draftPath, draftBytes);
+    const judgement = judgeDraft({ draftRaw: draftBytes, seedRaw: jsonContent });
+    assert.equal(judgement.ok, false, writePath);
+    assert.ok(judgement.findings.some((f) => f.rule === 'seed-invalid'), writePath);
+    let output = '';
+    const exit = handleSeedCommand({ action: 'apply', draft: draftPath, root: dir, json: true,
+      gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+      readSwitch: () => ({ enabled: false, switch: null }), out: (s) => { output += `${s}\n`; } });
+    assert.equal(exit, 1, writePath);
+    assert.ok(JSON.parse(output.trim()).findings.some((f) => f.rule === 'seed-invalid'), writePath);
+    assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), jsonContent);
+    assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/ROADMAP.md'), 'utf8'), tableContent);
+  }
+  for (const writePath of ['src/a.ts', 'src/dir/', 'a']) {
+    const result = judgeDraft({ draftRaw: { schema: 1, rows: [
+      { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [], writeSet: [writePath] },
+    ] }, seedRaw: { schema: 1, rows: [{ id: '113', slug: '113-base', title: 'Base', class: 'feature', needs: [] }] } });
+    assert.equal(result.ok, true, writePath);
+  }
+});
+
+test('C-4 malformed writeSet values are findings, never overlap exceptions or writes', (t) => {
+  for (const [index, writeSet] of [1, null, {}, [1], [null], { a: 1 }, 'x', []].entries()) {
+    const dir = tempDir(t, `doflow-seed-c4-${index}-`);
+    const { jsonContent, tableContent } = writeFixtureStore(dir, [
+      { id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [], writeSet: ['src/shared/'] },
+    ]);
+    const draftPath = path.join(dir, 'draft.json');
+    const draftBytes = JSON.stringify({ schema: 1, rows: [
+      { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [], writeSet },
+    ] });
+    fs.writeFileSync(draftPath, draftBytes);
+    let judgement;
+    assert.doesNotThrow(() => { judgement = judgeDraft({ draftRaw: draftBytes, seedRaw: jsonContent }); });
+    assert.equal(judgement.ok, false, `writeSet ${index}`);
+    let output = '';
+    const exit = handleSeedCommand({ action: 'apply', draft: draftPath, root: dir, json: true,
+      gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+      readSwitch: () => ({ enabled: false, switch: null }), out: (s) => { output += `${s}\n`; } });
+    assert.equal(exit, 1);
+    assert.ok(JSON.parse(output.trim()).findings.length > 0);
+    assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), jsonContent);
+    assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/ROADMAP.md'), 'utf8'), tableContent);
+  }
+});
+
+test('C-5 judgeDraft and parseSeed are total for adversarial JSON-shaped row fields', () => {
+  const fields = ['id', 'slug', 'title', 'class', 'needs', 'writeSet', 'requires', 'hold',
+    'verifyArgv', 'intent', 'acceptance', 'mergeCommit'];
+  const values = [1, null, true, {}, [], [1], [null], { a: 1 }, { toString: null }, 'x\nx', 'x'.repeat(500)];
+  const base = { id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [] };
+  const checkParser = (doc) => {
+    const invalid = seedFindings(doc).length > 0;
+    let parseError = null;
+    try { parseSeed(doc); } catch (error) { parseError = error; }
+    if (invalid) assert.equal(parseError?.name, 'SeedParseError');
+    else assert.equal(parseError, null);
+  };
+  for (const field of fields) {
+    for (const value of values) {
+      const storeDoc = { schema: 1, rows: [{ ...base }] };
+      const draftRow = { ...base, id: '114', slug: '114-add', title: 'Add', [field]: value };
+      const draftDoc = { schema: 1, rows: [draftRow] };
+      let draftJudgement;
+      assert.doesNotThrow(() => { draftJudgement = judgeDraft({ draftRaw: draftDoc, seedRaw: storeDoc }); });
+      if (seedFindings(draftDoc, { draft: true }).length > 0) {
+        assert.equal(draftJudgement.ok, false, `draft ${field}`);
+      }
+      checkParser(draftDoc);
+
+      const storeRow = { ...base, [field]: value };
+      const amendedRow = { ...storeRow };
+      if (typeof storeRow.id !== 'string') amendedRow.id = '113';
+      if (amendedRow.id === '113' && typeof storeRow.id !== 'string') amendedRow.slug = '113-toy';
+      const changedStore = { schema: 1, rows: [storeRow] };
+      const amendedDraft = { schema: 1, rows: [amendedRow] };
+      let storeJudgement;
+      assert.doesNotThrow(() => { storeJudgement = judgeDraft({ draftRaw: amendedDraft, seedRaw: changedStore, op: 'amend' }); });
+      if (seedFindings(changedStore).length > 0) assert.equal(storeJudgement.ok, false, `store ${field}`);
+      checkParser(changedStore);
+    }
+  }
+});
+
+test('C-6 text output escapes adversarial values and stays within twelve lines', (t) => {
+  const dir = tempDir(t, 'doflow-seed-c6-');
+  writeFixtureStore(dir, [{ id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [], writeSet: ['src/'] }]);
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [{
+    id: '114\nforged', slug: '114-\nforged', title: 'bad\n'.repeat(30), class: 'bad\n'.repeat(30),
+    needs: [], writeSet: ['src/\nforged.ts'],
+  }] }));
+  const stdout = [];
+  const stderr = [];
+  const exit = handleSeedCommand({ action: 'check', draft: draftPath, root: dir, json: false,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    out: (s) => stdout.push(s), err: (s) => stderr.push(s) });
+  assert.equal(exit, 1);
+  const lines = [...stdout, ...stderr];
+  const combined = lines.join('\n');
+  assert.ok(combined.split('\n').length <= 12);
+  assert.ok(!lines.some((line) => line === 'bad' || line === 'forged' || line === 'forged.ts'));
+  const overlapLine = lines.find((line) => line.startsWith('  overlap'));
+  assert.ok(overlapLine);
+  assert.ok(overlapLine.includes('src/\\nforged.ts'));
+  assert.ok(!combined.includes('bad\n'));
+});
+
+test('C-10 rename faults clean temporary files and preserve the documented write order', (t) => {
+  for (const failAt of [1, 2]) {
+    const dir = tempDir(t, `doflow-seed-c10-${failAt}-`);
+    const { jsonContent: oldStore, tableContent: oldTable } = writeFixtureStore(dir, [
+      { id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [] },
+    ]);
+    const draftPath = path.join(dir, 'draft.json');
+    fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [
+      { id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] },
+    ] }));
+    let renames = 0;
+    const fsImpl = { ...fs, renameSync(from, to) {
+      renames += 1;
+      if (renames === failAt) throw new Error(`rename ${failAt} failed`);
+      return fs.renameSync(from, to);
+    } };
+    assert.throws(() => handleSeedCommand({ action: 'apply', draft: draftPath, root: dir, fsImpl,
+      gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+      readSwitch: () => ({ enabled: false, switch: null }), out: () => {} }), new RegExp(`rename ${failAt} failed`));
+    const storeDir = path.join(dir, 'agent-docs', 'roadmap');
+    assert.equal(fs.existsSync(path.join(dir, '.doflow', 'state', 'roadmap', 'lease.json')), false);
+    assert.deepEqual(fs.readdirSync(storeDir).filter((name) => name.startsWith('.tmp-rows-') || name.startsWith('.tmp-roadmap-')), []);
+    if (failAt === 1) {
+      assert.equal(fs.readFileSync(path.join(storeDir, 'rows.json'), 'utf8'), oldStore);
+      assert.equal(fs.readFileSync(path.join(storeDir, 'ROADMAP.md'), 'utf8'), oldTable);
+    } else {
+      const written = JSON.parse(fs.readFileSync(path.join(storeDir, 'rows.json'), 'utf8'));
+      assert.deepEqual(written.rows.map((row) => row.id), ['113', '114']);
+      assert.equal(fs.readFileSync(path.join(storeDir, 'ROADMAP.md'), 'utf8'), oldTable);
+    }
+  }
+});
+
+test('N-9 non-draft seed schema must be exactly 1', () => {
+  for (const schema of [undefined, 2, '1']) {
+    const doc = { rows: [] };
+    if (schema !== undefined) doc.schema = schema;
+    assert.ok(seedFindings(doc).some((f) => f.rule === 'seed-invalid' && f.rowId === undefined && f.message === "Seed 'schema' must be 1"));
+  }
 });

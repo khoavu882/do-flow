@@ -16,6 +16,8 @@ const {
   pathsOverlap,
   writeSetsOverlap,
   seedFindings,
+  validWriteSet,
+  safeText,
   registryClasses,
   SEED_RULES,
   ROW_KEYS,
@@ -829,6 +831,34 @@ test('Fix 3: status --row <id> for unseeded row exits 1 in both text and json fo
     console.log = origLog;
     process.exitCode = 0;
   }
+});
+
+test('C-3 canonical writeSet paths preserve the pick overlap control and reject traversal', () => {
+  for (const value of ['src/a.ts', 'src/dir/', 'a']) assert.deepEqual(validWriteSet([value]), [value]);
+  for (const value of ['../outside', '/etc/passwd', 'C:/x', 'a\\b', 'a//b', './a', 'a/./b', 'src/../shared/x.ts', 'a/..', '/']) {
+    assert.equal(validWriteSet([value]), null, value);
+  }
+  const rows = parseSeed({ schema: 1, rows: [
+    { id: '100', slug: '100-base', title: 'Base', class: 'feature', needs: [], writeSet: ['shared/'] },
+    { id: '101', slug: '101-next', title: 'Next', class: 'feature', needs: [], writeSet: ['shared/x.ts'] },
+  ] }).rows;
+  const statuses = deriveStatus(rows, { branches: ['feat/100-base'] }).statuses;
+  const result = pick(rows, statuses, { wip: 2 });
+  assert.equal(result.picked, null);
+  assert.equal(result.skips['101'], 'write-set-overlap:100');
+
+  assert.throws(() => parseSeed({ schema: 1, rows: [
+    { id: '101', slug: '101-next', title: 'Next', class: 'feature', needs: [], writeSet: ['src/../shared/x.ts'] },
+  ] }), (error) => error.name === 'SeedParseError');
+});
+
+test('C-5 safeText escapes controls, bounds values, and never calls toString', () => {
+  assert.equal(safeText('line\nnext'), 'line\\nnext');
+  assert.equal(safeText('\u2028\u2029'), '\\u2028\\u2029');
+  assert.equal(safeText('x'.repeat(61)), `${'x'.repeat(57)}...`);
+  assert.equal(safeText(undefined), 'undefined');
+  assert.doesNotThrow(() => safeText({ toString: null }));
+  assert.equal(safeText({ toString: null }), '{"toString":null}');
 });
 
 test('Fix 3 negative control: old status --row --json printed not-started and exited 0 for unknown row', () => {
