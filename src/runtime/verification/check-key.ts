@@ -23,6 +23,7 @@ const { spawnSync } = require('node:child_process');
  *   treeDigest,       modified/untracked files, ignored entries removed (unchanged from version 1)
  *   ignoredDigest,    sorted names of ignored entries (`!!`), `none` when there are none
  *   inputsDigest,     bytes of the registry's policy.reuse.ignoredInputs, `absent` when missing
+ *   linksDigest,      bytes of the OUT-OF-REPO targets of tracked symlinks (mode 120000), sha256('none') when none
  *   toolDigest,       realpath/size/mtime/inode of `node` and of the command's first word on env.PATH
  *   process.version,
  *   platform,
@@ -36,6 +37,11 @@ const { spawnSync } = require('node:child_process');
  *
  * If git faults, more than 500 files or 50 MB are modified/untracked, or a declared input is a
  * symlink, a non-file, unreadable or over 1 MB, the key is null (unkeyable, runs unshared).
+ * REUSE-UNKEYABLE (089 review C-3, C-4): when a tracked symlink points at a directory or an
+ * unreadable/oversized target outside the repository (or there are over 500 links), or the
+ * command's first word cannot be parsed safely (quotes, escapes, `$`, backtick, `~`, a glob, an
+ * inline `PATH=`), `checkKeyV2` still returns `key` (in-flight sharing and telemetry use it) but
+ * `payloadDigest` is null, so the check is neither looked up nor stored.
  * Residual (design RK-1): an ignored file outside the declared list that changes content, and
  * a tool behind a wrapper, are not seen.
  */
@@ -46,6 +52,11 @@ const MAX_INPUT_BYTES = 1024 * 1024; // 1 MB per declared ignored input
 const PAYLOAD_VERSION = 2;
 /** Stands for an ignored-entry digest that could not be read; never equals a sha256 hex digest. */
 const IGNORED_UNAVAILABLE = 'unavailable';
+/** Tracked symlinks are not read (the caller asked for no link read; telemetry/in-flight keys only). */
+const LINKS_SKIPPED = 'skipped';
+/** A tracked symlink whose out-of-repo target cannot be keyed: the check is reuse-unkeyable. */
+const LINKS_UNKEYABLE = 'unkeyable';
+const MAX_TRACKED_LINKS = 500;
 
 /** First words that are shell syntax, not a program on PATH (IC-001 toolDigest). */
 const SHELL_KEYWORDS: ReadonlySet<string> = new Set([
@@ -126,14 +137,18 @@ interface TreeState {
   ignored: string;
   /** Realpath of the git top level, where the declared ignored inputs live. */
   gitRoot: string;
+  /** Digest of the out-of-repo targets of tracked symlinks (089 C-3); a sentinel when skipped or unkeyable. */
+  links: string;
 }
 
-type KeyIo = { spawnSyncImpl?: any; fsImpl?: any; configDir?: string };
+/** `links: false` skips the `git ls-files` spawn (reuse off: nothing reads the link digest). */
+type KeyIo = { spawnSyncImpl?: any; fsImpl?: any; configDir?: string; links?: boolean };
 
 type StatusRead = {
   gitRoot: string;
   entries: Array<{ entry: string; relPath: string }>;
   ignored: string;
+  links: string;
 };
 
 /**
@@ -143,11 +158,14 @@ type StatusRead = {
  */
 function readStatus(
   root: string,
-  { spawnSyncImpl = spawnSync, fsImpl = nodeFs, configDir }: KeyIo,
+  { spawnSyncImpl = spawnSync, fsImpl = nodeFs, configDir, links: readLinks = true }: KeyIo,
 ): StatusRead | null {
   const top = spawnSyncImpl('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8' });
   if (top.status !== 0 || typeof top.stdout !== 'string' || !path.isAbsolute(top.stdout.trim())) return null;
   const gitRoot = fsImpl.realpathSync(top.stdout.trim());
+  // 089 review C-5: runtime state is left out, tracked project config is not. Under `.doflow` and
+  // the config dir, untracked (`??`) and ignored (`!!`) entries and everything in `state/` are
+  // excluded; a tracked entry (any other status) is an input and enters the tree digest.
   const excluded = ['.doflow'];
   if (configDir) {
     // A first run may not have created its config directory yet. Resolve its nearest
@@ -198,8 +216,9 @@ function readStatus(
       entry += `\0${source}`;
     }
 
-    // Only runtime state is excluded; fixture/project .doflow directories are inputs.
-    if (excluded.some((dir) => relPath === dir || relPath.startsWith(`${dir}/`))) {
+    // Only runtime state is excluded; a tracked file under .doflow or the config dir is an input.
+    if (excluded.some((dir) => (relPath === dir || relPath.startsWith(`${dir}/`))
+      && (status === '??' || status === '!!' || relPath === `${dir}/state` || relPath.startsWith(`${dir}/state/`)))) {
       continue;
     }
     // Ignored entries (`!!`) are named in the key, never read: the tree digest stays what it was.
@@ -211,7 +230,62 @@ function readStatus(
   }
 
   ignoredPaths.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return { gitRoot, entries, ignored: sha256(ignoredPaths.length === 0 ? 'none' : ignoredPaths.join('\0')) };
+  const links = readLinks ? linksDigest(gitRoot, { spawnSyncImpl, fsImpl }) : LINKS_SKIPPED;
+  return { gitRoot, entries, ignored: sha256(ignoredPaths.length === 0 ? 'none' : ignoredPaths.join('\0')), links };
+}
+
+function insideRoot(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+/**
+ * Digest of the OUT-OF-REPO targets of tracked symlinks (089 review C-3). One `git ls-files -s -z`;
+ * entries of mode 120000. A target inside the git root is covered by the tree digest or the
+ * ignored set and skipped. A target outside is a regular file of at most 1 MB (`target\0sha256`)
+ * or missing (`target\0absent`); a directory, another type, an unreadable or oversized target,
+ * more than 500 links or a git fault gives LINKS_UNKEYABLE (the check is not reused).
+ */
+function linksDigest(gitRoot: string, { spawnSyncImpl = spawnSync, fsImpl = nodeFs }: KeyIo): string {
+  try {
+    const res = spawnSyncImpl('git', ['ls-files', '-s', '-z'], { cwd: gitRoot, encoding: 'utf8' });
+    if (res.status !== 0 || typeof res.stdout !== 'string') return LINKS_UNKEYABLE;
+    const links = new Set<string>();
+    for (const token of res.stdout.split('\0')) {
+      const match = /^120000 [0-9a-f]+ \d\t([\s\S]+)$/.exec(token);
+      if (match) links.add(match[1]);
+    }
+    if (links.size === 0) return sha256('none');
+    if (links.size > MAX_TRACKED_LINKS) return LINKS_UNKEYABLE;
+    const lines: string[] = [];
+    for (const rel of links) {
+      const full = path.resolve(gitRoot, rel);
+      let lstat: any;
+      try { lstat = fsImpl.lstatSync(full); } catch (error: any) {
+        if (error.code === 'ENOENT') continue; // removed: the status entry covers it
+        return LINKS_UNKEYABLE;
+      }
+      if (!lstat.isSymbolicLink()) continue; // replaced by a file: the status entry covers it
+      let real: string;
+      try { real = fsImpl.realpathSync(full); } catch (error: any) {
+        if (error.code !== 'ENOENT') return LINKS_UNKEYABLE;
+        const lexical = path.resolve(path.dirname(full), fsImpl.readlinkSync(full));
+        if (!insideRoot(gitRoot, lexical)) lines.push(`${lexical}\0absent`);
+        continue;
+      }
+      if (insideRoot(gitRoot, real)) continue;
+      const stat = fsImpl.statSync(real);
+      if (!stat.isFile() || stat.size > MAX_INPUT_BYTES) return LINKS_UNKEYABLE;
+      const content = fsImpl.readFileSync(real);
+      if (content.length > MAX_INPUT_BYTES) return LINKS_UNKEYABLE;
+      lines.push(`${real}\0${crypto.createHash('sha256').update(content).digest('hex')}`);
+    }
+    if (lines.length === 0) return sha256('none');
+    lines.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    return sha256(lines.join('\n'));
+  } catch {
+    return LINKS_UNKEYABLE;
+  }
 }
 
 /**
@@ -277,13 +351,14 @@ function treeState(root: string, options: KeyIo = {}): TreeState | null {
     const status = readStatus(root, options);
     if (!status) return null;
     const tree = hashEntries(status.gitRoot, status.entries, options.fsImpl || nodeFs);
-    return tree === null ? null : { tree, ignored: status.ignored, gitRoot: status.gitRoot };
+    return tree === null ? null : { tree, ignored: status.ignored, gitRoot: status.gitRoot, links: status.links };
   } catch {
     return null;
   }
 }
 
 /**
+ * IC-001 compatibility seam for tests; the runner uses checkKeyV2/treeState.
  * Computes a digest of all modified and untracked files in the working tree.
  * Returns null if not in a git repository, or if > 500 files or > 50 MB are dirty.
  * Values for trees without ignored entries are those of payload version 1.
@@ -323,13 +398,24 @@ function inputsDigest(gitRoot: string, inputs: readonly string[], fsImpl: any = 
   }
 }
 
-/** First word of a shell command, past leading NAME=value assignments and quotes. */
-function firstShellWord(command: string): string {
+/**
+ * First word of a shell command, past leading NAME=value assignments and quotes, and whether the
+ * parser can trust it (089 review C-4). Not reusable: the first word or a leading assignment holds
+ * a quote, a backslash, `$` or a backtick (the shell expands or joins what the whitespace split
+ * cut), a leading assignment sets PATH (the tool resolves on another PATH), or the first word
+ * starts with `~` or holds `*`, `?` or `[` (the shell expands it). `word` is still the key's tool.
+ */
+function firstShellWord(command: string): { word: string; reusable: boolean } {
+  let reusable = true;
   for (const word of command.trim().split(/\s+/)) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue;
-    return word.replace(/^["']+|["']+$/g, '');
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
+      if (/["'\\$`]/.test(word) || word.startsWith('PATH=')) reusable = false;
+      continue;
+    }
+    if (/["'\\$`*?[]/.test(word) || word.startsWith('~')) reusable = false;
+    return { word: word.replace(/^["']+|["']+$/g, ''), reusable };
   }
-  return '';
+  return { word: '', reusable };
 }
 
 /**
@@ -376,15 +462,15 @@ function toolDigest(
     { cwd: string; env?: Record<string, string | undefined>; fsImpl?: any; platform?: string },
 ): string {
   const io = { cwd, env, fsImpl, platform };
-  return sha256([toolIdentity('node', io), toolIdentity(firstShellWord(command), io)].join('\n'));
+  return sha256([toolIdentity('node', io), toolIdentity(firstShellWord(command).word, io)].join('\n'));
 }
 
 /** The version 2 payload (089 IC-001); the order of the entries is part of the key's identity. */
 function payloadOf(parts: {
   command: string; timeoutMs: number; realCwd: string; head: string; tree: string;
-  ignoredDig: string; inputsDig: string; toolDig: string; envDig: string;
+  ignoredDig: string; inputsDig: string; linksDig: string; toolDig: string; envDig: string;
 }): unknown[] {
-  const { command, timeoutMs, realCwd, head, tree, ignoredDig, inputsDig, toolDig, envDig } = parts;
+  const { command, timeoutMs, realCwd, head, tree, ignoredDig, inputsDig, linksDig, toolDig, envDig } = parts;
   const payload = [
     PAYLOAD_VERSION,
     command,
@@ -394,6 +480,7 @@ function payloadOf(parts: {
     tree,
     ignoredDig,
     inputsDig,
+    linksDig,
     toolDig,
     process.version,
     process.platform,
@@ -413,6 +500,8 @@ type KeyInput = {
   ignored?: string | null;
   /** Realpath of the git top level; resolved when omitted. */
   gitRoot?: string | null;
+  /** Tracked-symlink digest from `treeState`; resolved with the same status read when omitted. */
+  links?: string | null;
   configDir?: string;
   env?: Record<string, string | undefined>;
   fsImpl?: any;
@@ -432,7 +521,9 @@ type KeyInput = {
  * @param {string | null} [input.ignored] ignored-entry digest from treeState; resolved with one
  *   status call when omitted (also resolves `tree` when that is omitted too)
  * @param {Record<string, string | undefined>} [input.env=process.env]
- * @returns {{ key: string, payloadDigest: string } | null}
+ * @returns {{ key: string, payloadDigest: string | null } | null} `payloadDigest` is null when the
+ *   check is reuse-unkeyable (unparseable first word, unkeyable or unread tracked symlinks); the
+ *   `key` is still returned for in-flight sharing and telemetry.
  */
 function checkKeyV2({
   command,
@@ -442,12 +533,13 @@ function checkKeyV2({
   tree,
   ignored,
   gitRoot,
+  links,
   configDir,
   env = process.env,
   fsImpl = nodeFs,
   spawnSyncImpl = spawnSync,
   platform = process.platform,
-}: KeyInput): { key: string; payloadDigest: string } | null {
+}: KeyInput): { key: string; payloadDigest: string | null } | null {
   try {
     if (typeof command !== 'string' || !Number.isFinite(timeoutMs) || typeof cwd !== 'string') {
       return null;
@@ -463,6 +555,7 @@ function checkKeyV2({
     let resolvedTree = tree;
     let resolvedIgnored = ignored;
     let resolvedRoot = gitRoot;
+    let resolvedLinks = links;
     if (resolvedTree === undefined) {
       // Nothing precomputed: one status call supplies the tree, the ignored set and the root.
       const state = treeState(realCwd, { spawnSyncImpl, fsImpl, configDir });
@@ -470,7 +563,8 @@ function checkKeyV2({
       resolvedTree = state.tree;
       if (resolvedIgnored === undefined) resolvedIgnored = state.ignored;
       if (resolvedRoot === undefined) resolvedRoot = state.gitRoot;
-    } else if (resolvedIgnored === undefined || resolvedRoot === undefined) {
+      if (resolvedLinks === undefined) resolvedLinks = state.links;
+    } else if (resolvedIgnored === undefined || resolvedRoot === undefined || resolvedLinks === undefined) {
       // A tree without its ignored set: one status call, without reading any dirty file again.
       // The caller already read the tree, so a fault here means this directory is not a git
       // checkout (a test seam); the key then carries IGNORED_UNAVAILABLE, which no healthy
@@ -479,11 +573,14 @@ function checkKeyV2({
       try { status = readStatus(realCwd, { spawnSyncImpl, fsImpl, configDir }); } catch { status = null; }
       if (resolvedIgnored === undefined) resolvedIgnored = status ? status.ignored : IGNORED_UNAVAILABLE;
       if (resolvedRoot === undefined) resolvedRoot = status ? status.gitRoot : realCwd;
+      if (resolvedLinks === undefined) resolvedLinks = status ? status.links : LINKS_UNKEYABLE;
     }
 
     if (!resolvedHead || !resolvedTree || !resolvedIgnored || !resolvedRoot) {
       return null;
     }
+    // A caller that supplied tree/ignored/root without links gets one read; null means not read.
+    const linksDig = typeof resolvedLinks === 'string' ? resolvedLinks : LINKS_SKIPPED;
 
     const policy = keyPolicy();
     const envDig = envDigest(env, policy.envExclude);
@@ -493,17 +590,21 @@ function checkKeyV2({
     const toolDig = toolDigest(command, { cwd: realCwd, env, fsImpl, platform });
     const payload = payloadOf({
       command, timeoutMs, realCwd, head: resolvedHead, tree: resolvedTree,
-      ignoredDig, inputsDig, toolDig, envDig,
+      ignoredDig, inputsDig, linksDig, toolDig, envDig,
     });
 
     const payloadDigest = sha256(JSON.stringify(payload));
-    return { key: payloadDigest.slice(0, 16), payloadDigest };
+    // Reuse-unkeyable (089 review C-3, C-4): the key is kept, the stored-PASS identity is not.
+    const reusable = linksDig !== LINKS_UNKEYABLE && linksDig !== LINKS_SKIPPED
+      && firstShellWord(command).reusable;
+    return { key: payloadDigest.slice(0, 16), payloadDigest: reusable ? payloadDigest : null };
   } catch {
     return null;
   }
 }
 
 /**
+ * IC-001 compatibility seam for tests; the runner uses checkKeyV2/treeState.
  * Computes checkKey for a command run in cwd.
  * Returns 16 hex chars, or null if unkeyable.
  * @param {Object} input see checkKeyV2
@@ -513,6 +614,8 @@ function checkKey(input: KeyInput): string | null {
   return checkKeyV2(input)?.key ?? null;
 }
 
+// `checkKey` and `treeDigest` are IC-001 compatibility seams for tests; the runner uses
+// checkKeyV2/treeState.
 module.exports = {
   envDigest,
   headCommit,

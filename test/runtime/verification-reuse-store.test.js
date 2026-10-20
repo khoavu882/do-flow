@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { lookupReuse, storeReuse, reuseDir } = require('../../src/runtime/verification/reuse.ts');
+const { evictReuse, lookupReuse, storeReuse, reuseDir } = require('../../src/runtime/verification/reuse.ts');
 
 const KEY = '0123456789abcdef';
 const DIGEST = 'a'.repeat(64);
@@ -238,4 +238,52 @@ test('negative control: comparing only key accepts a different payload digest', 
   const out = mutant.lookupReuse({ dir, key: KEY, payloadDigest: DIGEST, maxAgeMs: MAX_AGE, now: () => NOW, fsImpl: fs, uid: UID });
   assert.equal(out.hit, true);
   assert.throws(() => assert.equal(out.reason, 'digest-mismatch'), assert.AssertionError);
+});
+
+// 089 review C-2 (IC-003): evictReuse removes only reuse-<hex16>.json and never throws.
+test('evictReuse unlinks the record for a key and reports it', (t) => {
+  const dir = tempDir(t, 'doflow-reuse-evict-');
+  const file = writeRecord(dir, goodRecord());
+  const other = writeRecord(dir, goodRecord({ key: 'fedcba9876543210' }), 0o600, 'fedcba9876543210');
+  assert.deepEqual(evictReuse({ dir, key: KEY }), { evicted: true });
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(other), true, 'another key is untouched');
+  assert.deepEqual(evictReuse({ dir, key: KEY }), { evicted: false }, 'a missing file');
+  assert.equal(lookup(dir).hit, false);
+});
+
+test('evictReuse refuses a key that is not 16 hex chars and touches nothing', (t) => {
+  const dir = tempDir(t, 'doflow-reuse-evict-invalid-');
+  const file = writeRecord(dir, goodRecord());
+  for (const key of ['../x', 'ABCDEF0123456789', '0123456789abcde', '0123456789abcdef0', '', null, undefined, 7, `${KEY}\0`]) {
+    assert.deepEqual(evictReuse({ dir, key }), { evicted: false }, String(key));
+  }
+  assert.deepEqual(evictReuse({ dir: 5, key: KEY }), { evicted: false });
+  assert.deepEqual(evictReuse(), { evicted: false });
+  assert.equal(fs.existsSync(file), true);
+});
+
+test('evictReuse unlinks a symlink itself and never follows it', (t) => {
+  const dir = tempDir(t, 'doflow-reuse-evict-link-');
+  const outside = tempDir(t, 'doflow-reuse-evict-link-out-');
+  const target = path.join(outside, 'precious.json');
+  fs.writeFileSync(target, 'keep');
+  fs.symlinkSync(target, recordFile(dir));
+  assert.deepEqual(evictReuse({ dir, key: KEY }), { evicted: true });
+  assert.equal(fs.existsSync(recordFile(dir)), false, 'the link is gone');
+  assert.equal(fs.readFileSync(target, 'utf8'), 'keep', 'its target is not');
+  // A symlinked directory entry named like a record is also only unlinked.
+  fs.symlinkSync(outside, recordFile(dir));
+  assert.deepEqual(evictReuse({ dir, key: KEY }), { evicted: true });
+  assert.equal(fs.existsSync(outside), true);
+});
+
+test('evictReuse never throws on a filesystem fault', (t) => {
+  const dir = tempDir(t, 'doflow-reuse-evict-fault-');
+  const file = writeRecord(dir, goodRecord());
+  const denied = () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); };
+  assert.deepEqual(evictReuse({ dir, key: KEY, fsImpl: ioWith({ lstatSync: denied }) }), { evicted: false });
+  assert.deepEqual(evictReuse({ dir, key: KEY, fsImpl: ioWith({ unlinkSync: denied }) }), { evicted: false });
+  assert.deepEqual(evictReuse({ dir, key: KEY, fsImpl: {} }), { evicted: false });
+  assert.equal(fs.existsSync(file), true, 'a fault leaves the record where it was');
 });

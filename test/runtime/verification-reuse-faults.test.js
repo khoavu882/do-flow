@@ -270,7 +270,7 @@ for (const input of INPUTS) {
 
 test('negative control: the .package-lock.json case is the one inputsDig protects (the payload line exists in check-key.ts)', () => {
   const source = fs.readFileSync(KEY_FILE, 'utf8');
-  assert.ok(source.includes('    inputsDig,\n    toolDig,'), 'the payload lists inputsDig before toolDig');
+  assert.ok(source.includes('    inputsDig,\n    linksDig,\n    toolDig,'), 'the payload lists inputsDig, linksDig, then toolDig');
   assert.ok(REGISTRY.policy.reuse.ignoredInputs.includes('node_modules/.package-lock.json'));
   assert.ok(REGISTRY.policy.reuse.ignoredInputs.includes('.env'));
 });

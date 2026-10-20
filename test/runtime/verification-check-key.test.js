@@ -188,7 +188,7 @@ test('treeState reads the ignored set from the one status call', (t) => {
     return { status: 0, stdout: args.includes('--show-toplevel') ? root : '!! node_modules/\0' };
   };
   const state = treeState(root, { spawnSyncImpl });
-  assert.deepEqual(Object.keys(state).sort(), ['gitRoot', 'ignored', 'tree']);
+  assert.deepEqual(Object.keys(state).sort(), ['gitRoot', 'ignored', 'links', 'tree']);
   const statusCalls = calls.filter((args) => args[0] === 'status');
   assert.equal(statusCalls.length, 1);
   assert.deepEqual(statusCalls[0], ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching']);
@@ -315,6 +315,7 @@ test('checkKeyV2 returns the key and the full sha256 of the version 2 payload', 
     .policy.reuse.ignoredInputs;
   const payload = [2, 'npm test', 1000, fs.realpathSync(root), HEAD, CLEAN, NONE,
     sha(inputs.map((rel) => `${rel}\0absent`).join('\n')),
+    NONE, // linksDigest: no tracked symlinks
     sha(['node\0absent', 'npm\0absent'].join('\n')),
     process.version, process.platform, process.arch, envDigest({})];
   assert.equal(out.payloadDigest, sha(JSON.stringify(payload)));
@@ -388,4 +389,113 @@ test('negative control: dropping inputsDigest from the payload leaves the declar
   const before = mutant.checkKey(input);
   write(root, '.env', 'A=1');
   assert.throws(() => assert.notEqual(mutant.checkKey(input), before), assert.AssertionError);
+});
+
+// 089 review C-3/C-4/C-5 (WP-1): reuse-unkeyable inputs keep the key, drop the payload digest.
+test('checkKeyV2 keeps the key and returns a null payloadDigest for a first word the parser cannot trust', (t) => {
+  const root = tempDir(t, 'doflow-check-key-unkeyable-');
+  const opts = options(root, () => '');
+  const base = (command) => checkKeyV2({ cwd: root, command, timeoutMs: 1000, env: {}, ...opts });
+  for (const command of ['"/a b/tool" x', "'/a b/tool' x", '/a\\ b/tool x', '$DIR/tool x', '`echo tool` x', 'X="a b" tool',
+    'PATH=/x:$PATH tool', 'PATH=/x tool', '~/tool x', '/dir/to*l x', '/dir/too? x', '/dir/[t]ool x', 'LABEL=$HOME tool']) {
+    const out = base(command);
+    assert.match(out.key, /^[0-9a-f]{16}$/, `${command}: the key is kept`);
+    assert.equal(out.payloadDigest, null, `${command}: not reusable`);
+  }
+  for (const command of ['LABEL=ok tool', 'npm test', 'node --test x', '/abs/tool x', 'A=1 B=2 tool', 'MYPATH=/x tool']) {
+    assert.match(base(command).payloadDigest, /^[0-9a-f]{64}$/, `${command}: reusable`);
+  }
+  assert.equal(checkKey({ cwd: root, command: '$DIR/tool', timeoutMs: 1000, env: {}, ...opts }), base('$DIR/tool').key, 'checkKey still returns the key');
+});
+
+/** Stubs `git ls-files` with `lines` and counts its spawns; every other call answers like options(). */
+function linkOptions(root, lines, calls = []) {
+  const base = options(root, () => '');
+  return { calls, spawnSyncImpl: (command, args, opts) => {
+    if (args[0] === 'ls-files') { calls.push(args); return { status: 0, stdout: lines.map((line) => `${line}\0`).join('') }; }
+    return base.spawnSyncImpl(command, args, opts);
+  } };
+}
+
+test('treeState keys the out-of-repo target of a tracked symlink: file bytes, absent, or unkeyable', (t) => {
+  const root = tempDir(t, 'doflow-check-key-links-');
+  const outside = tempDir(t, 'doflow-check-key-links-out-');
+  const target = write(outside, 'value.txt', 'ok');
+  fs.symlinkSync(target, path.join(root, 'cfg.txt'));
+  fs.symlinkSync(path.join(outside, 'later.txt'), path.join(root, 'gone.txt'));
+  fs.symlinkSync(outside, path.join(root, 'dir'));
+  fs.symlinkSync('real.txt', path.join(root, 'inner.txt'));
+  write(root, 'real.txt', 'x');
+  const entry = (name) => `120000 ${'a'.repeat(40)} 0\t${name}`;
+  const digest = (...names) => treeState(root, linkOptions(root, names.map(entry))).links;
+  assert.equal(digest(), NONE, 'no tracked symlink');
+  assert.equal(digest('inner.txt'), NONE, 'an in-repo target is covered by the tree digest');
+  const file = digest('cfg.txt');
+  assert.match(file, /^[0-9a-f]{64}$/);
+  write(outside, 'value.txt', 'bad');
+  assert.notEqual(digest('cfg.txt'), file, 'the target bytes move the digest');
+  const absent = digest('gone.txt');
+  assert.match(absent, /^[0-9a-f]{64}$/);
+  write(outside, 'later.txt', 'now');
+  assert.notEqual(digest('gone.txt'), absent, 'a dangling target that appears moves the digest');
+  assert.equal(digest('dir'), 'unkeyable', 'a directory target');
+  write(outside, 'big.txt', 'x'.repeat(1024 * 1024 + 1));
+  fs.symlinkSync(path.join(outside, 'big.txt'), path.join(root, 'big.txt'));
+  assert.equal(digest('big.txt'), 'unkeyable', 'a target over 1 MB');
+  const many = Array.from({ length: 501 }, (_, i) => entry(`l${i}`));
+  assert.equal(treeState(root, linkOptions(root, many)).links, 'unkeyable', 'over 500 links');
+  assert.equal(treeState(root, { spawnSyncImpl: () => ({ status: 128, stdout: '' }) }), null);
+  const lsFault = options(root, () => '');
+  assert.equal(treeState(root, { spawnSyncImpl: (c, args, o) => (args[0] === 'ls-files' ? { status: 128, stdout: '' } : lsFault.spawnSyncImpl(c, args, o)) }).links,
+    'unkeyable', 'a git fault on ls-files');
+});
+
+test('an unkeyable tracked symlink keeps the key and drops the payloadDigest; a skipped link read is not reusable', (t) => {
+  const root = tempDir(t, 'doflow-check-key-links-key-');
+  const outside = tempDir(t, 'doflow-check-key-links-keyout-');
+  fs.symlinkSync(outside, path.join(root, 'dir'));
+  const unkeyable = linkOptions(root, [`120000 ${'a'.repeat(40)} 0\tdir`]);
+  const out = checkKeyV2({ cwd: root, command: 'npm test', timeoutMs: 1000, env: {}, head: HEAD, ...unkeyable });
+  assert.match(out.key, /^[0-9a-f]{16}$/);
+  assert.equal(out.payloadDigest, null);
+  const clean = checkKeyV2({ cwd: root, command: 'npm test', timeoutMs: 1000, env: {}, head: HEAD, ...options(root, () => '') });
+  assert.notEqual(out.key, clean.key, 'the link digest is part of the key');
+  const skipped = treeState(root, { ...linkOptions(root, []), links: false });
+  assert.equal(skipped.links, 'skipped');
+  const noRead = checkKeyV2({ cwd: root, command: 'npm test', timeoutMs: 1000, env: {}, head: HEAD, tree: skipped.tree,
+    ignored: skipped.ignored, gitRoot: skipped.gitRoot, links: skipped.links, ...options(root, () => '') });
+  assert.equal(noRead.payloadDigest, null, 'a key built without reading the links is never a stored-PASS identity');
+});
+
+test('treeState spawns git ls-files once per read, and not at all with links: false', (t) => {
+  const root = tempDir(t, 'doflow-check-key-lsfiles-');
+  const calls = [];
+  treeState(root, linkOptions(root, [], calls));
+  assert.deepEqual(calls, [['ls-files', '-s', '-z']]);
+  treeState(root, { ...linkOptions(root, [], calls), links: false });
+  assert.equal(calls.length, 1, 'links: false adds no spawn');
+});
+
+test('a tracked .doflow entry enters the tree digest; untracked, ignored and state entries do not (C-5)', (t) => {
+  const root = tempDir(t, 'doflow-check-key-doflow-tracked-');
+  write(root, '.doflow/check.cfg', 'ok');
+  write(root, '.doflow/state/tracked.json', '{}');
+  const digest = (status, configDir) => treeDigest(root, options(root, () => status, configDir));
+  assert.equal(digest('?? .doflow/x\0'), CLEAN);
+  assert.equal(digest('!! .doflow/\0'), CLEAN);
+  assert.equal(digest(' M .doflow/state/tracked.json\0'), CLEAN);
+  assert.equal(digest('?? .doflow/state/verification/v0/lock\0'), CLEAN);
+  const modified = digest(' M .doflow/check.cfg\0');
+  assert.notEqual(modified, CLEAN);
+  assert.notEqual(digest('M  .doflow/check.cfg\0'), CLEAN);
+  assert.notEqual(digest('A  .doflow/check.cfg\0'), CLEAN);
+  write(root, '.doflow/check.cfg', 'bad');
+  assert.notEqual(digest(' M .doflow/check.cfg\0'), modified, 'the bytes move the digest');
+  // The same rule for a config dir inside the repository.
+  assert.notEqual(digest(' M .doflow/check.cfg\0', path.join(root, '.doflow')), CLEAN);
+  assert.equal(digest('?? .doflow/x\0', path.join(root, '.doflow')), CLEAN);
+  assert.equal(digest(' M .doflow/state/tracked.json\0', path.join(root, '.doflow')), CLEAN);
+  write(root, 'cfg/settings.json', '{}');
+  assert.notEqual(digest(' M cfg/settings.json\0', path.join(root, 'cfg')), CLEAN, 'a tracked file in a custom config dir');
+  assert.equal(digest('?? cfg/new.json\0', path.join(root, 'cfg')), CLEAN);
 });

@@ -159,4 +159,21 @@ function storeReuseOptions({ dir, key, payloadDigest, level, result, now = Date.
   }
 }
 
-module.exports = { lookupReuse, storeReuse, reuseDir };
+/**
+ * IC-003 (089 review C-2): remove the stored record for a key after an executed non-PASS, so a
+ * failure is never followed by a reused PASS. Only `reuse-<hex16>.json` is touched; a symlink
+ * there is unlinked itself, never followed. Any fault is ignored; it never throws.
+ */
+function evictReuse({ dir, key, fsImpl = fs }: any = {}): { evicted: boolean } {
+  try {
+    if (typeof dir !== 'string' || typeof key !== 'string' || !KEY.test(key)) return { evicted: false };
+    const file = path.join(dir, `reuse-${key}.json`);
+    fsImpl.lstatSync(file);
+    fsImpl.unlinkSync(file);
+    return { evicted: true };
+  } catch {
+    return { evicted: false };
+  }
+}
+
+module.exports = { lookupReuse, storeReuse, evictReuse, reuseDir };
