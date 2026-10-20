@@ -11,6 +11,7 @@
 # custom_instructions is fed directly to the compaction LLM call; Codex's docs do not state that
 # systemMessage receives the same treatment). Treat this as best-effort context surfacing, not a
 # guaranteed compaction-summary injection, until verified against a live Codex session.
+# The shared compaction text comes from compact-text.sh (IC-001/IC-002).
 #
 # Must never exit non-zero or block (PreCompact hooks do not support a block decision in Codex).
 
@@ -37,25 +38,9 @@ if [[ -f "$POLICIES/emission-rules.sh" ]]; then
 fi
 [[ "$DF_ACTION" == include ]] || exit 0
 
-BRANCH=""
-SHA=""
-UNCOMMITTED=0
-
-if [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
-  BRANCH=$(git_branch_of "$CWD" || echo "")
-  SHA=$(git_short_sha_of "$CWD" || echo "")
-  UNCOMMITTED=$(git_uncommitted_count_of "$CWD" || echo "0")
-  RECENT=$(run_with_timeout 1 -- git -C "$CWD" log --format="%h %s" -2 2>/dev/null | paste -sd ' | ' - || echo "")
-
-  MSG=$(printf 'Include in compact summary:\n- git branch: %s sha: %s\n- recent commits: %s\n- uncommitted files: %s\n- cwd: %s\nPreserve: decisions made, files modified, open questions, planned next steps.' \
-    "${BRANCH:-unknown}" "${SHA:-unknown}" "${RECENT:-none}" "$UNCOMMITTED" "${CWD:-unknown}")
-else
-  MSG=$(printf 'Include in compact summary:\n- cwd: %s (not a git repository)\nPreserve: decisions made, files modified, open questions, planned next steps.' \
-    "${CWD:-unknown}")
-fi
-
-# Hard-cap at 490 chars, matching Claude's script, before JSON-encoding.
-MSG="${MSG:0:490}"
-
-jq -n --arg systemMessage "$MSG" '{systemMessage: $systemMessage}'
+[[ -f "$POLICIES/compact-text.sh" ]] || exit 0
+# shellcheck source=/dev/null
+source "$POLICIES/compact-text.sh"
+doflow_compact_text "$CWD"
+jq -n --arg systemMessage "$DF_COMPACT_TEXT" '{systemMessage: $systemMessage}'
 exit 0
