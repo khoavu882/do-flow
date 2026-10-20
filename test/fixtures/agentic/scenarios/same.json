@@ -1,0 +1,368 @@
+{
+  "_comment": "C.1 end to end: both arms answer with the same number of real qrel paths. Needs AGENTIC_FAKE_TRUTH as in d-finds-more.json.",
+  "armMarkers": {
+    "D": "A code retrieval command is available"
+  },
+  "tasks": {
+    "DC-011": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-012": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-013": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-014": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-015": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-016": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-021": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-022": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-023": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-024": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-025": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "DC-026": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "HC-901": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "HC-902": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "HC-903": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "HC-904": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "HC-905": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "HC-906": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "HC-907": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    },
+    "HC-908": {
+      "N": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"rg -n x src\""
+        ],
+        "tokens": 40000
+      },
+      "D": {
+        "truthFiles": 2,
+        "decoys": 2,
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query x --root .\""
+        ],
+        "tokens": 40000
+      }
+    }
+  }
+}
