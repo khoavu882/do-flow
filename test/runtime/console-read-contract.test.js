@@ -16,6 +16,7 @@ const { MARKER_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const TREE_IDS = ['project-state', 'user-state', 'config-home'];
+const SNAPSHOT_ROOT_IDS = [...TREE_IDS, 'linked-doflow'];
 const STAGES_TO_GATE = ['discovery'];
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -60,8 +61,12 @@ function fixture(t) {
   git('commit', '-qm', 'fixture');
   git('worktree', 'add', '-q', '-b', 'console-read-contract-linked', linked, 'HEAD');
 
+  const linkedDoflow = path.join(linked, '.doflow');
+  fs.mkdirSync(linkedDoflow, { recursive: true });
+
   const roots = resolveRoots({ registry, projectRoot: main, env });
   assert.equal(path.resolve(roots['project-state']), path.join(main, '.doflow', 'state'));
+  roots['linked-doflow'] = linkedDoflow;
   for (const id of TREE_IDS) {
     assert.ok(roots[id], `${id} root should resolve with the fixture environment`);
     fs.mkdirSync(roots[id], { recursive: true });
@@ -112,21 +117,37 @@ function writeEvent(folder, at, suffix, type, data) {
 
 function treeSnapshot(root) {
   const entries = {};
+  const rootInfo = fs.lstatSync(root, { bigint: true });
+  entries['.'] = {
+    type: 'directory',
+    mtimeNs: rootInfo.mtimeNs.toString(),
+    ino: rootInfo.ino.toString(),
+  };
   const visit = dir => {
     for (const name of fs.readdirSync(dir).sort()) {
       const file = path.join(dir, name);
       const relative = path.relative(root, file).split(path.sep).join('/');
-      const info = fs.lstatSync(file);
+      const info = fs.lstatSync(file, { bigint: true });
       if (info.isDirectory()) {
-        entries[relative] = { type: 'directory' };
+        entries[relative] = {
+          type: 'directory',
+          mtimeNs: info.mtimeNs.toString(),
+          ino: info.ino.toString(),
+        };
         visit(file);
       } else if (info.isFile()) {
         entries[relative] = {
           type: 'file',
           sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+          mtimeNs: info.mtimeNs.toString(),
+          ino: info.ino.toString(),
         };
       } else if (info.isSymbolicLink()) {
-        entries[relative] = { type: 'symlink', target: fs.readlinkSync(file) };
+        entries[relative] = {
+          type: 'symlink',
+          target: fs.readlinkSync(file),
+          mtimeNs: info.mtimeNs.toString(),
+        };
       } else {
         entries[relative] = { type: 'other', mode: info.mode };
       }
@@ -137,7 +158,7 @@ function treeSnapshot(root) {
 }
 
 function snapshotRoots(roots) {
-  return Object.fromEntries(TREE_IDS.map(id => [id, treeSnapshot(roots[id])]));
+  return Object.fromEntries(SNAPSHOT_ROOT_IDS.map(id => [id, treeSnapshot(roots[id])]));
 }
 
 function readSet(cwd, env) {
@@ -206,24 +227,30 @@ test('P1 CLI reads leave all DoFlow trees unchanged and list agrees with status 
   for (const id of TREE_IDS) fs.writeFileSync(path.join(f.roots[id], 'upkeep-due'), due);
 
   const switchOnEnv = { ...f.env, DOFLOW_UPKEEP: 'off' };
-  const before = snapshotRoots(f.roots);
-  const reads = readSet(f.main, switchOnEnv);
-  const after = snapshotRoots(f.roots);
-  assert.deepEqual(after, before, 'DOFLOW_UPKEEP=off read set changed the project, user, or config tree');
-
-  const rows = reads.list.runs;
-  assert.deepEqual(reads.list.unreadable, []);
-  assert.deepEqual(rows.map(row => row.taskId).sort(), [...runs.map(run => run.taskId), otherTaskId].sort());
-  for (const row of rows) {
-    const status = reads.statuses.get(`${row.featureSlug}\0${row.taskId}`);
-    assert.ok(status, `status should be collected for ${row.featureSlug}/${row.taskId}`);
-    assert.equal(row.revision, status.revision, `${row.featureSlug}/${row.taskId} revision`);
-    assert.equal(row.state, status.state, `${row.featureSlug}/${row.taskId} state`);
-    assert.deepEqual(row.current, status.current, `${row.featureSlug}/${row.taskId} current`);
+  const readsByCaller = [];
+  for (const cwd of [f.main, f.linked]) {
+    const before = snapshotRoots(f.roots);
+    const reads = readSet(cwd, switchOnEnv);
+    const after = snapshotRoots(f.roots);
+    assert.deepEqual(after, before, `DOFLOW_UPKEEP=off read set changed a DoFlow tree from ${cwd}`);
+    readsByCaller.push(reads);
   }
-  assert.equal(rows.find(row => row.taskId === runs[0].taskId).origin, 'current');
-  assert.equal(rows.find(row => row.taskId === runs[1].taskId).origin, 'current');
-  assert.equal(rows.find(row => row.taskId === otherTaskId).origin, 'other');
+
+  for (const reads of readsByCaller) {
+    const rows = reads.list.runs;
+    assert.deepEqual(reads.list.unreadable, []);
+    assert.deepEqual(rows.map(row => row.taskId).sort(), [...runs.map(run => run.taskId), otherTaskId].sort());
+    for (const row of rows) {
+      const status = reads.statuses.get(`${row.featureSlug}\0${row.taskId}`);
+      assert.ok(status, `status should be collected for ${row.featureSlug}/${row.taskId}`);
+      assert.equal(row.revision, status.revision, `${row.featureSlug}/${row.taskId} revision`);
+      assert.equal(row.state, status.state, `${row.featureSlug}/${row.taskId} state`);
+      assert.deepEqual(row.current, status.current, `${row.featureSlug}/${row.taskId} current`);
+    }
+    assert.equal(rows.find(row => row.taskId === runs[0].taskId).origin, 'current');
+    assert.equal(rows.find(row => row.taskId === runs[1].taskId).origin, 'current');
+    assert.equal(rows.find(row => row.taskId === otherTaskId).origin, 'other');
+  }
 
   const controlBefore = snapshotRoots(f.roots);
   readSet(f.main, f.env);
