@@ -1,7 +1,7 @@
 'use strict';
 // guidance-parity-migration.test.js — updating an install made before the core-set projections
-// (Kiro steering, Copilot instructions, Antigravity rules took the whole guidance tree) removes the
-// files the new registry no longer produces, keeps the one the user edited, leaves the user's own
+// (Kiro steering and Copilot instructions took the whole guidance tree, Antigravity rules only the
+// four rule files) removes the files the new registry no longer produces, keeps the one the user edited, leaves the user's own
 // file, moves Copilot's rule files under instructions/rules/ and leaves nothing for `reconcile` to
 // report. The old install is made from a package copy whose assets.json is put back to the old
 // projections; the update then runs from the same copy with the current assets.json, so both runs go
