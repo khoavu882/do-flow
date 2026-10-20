@@ -11,6 +11,10 @@
 //   - converged: array with dispositions rules (open, fixed with fixedIn, refuted with locator evidence, user-accepted with decision)
 //   - converged.md stays prose
 // Shipped fixture passes validateFindings from src/runtime/roadmap/gates.ts.
+// Feature 095 (IC-001, IC-005): the SKILL also names every optional convergence field and its
+// vocabulary (read from src/runtime/review/findings.ts, not hand-listed), `review --action check`
+// and the re-review rule (`reviewedHead`.. and the round cap); a convergence fixture holds every
+// optional field and its counts are non-zero.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,9 +23,14 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const { tempDir } = require('../helper/tmp');
 const { validateFindings } = require('../../src/runtime/roadmap/gates.ts');
+const {
+  FINDING_FIELDS, ORIGINS, VERIFICATIONS, ACCEPTED_AS, ROUND_CAP, countFindings,
+} = require('../../src/runtime/review/findings.ts');
 
 const SKILL_PATH = path.join(REPO, 'core/shared/skills/do-code-review/SKILL.md');
 const FIXTURE_PATH = path.join(REPO, 'test/fixtures/roadmap/findings/schema-1.json');
+const CONVERGENCE_FIXTURE_PATH = path.join(REPO, 'test/fixtures/roadmap/findings/schema-1-convergence.json');
+const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Inspect SKILL.md for the required output contract declarations.
@@ -43,6 +52,15 @@ function checkSkillContract(text) {
   if (!/converged\.md\b/.test(text) || !/\bstays prose\b/.test(text)) {
     missing.push('converged.md stays prose');
   }
+  for (const field of [...FINDING_FIELDS, 'rounds']) {
+    if (!new RegExp(`\`${field}\``).test(text)) missing.push(`convergence field: ${field}`);
+  }
+  for (const value of [...ORIGINS, ...VERIFICATIONS, ...ACCEPTED_AS]) {
+    if (!new RegExp(`(?<![\\w-])${escape(value)}(?![\\w-])`).test(text)) missing.push(`convergence value: ${value}`);
+  }
+  if (!/review --action check/.test(text)) missing.push('verb: review --action check');
+  if (!/`reviewedHead`\.\.new head/.test(text)) missing.push('re-review reads reviewedHead..new head');
+  if (!new RegExp(`at round ${ROUND_CAP}\\b`).test(text)) missing.push(`re-review round cap: round ${ROUND_CAP}`);
   return { ok: missing.length === 0, missing };
 }
 
@@ -103,6 +121,29 @@ test('G59 negative control: a refuted entry whose evidence is prose fails valida
   assert.ok(validateFindings(mutated).errors.includes(`evidence:${refuted.id}`), 'prose evidence must fail validation');
   const text = fs.readFileSync(SKILL_PATH, 'utf8').replace('`evidence` (`path:line` or test path)', '`evidence`');
   assert.ok(checkSkillContract(text).missing.includes('refuted evidence is a locator (path:line)'));
+});
+
+test('G59: convergence fixture holds every optional field, passes validateFindings and counts non-zero', () => {
+  const data = JSON.parse(fs.readFileSync(CONVERGENCE_FIXTURE_PATH, 'utf8'));
+  const result = validateFindings(data);
+  assert.equal(result.ok, true, `convergence fixture failed validateFindings: ${result.errors.join(', ')}`);
+  assert.ok(Object.hasOwn(data, 'rounds'), 'convergence fixture must carry rounds');
+  const absent = FINDING_FIELDS.filter((field) => !data.converged.some((f) => Object.hasOwn(f, field)));
+  assert.deepEqual(absent, [], 'convergence fixture must hold every optional finding field at least once');
+  const counts = countFindings(data);
+  for (const key of ['pre_existing', 'escaped', 'confirmed', 'bug_classes']) {
+    assert.ok(counts[key] > 0, `countFindings must report ${key} > 0, got ${counts[key]}`);
+  }
+});
+
+test('G59 negative control: a SKILL copy without a convergence name or the check verb is named missing', () => {
+  const original = fs.readFileSync(SKILL_PATH, 'utf8');
+  const noVerification = checkSkillContract(original.replace(/`verification`/g, '`x`'));
+  assert.ok(noVerification.missing.includes('convergence field: verification'), noVerification.missing.join(', '));
+  const noVerb = checkSkillContract(original.replace(/review --action check/g, 'review'));
+  assert.ok(noVerb.missing.includes('verb: review --action check'), noVerb.missing.join(', '));
+  const noCap = checkSkillContract(original.replace(new RegExp(`at round ${ROUND_CAP}\\b`, 'g'), 'later'));
+  assert.ok(noCap.missing.includes(`re-review round cap: round ${ROUND_CAP}`), noCap.missing.join(', '));
 });
 
 module.exports = { checkSkillContract };

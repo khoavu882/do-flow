@@ -417,6 +417,7 @@ Workflow and evidence:
   failure          list, settle or switch off the failures DoFlow captured on this machine
   roadmap          session-driven autopilot runner: render or status the roadmap table
   plan-check       check a plan's task lines the way the task-attempt ledger reads them
+  review           validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload)
   slot             named machine-wide queue: run a command as its one holder, list or release
 
 Verification and recovery:
@@ -543,7 +544,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|slot) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|slot) return 0 ;;
     *) return 1 ;;
   esac
 }
