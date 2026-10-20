@@ -19,6 +19,8 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 // orchestrator, `verify` and the edit hook (which prints the same bytes) say the same thing.
 
 const GATE = 'doflow gate readiness-before-implementation';
+const RUN_RECORD_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
+const RUN_NAMESPACE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** What clears a record a newer DoFlow wrote; `readiness` here refuses to overwrite it. */
 const NEWER_NEXT = 'run this command with the DoFlow that wrote the record, or upgrade DoFlow here.';
@@ -171,6 +173,74 @@ function runSlugOf(run: any, root: any) {
   return run && isSafeSlug(run.taskId) && isDir(folderOf(root, run.taskId)) ? run.taskId : null;
 }
 
+/** Whether a store directory can be a run namespace rather than a lock directory. */
+function isRunNamespaceDir(name: string): boolean {
+  return RUN_NAMESPACE_PATTERN.test(name) && !name.includes('..') && !name.endsWith('.lock');
+}
+
+/** The run record files under one checkout's store: flat `<id>.json` and `<slug>/<id>.json`, by
+ * path, without reading them. The one listing `findRunFile` and `orchestrationRuns` share. */
+function runFilesAt(root: string): Array<{ file: string; namespace: string|null }> {
+  const store = path.join(root, '.doflow', 'state', 'orchestration');
+  const files: Array<{ file: string; namespace: string|null }> = [];
+  let entries: any[];
+  try { entries = fs.readdirSync(store, { withFileTypes: true }); } catch { return []; }
+  for (const entry of entries) {
+    if ((entry.isFile() || entry.isSymbolicLink()) && RUN_RECORD_PATTERN.test(entry.name)) {
+      files.push({ file: path.join(store, entry.name), namespace: null });
+    } else if ((entry.isDirectory() || entry.isSymbolicLink()) && isRunNamespaceDir(entry.name)) {
+      let nested: any[];
+      try { nested = fs.readdirSync(path.join(store, entry.name), { withFileTypes: true }); } catch { continue; }
+      for (const item of nested) {
+        if ((item.isFile() || item.isSymbolicLink()) && RUN_RECORD_PATTERN.test(item.name)) {
+          files.push({ file: path.join(store, entry.name, item.name), namespace: entry.name });
+        }
+      }
+    }
+  }
+  return files.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
+}
+
+/** The run files under one checkout's store, read, with each malformed or unreadable file isolated. */
+function runEntriesAt(root: string, origin: 'current'|'other'): any[] {
+  return runFilesAt(root).map(({ file, namespace }) => {
+    let record: any = null;
+    let error: string|null = null;
+    try {
+      const bytes = fs.readFileSync(file, 'utf8');
+      try { record = JSON.parse(bytes); } catch { error = 'unparseable'; }
+    } catch {
+      error = 'io';
+    }
+    return {
+      file,
+      root,
+      origin,
+      slug: namespace || runSlugOf(record, root),
+      record,
+      error,
+    };
+  });
+}
+
+/**
+ * All orchestration journals in the current store and the other checkouts, when Git can list them.
+ * @param {{stateRoot: string, exec?: Function}} options
+ * @returns {{ok: true, entries: Array<Object>}|{ok: false, error: 'cannot-list-checkouts'}}
+ */
+function orchestrationRuns({ stateRoot, exec }: any): any {
+  const current = runEntriesAt(stateRoot, 'current');
+  const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
+  if (!checkouts.ok && checkouts.reason !== 'not-a-git-repository') {
+    return { ok: false, error: 'cannot-list-checkouts' };
+  }
+  if (!checkouts.ok || checkouts.sandbox) return { ok: true, entries: current };
+
+  const entries = [...current];
+  for (const root of checkouts.others) entries.push(...runEntriesAt(root, 'other'));
+  return { ok: true, entries };
+}
+
 /**
  * A task's run file: in this checkout, else in exactly one other checkout whose run belongs to the
  * same feature. The run of a task id other than its feature's slug is `orchestration/<slug>/<id>.json`
@@ -186,19 +256,24 @@ function findRunFile({ stateRoot, taskId, slug, exec }: any) {
   const flat = path.join(store, `${taskId}.json`);
   const namespaced = slug && slug !== taskId ? path.join(store, slug, `${taskId}.json`) : null;
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
-  const here = namespaced && fs.existsSync(path.join(stateRoot, namespaced)) ? namespaced
-    : fs.existsSync(path.join(stateRoot, flat)) && (!namespaced || flatRecordIsOurs(path.join(stateRoot, flat), slug)) ? flat : null;
-  if (here) return { status: 'found', file: path.join(stateRoot, here), root: stateRoot, origin: 'current', candidates: [] };
+  const here = runFilesAt(stateRoot);
+  const localNamespaced = namespaced && here.find((entry) => path.relative(stateRoot, entry.file) === namespaced);
+  const localFlat = here.find((entry) => path.relative(stateRoot, entry.file) === flat);
+  if (localNamespaced) return { status: 'found', file: localNamespaced.file, root: stateRoot, origin: 'current', candidates: [] };
+  if (localFlat && (!namespaced || flatRecordIsOurs(localFlat.file, slug))) {
+    return { status: 'found', file: localFlat.file, root: stateRoot, origin: 'current', candidates: [] };
+  }
   if (!slug) return missing;
   const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
   if (!checkouts.ok || checkouts.sandbox) return missing;
   const matches: Array<{ file: string; root: string }> = [];
   for (const root of checkouts.others) {
-    const file = [namespaced, flat].filter(Boolean).map((rel: any) => path.join(root, rel)).find((f: string) => {
-      if (!fs.existsSync(f)) return false;
-      try { return runSlugOf(JSON.parse(fs.readFileSync(f, 'utf8')), root) === slug; } catch { return false; }
+    const files = runFilesAt(root);
+    const found = [namespaced, flat].filter(Boolean).map((rel: any) => files.find((entry) => path.relative(root, entry.file) === rel)).find((entry: any) => {
+      if (!entry) return false;
+      try { return runSlugOf(JSON.parse(fs.readFileSync(entry.file, 'utf8')), root) === slug; } catch { return false; }
     });
-    if (file) matches.push({ file, root });
+    if (found) matches.push({ file: found.file, root });
   }
   if (matches.length === 0) return missing;
   if (matches.length > 1) return { ...missing, status: 'ambiguous', candidates: matches.map((m) => m.file) };
@@ -324,5 +399,6 @@ module.exports = {
   verifyReadinessCheck,
   featureSlugFor,
   runSlugOf,
+  orchestrationRuns,
   findRunFile,
 };
