@@ -142,8 +142,8 @@ spawn settles, and no tier or check line. All lines of one run share `verify_id`
 | `verify.check` | `cpu_ms` | `uint` or null | T1 | P3 | child CPU time in milliseconds (Linux only, null on other platforms) |
 | `verify.check` | `resource_basis` | `enum:resource_basis` or null | T2 | P3 | `proc-children`, `unreached-platform`, or `unreached-read` |
 | `verify.check` | `check_key` | `hex16` or null | T0 | P3 | 16-hex deterministic check key |
-| `verify.check` | `shared` | `enum:shared` or null | T2 | P3 | `none` for unshared checks, `in-run` for checks reused within a run, `leader` or `follower` for overlapping V0 checks |
-| `verify.check` | `shared_ref` | `hex32` or null | T0 | P5.4 | random lock token for a leader or follower, else null |
+| `verify.check` | `shared` | `enum:shared` or null | T2 | P3 | `none` for unshared checks, `in-run` for checks reused within a run, `leader` or `follower` for overlapping V0 checks, `reused` for a recorded PASS reused on an unchanged check key (089) |
+| `verify.check` | `shared_ref` | `hex32` or null | T0 | P5.4 | random lock token for a leader or follower, the reuse record's random ref for `reused`, else null |
 | `verify.check` | `failed_first` | `enum:failed_first` or null | T2 | P5.3 | `none` for normal runs, `pass` or `fail` when failed-first ran; null when `NOT_RUN` |
 
 `timestamp` is the report's `startedAt` for the run line, the check's own start for a check line,
@@ -158,7 +158,7 @@ created `state/runs` in it.
 A failing check leaves a `.doflow/state/verification/logs` fragment in the working directory, and
 the walk passes over it. With no project store nothing is written; there is no global fallback.
 
-Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` is declared with phase P5.2; `failed_first` is declared with phase P5.3; `shared_ref` and leader/follower sharing are declared with phase P5.4. Followers are excluded from `checks_run`.
+Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` is declared with phase P5.2; `failed_first` is declared with phase P5.3; `shared_ref` and leader/follower sharing are declared with phase P5.4. Followers and reused checks are excluded from `checks_run`.
 
 `recordFields` are not line keys: they are the identifiers a run record carries
 (`task-run.run.traceId`, `task-run.history.traceId`, `task-run.history.traceLink`,
@@ -217,7 +217,7 @@ G45.1 holds those three equal.
 | `selection_basis` | `changed-test-files`, `explicit-pattern`, `none` |
 | `fallback` | `change-scope-unavailable`, `no-changed-tests`, `unsafe-path`, `not-scopable` |
 | `test_class` | `test.full`, `test.scoped`, `test.other`, `verify.verb`, `none` |
-| `shared` | `none`, `in-run`, `leader`, `follower` |
+| `shared` | `none`, `in-run`, `leader`, `follower`, `reused` |
 | `failed_first` | `none`, `pass`, `fail` |
 | `resource_basis` | `proc-children`, `unreached-platform`, `unreached-read` |
 | `v0` | `on`, `off` |
@@ -225,7 +225,9 @@ G45.1 holds those three equal.
 ## Excluded stores
 
 Coordination state is not telemetry. `verification-v0` (a transient pid and token in a mode-0600 lock,
-deleted after use, plus digests) is listed in `excludedStores` with that reason.
+deleted after use, plus digests) is listed in `excludedStores` with that reason. `verification-reuse`
+(mode-0600 records of passing checks: key and payload digests, a random ref, bounded output
+excerpts) is listed there too; a `verify.check` line carries only the record's ref.
 
 ## The writer
 

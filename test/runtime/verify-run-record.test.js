@@ -93,6 +93,7 @@ test('verify report appends one head-bound record per run without changing JSON 
   assert.equal(second.status, first.status, second.stderr);
   assert.equal(second.stdout, first.stdout, 'appending a run record leaves verify --json bytes unchanged');
   assert.equal(JSON.parse(first.stdout).status, 'PASS');
+  assert.equal(JSON.parse(first.stdout).counts.checksReused, undefined, 'with reuse off counts.checksReused is omitted');
 
   const records = readRecords(p.root);
   assert.equal(records.length, 2, 'two reports append two JSONL lines');
@@ -107,6 +108,41 @@ test('verify report appends one head-bound record per run without changing JSON 
     assert.equal(record.verdict, 'PASS');
     assert.match(record.at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     assert.equal(record.reportSha256, recordHash(first.stdout));
+  }
+});
+
+// 089 IC-006: with verify.reuse on for the run, `reused` (the count of report checks carrying the
+// label) sits immediately before `reportSha256`; the case above keeps reuse off and its pin.
+test('with verify.reuse on the record carries the reused count before reportSha256', (t) => {
+  const reuseScratch = createScratch('doflow-verify-run-record-reuse-');
+  t.after(() => reuseScratch.remove());
+  fs.writeFileSync(path.join(reuseScratch.xdg, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'verify.reuse': 'on' }));
+  const p = project(t);
+  const clock = fixedClock(t);
+  const run = () => spawnSync(process.execPath, ['--require', clock, DOFLOW, 'verify', '--action', 'report', '--task-id', 'T-1',
+    '--risk', 'LOW', '--plan-path', p.plan, '--scope', 'src/a.js', '--json'], {
+    cwd: p.root, encoding: 'utf8',
+    env: reuseScratch.env({ DOFLOW_TELEMETRY: 'off', DOFLOW_RUN_ID: undefined, DOFLOW_LINEAGE_ID: undefined,
+      DOFLOW_ATTEMPT: undefined, DOFLOW_CONFIG_DIR: undefined, DOFLOW_VERIFY_REUSE: undefined }),
+  });
+  const first = run();
+  const second = run();
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  const carrying = (stdout) => JSON.parse(stdout).tiers.flatMap((tier) => tier.checks).filter((check) => check.reused).length;
+  assert.equal(carrying(first.stdout), 0, 'the first run executes every check');
+  assert.equal(JSON.parse(first.stdout).counts.checksReused, 0, 'first run counts.checksReused is 0');
+  assert.ok(carrying(second.stdout) > 0, 'the second run reuses the recorded PASSes');
+  assert.equal(JSON.parse(second.stdout).counts.checksReused, carrying(second.stdout), 'second run counts.checksReused matches reused count');
+
+  const records = readRecords(p.root);
+  assert.equal(records.length, 2);
+  for (const [record, out] of [[records[0], first.stdout], [records[1], second.stdout]]) {
+    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'at', 'reused', 'reportSha256']);
+    assert.equal(record.schema, 1);
+    assert.equal(record.verdict, 'PASS');
+    assert.equal(record.reused, carrying(out));
+    assert.equal(record.reportSha256, recordHash(out));
   }
 });
 

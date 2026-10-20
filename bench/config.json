@@ -18,5 +18,12 @@
     "maxInfraShare": 0.10,
     "seed": 96,
     "note": "Defaults Q-1..Q-3 of 096. k repeats are k iterations named <name>-r1..rk; the band is measured by `bench noise`."
+  },
+  "impactReplay": {
+    "commits": 60,
+    "minCommits": 20,
+    "ceiling": 0.5,
+    "timeoutMs": 120000,
+    "note": "Replay corpus defaults (IC-010, DD-7..DD-9, DA-4)."
   }
 }

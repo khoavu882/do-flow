@@ -157,6 +157,26 @@ function loadVerificationRegistry(options: any = {}): any {
     assert(allowedV0Levels.has(lvl), `policy.v0.levels must be a subset of ['L1', 'L2']: found '${lvl}'`);
   }
 
+  // 089 IC-008: the reuse policy is data (levels that may reuse, age bound, declared ignored inputs).
+  assert(policy.reuse && typeof policy.reuse === 'object', 'policy.reuse must be an object');
+  assert(Array.isArray(policy.reuse.levels), 'policy.reuse.levels must be an array');
+  for (const lvl of policy.reuse.levels) {
+    assert(allowedV0Levels.has(lvl), `policy.reuse.levels must be a subset of ['L1', 'L2']: found '${lvl}'`);
+  }
+  assert(
+    Number.isInteger(policy.reuse.maxAgeMs) && policy.reuse.maxAgeMs > 0,
+    'policy.reuse.maxAgeMs must be a positive integer',
+  );
+  assert(Array.isArray(policy.reuse.ignoredInputs), 'policy.reuse.ignoredInputs must be an array');
+  for (const input of policy.reuse.ignoredInputs) {
+    assert(
+      typeof input === 'string' && input !== '' && !input.includes('\0')
+        && !path.isAbsolute(input) && !path.win32.isAbsolute(input)
+        && !input.split(/[\\/]+/).includes('..'),
+      `policy.reuse.ignoredInputs entries must be relative paths without '..': found '${String(input)}'`,
+    );
+  }
+
   return data;
 }
 
@@ -184,6 +204,17 @@ function v0Applies(registry: any, risk: string | null | undefined): boolean {
   if (!level) return false;
   const v0Levels = registry?.policy?.v0?.levels;
   return Array.isArray(v0Levels) && v0Levels.includes(level);
+}
+
+/**
+ * Returns whether result reuse may apply to the given risk level (089 IC-008).
+ * True when the risk level maps to a level listed in policy.reuse.levels.
+ */
+function reuseApplies(registry: any, risk: string | null | undefined): boolean {
+  const level = levelOf(registry, risk);
+  if (!level) return false;
+  const reuseLevels = registry?.policy?.reuse?.levels;
+  return Array.isArray(reuseLevels) && reuseLevels.includes(level);
 }
 
 /**
@@ -221,6 +252,7 @@ module.exports = {
   loadVerificationRegistry,
   levelOf,
   v0Applies,
+  reuseApplies,
   v0Enabled,
   TIER_RESOLUTIONS,
   TIER_STATUSES,

@@ -29,9 +29,10 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { telemetryOff } = require('../trace/telemetry.ts');
-const { checkKey, headCommit, treeDigest } = require('./check-key.ts');
+const { checkKeyV2, headCommit, treeState } = require('./check-key.ts');
 const { runInflight } = require('./inflight.ts');
-const { v0Applies } = require('./registry.ts');
+const { levelOf, reuseApplies, v0Applies } = require('./registry.ts');
+const { evictReuse, lookupReuse, reuseDir, storeReuse } = require('./reuse.ts');
 
 /** A failing check whose name contains one of these aborts the remaining checks: once the build is
  * broken, every later result describes the broken build rather than the change. */
@@ -275,6 +276,15 @@ function extractFailedFiles(
   return [...validFiles].sort();
 }
 
+/** What one status read says (089 IC-001); `ignored`, `gitRoot` and `links` are null when it faulted. */
+interface TreeContext {
+  head: string | null;
+  tree: string | null;
+  ignored: string | null;
+  gitRoot: string | null;
+  links: string | null;
+}
+
 class VerificationContractRunner {
   cwd: string;
   defaultTimeoutMs: number;
@@ -287,9 +297,14 @@ class VerificationContractRunner {
   convention?: any;
   configDir?: string;
   inflightContext?: { enabled: boolean; dir: string };
-  _treeContext?: { head: string | null; tree: string | null };
+  /** 089 IC-005: lookup of recorded PASSes, set only at the levels `policy.reuse.levels` lists. */
+  reuseContext?: { enabled: boolean; dir: string; maxAgeMs: number; level: string };
+  /** 089 IC-005: where an executed PASS is stored while reuse is on, at every level (L3 store-only). */
+  reuseStore?: { dir: string; level: string };
+  /** One `git status` per contract (089 IC-001): `ignored` and `gitRoot` are null when it faulted. */
+  _treeContext?: TreeContext;
   /** Check result → `{ startedAt, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
-   * for every executed check; an in-run duplicate and a check with no command have no entry. */
+   * for every executed or reused check; an in-run duplicate and a check with no command have no entry. */
   metrics: WeakMap<object, any>;
 
   /**
@@ -318,15 +333,144 @@ class VerificationContractRunner {
     if (opts.context) this.beginContract(opts.context);
   }
 
-  /** Explicit engine seam: call once per active V0 evaluation, including retries.
-   * No execution policy is inferred from the environment or leaked into compiled contracts. */
-  beginContract({ v0, registry, riskLevel, configDir }: any): void {
+  /** Explicit engine seam: call once per active V0 or reuse evaluation, including retries.
+   * No execution policy is inferred from the environment or leaked into compiled contracts.
+   * 089 IC-005: `reuse === true` stores every executed PASS at a known level; lookup is enabled only
+   * where `reuseApplies` (L1/L2), so an L3 PASS may serve a later L2 run but L3 always executes. */
+  beginContract({ v0, reuse, registry, riskLevel, configDir }: any): void {
     this._treeContext = undefined;
     this.inflightContext = undefined;
+    this.reuseContext = undefined;
+    this.reuseStore = undefined;
     this.configDir = configDir;
     if (v0 === true && v0Applies(registry, riskLevel) && typeof configDir === 'string') {
       this.inflightContext = { enabled: true, dir: path.join(configDir, 'state', 'verification', 'v0') };
     }
+    if (reuse === true && typeof configDir === 'string') {
+      const level = levelOf(registry, riskLevel);
+      const dir = level ? reuseDir({ configDir, env: this.env, fsImpl: this.fsImpl }) : null;
+      if (level && typeof dir === 'string') {
+        this.reuseStore = { dir, level };
+        const maxAgeMs = registry?.policy?.reuse?.maxAgeMs;
+        if (reuseApplies(registry, riskLevel) && Number.isSafeInteger(maxAgeMs) && maxAgeMs > 0) {
+          this.reuseContext = { enabled: true, dir, maxAgeMs, level };
+        }
+      }
+    }
+  }
+
+  /**
+   * One read of the working tree: HEAD, the status call's tree, ignored set and git root, and (only
+   * while reuse is on, where something reads it) the tracked symlinks' out-of-repo targets.
+   */
+  readTreeContext(): TreeContext {
+    const head = headCommit(this.cwd);
+    const state = treeState(this.cwd, { fsImpl: this.fsImpl, configDir: this.configDir, links: Boolean(this.reuseStore) });
+    return state
+      ? { head, tree: state.tree, ignored: state.ignored, gitRoot: state.gitRoot, links: state.links }
+      : { head, tree: null, ignored: null, gitRoot: null, links: null };
+  }
+
+  /**
+   * 089 IC-004 (review C-1): after a check ran with reuse on, read the tree again. The cached
+   * context is replaced when it moved, so later checks key on the tree they actually run on.
+   * Returns true only when the check's own payload digest is unchanged, i.e. its inputs did not
+   * move during the run and a PASS may be stored under the key it was looked up with.
+   */
+  rereadAfterRun(command: string, timeoutMs: number, payloadDigest: string | null): boolean {
+    if (!this.reuseStore) return false;
+    try {
+      const before = this._treeContext;
+      const after = this.readTreeContext();
+      if (after.tree === null) {
+        // 089 re-review N-a: a faulted read is not cached; the next check reads the tree again
+        // instead of keying null (and evicting nothing) for the rest of the contract.
+        this._treeContext = undefined;
+        return false;
+      }
+      if (!before || before.head !== after.head || before.tree !== after.tree || before.ignored !== after.ignored
+        || before.gitRoot !== after.gitRoot || before.links !== after.links) {
+        this._treeContext = after;
+      }
+      if (!payloadDigest || typeof after.ignored !== 'string') return false;
+      const keyed = checkKeyV2({ command, timeoutMs, cwd: this.cwd, head: after.head, tree: after.tree,
+        ignored: after.ignored, gitRoot: after.gitRoot, links: after.links, configDir: this.configDir,
+        env: this.env, fsImpl: this.fsImpl });
+      return keyed?.payloadDigest === payloadDigest;
+    } catch {
+      this._treeContext = undefined; // unknown state: the next check reads it afresh
+      return false;
+    }
+  }
+
+  /** 089 IC-003 (review C-2): an executed non-PASS removes the key's stored PASS, at every level. */
+  evictFailed(key: string | null): void {
+    if (!this.reuseStore || !key) return;
+    evictReuse({ dir: this.reuseStore.dir, key, fsImpl: this.fsImpl });
+  }
+
+  /**
+   * 089 IC-004: the recorded PASS for this key, as a check result labelled `reused`, or null. Its
+   * metrics entry says `shared: "reused"` with the record's ref; `durationMs` is the lookup time,
+   * and no cpu was spent. Lookup faults are misses (IC-003 never throws).
+   */
+  lookupReused(checkName: string, command: string, key: string | null, payloadDigest: string | null, startedAt: number): any {
+    if (!this.reuseContext?.enabled || !key || !payloadDigest) return null;
+    const t0 = monotonicNs();
+    const found = lookupReuse({ dir: this.reuseContext.dir, key, payloadDigest, maxAgeMs: this.reuseContext.maxAgeMs, fsImpl: this.fsImpl });
+    if (!found || found.hit !== true) return null;
+    const t1 = monotonicNs();
+    const record = found.record;
+    const result = {
+      name: checkName,
+      command,
+      status: 'PASS',
+      exitCode: 0,
+      stdout: record.result.stdout,
+      stderr: record.result.stderr,
+      reused: { ref: record.ref, recordedAt: record.recordedAt },
+    };
+    this.metrics.set(result, {
+      startedAt,
+      durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null,
+      tests: record.result.tests ?? null,
+      testsFailed: record.result.testsFailed ?? null,
+      cpuMs: null,
+      resourceBasis: null,
+      checkKey: key,
+      shared: 'reused',
+      sharedRef: record.ref,
+      failedFirst: 'none',
+    });
+    return result;
+  }
+
+  /**
+   * 089 IC-002/IC-004: store an executed PASS while reuse is on. The stored result is the excerpt
+   * the report carries, elision marker included (the record bound leaves room for it), so a reused
+   * check shows exactly what the executed one showed.
+   */
+  storeReused(result: any, key: string | null, payloadDigest: string | null, res: any): void {
+    if (!this.reuseStore || !key || !payloadDigest || result.status !== 'PASS' || result.exitCode !== 0) return;
+    if (typeof result.stdout !== 'string' || typeof result.stderr !== 'string') return;
+    const counts = res?.bounded === true ? res : parseTestCounts(`${res?.stdout || ''}\n${res?.stderr || ''}`);
+    storeReuse({
+      dir: this.reuseStore.dir,
+      key,
+      payloadDigest,
+      level: this.reuseStore.level,
+      result: {
+        status: 'PASS',
+        exitCode: 0,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        truncated: res?.bounded === true ? res.truncated === true
+          : (res?.stdout || '').length > MAX_STREAM_CHARS || (res?.stderr || '').length > MAX_STREAM_CHARS,
+        tests: counts.tests ?? null,
+        testsFailed: counts.testsFailed ?? null,
+      },
+      fsImpl: this.fsImpl,
+    });
   }
 
   /**
@@ -454,25 +598,41 @@ class VerificationContractRunner {
     const t0 = monotonicNs();
     const t0Cpu = childCpuTicks(this.fsImpl, this.platform);
     let checkKeyVal: string | null = null;
+    let payloadDigest: string | null = null;
     try {
-      if (!telemetryOff(this.env) || this.inflightContext?.enabled) {
+      if (!telemetryOff(this.env) || this.inflightContext?.enabled || this.reuseStore) {
         if (this._treeContext === undefined) {
-          const head = headCommit(this.cwd);
-          const tree = treeDigest(this.cwd, { fsImpl: this.fsImpl, configDir: this.configDir });
-          this._treeContext = { head, tree };
+          // 089 IC-001: one status call per contract yields the tree, the ignored set and the git
+          // root; when it faults all three are null and the key is null (never a partial key).
+          this._treeContext = this.readTreeContext();
         }
-        checkKeyVal = checkKey({
+        const keyed = checkKeyV2({
           command,
           timeoutMs,
           cwd: this.cwd,
           head: this._treeContext.head,
           tree: this._treeContext.tree,
+          ignored: this._treeContext.ignored,
+          gitRoot: this._treeContext.gitRoot,
+          links: this._treeContext.links,
+          configDir: this.configDir,
           env: this.env,
           fsImpl: this.fsImpl,
         });
+        checkKeyVal = keyed?.key ?? null;
+        // Reuse trusts only a key whose ignored set came from this contract's own status call.
+        payloadDigest = typeof this._treeContext.ignored === 'string' ? keyed?.payloadDigest ?? null : null;
       }
     } catch {
       checkKeyVal = null;
+      payloadDigest = null;
+    }
+
+    // 089 IC-004: after the in-run cache and the key, before in-flight sharing or execution.
+    const reusedResult = this.lookupReused(checkName, command, checkKeyVal, payloadDigest, startedAt);
+    if (reusedResult) {
+      if (dedupeCache) dedupeCache.set(dedupeKey, reusedResult);
+      return reusedResult;
     }
 
     let sharing: any = { shared: 'none', sharedRef: null };
@@ -526,7 +686,8 @@ class VerificationContractRunner {
       const execute = () => this.exec(command, {
         shell: true,
         cwd: this.cwd,
-        ...(this.inflightContext?.enabled ? { env: this.env } : {}),
+        // The key hashed this.env; with sharing or reuse on the command runs in exactly that env.
+        ...(this.inflightContext?.enabled || this.reuseStore ? { env: this.env } : {}),
         encoding: 'utf8',
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
@@ -544,6 +705,8 @@ class VerificationContractRunner {
       }
     } catch (error: any) {
       stop();
+      this.rereadAfterRun(command, timeoutMs, payloadDigest);
+      this.evictFailed(checkKeyVal);
       // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a
       // thrown error that aborts the whole contract.
       return remember({
@@ -555,6 +718,8 @@ class VerificationContractRunner {
       });
     }
     stop(res);
+    // Reuse on: the check may have changed what the key hashed. Read again before anything is stored.
+    const unchanged = this.rereadAfterRun(command, timeoutMs, payloadDigest);
     const stdout = res.bounded === true ? res.stdout : truncate(res.stdout);
     const stderr = res.bounded === true ? res.stderr : truncate(res.stderr);
 
@@ -562,6 +727,7 @@ class VerificationContractRunner {
     // check that hung after printing its first failure told you only that it hung. Whatever the
     // process produced before the kill is exactly what a reader needs.
     if (res.error && res.error.code === 'ETIMEDOUT') {
+      this.evictFailed(checkKeyVal);
       const result = {
         name: checkName,
         command,
@@ -576,6 +742,7 @@ class VerificationContractRunner {
     }
 
     if (res.error) {
+      this.evictFailed(checkKeyVal);
       const result = {
         name: checkName,
         command,
@@ -607,6 +774,11 @@ class VerificationContractRunner {
       result.error = `Terminated by signal ${res.signal}`;
     }
     this.decorate(result, command, res.stdout, res.stderr, res);
+    if (passed) {
+      if (unchanged) this.storeReused(result, checkKeyVal, payloadDigest, res);
+    } else {
+      this.evictFailed(checkKeyVal);
+    }
     return remember(result);
   }
 

@@ -378,6 +378,11 @@ const { runInflight } = require(${JSON.stringify(path.join(REPO, 'src/runtime/ve
 const dir=path.join(process.argv[1], '.doflow', 'state', 'verification', 'v0');
 const out=runInflight({dir,key:'0123456789abcdef',timeoutMs:1000,execute:()=>({status:0,stdout:'',stderr:''})});
 if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json')))process.exit(1);`;
+    const writeReuse = `const fs=require('node:fs'),path=require('node:path');
+const { reuseDir, storeReuse } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/reuse.ts'))});
+const dir=reuseDir({projectRoot:process.argv[1]});
+const out=storeReuse({dir,key:'0123456789abcdef',payloadDigest:'a'.repeat(64),level:'L2',result:{status:'PASS',exitCode:0,stdout:'',stderr:'',truncated:false},mintRef:()=> 'b'.repeat(32)});
+if(!out.stored||((fs.statSync(dir).mode&0o777)!==0o700)||!fs.existsSync(path.join(dir,'reuse-0123456789abcdef.json')))process.exit(1);`;
     // Exercise the production intent writer without any merge or external process.
     const writeRoadmap = `const path=require('node:path');
 const { writeIntent } = require(${JSON.stringify(path.join(REPO, 'src/runtime/roadmap/merge.ts'))});
@@ -408,6 +413,7 @@ writeIntent(path.join(process.argv[1], '.doflow/state/roadmap/intents/113.json')
       ['trace', verb('trace'), 0],
       ['telemetry write', node('-e', writeTelemetry, project), 0],
       ['verification-v0 write', node('-e', writeVerificationV0, project), 0],
+      ['verification-reuse write', node('-e', writeReuse, project), 0],
       ['roadmap intent write', node('-e', writeRoadmap, project), 0],
       ['verification-v0 inflight write', node('-e', writeInflight, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],

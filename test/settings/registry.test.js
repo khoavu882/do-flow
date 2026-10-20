@@ -17,8 +17,9 @@ const { REF_META, createRefs } = require('../../src/runtime/settings/refs.ts');
 
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
 
-// The seven v1 entries plus 112's project-only guard entry (the design folder is not in the repo,
-// so the contract is pinned here; a registry edit must change this table on purpose).
+// The seven v1 entries plus 112's project-only guard entry and 089's verify.reuse switch (the
+// design folder is not in the repo, so the contract is pinned here; a registry edit must change
+// this table on purpose).
 const V1 = {
   'advice.enabled': { type: 'boolean', order: [false, true], default: false,
     scope: 'narrow-only', combine: 'override', securityRelevant: true, failSafe: false,
@@ -72,6 +73,12 @@ const V1 = {
     securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/worker/launch.ts'],
     description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
+  'verify.reuse': { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'off',
+    scope: 'global-only', combine: 'override', securityRelevant: true, failSafe: 'off',
+    env: { name: 'DOFLOW_VERIFY_REUSE', parse: 'off-words', direction: 'narrow' },
+    flag: null, shellRead: null, needsConfigHome: true, legacy: [],
+    consumers: ['src/runtime/verification/engine.ts'],
+    description: 'Reuse of a recorded PASS at L1/L2 when the check key is unchanged, off until the owner turns it on; the env can only turn it off.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -119,11 +126,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch and the 112 project-only guard key, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key and the 089 verify.reuse switch, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 9);
+  assert.equal(Object.keys(SHIPPED.keys).length, 10);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -351,7 +358,8 @@ test('env names: DOFLOW_<KEY_UPPER_SNAKE> for new bindings, the two existing nam
   assert.equal(derivedEnvName('storage.retentionHours'), 'DOFLOW_STORAGE_RETENTION_HOURS');
   assert.equal(derivedEnvName('advice.model'), 'DOFLOW_ADVICE_MODEL');
   const names = Object.values(SHIPPED.keys).filter((spec) => spec.env).map((spec) => spec.env.name).sort();
-  assert.deepEqual(names, ['DOFLOW_AUTOPILOT_ENABLED', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS']);
+  assert.deepEqual(names, ['DOFLOW_AUTOPILOT_ENABLED', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS', 'DOFLOW_VERIFY_REUSE']);
+  assert.equal(derivedEnvName('verify.reuse'), 'DOFLOW_VERIFY_REUSE', '089: the new binding takes the derived name');
   // control: the same key under a renamed variable that is not one of the grandfathered pair fails
   const renamed = clone(SHIPPED);
   renamed.keys['storage.retentionHours'].env.name = 'DOFLOW_KEEP_HOURS';
@@ -373,6 +381,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'storage.retentionHours': { state: 'invalid' },
     'failure.capture': 'off',
     'autopilot.enabled': 'off',
+    'verify.reuse': 'off',
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';
