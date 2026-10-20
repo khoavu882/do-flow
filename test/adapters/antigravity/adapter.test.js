@@ -64,13 +64,16 @@ test('project plan: instructions, skills, agents, locator, and MCP land where An
   assert.equal(second.changes.filter((c) => c.operation !== 'remove').length, 0, 'second plan is a no-op');
 });
 
-test('global scope: no instructions, no skills; agents and locator ride ~/.gemini/config', () => {
+test('global scope: no instructions and nothing under ~/.agents; skills, agents and locator ride ~/.gemini/config', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const home = scratch();
   const input = harnessInput(registry, { scope: 'global', scopeRoot: home });
   const planned = adapter.plan(input);
   assert.ok(!planned.changes.some((c) => c.target.endsWith('AGENTS.md')), 'global instructions belong to Gemini CLI; never written');
-  assert.ok(!planned.changes.some((c) => c.target.includes('.agents', 'skills')));
+  const agentsTree = path.join(home, '.agents') + path.sep;
+  assert.ok(!planned.changes.some((c) => c.target.startsWith(agentsTree)), 'the .agents tree is project scope only');
+  assert.ok(planned.changes.some((c) => c.assetId === 'skills.doflow'
+    && c.target.startsWith(path.join(home, '.gemini', 'config', 'skills') + path.sep)), 'global skills ride ~/.gemini/config/skills');
   assert.ok(planned.changes.some((c) => c.target === path.join(home, '.gemini', 'config', 'agents', 'system-architect', 'agent.md')));
   adapter.apply({ ...input, changes: planned.changes });
   assert.ok(fs.existsSync(path.join(home, '.gemini', 'config', 'bin', 'doflow-run')));
@@ -616,4 +619,12 @@ test('Antigravity discovery reports the servers in mcp_config.json, sorted, and 
 test('107-B N-c: docs/architecture.md states the always_on discard rule as vendor-stated and unverified', () => {
   const text = fs.readFileSync(path.join(REPO, 'docs', 'architecture.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(text, /without which Antigravity discards a rules file per the vendor page, unverified against `agy`/);
+});
+
+// 107-B re-review N-d: the registry said DoFlow skips the Antigravity global skills scope; a global
+// install plans skills under ~/.gemini/config/skills (asserted above), so no registry note says otherwise.
+test('107-B N-d: no Antigravity registry note says DoFlow skips the global skills scope', () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
+  const text = JSON.stringify(registry.harnesses ? registry.harnesses.find((h) => h.id === 'antigravity') : registry);
+  assert.doesNotMatch(text, /skips the global skills scope/);
 });
