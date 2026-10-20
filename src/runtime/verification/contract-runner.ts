@@ -382,6 +382,12 @@ class VerificationContractRunner {
     try {
       const before = this._treeContext;
       const after = this.readTreeContext();
+      if (after.tree === null) {
+        // 089 re-review N-a: a faulted read is not cached; the next check reads the tree again
+        // instead of keying null (and evicting nothing) for the rest of the contract.
+        this._treeContext = undefined;
+        return false;
+      }
       if (!before || before.head !== after.head || before.tree !== after.tree || before.ignored !== after.ignored
         || before.gitRoot !== after.gitRoot || before.links !== after.links) {
         this._treeContext = after;

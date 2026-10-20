@@ -261,6 +261,43 @@ test('C-2 control: with reuse off an executed FAIL does not touch the store', (t
   assert.equal(fs.readFileSync(record, 'utf8'), before);
 });
 
+// 089 re-review N-a: a git status read that faults after one check must not leave a null tree cached
+// for the rest of the contract, or every later FAIL carries no key and evicts nothing.
+test('N-a real shell: after a faulted re-read the next check reads the tree again, so its FAIL evicts the stored PASS', (t) => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) { t.skip('needs POSIX permissions and a non-root user'); return; }
+  const ctx = scene(t);
+  const marker = path.join(tempDir(t, 'doflow-stale-pass-marker-'), 'fail');
+  const B = markerCommand(marker);
+  assert.deepEqual([runnerDriver(ctx, B).ran, runnerDriver(ctx, B).ran], [true, false], 'PASS stored, then reused');
+  const [record] = storedRecords(ctx);
+  const index = path.join(ctx.root, '.git', 'index');
+  t.after(() => { try { fs.chmodSync(index, 0o644); } catch { /* fixture gone */ } });
+  const runner = newRunner(ctx, { risk: 'HIGH' });
+  runner.runCheck('A', `chmod 000 "${index}"`, 60000); // the read after A faults
+  fs.chmodSync(index, 0o644); // the fault clears before the next check starts
+  fs.writeFileSync(marker, '');
+  const b = runner.runCheck('B', B, 60000);
+  assert.equal(b.status, 'FAIL');
+  assert.equal(typeof runner.metrics.get(b)?.checkKey, 'string', 'B is keyed on a fresh read');
+  assert.equal(fs.existsSync(record), false, 'B\'s FAIL evicted the stored PASS');
+  const after = runnerDriver(ctx, B);
+  assert.deepEqual([after.ran, after.status], [true, 'FAIL'], 'the next MEDIUM run executes');
+});
+
+test('N-a control: with the tree readable throughout, the same contract keys B and evicts', (t) => {
+  const ctx = scene(t);
+  const marker = path.join(tempDir(t, 'doflow-stale-pass-marker-'), 'fail');
+  const B = markerCommand(marker);
+  assert.equal(runnerDriver(ctx, B).ran, true);
+  const [record] = storedRecords(ctx);
+  const runner = newRunner(ctx, { risk: 'HIGH' });
+  runner.runCheck('A', 'true', 60000);
+  fs.writeFileSync(marker, '');
+  const b = runner.runCheck('B', B, 60000);
+  assert.equal(typeof runner.metrics.get(b)?.checkKey, 'string');
+  assert.equal(fs.existsSync(record), false);
+});
+
 // ── C-3: the out-of-repo target of a clean tracked symlink ───────────────────────────────────────
 
 test('C-3 real shell: changing only the target of a committed symlink to an outside file executes the check', (t) => {
