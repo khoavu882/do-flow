@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "harness": {
+    "select": "worker.readOnly",
+    "pin": null
+  },
+  "model": {
+    "label": "codex:gpt-6-luna:medium",
+    "argv": [
+      "-m",
+      "gpt-6-luna",
+      "-c",
+      "model_reasoning_effort=\"medium\""
+    ]
+  },
+  "home": {
+    "env": "CODEX_HOME",
+    "source": "~/.codex",
+    "copy": [
+      "auth.json"
+    ]
+  },
+  "path": [
+    "node",
+    "rg",
+    "git"
+  ],
+  "arms": {
+    "N": {
+      "paragraph": "Search the repository with your own tools.",
+      "pathAdd": [],
+      "leak": [
+        "^doflow(?:-run)?(?:\\.[cm]?js)?(?: -\\S*)* retrieve(?: |$)",
+        "^mcp[:_]"
+      ]
+    },
+    "D": {
+      "paragraph": "A code retrieval command is available: doflow retrieve --scope code --query \"<text>\" --root . (add --json for structured output). Use it alongside your own tools.",
+      "pathAdd": [
+        "doflow-shim"
+      ],
+      "leak": [
+        "^mcp[:_]"
+      ],
+      "count": [
+        "^doflow(?:-run)?(?:\\.[cm]?js)?(?: -\\S*)* retrieve(?: |$)"
+      ]
+    }
+  },
+  "timeoutSeconds": 900,
+  "maxTokensPerRun": 250000,
+  "note": "maxTokensPerRun is provisional; reset it from the rehearsal stage."
+}

@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": 1,
+  "split": "holdout",
+  "tasks": [
+    {
+      "id": "HC-901",
+      "split": "holdout",
+      "corpus": "code",
+      "class": "conceptual-discovery",
+      "query": "how does the system decide that a network address refers to this same machine, including IPv6 notation that embeds an IPv4 one",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/advice/endpoint-guard.ts",
+          "startLine": 45,
+          "endLine": 54,
+          "rel": 2,
+          "anchorSha": "076db6312fa054225703ebcf9c45524f947e3b056660ed3fd6589f3909b77795"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.077,
+      "truthSource": [
+        "src/runtime/advice/endpoint-guard.ts:45",
+        "mechanical span check at 3fc988bc by the lead (git show spans, git grep callers); second reader on another model not performed (denied)"
+      ],
+      "author": "worker:sonnet-097"
+    },
+    {
+      "id": "HC-902",
+      "split": "holdout",
+      "corpus": "code",
+      "class": "conceptual-discovery",
+      "query": "which kinds of internal process wording get flagged when they show up in files meant for readers outside the project",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/leak-scan.ts",
+          "startLine": 31,
+          "endLine": 37,
+          "rel": 2,
+          "anchorSha": "1c9bd71f809817b0171793f17600b6f6e6d708f137495c149d2dbafa4ec3dbb9"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0,
+      "truthSource": [
+        "src/runtime/leak-scan.ts:31",
+        "mechanical span check at 3fc988bc by the lead (git show spans, git grep callers); second reader on another model not performed (denied)"
+      ],
+      "author": "worker:sonnet-097"
+    },
+    {
+      "id": "HC-903",
+      "split": "holdout",
+      "corpus": "code",
+      "class": "conceptual-discovery",
+      "query": "how are trailing remarks removed from a configuration line without cutting inside quoted text",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/helper/toml.ts",
+          "startLine": 40,
+          "endLine": 53,
+          "rel": 2,
+          "anchorSha": "54a11340589bdff1ee02a76f0471b8beb2aa9a56864dc0d1e961cc4f95273e85"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.1,
+      "truthSource": [
+        "src/helper/toml.ts:40",
+        "mechanical span check at 3fc988bc by the lead (git show spans, git grep callers); second reader on another model not performed (denied)"
+      ],
+      "author": "worker:sonnet-097"
+    },
+    {
+      "id": "HC-904",
+      "split": "holdout",
+      "corpus": "code",
+      "class": "conceptual-discovery",
+      "query": "how are lines of a markdown document tagged so that a history heading quoted inside a code sample or an html remark is not mistaken for the real section",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/history-compactor.ts",
+          "startLine": 40,
+          "endLine": 69,
+          "rel": 2,
+          "anchorSha": "b6c8e2e2e991aa10e01c6e8516952cbcb1251a20d7b27b3e244f81c9c34e0556"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.063,
+      "truthSource": [
+        "src/runtime/history-compactor.ts:40",
+        "mechanical span check at 3fc988bc by the lead (git show spans, git grep callers); second reader on another model not performed (denied)"
+      ],
+      "author": "worker:sonnet-097"
+    },
+    {
+      "id": "HC-905",
+      "split": "holdout",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what code calls selectExpired",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/lifecycle/retention.ts",
+          "startLine": 163,
+          "endLine": 167,
+          "rel": 2,
+          "anchorSha": "58f0449a44ea116ca4d63904369646a281f790c309d61321adab1426833eaedc"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/runtime/storage/engine.ts",
+          "startLine": 190,
+          "endLine": 190,
+          "rel": 2,
+          "anchorSha": "e98c7b39bff9a4e78746dc8a90d911b39d924753430a31ccf775c41ecbf957d7"
+        },
+        {
+          "id": "q3",
+          "path": "src/runtime/lifecycle/store-upkeep.ts",
+          "startLine": 269,
+          "endLine": 269,
+          "rel": 2,
+          "anchorSha": "12f1c8043dfcb78a8e8c77879e88387510b89d0ff3f295b3882935faae0a62f0"
+        },
+        {
+          "id": "q4",
+          "path": "test/runtime/lifecycle-retention.test.js",
+          "startLine": 252,
+          "endLine": 252,
+          "rel": 2,
+          "anchorSha": "b6a72e40e636402370fb95afa89025e0e11012cee76e571322a5e767fe64129c"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "src/runtime/lifecycle/retention.ts:163",
+        "src/runtime/storage/engine.ts:190",
+        "src/runtime/lifecycle/store-upkeep.ts:269",
+        "test/runtime/lifecycle-retention.test.js:252",
+        "mechanical span check at 3fc988bc by the lead (git show spans, git grep callers); second reader on another model not performed (denied)"
+      ],
+      "author": "worker:sonnet-097"
+    },
+    {
+      "id": "HC-906",
+      "split": "holdout",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "which modules call removeMarkedSection",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/helper/marker-merge.ts",
+          "startLine": 93,
+          "endLine": 97,
+          "rel": 2,
+          "anchorSha": "a71b9ea1b1970ef3731369ab41ef61b6f75341f609716bc50a8183bab678cf67"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/adapters/claude/index.ts",
+          "startLine": 504,
+          "endLine": 504,
+          "rel": 2,
+          "anchorSha": "e251a369426a423a0c1c9d487118f6898cf7f6a5db8476a8ef8be86c7e5bdb32"
+        },
+        {
+          "id": "q3",
+          "path": "src/adapters/codex/index.ts",
+          "startLine": 318,
+          "endLine": 318,
+          "rel": 2,
+          "anchorSha": "e314beaeed1af7a0e0dfd4011d918be60d71ef4b5ecf46265a4ead1ba6e43b51"
+        },
+        {
+          "id": "q4",
+          "path": "test/helper/marker-merge.test.js",
+          "startLine": 276,
+          "endLine": 276,
+          "rel": 2,
+          "anchorSha": "037cf64ed0ec78a4d493b5aba08d220b0472998a6f618cbc1b01bd61a26a123b"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "src/helper/marker-merge.ts:93",
+        "src/adapters/claude/index.ts:504",
+        "src/adapters/codex/index.ts:318",
+        "test/helper/marker-merge.test.js:276",
+        "mechanical span check at 3fc988bc by the lead (git show spans, git grep callers); second reader on another model not performed (denied)"
+      ],
+      "author": "worker:sonnet-097"
+    },
+    {
+      "id": "HC-907",
+      "split": "holdout",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "what callers depend on strengthWords",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/advice/strength.ts",
+          "startLine": 59,
+          "endLine": 64,
+          "rel": 2,
+          "anchorSha": "7f54f4e56c8f0f625acf46567f8be3057a6ea6d297924134638a892c0818f40c"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/runtime/task-classifier.ts",
+          "startLine": 524,
+          "endLine": 524,
+          "rel": 2,
+          "anchorSha": "544000c7e9f6288d720338f095b20cb6948b3fb1c062bb1e994d66601a2fa6e6"
+        },
+        {
+          "id": "q3",
+          "path": "src/runtime/brief-tools.ts",
+          "startLine": 323,
+          "endLine": 323,
+          "rel": 2,
+          "anchorSha": "4540d5b9aec2929350ed70bb5dbbd604c2dfc67328ff9996108a9a22703b1029"
+        },
+        {
+          "id": "q4",
+          "path": "src/runtime/advice/cli.ts",
+          "startLine": 45,
+          "endLine": 45,
+          "rel": 2,
+          "anchorSha": "afff3bb9e6ce724cf3def6350e8e6b1b8de71ffa55bd340d5cc66aeeeb1a2a9a"
+        },
+        {
+          "id": "q5",
+          "path": "test/runtime/advice-strength.test.js",
+          "startLine": 22,
+          "endLine": 22,
+          "rel": 2,
+          "anchorSha": "c39a8a893bcd2f8f11b47ec8b0cfba60c4b965e85d215ac504c99690380d2264"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "src/runtime/advice/strength.ts:59",
+        "src/runtime/task-classifier.ts:524",
+        "src/runtime/brief-tools.ts:323",
+        "src/runtime/advice/cli.ts:45",
+        "test/runtime/advice-strength.test.js:22",
+        "mechanical span check at 3fc988bc by the lead (git show spans, git grep callers); second reader on another model not performed (denied)"
+      ],
+      "author": "worker:sonnet-097"
+    },
+    {
+      "id": "HC-908",
+      "split": "holdout",
+      "corpus": "code",
+      "class": "impact-refactor",
+      "query": "where is evaluateReach invoked",
+      "qrels": [
+        {
+          "id": "q1",
+          "path": "src/runtime/reach.ts",
+          "startLine": 50,
+          "endLine": 52,
+          "rel": 2,
+          "anchorSha": "06e4c07c4d06a141564eae34dd813fdf0244af41c4a3ddaee495bdc9411196b4"
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "q2",
+          "path": "src/runtime/health.ts",
+          "startLine": 652,
+          "endLine": 652,
+          "rel": 2,
+          "anchorSha": "a3da9a8d7aae6ac082eb380a88dc9256a559f4a5bc04d63024400cd0612e96e9"
+        },
+        {
+          "id": "q3",
+          "path": "src/runtime/mcp-reach.ts",
+          "startLine": 66,
+          "endLine": 66,
+          "rel": 2,
+          "anchorSha": "0ae4c3a3ba7dcd212a8c7c68b7004f61c4b8635721f6889a26a115fbcffbd2ff"
+        },
+        {
+          "id": "q4",
+          "path": "test/runtime/reach.test.js",
+          "startLine": 44,
+          "endLine": 44,
+          "rel": 2,
+          "anchorSha": "83d8da06119eef583be0a137cecd703b9316b56e54d6cf663d6c91aa2913f9cb"
+        }
+      ],
+      "expect": {
+        "result": [
+          "RETRIEVED"
+        ]
+      },
+      "queryOverlap": 0.333,
+      "truthSource": [
+        "src/runtime/reach.ts:50",
+        "src/runtime/health.ts:652",
+        "src/runtime/mcp-reach.ts:66",
+        "test/runtime/reach.test.js:44",
+        "mechanical span check at 3fc988bc by the lead (git show spans, git grep callers); second reader on another model not performed (denied)"
+      ],
+      "author": "worker:sonnet-097"
+    }
+  ]
+}
