@@ -46,7 +46,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    signal it rests on in one line. If two classes fit equally, do **not** take the longer one: show
    what each would run —
    `"$DOFLOW" workflow --task-class "<candidate>" --json`, quote its `stageIds` — and ask via
-   `AskUserQuestion`, one option per candidate.
+   the question tool, one option per candidate.
 
 3. **Validate the class through the runtime** — a proposal is not a selection until this returns:
 
@@ -98,7 +98,7 @@ not declare is not run here, however familiar it is from the `feature` chain.
 7. **Stop at the gates the resolved workflow declares** — read them from `workflow.gates`, each
    attached to a stage by `afterStage`. `trigger: always` stops every time; any other trigger stops
    only when that named condition actually holds. Ask with the gate's own `prompt` via
-   `AskUserQuestion`. For the `feature` workflow's three, which behave as they always have:
+   the question tool. For the `feature` workflow's three, which behave as they always have:
    - **`gate-0`** (after discovery, trigger `unresolved-clarifications`) — a safety net, not the
      normal path: `do-brainstorm` resolves ambiguities to zero via its own loop, so this fires only
      if a `[NEEDS CLARIFICATION]` marker survived an aborted session. Ask one question per marker
@@ -147,7 +147,7 @@ not declare is not run here, however familiar it is from the `feature` chain.
    ```
 
 8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to any
-   `AskUserQuestion` means stop and ask again, per this repo's `RULE_04_QUESTIONS`. When the
+   the question tool means stop and ask again, per this repo's `RULE_04_QUESTIONS`. When the
    terminal stage completes, state `workflow.handoff` as the next step rather than continuing into
    it.
 
