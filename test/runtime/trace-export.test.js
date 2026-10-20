@@ -44,7 +44,10 @@ function createReceiver(handler) {
         server,
         port,
         url,
-        close: () => new Promise((res) => server.close(res)),
+        close: () => new Promise((res) => {
+          server.close(res);
+          server.closeAllConnections();
+        }),
       });
     });
     server.on('error', reject);
@@ -144,6 +147,21 @@ test('resolveOtlpEnv: base endpoint gains /v1/traces with one slash', () => {
   assert.equal(res4.endpoint, 'http://127.0.0.1:4318/collector/v1/traces');
 });
 
+test('resolveOtlpEnv: base endpoint keeps query and normalizes all trailing slashes', () => {
+  assert.equal(
+    resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318/base?key=s3cret' }).endpoint,
+    'http://127.0.0.1:4318/base/v1/traces?key=s3cret'
+  );
+  assert.equal(
+    resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318/' }).endpoint,
+    'http://127.0.0.1:4318/v1/traces'
+  );
+  assert.equal(
+    resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318/base///' }).endpoint,
+    'http://127.0.0.1:4318/base/v1/traces'
+  );
+});
+
 test('resolveOtlpEnv: traces endpoint takes precedence over base endpoint', () => {
   const env = {
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'http://127.0.0.1:4318/specific',
@@ -194,6 +212,71 @@ test('resolveOtlpEnv: timeout defaults to 10000 ms and clamps >30000 to 30000', 
   assert.equal(resolveOtlpEnv(envTracesClamp).timeoutMs, 30000);
 });
 
+test('resolveOtlpEnv: empty OTEL header and timeout variables count as unset', () => {
+  const endpoint = 'http://127.0.0.1:4318';
+
+  for (const name of ['OTEL_EXPORTER_OTLP_HEADERS', 'OTEL_EXPORTER_OTLP_TRACES_HEADERS']) {
+    assert.deepEqual(resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint }).headers, {});
+    for (const value of ['', '   ']) {
+      assert.deepEqual(resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint, [name]: value }).headers, {});
+    }
+    assert.deepEqual(
+      resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint, [name]: ' , a=1, , b=2, ' }).headers,
+      { a: '1', b: '2' }
+    );
+    assert.deepEqual(
+      resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint, [name]: 'a=1,b=2' }).headers,
+      { a: '1', b: '2' }
+    );
+    assert.throws(
+      () => resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint, [name]: 'bad_member' }),
+      (err) => err.message.includes(name) && !err.message.includes('bad_member')
+    );
+  }
+
+  assert.deepEqual(resolveOtlpEnv({
+    OTEL_EXPORTER_OTLP_ENDPOINT: endpoint,
+    OTEL_EXPORTER_OTLP_HEADERS: 'base=1',
+    OTEL_EXPORTER_OTLP_TRACES_HEADERS: '',
+  }).headers, { base: '1' });
+
+  for (const name of ['OTEL_EXPORTER_OTLP_TIMEOUT', 'OTEL_EXPORTER_OTLP_TRACES_TIMEOUT']) {
+    assert.equal(resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint }).timeoutMs, 10000);
+    for (const value of ['', '   ']) {
+      assert.equal(resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint, [name]: value }).timeoutMs, 10000);
+    }
+    assert.equal(resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint, [name]: '250' }).timeoutMs, 250);
+    assert.throws(
+      () => resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint, [name]: 'not_a_number' }),
+      (err) => err.message.includes(name) && !err.message.includes('not_a_number')
+    );
+  }
+
+  assert.equal(resolveOtlpEnv({
+    OTEL_EXPORTER_OTLP_ENDPOINT: endpoint,
+    OTEL_EXPORTER_OTLP_TIMEOUT: '750',
+    OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: '',
+  }).timeoutMs, 750);
+});
+
+test('resolveOtlpEnv: invalid header token and decoded control characters name only the variable', () => {
+  for (const value of ['a=x%0D%0AInjected:%20v', 'bad name=v']) {
+    assert.throws(
+      () => resolveOtlpEnv({
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318',
+        OTEL_EXPORTER_OTLP_HEADERS: value,
+      }),
+      (err) => {
+        assert.match(err.message, /OTEL_EXPORTER_OTLP_HEADERS/);
+        assert.ok(!err.message.includes('Injected'));
+        assert.ok(!err.message.includes('bad name'));
+        assert.ok(!err.message.includes(value));
+        return true;
+      }
+    );
+  }
+});
+
 test('resolveOtlpEnv: usage errors name the variable only without echoing values', () => {
   // No endpoint names both variables
   assert.throws(
@@ -204,6 +287,13 @@ test('resolveOtlpEnv: usage errors name the variable only without echoing values
       return true;
     }
   );
+
+  for (const name of ['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', 'OTEL_EXPORTER_OTLP_ENDPOINT']) {
+    assert.throws(
+      () => resolveOtlpEnv({ [name]: 'http://127.0.0.1:4318#frag' }),
+      (err) => err.message.includes(name) && !err.message.includes('#frag')
+    );
+  }
 
   // Scheme not http/https
   assert.throws(
@@ -255,6 +345,18 @@ test('resolveOtlpEnv: usage errors name the variable only without echoing values
       return true;
     }
   );
+
+  for (const value of ['a=x%0D%0AInjected:%20v', 'bad name=v']) {
+    assert.throws(
+      () => resolveOtlpEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_EXPORTER_OTLP_HEADERS: value }),
+      (err) => {
+        assert.match(err.message, /OTEL_EXPORTER_OTLP_HEADERS/);
+        assert.ok(!err.message.includes('Injected'));
+        assert.ok(!err.message.includes('bad name'));
+        return true;
+      }
+    );
+  }
 
   // Non-integer timeout
   assert.throws(
@@ -339,6 +441,153 @@ test('sendRequests: 200 with partialSuccess.rejectedSpans gives status partial',
   } finally {
     await receiver.close();
   }
+});
+
+test('sendRequests: 200 body timeout fails and stops before the second request', async () => {
+  let receivedCount = 0;
+  const receiver = await createReceiver((req, res) => {
+    receivedCount++;
+    if (receivedCount === 1) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{');
+      return;
+    }
+    res.end('{}');
+  });
+
+  try {
+    const result = await sendRequests([{ resourceSpans: [] }, { resourceSpans: [] }], {
+      endpoint: receiver.url,
+      timeoutMs: 300,
+    });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.reason, 'timeout');
+    assert.equal(result.httpStatus, 200);
+    assert.equal(result.sent, 1);
+    assert.equal(receivedCount, 1);
+  } finally {
+    await receiver.close();
+  }
+});
+
+test('sendRequests: 200 body connection reset fails and stops before the second request', async () => {
+  let receivedCount = 0;
+  const receiver = await createReceiver((req, res) => {
+    receivedCount++;
+    res.writeHead(200, { 'Content-Length': '100' });
+    res.write('four');
+    setTimeout(() => res.socket?.destroy(), 20);
+  });
+
+  try {
+    const result = await sendRequests([{ resourceSpans: [] }, { resourceSpans: [] }], {
+      endpoint: receiver.url,
+      timeoutMs: 300,
+    });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.reason, 'connection');
+    assert.equal(result.httpStatus, 200);
+    assert.equal(result.sent, 1);
+    assert.equal(receivedCount, 1);
+  } finally {
+    await receiver.close();
+  }
+});
+
+test('sendRequests: complete invalid JSON bodies remain accepted', async () => {
+  let receivedCount = 0;
+  const receiver = await createReceiver((req, res) => {
+    receivedCount++;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('not json');
+  });
+
+  try {
+    const result = await sendRequests([{ resourceSpans: [] }, { resourceSpans: [] }], {
+      endpoint: receiver.url,
+      timeoutMs: 5000,
+    });
+    assert.equal(result.status, 'ok');
+    assert.equal(result.sent, 2);
+    assert.equal(result.rejected, 0);
+    assert.equal(receivedCount, 2);
+  } finally {
+    await receiver.close();
+  }
+});
+
+test('sendRequests: 200 response body over 65536 bytes fails without returning body content', async () => {
+  let receivedCount = 0;
+  const body = `response_body_canary:${'x'.repeat(70000)}`;
+  const receiver = await createReceiver((req, res) => {
+    receivedCount++;
+    res.writeHead(200, { 'Content-Length': String(Buffer.byteLength(body)) });
+    res.write(body.slice(0, 35000));
+    setTimeout(() => {
+      if (!res.destroyed) res.end(body.slice(35000));
+    }, 10);
+  });
+
+  try {
+    const result = await sendRequests([{ resourceSpans: [] }, { resourceSpans: [] }], {
+      endpoint: receiver.url,
+      timeoutMs: 5000,
+    });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.reason, 'bad-response');
+    assert.equal(result.httpStatus, 200);
+    assert.equal(result.sent, 1);
+    assert.equal(receivedCount, 1);
+    assert.ok(!JSON.stringify(result).includes('response_body_canary'));
+    assert.deepEqual(Object.keys(result).sort(), ['httpStatus', 'reason', 'rejected', 'requests', 'sent', 'status']);
+  } finally {
+    await receiver.close();
+  }
+});
+
+test('sendRequests: rejected body stream reads report timeout and connection', async () => {
+  for (const [error, reason] of [
+    [Object.assign(new Error(), { name: 'TimeoutError' }), 'timeout'],
+    [Object.assign(new Error('terminated'), { cause: { code: 'UND_ERR_SOCKET' } }), 'connection'],
+  ]) {
+    const result = await sendRequests([{ resourceSpans: [] }], {
+      endpoint: 'http://receiver.invalid',
+      fetchImpl: async () => ({
+        status: 200,
+        body: {
+          getReader: () => ({
+            read: async () => { throw error; },
+          }),
+        },
+      }),
+    });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.reason, reason);
+    assert.equal(result.httpStatus, 200);
+    assert.equal(result.sent, 1);
+  }
+});
+
+test('sendRequests: bounded body reader cancels after 65536 bytes', async () => {
+  let cancelled = false;
+  const responseBody = new Uint8Array(70000);
+  const result = await sendRequests([{ resourceSpans: [] }, { resourceSpans: [] }], {
+    endpoint: 'http://receiver.invalid',
+    fetchImpl: async () => ({
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => ({ done: false, value: responseBody }),
+          cancel: async () => { cancelled = true; },
+        }),
+      },
+    }),
+  });
+  assert.equal(cancelled, true);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.reason, 'bad-response');
+  assert.equal(result.httpStatus, 200);
+  assert.equal(result.sent, 1);
 });
 
 test('sendRequests: 400 stops at the first request with no second request received', async () => {
@@ -553,6 +802,80 @@ test('handleTraceExport: dry run needs no endpoint, prints mapper bodies on stdo
   assert.equal(stdoutJson.length, 1);
   assert.ok(stdoutJson[0].resourceSpans, 'body has resourceSpans');
   assert.match(stderr, /dry run/);
+});
+
+test('handleTraceExport: unsupported protocol writes one variable-only note and still exports', async (t) => {
+  const dir = seedProject(t, { spanCount: 1 });
+  let sent = 0;
+  const fetchImpl = async () => {
+    sent++;
+    return { status: 200, body: null, text: async () => '' };
+  };
+
+  const unsupported = await runExport({
+    positional: [dir],
+    otlpHttp: true,
+    env: {
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://receiver.invalid',
+      OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
+    },
+    fetchImpl,
+  });
+  assert.equal(unsupported.code, 0);
+  assert.equal(sent, 1);
+  assert.equal(unsupported.stderr.trim(), 'doflow trace export: OTEL_EXPORTER_OTLP_PROTOCOL is not read: --otlp-http sends HTTP/JSON');
+  assert.ok(!unsupported.stdout.includes('grpc'));
+  assert.ok(!unsupported.stderr.includes('grpc'));
+
+  for (const value of ['http/json', '']) {
+    const quiet = await runExport({
+      positional: [dir],
+      otlpHttp: true,
+      env: {
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'http://receiver.invalid',
+        OTEL_EXPORTER_OTLP_PROTOCOL: value,
+      },
+      fetchImpl,
+    });
+    assert.equal(quiet.code, 0);
+    assert.equal(quiet.stderr, '');
+  }
+
+  const tracesOverride = await runExport({
+    positional: [dir],
+    otlpHttp: true,
+    env: {
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://receiver.invalid',
+      OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
+      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: 'http/json',
+    },
+    fetchImpl,
+  });
+  assert.equal(tracesOverride.code, 0);
+  assert.equal(tracesOverride.stderr, '');
+
+  const emptyTracesFallback = await runExport({
+    positional: [dir],
+    otlpHttp: true,
+    env: {
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://receiver.invalid',
+      OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
+      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: '   ',
+    },
+    fetchImpl,
+  });
+  assert.equal(emptyTracesFallback.code, 0);
+  assert.match(emptyTracesFallback.stderr, /OTEL_EXPORTER_OTLP_PROTOCOL is not read/);
+
+  const dryRun = await runExport({
+    positional: [dir],
+    otlpHttp: true,
+    dryRun: true,
+    env: { OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' },
+    fetchImpl,
+  });
+  assert.equal(dryRun.code, 0);
+  assert.doesNotMatch(dryRun.stderr, /OTEL_EXPORTER_OTLP_PROTOCOL is not read/);
 });
 
 test('handleTraceExport: 21 requests worth of spans exits 2 before any request naming --run', async (t) => {

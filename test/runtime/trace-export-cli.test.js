@@ -22,7 +22,10 @@ const BIN = path.join(REPO, 'bin', 'doflow.js');
 const EXPORT_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'otlp-export.ts');
 const DAY = '2026-10-20';
 
-function createReceiver() {
+function createReceiver(handler = (_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({}));
+}) {
   const requests = [];
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -30,8 +33,7 @@ function createReceiver() {
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
         requests.push({ method: req.method, url: req.url, headers: req.headers, body });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({}));
+        handler(req, res, requests);
       });
     });
     server.listen(0, '127.0.0.1', () => {
@@ -41,7 +43,10 @@ function createReceiver() {
         server,
         url: `http://127.0.0.1:${port}/v1/traces`,
         requests,
-        close: () => new Promise((done) => server.close(done)),
+        close: () => new Promise((done) => {
+          server.close(done);
+          server.closeAllConnections();
+        }),
       });
     });
     server.on('error', reject);
@@ -257,4 +262,121 @@ test('CLI: `trace`, `stats`, `trace analyze` and `--help` never load otlp-export
   const run = fs.readFileSync(path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run'), 'utf8');
   assert.match(run, /^ {2}trace\s{2,}.*trace export/m);
   assert.doesNotMatch(run, /\|export\|/);
+});
+
+test('CLI: base endpoint keeps its query when adding /v1/traces and rejects fragments before sending', async (t) => {
+  const receiver = await createReceiver();
+  try {
+    const p = seed(t);
+    for (const [envName, variableName] of [
+      ['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'],
+      ['OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_ENDPOINT'],
+    ]) {
+      const r = await cli(p, ['trace', 'export', '--otlp-http', p.dir], {
+        env: { [envName]: `${receiver.url}#frag` },
+      });
+      assert.equal(r.status, 2, r.stdout + r.stderr);
+      assert.match(r.stderr, new RegExp(variableName));
+      assert.doesNotMatch(r.stdout + r.stderr, /#frag/);
+      assert.equal(receiver.requests.length, 0, `${variableName} fragment must send no request`);
+    }
+
+    const endpoint = receiver.url.replace(/\/v1\/traces$/, '/base?key=s3cret');
+    const r = await cli(p, ['trace', 'export', '--otlp-http', p.dir], {
+      env: { OTEL_EXPORTER_OTLP_ENDPOINT: endpoint },
+    });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(receiver.requests.length, 1);
+    assert.equal(receiver.requests[0].url, '/base/v1/traces?key=s3cret');
+    assert.doesNotMatch(r.stdout + r.stderr, /s3cret/);
+  } finally {
+    await receiver.close();
+  }
+});
+
+test('CLI: invalid header names and decoded control values exit 2 without sending or echoing them', async (t) => {
+  const receiver = await createReceiver();
+  try {
+    const p = seed(t);
+    for (const value of ['a=x%0D%0AInjected:%20v', 'bad name=v']) {
+      const r = await cli(p, ['trace', 'export', '--otlp-http', p.dir], {
+        env: {
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: receiver.url,
+          OTEL_EXPORTER_OTLP_HEADERS: value,
+        },
+      });
+      assert.equal(r.status, 2, r.stdout + r.stderr);
+      assert.match(r.stderr, /OTEL_EXPORTER_OTLP_HEADERS/);
+      assert.doesNotMatch(r.stdout + r.stderr, /Injected|bad name/);
+      assert.equal(receiver.requests.length, 0);
+    }
+  } finally {
+    await receiver.close();
+  }
+});
+
+test('CLI: unsupported OTLP protocol is named once and export continues; matching and empty values are quiet', async (t) => {
+  const receiver = await createReceiver();
+  try {
+    const p = seed(t);
+    const grpc = await cli(p, ['trace', 'export', '--otlp-http', p.dir], {
+      env: {
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: receiver.url,
+        OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
+      },
+    });
+    assert.equal(grpc.status, 0, grpc.stdout + grpc.stderr);
+    assert.equal(grpc.stderr.trim(), 'doflow trace export: OTEL_EXPORTER_OTLP_PROTOCOL is not read: --otlp-http sends HTTP/JSON');
+    assert.doesNotMatch(grpc.stdout + grpc.stderr, /grpc/);
+    assert.equal(receiver.requests.length, 1);
+
+    for (const value of ['http/json', '']) {
+      const r = await cli(p, ['trace', 'export', '--otlp-http', p.dir], {
+        env: {
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: receiver.url,
+          OTEL_EXPORTER_OTLP_PROTOCOL: value,
+        },
+      });
+      assert.equal(r.status, 0, r.stdout + r.stderr);
+      assert.doesNotMatch(r.stderr, /OTEL_EXPORTER_OTLP_PROTOCOL is not read/);
+    }
+    assert.equal(receiver.requests.length, 3);
+
+    const dryRun = await cli(p, ['trace', 'export', '--otlp-http', '--dry-run', p.dir], {
+      env: { OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' },
+    });
+    assert.equal(dryRun.status, 0, dryRun.stdout + dryRun.stderr);
+    assert.doesNotMatch(dryRun.stderr, /OTEL_EXPORTER_OTLP_PROTOCOL is not read/);
+    assert.equal(receiver.requests.length, 3, 'dry run sends no request');
+  } finally {
+    await receiver.close();
+  }
+});
+
+test('CLI: oversized 200 response body fails and never appears in output', async (t) => {
+  const responseBody = `response_body_canary:${'x'.repeat(70000)}`;
+  const receiver = await createReceiver((_req, res) => {
+    res.writeHead(200, { 'Content-Length': String(Buffer.byteLength(responseBody)) });
+    res.write(responseBody.slice(0, 35000));
+    setTimeout(() => {
+      if (!res.destroyed) res.end(responseBody.slice(35000));
+    }, 10);
+  });
+
+  try {
+    const p = seed(t);
+    const r = await cli(p, ['trace', 'export', '--otlp-http', '--json', p.dir], {
+      env: { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: receiver.url },
+    });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const parsed = JSON.parse(r.stdout);
+    assert.equal(parsed.status, 'failed');
+    assert.equal(parsed.reason, 'bad-response');
+    assert.equal(parsed.httpStatus, 200);
+    assert.equal(parsed.sent, 1);
+    assert.equal(receiver.requests.length, 1);
+    assert.doesNotMatch(r.stdout + r.stderr, /response_body_canary/);
+  } finally {
+    await receiver.close();
+  }
 });

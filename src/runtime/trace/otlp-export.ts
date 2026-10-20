@@ -11,6 +11,7 @@
  */
 
 const nodeFs = require('node:fs');
+const { TextEncoder, TextDecoder } = require('node:util');
 const path = require('node:path');
 const { projectSpans } = require('./spans.ts');
 const otlpMap = require('./otlp-map.ts');
@@ -35,10 +36,12 @@ function sorted(value: any): any {
 
 /**
  * Resolves OTLP environment variables per IC-006:
- * - endpoint: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT as-is (path-less URL posts to /),
- *   else OTEL_EXPORTER_OTLP_ENDPOINT + v1/traces after exactly one /
- * - headers: OTEL_EXPORTER_OTLP_TRACES_HEADERS else OTEL_EXPORTER_OTLP_HEADERS (k=v, percent-decoded)
- * - timeout: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT else OTEL_EXPORTER_OTLP_TIMEOUT (integer ms, default 10000, max 30000)
+ * - empty values after trimming count as unset; non-empty TRACES_* values override base values
+ * - endpoint: traces endpoint as-is (fragments rejected), else base endpoint with /v1/traces
+ *   appended to its pathname while preserving its query; fragments are rejected
+ * - headers: comma-separated k=v pairs, percent-decoded; empty members are skipped and names
+ *   and decoded values are validated
+ * - timeout: integer ms, default 10000 and max 30000
  *
  * Errors name the variable only, never echoing the value.
  */
@@ -67,15 +70,16 @@ function resolveOtlpEnv(env: Record<string, string | undefined> = process.env): 
     if (u.username || u.password) {
       throw new Error(`${endpointVar} must not contain user info`);
     }
+    if (u.hash !== '' || raw.includes('#')) {
+      throw new Error(`${endpointVar} must not contain a fragment`);
+    }
     endpoint = u.href;
   } else if (baseEndpoint !== undefined && baseEndpoint.trim() !== '') {
     const endpointVar = 'OTEL_EXPORTER_OTLP_ENDPOINT';
     const raw = baseEndpoint.trim();
-    const cleanBase = raw.endsWith('/') ? raw.slice(0, -1) : raw;
-    const combined = cleanBase + '/v1/traces';
     let u: any;
     try {
-      u = new URL(combined);
+      u = new URL(raw);
     } catch {
       throw new Error(`${endpointVar} is invalid URL`);
     }
@@ -85,6 +89,10 @@ function resolveOtlpEnv(env: Record<string, string | undefined> = process.env): 
     if (u.username || u.password) {
       throw new Error(`${endpointVar} must not contain user info`);
     }
+    if (u.hash !== '' || raw.includes('#')) {
+      throw new Error(`${endpointVar} must not contain a fragment`);
+    }
+    u.pathname = u.pathname.replace(/\/+$/, '') + '/v1/traces';
     endpoint = u.href;
   } else {
     throw new Error('missing endpoint: set OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT');
@@ -93,13 +101,16 @@ function resolveOtlpEnv(env: Record<string, string | undefined> = process.env): 
   const tracesHeaders = env.OTEL_EXPORTER_OTLP_TRACES_HEADERS;
   const baseHeaders = env.OTEL_EXPORTER_OTLP_HEADERS;
   const headers: Record<string, string> = {};
+  const useTracesHeaders = tracesHeaders !== undefined && tracesHeaders.trim() !== '';
+  const useBaseHeaders = baseHeaders !== undefined && baseHeaders.trim() !== '';
 
-  if (tracesHeaders !== undefined || baseHeaders !== undefined) {
-    const isTraces = tracesHeaders !== undefined;
+  if (useTracesHeaders || useBaseHeaders) {
+    const isTraces = useTracesHeaders;
     const headerVar = isTraces ? 'OTEL_EXPORTER_OTLP_TRACES_HEADERS' : 'OTEL_EXPORTER_OTLP_HEADERS';
     const raw = (isTraces ? tracesHeaders : baseHeaders) ?? '';
     const pairs = raw.split(',');
     for (const pair of pairs) {
+      if (pair.trim() === '') continue;
       const eqIdx = pair.indexOf('=');
       if (eqIdx === -1) {
         throw new Error(`${headerVar} missing '='`);
@@ -109,11 +120,17 @@ function resolveOtlpEnv(env: Record<string, string | undefined> = process.env): 
       if (!key) {
         throw new Error(`${headerVar} has empty key`);
       }
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(key)) {
+        throw new Error(`${headerVar} has invalid header name`);
+      }
       let decoded: string;
       try {
         decoded = decodeURIComponent(val);
       } catch {
         throw new Error(`${headerVar} has bad escape sequence`);
+      }
+      if (/[\r\n\0]/.test(decoded)) {
+        throw new Error(`${headerVar} has invalid header value`);
       }
       headers[key] = decoded;
     }
@@ -122,9 +139,11 @@ function resolveOtlpEnv(env: Record<string, string | undefined> = process.env): 
   const tracesTimeout = env.OTEL_EXPORTER_OTLP_TRACES_TIMEOUT;
   const baseTimeout = env.OTEL_EXPORTER_OTLP_TIMEOUT;
   let timeoutMs = 10000;
+  const useTracesTimeout = tracesTimeout !== undefined && tracesTimeout.trim() !== '';
+  const useBaseTimeout = baseTimeout !== undefined && baseTimeout.trim() !== '';
 
-  if (tracesTimeout !== undefined || baseTimeout !== undefined) {
-    const isTraces = tracesTimeout !== undefined;
+  if (useTracesTimeout || useBaseTimeout) {
+    const isTraces = useTracesTimeout;
     const timeoutVar = isTraces ? 'OTEL_EXPORTER_OTLP_TRACES_TIMEOUT' : 'OTEL_EXPORTER_OTLP_TIMEOUT';
     const raw = String(isTraces ? tracesTimeout : baseTimeout).trim();
     if (!/^\d+$/.test(raw)) {
@@ -140,10 +159,73 @@ function resolveOtlpEnv(env: Record<string, string | undefined> = process.env): 
   return { endpoint, headers, timeoutMs };
 }
 
+const MAX_RESPONSE_BODY_BYTES = 65536;
+const RESPONSE_BODY_TOO_LARGE = 'OTLP_RESPONSE_BODY_TOO_LARGE';
+
+/** Reads only a bounded response body, never retaining data over the limit. */
+async function readResponseText(res: any): Promise<string> {
+  const encoder = new TextEncoder();
+  if (res.body !== undefined && res.body !== null) {
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = typeof value === 'string' ? encoder.encode(value) : value;
+      totalBytes += chunk.byteLength;
+      if (totalBytes > MAX_RESPONSE_BODY_BYTES) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The body is already known to exceed the cap.
+        }
+        const err: any = new Error();
+        err.code = RESPONSE_BODY_TOO_LARGE;
+        throw err;
+      }
+      chunks.push(chunk);
+    }
+
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+  }
+
+  const text = await res.text();
+  const bytes = encoder.encode(text);
+  if (bytes.byteLength > MAX_RESPONSE_BODY_BYTES) {
+    const err: any = new Error();
+    err.code = RESPONSE_BODY_TOO_LARGE;
+    throw err;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function responseReadFailureReason(err: any): 'timeout' | 'connection' | 'bad-response' {
+  const chain: any[] = [];
+  let current = err;
+  for (let depth = 0; current && depth < 8; depth++) {
+    chain.push(current);
+    current = current.cause;
+  }
+  if (chain.some((item) => item.code === RESPONSE_BODY_TOO_LARGE)) return 'bad-response';
+  if (chain.some((item) => item.name === 'TimeoutError' || item.name === 'AbortError')) return 'timeout';
+  if (chain.some((item) => typeof item.message === 'string' && /timeout|timed out|aborted/i.test(item.message))) {
+    return 'timeout';
+  }
+  // A rejected response-body read means the response was not received in full.
+  return 'connection';
+}
+
 /**
  * Posts OTLP requests in order using global fetch (or fetchImpl).
- * Stops at first failure (timeout, connection, redirect, non-2xx).
- * Reads partialSuccess.rejectedSpans from 2xx JSON bodies.
+ * Stops at first failure (timeout, connection, bad response, redirect, non-2xx),
+ * caps each 2xx response body at 65536 bytes, and reads partialSuccess.rejectedSpans.
  */
 async function sendRequests(
   requests: any[],
@@ -280,7 +362,7 @@ async function sendRequests(
     sent += 1;
 
     try {
-      const text = await res.text();
+      const text = await readResponseText(res);
       if (text) {
         try {
           const body = JSON.parse(text);
@@ -293,8 +375,15 @@ async function sendRequests(
           // unparseable body counts as accepted
         }
       }
-    } catch {
-      // reading body failure counts as accepted
+    } catch (err: any) {
+      return {
+        requests: requests.length,
+        sent,
+        rejected,
+        status: 'failed',
+        httpStatus: res.status,
+        reason: responseReadFailureReason(err),
+      };
     }
   }
 
@@ -373,6 +462,22 @@ async function handleTraceExport({
       envConfig = resolveOtlpEnv(env);
     } catch (err: any) {
       return usage(err.message);
+    }
+
+    const tracesProtocol = typeof env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL === 'string'
+      ? env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL.trim()
+      : '';
+    const baseProtocol = typeof env.OTEL_EXPORTER_OTLP_PROTOCOL === 'string'
+      ? env.OTEL_EXPORTER_OTLP_PROTOCOL.trim()
+      : '';
+    const protocolVar = tracesProtocol !== ''
+      ? 'OTEL_EXPORTER_OTLP_TRACES_PROTOCOL'
+      : baseProtocol !== ''
+        ? 'OTEL_EXPORTER_OTLP_PROTOCOL'
+        : null;
+    const protocol = tracesProtocol !== '' ? tracesProtocol : baseProtocol;
+    if (protocolVar && protocol.toLowerCase() !== 'http/json') {
+      writeErr(`doflow trace export: ${protocolVar} is not read: --otlp-http sends HTTP/JSON`);
     }
   }
 
