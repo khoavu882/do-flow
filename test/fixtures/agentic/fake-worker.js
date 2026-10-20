@@ -16,9 +16,13 @@
  *       "tasks": { "<taskId>": { "match": "<substring of the Question line>",
  *                                 "N": <spec>, "D": <spec> } },
  *       "default": { "N": <spec>, "D": <spec> } }
- *     <spec> = { "behaviour": "ok"|"timeout"|"api-error"|"silent" (default ok),
+ *     <spec> = { "behaviour": "ok"|"timeout"|"api-error"|"silent"|"crash"|"exit" (default ok),
  *                "files": [...], "truthFiles": k, "decoys": m, "commands": [...],
- *                "tokens": n|null, "outputTokens": n, "message": "<api-error text>" }
+ *                "tokens": n|null, "outputTokens": n, "message": "<api-error text>",
+ *                "usageEvents": [<usage object>|null, ...], "exitCode": n }
+ *     `crash` writes the answer (stdout and the -o file) and then SIGKILLs itself before any turn end;
+ *     `exit` answers like `ok` and then exits with `exitCode`. `usageEvents`, when present, replaces
+ *     the single `turn.completed`: one event per entry, with that `usage` (null: no usage field).
  *     `match` may be left out when AGENTIC_FAKE_TRUTH is set: the task is then found by the truth
  *     file's query, so a scenario keyed by task id never goes stale when the task text changes.
  *     The files an `ok` run answers with are: the first `truthFiles` distinct qrel paths of the task
@@ -54,8 +58,9 @@ function dump(kind, extra = {}) {
   } catch { /* directory missing */ }
   const pathDirs = String(env.PATH || '').split(path.delimiter);
   const record = {
-    kind, argv, cwd: process.cwd(), envKeys: Object.keys(env).sort(), PATH: env.PATH, HOME: env.HOME,
+    kind, pid: process.pid, argv, cwd: process.cwd(), envKeys: Object.keys(env).sort(), PATH: env.PATH, HOME: env.HOME,
     harnessHome: harnessHome || null, harnessHomeFiles: files,
+    harnessHomeModes: files ? Object.fromEntries(files.map((f) => [f, fs.statSync(path.join(harnessHome, f)).mode & 0o777])) : null,
     profileMode: env.HOME ? fs.statSync(path.dirname(env.HOME)).mode & 0o777 : null,
     hasGit: fs.existsSync(path.join(process.cwd(), '.git')),
     watch: Object.fromEntries(String(env.AGENTIC_FAKE_WATCH || '').split(',').filter(Boolean).map((name) => [name, pathDirs.filter((d) => d && fs.existsSync(path.join(d, name)))])),
@@ -63,7 +68,15 @@ function dump(kind, extra = {}) {
     doflowOnPath: pathDirs.filter((d) => d && fs.existsSync(path.join(d, 'doflow'))),
     doflowFiles: pathDirs.filter((d) => d && fs.existsSync(path.join(d, 'doflow'))).map((dir) => {
       const stat = fs.statSync(path.join(dir, 'doflow'));
-      return { dir, mode: stat.mode & 0o777, text: stat.size < 1000 ? fs.readFileSync(path.join(dir, 'doflow'), 'utf8') : null };
+      const text = stat.size < 1000 ? fs.readFileSync(path.join(dir, 'doflow'), 'utf8') : null;
+      // The tree the shim runs from (`exec node '<root>/bin/doflow.js'`): its top-level entries.
+      const target = text && (/exec node '([^']+)'/.exec(text) || [])[1];
+      const root = target ? path.dirname(path.dirname(target)) : null;
+      let rootEntries = null;
+      try {
+        rootEntries = root ? fs.readdirSync(root).sort() : null;
+      } catch { /* missing */ }
+      return { dir, mode: stat.mode & 0o777, text, root, rootEntries };
     }),
     ...extra,
   };
@@ -135,6 +148,15 @@ function main(prompt) {
     return;
   }
 
+  if (behaviour === 'crash') {
+    const text = JSON.stringify({ files: answerFiles(spec, truth) });
+    emit({ type: 'item.completed', item: { type: 'agent_message', text } });
+    const out = argv.indexOf('-o');
+    if (out !== -1 && argv[out + 1]) fs.writeFileSync(argv[out + 1], text);
+    process.kill(process.pid, 'SIGKILL');
+    return;
+  }
+
   for (const command of spec.commands || []) {
     emit({ type: 'item.completed', item: { type: 'command_execution', command, status: 'completed' } });
   }
@@ -142,13 +164,15 @@ function main(prompt) {
   emit({ type: 'item.completed', item: { type: 'agent_message', text } });
   const out = argv.indexOf('-o');
   if (out !== -1 && argv[out + 1]) fs.writeFileSync(argv[out + 1], text);
-  if (Number.isInteger(spec.tokens)) {
+  if (Array.isArray(spec.usageEvents)) {
+    for (const usage of spec.usageEvents) emit(usage === null ? { type: 'turn.completed' } : { type: 'turn.completed', usage });
+  } else if (Number.isInteger(spec.tokens)) {
     const output = Math.min(spec.tokens, spec.outputTokens ?? 100);
     emit({ type: 'turn.completed', usage: { input_tokens: spec.tokens - output, output_tokens: output } });
   } else {
     emit({ type: 'turn.completed' });
   }
-  process.exit(0);
+  process.exit(behaviour === 'exit' ? (spec.exitCode ?? 1) : 0);
 }
 
 if (argv.includes('--version')) {

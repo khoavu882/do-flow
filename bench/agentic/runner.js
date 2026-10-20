@@ -43,7 +43,6 @@ const USAGE = `usage: bench agentic <verb> [flags]
 /** Committed result paths the paid stages write (IC-008, IC-009). */
 const RESULT_NOISE = 'bench/agentic/results/noise.json';
 const RESULT_DECISION = 'bench/agentic/results/decision.json';
-const REHEARSAL_CAP = 500000;
 const STAGE_PREFIX = 'npm run bench -- agentic';
 
 const rel = (repoRoot, p) => path.relative(repoRoot, p).split(path.sep).join('/');
@@ -54,8 +53,9 @@ function writeJson(file, value) {
 }
 
 /**
- * The paid stages as text (IC-004): R rehearses one train task per arm under a fixed cap, N and D run
- * k repeats each under the full-set ceiling. Iteration names differ per arm because an iteration
+ * The paid stages as text (IC-004): R rehearses one train task per arm, each command capped at one
+ * run (`maxTokensPerRun`), so the two commands together authorize exactly two runs (review N-2); N
+ * and D run k repeats each under the full-set ceiling. Iteration names differ per arm because an iteration
  * holds one arm (execute refuses a second arm in the same iteration).
  */
 function paidStages({ taskSet, config, k }) {
@@ -68,7 +68,7 @@ function paidStages({ taskSet, config, k }) {
     tail(reps(prefix).join(',')),
   ];
   return {
-    R: ['N', 'D'].map((arm) => `${STAGE_PREFIX} execute --iteration rehearsal-${arm} --arm ${arm} --tasks ${first} --cap ${REHEARSAL_CAP}`),
+    R: ['N', 'D'].map((arm) => `${STAGE_PREFIX} execute --iteration rehearsal-${arm} --arm ${arm} --tasks ${first} --cap ${config.maxTokensPerRun}`),
     N: stage('N', 'n', (its) => `${STAGE_PREFIX} noise --iterations ${its} --out ${RESULT_NOISE}`),
     D: stage('D', 'd', (its) => `${STAGE_PREFIX} report --iterations ${its} --decision-out ${RESULT_DECISION}`),
     note: 'Paid: each stage needs the user\'s approval of the cap, the model and the credential copy (O-1, O-2, O-5) before it runs; stage D waits until the arm N band has been read.',
@@ -93,10 +93,27 @@ function cmdPlan(ctx, flags) {
     ctx.out(`| ${r.id} | ${r.key} | ${r.split} | ${r.kind} | ${rel(repoRoot, r.runDir)} | ${r.argvShape.join(' ')} < <prompt sha256:${r.promptSha256} bytes:${r.promptBytes}> |`);
   }
   ctx.out(`projection: runs ${p.runs}, maxTokensPerRun ${p.maxTokensPerRun}, ceilingTokens ${p.ceilingTokens}, typicalTokens ${p.typicalTokens ?? 'unknown'}`);
+  ctx.out(capMeaning(config));
   ctx.out('paid stages (text only, never run by plan):');
   for (const name of ['R', 'N', 'D']) for (const line of stages[name]) ctx.out(`  stage ${name}: ${line}`);
   ctx.out(stages.note);
   return 0;
+}
+
+/**
+ * What `--cap` guarantees (review C-5): a projected ceiling, not a hard stop inside a run. Usage is
+ * known only at the turn end, so a run can pass maxTokensPerRun; only timeoutSeconds bounds it.
+ */
+const capMeaning = (config) => `cap: execute starts a run only while spent + maxTokensPerRun (${config.maxTokensPerRun}) <= --cap; `
+  + `a run's real usage is known only at its end, so the worst case is --cap plus one run's overshoot beyond maxTokensPerRun, bounded only by timeoutSeconds (${config.timeoutSeconds}s); `
+  + 'passing --cap ends execute with exit 3 and "cap exceeded by N tokens on <task>"';
+
+/** The text result of `execute` (exit 0 or 3). */
+function executeLines(result, iteration) {
+  const lines = [`execute ${iteration}: ran ${result.ran.length} run(s), spent ${result.spent} tokens (unknown usage counted at maxTokensPerRun)`];
+  if (result.capExceeded) lines.push(`cap exceeded by ${result.capExceeded.by} tokens on ${result.capExceeded.task}`);
+  if (result.undone.length) lines.push(`stopped by --cap before: ${result.undone.join(', ')}`);
+  return lines;
 }
 
 async function cmdExecute(ctx, flags) {
@@ -110,8 +127,7 @@ async function cmdExecute(ctx, flags) {
   } else if (flags.json) {
     ctx.out(JSON.stringify(result, null, 2));
   } else {
-    ctx.out(`execute ${flags.iteration}: ran ${result.ran.length} run(s), spent ${result.spent} tokens (unknown usage counted at maxTokensPerRun)`);
-    if (result.undone.length) ctx.out(`stopped by --cap before: ${result.undone.join(', ')}`);
+    for (const line of executeLines(result, flags.iteration)) ctx.out(line);
   }
   return result.exit;
 }
@@ -173,7 +189,8 @@ const VERBS = Object.freeze({ plan: cmdPlan, execute: cmdExecute, grade: cmdGrad
 
 /**
  * `main(argv, opts) -> Promise<exit code>`: 0 done (noise: usable band), 1 noise verdict other than
- * usable, 2 refusal or invalid input, 3 execute stopped by the cap.
+ * usable, 2 refusal or invalid input, 3 execute stopped by the cap or a run passed it. A signal stops
+ * execute after cleanup and is re-raised (the shell sees 128 + the signal number).
  */
 async function main(argv, opts = {}) {
   const out = opts.out || ((m) => process.stdout.write(`${m}\n`));
@@ -210,6 +227,6 @@ async function main(argv, opts = {}) {
   }
 }
 
-module.exports = { VERB_FLAGS, paidStages, main };
+module.exports = { VERB_FLAGS, paidStages, executeLines, capMeaning, main };
 
 if (require.main === module) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });

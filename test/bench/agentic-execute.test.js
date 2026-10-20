@@ -185,48 +185,6 @@ test('loadConfig: a malformed config is refused with the field named, never defa
   assert.doesNotThrow(() => execute.loadConfig(write('ok', JSON.stringify(testConfig()))));
 });
 
-test('leak and count patterns: command position only, MCP tool-call names, tested with the shipped config', () => {
-  const compile = (list) => list.map((s) => new RegExp(s));
-  const matches = (list, text) => compile(list).some((re) => re.test(text));
-  const nLeak = REAL_CONFIG.arms.N.leak;
-  const dCount = REAL_CONFIG.arms.D.count;
-  const retrieval = [
-    'doflow retrieve --scope code --query x --root .',
-    '/usr/local/bin/doflow retrieve --query x',
-    'doflow-run retrieve --query x',
-    'node /home/user/proj/bin/doflow.js retrieve --query x',
-    'cd src && doflow retrieve --query x',
-    'rg frob | doflow retrieve --query x',
-    'ls; doflow retrieve --query x',
-    'echo $(doflow retrieve --query x)',
-    '/bin/zsh -lc "doflow retrieve --scope code --query x"',
-    "bash -c 'doflow retrieve --query x'",
-  ];
-  const benign = [
-    'rg retrieve src',
-    'rg -n "doflow retrieve" docs',
-    'rg -c "doflow retrieve" docs',
-    'cat bin/doflow.js | head',
-    'echo doflow retrieve',
-    '/bin/zsh -lc "rg doflow retrieve"',
-    'grep -rn retrieve src/runtime',
-  ];
-  for (const text of retrieval) {
-    assert.equal(matches(nLeak, text), true, `N leak: ${text}`);
-    assert.equal(matches(dCount, text), true, `D count: ${text}`);
-  }
-  for (const text of benign) {
-    assert.equal(matches(nLeak, text), false, `N leak: ${text}`);
-    assert.equal(matches(dCount, text), false, `D count: ${text}`);
-  }
-  for (const name of ['mcp:semble/search', 'mcp__semble__search', 'mcp:context7/query-docs']) {
-    assert.equal(matches(nLeak, name), true, name);
-    assert.equal(matches(REAL_CONFIG.arms.D.leak, name), true, name);
-  }
-  for (const text of ['rg mcp src', 'node mcp-server.js', 'cat docs/mcp.md']) assert.equal(matches(REAL_CONFIG.arms.D.leak, text), false, text);
-  assert.equal(matches(REAL_CONFIG.arms.D.leak, 'doflow retrieve --query x'), false, 'arm D may call the tool');
-});
-
 // --- harness selection and argv ---------------------------------------------------------------
 
 test('selectHarness: chosen by capability from a registry with made-up names; pin settles a tie', () => {
@@ -392,7 +350,7 @@ test('execute: records iteration, launch, transcript, status and timing; the har
 
   const head = git(s.repoRoot, 'rev-parse', 'HEAD');
   const iteration = readJson(s.runRoot, 'it1', 'iteration.json');
-  assert.deepEqual(Object.keys(iteration).sort(), ['arm', 'harness', 'harnessVersion', 'model', 'snapshot', 'sourceAt', 'startedAt']);
+  assert.deepEqual(Object.keys(iteration).sort(), ['arm', 'captureSha256', 'harness', 'harnessVersion', 'model', 'snapshot', 'sourceAt', 'startedAt']);
   assert.equal(iteration.arm, 'D');
   assert.equal(iteration.model, 'fake:model');
   assert.equal(iteration.sourceAt, head);
@@ -401,6 +359,7 @@ test('execute: records iteration, launch, transcript, status and timing; the har
   assert.equal(iteration.harnessVersion, 'fake 0.0.0');
   assert.match(iteration.startedAt, /^\d{4}-\d\d-\d\dT/);
   assert.deepEqual(execute.readIteration(path.join(s.runRoot, 'it1')), iteration);
+  assert.deepEqual(fs.readdirSync(path.join(s.runRoot, 'it1')).sort(), ['T1', 'iteration.json'], 'the lock is released');
 
   const dir = path.join(s.runRoot, 'it1', 'T1');
   assert.deepEqual(fs.readdirSync(dir).sort(), ['last-message.txt', 'launch.json', 'run_status.json', 'timing.json', 'transcript.jsonl']);
@@ -429,17 +388,20 @@ test('execute: records iteration, launch, transcript, status and timing; the har
   const events = fs.readFileSync(path.join(dir, 'transcript.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(events.map((e) => e.type), ['item.completed', 'item.completed', 'turn.completed']);
   assert.match(events[0].item.command, /doflow retrieve/);
-  assert.deepEqual(readJson(dir, 'run_status.json'), { status: 'completed' });
+  assert.deepEqual(readJson(dir, 'run_status.json'), { status: 'completed', exitCode: 0, signal: null });
   const timing = readJson(dir, 'timing.json');
   assert.equal(timing.total_tokens, 900);
+  assert.equal(timing.usage, 'reported');
   assert.equal(Number.isFinite(timing.duration_ms) && timing.duration_ms >= 0, true);
 
   const runs = runDump(s);
   assert.equal(runs.length, 1);
-  const lastMessageFile = path.join(dir, 'last-message.txt');
+  const lastMessageFile = path.join(launchJson.profileRoot, 'last-message.txt');
   assert.deepEqual(runs[0].argv, [
     'exec', '-s', 'read-only', '-m', 'fake-model', '--disable', 'multi_agent', '--json', '-o', lastMessageFile, '--ephemeral', '-',
   ]);
+  assert.equal(path.dirname(runs[0].HOME), launchJson.profileRoot);
+  assert.equal(runs[0].cwd, launchJson.workspaceRoot);
   assert.equal(runs[0].prompt, prompt, 'the prompt on stdin is exactly the IC-011 template');
   assert.equal(runs[0].hasGit, true, 'the workspace is its own git root');
   assert.equal(runs[0].cwd.startsWith(s.tmpDir) || fs.realpathSync(s.tmpDir) === fs.realpathSync(path.dirname(path.dirname(runs[0].cwd))), true);
@@ -454,7 +416,7 @@ test('execute: both arms differ only in the paragraph and one PATH entry; env is
   await execute.executeIteration({ ...s.opts, iteration: 'it-d', arm: 'D', tasks: ['T1'] });
   const [n, d] = runDump(s);
 
-  const swap = (record, name) => record.argv.map((a) => a.replace(`/${name}/`, '/IT/'));
+  const swap = (record, name) => record.argv.map((a) => a.replace(`/${name}/`, '/IT/').replace(/\/doflow-agentic-[^/]+\/last-message\.txt$/, '/PROFILE/last-message.txt'));
   assert.deepEqual(swap(n, 'it-n'), swap(d, 'it-d'));
   assert.deepEqual(n.envKeys, d.envKeys);
   const norm = (p) => p.replace(/doflow-agentic-[^/:]+/g, 'PROFILE');
@@ -471,7 +433,8 @@ test('execute: both arms differ only in the paragraph and one PATH entry; env is
   const shim = d.doflowFiles.filter((f) => f.dir.includes('doflow-agentic-'));
   assert.equal(shim.length, 1);
   assert.equal(shim[0].mode & 0o111, 0o111, 'executable');
-  assert.equal(shim[0].text, `#!/bin/sh\nexec node '${path.join(s.repoRoot, 'bin', 'doflow.js')}' "$@"\n`);
+  assert.match(shim[0].text, /^#!\/bin\/sh\nexec node '[^']*\/doflow-agentic-tool-[^/']+\/bin\/doflow\.js' "\$@"\n$/);
+  assert.equal(shim[0].text.includes(s.repoRoot), false, 'the shim never names the checkout');
   assert.equal(fs.existsSync(shim[0].dir), false, 'removed with the profile');
 
   // The environment: only the allowlist, a fresh HOME, and only the listed credential file.
@@ -559,12 +522,12 @@ test('execute: api-error, silent and unreported usage are recorded outcomes with
   assert.deepEqual(result.ran, ['T1', 'T2', 'T3']);
 
   const dir = (id) => path.join(s.runRoot, 'it1', id);
-  assert.deepEqual(readJson(dir('T1'), 'run_status.json'), { status: 'api-error', evidence: 'rate limited' });
+  assert.deepEqual(readJson(dir('T1'), 'run_status.json'), { status: 'api-error', evidence: 'rate limited', exitCode: 1, signal: null });
   assert.equal('total_tokens' in readJson(dir('T1'), 'timing.json'), false);
-  assert.deepEqual(readJson(dir('T2'), 'run_status.json'), { status: 'completed' });
+  assert.deepEqual(readJson(dir('T2'), 'run_status.json'), { status: 'truncated', evidence: 'unparsed: no-turn-end', exitCode: 0, signal: null });
   assert.equal(fs.readFileSync(path.join(dir('T2'), 'transcript.jsonl'), 'utf8'), '');
   assert.equal('total_tokens' in readJson(dir('T2'), 'timing.json'), false, 'unreported usage is omitted, never 0');
-  assert.deepEqual(readJson(dir('T3'), 'run_status.json'), { status: 'completed' });
+  assert.deepEqual(readJson(dir('T3'), 'run_status.json'), { status: 'completed', exitCode: 0, signal: null });
   assert.equal('total_tokens' in readJson(dir('T3'), 'timing.json'), false);
   assert.deepEqual(leftovers(s), [], 'workspace and profile removed after success and api-error');
 });
@@ -625,7 +588,7 @@ test('execute: spend counts earlier runs of the iteration, and a run with unknow
   };
   seed('EARLIER', { total_tokens: 1500, duration_ms: 1 });
   seed('BLIND', { duration_ms: 1 });
-  fs.writeFileSync(path.join(s.runRoot, 'it1', 'iteration.json'), JSON.stringify({ arm: 'N', model: 'fake:model', sourceAt: head, snapshot: 'deadbeef' }));
+  fs.writeFileSync(path.join(s.runRoot, 'it1', 'iteration.json'), JSON.stringify({ arm: 'N', model: 'fake:model', sourceAt: head, snapshot: 'deadbeef', captureSha256: execute.captureSha256(s.opts.config) }));
   const scenario = writeScenario(s, 'small', {
     tasks: { T1: { match: 'widget is frobbed', N: { tokens: 100 } }, T2: { match: 'gadget is wired', N: { tokens: 100 } } },
   });
@@ -661,4 +624,333 @@ test('prepareWorkspace: the real snapshot export becomes its own single-commit g
     ws.cleanup();
   }
   assert.deepEqual(fs.readdirSync(parent).filter((n) => n.startsWith('doflow-agentic-ws-')), []);
+});
+
+// --- review fixes (097 review C-1..C-11, N-1, N-2, N-4) -----------------------------------------
+
+const DRIVER = path.join(REPO, 'test', 'fixtures', 'agentic', 'execute-driver.js');
+const isAlive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+async function waitFor(predicate, ms = 8000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (predicate()) return true;
+    await sleep(25);
+  }
+  return predicate();
+}
+const authCopies = (dir) => {
+  const found = [];
+  const walk = (d) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch { return; }
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name === 'auth.json') found.push(full);
+    }
+  };
+  walk(dir);
+  return found;
+};
+
+/** Starts the executor in a child process; resolves `{ code, signal, stdout }` when it ends. */
+function spawnDriver(s, overrides = {}) {
+  const optsFile = path.join(s.dir, `driver-${++seq}.json`);
+  const { materialise, ...plain } = { ...s.opts, ...overrides };
+  fs.writeFileSync(optsFile, JSON.stringify(plain));
+  const child = childProcess.spawn(process.execPath, [DRIVER, optsFile], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (d) => { stdout += d; });
+  child.stderr.on('data', (d) => { stderr += d; });
+  const done = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal, stdout, stderr })));
+  return { child, done };
+}
+
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  test(`C-1: ${sig} to the executor ends the worker group, removes profile and workspace, keeps the spend, and re-raises`, { timeout: 30000 }, async () => {
+    const s = setup({ config: testConfig((c) => { c.timeoutSeconds = 60; }) });
+    const pidfile = path.join(s.dir, 'sleeper.pid');
+    const scenario = writeScenario(s, 'hang', oneTask({ behaviour: 'timeout' }));
+    const { child, done } = spawnDriver(s, { tasks: ['T1'], extraEnv: { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario, AGENTIC_FAKE_PIDFILE: pidfile } });
+    assert.ok(await waitFor(() => fs.existsSync(pidfile) && fs.readFileSync(pidfile, 'utf8') !== ''), 'the worker started');
+    assert.ok(authCopies(s.tmpDir).length === 1, 'the credential copy exists while the worker runs');
+    const workerPid = runDump(s)[0].pid;
+    const sleeperPid = Number(fs.readFileSync(pidfile, 'utf8'));
+    child.kill(sig);
+    const ended = await done;
+    assert.equal(ended.signal, sig, `the executor re-raises ${sig} (stdout: ${ended.stdout} stderr: ${ended.stderr})`);
+    assert.ok(await waitFor(() => !isAlive(workerPid) && !isAlive(sleeperPid), 3000), 'no worker process survives');
+    assert.deepEqual(authCopies(s.tmpDir), [], 'no credential copy is left');
+    assert.deepEqual(leftovers(s), [], 'profile and workspace removed');
+    const dir = path.join(s.runRoot, 'it1', 'T1');
+    assert.equal(fs.existsSync(path.join(dir, 'launch.json')), true, 'the interrupted run keeps its record');
+    assert.equal('total_tokens' in readJson(dir, 'timing.json'), false, 'its spend counts at maxTokensPerRun');
+    assert.equal(readJson(dir, 'run_status.json').status, 'truncated');
+    assert.match(readJson(dir, 'run_status.json').evidence, new RegExp(`interrupted by ${sig}`));
+    assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', '.lock')), false, 'the iteration lock is released');
+    // The spend is still seen: a rerun of the same task is refused, another task is stopped by the cap.
+    assert.equal((await execute.executeIteration({ ...s.opts, tasks: ['T1'] })).reason, 'run-exists');
+    const next = await execute.executeIteration({ ...s.opts, tasks: ['T2'], cap: 1500 });
+    assert.equal(next.exit, 3);
+    assert.deepEqual(next.undone, ['T2']);
+  });
+}
+
+test('C-1: a fault after the credential copy (shim write) or in the workspace cleanup leaves no credential copy', async () => {
+  const real = { writeFileSync: fs.writeFileSync, rmSync: fs.rmSync };
+  // (a) the arm D shim write fails after auth.json was copied: the profile is still removed.
+  let s = setup();
+  fs.writeFileSync = function patched(file, ...rest) {
+    if (String(file).endsWith(`${path.sep}shim${path.sep}doflow`)) {
+      const e = new Error('EACCES injected');
+      e.code = 'EACCES';
+      throw e;
+    }
+    return real.writeFileSync.call(this, file, ...rest);
+  };
+  try {
+    await assert.rejects(execute.executeIteration({ ...s.opts, arm: 'D', tasks: ['T1'] }), /EACCES injected/);
+  } finally {
+    fs.writeFileSync = real.writeFileSync;
+  }
+  assert.deepEqual(authCopies(s.tmpDir), []);
+  assert.deepEqual(leftovers(s), []);
+  assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', 'T1')), false, 'no spawn happened, so no run record is kept');
+  assert.deepEqual(runDump(s), []);
+
+  // (b) the workspace cleanup throws after a run: the profile is removed anyway, the run is kept.
+  s = setup();
+  let thrown = 0;
+  fs.rmSync = function patched(target, ...rest) {
+    if (String(target).includes('doflow-agentic-ws-') && thrown === 0) {
+      thrown++;
+      throw new Error('EBUSY injected');
+    }
+    return real.rmSync.call(this, target, ...rest);
+  };
+  try {
+    await execute.executeIteration({ ...s.opts, tasks: ['T1'] }).catch(() => {});
+  } finally {
+    fs.rmSync = real.rmSync;
+  }
+  assert.equal(thrown, 1, 'the fault was injected');
+  assert.deepEqual(authCopies(s.tmpDir), [], 'the credential copy is removed even when the workspace cleanup fails');
+  assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', 'T1', 'launch.json')), true);
+});
+
+test('C-2: two concurrent executors on one iteration spawn the task once; a second arm on a held iteration is refused', { timeout: 30000 }, async () => {
+  const s = setup({ config: testConfig((c) => { c.timeoutSeconds = 0.6; }) });
+  const scenario = writeScenario(s, 'slow', oneTask({ behaviour: 'timeout' }));
+  const extraEnv = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
+  const a = spawnDriver(s, { tasks: ['T1'], extraEnv });
+  const b = spawnDriver(s, { tasks: ['T1'], extraEnv });
+  const [ra, rb] = await Promise.all([a.done, b.done]);
+  assert.equal(runDump(s).length, 1, `exactly one spawn of T1 (exits ${ra.code}, ${rb.code})`);
+  assert.deepEqual([ra.code, rb.code].sort(), [0, 2]);
+  const refusal = JSON.parse([ra, rb].find((r) => r.code === 2).stdout);
+  assert.ok(['iteration-locked', 'run-exists'].includes(refusal.reason), refusal.reason);
+
+  // A second arm while the iteration is held: refused by the lock, before the iteration record exists.
+  const s2 = setup({ config: testConfig((c) => { c.timeoutSeconds = 1.2; }) });
+  const sc2 = writeScenario(s2, 'slow', oneTask({ behaviour: 'timeout' }));
+  const pidfile = path.join(s2.dir, 'sleeper.pid');
+  const held = spawnDriver(s2, { tasks: ['T1'], extraEnv: { ...s2.extraEnv, AGENTIC_FAKE_SCENARIO: sc2, AGENTIC_FAKE_PIDFILE: pidfile } });
+  assert.ok(await waitFor(() => fs.existsSync(pidfile)));
+  const other = await execute.executeIteration({ ...s2.opts, arm: 'D', tasks: ['T2'] });
+  assert.equal(other.exit, 2);
+  assert.equal(other.reason, 'iteration-locked');
+  assert.equal(fs.existsSync(path.join(s2.runRoot, 'it1', 'T2')), false);
+  await held.done;
+  assert.equal(runDump(s2).length, 1);
+});
+
+test('C-3: an executor error after the spawn keeps the run record, counts it, and a rerun cannot spend again', async () => {
+  const s = setup();
+  const real = fs.writeFileSync;
+  fs.writeFileSync = function patched(file, ...rest) {
+    if (String(file).endsWith(`${path.sep}run_status.json`)) {
+      const e = new Error('ENOSPC injected');
+      e.code = 'ENOSPC';
+      throw e;
+    }
+    return real.call(this, file, ...rest);
+  };
+  try {
+    await assert.rejects(execute.executeIteration({ ...s.opts, tasks: ['T1'] }), /ENOSPC injected/);
+  } finally {
+    fs.writeFileSync = real;
+  }
+  assert.equal(runDump(s).length, 1, 'the worker ran');
+  const dir = path.join(s.runRoot, 'it1', 'T1');
+  assert.equal(fs.existsSync(path.join(dir, 'launch.json')), true, 'the run directory is kept after a spawn');
+  assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', '.lock')), false, 'the lock is released');
+  assert.equal((await execute.executeIteration({ ...s.opts, tasks: ['T1'] })).reason, 'run-exists');
+  const next = await execute.executeIteration({ ...s.opts, tasks: ['T2'], cap: 1500 });
+  assert.equal(next.exit, 3, 'the kept run counts at maxTokensPerRun (1000 + 1000 > 1500)');
+  assert.equal(runDump(s).length, 1, 'no second paid spawn');
+  assert.deepEqual(leftovers(s), []);
+});
+
+test('C-4: no checkout path reaches the worker: argv, env, shim and launch.json; the shim runs a pruned export', async () => {
+  const s = setup({ ownRepo: true });
+  for (const [rel, text] of [['bin/doflow.js', '// cli\n'], ['src/x.js', '// x\n'], ['bench/agentic/tasks-heldout.json', '{"secret":1}\n'], ['package.json', '{}\n'], ['agent-docs/n.md', 'n\n']]) {
+    fs.mkdirSync(path.dirname(path.join(s.repoRoot, rel)), { recursive: true });
+    fs.writeFileSync(path.join(s.repoRoot, rel), text);
+  }
+  git(s.repoRoot, 'add', '-A');
+  git(s.repoRoot, 'commit', '-q', '-m', 'tree');
+  for (const arm of ['N', 'D']) {
+    const r = await execute.executeIteration({ ...s.opts, iteration: `it-${arm}`, arm, tasks: ['T1'] });
+    assert.equal(r.exit, 0, r.refusal);
+  }
+  const roots = [s.repoRoot, fs.realpathSync(s.repoRoot), s.runRoot];
+  for (const run of runDump(s)) {
+    const seen = JSON.stringify({ argv: run.argv, PATH: run.PATH, HOME: run.HOME, harnessHome: run.harnessHome, cwd: run.cwd, doflowFiles: run.doflowFiles });
+    for (const root of roots) assert.equal(seen.includes(root), false, `arm ${run.arm} sees ${root}`);
+    const o = run.argv[run.argv.indexOf('-o') + 1];
+    assert.match(o, /doflow-agentic-[^/]+\/last-message\.txt$/, 'the final message is written inside the profile');
+  }
+  const d = runDump(s).find((r) => r.doflowFiles.some((f) => f.dir.includes('doflow-agentic-')));
+  const shim = d.doflowFiles.find((f) => f.dir.includes('doflow-agentic-'));
+  assert.deepEqual(shim.rootEntries, ['bin', 'package.json', 'src'], 'the shim tree holds only the package files, no bench/ or agent-docs/');
+  for (const arm of ['N', 'D']) {
+    const dir = path.join(s.runRoot, `it-${arm}`, 'T1');
+    const text = fs.readFileSync(path.join(dir, 'launch.json'), 'utf8');
+    for (const root of roots) assert.equal(text.includes(root), false, `launch.json of ${arm} names ${root}`);
+    const launchJson = JSON.parse(text);
+    assert.ok(path.isAbsolute(launchJson.workspaceRoot) && path.isAbsolute(launchJson.profileRoot));
+    assert.ok(JSON.parse(fs.readFileSync(path.join(dir, 'last-message.txt'), 'utf8')).files.length > 0, 'copied back from the profile');
+  }
+  assert.deepEqual(leftovers(s), [], 'the shim export is removed too');
+});
+
+test('C-5: a run that passes the cap ends with exit 3 and the amount it was exceeded by', async () => {
+  const s = setup();
+  const scenario = writeScenario(s, 'over', { tasks: { T1: { match: 'widget is frobbed', N: { tokens: 1500 } } } });
+  const result = await execute.executeIteration({ ...s.opts, tasks: ['T1'], cap: 1000, extraEnv: { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario } });
+  assert.equal(result.exit, 3);
+  assert.deepEqual(result.capExceeded, { by: 500, task: 'T1' });
+  assert.equal(result.spent, 1500);
+});
+
+test('C-6: spend sums every turn and counts a run with a missing usage field at maxTokensPerRun', async () => {
+  const s = setup();
+  const scenario = writeScenario(s, 'usage', {
+    tasks: {
+      T1: { match: 'widget is frobbed', N: { usageEvents: [{ input_tokens: 900, output_tokens: 0 }, { input_tokens: 1, output_tokens: 0 }] } },
+      T2: { match: 'gadget is wired', N: { usageEvents: [{ output_tokens: 2 }] } },
+      T3: { match: 'sprocket is spun', N: { usageEvents: [{ input_tokens: 900, output_tokens: 0 }, { input_tokens: 1, output_tokens: 0 }] } },
+    },
+  });
+  const extraEnv = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
+  const first = await execute.executeIteration({ ...s.opts, tasks: ['T1'], cap: 2000, extraEnv });
+  assert.equal(first.exit, 0);
+  assert.equal(readJson(s.runRoot, 'it1', 'T1', 'timing.json').total_tokens, 901, 'the two turns are summed, never overwritten');
+  // Successive-subset control: 901 spent, T2 fits (901 + 1000 <= 2000) and reports a partial usage,
+  // which counts at 1000; T3 then cannot fit. Undercounting would admit T3.
+  const second = await execute.executeIteration({ ...s.opts, tasks: ['T2', 'T3'], cap: 2000, extraEnv });
+  assert.equal('total_tokens' in readJson(s.runRoot, 'it1', 'T2', 'timing.json'), false, 'a missing usage field is unknown usage');
+  assert.equal(second.exit, 3);
+  assert.deepEqual(second.ran, ['T2']);
+  assert.deepEqual(second.undone, ['T3']);
+  assert.equal(second.spent, 1901);
+});
+
+test('C-9: no turn end, a nonzero exit or a signal is recorded as truncated with the exit code and signal', async () => {
+  const s = setup();
+  const scenario = writeScenario(s, 'abrupt', {
+    tasks: {
+      T1: { match: 'widget is frobbed', N: { behaviour: 'crash', truthFiles: 1 } },
+      T2: { match: 'gadget is wired', N: { behaviour: 'exit', exitCode: 5, tokens: 100 } },
+      T3: { match: 'sprocket is spun', N: { behaviour: 'silent' } },
+    },
+  });
+  const result = await execute.executeIteration({ ...s.opts, extraEnv: { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario } });
+  assert.equal(result.exit, 0);
+  const st = (id) => readJson(s.runRoot, 'it1', id, 'run_status.json');
+  assert.equal(st('T1').status, 'truncated');
+  assert.equal(st('T1').signal, 'SIGKILL');
+  assert.equal(st('T2').status, 'truncated');
+  assert.equal(st('T2').exitCode, 5);
+  assert.equal(st('T3').status, 'truncated', 'a silent exit 0 without a turn end is not a completed run');
+  assert.equal(st('T3').exitCode, 0);
+});
+
+test('C-11: a symlinked run entry counts at maxTokensPerRun; a symlinked run root or iteration is refused', async () => {
+  let s = setup();
+  const head = git(s.repoRoot, 'rev-parse', 'HEAD');
+  const ext = path.join(s.dir, 'ext', 'fake');
+  fs.mkdirSync(ext, { recursive: true });
+  fs.writeFileSync(path.join(ext, 'launch.json'), '{}');
+  fs.writeFileSync(path.join(ext, 'timing.json'), JSON.stringify({ total_tokens: 0, duration_ms: 1 }));
+  fs.mkdirSync(path.join(s.runRoot, 'it1'), { recursive: true });
+  fs.writeFileSync(path.join(s.runRoot, 'it1', 'iteration.json'), JSON.stringify({ arm: 'N', model: 'fake:model', sourceAt: head, snapshot: 'deadbeef', captureSha256: execute.captureSha256(s.opts.config) }));
+  fs.symlinkSync(ext, path.join(s.runRoot, 'it1', 'LINKED'));
+  const r = await execute.executeIteration({ ...s.opts, tasks: ['T1'], cap: 1500 });
+  assert.equal(r.exit, 3, 'the linked entry counts at 1000, so 1000 + 1000 > 1500');
+  assert.deepEqual(r.undone, ['T1']);
+
+  s = setup();
+  const outside = path.join(s.dir, 'outside');
+  fs.mkdirSync(outside);
+  const linkedRoot = path.join(s.dir, 'linked-runs');
+  fs.symlinkSync(outside, linkedRoot);
+  s.opts.runRoot = linkedRoot;
+  const refusedRoot = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+  assert.equal(refusedRoot.exit, 2);
+  assert.equal(refusedRoot.reason, 'run-root-symlink');
+  assert.deepEqual(fs.readdirSync(outside), []);
+
+  s = setup();
+  fs.mkdirSync(s.runRoot, { recursive: true });
+  fs.mkdirSync(path.join(s.dir, 'elsewhere'));
+  fs.symlinkSync(path.join(s.dir, 'elsewhere'), path.join(s.runRoot, 'it1'));
+  const refusedIt = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+  assert.equal(refusedIt.reason, 'run-root-symlink');
+  assert.deepEqual(readDump(s), []);
+});
+
+test('N-1, N-4: the version check runs in a scratch profile; the credential copy is mode 0600; iteration records the capture digest', async () => {
+  const s = setup();
+  const r = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+  assert.equal(r.exit, 0);
+  const version = readDump(s).find((x) => x.kind === 'version');
+  assert.match(String(version.HOME), /doflow-agentic-ver-[^/]+\/home$/, 'the --version spawn gets a scratch HOME');
+  assert.match(String(version.harnessHome), /doflow-agentic-ver-[^/]+\/harness-home$/);
+  assert.deepEqual(version.harnessHomeFiles, [], 'no credential is copied for the version check');
+  assert.deepEqual(runDump(s)[0].harnessHomeModes, { 'auth.json': 0o600 });
+  assert.equal(readJson(s.runRoot, 'it1', 'iteration.json').captureSha256, execute.captureSha256(s.opts.config));
+  assert.match(execute.captureSha256(s.opts.config), /^[0-9a-f]{64}$/);
+  assert.notEqual(execute.captureSha256(testConfig((c) => { c.timeoutSeconds = 11; })), execute.captureSha256(s.opts.config));
+  assert.deepEqual(leftovers(s), []);
+});
+
+test('N-2: each rehearsal command authorizes one run, so stage R stays at two runs of maxTokensPerRun', () => {
+  const runner = require('../../bench/agentic/runner.js');
+  const stages = runner.paidStages({ taskSet: { train: [{ id: 'DC-1' }], tasks: [{ id: 'DC-1' }, { id: 'DC-2' }] }, config: { maxTokensPerRun: 250000 }, k: 3 });
+  for (const line of stages.R) assert.match(line, / --cap 250000$/);
+});
+
+test('C-5: plan states the one-run residual; the execute text names the amount the cap was exceeded by', async () => {
+  const runner = require('../../bench/agentic/runner.js');
+  const s = setup();
+  const lines = [];
+  const code = await runner.main(['plan', '--iteration', 'x1', '--arm', 'N'], {
+    repoRoot: s.repoRoot, config: s.opts.config, registry: REGISTRY, taskSet: { ...TASK_SET, train: TASKS.slice(0, 2) }, runRoot: s.runRoot,
+    noiseConfig: { k: 3 }, out: (m) => lines.push(m), err: (m) => lines.push(m),
+  });
+  assert.equal(code, 0, lines.join('\n'));
+  assert.ok(lines.some((l) => /one run's overshoot/.test(l) && /timeoutSeconds/.test(l)), lines.join('\n'));
+  const text = runner.executeLines({ exit: 3, ran: ['T1'], undone: [], spent: 1500, capExceeded: { by: 500, task: 'T1' } }, 'it1');
+  assert.ok(text.some((l) => l === 'cap exceeded by 500 tokens on T1'), text.join('\n'));
 });

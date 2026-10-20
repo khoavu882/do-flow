@@ -11,7 +11,9 @@
  *
  * Why a scratch profile: the harness reads global guidance and tool registrations from its home
  * directory, which would leak a retrieval tool into the arm that must not have it. Every run gets a
- * fresh HOME and harness-home holding only the listed credential files, removed in `finally`.
+ * fresh HOME and harness-home holding only the listed credential files, removed after the run, on
+ * an executor error and on SIGINT/SIGTERM/SIGHUP (review C-1). No path of this checkout is handed to
+ * the worker (review C-4): its cwd, HOME, `-o` file and the arm D shim's tree all live in scratch.
  *
  * No harness name appears in this file: the harness is chosen by registry capability and its binary,
  * version argv, parser and argv groups all come from the recipe. Plan E.1 greps for that.
@@ -21,6 +23,7 @@
  */
 
 const childProcess = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -53,6 +56,12 @@ const ENV_PASSTHROUGH = Object.freeze(['TMPDIR', 'LANG', 'LC_ALL', 'TERM']);
 /** The capabilities a recipe must support for `assembleArgv` to build a read-only one-shot argv. */
 const REQUIRED_GROUPS = launch.RECIPE_ORDER;
 const ITERATION_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** The iteration lock file: held by one `executeIteration` from before the run-exists check to its end. */
+const LOCK_FILE = '.lock';
+/** Signals that stop an execute: the worker group is ended and the run recorded before re-raising. */
+const STOP_SIGNALS = Object.freeze(['SIGINT', 'SIGTERM', 'SIGHUP']);
+/** Top-level entries of the tree the arm D shim runs: the package files, never bench/ or agent-docs/. */
+const TOOL_TREE = Object.freeze(['bin', 'src', 'core', 'types', 'package.json']);
 /** How long to wait for the output pipe to drain after the process tree is gone. */
 const DRAIN_MS = 2000;
 
@@ -223,30 +232,83 @@ function readIteration(dir) {
   return iteration;
 }
 
-/** Run directories under an iteration directory: those holding a launch record. */
-function runDirsOf(iterDir) {
+/**
+ * Entries of an iteration directory, by `lstat` (a symlink is never followed): `runs` are real
+ * directories holding a launch record, `links` are symlinked entries of any kind.
+ */
+function entriesOf(iterDir) {
   let entries;
   try {
     entries = fs.readdirSync(iterDir, { withFileTypes: true });
   } catch {
-    return [];
+    return { runs: [], links: [] };
   }
-  return entries
-    .filter((e) => e.isDirectory() && fs.existsSync(path.join(iterDir, e.name, RUN_FILES.launch)))
-    .map((e) => path.join(iterDir, e.name));
+  return {
+    runs: entries.filter((e) => e.isDirectory() && fs.existsSync(path.join(iterDir, e.name, RUN_FILES.launch))).map((e) => path.join(iterDir, e.name)),
+    links: entries.filter((e) => e.isSymbolicLink()).map((e) => path.join(iterDir, e.name)),
+  };
 }
+
+/** Run directories under an iteration directory: those holding a launch record. */
+const runDirsOf = (iterDir) => entriesOf(iterDir).runs;
 
 /**
  * Tokens spent so far in one iteration: each run's recorded `total_tokens`, a run with unknown usage
- * counted at `maxTokensPerRun` (the unsafe-low direction would let a blind run hide spend).
+ * counted at `maxTokensPerRun` (the unsafe-low direction would let a blind run hide spend). A
+ * symlinked entry counts at `maxTokensPerRun` too: its target is not this iteration's record.
  */
 function spentOf(iterDir, maxTokensPerRun) {
-  let spent = 0;
-  for (const dir of runDirsOf(iterDir)) {
+  const { runs, links } = entriesOf(iterDir);
+  let spent = links.length * maxTokensPerRun;
+  for (const dir of runs) {
     const tokens = readJsonIfPresent(path.join(dir, RUN_FILES.timing))?.total_tokens;
     spent += Number.isFinite(tokens) && tokens >= 0 ? tokens : maxTokensPerRun;
   }
   return spent;
+}
+
+/**
+ * The capture inputs of an iteration that both arms must share (C-12): harness choice, model, home
+ * and tool list, timeout. The arm paragraphs and PATH additions differ by design and are left out.
+ */
+function captureSha256(config) {
+  const inputs = { harness: config.harness, model: config.model, home: config.home, path: config.path, timeoutSeconds: config.timeoutSeconds };
+  return crypto.createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
+}
+
+/**
+ * Tokens of one run from its transcript (C-6): the sum over every `turn.completed` of input plus
+ * output tokens. No turn end, or a turn without both integer fields, is unknown usage, so every
+ * spend reader counts the run at `maxTokensPerRun`.
+ * @returns {{usage: 'reported'|'partial'|'unknown', total_tokens?: number}}
+ */
+function usageOf(transcriptFile) {
+  let text;
+  try {
+    text = fs.readFileSync(transcriptFile, 'utf8');
+  } catch {
+    return { usage: 'unknown' };
+  }
+  let sum = 0;
+  let turns = 0;
+  let partial = false;
+  for (const line of text.split('\n')) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event?.type !== 'turn.completed') continue;
+    turns++;
+    const input = event.usage?.input_tokens;
+    const output = event.usage?.output_tokens;
+    if (Number.isSafeInteger(input) && input >= 0 && Number.isSafeInteger(output) && output >= 0) sum += input + output;
+    else partial = true;
+  }
+  if (turns === 0) return { usage: 'unknown' };
+  if (partial) return { usage: 'partial' };
+  return { usage: 'reported', total_tokens: sum };
 }
 
 function median(values) {
@@ -367,6 +429,16 @@ function findOnPath(name, searchPath) {
 
 const expandHome = (p, sourceHome) => (p === '~' ? sourceHome : p.startsWith('~/') ? path.join(sourceHome, p.slice(2)) : p);
 
+/** Removes a directory tree; returns the error instead of throwing, so one failed cleanup never skips another. */
+function removeTree(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return null;
+  } catch (e) {
+    return e;
+  }
+}
+
 /**
  * The run's tool directory: one symlink per configured tool, named like the tool and pointing at the
  * path found on the caller's PATH (a symlinked tool keeps pointing at its own path, never at the real
@@ -380,48 +452,79 @@ function makeToolBin(dir, tools) {
 }
 
 /**
- * IC-003 `home`: `<tmp>/doflow-agentic-<random>/` (mode 0700, from mkdtemp) with `home/` as HOME and
- * `harness-home/` as the harness's own home variable. Only the listed files are copied; a missing
- * one is recorded (`credentialCopied: false`) and the run goes on, because the harness failing to
- * sign in is itself a recorded outcome.
+ * The tree the arm D shim runs (review C-4): an export of `commit` outside the checkout holding only
+ * the package files (`TOOL_TREE`), so neither the shim nor anything it names leads the worker to the
+ * live checkout, the task files or the run records. Made once per execute, removed with it.
  */
-function makeProfile({ config, arm, sourceHome, repoRoot, tmpDir, tools }) {
-  const dir = fs.mkdtempSync(path.join(tmpDir, 'doflow-agentic-'));
-  fs.chmodSync(dir, 0o700);
-  const home = path.join(dir, 'home');
-  const harnessHome = path.join(dir, 'harness-home');
-  fs.mkdirSync(home, { mode: 0o700 });
-  fs.mkdirSync(harnessHome, { mode: 0o700 });
-  const binDir = makeToolBin(path.join(dir, 'bin'), tools);
-
-  const source = expandHome(config.home.source, sourceHome);
-  let credentialCopied = true;
-  for (const name of config.home.copy) {
-    const from = path.join(source, name);
-    try {
-      if (!fs.statSync(from).isFile()) throw new Error('not a file');
-      fs.copyFileSync(from, path.join(harnessHome, name));
-      fs.chmodSync(path.join(harnessHome, name), 0o600);
-    } catch {
-      credentialCopied = false;
-    }
+function exportToolTree({ repoRoot, commit, tmpDir }) {
+  const dir = fs.mkdtempSync(path.join(tmpDir, 'doflow-agentic-tool-'));
+  try {
+    const archive = childProcess.spawnSync('git', ['-C', repoRoot, 'archive', commit], { maxBuffer: 1024 * 1024 * 1024 });
+    if (archive.status !== 0) throw new Error(`git archive ${commit} failed: ${String(archive.stderr).trim() || archive.error}`);
+    const extract = childProcess.spawnSync('tar', ['-x', '-C', dir], { input: archive.stdout, maxBuffer: 1024 * 1024 });
+    if (extract.status !== 0) throw new Error(`tar extract failed: ${String(extract.stderr).trim() || extract.error}`);
+    for (const name of fs.readdirSync(dir)) if (!TOOL_TREE.includes(name)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+    return fs.realpathSync(dir);
+  } catch (e) {
+    removeTree(dir);
+    throw e;
   }
+}
 
-  const pathAddDirs = config.arms[arm].pathAdd.map((entry) => {
-    if (entry !== SHIM_ENTRY) return entry;
-    const shimDir = path.join(dir, 'shim');
-    fs.mkdirSync(shimDir, { mode: 0o700 });
-    const target = path.join(repoRoot, 'bin', 'doflow.js').replace(/'/g, "'\\''");
-    fs.writeFileSync(path.join(shimDir, 'doflow'), `#!/bin/sh\nexec node '${target}' "$@"\n`, { mode: 0o755 });
-    return shimDir;
-  });
-  return { dir, home, harnessHome, binDir, credentialCopied, pathAddDirs };
+/**
+ * IC-003 `home`: `<tmp>/doflow-agentic-<random>/` (mode 0700, from mkdtemp) with `home/` as HOME and
+ * `harness-home/` as the harness's own home variable. Only the listed files are copied, each mode
+ * 0600; a missing one is recorded (`credentialCopied: false`) and the run goes on, because the
+ * harness failing to sign in is itself a recorded outcome. The profile owns everything it creates
+ * from the mkdtemp on: any failure inside removes the whole directory before the error leaves
+ * (review C-1), so a credential copy never outlives a half-built profile. `shimRoot` is the
+ * exported tool tree (`exportToolTree`), never the checkout.
+ */
+function makeProfile({ config, arm, sourceHome, shimRoot, tmpDir, tools, copyCredentials = true }) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(tmpDir, copyCredentials ? 'doflow-agentic-' : 'doflow-agentic-ver-')));
+  try {
+    fs.chmodSync(dir, 0o700);
+    const home = path.join(dir, 'home');
+    const harnessHome = path.join(dir, 'harness-home');
+    fs.mkdirSync(home, { mode: 0o700 });
+    fs.mkdirSync(harnessHome, { mode: 0o700 });
+    const binDir = makeToolBin(path.join(dir, 'bin'), tools);
+
+    const source = expandHome(config.home.source, sourceHome);
+    let credentialCopied = copyCredentials;
+    for (const name of copyCredentials ? config.home.copy : []) {
+      const from = path.join(source, name);
+      const to = path.join(harnessHome, name);
+      try {
+        if (!fs.statSync(from).isFile()) throw new Error('not a file');
+        fs.copyFileSync(from, to);
+        fs.chmodSync(to, 0o600);
+      } catch {
+        fs.rmSync(to, { force: true });
+        credentialCopied = false;
+      }
+    }
+
+    const pathAddDirs = arm === null ? [] : config.arms[arm].pathAdd.map((entry) => {
+      if (entry !== SHIM_ENTRY) return entry;
+      if (!shimRoot) throw new Error('the arm needs the doflow shim but no tool tree was exported');
+      const shimDir = path.join(dir, 'shim');
+      fs.mkdirSync(shimDir, { mode: 0o700 });
+      const target = path.join(shimRoot, 'bin', 'doflow.js').replace(/'/g, "'\\''");
+      fs.writeFileSync(path.join(shimDir, 'doflow'), `#!/bin/sh\nexec node '${target}' "$@"\n`, { mode: 0o755 });
+      return shimDir;
+    });
+    return { dir, home, harnessHome, binDir, credentialCopied, pathAddDirs };
+  } catch (e) {
+    removeTree(dir);
+    throw e;
+  }
 }
 
 /**
  * A throwaway workspace that is its own git root, so the harness cannot read the measured
  * checkout's history. `materialise` is injectable because exporting the whole snapshot is the slow
- * part of every run.
+ * part of every run. `dir` is the mkdtemp directory the caller must remove (via `cleanup`).
  */
 function prepareWorkspace({ commit, snapshot, repoRoot, parent, home, materialise = materialiseExport }) {
   const dir = fs.mkdtempSync(path.join(parent, 'doflow-agentic-ws-'));
@@ -434,7 +537,7 @@ function prepareWorkspace({ commit, snapshot, repoRoot, parent, home, materialis
       const r = childProcess.spawnSync('git', args, { cwd: treeRoot, env, encoding: 'utf8' });
       if (r.status !== 0) throw new Error(`workspace git ${args.includes('commit') ? 'commit' : args[0]} failed: ${String(r.stderr).trim()}`);
     }
-    return { root: treeRoot, cleanup };
+    return { root: fs.realpathSync(treeRoot), dir, cleanup };
   } catch (e) {
     cleanup();
     throw e;
@@ -444,15 +547,18 @@ function prepareWorkspace({ commit, snapshot, repoRoot, parent, home, materialis
 const cutChars = (text, n) => (String(text).length > n ? `${String(text).slice(0, n - 1)}…` : String(text));
 
 /**
- * Spawns the harness once and resolves `{ report, timedOut, spawnError, durationMs }`. The child is
- * detached so its whole group can be ended by `escalate` when the timer fires; stdout is streamed to
- * the transcript and fed line by line to the recipe's parser.
+ * Spawns the harness once and resolves `{ report, timedOut, spawnError, exitCode, signal, durationMs }`.
+ * The child is detached so its whole group can be ended by `escalate` when the timer fires or the
+ * executor is stopped by a signal (`onSpawn` hands the group to the caller's signal handler); stdout
+ * is streamed to the transcript and fed line by line to the recipe's parser.
  */
-async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutMs, transcriptFile, lastMessageFile, parser, now }) {
+async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutMs, transcriptFile, lastMessageFile, parser, now, onSpawn = () => {} }) {
   const started = now().getTime();
   const transcript = fs.createWriteStream(transcriptFile);
   const transcriptDone = new Promise((resolve) => transcript.once('close', resolve));
   const child = childProcess.spawn(binary, argv, { cwd, env, detached: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+  const proc = Number.isInteger(child.pid) ? { pid: child.pid, pgid: child.pid, start: processTree.procStart(child.pid) } : null;
+  if (proc) onSpawn(proc);
   child.stdin.on('error', () => {});
   child.stderr.resume();
 
@@ -472,14 +578,15 @@ async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutM
   let ended = Promise.resolve();
   const timer = setTimeout(() => {
     timedOut = true;
-    const proc = { pid: child.pid, pgid: child.pid, start: processTree.procStart(child.pid) };
-    ended = processTree.escalate({ proc });
+    if (proc) ended = processTree.escalate({ proc });
   }, timeoutMs);
 
   const result = await exited;
   clearTimeout(timer);
   await ended;
-  await Promise.race([outClosed, new Promise((resolve) => setTimeout(resolve, DRAIN_MS))]);
+  let drainTimer;
+  await Promise.race([outClosed, new Promise((resolve) => { drainTimer = setTimeout(resolve, DRAIN_MS); })]);
+  clearTimeout(drainTimer); // a pending drain timer would hold the process open after the last run
   child.stdout.destroy();
   rl.close();
   transcript.end();
@@ -488,27 +595,133 @@ async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutM
   try {
     parser.lastMessage?.(fs.readFileSync(lastMessageFile, 'utf8'));
   } catch { /* the harness wrote no final message */ }
-  return { report: parser.end(), timedOut, spawnError: result.error, durationMs: now().getTime() - started };
+  return {
+    report: parser.end(), timedOut, spawnError: result.error, exitCode: result.code, signal: result.signal,
+    durationMs: now().getTime() - started,
+  };
 }
 
-/** The recorded outcome of one run (IC-006 `run_status`). */
-function statusOf({ report, timedOut, spawnError, timeoutSeconds }) {
-  if (timedOut) return { status: 'timeout', evidence: `no exit within ${timeoutSeconds}s` };
-  if (spawnError) return { status: 'api-error', evidence: cutChars(`spawn failed: ${spawnError.code || spawnError.message}`, 200) };
+/**
+ * The recorded outcome of one run (IC-006 `run_status`, review C-9). `truncated` covers a run that
+ * did not end on its own terms: killed by a signal (not our timer), a nonzero exit without a
+ * reported failure, or no turn end in the stream. The raw exit code and signal are always kept.
+ */
+function statusOf({ report, timedOut, spawnError, exitCode = null, signal = null, timeoutSeconds }) {
+  const codes = { exitCode: exitCode ?? null, signal: signal ?? null };
+  if (timedOut) return { status: 'timeout', evidence: `no exit within ${timeoutSeconds}s`, ...codes };
+  if (spawnError) return { status: 'api-error', evidence: cutChars(`spawn failed: ${spawnError.code || spawnError.message}`, 200), ...codes };
   if (report.status === 'failure' && report.reason !== 'spawn-observed') {
-    return { status: 'api-error', evidence: cutChars(report.summary || report.reason || 'failure', 200) };
+    return { status: 'api-error', evidence: cutChars(report.summary || report.reason || 'failure', 200), ...codes };
   }
-  if (report.reason === 'spawn-observed') return { status: 'completed', evidence: 'spawn-observed' };
-  return { status: 'completed' };
+  if (signal) return { status: 'truncated', evidence: `ended by ${signal}`, ...codes };
+  if (report.status === 'unparsed' && ['no-turn-end', 'oversize-line'].includes(report.reason)) {
+    return { status: 'truncated', evidence: `unparsed: ${report.reason}`, ...codes };
+  }
+  if (exitCode !== 0) return { status: 'truncated', evidence: `exit code ${exitCode}`, ...codes };
+  if (report.reason === 'spawn-observed') return { status: 'completed', evidence: 'spawn-observed', ...codes };
+  return { status: 'completed', ...codes };
 }
 
 const writeJson = (file, value) => fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 
+const isLink = (p) => {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Review C-11: the run root and the iteration directory are real directories, never symlinks, and
+ * the default run root resolves inside the checkout (a symlinked `bench/runs` would send records,
+ * and the spend they hold, somewhere the stop rule does not look).
+ */
+function checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot }) {
+  for (const p of [runRoot, iterDir]) {
+    if (isLink(p)) throw new UsageError('run-root-symlink', `${p} is a symlink; the run records must live in a real directory`);
+  }
+  if (defaultRoot && fs.existsSync(runRoot)) {
+    const real = fs.realpathSync(runRoot);
+    const repo = fs.realpathSync(repoRoot);
+    if (real !== path.join(repo, path.relative(repoRoot, runRoot))) {
+      throw new UsageError('run-root-symlink', `${runRoot} resolves outside the checkout (${real}); the run records must live in it`);
+    }
+  }
+}
+
+/**
+ * Review C-2: the iteration lock, taken before any check that reads the iteration's state and held to
+ * the end of the execute. `openSync(..., 'wx')` fails when another execute holds it, whatever its arm.
+ * Release removes the lock, and the iteration directory when this execute created it and left it empty.
+ */
+function lockIteration(runRoot, iterDir) {
+  fs.mkdirSync(runRoot, { recursive: true });
+  let created = false;
+  try {
+    fs.mkdirSync(iterDir);
+    created = true;
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+  }
+  if (isLink(iterDir)) throw new UsageError('run-root-symlink', `${iterDir} is a symlink; the run records must live in a real directory`);
+  const file = path.join(iterDir, LOCK_FILE);
+  let fd;
+  try {
+    fd = fs.openSync(file, 'wx', 0o600);
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+    const holder = Number(String(readTextIfPresent(file)).trim());
+    let running = false;
+    try {
+      process.kill(holder, 0);
+      running = Number.isInteger(holder) && holder > 0;
+    } catch { /* not running */ }
+    throw new UsageError('iteration-locked', running
+      ? `iteration is held by another execute (pid ${holder}); wait for it to finish`
+      : `iteration lock ${file} is left by pid ${holder}, which is not running; check that no worker of it is still running, then remove the lock`);
+  }
+  fs.writeSync(fd, `${process.pid}\n`);
+  fs.closeSync(fd);
+  let released = false;
+  return {
+    release() {
+      if (released) return;
+      released = true;
+      try {
+        fs.unlinkSync(file);
+      } catch { /* already gone */ }
+      if (created) {
+        try {
+          fs.rmdirSync(iterDir);
+        } catch { /* not empty: it holds records */ }
+      }
+    },
+  };
+}
+
+function readTextIfPresent(file) {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Runs the planned tasks of one iteration under a token cap. Refuses (exit 2, nothing written, no
- * process started) when the cap is missing or not a positive integer, the working tree is dirty, a
- * listed task already has a run directory, the plan's ceiling exceeds the cap, or the plan itself is
- * invalid. Exit 3 means the cap stopped it before a run that could overshoot; `undone` lists those.
+ * process started) when the cap is missing or not a positive integer, the working tree is dirty,
+ * another execute holds the iteration, a listed task already has a run directory, the run root or
+ * iteration is a symlink, the plan's ceiling exceeds the cap, or the plan itself is invalid. Exit 3
+ * means the cap stopped it before a run that could overshoot (`undone` lists those), or a run's real
+ * usage passed the cap (`capExceeded: { by, task }`): the cap is a projected ceiling, so the worst
+ * case is the cap plus one run's overshoot beyond `maxTokensPerRun`, bounded only by the timeout.
+ *
+ * Interruption (review C-1): while it runs, SIGINT, SIGTERM and SIGHUP end the worker's process
+ * group, record the run as `truncated` with unknown usage (so it counts at `maxTokensPerRun`), remove
+ * every scratch directory and the lock, and then re-raise the signal. Once a worker may have started,
+ * its run directory is never removed (review C-3): an executor error leaves the record counted.
+ *
  * Options beyond `plan`'s are injectable for tests: `env` (the caller env), `extraEnv` (added to the
  * child env, tests only), `sourceHome`, `tmpDir`, `materialise`, `now`.
  */
@@ -527,6 +740,7 @@ async function executeIteration(opts = {}) {
   let sourceAt;
   let iterDir;
   let runRoot;
+  let lock = null;
   try {
     config = opts.config || loadConfig();
     cap = parseCap(opts.cap);
@@ -543,12 +757,9 @@ async function executeIteration(opts = {}) {
     if (head.status !== 0) throw new UsageError('git-head-failed', `cannot read HEAD of ${repoRoot}`);
     sourceAt = head.stdout.trim();
 
-    const existing = plan.runs.filter((r) => fs.existsSync(r.runDir)).map((r) => r.id);
-    if (existing.length > 0) throw new UsageError('run-exists', `run directory already exists for: ${existing.join(', ')}`);
     if (plan.projection.ceilingTokens > cap) {
       throw new UsageError('over-cap', `ceiling ${plan.projection.ceilingTokens} tokens (${plan.projection.runs} runs x ${plan.projection.maxTokensPerRun}) exceeds --cap ${cap}`);
     }
-
     binary = findOnPath(recipe.cli.binary, env.PATH);
     if (!binary) throw new UsageError('harness-binary-missing', `harness binary "${recipe.cli.binary}" is not on PATH`);
     tools = {};
@@ -559,97 +770,198 @@ async function executeIteration(opts = {}) {
     }
 
     iterDir = path.join(runRoot, plan.iteration);
+    checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot: !opts.runRoot });
+    // From here the iteration is ours: every check below reads its state under the lock.
+    lock = lockIteration(runRoot, iterDir);
+    const existing = plan.runs.filter((r) => fs.existsSync(r.runDir) || isLink(r.runDir)).map((r) => r.id);
+    if (existing.length > 0) throw new UsageError('run-exists', `run directory already exists for: ${existing.join(', ')}`);
     const prior = readJsonIfPresent(path.join(iterDir, RUN_FILES.iteration));
-    if (prior && (prior.arm !== plan.arm || prior.model !== plan.model || prior.sourceAt !== sourceAt || prior.snapshot !== plan.snapshot)) {
-      throw new UsageError('iteration-mismatch', `iteration "${plan.iteration}" already exists with a different arm, model, source or snapshot`);
+    if (prior && (prior.arm !== plan.arm || prior.model !== plan.model || prior.sourceAt !== sourceAt || prior.snapshot !== plan.snapshot
+      || prior.captureSha256 !== captureSha256(config))) {
+      throw new UsageError('iteration-mismatch', `iteration "${plan.iteration}" already exists with a different arm, model, source, snapshot or capture config`);
     }
   } catch (e) {
+    lock?.release();
     if (e instanceof UsageError) return refused(e);
     throw e;
   }
 
-  // Everything that could refuse has run. From here on a harness failure is a recorded outcome.
-  const versionBin = makeToolBin(path.join(fs.mkdtempSync(path.join(tmpDir, 'doflow-agentic-ver-')), 'bin'), tools);
-  const versionEnv = { PATH: [versionBin, '/usr/bin', '/bin'].join(path.delimiter), ...extraEnv };
-  const versionRun = childProcess.spawnSync(binary, recipe.cli.versionArgv || ['--version'], { env: versionEnv, encoding: 'utf8', timeout: 15000 });
-  fs.rmSync(path.dirname(versionBin), { recursive: true, force: true });
-  const harnessVersion = versionRun.status === 0 ? (String(versionRun.stdout).split(/\r?\n/).find((l) => l.trim()) || '').trim() || null : null;
-
-  fs.mkdirSync(iterDir, { recursive: true });
-  const iterationFile = path.join(iterDir, RUN_FILES.iteration);
-  if (!fs.existsSync(iterationFile)) {
-    writeJson(iterationFile, {
-      arm: plan.arm, model: plan.model, sourceAt, snapshot: plan.snapshot, harness: plan.harness, harnessVersion,
-      startedAt: now().toISOString(),
-    });
-  }
-
-  const max = config.maxTokensPerRun;
-  const tasksById = new Map(taskSet.tasks.map((t) => [t.id, t]));
-  const ran = [];
-  const undone = [];
-  const viaStdin = recipe.oneShot?.promptVia === 'stdin';
-  for (let i = 0; i < plan.runs.length; i++) {
-    if (spentOf(iterDir, max) + max > cap) {
-      undone.push(...plan.runs.slice(i).map((r) => r.id));
-      break;
+  // Everything that could refuse has run. From here on a harness failure is a recorded outcome, and
+  // every scratch directory is registered in `scratch` so one cleanup path (normal end, error or
+  // signal) removes each of them independently.
+  const scratch = new Set();
+  const state = { proc: null, run: null, interrupted: null };
+  const cleanupScratch = () => {
+    const errors = [];
+    for (const dir of scratch) {
+      const err = removeTree(dir);
+      if (err) errors.push(err);
+      else scratch.delete(dir);
     }
-    const run = plan.runs[i];
-    const task = tasksById.get(run.id);
-    const prompt = buildPrompt(task, config.arms[plan.arm].paragraph);
-    const lastMessageFile = path.join(run.runDir, RUN_FILES.lastMessage);
-    fs.mkdirSync(run.runDir, { recursive: true });
-    let profile = null;
-    let workspace = null;
-    try {
-      profile = makeProfile({ config, arm: plan.arm, sourceHome, repoRoot, tmpDir, tools });
-      workspace = prepareWorkspace({
-        commit: plan.snapshot, snapshot: taskSet.snapshot, repoRoot, parent: tmpDir, home: profile.home, materialise,
-      });
-      const startedAt = now().toISOString();
-      const argv = wrapLaunch(() => insertModelArgv(recipe, launch.assembleArgv(recipe, prompt, false, lastMessageFile), config.model.argv));
-      writeJson(path.join(run.runDir, RUN_FILES.launch), {
-        key: run.key, arm: plan.arm, harness: plan.harness, harnessVersion, model: plan.model,
-        argvShape: run.argvShape, promptSha256: run.promptSha256, promptBytes: run.promptBytes,
-        toolProfile: { pathDirs: ['<profile>/bin'], tools, pathAdd: config.arms[plan.arm].pathAdd },
-        snapshot: plan.snapshot, startedAt, credentialCopied: profile.credentialCopied,
-      });
+    return errors;
+  };
+  const onSignal = (sig) => {
+    if (state.interrupted) return;
+    state.interrupted = sig;
+    // Taken now: the main flow may clear them while the group is being ended.
+    const { proc, run } = state;
+    (async () => {
+      try {
+        if (proc) await processTree.escalate({ proc });
+        if (run) {
+          try {
+            writeJson(path.join(run.runDir, RUN_FILES.runStatus), { status: 'truncated', evidence: `executor interrupted by ${sig}`, exitCode: null, signal: null });
+            writeJson(path.join(run.runDir, RUN_FILES.timing), { duration_ms: now().getTime() - run.started, usage: 'unknown' });
+          } catch { /* launch.json alone already counts the run at maxTokensPerRun */ }
+        }
+        cleanupScratch();
+        lock.release();
+      } finally {
+        for (const s of STOP_SIGNALS) process.removeListener(s, onSignal);
+        process.kill(process.pid, sig);
+      }
+    })();
+  };
+  for (const s of STOP_SIGNALS) process.on(s, onSignal);
+  // After a signal the handler owns the records and the cleanup; the main flow must not touch either.
+  const halted = () => new Promise(() => {});
 
-      const childEnv = {
-        PATH: [profile.binDir, '/usr/bin', '/bin', ...profile.pathAddDirs].join(path.delimiter),
-        HOME: profile.home,
-        [config.home.env]: profile.harnessHome,
-      };
-      for (const name of ENV_PASSTHROUGH) if (env[name] !== undefined) childEnv[name] = env[name];
-      Object.assign(childEnv, extraEnv);
+  try {
+    const passthrough = {};
+    for (const name of ENV_PASSTHROUGH) if (env[name] !== undefined) passthrough[name] = env[name];
 
-      const parser = parserFor(recipe.structuredOutput.parser).create();
-      const outcome = await spawnHarness({
-        binary, argv, cwd: workspace.root, env: childEnv, prompt, viaStdin,
-        timeoutMs: config.timeoutSeconds * 1000, transcriptFile: path.join(run.runDir, RUN_FILES.transcript),
-        lastMessageFile, parser, now,
+    // N-1: the version check runs in its own scratch profile (no credential), never the caller HOME.
+    const versionProfile = makeProfile({ config, arm: null, sourceHome, tmpDir, tools, copyCredentials: false });
+    scratch.add(versionProfile.dir);
+    const versionEnv = {
+      PATH: [versionProfile.binDir, '/usr/bin', '/bin'].join(path.delimiter), HOME: versionProfile.home,
+      [config.home.env]: versionProfile.harnessHome, ...passthrough, ...extraEnv,
+    };
+    const versionRun = childProcess.spawnSync(binary, recipe.cli.versionArgv || ['--version'], { env: versionEnv, encoding: 'utf8', timeout: 15000 });
+    const versionErr = removeTree(versionProfile.dir);
+    if (versionErr) throw versionErr;
+    scratch.delete(versionProfile.dir);
+    if (state.interrupted) return halted();
+    const harnessVersion = versionRun.status === 0 ? (String(versionRun.stdout).split(/\r?\n/).find((l) => l.trim()) || '').trim() || null : null;
+
+    const shimRoot = config.arms[plan.arm].pathAdd.includes(SHIM_ENTRY) ? exportToolTree({ repoRoot, commit: sourceAt, tmpDir }) : null;
+    if (shimRoot) scratch.add(shimRoot);
+
+    const iterationFile = path.join(iterDir, RUN_FILES.iteration);
+    if (!fs.existsSync(iterationFile)) {
+      writeJson(iterationFile, {
+        arm: plan.arm, model: plan.model, sourceAt, snapshot: plan.snapshot, harness: plan.harness, harnessVersion,
+        captureSha256: captureSha256(config), startedAt: now().toISOString(),
       });
-      writeJson(path.join(run.runDir, RUN_FILES.runStatus), statusOf({ ...outcome, timeoutSeconds: config.timeoutSeconds }));
-      const tokens = outcome.report.usage?.tokens;
-      writeJson(path.join(run.runDir, RUN_FILES.timing), {
-        ...(Number.isFinite(tokens) ? { total_tokens: tokens } : {}),
-        duration_ms: outcome.durationMs,
-      });
-      ran.push(run.id);
-    } catch (e) {
-      // An executor failure (not a harness outcome) leaves no half-written run behind.
-      fs.rmSync(run.runDir, { recursive: true, force: true });
-      throw e;
-    } finally {
-      workspace?.cleanup();
-      if (profile) fs.rmSync(profile.dir, { recursive: true, force: true });
+    }
+
+    const max = config.maxTokensPerRun;
+    const tasksById = new Map(taskSet.tasks.map((t) => [t.id, t]));
+    const ran = [];
+    const undone = [];
+    let capExceeded = null;
+    const viaStdin = recipe.oneShot?.promptVia === 'stdin';
+    for (let i = 0; i < plan.runs.length; i++) {
+      if (spentOf(iterDir, max) + max > cap) {
+        undone.push(...plan.runs.slice(i).map((r) => r.id));
+        break;
+      }
+      const run = plan.runs[i];
+      const task = tasksById.get(run.id);
+      const prompt = buildPrompt(task, config.arms[plan.arm].paragraph);
+      fs.mkdirSync(run.runDir); // not recursive: an existing directory stops the iteration (EEXIST)
+      let profile = null;
+      let workspace = null;
+      let spawned = false;
+      let failed = false;
+      try {
+        profile = makeProfile({ config, arm: plan.arm, sourceHome, shimRoot, tmpDir, tools });
+        scratch.add(profile.dir);
+        workspace = prepareWorkspace({
+          commit: plan.snapshot, snapshot: taskSet.snapshot, repoRoot, parent: tmpDir, home: profile.home, materialise,
+        });
+        scratch.add(workspace.dir);
+        // C-4: the final message is written inside the profile and copied back after the run, so no
+        // argv element names the checkout.
+        const profileMessage = path.join(profile.dir, RUN_FILES.lastMessage);
+        const startedAt = now().toISOString();
+        const argv = wrapLaunch(() => insertModelArgv(recipe, launch.assembleArgv(recipe, prompt, false, profileMessage), config.model.argv));
+        writeJson(path.join(run.runDir, RUN_FILES.launch), {
+          key: run.key, arm: plan.arm, harness: plan.harness, harnessVersion, model: plan.model,
+          argvShape: run.argvShape, promptSha256: run.promptSha256, promptBytes: run.promptBytes,
+          toolProfile: { pathDirs: ['<profile>/bin'], tools, pathAdd: config.arms[plan.arm].pathAdd },
+          snapshot: plan.snapshot, startedAt, credentialCopied: profile.credentialCopied,
+          workspaceRoot: workspace.root, profileRoot: profile.dir,
+        });
+
+        const childEnv = {
+          PATH: [profile.binDir, '/usr/bin', '/bin', ...profile.pathAddDirs].join(path.delimiter),
+          HOME: profile.home,
+          [config.home.env]: profile.harnessHome,
+          ...passthrough,
+          ...extraEnv,
+        };
+
+        const parser = parserFor(recipe.structuredOutput.parser).create();
+        if (state.interrupted) return halted();
+        spawned = true; // from here the run may have spent: its directory is never removed
+        state.run = { runDir: run.runDir, started: now().getTime() };
+        const transcriptFile = path.join(run.runDir, RUN_FILES.transcript);
+        const outcome = await spawnHarness({
+          binary, argv, cwd: workspace.root, env: childEnv, prompt, viaStdin,
+          timeoutMs: config.timeoutSeconds * 1000, transcriptFile, lastMessageFile: profileMessage, parser, now,
+          onSpawn: (proc) => { state.proc = proc; },
+        });
+        state.proc = null;
+        if (state.interrupted) return halted();
+        if (fs.existsSync(profileMessage)) fs.copyFileSync(profileMessage, path.join(run.runDir, RUN_FILES.lastMessage));
+        writeJson(path.join(run.runDir, RUN_FILES.runStatus), statusOf({ ...outcome, timeoutSeconds: config.timeoutSeconds }));
+        const usage = usageOf(transcriptFile);
+        writeJson(path.join(run.runDir, RUN_FILES.timing), {
+          ...(usage.total_tokens !== undefined ? { total_tokens: usage.total_tokens } : {}),
+          duration_ms: outcome.durationMs,
+          usage: usage.usage,
+        });
+        ran.push(run.id);
+      } catch (e) {
+        // Before the spawn nothing was spent and the half-made directory goes; after it, the record
+        // stays (launch.json without a usable timing.json counts at maxTokensPerRun).
+        failed = true;
+        if (!spawned) removeTree(run.runDir);
+        throw e;
+      } finally {
+        state.run = null;
+        if (!state.interrupted) {
+          const errors = [];
+          for (const dir of [workspace?.dir, profile?.dir]) {
+            if (!dir) continue;
+            const err = removeTree(dir);
+            if (err) errors.push(err);
+            else scratch.delete(dir);
+          }
+          if (errors.length && !failed) throw errors[0]; // eslint-disable-line no-unsafe-finally
+        }
+      }
+      const spent = spentOf(iterDir, max);
+      if (spent > cap) {
+        capExceeded = { by: spent - cap, task: run.id };
+        undone.push(...plan.runs.slice(i + 1).map((r) => r.id));
+        break;
+      }
+    }
+    return { exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, max), ...(capExceeded ? { capExceeded } : {}) };
+  } finally {
+    if (!state.interrupted) {
+      for (const s of STOP_SIGNALS) process.removeListener(s, onSignal);
+      const errors = cleanupScratch();
+      lock.release();
+      if (errors.length) throw errors[0]; // eslint-disable-line no-unsafe-finally
     }
   }
-  return { exit: undone.length > 0 ? 3 : 0, ran, undone, spent: spentOf(iterDir, max) };
 }
 
 module.exports = {
-  CONFIG_PATH, RUN_FILES, SHIM_ENTRY,
+  CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE,
   loadConfig, selectHarness, insertModelArgv, planIteration, executeIteration, prepareWorkspace,
-  runDirOf, readIteration,
+  runDirOf, readIteration, captureSha256, usageOf, statusOf,
 };
