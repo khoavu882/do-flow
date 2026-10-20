@@ -224,7 +224,10 @@ class ReadinessEngine {
     const queryBound = Boolean(plan?.planId);
     const binding = queryBound ? bindEvidence(plan, allTaskEvidence) : null;
     const unboundIds = new Set(binding ? binding.unbound.map((item: any) => item.id) : []);
+    // A superseded item is retired: it neither satisfies a requirement nor can it be unresolvable
+    // (the stale check below already skips it), so nothing else can be left that clears it.
     const taskEvidence = allTaskEvidence.filter((item: any) => item.freshness?.status === 'FRESH'
+      && item.status !== 'superseded'
       && (!queryBound || !unboundIds.has(item.id)));
 
     // An item accepted before FR-004 existed, or one whose target file has since shrunk, can be

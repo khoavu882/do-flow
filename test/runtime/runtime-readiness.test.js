@@ -730,3 +730,77 @@ test('unbound evidence guidance counts only qualifying items', (t) => {
   const reason = report.requirements.find((item) => item.id === 'architecture_mapped').reason;
   assert.match(reason, new RegExp(`^1 item\\(s\\).*\\(${qualifyingId}\\)`));
 });
+
+// ── FU-h6671a: a superseded item is retired from the unresolvable check too ──────────────────
+//
+// Evidence recorded from a linked worktree for a file that exists only on the branch cannot be
+// read from the checkout the records resolve against. Superseding it retires it from the stale
+// check; the unresolvable check must honour the same retirement, or nothing can clear it.
+
+function readyLedger(taskId) {
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  const freshId = ledger.addEvidence({
+    taskId, kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/readiness.ts', line: 1 }, content: 'use strict',
+    establishes: ['affected_components'],
+  });
+  return { ledger, claims, freshId };
+}
+const READY_INPUT = (taskId) => ({ taskId, taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' });
+
+test('FU-h6671a: a superseded item with an unresolvable locator does not keep the gate off READY', () => {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims, freshId } = readyLedger('task_superseded_unresolvable');
+  const goneId = ledger.addEvidence({
+    taskId: 'task_superseded_unresolvable', kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/branch-only-file.ts', line: 1 }, content: 'recorded from a worktree',
+  });
+
+  const before = engine.evaluateReadiness(READY_INPUT('task_superseded_unresolvable'), ledger, claims);
+  assert.equal(before.state, 'NEEDS_EVIDENCE');
+  assert.equal(before.unresolvableEvidence.length, 1);
+
+  ledger.supersedeEvidence(goneId, freshId);
+  const after = engine.evaluateReadiness(READY_INPUT('task_superseded_unresolvable'), ledger, claims);
+  assert.deepEqual(after.unresolvableEvidence, []);
+  assert.equal(after.state, 'READY');
+});
+
+test('FU-h6671a control: an unresolvable item that is NOT superseded still keeps the gate off READY', () => {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims, freshId } = readyLedger('task_unresolvable_active');
+  const goneId = ledger.addEvidence({
+    taskId: 'task_unresolvable_active', kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/branch-only-file.ts', line: 1 }, content: 'x',
+  });
+  const otherId = ledger.addEvidence({
+    taskId: 'task_unresolvable_active', kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/claims.ts', line: 1 }, content: 'y',
+  });
+  // Superseding a DIFFERENT item must not retire this one.
+  ledger.supersedeEvidence(otherId, freshId);
+  const report = engine.evaluateReadiness(READY_INPUT('task_unresolvable_active'), ledger, claims);
+  assert.equal(report.state, 'NEEDS_EVIDENCE');
+  assert.deepEqual(report.unresolvableEvidence.map((item) => item.evidenceId), [goneId]);
+});
+
+test('FU-h6671a control: a superseded item never satisfies a requirement', () => {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  const retired = ledger.addEvidence({
+    taskId: 'task_superseded_alone', kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/readiness.ts', line: 1 }, content: 'retired fact',
+    establishes: ['affected_components'],
+  });
+  const replacement = ledger.addEvidence({
+    taskId: 'task_superseded_alone', kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/claims.ts', line: 1 }, content: 'replacement without establishes',
+  });
+  ledger.supersedeEvidence(retired, replacement);
+  const report = engine.evaluateReadiness(READY_INPUT('task_superseded_alone'), ledger, claims);
+  const requirement = report.requirements.find((r) => r.id === 'affected_components');
+  assert.equal(requirement.satisfied, false, 'the retired item no longer proves affected_components');
+  assert.notEqual(report.state, 'READY');
+});
