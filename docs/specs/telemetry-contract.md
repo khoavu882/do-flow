@@ -50,7 +50,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 
 | Kind | Written by | Keys beyond the common ones |
 |---|---|---|
-| `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh`, `core/harnesses/claude/hooks/post-shell-observe.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `tool_duration_ms`, `session`, `tool`, `tool_call_id`, `role`, `worker_run`, `test_class` (see Hook lines) |
+| `hook` | `core/harnesses/shared/hooks/bridge/bridge.sh`, `core/harnesses/claude/hooks/post-shell-observe.sh` | `harness`, `event`, `policy`, `verdict`, `duration_ms`, `tool_duration_ms`, `session`, `tool`, `tool_call_id`, `role`, `worker_run`, `test_class`, `emit_reason`, `emit_bytes`, `emit_digest` (see Hook lines) |
 | `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `level`, `status`, `exit_code`, `duration_ms`, `checks_run`, `v0` (see Verify lines) |
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared`, `shared_ref`, `failed_first` |
@@ -78,10 +78,13 @@ paired perf run measures: `pre-bash-guard` on claude, codex, gemini, kiro, antig
 | `role` | `enum:role` or null | T2 | P2 | `DOFLOW_SESSION_ROLE` (`main` or `worker` exactly; else null) |
 | `worker_run` | `token` or null | T0 | P2 | worker run identifier from `DOFLOW_WORKER_RUN` |
 | `test_class` | `enum:test_class` or null | T2 | P3 | command class on post-shell-observe or classified via `envelope.jq`, else null |
+| `emit_reason` | `enum:emit_reason` or null | T2 | P6 | on `user-prompt-submit`, the emission adapter's `DF_EMIT_REASON` (`policies/emission.sh`); null on other hook lines, with no emit record, or when any of the three emit values fails its pattern |
+| `emit_bytes` | `uint` or null | T1 | P6 | the byte length of the response the policy printed, for `emit` and `refused:*`; 0 for `silent:*` and `fault:*`; null as for `emit_reason` |
+| `emit_digest` | `token` or null | T0 | P6 | 8 lowercase hex of h = (h*31 + c) mod 2^32 over the code points of exactly the printed response (without its trailing newline), computed in the `emission.jq` render process for `emit` and `refused:*` and only with telemetry on; else null. It keys duplicate emissions and is never exported |
 
-The bridge line is `kind, harness, event, policy, verdict, duration_ms, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, tool_duration_ms, test_class`. Everything after `duration_ms` comes from a tuple that `envelope.jq` emits as its first line in `--arg mode encode` (only when that mode is passed explicitly): `{dft:1, date, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, tool_duration_ms, test_class}`, every value validated in jq. Every telemetry expression sits inside `try`, so a fault there yields `{"dft":1}`, which writes nothing and leaves the envelope and the policy verdict untouched. Off emits `{"dft":1}` too.
+The bridge line is `kind, harness, event, policy, verdict, duration_ms, emit_reason, emit_bytes, emit_digest, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, tool_duration_ms, test_class`. The three `emit_*` values come from the policy's emit record, one `\036{"v":1,"emit":{"reason","bytes","digest"}}` line on the decision fd that the bridge reads apart from the decision record and checks with builtins (a vocabulary member, digits, 8 lowercase hex or null); they carry no content, only a reason, a count and a hash. Everything after `emit_digest` comes from a tuple that `envelope.jq` emits as its first line in `--arg mode encode` (only when that mode is passed explicitly): `{dft:1, date, timestamp, session, tool, tool_call_id, run, lineage, attempt, role, worker_run, tool_duration_ms, test_class}`, every value validated in jq. Every telemetry expression sits inside `try`, so a fault there yields `{"dft":1}`, which writes nothing and leaves the envelope and the policy verdict untouched. Off emits `{"dft":1}` too.
 
-The observer uses `--arg mode observe` to emit only the tuple, adding `duration_ms:null` and `tool_duration_ms`; its front door writes that tuple with the observer's `test_class`. Hook lines carry no content and may reach about 600 bytes with maximum-length ids.
+The observer uses `--arg mode observe` to emit only the tuple, adding `duration_ms:null` and `tool_duration_ms`; its front door writes that tuple with the observer's `test_class`. Hook lines carry no content and may reach about 700 bytes with maximum-length ids.
 
 ### Harness observation coverage (NFR-008)
 
@@ -107,7 +110,8 @@ install or global fallback beyond that walk. Nothing is written unless `<config>
 `telemetry/` is created non-recursively (so only when `state/runs` exists), and the target is
 appended to only when it is absent or a regular file. A FIFO, a directory or an unwritable target
 writes nothing, never blocks, and changes no output or exit code. One `printf >>` per invocation,
-builtins only apart from that first `mkdir`.
+builtins only apart from that first `mkdir`. `emit_digest` adds no process: the prompt policy's
+existing jq render computes it, only with telemetry on.
 
 ## Verify lines
 
@@ -221,6 +225,7 @@ G45.1 holds those three equal.
 | `failed_first` | `none`, `pass`, `fail` |
 | `resource_basis` | `proc-children`, `unreached-platform`, `unreached-read` |
 | `v0` | `on`, `off` |
+| `emit_reason` | `emit`, `refused:mandatory-over-budget`, `silent:already-bootstrapped`, `silent:unchanged`, `silent:no-home`, `fault:deps`, `fault:unit`, `fault:slot`, `fault:summary`, `fault:grant`, `fault:warning`, `fault:render` (the `DF_EMIT_REASON` values of `policies/emission.sh`) |
 
 ## Excluded stores
 

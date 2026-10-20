@@ -22,7 +22,7 @@ const REGISTRY_FILE = 'core/registry/telemetry.json';
 const WRITER_FILE = 'src/runtime/trace/telemetry.ts';
 const FIXTURE_DIR = 'test/fixtures/telemetry';
 const TUPLE_FIXTURE_FIELDS = {
-  hook: ['role', 'worker_run', 'test_class', 'tool_duration_ms'],
+  hook: ['role', 'worker_run', 'test_class', 'tool_duration_ms', 'emit_reason', 'emit_bytes', 'emit_digest'],
   'verify.run': ['dispatch_run'],
 };
 const TYPE_ATOMS = new Set(['token', 'id', 'uint', 'int', 'hex16', 'hex32', 'iso8601ms', 'date', 'null']);
@@ -471,7 +471,7 @@ test('G45.1: observer runtime has its own measure and the prose states hook late
   const runtime = hookRows.split('\n').find((line) => line.startsWith('| `tool_duration_ms` |'));
   assert.match(latency, /hook latency.*always null on `post-shell-observe`/);
   assert.match(runtime, /T1 \| P3 \|.*native `duration_ms` runtime on the observer.*null on other hook lines/);
-  assert.match(hookRows, /Hook lines carry no content and may reach about 600 bytes with maximum-length ids/);
+  assert.match(hookRows, /Hook lines carry no content and may reach about 700 bytes with maximum-length ids/);
   const v0 = contract.split('\n').find((line) => line.startsWith('| `verify.run` | `v0` |'));
   assert.match(v0, /L3 is null with the flag on and `off` with the flag off; dispatch is null/);
 });

@@ -62,6 +62,20 @@ _doflow_em_release() {
   return 0
 }
 
+# _doflow_em_measure <response> <digest>: for the response printed as `printf '%s\n'`, DF_EMIT_BYTES
+# (its byte length under LC_ALL=C, newline included) and DF_EMIT_DIGEST (the renderer's digest
+# header line when it is 8 lowercase hex, else empty). Rider R1 (091): metadata for the hook line
+# only; builtins only, no response byte leaves this function, and nothing reaches stdout.
+_doflow_em_measure() {
+  local LC_ALL=C
+  DF_EMIT_BYTES=$(( ${#1} + 1 ))
+  DF_EMIT_DIGEST=""
+  case "${2:-}" in
+    [0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef]) DF_EMIT_DIGEST=$2 ;;
+  esac
+  return 0
+}
+
 # _doflow_em_silent <point>: the fault response.
 _doflow_em_silent() {
   _doflow_em_capture "$1"
@@ -125,7 +139,8 @@ _doflow_em_actions() {
 # DOFLOW_CONTEXT_MAX_BYTES (budget, default DF_RULES_MAX_BYTES_DEFAULT or 16384), SESSION_DIR and the
 # launcher variables through doflow_identity. Sets DF_ID_* (doflow_identity), DF_EMIT_REASON (emit,
 # refused:mandatory-over-budget, silent:already-bootstrapped, silent:unchanged, silent:no-home or
-# fault:<point>) and DF_EMIT_NUDGE (rendered or empty); when the nudge was rendered it calls
+# fault:<point>), DF_EMIT_BYTES and DF_EMIT_DIGEST (_doflow_em_measure for emit and refused:*, else 0
+# and empty) and DF_EMIT_NUDGE (rendered or empty); when the nudge was rendered it calls
 # `nudge_mark <session> nudged` and, when contract.sh is loaded, `doflow_decide advisory prompt-nudge`.
 doflow_emit_prompt() {
   local session="${1:-}" cwd="${2:-}" payload_title="${3:-}" nudge="${5:-}"
@@ -134,8 +149,10 @@ doflow_emit_prompt() {
   local sessions dir unit max harness here renderer project="" warnfile="" warntext="" had_c=0 made=0
   local gitfile sumfile=/dev/null grantfile=/dev/null claimed_grant="" absent="" plan out
   local refusal=refused:mandatory-over-budget title=false sumsrc="" sumid="" grantsrc="" warnclaimed=""
-  local dropped rest seg key
+  local dropped rest seg key digest=false
   DF_EMIT_REASON=""
+  DF_EMIT_BYTES=0
+  DF_EMIT_DIGEST=""
   DF_EMIT_NUDGE=""
   [ -n "$session" ] || return 0
   [ -z "${4:-}" ] || subagent=true
@@ -309,8 +326,11 @@ doflow_emit_prompt() {
   [ -n "$payload_title" ] || title=true
   plan="{\"actions\":{\"git\":\"$a_git\",\"summary\":\"$a_summary\",\"warning\":\"$a_warning\",\"grant\":\"$a_grant\",\"nudge\":\"$a_nudge\"},\"maxBytes\":$max,\"harness\":\"$harness\",\"title\":$title,\"absent\":[$absent]"
   [ "$sumfile" = /dev/null ] || plan="$plan,\"summaryBytes\":${DF_SUMMARY_BYTES:-0}"
-  plan="$plan,\"mode\":\"hook\"}"
-  # Hook mode: the first line is the dropped segment names, tab-joined (possibly empty).
+  # Rider R1: the renderer hashes the response only when the bridge will write it (telemetry on, fd set).
+  [ "${DOFLOW_TELEMETRY:-}" = off ] || [ -z "${DOFLOW_DECISION_FD:-}" ] || digest=true
+  plan="$plan,\"digest\":$digest,\"mode\":\"hook\"}"
+  # Hook mode: the first line is the dropped segment names, tab-joined (possibly empty); the second
+  # is the response digest (empty unless plan.digest).
   out=$(jq -n -r -f "$renderer" --argjson plan "$plan" --rawfile git "$gitfile" \
     --rawfile summary "$sumfile" --rawfile grant "$grantfile" --arg warning "$warntext" \
     --arg nudge "$nudge" 2>/dev/null) || out=""
@@ -318,13 +338,15 @@ doflow_emit_prompt() {
   [ -z "$claimed_grant" ] || rm -f "$claimed_grant" 2>/dev/null || true
   [ -z "$warnclaimed" ] || rm -f "$warnclaimed" 2>/dev/null || true
   sumfile=/dev/null claimed_grant="" warnclaimed=""
-  case "$out" in *$'\n'?*) ;; *) out="" ;; esac
+  case "$out" in *$'\n'*$'\n'?*) ;; *) out="" ;; esac
   if [ -z "$out" ]; then
     _doflow_em_release
     _doflow_em_silent render
     return 0
   fi
   dropped=${out%%$'\n'*}
+  out=${out#*$'\n'}
+  digest=${out%%$'\n'*}
   out=${out#*$'\n'}
 
   # Step 8: the refusal ledger line (key: the grant's summary id), one optional-dropped line per
@@ -354,6 +376,7 @@ doflow_emit_prompt() {
         ;;
     esac
   fi
+  _doflow_em_measure "$out" "$digest"
   printf '%s\n' "$out"
   return 0
 }

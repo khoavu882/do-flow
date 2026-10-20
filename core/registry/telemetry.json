@@ -36,7 +36,10 @@
         "tool_call_id": { "name": "doflow.hook.tool_call_id", "class": "T0", "type": "token|null", "phase": "P2" },
         "role": { "name": "doflow.hook.role", "class": "T2", "type": "enum:role|null", "phase": "P2" },
         "worker_run": { "name": "doflow.hook.worker_run", "class": "T0", "type": "token|null", "phase": "P2" },
-        "test_class": { "name": "doflow.hook.test_class", "class": "T2", "type": "enum:test_class|null", "phase": "P3" }
+        "test_class": { "name": "doflow.hook.test_class", "class": "T2", "type": "enum:test_class|null", "phase": "P3" },
+        "emit_reason": { "name": "doflow.hook.emit_reason", "class": "T2", "type": "enum:emit_reason|null", "phase": "P6" },
+        "emit_bytes": { "name": "doflow.hook.emit_bytes", "class": "T1", "type": "uint|null", "phase": "P6" },
+        "emit_digest": { "name": "doflow.hook.emit_digest", "class": "T0", "type": "token|null", "phase": "P6" }
       }
     },
     "verify.run": {
@@ -115,7 +118,8 @@
     "failed_first": ["none", "pass", "fail"],
     "resource_basis": ["proc-children", "unreached-platform", "unreached-read"],
     "v0": ["on", "off"],
-    "tool": ["Bash"]
+    "tool": ["Bash"],
+    "emit_reason": ["emit", "refused:mandatory-over-budget", "silent:already-bootstrapped", "silent:unchanged", "silent:no-home", "fault:deps", "fault:unit", "fault:slot", "fault:summary", "fault:grant", "fault:warning", "fault:render"]
   },
   "analysis": {
     "minSamples": 5,
