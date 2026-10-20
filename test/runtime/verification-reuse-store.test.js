@@ -148,6 +148,14 @@ test('lookup read errors return fault and never escape', (t) => {
   assert.deepEqual(lookup(dir, { fsImpl }), { hit: false, reason: 'fault' });
 });
 
+test('lookup refuses a store directory the process cannot write (089 re-review S-1: who cannot evict cannot reuse)', (t) => {
+  const dir = tempDir(t, 'doflow-reuse-');
+  writeRecord(dir, goodRecord());
+  const denied = () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); };
+  assert.deepEqual(lookup(dir, { fsImpl: ioWith({ accessSync: denied }) }), { hit: false, reason: 'unwritable' });
+  assert.equal(lookup(dir).hit, true, 'control: the same record in a writable directory hits');
+});
+
 test('store refuses FAIL, non-zero exit, and malformed keys without writing', (t) => {
   const dir = path.join(tempDir(t, 'doflow-reuse-'), 'store');
   const base = { dir, key: KEY, payloadDigest: DIGEST, level: 'L2', now: () => NOW, fsImpl: fs, mintRef: () => REF };

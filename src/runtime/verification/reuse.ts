@@ -86,6 +86,11 @@ function lookupReuseOptions({ dir, key, payloadDigest, maxAgeMs, now = Date.now,
   } catch {
     return { hit: false, reason: 'fault' };
   }
+  // 089 re-review S-1: a process that cannot evict from this store (evictReuse ignores EACCES) must
+  // not reuse from it either, or an executed FAIL it could not remove is followed by a reused PASS.
+  try { fsImpl.accessSync(dir, fs.constants.W_OK); } catch {
+    return { hit: false, reason: 'unwritable' };
+  }
 
   let raw: string;
   try { raw = fsImpl.readFileSync(file, 'utf8'); } catch {

@@ -221,6 +221,32 @@ for (const [name, drive] of DRIVERS) {
     assert.equal(storedRecords(ctx).length, 1);
     assert.equal(drive(ctx, command).ran, false);
   });
+
+  // 089 re-review S-1: eviction cannot remove a record from a store the process cannot write, so a
+  // process that cannot evict must not reuse either.
+  test(`S-1 real shell (${name}): a store the process cannot write is never reused, so an unevictable FAIL is not followed by a reused PASS`, (t) => {
+    if (process.platform === 'win32' || process.getuid?.() === 0) { t.skip('needs POSIX permissions and a non-root user'); return; }
+    const ctx = scene(t);
+    const marker = path.join(tempDir(t, 'doflow-stale-pass-marker-'), 'fail');
+    const command = markerCommand(marker);
+    assert.deepEqual([drive(ctx, command).ran, drive(ctx, command).ran], [true, false], 'PASS stored, then reused');
+    const [record] = storedRecords(ctx);
+    const dir = path.dirname(record);
+    fs.chmodSync(dir, 0o555);
+    t.after(() => { try { fs.chmodSync(dir, 0o700); } catch { /* already removed */ } });
+    fs.writeFileSync(marker, '');
+    const high = drive(ctx, command, { risk: 'HIGH' });
+    assert.deepEqual([high.ran, high.status], [true, 'FAIL'], 'L3 executes and fails');
+    assert.deepEqual(storedRecords(ctx), [record], 'the read-only store kept the PASS: eviction could not run');
+    const medium = drive(ctx, command);
+    assert.deepEqual([medium.ran, medium.status], [true, 'FAIL'], 'MEDIUM executes: an unwritable store is not trusted');
+    // Negative control: the same record in a writable store is still reused, so the refusal above is
+    // the store's writability and not a key or record change.
+    fs.chmodSync(dir, 0o700);
+    fs.rmSync(marker);
+    assert.deepEqual(storedRecords(ctx), [record]);
+    assert.equal(drive(ctx, command).ran, false, 'writable store: the stored PASS hits');
+  });
 }
 
 test('C-2 control: with reuse off an executed FAIL does not touch the store', (t) => {
