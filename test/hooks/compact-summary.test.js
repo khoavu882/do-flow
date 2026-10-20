@@ -470,6 +470,17 @@ function longGitProject() {
   return realDeep;
 }
 
+// C-2: a repository with no commit, and a detached HEAD, take the IC-001 fallbacks.
+function noCommitProject() {
+  return project('topic');
+}
+
+function detachedProject() {
+  const cwd = twoCommitProject();
+  gitOutput(cwd, 'checkout', '-q', '--detach', 'HEAD');
+  return cwd;
+}
+
 function expectedGitText(cwd) {
   const branch = gitOutput(cwd, 'rev-parse', '--abbrev-ref', 'HEAD').trim() || 'unknown';
   const sha = gitOutput(cwd, 'rev-parse', '--short', 'HEAD').trim() || 'unknown';
@@ -504,6 +515,19 @@ test('PreCompact emits exact non-git text for project and unknown cwd for every 
   }
 });
 
+test('PreCompact takes the no-commit and detached-HEAD fallbacks with exact text for every role', () => {
+  const empty = noCommitProject();
+  const detached = detachedProject();
+  const sha = gitOutput(detached, 'rev-parse', '--short', 'HEAD').trim();
+  const recent = gitOutput(detached, 'log', '--format=%h %s', '-2').trimEnd().split('\n').join(' | ');
+  for (const [role, env] of ROLES) {
+    assert.equal(assertCompactParity(empty, env),
+      `${PRESERVE_LINE}\nInclude in compact summary:\n- git branch: topic sha: unknown\n- uncommitted files: 0\n- cwd: ${empty}\n- recent commits: none`, role);
+    assert.equal(assertCompactParity(detached, env),
+      `${PRESERVE_LINE}\nInclude in compact summary:\n- git branch: unknown sha: ${sha}\n- uncommitted files: 0\n- cwd: ${detached}\n- recent commits: ${recent}`, role);
+  }
+});
+
 test('PreCompact separates two recent commits with " | "', () => {
   const cwd = twoCommitProject();
   const expectedRecent = gitOutput(cwd, 'log', '--format=%h %s', '-2').trimEnd().split('\n').join(' | ');
@@ -522,7 +546,7 @@ test('PreCompact cap keeps preserve line first and later git context', () => {
 });
 
 test('PreCompact Claude and Codex stay byte-identical with one JSON key across contract cases and roles', () => {
-  const cases = [knownGitProject(), project(), undefined, '', twoCommitProject(), longGitProject()];
+  const cases = [knownGitProject(), project(), undefined, '', twoCommitProject(), longGitProject(), noCommitProject(), detachedProject()];
   for (const [, env] of ROLES) for (const cwd of cases) assertCompactParity(cwd, env);
 });
 
