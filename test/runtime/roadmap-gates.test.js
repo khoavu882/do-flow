@@ -271,7 +271,7 @@ const mutations = [
   { name: 'INCONCLUSIVE', from: "runs[runs.length - 1].verdict !== 'PASS'", to: 'false', pattern: 'predicate fixture: inconclusive verification' },
   { name: 'seat minimum', from: 'seats.length < (gate.minSeats || 0)', to: 'false', pattern: 'predicate fixture: too few seats' },
   { name: 'person-only acceptance', from: "if (finding.status === 'user-accepted') reasons.push", to: 'if (false) reasons.push', pattern: 'C5: autopilot gate-b denies' },
-  { name: 'evidence locator in validation', from: "finding.status === 'refuted' && !evidenceLocator(finding.evidence)) errors", to: "finding.status === 'refuted' && !nonempty(finding.evidence)) errors", pattern: 'C21: refutation evidence' },
+  { name: 'evidence locator in validation', module: 'findings', from: "finding.status === 'refuted' && !evidenceLocator(finding.evidence)) errors", to: "finding.status === 'refuted' && !nonempty(finding.evidence)) errors", pattern: 'C21: refutation evidence' },
   { name: 'evidence locator at dispositions', from: "!evidenceLocator(finding.evidence)) reasons", to: '!nonempty(finding.evidence)) reasons', pattern: 'C21: refutation evidence' },
   { name: 'invalid override label', from: "denied('policy-override-invalid')", to: "denied('policy-override-widens:override')", pattern: 'C23: override bytes' },
   { name: 'unreadable plan-verification fact', from: "requireFact('plan-verification-block', 'protected-path')", to: 'true', pattern: 'C6: plan-verification-absent passes only' },
@@ -294,18 +294,29 @@ for (const fixture of require('../fixtures/roadmap/gates/cases.json')) {
 for (const mutation of mutations) test(`scratch negative control: ${mutation.name}`, (t) => {
   const scratch = tempDir(t, 'doflow-roadmap-gate-control-');
   const targetName = mutation.module || 'gates';
-  const originalModule = path.join(__dirname, `../../src/runtime/roadmap/${targetName}.ts`);
-  const originalTest = path.join(__dirname, `roadmap-${targetName}.test.js`);
+  // Since 095 the findings validator lives in src/runtime/review/findings.ts; gates.ts imports it,
+  // so its control mutates that module and runs the gates tests through a scratch gates.ts.
+  const viaGates = targetName === 'findings';
+  const gatesModule = path.join(__dirname, '../../src/runtime/roadmap/gates.ts');
+  const originalModule = viaGates ? path.join(__dirname, '../../src/runtime/review/findings.ts')
+    : path.join(__dirname, `../../src/runtime/roadmap/${targetName}.ts`);
+  const originalTest = path.join(__dirname, `roadmap-${viaGates ? 'gates' : targetName}.test.js`);
   const targetModule = path.join(scratch, `${targetName}.ts`);
   const targetTest = path.join(scratch, 'control.test.js');
-  const absolutize = (source, directory, substitute) => source.replace(/require\('([.][.]?\/[^']+)'\)/g, (_match, specifier) => {
+  const absolutize = (source, directory, substitute, replacement = targetModule) => source.replace(/require\('([.][.]?\/[^']+)'\)/g, (_match, specifier) => {
     const absolute = path.resolve(directory, specifier);
-    return `require(${JSON.stringify(absolute === substitute ? targetModule : absolute)})`;
+    return `require(${JSON.stringify(absolute === substitute ? replacement : absolute)})`;
   });
   const source = fs.readFileSync(originalModule, 'utf8');
   assert.equal(source.split(mutation.from).length, 2, 'mutation must replace exactly one known behavior');
   fs.writeFileSync(targetModule, absolutize(source.replace(mutation.from, mutation.to), path.dirname(originalModule)));
-  fs.writeFileSync(targetTest, absolutize(fs.readFileSync(originalTest, 'utf8'), __dirname, originalModule)
+  let tested = { module: originalModule, copy: targetModule };
+  if (viaGates) {
+    const scratchGates = path.join(scratch, 'gates.ts');
+    fs.writeFileSync(scratchGates, absolutize(fs.readFileSync(gatesModule, 'utf8'), path.dirname(gatesModule), originalModule));
+    tested = { module: gatesModule, copy: scratchGates };
+  }
+  fs.writeFileSync(targetTest, absolutize(fs.readFileSync(originalTest, 'utf8'), __dirname, tested.module, tested.copy)
     .replaceAll('__dirname', JSON.stringify(__dirname)));
   const home = path.join(scratch, 'home'); fs.mkdirSync(home);
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), FORCE_COLOR: '' };
