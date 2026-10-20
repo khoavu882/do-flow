@@ -12,7 +12,10 @@
 //   4. a prompt text passed to a hook (`prompt`),
 //   5. tool output printed by a verified command (`output`, assembled at runtime so it is not in argv),
 //   6. a fine-tuned model id of the form `ft:<canary>` (`model`), and
-//   7. an MCP tool name of the form `mcp__<canary>__tool` (`mcp`).
+//   7. an MCP tool name of the form `mcp__<canary>__tool` (`mcp`),
+//   8. the feature slug (`slug`, 091 E.1), and
+//   9. a hook session id (`session`, 091 E.1): a T0 identifier the local store and the local analyze
+//      view may hold, which the OTLP export must never carry (IC-008 rule 2).
 //
 // Every O0 telemetry producer is exercised against that single project:
 //   (a) `doflow verify` CLI with one passing and one failing check whose command and output hold canaries,
@@ -25,6 +28,11 @@
 // of `trace spans` are byte-searched for each canary (full string AND its first 8 characters): zero
 // hits. Every written line is also checked against `core/registry/telemetry.json` for allowlist key
 // equality per kind and a 256-byte ceiling per value, plus `leak-scan.ts` as an extra check (S-31).
+//
+// 091 E.1 (NFR-001, FR-010, IC-008): the same project also feeds `trace analyze --json`,
+// `trace analyze --emit evidence`, `trace analyze --emit followups` and
+// `trace export --otlp-http --dry-run`; the stdout and stderr of each are searched for every content
+// canary (full and first 8 characters) and the dry run also for the session canary: zero hits.
 
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -43,7 +51,6 @@ const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
 const BASH = '/bin/bash';
 const MAX_VALUE_BYTES = 256;
-const SLUG = 'feat-canary';
 
 const SURFACES = {
   'claude:pre-bash-guard': { harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json' },
@@ -75,6 +82,8 @@ function createCanaries() {
     output: mint('5'),
     model: mint('6'),
     mcp: mint('7'),
+    slug: mint('8'),
+    session: mint('9'),
   };
   return {
     ...raw,
@@ -95,6 +104,40 @@ function listFilesRec(dir, base = dir) {
   return out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
 }
 
+/** Content canaries: never in any store or output. `slug` and `session` are identifiers, scanned per output. */
+const CONTENT_KEYS = ['env', 'argv', 'path', 'prompt', 'output', 'model', 'mcp'];
+
+/** Needles for `keys`: each canary's full string and its first 8 characters, plus the derived model id and MCP name. */
+function canaryNeedles(canaries, keys) {
+  const needles = [];
+  for (const key of keys) {
+    const full = canaries[key];
+    const prefix8 = full.slice(0, 8);
+    assert.equal(prefix8.length, 8, `canary ${key} prefix8 must be 8 chars`);
+    needles.push({ label: `${key}:full`, bytes: Buffer.from(full, 'utf8') });
+    needles.push({ label: `${key}:prefix8`, bytes: Buffer.from(prefix8, 'utf8') });
+  }
+  if (keys.includes('model')) {
+    needles.push({ label: 'modelId:full', bytes: Buffer.from(canaries.modelId, 'utf8') });
+    needles.push({ label: 'modelId:prefix8', bytes: Buffer.from(canaries.modelId.slice(0, 8), 'utf8') });
+  }
+  if (keys.includes('mcp')) needles.push({ label: 'mcpTool:full', bytes: Buffer.from(canaries.mcpTool, 'utf8') });
+  return needles;
+}
+
+/** Byte-searches named outputs `[{ name, text }]` for the needles of `keys`; returns one error per hit. */
+function scanOutputs(outputs, canaries, keys) {
+  const needles = canaryNeedles(canaries, keys);
+  const errors = [];
+  for (const { name, text } of outputs) {
+    const buf = Buffer.from(text || '', 'utf8');
+    for (const needle of needles) {
+      if (buf.includes(needle.bytes)) errors.push(`canary leak in ${name}: matched ${needle.label}`);
+    }
+  }
+  return errors;
+}
+
 /**
  * Scanner over a canary run's outputs:
  *   1. Byte-searches every file under `runsDir` (including `telemetry/*.jsonl`) and `spansStdout` /
@@ -108,17 +151,7 @@ function scanCanaryRun({ runsDir, spansStdout = '', spansStderr = '', canaries, 
   const files = listFilesRec(runsDir);
   if (files.length === 0) errors.push('no files found under .doflow/state/runs');
 
-  const needles = [];
-  for (const key of ['env', 'argv', 'path', 'prompt', 'output', 'model', 'mcp']) {
-    const full = canaries[key];
-    const prefix8 = full.slice(0, 8);
-    assert.equal(prefix8.length, 8, `canary ${key} prefix8 must be 8 chars`);
-    needles.push({ label: `${key}:full`, bytes: Buffer.from(full, 'utf8') });
-    needles.push({ label: `${key}:prefix8`, bytes: Buffer.from(prefix8, 'utf8') });
-  }
-  needles.push({ label: 'modelId:full', bytes: Buffer.from(canaries.modelId, 'utf8') });
-  needles.push({ label: 'modelId:prefix8', bytes: Buffer.from(canaries.modelId.slice(0, 8), 'utf8') });
-  needles.push({ label: 'mcpTool:full', bytes: Buffer.from(canaries.mcpTool, 'utf8') });
+  const needles = canaryNeedles(canaries, CONTENT_KEYS);
 
   const targets = [
     ...files.map((f) => ({ name: `runs/${f.rel}`, buf: fs.readFileSync(f.abs) })),
@@ -196,6 +229,7 @@ function scanCanaryRun({ runsDir, spansStdout = '', spansStderr = '', canaries, 
 /** Runs one complete canary fixture across all four producers in a single temporary project. */
 function runCanaryFixture() {
   const canaries = createCanaries();
+  const SLUG = `feat-${canaries.slug}`;
   const home = path.join(suiteRoot, 'home');
   const xdg = path.join(suiteRoot, 'xdg');
   const root = path.join(suiteRoot, `proj-${canaries.path}`);
@@ -214,7 +248,7 @@ function runCanaryFixture() {
   // run identity, plus the planted env and model canaries.
   const baseEnv = { ...process.env };
   for (const k of Object.keys(baseEnv)) {
-    if (k.startsWith('DOFLOW_') || k === 'EPOCHREALTIME' || k === 'FORCE_COLOR' || k === 'PI_CODING_AGENT_DIR') {
+    if (k.startsWith('DOFLOW_') || k.startsWith('OTEL_') || k === 'EPOCHREALTIME' || k === 'FORCE_COLOR' || k === 'PI_CODING_AGENT_DIR') {
       delete baseEnv[k];
     }
   }
@@ -312,6 +346,9 @@ function runCanaryFixture() {
   };
   const verifyPass = runVerify(false);
   const verifyFail = runVerify(true);
+  // A second failing run of the same class makes a retry-loops finding (retryRun 2), so both batches
+  // printed by `trace analyze --emit` hold items for the 091 canary search.
+  runVerify(true);
 
   // Confirm the failing verify check genuinely printed the output canary into the verification failure log.
   const verifyLogDir = path.join(root, '.doflow', 'state', 'verification', 'logs');
@@ -348,6 +385,8 @@ function runCanaryFixture() {
   for (const surface of Object.values(SURFACES)) {
     const native = JSON.parse(fs.readFileSync(path.join(FIXTURES, surface.fixture), 'utf8')).native;
     native.model = canaries.modelId;
+    // The claude surfaces carry the session canary, so their hook lines hold it as `session` (T0).
+    if (surface.harness === 'claude') native.session_id = canaries.session;
     if (surface.policy === 'pre-bash-guard') {
       if (surface.harness === 'antigravity') native.toolCall.args.CommandLine = bashCmd;
       else if (surface.harness === 'pi') native.input.command = bashCmd;
@@ -381,7 +420,22 @@ function runCanaryFixture() {
   });
   assert.equal(spansRes.status, 0, `trace spans --json: ${spansRes.stderr}`);
 
+  // 091 outputs over the same project: the analyze view, both batches and the export dry run.
+  const cli = (id, args, statuses) => {
+    const res = spawnSync(process.execPath, [DOFLOW, ...args, root], { cwd: root, env: childEnv(), encoding: 'utf8' });
+    assert.equal(res.error, undefined, `${id}: ${res.error?.message}`);
+    assert.ok(statuses.includes(res.status), `${id} exited ${res.status}: ${res.stderr}`);
+    return { id, status: res.status, stdout: res.stdout, stderr: res.stderr };
+  };
+  const outputs091 = [
+    cli('analyze-json', ['trace', 'analyze', '--json'], [0, 1]),
+    cli('analyze-emit-evidence', ['trace', 'analyze', '--emit', 'evidence'], [0, 1]),
+    cli('analyze-emit-followups', ['trace', 'analyze', '--emit', 'followups'], [0, 1]),
+    cli('export-dry-run', ['trace', 'export', '--otlp-http', '--dry-run'], [0]),
+  ];
+
   return {
+    childEnv,
     canaries,
     root,
     configDir,
@@ -392,6 +446,7 @@ function runCanaryFixture() {
     spansStdout: spansRes.stdout,
     spansStderr: spansRes.stderr,
     spansView: JSON.parse(spansRes.stdout),
+    outputs091,
   };
 }
 
@@ -444,6 +499,81 @@ test('G-O2 canary run exercises verify (pass+fail), bridge hooks, task-run start
   });
   assert.equal(leakResult.scanned.length, telemetryFiles.length);
   assert.deepEqual(leakResult.findings, []);
+});
+
+/** The 091 outputs as scan targets: stdout and stderr of each command. */
+function outputTargets(outputs) {
+  return outputs.flatMap((o) => [{ name: `${o.id}:stdout`, text: o.stdout }, { name: `${o.id}:stderr`, text: o.stderr }]);
+}
+
+/** Runs `trace export --otlp-http --dry-run` in process with `registry`, capturing stdout and stderr. */
+async function dryRunExport(run, registry) {
+  const { handleTraceExport } = require('../../src/runtime/trace/otlp-export.ts');
+  const stdout = [];
+  const stderr = [];
+  const priorExit = process.exitCode;
+  try {
+    const code = await handleTraceExport({
+      positional: [run.root], otlpHttp: true, dryRun: true, env: run.childEnv(), stdout, stderr, registry,
+    });
+    return { id: 'export-dry-run-inprocess', status: code, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
+  } finally {
+    process.exitCode = priorExit;
+  }
+}
+
+test('091 E.1 NFR-001: trace analyze --json, --emit evidence, --emit followups and the export dry run carry no canary', () => {
+  const run = getRun();
+  const { canaries, runsDir, outputs091 } = run;
+  const byId = Object.fromEntries(outputs091.map((o) => [o.id, o]));
+
+  // Each output is the shape its contract names, so an empty or failed command cannot pass the scan.
+  const view = JSON.parse(byId['analyze-json'].stdout);
+  assert.equal(view.view, 'analyze');
+  assert.ok(view.scopes >= 1, 'the analyze view read the seeded scopes');
+  assert.ok(view.detectors.some((d) => d.id === 'retry-loops' && d.findings.length >= 1), 'the seeded retry loop is a finding');
+  assert.equal(byId['analyze-json'].status, 1, 'analyze exits 1 when there is a finding');
+  assert.ok(JSON.parse(byId['analyze-emit-evidence'].stdout).length >= 1, 'the evidence batch holds the finding');
+  assert.ok(JSON.parse(byId['analyze-emit-followups'].stdout).length >= 1, 'the proposal batch holds the finding');
+  const requests = JSON.parse(byId['export-dry-run'].stdout);
+  const exported = requests.flatMap((r) => r.resourceSpans.flatMap((rs) => rs.scopeSpans.flatMap((ss) => ss.spans)));
+  assert.ok(exported.length >= 1, 'the dry run mapped at least one span');
+  const hookSpans = exported.filter((sp) => sp.attributes.some((a) => a.key === 'gen_ai.agent.name' && a.value.stringValue === 'claude'));
+  assert.ok(hookSpans.length >= 1, 'the dry run holds a claude hook span, whose local record carries the session canary');
+
+  // Every content canary and the feature slug: zero hits in all four outputs.
+  assert.deepEqual(scanOutputs(outputTargets(outputs091), canaries, [...CONTENT_KEYS, 'slug']), []);
+  // The session id is a T0 identifier: present locally, never exported.
+  const telemetryText = listFilesRec(path.join(runsDir, 'telemetry')).map((f) => fs.readFileSync(f.abs, 'utf8')).join('');
+  assert.equal(telemetryText.includes(canaries.session), true, 'positive control: the local hook lines hold the session canary');
+  assert.deepEqual(scanOutputs(outputTargets([byId['export-dry-run']]), canaries, ['session']), []);
+
+  // Rider R1: the UserPromptSubmit hook lines carry emission metadata and never the prompt canary.
+  const promptLines = telemetryText.split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    .filter((l) => l.kind === 'hook' && l.event === 'UserPromptSubmit');
+  assert.equal(promptLines.length, 2, 'claude and codex UserPromptSubmit lines');
+  assert.ok(promptLines.some((l) => typeof l.emit_reason === 'string'), 'a UserPromptSubmit line carries emit metadata');
+  for (const line of promptLines) {
+    const text = JSON.stringify(line);
+    assert.equal(text.includes(canaries.prompt.slice(0, 8)), false, 'prompt canary in the UserPromptSubmit line');
+  }
+});
+
+test('091 E.1 negative control: a planted export mapping for `session` makes the dry-run canary search find the session canary', async () => {
+  const run = getRun();
+  const { canaries } = run;
+  // The same in-process path with the real registry is clean, so the planted entry alone turns it red.
+  const clean = await dryRunExport(run, REGISTRY);
+  assert.equal(clean.status, 0);
+  assert.deepEqual(scanOutputs(outputTargets([clean]), canaries, ['session']), []);
+
+  const planted = JSON.parse(JSON.stringify(REGISTRY));
+  planted.export.attributes.session = { id: true };
+  const leaked = await dryRunExport(run, planted);
+  assert.equal(leaked.status, 0);
+  const errors = scanOutputs(outputTargets([leaked]), canaries, ['session']);
+  assert.ok(errors.some((e) => e.includes('matched session:full')), `expected session:full, got: ${errors.join('; ')}`);
+  assert.ok(errors.some((e) => e.includes('matched session:prefix8')), `expected session:prefix8, got: ${errors.join('; ')}`);
 });
 
 test('negative control 1: a scratch producer that writes the canary command argument into a record turns the scanner red', () => {
