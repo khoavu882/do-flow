@@ -8,9 +8,10 @@
 // temp copy.
 //
 // Scenarios (test/fixtures/agentic/scenarios/e2e-*.json): every task has one distinct qrel file, so a
-// run scores 1 or 0. Arm N finds 11 of 20 tasks, one of them through a leaked `doflow retrieve` (excluded,
-// never scored) and one run reports no usage. Arm D finds every task (gain), exactly arm N's tasks
-// (same) or every train task but only arm N's heldout tasks (train only).
+// run scores 1 or 0. The six-task subset has three train and three heldout tasks; arm N finds none and
+// one task reports unknown usage (with three cases per split, a mixed arm N would leave the split CI
+// across zero, so the gain must be uniform for the split verdicts to be reached). Arm D finds every task (gain), exactly arm N's tasks (same), or every
+// train task but only arm N's heldout tasks (train only). A separate one-task control checks leak handling.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -29,12 +30,25 @@ const REPO = path.join(__dirname, '..', '..');
 const FAKE_WORKER = path.join(REPO, 'test', 'fixtures', 'agentic', 'fake-worker.js');
 const SCENARIOS = path.join(REPO, 'test', 'fixtures', 'agentic', 'scenarios');
 const TMP = suiteTempDir('doflow-agentic-e2e-');
-const TASK_SET = loadTaskSet();
+const TASK_IDS = new Set(['DC-014', 'DC-015', 'DC-016', 'HC-903', 'HC-904', 'HC-907']);
+const LOADED_TASK_SET = loadTaskSet();
+const TASK_SET = {
+  ...LOADED_TASK_SET,
+  tasks: LOADED_TASK_SET.tasks.filter((t) => TASK_IDS.has(t.id)),
+  train: LOADED_TASK_SET.train.filter((t) => TASK_IDS.has(t.id)),
+  heldout: LOADED_TASK_SET.heldout.filter((t) => TASK_IDS.has(t.id)),
+};
 const KEY = Object.fromEntries(TASK_SET.tasks.map((t) => [t.id, t.key]));
-const LEAKED = 'DC-026';
+const LEAKED = 'DC-014';
 const UNKNOWN_USAGE = 'DC-016';
 const BINARY = 'fakeharness-e2e';
 const CAP = '2000000';
+assert.equal(TASK_SET.train.length, 3);
+assert.equal(TASK_SET.heldout.length, 3);
+
+const LEAK_TASK = TASK_SET.train.find((t) => t.id === LEAKED);
+const LEAK_TASK_SET = { ...TASK_SET, tasks: [LEAK_TASK], train: [LEAK_TASK], heldout: [] };
+const LEAK_ITERS = ['leak-r1', 'leak-r2', 'leak-r3'];
 
 const supported = (extra) => ({ status: 'supported', ...extra });
 const REGISTRY = {
@@ -88,12 +102,14 @@ fs.writeFileSync(TRUTH, JSON.stringify(Object.fromEntries(TASK_SET.tasks.map((t)
 
 /** A bin directory whose harness binary runs the fake worker on one scenario. */
 function binFor(scenario) {
-  const dir = path.join(TMP, `bin-${scenario}`);
+  const scenarioFile = path.isAbsolute(scenario) ? scenario : path.join(SCENARIOS, `${scenario}.json`);
+  const binName = path.isAbsolute(scenario) ? path.basename(scenario, '.json') : scenario;
+  const dir = path.join(TMP, `bin-${binName}`);
   fs.mkdirSync(dir);
   const file = path.join(dir, BINARY);
   fs.writeFileSync(file, [
     '#!/bin/sh',
-    `AGENTIC_FAKE_SCENARIO='${path.join(SCENARIOS, `${scenario}.json`)}'`,
+    `AGENTIC_FAKE_SCENARIO='${scenarioFile}'`,
     `AGENTIC_FAKE_TRUTH='${TRUTH}'`,
     'export AGENTIC_FAKE_SCENARIO AGENTIC_FAKE_TRUTH',
     `exec '${process.execPath}' '${FAKE_WORKER}' "$@"`,
@@ -112,6 +128,8 @@ function fakeMaterialise(commit, dir) {
 const RUN_ROOT = path.join(TMP, 'runs');
 const RESULTS = path.join(TMP, 'results');
 const NOISE_FILE = path.join(TMP, 'noise.json');
+const LEAK_RUN_ROOT = path.join(TMP, 'runs-leak');
+const LEAK_NOISE_FILE = path.join(TMP, 'noise-leak.json');
 
 /** CLI options: everything injectable, never `extraEnv`. Output is captured. */
 function optsFor({ bin = null, config = CONFIG, taskSet = TASK_SET, runRoot = RUN_ROOT, resultsDir = RESULTS } = {}) {
@@ -150,6 +168,9 @@ async function noSpawn(fn) {
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const realReadme = () => fs.readFileSync(path.join(REPO, 'bench', 'README.md'), 'utf8');
 const N_ITERS = ['n-r1', 'n-r2', 'n-r3'];
+const N_RUN_COUNT = TASK_SET.tasks.length * N_ITERS.length;
+const N_UNKNOWN_COUNT = TASK_SET.tasks.filter((t) => t.id === UNKNOWN_USAGE).length * N_ITERS.length;
+const N_RECORDED_COUNT = N_RUN_COUNT - N_UNKNOWN_COUNT;
 // The gain set is the full k = 3 of the paid protocol; same and train-only need one candidate repeat to
 // show their verdicts, which keeps the file's runtime down (NFR-007).
 const D_SETS = { gain: ['d-r1', 'd-r2', 'd-r3'], same: ['s-r1'], trainOnly: ['t-r1'] };
@@ -168,7 +189,27 @@ function setup() {
       assert.equal(r.code, 0, `${iteration}: ${r.err}`);
     }
     const n = await cli(['noise', '--iterations', N_ITERS.join(','), '--out', NOISE_FILE]);
-    return { noise: n };
+
+    // Keep the leak accounting proof without spending three repeats across the six decision tasks.
+    const leakScenario = path.join(TMP, 'e2e-leak.json');
+    fs.writeFileSync(leakScenario, JSON.stringify({ tasks: { [LEAKED]: { N: {
+      truthFiles: 1, decoys: 2, commands: ['/bin/zsh -lc "doflow retrieve --scope code --query x --root ."'], tokens: 40000,
+    } } } }));
+    const leakBin = binFor(leakScenario);
+    const leakRuns = LEAK_ITERS.map((iteration) => [iteration, leakBin]);
+    const leakExecuted = await Promise.all(leakRuns.map(([iteration, bin]) => cli(
+      ['execute', '--iteration', iteration, '--arm', 'N', '--cap', CAP],
+      { bin, taskSet: LEAK_TASK_SET, runRoot: LEAK_RUN_ROOT },
+    )));
+    leakExecuted.forEach((r, i) => assert.equal(r.code, 0, `${leakRuns[i][0]}: ${r.err}`));
+    for (const [iteration] of leakRuns) {
+      const r = await cli(['grade', '--iteration', iteration], { taskSet: LEAK_TASK_SET, runRoot: LEAK_RUN_ROOT });
+      assert.equal(r.code, 0, `${iteration}: ${r.err}`);
+    }
+    const leakNoise = await cli(['noise', '--iterations', LEAK_ITERS.join(','), '--out', LEAK_NOISE_FILE], {
+      taskSet: LEAK_TASK_SET, runRoot: LEAK_RUN_ROOT,
+    });
+    return { noise: n, leakNoise };
   })();
   return pipeline;
 }
@@ -188,7 +229,7 @@ function g60Findings(decision) {
 
 // --- the band ----------------------------------------------------------------------------------
 
-test('noise: three arm N iterations give a valid, usable 096 artifact over the full task-set key list', async () => {
+test('noise: three arm N iterations give a valid, usable 096 artifact over the six-task key list', async () => {
   const { noise: n } = await setup();
   assert.equal(n.code, 0, n.err);
   const artifact = readJson(NOISE_FILE);
@@ -198,21 +239,25 @@ test('noise: three arm N iterations give a valid, usable 096 artifact over the f
   assert.equal(artifact.model, 'fake:e2e-model');
   assert.equal(artifact.commit, git(REPO_ROOT, 'rev-parse', 'HEAD'));
   assert.deepEqual(artifact.caseKeys, TASK_SET.tasks.map((t) => t.key).sort());
-  assert.deepEqual(artifact.graderRerun, { runs: 60, differing: [], stale: [] });
+  assert.deepEqual(artifact.graderRerun, { runs: N_RUN_COUNT, differing: [], stale: [] });
   assert.match(n.out, /verdict: usable/);
 });
 
 test('noise: a leaked arm N run is excluded as source-unverified and counted, never scored', async () => {
-  await setup();
-  const artifact = readJson(NOISE_FILE);
+  const { leakNoise } = await setup();
+  assert.equal(leakNoise.code, 1, leakNoise.err);
+  const artifact = readJson(LEAK_NOISE_FILE);
   const leaked = artifact.cases[KEY[LEAKED]];
   assert.deepEqual(leaked.scores, [null, null, null]);
   assert.deepEqual(leaked.excluded, ['source-unverified', 'source-unverified', 'source-unverified']);
   assert.equal(artifact.infra['source-unverified'], 3);
   assert.equal(artifact.infra.excluded, 3);
-  // Scored, the leaked run would have raised every repeat: the fake answered with its truth file.
-  assert.deepEqual(artifact.scopes.corpus.repeatMeans, [10 / 19, 10 / 19, 10 / 19]);
-  const grading = readJson(path.join(RUN_ROOT, 'n-r1', LEAKED, 'grading.json'));
+  // The fake answer contains the truth path, but isolation keeps every score null.
+  const transcript = fs.readFileSync(path.join(LEAK_RUN_ROOT, LEAK_ITERS[0], LEAKED, 'transcript.jsonl'), 'utf8');
+  assert.ok(transcript.includes(LEAK_TASK.qrels[0].path));
+  assert.deepEqual(artifact.scopes.corpus.repeatMeans, [null, null, null]);
+  assert.equal(artifact.graderRerun.runs, LEAK_TASK_SET.tasks.length * LEAK_ITERS.length);
+  const grading = readJson(path.join(LEAK_RUN_ROOT, LEAK_ITERS[0], LEAKED, 'grading.json'));
   assert.equal(grading.isolation, 'leaked');
   assert.equal(grading.pass_rate, null);
   assert.match(grading.isolationEvidence[0], /doflow retrieve/);
@@ -230,11 +275,12 @@ test('report: arm D that finds more gives gain-above-noise on corpus; the decisi
   assert.equal(decision.splits.train.verdict, 'gain-above-noise');
   assert.equal(decision.splits.heldout.verdict, 'gain-above-noise');
   assert.equal(decision.overfitSuspected, false);
-  // The leaked case has no baseline score, so it never pairs: 19 cases, 9 of them gained.
-  assert.equal(decision.corpus.n, 19);
-  assert.equal(decision.corpus.cases.some((c) => c.key === KEY[LEAKED]), false);
-  assert.ok(Math.abs(decision.corpus.gain - 9 / 19) < 1e-9);
-  assert.equal(decision.infra.baseline['source-unverified'], 3);
+  assert.equal(decision.corpus.n, TASK_SET.tasks.length);
+  assert.equal(decision.splits.train.n, TASK_SET.train.length);
+  assert.equal(decision.splits.heldout.n, TASK_SET.heldout.length);
+  assert.equal(decision.corpus.cases.some((c) => c.key === KEY[LEAKED]), true);
+  assert.equal(decision.corpus.gain, 1);
+  assert.equal(decision.infra.baseline['source-unverified'], 0);
   assert.equal(decision.infra.candidate.missing, 0);
   assert.deepEqual(decision.inputs.baseline.iterations, N_ITERS);
   assert.deepEqual(decision.inputs.candidate.iterations, D_SETS.gain);
@@ -295,7 +341,8 @@ test('report: an edited task (new key) gives noise-case-set-mismatch', async () 
   const heldoutPath = path.join(TMP, 'tasks-heldout-edited.json');
   fs.writeFileSync(heldoutPath, JSON.stringify(held));
   const edited = loadTaskSet({ heldoutPath });
-  assert.notEqual(edited.tasks.find((t) => t.id === held.tasks[0].id).key, KEY[held.tasks[0].id]);
+  const originalKey = LOADED_TASK_SET.tasks.find((t) => t.id === held.tasks[0].id).key;
+  assert.notEqual(edited.tasks.find((t) => t.id === held.tasks[0].id).key, originalKey);
   const { decision } = await decisionOf(D_SETS.gain, ['--noise', NOISE_FILE], { taskSet: edited });
   assert.equal(decision.precondition, 'noise-case-set-mismatch');
   assert.equal(decision.verdict, 'inconclusive');
@@ -321,10 +368,10 @@ test('report: the descriptive token report leaves an unknown-usage run out of th
   assert.equal(decision.kind, 'bench-decision');
   assert.equal(tokens.label, 'descriptive');
   assert.deepEqual(tokens.N, {
-    iterations: N_ITERS, runs: 60, recorded: 57, unknown: 3, totalTokens: 57 * 40000, medianTokensPerTask: 40000, repeatMeans: [40000, 40000, 40000],
+    iterations: N_ITERS, runs: N_RUN_COUNT, recorded: N_RECORDED_COUNT, unknown: N_UNKNOWN_COUNT, totalTokens: N_RECORDED_COUNT * 40000, medianTokensPerTask: 40000, repeatMeans: [40000, 40000, 40000],
   });
   assert.deepEqual(tokens.D, {
-    iterations: D_SETS.gain, runs: 60, recorded: 60, unknown: 0, totalTokens: 60 * 30000, medianTokensPerTask: 30000, repeatMeans: [30000, 30000, 30000],
+    iterations: D_SETS.gain, runs: N_RUN_COUNT, recorded: N_RUN_COUNT, unknown: 0, totalTokens: N_RUN_COUNT * 30000, medianTokensPerTask: 30000, repeatMeans: [30000, 30000, 30000],
   });
   assert.equal(tokens.ratioDtoN, 0.75);
   assert.equal(tokens.nTokenRange, 0);
@@ -369,6 +416,7 @@ test('noise refuses arm D iterations, a mixed model or source, a missing task an
 
   const root = path.join(TMP, 'runs-broken');
   fs.cpSync(RUN_ROOT, root, { recursive: true });
+  const missingTask = TASK_SET.tasks[1].id;
   const iter = path.join(root, 'n-r3', 'iteration.json');
   const meta = readJson(iter);
   fs.writeFileSync(iter, JSON.stringify({ ...meta, model: 'other:model' }));
@@ -379,15 +427,15 @@ test('noise refuses arm D iterations, a mixed model or source, a missing task an
   assert.equal((await cli(['noise', '--iterations', N_ITERS.join(',')], { runRoot: root })).code, 2);
   fs.writeFileSync(iter, JSON.stringify(meta));
 
-  fs.rmSync(path.join(root, 'n-r2', 'DC-012', 'grading.json'));
+  fs.rmSync(path.join(root, 'n-r2', missingTask, 'grading.json'));
   const ungraded = await cli(['noise', '--iterations', N_ITERS.join(',')], { runRoot: root });
   assert.equal(ungraded.code, 2);
-  assert.match(ungraded.err, /n-r2\/DC-012.*grading\.json/);
+  assert.match(ungraded.err, new RegExp(`n-r2/${missingTask}.*grading\\.json`));
 
-  fs.rmSync(path.join(root, 'n-r2', 'DC-012'), { recursive: true });
+  fs.rmSync(path.join(root, 'n-r2', missingTask), { recursive: true });
   const short = await cli(['noise', '--iterations', N_ITERS.join(',')], { runRoot: root });
   assert.equal(short.code, 2);
-  assert.match(short.err, /n-r2\/DC-012/);
+  assert.match(short.err, new RegExp(`n-r2/${missingTask}`));
 
   assert.equal((await cli(['noise', '--iterations', 'n-r1,n-r2'])).code, 2, 'fewer than k repeats');
   assert.equal((await cli(['noise', '--iterations', 'n-r1,n-r1,n-r2'])).code, 2, 'a repeated iteration');
@@ -433,13 +481,14 @@ test('plan prints the projection and the paid stages as text only; --json carrie
   assert.match(text.out, /model fake:e2e-model/);
   assert.match(text.out, new RegExp(`snapshot ${TASK_SET.snapshot.commit}`));
   assert.match(text.out, /<prompt sha256:[0-9a-f]{64} bytes:\d+>/);
-  assert.match(text.out, /ceilingTokens 1000000/);
+  const projectedCap = TASK_SET.tasks.length * CONFIG.maxTokensPerRun;
+  assert.match(text.out, new RegExp(`ceilingTokens ${projectedCap}`));
   const first = TASK_SET.train[0].id;
   for (const line of [
-    `npm run bench -- agentic execute --iteration rehearsal-N --arm N --tasks ${first} --cap 500000`,
-    `npm run bench -- agentic execute --iteration rehearsal-D --arm D --tasks ${first} --cap 500000`,
-    'npm run bench -- agentic execute --iteration n-r1 --arm N --cap 1000000',
-    'npm run bench -- agentic execute --iteration d-r3 --arm D --cap 1000000',
+    `npm run bench -- agentic execute --iteration rehearsal-N --arm N --tasks ${first} --cap ${CONFIG.maxTokensPerRun}`,
+    `npm run bench -- agentic execute --iteration rehearsal-D --arm D --tasks ${first} --cap ${CONFIG.maxTokensPerRun}`,
+    `npm run bench -- agentic execute --iteration n-r1 --arm N --cap ${projectedCap}`,
+    `npm run bench -- agentic execute --iteration d-r3 --arm D --cap ${projectedCap}`,
     'npm run bench -- agentic grade --iteration n-r2',
     'npm run bench -- agentic noise --iterations n-r1,n-r2,n-r3 --out bench/agentic/results/noise.json',
     'npm run bench -- agentic report --iterations d-r1,d-r2,d-r3 --decision-out bench/agentic/results/decision.json',
@@ -452,7 +501,7 @@ test('plan prints the projection and the paid stages as text only; --json carrie
   const plan = JSON.parse(json.out);
   assert.equal(plan.projection.runs, 1);
   assert.deepEqual(Object.keys(plan.stages), ['R', 'N', 'D', 'note']);
-  assert.ok(plan.stages.N.includes('npm run bench -- agentic execute --iteration n-r1 --arm N --cap 1000000'), 'stage caps use the full task set');
+  assert.ok(plan.stages.N.includes(`npm run bench -- agentic execute --iteration n-r1 --arm N --cap ${projectedCap}`), 'stage caps use the selected task set');
   assert.equal(fs.existsSync(path.join(RUN_ROOT, 'dry')), false, 'plan writes nothing');
 });
 

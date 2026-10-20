@@ -68,7 +68,7 @@ Orchestration evaluation measures multi-task and multi-agent coordination for fe
 
 ## Task success
 
-End-to-end task success is measured by the agentic baseline, a paid and separately approved run: see [`bench/agentic/README.md`](../agentic/README.md) for the protocol, the cost ceilings and what each result triggers.
+The agentic baseline measures file localization by a coding agent, using `fileRecallAt10` over the agent's answer; it does not measure end-to-end task success. See [`bench/agentic/README.md`](../agentic/README.md) for the protocol, cost ceilings and what each result triggers.
 
 ## Holdout
 
