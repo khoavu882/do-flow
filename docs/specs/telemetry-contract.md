@@ -225,7 +225,202 @@ G45.1 holds those three equal.
 | `failed_first` | `none`, `pass`, `fail` |
 | `resource_basis` | `proc-children`, `unreached-platform`, `unreached-read` |
 | `v0` | `on`, `off` |
+| `tool` | `Bash` (the canonical tool name passed to allowlisted `pre-bash-guard` front doors) |
 | `emit_reason` | `emit`, `refused:mandatory-over-budget`, `silent:already-bootstrapped`, `silent:unchanged`, `silent:no-home`, `fault:deps`, `fault:unit`, `fault:slot`, `fault:summary`, `fault:grant`, `fault:warning`, `fault:render` (the `DF_EMIT_REASON` values of `policies/emission.sh`) |
+
+## Analysis
+
+`doflow trace analyze` (091 IC-001..IC-005, IC-011) evaluates trace spans projected by `projectSpans` across scopes (each trace, and each ungrouped `session:` or `day:` group). The command writes nothing, loads no network module, and exits 0 when there are no findings, 1 on at least one finding, and 2 on usage errors.
+
+### Thresholds
+
+Configured in `core/registry/telemetry.json` under `analysis`. All four must be positive integers; anything else is a usage error:
+
+| Key | Value | Meaning |
+|---|---|---|
+| `minSamples` | 5 | Minimum duration samples required for a `(kind, name)` span group to qualify for latency hotspot detection, and threshold for inclusion in the `latency` context list |
+| `tailRatio` | 4 | Minimum ratio of 95th percentile to median duration (`p95 >= tailRatio * p50`) for latency hotspots |
+| `minTailMs` | 1000 | Minimum absolute difference in milliseconds between 95th percentile and median (`p95 - p50 >= minTailMs`) for latency hotspots |
+| `retryRun` | 2 | Minimum consecutive failed verification runs with an identical failure class to qualify as a retry loop |
+
+### Detectors and rules
+
+Three detectors run per scope:
+
+1. **`latency-hotspots`**: Groups spans with integer `durationMs` by `(kind, name)`. A group with at least `minSamples` durations is a finding when `p95 >= tailRatio * p50` and `p95 - p50 >= minTailMs`. Reported spans are those with `durationMs > p50`, ordered by descending duration then `spanId`, capped at 20 (`measures.spanCount` reports the uncapped count). Percentiles use nearest-rank `percentile` from `views.ts`. State: `FINDING` if any group qualifies; `CLEAR` if at least one group has `minSamples` durations and none qualifies; `NOT_DETERMINED` ("no span name has <minSamples> durations") otherwise.
+2. **`redundant-verification`**: Evaluates executed `verify.check` spans with a non-null `attrs.check_key`. A key observed on two or more executed `PASS` checks with no `FAIL` check of the same key between first and last is a finding; measures `{checkKey, passes, tier}`. State: `FINDING` if any key qualifies; `CLEAR` if at least one executed keyed check exists and none qualifies; `NOT_DETERMINED` ("no executed verify.check carries a check_key") otherwise. The check key is local-only (T0) and is never exported.
+3. **`retry-loops`**: Groups `verify.run` spans sorted by start then `spanId` by `attrs.task` (a null task groups by scope). The failure class of a `FAIL` run is the sorted set of failing `verify.tier` names under it (`attrs.verify_id` matching), or `exit:<exit_code>` when it has no tier spans. Runs with status neither `PASS` nor `FAIL` (null, `UNRESOLVED`) neither extend nor break a sequence. A maximal sequence of at least `retryRun` consecutive `FAIL` runs with an identical failure class and no `PASS` between is a finding; measures `{task, runs, failureClass, grouping}` (`grouping` is `"task"` or `"scope"`). State: `FINDING` if any group qualifies; `CLEAR` if at least one `verify.run` carries a non-null status and none qualifies; `NOT_DETERMINED` ("no verify.run carries a status") otherwise.
+
+### Executed-check rule (IC-011)
+
+A `verify.check` span counts as executed only when:
+- `attrs.status` is not null and not `NOT_RUN`, and
+- `attrs.shared` is `none`, `leader`, or null.
+
+`follower` and `in-run` mark reused results within a verify run and do not count. `reused` (feature 089 cross-run verification-reuse on an unchanged check key) marks reuse across runs and does not count. Any `shared` value not explicitly in `{none, leader, null}` does not count, preventing false redundancy findings from future reuse extensions.
+
+### States and verdict
+
+Each detector reports state `FINDING`, `CLEAR`, or `NOT_DETERMINED`. The overall view `verdict` follows `trace discover`:
+- `findings`: at least one detector reports `FINDING`.
+- `insufficient-data`: every detector reports `NOT_DETERMINED`.
+- `no-findings-in-the-analyses-that-could-run`: some detectors report `NOT_DETERMINED` and the rest report `CLEAR`.
+- `no-findings`: every detector reports `CLEAR`.
+
+### Finding IDs
+
+A finding id is the first 16 hex characters of sha256 over:
+`${detector}\n${scope}\n${sorted_span_ids.join(',')}`
+
+Findings contain no score, rank, or confidence fields; finding spans are capped at 20 and sorted by start time then `spanId`.
+
+### Batch formats
+
+The analyzer prints two machine-readable batch formats:
+
+- **Evidence batch (`--emit evidence`)**: JSON array accepted unchanged by `evidence --action add --batch -`. One `runtime-observation` item per finding:
+  ```json
+  {
+    "kind": "runtime-observation",
+    "provenance": "extracted",
+    "source": { "provider": "doflow", "capability": "trace.analyze" },
+    "observation": { "command": "doflow trace analyze --json [--run <key|id>] [-g]", "exitCode": 1 },
+    "content": "trace-analyze finding <id> detector=<detector> scope=<scopeKind>:<scope> spans=<spanId,...> <measures keys sorted>..."
+  }
+  ```
+  `observation.command` includes only view-altering flags (`--run`, `-g`), never the project path. `content` contains numbers and identifiers only, and carries the token `finding <id>` exactly once.
+- **Proposal batch (`--emit followups [--task-id <id>]`)**: JSON array accepted unchanged by `followup --action add --batch <file>`. One proposal item per finding:
+  ```json
+  {
+    "statement": "trace-analyze <detector> <findingId>: metric <metric>=<value>; baseline span set finding <findingId>; evidence <ev-id>[,<ev-id>]|unrecorded; verify: re-run trace analyze on a later window and compare <metric>",
+    "stage": "maintain",
+    "source": { "kind": "manual" }
+  }
+  ```
+  Statements are at most 280 characters and carry no 32-character run so `maskLine` leaves them unchanged. Metric is `p95_ms:<kind>/<name>` (hotspots), `passes:<tier>` (redundant), or `failed_runs:<task|scopeKind>` (retry). With `--task-id`, the command reads that task's evidence ledger (read-only) and cites up to two newest matching evidence IDs; without `--task-id` or matching evidence, it cites `unrecorded`. Lines exceeding 280 characters drop the second evidence ID and truncate `<name>` or replace it with `h<sha16(name).slice(0, 8)>`.
+
+### Context section (rider R1)
+
+The analysis view includes a top-level `context` object reporting `UserPromptSubmit` emission metadata per session. It provides session context, is not a detector, and does not alter the verdict or exit code. Over hook and folded test spans whose `attrs.session` is set:
+- `status`: `MEASURED` if any hook span carries `emit_reason`, else `NOT_DETERMINED` (with empty `sessions: []`).
+- `sessions`: sorted by `session`, each containing:
+  - `session`: session token
+  - `hookCalls`: count of all hook and test spans in the session
+  - `emissions`: count of hook lines where `emit_reason` is `emit` or `refused:*`
+  - `emittedBytes`: sum of `emit_bytes` for emissions (0 for `silent:*` and `fault:*`)
+  - `duplicates`: count of emissions whose `emit_digest` matched an earlier emission in the same session (ordered by start then `spanId`)
+  - `duplicateBytes`: sum of `emit_bytes` for duplicate emissions
+  - `reasons`: dictionary of counts per `emit_reason`
+
+The hook line metadata fields (`emit_reason`, `emit_bytes`, `emit_digest`) are defined under [Hook lines](#hook-lines).
+
+## Export
+
+`doflow trace export --otlp-http` (091 IC-006..IC-009) exports spans from `projectSpans` to an OpenTelemetry collector via OTLP/HTTP JSON (OTLP v1.11.1 JSON encoding). The `export` block in `core/registry/telemetry.json` declares the semantic convention pin, resource attributes, span name mappings, attribute rules, and external name owners.
+
+### Semantic conventions pin and re-pin procedure
+
+The export pins semantic conventions in `export.semconv`:
+- `repo`: `open-telemetry/semantic-conventions-genai`
+- `commit`: `547934afa90a34298441caf80c43b27255c3a292`
+- `schemaUrl`: `https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev`
+
+**Re-pin procedure (IC-008):**
+1. Read the HEAD commit SHA and `schema_url` from `model/manifest.yaml` of `open-telemetry/semantic-conventions-genai`.
+2. Check that every mapped name in `telemetry.json` (`gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.agent.name`, `gen_ai.operation.name`, operations `execute_tool`, `invoke_agent`, `invoke_workflow`) still exists in `model/gen-ai/registry.yaml`.
+3. Update `export.semconv.commit` and `export.semconv.schemaUrl` in `core/registry/telemetry.json` together.
+
+### Span mapping
+
+Spans are exported with `kind: 1` (INTERNAL). `parentSpanId` is omitted on root spans. Span names map according to `export.spans`:
+
+| Local Kind | Export Span Name | Operation (`gen_ai.operation.name`) |
+|---|---|---|
+| `hook` | `execute_tool {tool}` | `execute_tool` |
+| `test` | `execute_tool {tool}` | `execute_tool` |
+| `worker` | `invoke_agent {harness}` | `invoke_agent` |
+| `run` | `invoke_workflow` | `invoke_workflow` |
+| `*` | `doflow.{kind} {name}` | (none) |
+
+Placeholders `{tool}`, `{harness}`, and `{name}` resolve to their filtered attribute value; if the value is `other` or unlisted, the placeholder suffix is dropped (`execute_tool`, `invoke_agent`). Kinds without an owning name list resolve to `doflow.{kind}`.
+
+### Attribute mapping and privacy filter rules
+
+Attributes are mapped according to `export.attributes`, applying these rules in order:
+
+1. A local attribute not listed in `export.attributes` is not exported.
+2. An entry with `id: true` exports the value unchanged only when it passes `SAFE_TOKEN`; only `tool_call_id` carries this. All other T0 fields are never listed.
+3. An entry with `vocabulary` exports the value if it is a member of the named vocabulary list, else `other`. The list is either in `telemetry.json` `vocabularies`, or one of the lists owned in `export.names`: `cli-commands` (`COMMANDS` in `src/cli/index.ts`), `workflow-stages` (stage IDs in `core/registry/workflows.json`), or `workflow-classes` (class IDs in `core/registry/workflows.json`).
+4. An entry with `measure: true` exports a T1 number unchanged (integers formatted as `intValue` decimal strings).
+5. The local name `doflow.<kind>.<key>` from the registry field `name` is the export key unless the entry gives `export`.
+6. Span names replace `{tool}`, `{harness}`, `{name}` with the filtered attribute value (rule 3); unlisted values drop the suffix.
+7. `gen_ai.operation.name` is set from the span specification's `operation`. No other `gen_ai.*` key is emitted.
+
+| Local Attribute | Export Key | Rule | Specification |
+|---|---|---|---|
+| `tool` | `gen_ai.tool.name` | Rule 3 | `vocabulary: "tool"` |
+| `tool_call_id` | `gen_ai.tool.call.id` | Rule 2 | `id: true` (only T0 exported) |
+| `harness` | `gen_ai.agent.name` | Rule 3 | `vocabulary: "harness"` |
+| `event` | `doflow.hook.event` | Rule 3 | `vocabulary: "event"` |
+| `policy` | `doflow.hook.policy` | Rule 3 | `vocabulary: "policy"` |
+| `verdict` | `doflow.hook.verdict` | Rule 3 | `vocabulary: "verdict"` |
+| `role` | `doflow.hook.role` | Rule 3 | `vocabulary: "role"` |
+| `test_class` | `doflow.hook.test_class` | Rule 3 | `vocabulary: "test_class"` |
+| `source` | `doflow.verify.run.source` | Rule 3 | `vocabulary: "source"` |
+| `risk` | `doflow.verify.run.risk` | Rule 3 | `vocabulary: "risk"` |
+| `level` | `doflow.verify.run.level` | Rule 3 | `vocabulary: "level"` |
+| `status` | `doflow.<kind>.status` | Rule 3 | `vocabulary: "status"` |
+| `v0` | `doflow.verify.run.v0` | Rule 3 | `vocabulary: "v0"` |
+| `selection_basis` | `doflow.verify.tier.selection_basis` | Rule 3 | `vocabulary: "selection_basis"` |
+| `fallback` | `doflow.verify.tier.fallback` | Rule 3 | `vocabulary: "fallback"` |
+| `resource_basis` | `doflow.verify.check.resource_basis` | Rule 3 | `vocabulary: "resource_basis"` |
+| `shared` | `doflow.verify.check.shared` | Rule 3 | `vocabulary: "shared"` |
+| `failed_first` | `doflow.verify.check.failed_first` | Rule 3 | `vocabulary: "failed_first"` |
+| `verb` | `doflow.<kind>.verb` (ledger spans: `doflow.ledger.verb`) | Rule 3 | `vocabulary: "cli-commands"` |
+| `stage` | `doflow.<kind>.stage` | Rule 3 | `vocabulary: "workflow-stages"` |
+| `task_class` | `doflow.<kind>.task_class` | Rule 3 | `vocabulary: "workflow-classes"` |
+| `duration_ms` | `doflow.<kind>.duration_ms` | Rule 4 | `measure: true` |
+| `tool_duration_ms` | `doflow.hook.tool_duration_ms` | Rule 4 | `measure: true` |
+| `exit_code` | `doflow.<kind>.exit_code` | Rule 4 | `measure: true` |
+| `checks_run` | `doflow.verify.run.checks_run` | Rule 4 | `measure: true` |
+| `selected` | `doflow.verify.tier.selected` | Rule 4 | `measure: true` |
+| `total` | `doflow.verify.tier.total` | Rule 4 | `measure: true` |
+| `tests` | `doflow.verify.check.tests` | Rule 4 | `measure: true` |
+| `tests_failed` | `doflow.verify.check.tests_failed` | Rule 4 | `measure: true` |
+| `cpu_ms` | `doflow.verify.check.cpu_ms` | Rule 4 | `measure: true` |
+| `error.type` | `error.type` | Error rule | Set to status value or `exit:<code>` when `status.code` is 2 |
+| `gen_ai.operation.name` | `gen_ai.operation.name` | Rule 7 | Set from span specification `operation` |
+
+### What is never exported
+
+- **Identifiers (T0)**: All T0 fields except `tool_call_id` are never exported: `run`, `lineage`, `attempt`, `session`, `task`, `worker_run`, `dispatch_run`, `verify_id`, `check_key`, `shared_ref`, `token`, and `emit_digest`.
+- **Local-only descriptors (T2-local)**: Descriptors marked `T2-local` are never exported.
+- **Content (T4)**: Content is never recorded and never exported.
+- **Ungrouped and start-less spans**: Spans lacking a `traceId` (`view.ungrouped`) and spans with a null `start` are not exported (counted as `skipped`).
+- **Network secrecy**: Endpoint URLs, header names and values, and response bodies are never logged, printed, or saved.
+
+### Environment variables and request bounds
+
+The sender resolves configuration once from the invoking environment:
+
+| Variable | Fallback | Syntax and validation |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `OTEL_EXPORTER_OTLP_ENDPOINT` (appends `/v1/traces`) | Valid URL, `http:` or `https:`, no username or password |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `k=v` pairs, trimmed, values percent-decoded; bad escape or empty key exits 2 |
+| `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | `OTEL_EXPORTER_OTLP_TIMEOUT` | Integer milliseconds, default 10000, clamped to maximum 30000; non-positive integer exits 2 |
+
+**Bounds:**
+- Spans are chunked into requests of at most 512 spans each.
+- At most 20 requests per export invocation (maximum 10,240 spans). Larger exports are refused before any network connection with exit 2 advising `--run`.
+- Requests are sent sequentially using `fetch` with `redirect: "error"` and `AbortSignal.timeout(timeoutMs)`.
+- The first failure (timeout, network error, redirect, or non-2xx status) stops the send loop with status `failed`. No retries are attempted.
+- A 2xx response parses `partialSuccess.rejectedSpans`; if positive, status is `partial`.
+
+### Exit codes
+
+- `0`: All requests accepted with zero rejected spans, or `--dry-run`.
+- `1`: Any request failed or returned rejected spans (`partial` or `failed`).
+- `2`: Usage error (missing `--otlp-http`, missing endpoint, invalid URL scheme or userinfo, malformed headers/timeout, request cap exceeded).
 
 ## Excluded stores
 
@@ -255,10 +450,11 @@ excerpts) is listed there too; a `verify.check` line carries only the record's r
    lines (`test/fixtures/telemetry/*.jsonl`) carry; `hook.jsonl` there is held equal to a real bridge
    line's keys by `test/hooks/bridge-hook-line.test.js`;
 2. no `node` process starts on a shell hook path, and the node files there are the pinned three;
-3. no network module or `fetch` under `src/runtime` outside the pinned advice client;
+3. no network module or `fetch` under `src/runtime` outside the pinned advice client and export sender (`src/runtime/trace/otlp-export.ts`);
 4. no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze` or
    `verify-baseline`;
 5. the package has no runtime dependency and G30.2 is still enforced;
-6. every telemetry store is a declared `runs/` subdirectory the ledger readers skip.
+6. every telemetry store is a declared `runs/` subdirectory the ledger readers skip;
+7. the export block maps only closed descriptors and the analysis block is well formed.
 
 Each check has a self-test that plants a violation and expects the check to name it.
