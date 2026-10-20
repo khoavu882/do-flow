@@ -15,6 +15,7 @@ const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared');
 const { GENERATED_EXCLUSIONS, alwaysLoaded, measureSource, lineCount } = require('../helper/always-loaded');
 const { resolveTransform, resolveSelect } = require('../../src/adapters/copy-tree.ts');
+const { renderGuidancePointer } = require('../../src/adapters/guidance-pointer.ts');
 const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 // The ceiling, in bytes, over the DoFlow-authored always-loaded set.
@@ -83,6 +84,9 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
  *     (the pointer tells the agent to read DOFLOW_CORE.md, so the walk is paid on instruction).
  * A harness no condition matches is refused, so a ninth harness cannot be reported as costing nothing.
  */
+/** The pointer as a harness installs it at project scope (`{{GUIDANCE}}` filled in), not the token template (107-B C-7). */
+const renderedPointer = (rel, bytes) => Buffer.from(renderGuidancePointer(bytes.toString('utf8'), { scope: 'project', scopeRoot: REPO }));
+
 function alwaysLoadedByHarness({ harnesses, assets }, wholesale, selectFiles = (dir, selectName) => resolveSelect(selectName)(dir, fs)) {
   const walk = alwaysLoaded().files;
   const walkSize = {
@@ -109,7 +113,7 @@ function alwaysLoadedByHarness({ harnesses, assets }, wholesale, selectFiles = (
       add('+ @import walk', walkSize);
     }
     if (projection(id, 'guidance.codex-pointer')) {
-      add('pointer', measureSource(sourceOf('guidance.codex-pointer')));
+      add('pointer', measureSource(sourceOf('guidance.codex-pointer'), renderedPointer));
       if (!selected) add('+ DOFLOW_CORE.md read on instruction', walkSize);
     }
     for (const asset of selectedAssets) {
@@ -167,9 +171,16 @@ test('G13: controls — a harness no condition matches is refused', () => {
 // ── G13 (IC-006): every harness loads the core set and a bounded overhead ────────────────────────
 //
 // 1,024 B: the most a harness may load beyond the core set itself. The legitimate overhead is the
-// harness's pointer text (claude/gemini and codex-family pointers) and the per-file `applyTo` front
-// matter Copilot's rule transform adds; a harness that loads a whole unselected tree (the shape
-// before 107-B) exceeds it by orders of magnitude. Raising it needs the new number and its reason.
+// harness's pointer text (claude/gemini and codex-family pointers), the per-file `applyTo` front
+// matter Copilot's rule transform adds and the `trigger: always_on` header Antigravity's adds; a harness
+// that loads a whole unselected tree (the shape before 107-B) exceeds it by orders of magnitude.
+// Raising it needs the new number and its reason.
+//
+// The rows measure the pointer rendered at PROJECT scope (`.doflow/guidance`), so they do not depend on
+// the machine. A GLOBAL install renders an absolute path (`<home>/.doflow/guidance`), which costs one
+// byte per home character per `{{GUIDANCE}}` token in every pointer-carrying harness: the home-path
+// test below derives how long a home may be before the tightest pointer row leaves this bound
+// (about 250 characters today; a typical home is 10 to 40) and fails if the limit drops under 200.
 const PROJECTION_OVERHEAD_MAX = 1024;
 
 /** The rows of `rows` outside walk <= bytes <= walk + max, as readable strings naming the harness. */
@@ -231,6 +242,38 @@ test('G13: controls — a registered selector that drops a core file turns the g
   } finally {
     SELECTORS['guidance-manifest'] = real;
   }
+});
+
+test('G13 (C-7): the pointer a harness row pays is the pointer rendered at project scope, not the token template', () => {
+  const registry = readRegistry();
+  const walkBytes = alwaysLoaded().files.reduce((n, file) => n + file.bytes, 0);
+  const source = registry.assets.find((asset) => asset.id === 'guidance.codex-pointer').source;
+  const template = fs.readFileSync(path.join(REPO, source), 'utf8');
+  const rendered = Buffer.byteLength(renderGuidancePointer(template, { scope: 'project', scopeRoot: REPO }), 'utf8');
+  assert.notEqual(rendered, Buffer.byteLength(template, 'utf8'), 'the token template and its rendering differ, so the row has to pick the rendering');
+  const [codex] = alwaysLoadedByHarness({ harnesses: [{ id: 'codex' }], assets: registry.assets }, WHOLESALE_ASSETS);
+  assert.equal(codex.bytes, walkBytes + rendered, 'the codex row is the walk plus the rendered pointer');
+});
+
+test('G13 (C-7): the home-path length the bound tolerates is stated and derived from the rows', (t) => {
+  const registry = readRegistry();
+  const rows = alwaysLoadedByHarness(registry, WHOLESALE_ASSETS);
+  const walkBytes = alwaysLoaded().files.reduce((n, file) => n + file.bytes, 0);
+  const template = fs.readFileSync(path.join(REPO, registry.assets.find((asset) => asset.id === 'guidance.codex-pointer').source), 'utf8');
+  const tokens = template.split('{{GUIDANCE}}').length - 1;
+  const bytesAt = (home) => Buffer.byteLength(renderGuidancePointer(template, { scope: 'global', scopeRoot: home }), 'utf8');
+  const projectBytes = Buffer.byteLength(renderGuidancePointer(template, { scope: 'project', scopeRoot: REPO }), 'utf8');
+  // Every character of the home path is paid once per token. Tightest row that carries the pointer:
+  const carrying = rows.filter((row) => /pointer/.test(row.basis));
+  const tightest = Math.max(...carrying.map((row) => row.bytes - walkBytes));
+  // A global pointer path is `<home>/.doflow/guidance` against the project path `.doflow/guidance`: one more character than the home itself, per token.
+  const limit = Math.floor((PROJECTION_OVERHEAD_MAX - tightest) / tokens) - 1;
+  t.diagnostic(`global-scope home path: ${tokens} tokens, each character costs ${tokens} B per pointer row; the tightest pointer row has ${PROJECTION_OVERHEAD_MAX - tightest} B of headroom, so a home of up to ${limit} characters stays in bound`);
+  assert.ok(limit >= 200, `homes of 200 characters must stay in bound (limit ${limit}); raise the bound or shrink the pointer, do not ignore the limit`);
+  // The derivation holds against the real renderer: one more character costs `tokens` bytes.
+  const home = '/h'.padEnd(limit, 'x');
+  assert.equal(bytesAt(`${home}x`) - bytesAt(home), tokens);
+  assert.ok(bytesAt(home) - projectBytes <= PROJECTION_OVERHEAD_MAX - tightest, 'a home at the limit keeps the pointer rows inside the bound');
 });
 
 test('G13: controls — the overhead bound binds (a bound of 0 turns the real registry red)', () => {
