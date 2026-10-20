@@ -166,7 +166,7 @@ query silently rebuilds or refreshes the index. Retrieval state stays under the 
 `.doflow/index/code/semble/`. Provider faults leave lexical search available and report the gap.
 Hybrid remains an experimental, incomplete promotion: lexical-only is the default until repeated
 provider conformance and the full retrieval gate pass. The paid task-success and token-cost checks
-remain unreached without separate authorization.
+remain unreached without separate authorization; the protocol is in `bench/agentic/README.md`.
 
 An unknown `--scope` value exits 2 and lists `guidance` and `code`. The search root is `--root`, or the current
 directory when it is omitted; task state (`--task-id`, `--slug`) stays in the feature store root, so in a linked

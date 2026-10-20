@@ -66,15 +66,9 @@ Orchestration evaluation measures multi-task and multi-agent coordination for fe
 - Detection of integration failures, retries, and automated replanning.
 - Aggregate token and latency cost tracking under resource caps.
 
-## Task success (paid, run per approval)
+## Task success
 
-Task success evaluation measures end-to-end task outcomes in a throwaway git worktree:
-
-- **Outcome evaluation**: Each task is evaluated using a fail-to-pass plus pass-to-pass test suite executed by the automated grader in an isolated worktree.
-- **Sampling**: 3 runs per task and configuration, reporting success rate and pass^3 consistency.
-- **Accounting**: Resource usage is recorded in `bench/README.md` `timing.json` shape, where unknown usage is never zero.
-- **Cost ceiling**: Total token consumption is capped at `tasks × configurations × 3 × costCaps.maxTokensPerRun`.
-- **User approval**: Nothing runs without explicit user approval prior to execution.
+The agentic baseline measures file localization by a coding agent, using `fileRecallAt10` over the agent's answer; it does not measure end-to-end task success. See [`bench/agentic/README.md`](../agentic/README.md) for the protocol, cost ceilings and what each result triggers.
 
 ## Holdout
 

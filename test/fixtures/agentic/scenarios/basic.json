@@ -1,0 +1,58 @@
+{
+  "_comment": "B.1 executor tests: made-up task ids T1..T3 matched by a substring of the Question line. Spec fields are documented in test/fixtures/agentic/fake-worker.js.",
+  "armMarkers": {
+    "D": "retrieval command"
+  },
+  "tasks": {
+    "T1": {
+      "match": "widget is frobbed",
+      "N": {
+        "files": [
+          "src/a.js"
+        ],
+        "commands": [
+          "/bin/zsh -lc \"rg frob src\""
+        ],
+        "tokens": 1200
+      },
+      "D": {
+        "files": [
+          "src/a.js",
+          "src/b.js"
+        ],
+        "commands": [
+          "/bin/zsh -lc \"doflow retrieve --scope code --query frob --root .\""
+        ],
+        "tokens": 900
+      }
+    },
+    "T2": {
+      "match": "gadget is wired",
+      "N": {
+        "files": [
+          "src/c.js"
+        ],
+        "tokens": 800
+      },
+      "D": {
+        "files": [
+          "src/c.js"
+        ],
+        "tokens": 700
+      }
+    },
+    "T3": {
+      "match": "sprocket is spun",
+      "N": {
+        "files": [],
+        "tokens": 500
+      },
+      "D": {
+        "files": [
+          "src/e.js"
+        ],
+        "tokens": 600
+      }
+    }
+  }
+}

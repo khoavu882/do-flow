@@ -7,6 +7,8 @@ than corpus. `test/guards/evals.test.js` fails if the corpus stops being tracked
 behavior, use the separate [native-session corpus](native/README.md). It starts from ordinary user
 messages and reports task outcomes and usage separately; the by-path skill benchmark below measures
 a different surface.
+For the agentic retrieval baseline (does the `retrieve` command help a coding agent find files; paid
+stages, verdict-to-action mapping), use [`agentic/README.md`](agentic/README.md).
 
 Measures whether the shipped skills **trigger** on the right requests and **behave** correctly once
 triggered. Built for plan `008-doflow-runtime-unification`, whose Phase A captures a baseline of
