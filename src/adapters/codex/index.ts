@@ -276,17 +276,6 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   }
   function sha256Text(text: any) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
-  function withInstructionSource(content: string, callback: (source: string) => any) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-guidance-'));
-    const source = path.join(directory, 'instructions.md');
-    try {
-      fs.writeFileSync(source, content, 'utf8');
-      return callback(source);
-    } finally {
-      fs.rmSync(directory, { recursive: true, force: true });
-    }
-  }
-
   function instructionBody(content: any) {
     if (typeof content !== 'string') return null;
     const start = content.indexOf(MARKER_START);
@@ -331,7 +320,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     }
     const source = sourceDirFor(asset, repoRoot);
     const content = renderedInstructionContent(asset, context, repoRoot);
-    const merged = withInstructionSource(content, (renderedSource) => mergeMarkedSection(renderedSource, target, { dryRun: true }));
+    const merged = mergeMarkedSection(source, target, { dryRun: true, content });
     if (!merged.changed) return { changes, conflicts };
     changes.push({ assetId: asset.id, target, source, operation: fs.existsSync(target) ? 'update' : 'create',
       ownershipIdentity: 'doflow:codex:instructions:managed-section', kind: 'instructions-section', identity: 'AGENTS.md',
@@ -342,7 +331,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   function applyInstructionsAsset(changes: any) {
     for (const change of changes) {
       if (change.projection?.renderer !== 'codex-agents' || change.operation === 'remove') continue;
-      withInstructionSource(change.renderedContent, (renderedSource) => mergeMarkedSection(renderedSource, change.target));
+      mergeMarkedSection(change.source, change.target, { content: change.renderedContent });
     }
   }
 
