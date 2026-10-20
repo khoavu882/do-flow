@@ -13,6 +13,7 @@
 // declared dependencies wait on each other forever (design debate A-M1).
 
 const crypto = require('node:crypto');
+const { parsePlan } = require('./scaffold/artifacts.ts');
 
 /** IC-008 / DEC-002: the attempt budget of a task that declares no `budget:`. */
 const DEFAULT_TASK_ATTEMPTS = 20;
@@ -159,6 +160,26 @@ function buildGraph(parsed: any) {
 
   if (problems.length) return { ok: false, problems };
   return { ok: true, graph: { graphHeader, graphPlan, phases, tasks, order }, warnings };
+}
+
+/** IC-002: the canonical plan judgment, including plans with no task lines. */
+function planVerdict(text: string): {
+  ok: boolean;
+  tasks: number;
+  problems: Array<{ kind: string; ids: string[]; value?: string; via?: string[] }>;
+  warnings: string[];
+} {
+  const parsed = parsePlan(text);
+  const built = buildGraph(parsed);
+  const problems = [...(built.problems || [])];
+  if (parsed.tasks.length === 0) problems.push({ kind: 'no-tasks', ids: [] });
+  const warnings = (built.warnings || []).map((warning: any) => {
+    const detail = warning.via
+      ? ` via ${warning.via.join(', ')}`
+      : warning.value !== undefined ? ` '${warning.value}'` : '';
+    return `${warning.kind}${warning.ids.length ? ` ${warning.ids.join(' ')}` : ''}${detail}`;
+  });
+  return { ok: problems.length === 0, tasks: parsed.tasks.length, problems, warnings };
 }
 
 /** IC-004: one tuple per task in plan order — the structure and declared files, never the
@@ -334,6 +355,6 @@ function deriveTasks(graph: any, store: any, { clearedCancels = [], hashes = nul
 }
 
 module.exports = {
-  DEFAULT_TASK_ATTEMPTS, buildGraph, isGraphPlan, graphTuples, graphDigest, overlaps, taskAttemptLimit,
+  DEFAULT_TASK_ATTEMPTS, buildGraph, planVerdict, isGraphPlan, graphTuples, graphDigest, overlaps, taskAttemptLimit,
   deriveTasks, doneOf,
 };

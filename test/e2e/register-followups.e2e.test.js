@@ -319,7 +319,9 @@ describe('NFR-001: a pre-register folder behaves as under v1.12.0', { skip: SKIP
   assert.ok(!fs.existsSync(path.join(featureDir(repo, slug), 'decisions', 'register.json')));
   const state = path.join(repo, '.doflow', 'state');
 
-  test('task records keep the flat .doflow/state/<store>/<task>.json paths, with and without --slug', () => {
+  // 115 D-2 changed this one behaviour of v1.12.0: a feature without a register now keeps its task
+  // records under its slug, as every feature does; its flat records from before stay readable (D-3).
+  test('task records go under the feature\'s slug, with and without --slug, and are read back', () => {
     const ev = (extra) => run(repo, ['evidence', '--task-id', 'A.1', ...extra, '--action', 'add', '--kind', 'exact-search',
       '--provenance', 'extracted', '--provider', 'semble', '--capability', 'code.exact-search', '--locator', 'a.js', '--json']);
     assert.strictEqual(ev([]).status, 0);
@@ -330,15 +332,13 @@ describe('NFR-001: a pre-register folder behaves as under v1.12.0', { skip: SKIP
     assert.strictEqual(run(repo, ['retrieval-plan', '--task-id', 'A.1', '--action', 'declare', '--need', 'locate-known-symbol',
       '--stage', 'design', '--json']).status, 0);
     for (const rel of ['evidence/A.1.json', 'evidence/A.1_claims.json', 'outcome/A.1.json', 'retrieval/A.1.json']) {
-      assert.ok(fs.existsSync(path.join(state, rel)), `${rel} is where v1.12.0 put it`);
-    }
-    for (const store of ['evidence', 'outcome', 'retrieval']) {
-      const dirs = fs.readdirSync(path.join(state, store), { withFileTypes: true }).filter((e) => e.isDirectory());
-      assert.deepStrictEqual(dirs, [], `${store} holds no namespace directory`);
+      const [store, name] = rel.split('/');
+      assert.ok(fs.existsSync(path.join(state, store, slug, name)), `${rel} is under the feature's slug`);
+      assert.ok(!fs.existsSync(path.join(state, rel)), `${rel} is not written flat`);
     }
     assert.strictEqual(run(repo, ['evidence', '--task-id', 'A.1', '--action', 'list', '--json']).json.evidenceCount, 2);
     const pack = run(repo, ['context-pack', '--task-id', 'A.1', '--json']);
-    assert.strictEqual(pack.json.evidenceCount, 2, 'the context pack reads the flat records');
+    assert.strictEqual(pack.json.evidenceCount, 2, 'the context pack reads the namespaced records');
   });
 
   test('verify leaves the change-scope tier UNRESOLVED although the plan has files: lists', () => {

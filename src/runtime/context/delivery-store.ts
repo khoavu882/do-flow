@@ -3,9 +3,8 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
 const fs = require('node:fs');
-const path = require('node:path');
 const { boundedAcquire, updateTaskState } = require('../task-state.ts');
-const { taskStoreDir } = require('../task-scope.ts');
+const { taskRecord } = require('../task-scope.ts');
 
 const MAX_DELIVERIES = 5;
 const ACTUAL_UNMEASURED = 'no harness reports token usage to an external CLI; profile tokenTelemetry unverified';
@@ -64,8 +63,7 @@ function createDeliveryEntry({ pack, form, harness = null, sources = {}, expansi
 }
 
 function readDeliveryEntry({ projectRoot, taskId, slug = null, packDigest, fsImpl = fs }: any): any | null {
-  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
-  const file = path.join(dir, `${taskId}.json`);
+  const file = taskRecord({ projectRoot, store: 'delivery', taskId, slug, fsImpl }).read;
   try {
     const disk = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
     return (Array.isArray(disk.deliveries) ? disk.deliveries : []).find((entry: any) => entry.packDigest === packDigest) || null;
@@ -80,11 +78,11 @@ function recordDelivery({ projectRoot, taskId, slug = null, entry, fsImpl = fs, 
   if (typeof taskId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId) || taskId.includes('..')) {
     throw new Error(`Invalid task id '${taskId}'`);
   }
-  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
-  const file = path.join(dir, `${taskId}.json`);
+  const { file, seed } = taskRecord({ projectRoot, store: 'delivery', taskId, slug, fsImpl });
   const written = updateTaskState({
     fsImpl,
     file,
+    prepare: seed,
     acquire: (impl: any, target: string) => acquire(impl, target, { retries: 3, waitMs: 5 }),
     build(disk: any) {
       const deliveries = Array.isArray(disk?.deliveries) ? disk.deliveries : [];

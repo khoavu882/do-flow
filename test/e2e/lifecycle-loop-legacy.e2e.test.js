@@ -219,6 +219,7 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       'readiness --task-class feature: $.requirements[].reasonCode', // 076 IC-018: null when no reason code applies.
       'readiness --task-class feature: $.staleAbsence', // 076 IC-018: query-bound absence report.
       'evidence --task-id 045-legacy-shape: $.evidence[].freshness.isDirty', // IC-004: source version for file locators.
+      'paths --json: $.feature_root', // 115 IC-005: the checkout holding the feature folder.
       'orchestrate --action handoff: $.consultations', 'orchestrate --action handoff: $.mcpWarnings',
     ];
     assert.deepEqual([...added].filter((a) => !recordAdditions.includes(a) && !contextPackAdditions.has(a)), [], 'the new runtime adds nothing to a chain verb\'s output');

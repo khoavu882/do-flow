@@ -272,7 +272,7 @@ test('orchestrator start with telemetry off, or a solo lineage, stores neither r
   start({ ...p.common(), by: 'orchestrator' });
   const off = orchestratorFor(p, { off: true });
   off.start({ taskId: 'o.off', taskClass: 'feature', now: NOW });
-  const plain = fs.readFileSync(path.join(p.dir, '.doflow', 'state', 'orchestration', 'o.off.json'), 'utf8');
+  const plain = fs.readFileSync(off.runFile('o.off'), 'utf8'); // under the feature's namespace (115 C-1)
   assert.equal(plain.includes('runKey') || plain.includes('traceId'), false);
 
   const solo = orchestratorFor(p, { lineage: 'solo' });

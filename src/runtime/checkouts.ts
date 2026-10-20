@@ -122,11 +122,28 @@ function clearCheckoutCache(): void {
   cache.clear();
 }
 
+/** Whether `dir` can sit in a linked worktree: the nearest `.git` above it is a file (a worktree's
+ * pointer), not the main checkout's directory. A main checkout then needs no `git worktree list`. */
+function mayBeLinked(dir: string, fsImpl: any = fs): boolean {
+  for (let at = path.resolve(dir); ; at = path.dirname(at)) {
+    try { return fsImpl.statSync(path.join(at, '.git')).isFile(); } catch { /* not here */ }
+    if (path.dirname(at) === at) return false;
+  }
+}
+
+/** Whether two files hold the same bytes; a file that cannot be read differs from any other. */
+function sameBytes(a: string, b: string, fsImpl: any): boolean {
+  try { return fsImpl.readFileSync(a).equals(fsImpl.readFileSync(b)); } catch { return false; }
+}
+
 /**
  * A state file in the checkout the verb resolves to, else in exactly one other checkout.
  *
- * The current checkout is read first and, when the file is there, no `git` call is made. Two or
- * more other checkouts holding it is `ambiguous` rather than a pick: which one is meant is not
+ * From a linked worktree the main checkout is read first, since every per-task record lives there
+ * (115 IC-004): a copy at the same path in the worktree with other bytes is a `conflict` (C-3),
+ * never a pick; with none in the main checkout the worktree's own is read, then the others. From any
+ * other checkout the current one is read first and, when the file is there, no `git` call is made.
+ * Two or more other checkouts holding it is `ambiguous` rather than a pick: which one is meant is not
  * something a path can decide. Writes nothing.
  * @param {Object} options
  * @param {string} options.stateRoot the root the verb resolves today
@@ -135,8 +152,9 @@ function clearCheckoutCache(): void {
  *   for a store whose location differs per checkout (null skips that root)
  * @param {Function} [options.exec]
  * @param {Object} [options.fsImpl]
- * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
- *   origin: 'current'|'other'|null, candidates: Array<string>}}
+ * @returns {{status: 'found'|'missing'|'ambiguous'|'conflict', file: string|null, root: string|null,
+ *   origin: 'current'|'other'|null, candidates: Array<string>}} `conflict` names the worktree's file
+ *   then the main checkout's
  */
 function findStateFile({ stateRoot, relPath, exec = spawnSync, fsImpl = fs }: { stateRoot: string; relPath: any; exec?: any; fsImpl?: any }): any {
   const at = (root: string, isCurrent: boolean): string | null => {
@@ -149,14 +167,27 @@ function findStateFile({ stateRoot, relPath, exec = spawnSync, fsImpl = fs }: { 
     return null;
   };
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] as string[] };
+  const linked = mayBeLinked(stateRoot, fsImpl) ? listCheckouts({ cwd: stateRoot, exec, fsImpl }) : null;
+  const main = linked?.ok && linked.isLinked && !linked.sandbox ? linked.main : null;
 
+  if (main) {
+    const there = at(main, false);
+    if (there) {
+      const copy = path.join(stateRoot, path.relative(main, there));
+      if (fsImpl.existsSync(copy) && !sameBytes(copy, there, fsImpl)) {
+        return { status: 'conflict', file: null, root: null, origin: null, candidates: [copy, there] };
+      }
+      return { status: 'found', file: there, root: main, origin: 'other', candidates: [] };
+    }
+  }
   const here = at(stateRoot, true);
   if (here) return { status: 'found', file: here, root: stateRoot, origin: 'current', candidates: [] };
 
-  const checkouts = listCheckouts({ cwd: stateRoot, exec, fsImpl });
+  const checkouts = linked || listCheckouts({ cwd: stateRoot, exec, fsImpl });
   if (!checkouts.ok || checkouts.sandbox) return missing;
   const matches: Array<{ file: string; root: string }> = [];
   for (const root of checkouts.others as string[]) {
+    if (root === main) continue;
     const file = at(root, false);
     if (file) matches.push({ file, root });
   }
@@ -167,4 +198,4 @@ function findStateFile({ stateRoot, relPath, exec = spawnSync, fsImpl = fs }: { 
   return { status: 'found', file: matches[0].file, root: matches[0].root, origin: 'other', candidates: [] };
 }
 
-module.exports = { listCheckouts, findStateFile, clearCheckoutCache };
+module.exports = { listCheckouts, findStateFile, clearCheckoutCache, mayBeLinked };
