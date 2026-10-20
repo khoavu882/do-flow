@@ -84,7 +84,7 @@ measured. There is no price sheet in the repository, so no currency cost is stat
 | Rule | How |
 |---|---|
 | Scratch HOME | Each run gets a fresh mode-0700 directory under the OS temp dir with its own `HOME` and harness home, holding only the credential file; removed in `finally`. The caller's global guidance and MCP tools never reach the run |
-| Fixed PATH | Only the directories of the tools in `path` (`node`, `rg`, `git`) plus system `/usr/bin:/bin`; arm D adds a per-run `doflow` shim |
+| Fixed PATH | A per-run `bin` directory holding one symlink per tool in `path` (`node`, `rg`, `git`), then system `/usr/bin:/bin`; no caller directory is on the run PATH (a directory shared with other binaries such as the harness or `doflow` would expose them); arm D adds a per-run `doflow` shim |
 | Own workspace | The snapshot export is its own git root under the OS temp dir, so the agent cannot walk up into this checkout |
 | Clean tree | `execute` refuses when the checkout has uncommitted changes, so the measured source is a commit |
 | Leak patterns | `arms.<arm>.leak` in `config.json`: arm N running `doflow retrieve`, or either arm calling an `mcp` tool, makes the run `leaked`. `grade` writes the precise verdict to `grading.json` |

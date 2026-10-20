@@ -415,7 +415,9 @@ test('execute: records iteration, launch, transcript, status and timing; the har
   assert.equal(launchJson.promptBytes, Buffer.byteLength(prompt));
   assert.deepEqual(launchJson.argvShape, execute.planIteration({ ...s.opts, arm: 'D' }).runs[0].argvShape);
   assert.deepEqual(launchJson.toolProfile.pathAdd, ['doflow-shim']);
-  assert.ok(launchJson.toolProfile.pathDirs.every((d) => path.isAbsolute(d)));
+  assert.deepEqual(launchJson.toolProfile.pathDirs, ['<profile>/bin'], 'no caller directory is recorded or used');
+  assert.deepEqual(Object.keys(launchJson.toolProfile.tools).sort(), ['git', 'node']);
+  assert.ok(Object.values(launchJson.toolProfile.tools).every((target) => path.isAbsolute(target)));
   assert.equal(launchJson.snapshot, 'deadbeef');
   assert.equal(launchJson.credentialCopied, true);
   const launchText = fs.readFileSync(path.join(dir, 'launch.json'), 'utf8');
@@ -455,8 +457,9 @@ test('execute: both arms differ only in the paragraph and one PATH entry; env is
   const swap = (record, name) => record.argv.map((a) => a.replace(`/${name}/`, '/IT/'));
   assert.deepEqual(swap(n, 'it-n'), swap(d, 'it-d'));
   assert.deepEqual(n.envKeys, d.envKeys);
-  assert.ok(d.PATH.startsWith(`${n.PATH}${path.delimiter}`), 'arm D PATH is arm N PATH plus the shim directory');
-  assert.equal(d.PATH.slice(n.PATH.length + 1).split(path.delimiter).length, 1);
+  const norm = (p) => p.replace(/doflow-agentic-[^/:]+/g, 'PROFILE');
+  assert.ok(norm(d.PATH).startsWith(`${norm(n.PATH)}${path.delimiter}`), 'arm D PATH is arm N PATH plus the shim directory');
+  assert.equal(norm(d.PATH).slice(norm(n.PATH).length + 1).split(path.delimiter).length, 1);
   assert.equal(
     d.prompt.replace(REAL_CONFIG.arms.D.paragraph, REAL_CONFIG.arms.N.paragraph), n.prompt,
     'the prompts differ only by the arm paragraph',
@@ -484,6 +487,45 @@ test('execute: both arms differ only in the paragraph and one PATH entry; env is
     assert.ok(run.PATH.split(path.delimiter).includes('/usr/bin'));
   }
   assert.ok(n.PATH.endsWith('/usr/bin:/bin'));
+  assert.deepEqual(leftovers(s), []);
+});
+
+test('execute: the run PATH holds a per-run bin of symlinks, never a caller directory (one-tool contrast)', async () => {
+  const s = setup({ config: testConfig((c) => { c.path = ['node', 'rg', 'git']; }) });
+  // A caller directory that holds the tools AND the two programs that would break the contrast.
+  const callerDir = path.join(s.dir, 'caller-bin');
+  fs.mkdirSync(callerDir);
+  fs.symlinkSync(process.execPath, path.join(callerDir, 'node'));
+  fs.symlinkSync(childProcess.execFileSync('which', ['git'], { encoding: 'utf8' }).trim(), path.join(callerDir, 'git'));
+  for (const name of ['rg', 'doflow', 'codex']) {
+    fs.writeFileSync(path.join(callerDir, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  }
+  const env = { ...s.env, PATH: `${BIN}${path.delimiter}${callerDir}${path.delimiter}${process.env.PATH}` };
+  const extraEnv = { ...s.extraEnv, AGENTIC_FAKE_WATCH: 'doflow,codex,rg,node,git' };
+  await execute.executeIteration({ ...s.opts, env, extraEnv, iteration: 'it-n', arm: 'N', tasks: ['T1'] });
+  await execute.executeIteration({ ...s.opts, env, extraEnv, iteration: 'it-d', arm: 'D', tasks: ['T1'] });
+  const [n, d] = runDump(s);
+
+  const entries = (run) => run.PATH.split(path.delimiter);
+  assert.equal(entries(n).length, 3);
+  assert.match(entries(n)[0], /doflow-agentic-[^/]+\/bin$/);
+  assert.deepEqual(entries(n).slice(1), ['/usr/bin', '/bin']);
+  assert.equal(n.PATH.includes(callerDir), false);
+  // The per-run bin holds exactly the configured tools, each a link to the tool's own path on the caller PATH.
+  assert.deepEqual(n.firstPathDir, {
+    git: path.join(callerDir, 'git'), node: path.join(callerDir, 'node'), rg: path.join(callerDir, 'rg'),
+  });
+  assert.deepEqual(readJson(s.runRoot, 'it-n', 'T1', 'launch.json').toolProfile.tools, n.firstPathDir);
+  // Arm N cannot reach doflow or the harness binary (/usr/bin and /bin hold neither on this machine).
+  assert.deepEqual(n.watch.doflow, []);
+  assert.deepEqual(n.watch.codex, []);
+  assert.equal(n.watch.rg.length, 1);
+  // Arm D reaches doflow only through the shim directory.
+  assert.equal(d.watch.doflow.length, 1);
+  assert.notEqual(d.watch.doflow[0], callerDir);
+  assert.match(d.watch.doflow[0], /doflow-agentic-[^/]+\/shim$/);
+  assert.deepEqual(d.watch.codex, []);
+  assert.equal(d.PATH.includes(callerDir), false);
   assert.deepEqual(leftovers(s), []);
 });
 

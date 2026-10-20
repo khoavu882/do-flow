@@ -368,18 +368,31 @@ function findOnPath(name, searchPath) {
 const expandHome = (p, sourceHome) => (p === '~' ? sourceHome : p.startsWith('~/') ? path.join(sourceHome, p.slice(2)) : p);
 
 /**
+ * The run's tool directory: one symlink per configured tool, named like the tool and pointing at the
+ * path found on the caller's PATH (a symlinked tool keeps pointing at its own path, never at the real
+ * file's directory). Why links and not the tools' directories: a directory such as `~/.local/bin` also
+ * holds `doflow` and the harness binary, which would hand arm N the very tool the contrast removes.
+ */
+function makeToolBin(dir, tools) {
+  fs.mkdirSync(dir, { mode: 0o700 });
+  for (const [name, target] of Object.entries(tools)) fs.symlinkSync(target, path.join(dir, name));
+  return dir;
+}
+
+/**
  * IC-003 `home`: `<tmp>/doflow-agentic-<random>/` (mode 0700, from mkdtemp) with `home/` as HOME and
  * `harness-home/` as the harness's own home variable. Only the listed files are copied; a missing
  * one is recorded (`credentialCopied: false`) and the run goes on, because the harness failing to
  * sign in is itself a recorded outcome.
  */
-function makeProfile({ config, arm, sourceHome, repoRoot, tmpDir }) {
+function makeProfile({ config, arm, sourceHome, repoRoot, tmpDir, tools }) {
   const dir = fs.mkdtempSync(path.join(tmpDir, 'doflow-agentic-'));
   fs.chmodSync(dir, 0o700);
   const home = path.join(dir, 'home');
   const harnessHome = path.join(dir, 'harness-home');
   fs.mkdirSync(home, { mode: 0o700 });
   fs.mkdirSync(harnessHome, { mode: 0o700 });
+  const binDir = makeToolBin(path.join(dir, 'bin'), tools);
 
   const source = expandHome(config.home.source, sourceHome);
   let credentialCopied = true;
@@ -402,7 +415,7 @@ function makeProfile({ config, arm, sourceHome, repoRoot, tmpDir }) {
     fs.writeFileSync(path.join(shimDir, 'doflow'), `#!/bin/sh\nexec node '${target}' "$@"\n`, { mode: 0o755 });
     return shimDir;
   });
-  return { dir, home, harnessHome, credentialCopied, pathAddDirs };
+  return { dir, home, harnessHome, binDir, credentialCopied, pathAddDirs };
 }
 
 /**
@@ -510,7 +523,7 @@ async function executeIteration(opts = {}) {
   let cap;
   let recipe;
   let binary;
-  let pathDirs;
+  let tools;
   let sourceAt;
   let iterDir;
   let runRoot;
@@ -538,12 +551,11 @@ async function executeIteration(opts = {}) {
 
     binary = findOnPath(recipe.cli.binary, env.PATH);
     if (!binary) throw new UsageError('harness-binary-missing', `harness binary "${recipe.cli.binary}" is not on PATH`);
-    pathDirs = [];
+    tools = {};
     for (const tool of config.path) {
       const found = findOnPath(tool, env.PATH);
       if (!found) throw new UsageError('tool-missing', `tool "${tool}" from the config path list is not on PATH`);
-      const dir = path.dirname(found);
-      if (!pathDirs.includes(dir)) pathDirs.push(dir);
+      tools[tool] = found;
     }
 
     iterDir = path.join(runRoot, plan.iteration);
@@ -557,8 +569,10 @@ async function executeIteration(opts = {}) {
   }
 
   // Everything that could refuse has run. From here on a harness failure is a recorded outcome.
-  const versionEnv = { PATH: [...pathDirs, '/usr/bin', '/bin'].join(path.delimiter), ...extraEnv };
+  const versionBin = makeToolBin(path.join(fs.mkdtempSync(path.join(tmpDir, 'doflow-agentic-ver-')), 'bin'), tools);
+  const versionEnv = { PATH: [versionBin, '/usr/bin', '/bin'].join(path.delimiter), ...extraEnv };
   const versionRun = childProcess.spawnSync(binary, recipe.cli.versionArgv || ['--version'], { env: versionEnv, encoding: 'utf8', timeout: 15000 });
+  fs.rmSync(path.dirname(versionBin), { recursive: true, force: true });
   const harnessVersion = versionRun.status === 0 ? (String(versionRun.stdout).split(/\r?\n/).find((l) => l.trim()) || '').trim() || null : null;
 
   fs.mkdirSync(iterDir, { recursive: true });
@@ -588,7 +602,7 @@ async function executeIteration(opts = {}) {
     let profile = null;
     let workspace = null;
     try {
-      profile = makeProfile({ config, arm: plan.arm, sourceHome, repoRoot, tmpDir });
+      profile = makeProfile({ config, arm: plan.arm, sourceHome, repoRoot, tmpDir, tools });
       workspace = prepareWorkspace({
         commit: plan.snapshot, snapshot: taskSet.snapshot, repoRoot, parent: tmpDir, home: profile.home, materialise,
       });
@@ -597,12 +611,12 @@ async function executeIteration(opts = {}) {
       writeJson(path.join(run.runDir, RUN_FILES.launch), {
         key: run.key, arm: plan.arm, harness: plan.harness, harnessVersion, model: plan.model,
         argvShape: run.argvShape, promptSha256: run.promptSha256, promptBytes: run.promptBytes,
-        toolProfile: { pathDirs, pathAdd: config.arms[plan.arm].pathAdd },
+        toolProfile: { pathDirs: ['<profile>/bin'], tools, pathAdd: config.arms[plan.arm].pathAdd },
         snapshot: plan.snapshot, startedAt, credentialCopied: profile.credentialCopied,
       });
 
       const childEnv = {
-        PATH: [...pathDirs, '/usr/bin', '/bin', ...profile.pathAddDirs].join(path.delimiter),
+        PATH: [profile.binDir, '/usr/bin', '/bin', ...profile.pathAddDirs].join(path.delimiter),
         HOME: profile.home,
         [config.home.env]: profile.harnessHome,
       };

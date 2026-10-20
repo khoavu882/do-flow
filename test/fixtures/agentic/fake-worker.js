@@ -30,6 +30,8 @@
  *                          environment variable NAMES, PATH, HOME, the harness-home listing
  *                          and any `doflow` file found on PATH (directory, mode, short text).
  *   AGENTIC_FAKE_HOME_VAR  name of the variable holding the harness home (for the dump listing).
+ *   AGENTIC_FAKE_WATCH     comma-separated tool names; the dump's `watch` maps each to the PATH directories
+ *                          that hold it (proves what the harness could reach).
  *   AGENTIC_FAKE_PIDFILE   where the `timeout` behaviour writes its child sleeper's pid.
  *
  * Events follow the codex-exec-json-v1 shapes the executor's parser reads.
@@ -56,6 +58,8 @@ function dump(kind, extra = {}) {
     harnessHome: harnessHome || null, harnessHomeFiles: files,
     profileMode: env.HOME ? fs.statSync(path.dirname(env.HOME)).mode & 0o777 : null,
     hasGit: fs.existsSync(path.join(process.cwd(), '.git')),
+    watch: Object.fromEntries(String(env.AGENTIC_FAKE_WATCH || '').split(',').filter(Boolean).map((name) => [name, pathDirs.filter((d) => d && fs.existsSync(path.join(d, name)))])),
+    firstPathDir: firstDirListing(pathDirs[0]),
     doflowOnPath: pathDirs.filter((d) => d && fs.existsSync(path.join(d, 'doflow'))),
     doflowFiles: pathDirs.filter((d) => d && fs.existsSync(path.join(d, 'doflow'))).map((dir) => {
       const stat = fs.statSync(path.join(dir, 'doflow'));
@@ -64,6 +68,18 @@ function dump(kind, extra = {}) {
     ...extra,
   };
   fs.appendFileSync(env.AGENTIC_FAKE_DUMP, `${JSON.stringify(record)}\n`);
+}
+
+/** The first PATH directory's entries and, for symlinks, their targets (the per-run tool directory). */
+function firstDirListing(dir) {
+  try {
+    return Object.fromEntries(fs.readdirSync(dir).sort().map((name) => {
+      const full = path.join(dir, name);
+      return [name, fs.lstatSync(full).isSymbolicLink() ? fs.readlinkSync(full) : null];
+    }));
+  } catch {
+    return null;
+  }
 }
 
 const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
