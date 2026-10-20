@@ -54,6 +54,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 | `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `level`, `status`, `exit_code`, `duration_ms`, `checks_run`, `v0` (see Verify lines) |
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared`, `shared_ref`, `failed_first` |
+| `review.run` | `src/runtime/trace/telemetry.ts` | `task`, `rounds`, `seats`, `seat_findings`, `converged`, `blocker`, `should_fix`, `note`, `open`, `fixed`, `refuted`, `user_accepted`, `pre_existing`, `escaped`, `confirmed`, `plausible`, `unverified_blockers`, `bug_classes`, `advisories`, `errors` (see Review lines) |
 
 A key is added to a kind in the same change that writes it, with its `phase` (the merge that first
 writes it). Until then the writer drops every key it is handed for that kind. Changes to the contract
@@ -169,6 +170,21 @@ Exit code, durations, executed-check count, check key and sharing are declared w
 `orchestration.run.runKey`, `orchestration.run.traceId`). They are listed so the privacy class of every
 identifier is on one page; G45.1 does not compare them with line keys.
 
+## Review lines
+
+`doflow review --action check` (`src/runtime/review/command.ts`) writes through `TelemetryWriter`, one line per check run, including invalid records. Invalid records use null for nullable counts; `advisories` and `errors` remain integers. No locator, summary, sweep, path, seat id or finding id is recorded.
+
+| Kind | Key | Type | Class | Phase | Source |
+|---|---|---|---|---|---|
+| `review.run` | `task` | `token` or null | T0 | P7 | the record's `slug` when it passes `token`, else null |
+| `review.run` | `rounds` | `uint` or null | T1 | P7 | review round count; null when invalid |
+| `review.run` | `seats`, `seat_findings`, `converged` | `uint` or null | T1 | P7 | counts; null when invalid |
+| `review.run` | `blocker`, `should_fix`, `note` | `uint` or null | T1 | P7 | severity counts; null when invalid |
+| `review.run` | `open`, `fixed`, `refuted`, `user_accepted` | `uint` or null | T1 | P7 | disposition counts; null when invalid |
+| `review.run` | `pre_existing`, `escaped`, `confirmed`, `plausible`, `unverified_blockers`, `bug_classes` | `uint` or null | T1 | P7 | finding counts; null when invalid |
+| `review.run` | `advisories` | `uint` | T1 | P7 | advisory count |
+| `review.run` | `errors` | `uint` | T1 | P7 | error count; zero when valid |
+
 ## Privacy classes
 
 | Class | Meaning | Recorded |
@@ -208,7 +224,7 @@ G45.1 holds those three equal.
 
 | Name | Values |
 |---|---|
-| `kind` | `hook`, `verify.run`, `verify.tier`, `verify.check` |
+| `kind` | `hook`, `verify.run`, `verify.tier`, `verify.check`, `review.run` |
 | `harness` | the eight harness ids |
 | `event` | `PreToolUse`, `BeforeTool`, `tool_call`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` |
 | `policy` | `pre-bash-guard`, `user-prompt-submit`, `post-shell-observe` |

@@ -25,6 +25,7 @@ const FIXTURE_DIR = 'test/fixtures/telemetry';
 const TUPLE_FIXTURE_FIELDS = {
   hook: ['role', 'worker_run', 'test_class', 'tool_duration_ms', 'emit_reason', 'emit_bytes', 'emit_digest'],
   'verify.run': ['dispatch_run'],
+  'review.run': ['task', 'rounds', 'seats', 'seat_findings', 'converged', 'blocker', 'should_fix', 'note', 'open', 'fixed', 'refuted', 'user_accepted', 'pre_existing', 'escaped', 'confirmed', 'plausible', 'unverified_blockers', 'bug_classes', 'advisories', 'errors'],
 };
 const TYPE_ATOMS = new Set(['token', 'id', 'uint', 'int', 'hex16', 'hex32', 'iso8601ms', 'date', 'null']);
 const FIELD_KEY = /^[a-z][a-z0-9_]*$/;
