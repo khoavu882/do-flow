@@ -555,7 +555,7 @@ test('an unparseable user file marks every key of that layer invalid and affects
   assert.equal(v.get('advice.model').value, 'p', 'the project layer is untouched');
   assert.equal(v.get('failure.capture').value, 'on', 'capture reads the file lexically: no match is no setting');
   const userErrors = v.errors.filter((e) => e.source === file);
-  assert.deepEqual(userErrors.map((e) => e.key).sort(), ['advice.enabled', 'advice.endpoint', 'advice.model', 'advice.provider', 'autopilot.enabled', 'storage.prune', 'storage.retentionHours']);
+  assert.deepEqual(userErrors.map((e) => e.key).sort(), ['advice.enabled', 'advice.endpoint', 'advice.model', 'advice.provider', 'autopilot.enabled', 'storage.prune', 'storage.retentionHours', 'verify.reuse']);
   // V8 quotes the input in an "Unexpected token" message and gives no position: no offset then
   assert.ok(userErrors.every((e) => e.code === 'unparseable' && e.offset === null && e.reason === 'not valid JSON'));
   assert.ok(!JSON.stringify(report).includes('root:x'), 'no byte of the file in any output');

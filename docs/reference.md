@@ -133,9 +133,10 @@ same project scope.
 
 ### Reuse of a recorded PASS
 
-`verify` can answer a check from an earlier PASS instead of running it again. It ships **off**: turn it on with
-`doflow config set verify.reuse on` (global-only; see Settings keys). The environment variable `DOFLOW_VERIFY_REUSE`
-can only turn it off.
+`verify` can answer a check from an earlier PASS instead of running it again. It ships **off**: turn it on by
+writing `{"schema":1,"verify.reuse":"on"}` into `<config home>/settings.json` yourself (global-only; `config set` is not
+supported; see Settings keys), and `doflow config -g` then shows `verify.reuse = "on"`. The environment variable
+`DOFLOW_VERIFY_REUSE` can only turn it off.
 
 - **What is recorded and reused.** Every level stores a check's PASS (a FAIL, an INCONCLUSIVE or a timeout is never stored)
   in the `verification-reuse` store (see Storage stores). Levels L1 and L2 look a stored PASS up; L3 (risk HIGH or
@@ -152,7 +153,7 @@ can only turn it off.
   `shared: "reused"`, and the run record gains the `reused` count.
 - **Residual risk.** An ignored file outside the declared list, or a tool behind a wrapper, that changes while the key
   stays equal is not seen, so a reused PASS can be stale in that case. The 24-hour limit and the off default bound it.
-  Turn reuse off with `doflow config set verify.reuse off` or `DOFLOW_VERIFY_REUSE=off` when a run must execute everything.
+  Turn reuse off with `"verify.reuse": "off"` in `<config home>/settings.json` or `DOFLOW_VERIFY_REUSE=off` when a run must execute everything.
 - **Test selection is not wired in.** `verify` does not choose tests by impact. `bench impact-replay` (Runtime &
   Diagnostics Commands) only measures how such a selection would have done on past commits; its verdict enables nothing.
 

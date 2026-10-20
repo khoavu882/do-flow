@@ -518,3 +518,89 @@ test('CLI: --out without value exits 2', () => {
   const res = runner.main(['impact-replay', '--out']);
   assert.equal(res, 2);
 });
+
+// ---------------------------------------------------------------------------
+// 6. Test-directory derivation and the skipped-candidate line (integration gate D.1)
+
+test('IC-010 deriveTestDirs: strips shell quotes and reads simple node --test scripts', () => {
+  const dirs = (testScript) => impactReplay.deriveTestDirs({ scripts: { test: testScript } });
+  assert.deepEqual(dirs('node --test "test/**/*.test.js"'), ['test']);
+  assert.deepEqual(dirs("node --test 'test/**/*.test.js'"), ['test']);
+  assert.deepEqual(dirs('node --test test/**/*.test.js'), ['test']);
+  assert.deepEqual(dirs('node --test "test/*.test.js"'), ['test']);
+  assert.deepEqual(dirs('node --test test/*.test.js'), ['test']);
+  assert.deepEqual(dirs('node --test "spec/**/*.test.js" \'lib/*.test.js\''), ['spec', 'lib']);
+  assert.deepEqual(dirs('npm run x'), ['test']);
+  assert.deepEqual(dirs('node --test'), ['test']);
+  assert.deepEqual(impactReplay.deriveTestDirs({ scripts: {} }), ['test']);
+  assert.deepEqual(impactReplay.deriveTestDirs(null), ['test']);
+});
+
+test('IC-010 deriveTestDirs: this repository package.json yields the test directory', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
+  assert.deepEqual(impactReplay.deriveTestDirs(pkg), ['test']);
+});
+
+function buildConventionRepo(baseDir, testScript) {
+  const repoDir = path.join(baseDir, 'convention-repo');
+  fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(repoDir, 'test'), { recursive: true });
+  const runGit = (args) => execFileSync('git', args, {
+    cwd: repoDir,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Test Author',
+      GIT_AUTHOR_EMAIL: 'author@example.com',
+      GIT_COMMITTER_NAME: 'Test Committer',
+      GIT_COMMITTER_EMAIL: 'committer@example.com',
+    },
+    encoding: 'utf8',
+  });
+  runGit(['init', '-b', 'main']);
+  fs.writeFileSync(path.join(repoDir, 'package.json'), `${JSON.stringify({ name: 'fixture', scripts: { test: testScript } }, null, 2)}\n`);
+  fs.writeFileSync(path.join(repoDir, 'src', 'a.js'), "'use strict';\nmodule.exports = { a: () => 1 };\n");
+  fs.writeFileSync(path.join(repoDir, 'test', 'a.test.js'), `'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { a } = ${reqFn}('../src/a.js');
+test('a', () => { assert.equal(a(), 1); });
+`);
+  runGit(['add', '.']);
+  runGit(['commit', '-m', 'base']);
+  fs.writeFileSync(path.join(repoDir, 'src', 'a.js'), "'use strict';\nmodule.exports = { a: () => 1, b: 2 };\n");
+  fs.appendFileSync(path.join(repoDir, 'test', 'a.test.js'), '// touched\n');
+  runGit(['add', 'src/a.js', 'test/a.test.js']);
+  runGit(['commit', '-m', 'change src and test']);
+  return repoDir;
+}
+
+test('IC-010 replay: a quoted test script still qualifies the commit and prints no skipped line', (t) => {
+  const tmpRoot = tempDir(t, 'doflow-replay-conv-');
+  const scratchTmpDir = path.join(tmpRoot, 'scratch-tmp');
+  fs.mkdirSync(scratchTmpDir, { recursive: true });
+  const repoDir = buildConventionRepo(tmpRoot, 'node --test "test/**/*.test.js"');
+  const warnings = [];
+  const report = impactReplay.replayCommits({
+    repoRoot: repoDir, rev: 'HEAD', commitsCount: 1, minCommits: 1, ceiling: 0.5, timeoutMs: 30000,
+    outPath: null, tmpDir: scratchTmpDir, warn: (line) => warnings.push(line),
+  });
+  assert.equal(report.summary.qualified, 1);
+  assert.deepEqual(warnings, []);
+});
+
+test('IC-010 replay: candidates dropped by the test convention are announced once on stderr, not in the report', (t) => {
+  const tmpRoot = tempDir(t, 'doflow-replay-skip-');
+  const scratchTmpDir = path.join(tmpRoot, 'scratch-tmp');
+  fs.mkdirSync(scratchTmpDir, { recursive: true });
+  // the script names another directory, so the pre-filter accepts the commit and the exact convention drops it
+  const repoDir = buildConventionRepo(tmpRoot, 'node --test "other/**/*.test.js"');
+  const warnings = [];
+  const report = impactReplay.replayCommits({
+    repoRoot: repoDir, rev: 'HEAD', commitsCount: 1, minCommits: 1, ceiling: 0.5, timeoutMs: 30000,
+    outPath: null, tmpDir: scratchTmpDir, warn: (line) => warnings.push(line),
+  });
+  assert.equal(report.summary.qualified, 0);
+  assert.equal(report.summary.verdict, 'insufficient-data');
+  assert.deepEqual(warnings, ['skipped 1 candidate commits that did not qualify under the test convention']);
+  assert.deepEqual(Object.keys(report.summary), ['qualified', 'evaluated', 'unevaluable', 'withMisses', 'missedTotal', 'fullExpansions', 'medianSelectedFraction', 'verdict'], 'the report shape stays closed');
+});

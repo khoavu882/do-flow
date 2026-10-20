@@ -129,16 +129,20 @@ function qualifiesCommit({ changedFiles, isTest }) {
 
 /**
  * Derives testDirs generically from package.json `scripts.test` if simple, else defaults to ['test'].
+ * Shell quotes around a word are not part of the path (`node --test "test/**\/*.test.js"`), and a script that
+ * delegates to another package script (`npm run x`) names no directory.
  */
 function deriveTestDirs(pkg) {
   if (pkg && pkg.scripts && typeof pkg.scripts.test === 'string') {
-    const parts = pkg.scripts.test.split(/\s+/);
-    const testArgs = parts.filter((p) => !p.startsWith('-') && p !== 'node' && p !== 'npm' && p !== 'run');
-    const dirs = testArgs
-      .map((a) => a.replace(/\/\*\*.*$/, '').replace(/\/[^/]*$/, ''))
-      .filter((d) => d && !d.includes('*'));
-    const unique = [...new Set(dirs.map(normalize))];
-    if (unique.length > 0) return unique;
+    const parts = pkg.scripts.test.split(/\s+/).map((p) => p.replace(/^["']+|["']+$/g, ''));
+    if (!['npm', 'pnpm', 'yarn', 'npx'].includes(parts[0])) {
+      const testArgs = parts.filter((p) => p && !p.startsWith('-') && p !== 'node');
+      const dirs = testArgs
+        .map((a) => a.replace(/\/\*\*.*$/, '').replace(/\/[^/]*$/, ''))
+        .filter((d) => d && !d.includes('*'));
+      const unique = [...new Set(dirs.map(normalize))];
+      if (unique.length > 0) return unique;
+    }
   }
   return ['test'];
 }
@@ -293,6 +297,7 @@ function replayCommits({
   outPath = null,
   tmpDir = os.tmpdir(),
   skipBaseline = false,
+  warn = (line) => process.stderr.write(`${line}\n`),
 }) {
   // 1. Get non-merge commits reachable from rev
   const logOutput = execFileSync('git', ['log', '--no-merges', '--format=%H', rev], {
@@ -337,6 +342,7 @@ function replayCommits({
 
   const commitResults = [];
   const unevaluableCounts = {};
+  let skippedByConvention = 0;
 
   // 3. Process each qualifying commit
   for (const { sha, parentSha, diff } of qualifyingCommits) {
@@ -365,6 +371,7 @@ function replayCommits({
 
       // Verify that this commit qualifies under the exact convention
       if (!qualifiesCommit({ changedFiles: diff.changed, isTest })) {
+        skippedByConvention += 1;
         continue;
       }
 
@@ -373,6 +380,7 @@ function replayCommits({
 
       if (coChangedTests.length === 0) {
         // No co-changed tests exist at the commit
+        skippedByConvention += 1;
         continue;
       }
 
@@ -540,6 +548,11 @@ function replayCommits({
   if (outPath) {
     fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
     fs.writeFileSync(path.resolve(outPath), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  }
+
+  // The report shape is closed (IC-010): a convention that drops every candidate is made visible on stderr only.
+  if (skippedByConvention > 0 && qualified < commitsCount) {
+    warn(`skipped ${skippedByConvention} candidate commits that did not qualify under the test convention`);
   }
 
   return report;
