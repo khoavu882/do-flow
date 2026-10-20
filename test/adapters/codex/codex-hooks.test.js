@@ -213,6 +213,7 @@ test('pre-compact.impl.sh emits valid JSON with only Codex-accepted universal fi
   for (const key of Object.keys(parsed)) assert.ok(allowedKeys.has(key), `unexpected key '${key}' — Codex's schema rejects unknown fields`);
   assert.equal(typeof parsed.systemMessage, 'string');
   assert.ok(parsed.systemMessage.length <= 490);
+  assert.equal(parsed.systemMessage.split('\n')[0], 'Preserve: decisions made, files modified, open questions, planned next steps, acceptance criteria and pending verification of the active task.');
 });
 
 test('every Codex hook script that delegates to a sibling script names a file other than itself', () => {

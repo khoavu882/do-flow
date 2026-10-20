@@ -1480,6 +1480,17 @@
       "enforced": false
     },
     {
+      "id": "hook.shared.compact-text",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/compact-text.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
       "id": "hook.shared.identity",
       "kind": "hook",
       "argv": [
@@ -3428,6 +3439,10 @@
       "headroomMs": 10,
       "ceilingMs": 14,
       "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.compact-text",
+      "unmeasured": "116: sourced-only builder with no stdin fixture; not measured on 2026-10-20 because load average stayed 60-135 (FU-jeaba5 measures it on a quiet machine). The calling hooks hook.claude.pre-compact and hook.codex.pre-compact keep their measured rows"
     },
     {
       "surfaceId": "hook.shared.identity",
