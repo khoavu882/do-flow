@@ -221,6 +221,8 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       'evidence --task-id 045-legacy-shape: $.evidence[].freshness.isDirty', // IC-004: source version for file locators.
       'paths --json: $.feature_root', // 115 IC-005: the checkout holding the feature folder.
       'orchestrate --action handoff: $.consultations', 'orchestrate --action handoff: $.mcpWarnings',
+      // 092 IC-002: every printed snapshot carries the journal revision (0 for a journal that predates revisions).
+      'orchestrate --action start: $.revision', 'orchestrate --action handoff: $.revision', 'orchestrate --action status: $.revision',
     ];
     assert.deepEqual([...added].filter((a) => !recordAdditions.includes(a) && !contextPackAdditions.has(a)), [], 'the new runtime adds nothing to a chain verb\'s output');
 

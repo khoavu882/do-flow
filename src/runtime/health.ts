@@ -602,7 +602,7 @@ function printMcpSections(mcp: any) {
   if (unreadableRuns) console.log(`  ${unreadableRuns} run file(s) could not be read`);
 }
 
-function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters }: any = {}) {
+function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
   const activeRouter = router || new CapabilityRouter({ repoRoot: root, projectRoot });
@@ -713,6 +713,8 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       absent: Object.values(probes).filter((probe) => probe.status === ABSENT).length,
       unverified: Object.values(probes).filter((probe) => probe.status === UNVERIFIED).length,
     },
+    // IC-006: the read switch of doctor's own environment, only when set (additive key).
+    ...(env.DOFLOW_UPKEEP === 'off' ? { upkeepSwitch: 'off' } : {}),
   };
 }
 
@@ -782,6 +784,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   console.log('\nDoFlow System Diagnostics (doflow doctor)');
   console.log('═'.repeat(72));
   console.log('Health means a provider answered a probe, not that a binary exists on PATH.');
+  if (report.upkeepSwitch === 'off') console.log('note: DOFLOW_UPKEEP=off in this environment: upkeep and lifecycle retention are skipped');
 
   console.log('\n[Effective Identity]');
   const identity = report.identity;

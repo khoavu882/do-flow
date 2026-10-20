@@ -31,7 +31,7 @@ const { runKeyFor, refuseSolo } = require('./task-run.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
-  checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
+  checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile, orchestrationRuns, selectRunEntries,
 } = require('./implementation-gate.ts');
 
 /** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
@@ -58,6 +58,23 @@ function runState(state: any) {
     throw new Error(`Unknown run state '${state}' (expected one of: ${RUN_STATES.join(', ')})`);
   }
   return state;
+}
+
+/** The stable status shape shared by the status action and the read-only list action. */
+function snapshotRun(run: any) {
+  const current = run.cursor < run.program.length ? run.program[run.cursor] : null;
+  const done = run.program.filter((n: any) => n.status === 'completed' || n.status === 'skipped' || n.status === 'approved').length;
+  return {
+    taskId: run.taskId,
+    taskClass: run.taskClass,
+    workflowName: run.workflowName,
+    state: run.state,
+    current: current ? { type: current.type, id: current.id, kind: current.kind ?? null, mutatesSource: current.mutatesSource ?? null, readinessTemplate: current.readinessTemplate ?? null } : null,
+    awaitingGate: run.state === 'AWAITING_GATE' && current ? { gateId: current.id, name: current.name, prompt: current.prompt } : null,
+    progress: { done, total: run.program.length },
+    terminalStage: run.terminalStage,
+    revision: Number.isInteger(run.revision) ? run.revision : 0,
+  };
 }
 
 const GATE_DECISIONS = Object.freeze(['approve', 'reject']);
@@ -237,18 +254,7 @@ class WorkflowOrchestrator {
   }
 
   snapshot(run: any) {
-    const current = run.cursor < run.program.length ? run.program[run.cursor] : null;
-    const done = run.program.filter((n: any) => n.status === 'completed' || n.status === 'skipped' || n.status === 'approved').length;
-    return {
-      taskId: run.taskId,
-      taskClass: run.taskClass,
-      workflowName: run.workflowName,
-      state: run.state,
-      current: current ? { type: current.type, id: current.id, kind: current.kind ?? null, mutatesSource: current.mutatesSource ?? null, readinessTemplate: current.readinessTemplate ?? null } : null,
-      awaitingGate: run.state === 'AWAITING_GATE' && current ? { gateId: current.id, name: current.name, prompt: current.prompt } : null,
-      progress: { done, total: run.program.length },
-      terminalStage: run.terminalStage,
-    };
+    return snapshotRun(run);
   }
 
   status(taskId: any) {
@@ -945,15 +951,146 @@ function compactAfterHandoff({ taskId, projectRoot }: any) {
   }
 }
 
+/**
+ * IC-001: `orchestrate --action list`, every run the resolver can see as a prompt-free row plus the
+ * records it could not read, by reason code only. Reads and prints; writes nothing.
+ */
+function listRuns({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun, json, stateRoot }: any) {
+  const { finishRuntime, usageError } = require('./cli-result.ts');
+  const supplied = (value: any) => value !== undefined && value !== null;
+  // Every flag another action reads is refused here, before any read: list takes no filter, so a
+  // `--slug` must not look like one, and an outcome nothing records must not look recorded.
+  const noEffect = [
+    ['--task-id', supplied(taskId)], ['--task-class', supplied(taskClass)], ['--gate', supplied(gate)],
+    ['--decision', supplied(decision)], ['--policy', supplied(policy)],
+    ['--forced', forced], ['--note', supplied(note)], ['--reason', supplied(reason)], ['--stage', supplied(stage)],
+    ['--node', supplied(node)], ['--verification-plan', supplied(verificationPlan)], ['--scope', supplied(scope)],
+    ['--invariants', supplied(invariants)], ['--result', supplied(result)], ['--mcp-outcome', supplied(mcpOutcome)],
+    ['--calling-skill', supplied(callingSkill)], ['--slug', supplied(slug)], ['--dry-run', Boolean(dryRun)],
+  ].find(([, given]) => given);
+  if (noEffect) return usageError('orchestrate', `'${noEffect[0]}' has no effect on action 'list'`, json);
+
+  const resolverFailure = () => {
+    if (json) console.log(JSON.stringify({ v: 1, error: 'cannot-list-checkouts' }, null, 2));
+    else console.error('[ERROR] orchestrate: cannot list checkouts');
+    return finishRuntime(1);
+  };
+  let resolved: any;
+  try { resolved = orchestrationRuns({ stateRoot: stateRoot || process.cwd() }); } catch { return resolverFailure(); }
+  if (!resolved.ok) return resolverFailure();
+
+  const runs: any[] = [];
+  const unreadable: any[] = [];
+  const storePath = path.join('.doflow', 'state', 'orchestration');
+  const textCompare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+  const slugCompare = (a: string|null, b: string|null) => a === null ? (b === null ? 0 : -1)
+    : b === null ? 1 : textCompare(a, b);
+  const addUnreadable = (entry: any, reason: string) => {
+    const relative = path.relative(path.join(entry.root, storePath), entry.file);
+    const parts = relative.split(path.sep);
+    unreadable.push({
+      taskId: path.basename(entry.file, '.json'),
+      featureSlug: parts.length > 1 ? parts[0] : null,
+      origin: entry.origin,
+      reason,
+    });
+  };
+  const journalTime = (value: any) => typeof value === 'string'
+    && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
+
+  // One row per run, the copy status reads (C-2): a shadowed flat or another checkout's copy is dropped.
+  for (const entry of selectRunEntries(resolved.entries)) {
+    if (entry.error) {
+      addUnreadable(entry, entry.error);
+      continue;
+    }
+    const record = entry.record;
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    if (record.version !== 1) {
+      addUnreadable(entry, 'schema-version');
+      continue;
+    }
+    const relative = path.relative(path.join(entry.root, storePath), entry.file);
+    const parts = relative.split(path.sep);
+    const folderSlug = parts.length > 1 ? parts[0] : null;
+    const stem = path.basename(entry.file, '.json');
+    // Every id a row prints is checked, so no newline or escape byte from a record reaches the text form.
+    if (typeof record.taskId !== 'string' || !ID_PATTERN.test(record.taskId) || record.taskId !== stem
+      || (folderSlug && typeof record.featureSlug === 'string' && record.featureSlug !== folderSlug)
+      || (entry.slug !== null && entry.slug !== undefined && !(typeof entry.slug === 'string' && ID_PATTERN.test(entry.slug)))) {
+      addUnreadable(entry, 'id-mismatch');
+      continue;
+    }
+    if (!RUN_STATES.includes(record.state)) {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    let snapshot: any;
+    try { snapshot = snapshotRun(record); } catch {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    if (snapshot.current && !(typeof snapshot.current.id === 'string' && ID_PATTERN.test(snapshot.current.id))) {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    const terminal = snapshot.terminalStage;
+    runs.push({
+      taskId: snapshot.taskId,
+      featureSlug: entry.slug,
+      taskClass: snapshot.taskClass,
+      workflowName: snapshot.workflowName,
+      state: snapshot.state,
+      current: snapshot.current,
+      awaitingGate: snapshot.awaitingGate ? { gateId: snapshot.awaitingGate.gateId, name: snapshot.awaitingGate.name } : null,
+      progress: snapshot.progress,
+      // IC-001: the stage's identity only; its gate list (and the prompts in it) stays in status.
+      terminalStage: terminal && typeof terminal === 'object'
+        ? { id: terminal.id ?? null, skill: terminal.skill ?? null, kind: terminal.kind ?? null } : null,
+      revision: snapshot.revision,
+      startedAt: journalTime(record.startedAt),
+      updatedAt: journalTime(record.updatedAt),
+      origin: entry.origin,
+    });
+  }
+
+  runs.sort((a, b) => {
+    if (a.updatedAt === null && b.updatedAt !== null) return 1;
+    if (a.updatedAt !== null && b.updatedAt === null) return -1;
+    if (a.updatedAt !== null && b.updatedAt !== null) {
+      const byTime = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+      if (byTime !== 0) return byTime;
+    }
+    return slugCompare(a.featureSlug, b.featureSlug) || textCompare(a.taskId, b.taskId);
+  });
+  unreadable.sort((a, b) => textCompare(a.origin, b.origin)
+    || slugCompare(a.featureSlug, b.featureSlug) || textCompare(a.taskId, b.taskId));
+
+  if (json) {
+    console.log(JSON.stringify({ v: 1, runs, unreadable }, null, 2));
+  } else {
+    for (const row of runs) console.log(`${row.state} ${row.featureSlug || '-'} ${row.taskId} ${row.current ? row.current.id : '-'} rev ${row.revision}`);
+    if (unreadable.length > 0) console.log(`unreadable: ${unreadable.length}`);
+  }
+  return finishRuntime(0);
+}
+
 /** CLI handler for `doflow orchestrate`. The run journal lives in the CALLER's project state
  * (like evidence), while templates come from this install — same two-roots split readiness uses.
  * Completing a source-mutating gated stage needs a READY readiness record of the stage's template,
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false,
-  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, recordSlug, buildAdapters = null,
+  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, recordSlug, buildAdapters = null, dryRun = false,
 }: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
+
+  if (action === 'list') {
+    return listRuns({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun, json, stateRoot });
+  }
 
   const root = repoRoot || REPO_ROOT;
   // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):
@@ -1077,7 +1214,7 @@ function handleOrchestrateCommand({
         snapshot = orchestrator.status(taskId);
         break;
       default:
-        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
+        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | list | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
     }
     // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.
     if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {
