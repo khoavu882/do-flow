@@ -14,7 +14,7 @@ const path = require('node:path');
 const nodeFs = require('node:fs');
 const { conventionFor, testFilesFor, GUARD_DIR } = require('./test-selection.ts');
 
-const DISPATCHER_RE = /bin\/doflow|doflow-run/;
+const DISPATCHER_RE = /bin\/doflow|doflow-run|(['"])bin\1\s*,\s*(['"])doflow(?:\.js)?\2/;
 const CP_FUNCS = /\b(?:spawn|spawnSync|execSync|execFile|execFileSync|fork)\s*\(/;
 const CP_TOKEN = ['child', 'process'].join('_');
 const CP_RE = new RegExp(CP_TOKEN);

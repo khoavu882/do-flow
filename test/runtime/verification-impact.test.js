@@ -98,6 +98,33 @@ test('IC-009 module change: transitive reachability selects reaching tests + spa
   ]);
 });
 
+test('IC-009 spawn wildcard: path.join dispatcher segments select both quote styles', (t) => {
+  const { selectImpactedTests, isSpawnTest } = require('../../src/runtime/verification/impact.ts');
+  const { root, found } = fixtureProject(t, {
+    files: {
+      'test/regular.test.js': "require('../src/regular.ts');\n",
+      'test/spawn-join.test.js': `const { spawnSync } = require('node:child_process');
+spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), 'verify']);
+`,
+      'test/spawn-join-double.test.js': `const { spawnSync } = require('node:child_process');
+spawnSync(process.execPath, [path.join(__dirname, "..", "..", "bin", "doflow.js"), 'verify']);
+`,
+      'test/strings-only.test.js': "const first = 'bin'; const second = 'doflow.js';\n",
+      'src/regular.ts': '// regular module\n',
+    },
+  });
+
+  const res = selectImpactedTests({ root, found, changedFiles: ['src/regular.ts'] });
+  assert.equal(res.mode, 'selected');
+  assert.equal(res.spawnTests, 2);
+  assert.deepEqual(res.tests, [
+    'test/regular.test.js',
+    'test/spawn-join-double.test.js',
+    'test/spawn-join.test.js',
+  ]);
+  assert.equal(isSpawnTest(fs.readFileSync(path.join(root, 'test/strings-only.test.js'), 'utf8')), false);
+});
+
 test('IC-009 test file change: changed test selects itself without pulling spawn wildcard', (t) => {
   const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
