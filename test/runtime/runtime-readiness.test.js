@@ -877,3 +877,70 @@ test('107-B C-1 control: linking a valid replacement to the claim restores READY
   claims.linkEvidence(claimId, affected, 'supports');
   assert.equal(engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims).state, 'READY');
 });
+
+// ── 107-B re-review N-a: each half of the C-1 live-support condition has its own test ─────────
+//
+// The C-1 fix counts a supported claim only while one supporting id is in `taskEvidence`: active,
+// FRESH and bound to the task's plan. Swapping that set for "any non-superseded item" kept every
+// earlier test green, so the FRESH and bound halves each get a case that goes red without them.
+
+test('107-B N-a: a root-cause claim whose valid-file support was superseded does not satisfy root_cause', () => {
+  const taskId = 'task_na_valid_superseded';
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims, affected } = bugLedger(taskId);
+  const support = ledger.addEvidence({
+    taskId, kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/claims.ts', line: 1 }, content: 'class ClaimsManager',
+  });
+  const claimId = claims.addClaim({ taskId, statement: 'Missing keepalive', role: 'root-cause' });
+  claims.linkEvidence(claimId, support, 'supports');
+  assert.equal(engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims).state, 'READY',
+    'a valid live file supports the claim before it is superseded');
+
+  ledger.supersedeEvidence(support, affected);
+  const report = engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims);
+  assert.equal(claims.getClaim(claimId).status, 'supported', 'the stored claim status still reads supported');
+  assert.equal(report.requirements.find((r) => r.id === 'root_cause').satisfied, false);
+  assert.equal(report.state, 'NEEDS_EVIDENCE');
+});
+
+test('107-B N-a: a supported claim whose only support went STALE does not satisfy root_cause', () => {
+  const taskId = 'task_na_stale_support';
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims } = bugLedger(taskId);
+  const support = ledger.addEvidence({
+    taskId, kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/branch-only-target.ts', line: 1 }, content: 'recorded before an edit',
+  });
+  const claimId = claims.addClaim({ taskId, statement: 'Missing keepalive', role: 'root-cause' });
+  claims.linkEvidence(claimId, support, 'supports');
+  // The file changes after the claim was evaluated: the item is STALE, the stored claim status is
+  // still the `supported` it was given while its support was fresh.
+  assert.equal(ledger.invalidateFiles(['src/runtime/branch-only-target.ts']), 1);
+  assert.equal(claims.getClaim(claimId).status, 'supported');
+  const report = engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims);
+  assert.equal(report.requirements.find((r) => r.id === 'root_cause').satisfied, false,
+    'stale support no longer backs the claim');
+  assert.notEqual(report.state, 'READY');
+});
+
+test('107-B N-a: a supported claim whose only support is unbound to the task plan does not satisfy root_cause', (t) => {
+  const root = tempDir(t, 'doflow-readiness-na-unbound-');
+  const taskId = 'task_na_unbound_support';
+  updatePlan(root, taskId, null, () => ({ taskId, planId: 'rp_na_1', needs: [
+    { intent: 'estimate-blast-radius', queryRef: 'rp_na_1#estimate-blast-radius', capability: 'code.impact-analysis' },
+  ] }));
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: root });
+  const run = (queryRef) => {
+    const ledger = new EvidenceLedger({ repoRoot: root });
+    const claims = new ClaimsManager({ evidenceLedger: ledger });
+    const support = ledger.addEvidence({ taskId, kind: 'structural', content: 'CheckoutController -> PaymentService',
+      source: { provider: 'native.rg', capability: 'code.impact-analysis', queryRef } });
+    const claimId = claims.addClaim({ taskId, statement: 'Missing keepalive', role: 'root-cause' });
+    claims.linkEvidence(claimId, support, 'supports');
+    assert.equal(claims.getClaim(claimId).status, 'supported');
+    return engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims).requirements.find((r) => r.id === 'root_cause');
+  };
+  assert.equal(run('rp_old_0#estimate-blast-radius').satisfied, false, 'support recorded under a replaced plan does not count');
+  assert.equal(run('rp_na_1#estimate-blast-radius').satisfied, true, 'support bound to a declared need still counts');
+});
