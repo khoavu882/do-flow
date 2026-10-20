@@ -43,7 +43,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
-const { taskStoreDir } = require('./task-scope.ts');
+const { taskStoreDir, taskRecord } = require('./task-scope.ts');
 // The two verdict vocabularies, imported from the modules that own them rather than respelled
 // here. A second copy would let this file accept a readiness state readiness itself has retired.
 const { READINESS_STATES } = require('./readiness.ts');
@@ -107,7 +107,7 @@ function outcomePath(projectRoot: any, taskId: any, slug: any = null) {
  * @returns {Object|null} the record, or null when no outcome was recorded
  */
 function readOutcome(projectRoot: any, taskId: any, slug: any = null) {
-  const file = outcomePath(projectRoot, taskId, slug);
+  const file = taskRecord({ projectRoot, store: 'outcome', taskId: assertSafeTaskId(taskId), slug }).read;
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));

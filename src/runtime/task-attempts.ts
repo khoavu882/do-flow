@@ -24,7 +24,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
-const { buildGraph, deriveTasks, isGraphPlan, doneOf } = require('./task-graph.ts');
+const { buildGraph, planVerdict, deriveTasks, isGraphPlan, doneOf } = require('./task-graph.ts');
 const {
   runKeyFor, refuseWorker, computeTotals, aggregateRefusal, controlRefusal, epochRefusal,
   refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
@@ -94,12 +94,15 @@ function loadPlan({ roots, slug, fsImpl = fs }: any) {
   try { text = fsImpl.readFileSync(found, 'utf8'); } catch (error: any) {
     throw new TaskAttemptError('plan-unreadable', `cannot read ${found}: ${error.message}`);
   }
+  const verdict = planVerdict(text);
   const parsed = parsePlan(text);
-  if (parsed.tasks.length === 0) {
-    throw new TaskAttemptError('plan-malformed', `${found} holds no \`- [ ] <phase>.<n>\` tasks: ${parsed.gaps.map((g: any) => g.why).join('; ') || 'nothing to track'}`);
+  if (verdict.tasks === 0) {
+    const error = new TaskAttemptError('plan-malformed', `${found} holds no \`- [ ] <phase>.<n>\` tasks: ${parsed.gaps.map((g: any) => g.why).join('; ') || 'nothing to track'}`);
+    error.problems = verdict.problems;
+    throw error;
   }
   const built = buildGraph(parsed);
-  if (!built.ok) throw malformedGraph(found, built.problems);
+  if (!verdict.ok) throw malformedGraph(found, verdict.problems);
   const phases = uniq(parsed.tasks.map((t: any) => t.phase));
   return {
     planPath: relative.split(path.sep).join('/'),

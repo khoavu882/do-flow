@@ -387,7 +387,7 @@ function reportPlan({ projectRoot, sourceRoot, taskId, reached, json, slug, repo
   } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }
-  new FreshnessValidator({ repoRoot: projectRoot, treeRoot: sourceRoot }).validateLedgerFreshness(ledger);
+  new FreshnessValidator({ repoRoot: projectRoot, treeRoot: sourceRoot, sourceRoot }).validateLedgerFreshness(ledger);
   const items = ledger.queryEvidence({ taskId });
 
   const isQueryBound = Boolean(record.planId);

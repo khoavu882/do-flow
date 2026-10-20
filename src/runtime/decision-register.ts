@@ -414,14 +414,14 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
     if (isReservedChannel(flags.channel)) throw new DecisionUsageError(CHANNEL_RESERVED);
     const feature = resolveActiveFeature({ projectRoot, slug });
     if (feature.error) throw new DecisionUsageError(feature.message);
-    resolved = { featureDir: feature.featureDir, slug: feature.paths.feature_slug };
+    resolved = { featureDir: feature.featureFolder, slug: feature.paths.feature_slug };
     let result: any;
     if (act === 'init') {
       result = initRegister({ ...resolved, fsImpl });
     } else if (act === 'list') {
       result = listDecisions({ ...resolved, all: Boolean(flags.all), fsImpl });
     } else if (act === 'compact') {
-      result = compactDecisions({ ...resolved, repoRoot: feature.repoRoot, paths: feature.paths, now, fsImpl });
+      result = compactDecisions({ ...resolved, repoRoot: feature.featureRoot, paths: feature.paths, now, fsImpl });
     } else {
       let items: any;
       if (flags.batch) {
