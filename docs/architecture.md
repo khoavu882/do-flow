@@ -167,8 +167,7 @@ projected into each harness's own `bin/` directory by the `locator.doflow` asset
 table — it finds the dispatcher and `exec`s it — so adding a verb never edits eight files. Note the
 placement, because it decides what a single-harness install can actually do: `locator.doflow` and
 `scripts.doflow`, which carries the dispatcher itself, apply to all eight harnesses, and every
-harness projects the dispatcher into the same shared `<scope root>/.doflow/scripts`, except
-Antigravity at global scope, which has no skills there and projects no runtime (see Harness reach). A tree that is
+harness projects the dispatcher into the same shared `<scope root>/.doflow/scripts`. A tree that is
 missing from every searched path gets the documented exit-2 message naming each one and the
 `install -t <harness>` command that provides it, rather than a silent failure.
 
@@ -411,10 +410,14 @@ instructions (`*.instructions.md` files, each with an `applyTo: '**'` header, in
 under `.github/` at project scope and `~/.copilot/` at global scope) and Antigravity rules
 (`.agents/rules`, flat, project scope, each file under a `trigger: always_on` front-matter header, without
 which Antigravity discards a rules file) hold only the core set, the `@` import walk of
-`DOFLOW_CORE.md`; the other files are read from `.doflow/guidance` on demand. Antigravity has no skills at
-global scope, so its global install projects no runtime and prints a notice; install it per
-project. `doflow doctor` prints a `[Runtime Reach]` section with one line per installed harness and
-scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. At project scope
+`DOFLOW_CORE.md`; the other files are read from `.doflow/guidance` on demand. The core set is loaded once
+per scope: a Copilot or Kiro install at both project and global scope probably loads it twice (untested;
+Copilot's documented de-duplication covers identical `copilot-instructions.md` files, not
+`*.instructions.md`). A global Antigravity install
+projects skills (`~/.gemini/config/skills`), agents, the `doflow-run` locator and the runtime and guidance
+trees under `~/.doflow`, but no rules and no instruction pointer: the rules and the `AGENTS.md` section are
+project scope only, and `~/.gemini/GEMINI.md` is shared with Gemini CLI. `doflow doctor` prints a
+`[Runtime Reach]` section with one line per installed harness and scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. At project scope
 every ledger from the working directory upward is read, so a nested ledger left by a removed harness
 does not hide the install that encloses it. Nothing in the loop
 depends on one harness's own commands; a goal is DoFlow's record, whatever a harness's own `goal`
@@ -488,8 +491,10 @@ Each harness's native entry file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and Cop
 section is a short pointer into `.doflow/guidance/` instead: `@`-import syntax for Claude and
 Gemini (both resolve relative/absolute `@file` imports natively), a prose read-instruction for
 Codex, OpenCode and Pi (`AGENTS.md` has no native import-expansion mechanism, unlike Claude/Gemini),
-and the same prose read-instruction for Copilot and Antigravity at project scope (Copilot documents
-no global instructions file; Antigravity's global instructions are not written). The prose pointer
+and the same prose read-instruction for Copilot and Antigravity at project scope (Copilot CLI reads a
+user-level `~/.copilot/copilot-instructions.md`, but DoFlow projects no pointer there; Antigravity's
+global instructions file, `~/.gemini/GEMINI.md`, is shared with Gemini CLI and is not written by the
+Antigravity adapter). The prose pointer
 (`core/shared/guidance/pointers/codex.md`) tells the model to read `DOFLOW_CORE.md` and the files it
 imports unless they are already in its instructions, and to read other files under the guidance
 directory only when a skill names them. Its guidance path is filled per scope by

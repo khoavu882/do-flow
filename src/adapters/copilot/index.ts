@@ -13,8 +13,8 @@
 //
 // Native paths (see design.md §4's harness-native-surfaces table):
 //   instructions -> <projectRoot>/.github/copilot-instructions.md, the pointer to .doflow/guidance
-//                   (project only — Copilot documents no global instructions file, so global scope
-//                   writes no pointer)
+//                   (project only — Copilot CLI also reads a user-level ~/.copilot/copilot-instructions.md,
+//                   but this adapter does not project a pointer there, so global scope writes none)
 //   rules        -> <projectRoot>/.github/instructions/ (project) / ~/.copilot/instructions/ (global):
 //                   the core set (DOFLOW_CORE.md and the files it imports) as `*.instructions.md`
 //                   with an `applyTo: '**'` header, under instructions/rules/ for the rule files;

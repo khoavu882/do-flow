@@ -76,6 +76,21 @@ test('global scope: no instructions, no skills; agents and locator ride ~/.gemin
   assert.ok(fs.existsSync(path.join(home, '.gemini', 'config', 'bin', 'doflow-run')));
 });
 
+// 107-B review C-5: the docs said a global Antigravity install has no skills and no runtime. It plans
+// the skills under ~/.gemini/config/skills (and the shared runtime assets), so the docs state that.
+test('107-B C-5: a global install plans the skills, and no doc says Antigravity has none at global scope', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const home = scratch();
+  const input = harnessInput(registry, { scope: 'global', scopeRoot: home });
+  const planned = adapter.plan(input);
+  const skillsDir = path.join(home, '.gemini', 'config', 'skills') + path.sep;
+  assert.ok(planned.changes.some((c) => c.assetId === 'skills.doflow' && c.target.startsWith(skillsDir)), 'global scope plans skills.doflow under ~/.gemini/config/skills');
+  for (const doc of ['docs/architecture.md', 'docs/capability-map.md', 'docs/guide.md', 'docs/setup.md']) {
+    const text = fs.readFileSync(path.join(REPO, doc), 'utf8').replace(/\s+/g, ' ');
+    assert.doesNotMatch(text, /Antigravity has no skills at global scope|Antigravity at global scope, which has no skills/, `${doc} still says Antigravity has no skills at global scope`);
+  }
+});
+
 test('removal strips the managed section but preserves foreign bytes on both sides', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const root = scratch();
