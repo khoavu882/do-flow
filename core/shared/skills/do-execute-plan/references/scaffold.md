@@ -80,7 +80,7 @@ do not restate its counts from memory or re-derive them by reading the tree.
 Run it from the project root: the verb resolves which feature is active exactly the way `paths`
 does, from the working directory. The one case worth knowing about is a non-git root holding more
 than one feature directory — there the resolver cannot choose, and exits 2 naming every candidate.
-Ask the user which one via `AskUserQuestion` and re-run as `"$DOFLOW" scaffold --slug=<chosen>
+Ask the user which one via the question tool and re-run as `"$DOFLOW" scaffold --slug=<chosen>
 --json`; do not pick for them.
 
 Exit codes follow the runtime's uniform contract: `0` complete, `1` a finding you must report to the

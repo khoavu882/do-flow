@@ -4,7 +4,7 @@
 
 > The one recurring shape every `intention/*-question.md`, `design/*-question.md` and
 > `plan/*-question.md` file uses: the Socratic dialogue transcript for a single round of a chain
-> stage's `AskUserQuestion` loop. This is a dialogue transcript, not an ID-bearing normative
+> stage's question-tool loop. This is a dialogue transcript, not an ID-bearing normative
 > artifact — out of `references/ARTIFACT_FORMAT.md`'s index/detail scope, the same way that
 > reference's own intro already carves out `state.md`.
 >

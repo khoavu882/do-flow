@@ -32,9 +32,9 @@ function resource(harness, assetId, target) {
 
 test('the wholesale set names exactly the two asset/harness pairs verified in the adapters', () => {
   // Derived from adapter behaviour, not from the registry: `copilot-rule-instructions` renders
-  // every file under `applyTo: '**'`, and the kiro adapter takes DoFlow's full guidance tree as
-  // steering. A third pair appearing here without an adapter locator behind it is the failure
-  // this assertion exists to catch.
+  // every file under `applyTo: '**'`, and the kiro adapter takes DoFlow's core guidance set as
+  // steering (and Kiro loads any steering file without front-matter). A third pair appearing here
+  // without an adapter locator behind it is the failure this assertion exists to catch.
   assert.deepEqual(Object.keys(WHOLESALE_ASSETS).sort(), ['copilot', 'kiro']);
   assert.deepEqual([...WHOLESALE_ASSETS.copilot], ['instructions.copilot']);
   assert.deepEqual([...WHOLESALE_ASSETS.kiro], ['guidance.context-layer']);

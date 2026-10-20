@@ -64,16 +64,34 @@ test('project plan: instructions, skills, agents, locator, and MCP land where An
   assert.equal(second.changes.filter((c) => c.operation !== 'remove').length, 0, 'second plan is a no-op');
 });
 
-test('global scope: no instructions, no skills; agents and locator ride ~/.gemini/config', () => {
+test('global scope: no instructions and nothing under ~/.agents; skills, agents and locator ride ~/.gemini/config', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const home = scratch();
   const input = harnessInput(registry, { scope: 'global', scopeRoot: home });
   const planned = adapter.plan(input);
   assert.ok(!planned.changes.some((c) => c.target.endsWith('AGENTS.md')), 'global instructions belong to Gemini CLI; never written');
-  assert.ok(!planned.changes.some((c) => c.target.includes('.agents', 'skills')));
+  const agentsTree = path.join(home, '.agents') + path.sep;
+  assert.ok(!planned.changes.some((c) => c.target.startsWith(agentsTree)), 'the .agents tree is project scope only');
+  assert.ok(planned.changes.some((c) => c.assetId === 'skills.doflow'
+    && c.target.startsWith(path.join(home, '.gemini', 'config', 'skills') + path.sep)), 'global skills ride ~/.gemini/config/skills');
   assert.ok(planned.changes.some((c) => c.target === path.join(home, '.gemini', 'config', 'agents', 'system-architect', 'agent.md')));
   adapter.apply({ ...input, changes: planned.changes });
   assert.ok(fs.existsSync(path.join(home, '.gemini', 'config', 'bin', 'doflow-run')));
+});
+
+// 107-B review C-5: the docs said a global Antigravity install has no skills and no runtime. It plans
+// the skills under ~/.gemini/config/skills (and the shared runtime assets), so the docs state that.
+test('107-B C-5: a global install plans the skills, and no doc says Antigravity has none at global scope', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const home = scratch();
+  const input = harnessInput(registry, { scope: 'global', scopeRoot: home });
+  const planned = adapter.plan(input);
+  const skillsDir = path.join(home, '.gemini', 'config', 'skills') + path.sep;
+  assert.ok(planned.changes.some((c) => c.assetId === 'skills.doflow' && c.target.startsWith(skillsDir)), 'global scope plans skills.doflow under ~/.gemini/config/skills');
+  for (const doc of ['docs/architecture.md', 'docs/capability-map.md', 'docs/guide.md', 'docs/setup.md']) {
+    const text = fs.readFileSync(path.join(REPO, doc), 'utf8').replace(/\s+/g, ' ');
+    assert.doesNotMatch(text, /Antigravity has no skills at global scope|Antigravity at global scope, which has no skills/, `${doc} still says Antigravity has no skills at global scope`);
+  }
 });
 
 test('removal strips the managed section but preserves foreign bytes on both sides', () => {
@@ -275,6 +293,61 @@ test('rules and workflows are workspace-scope only, landing under .agents/, and 
   const globalPlanned = adapter.plan(harnessInput(registry, { scope: 'global', scopeRoot: globalHome }));
   assert.ok(!globalPlanned.changes.some((c) => c.target.includes('.agents/rules') || c.target.includes('.agents/workflows')),
     'neither rules nor workflows have a documented user-scope home');
+});
+
+test('a project install writes the seven core files flat in .agents/rules, plus the pointer naming .doflow/guidance', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
+  const planned = adapter.plan(input);
+  assert.deepEqual(planned.conflicts, []);
+  adapter.apply({ ...input, changes: planned.changes });
+  const rules = path.join(root, '.agents', 'rules');
+  assert.deepEqual(fs.readdirSync(rules, { recursive: true }).sort(),
+    ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md', 'RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md']);
+  const agentsMd = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+  assert.match(agentsMd, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
+  assert.doesNotMatch(agentsMd, /\{\{GUIDANCE\}\}/);
+  assert.equal(adapter.verify(input).ok, true);
+});
+
+// 107-B review C-2: Antigravity silently discards a `rules/*.md` file without valid front-matter
+// (research/vendor-mechanisms.md section 4), so every projected rule carries `trigger: always_on`.
+const ALWAYS_ON_HEADER = '---\ntrigger: always_on\n---\n\n';
+const CORE_RULE_SOURCES = {
+  'DOFLOW_CORE.md': 'DOFLOW_CORE.md', 'FLAGS.md': 'FLAGS.md', 'PRINCIPLES.md': 'PRINCIPLES.md',
+  'RULE_01_SAFETY.md': 'rules/RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md': 'rules/RULE_02_WORKFLOW.md',
+  'RULE_03_QUALITY.md': 'rules/RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md': 'rules/RULE_04_QUESTIONS.md',
+};
+
+test('107-B C-2: all seven projected .agents/rules files open with the always_on front-matter and keep the source body', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
+  const planned = adapter.plan(input);
+  adapter.apply({ ...input, changes: planned.changes });
+  const rules = path.join(root, '.agents', 'rules');
+  assert.deepEqual(fs.readdirSync(rules).sort(), Object.keys(CORE_RULE_SOURCES).sort());
+  for (const [name, sourceRel] of Object.entries(CORE_RULE_SOURCES)) {
+    const projected = fs.readFileSync(path.join(rules, name), 'utf8');
+    const source = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', sourceRel), 'utf8');
+    assert.ok(projected.startsWith(ALWAYS_ON_HEADER), `${name} must open with the always_on front-matter`);
+    assert.equal(projected, ALWAYS_ON_HEADER + source, `${name} body must be the source bytes after the header`);
+  }
+  assert.equal(adapter.verify(input).ok, true);
+});
+
+test('107-B C-2 control: verify refuses a projected rule whose front-matter was stripped', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
+  const planned = adapter.plan(input);
+  adapter.apply({ ...input, changes: planned.changes });
+  const target = path.join(root, '.agents', 'rules', 'PRINCIPLES.md');
+  const projected = fs.readFileSync(target, 'utf8');
+  assert.ok(projected.startsWith(ALWAYS_ON_HEADER), 'precondition: the projected rule carries the front-matter');
+  fs.writeFileSync(target, projected.slice(ALWAYS_ON_HEADER.length));
+  assert.equal(adapter.verify(input).ok, false, 'a rule without front-matter is silently discarded by the harness');
 });
 
 function verifiedResources(adapt, input) {
@@ -539,4 +612,19 @@ test('Antigravity discovery reports the servers in mcp_config.json, sorted, and 
   fs.mkdirSync(path.dirname(first.paths.mcpFile), { recursive: true });
   fs.writeFileSync(first.paths.mcpFile, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
   assert.deepStrictEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
+});
+
+// 107-B re-review N-c: the discard rule is the vendor page's statement, not something agy was seen
+// to do; the architecture doc qualifies it the way CHANGELOG.md does.
+test('107-B N-c: docs/architecture.md states the always_on discard rule as vendor-stated and unverified', () => {
+  const text = fs.readFileSync(path.join(REPO, 'docs', 'architecture.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(text, /without which Antigravity discards a rules file per the vendor page, unverified against `agy`/);
+});
+
+// 107-B re-review N-d: the registry said DoFlow skips the Antigravity global skills scope; a global
+// install plans skills under ~/.gemini/config/skills (asserted above), so no registry note says otherwise.
+test('107-B N-d: no Antigravity registry note says DoFlow skips the global skills scope', () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
+  const text = JSON.stringify(registry.harnesses ? registry.harnesses.find((h) => h.id === 'antigravity') : registry);
+  assert.doesNotMatch(text, /skips the global skills scope/);
 });

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_START } = require('../../../src/adapters/opencode/index.ts');
+const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_START, MARKER_END } = require('../../../src/adapters/opencode/index.ts');
 const { assertAdapter } = require('../../../src/adapters/index.ts');
 
 function scratch() { return suiteTempDir('doflow-opencode-'); }
@@ -48,6 +48,52 @@ test('preserves a foreign AGENTS.md that has no DoFlow managed section', () => {
     context: { repoRoot: root },
   });
   assert.match(planned.conflicts[0], /without a DoFlow managed section/);
+});
+
+function pointerFixture() {
+  const repoRoot = scratch();
+  const guidanceRoot = path.join(repoRoot, 'core/shared/guidance');
+  fs.mkdirSync(path.join(guidanceRoot, 'pointers'), { recursive: true });
+  fs.writeFileSync(path.join(guidanceRoot, 'pointers/codex.md'), '# DoFlow\n\nRead {{GUIDANCE}}/DOFLOW_CORE.md and {{GUIDANCE}}/RULES.md.\n');
+  fs.writeFileSync(path.join(guidanceRoot, 'DOFLOW_CORE.md'), '# Core guidance\n');
+  return {
+    repoRoot,
+    assets: [
+      { id: 'guidance.codex-pointer', capability: 'instructions', source: 'core/shared/guidance/pointers/codex.md' },
+      { id: 'guidance.context-layer', capability: 'instructions', renderer: 'copy-tree', source: 'core/shared/guidance', nativeDir: '../.doflow/guidance' },
+    ],
+  };
+}
+
+test('renders per-scope guidance paths, preserves user text, and converges after install', () => {
+  const adapter = createOpenCodeAdapter();
+  const fixture = pointerFixture();
+  for (const scope of ['global', 'project']) {
+    const scopeRoot = scratch();
+    const paths = nativePaths({ scope, scopeRoot, homeDir: scopeRoot });
+    const prefix = '# User instructions before\n\n';
+    const suffix = '# User instructions after\n';
+    fs.mkdirSync(path.dirname(paths.instruction), { recursive: true });
+    fs.writeFileSync(paths.instruction, `${prefix}${MARKER_START}\nold pointer\n${MARKER_END}${suffix}`);
+    const input = { scope, scopeRoot, assets: fixture.assets, context: { repoRoot: fixture.repoRoot } };
+    const planned = adapter.plan(input);
+    assert.deepEqual(planned.conflicts, []);
+    adapter.apply({ changes: planned.changes });
+
+    const entry = fs.readFileSync(paths.instruction, 'utf8');
+    const expectedGuidance = scope === 'global' ? path.join(scopeRoot, '.doflow/guidance') : '.doflow/guidance';
+    assert.ok(entry.includes(`${expectedGuidance}/DOFLOW_CORE.md`));
+    assert.ok(fs.existsSync(path.join(scopeRoot, '.doflow/guidance/DOFLOW_CORE.md')));
+    assert.match(fs.readFileSync(path.join(scopeRoot, '.doflow/guidance/pointers/codex.md'), 'utf8'), /\{\{GUIDANCE\}\}/);
+    assert.ok(entry.startsWith(prefix));
+    assert.ok(entry.endsWith(suffix));
+
+    const verified = adapter.verify(input);
+    assert.equal(verified.ok, true);
+    const nextPlan = adapter.plan(input);
+    assert.equal(nextPlan.conflicts.length, 0);
+    assert.equal(nextPlan.changes.some((change) => change.projection?.renderer === 'opencode-instructions'), false);
+  }
 });
 
 test('mergeConfig registers instructions only, leaving mcp and every other key to their owners', () => {
