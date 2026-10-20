@@ -423,3 +423,21 @@ test('G24: controls — harnessOnlyNames fails closed on unknown keys and harnes
   assert.deepEqual(problems('x'), ['harnessOnlyNames: not an array']);
   assert.deepEqual(problems([null]), ['harnessOnlyNames[0]: not an object']);
 });
+
+// 107-B review C-9: a byte-neutral rewording left "response to any / the question tool means" in
+// do-flow's SKILL.md. A reworded sentence that keeps the old determiner is a grammar defect no other
+// guard sees, so the instruction prose may not carry a doubled determiner.
+const DOUBLED_DETERMINER = /\b(?:any|an?)\s+(?:the|an?)\b/gi;
+
+test('G24: instruction prose has no doubled determiner ("any the", "a the")', () => {
+  const findings = harnessNameFiles().flatMap(({ rel, text }) => {
+    return [...text.matchAll(DOUBLED_DETERMINER)].map((match) => `${rel}:${text.slice(0, match.index).split('\n').length} "${match[0].replace(/\s+/g, ' ')}"`);
+  });
+  assert.deepEqual(findings, []);
+});
+
+test('G24 control: the doubled-determiner check sees the broken sentence across a line break', () => {
+  const broken = 'an unanswered or unclear response to any\n   the question tool means stop';
+  assert.equal([...broken.matchAll(DOUBLED_DETERMINER)].length, 1);
+  assert.equal([...'a response to the question tool means stop'.matchAll(DOUBLED_DETERMINER)].length, 0);
+});

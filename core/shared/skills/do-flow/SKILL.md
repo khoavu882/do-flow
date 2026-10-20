@@ -146,8 +146,8 @@ not declare is not run here, however familiar it is from the `feature` chain.
    "$DOFLOW" decision --action add --topic "<key>" --statement "<text>" --channel gate --stage "<stage the gate follows>" --rationale "<text>" --json
    ```
 
-8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to any
-   the question tool means stop and ask again, per this repo's `RULE_04_QUESTIONS`. When the
+8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to the
+   question tool means stop and ask again, per this repo's `RULE_04_QUESTIONS`. When the
    terminal stage completes, state `workflow.handoff` as the next step rather than continuing into
    it.
 
