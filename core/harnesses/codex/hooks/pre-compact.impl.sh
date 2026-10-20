@@ -4,13 +4,15 @@
 # Codex's PreCompact output schema (codex-rs/hooks/src/schema.rs::PreCompactCommandOutputWire)
 # flattens only HookUniversalOutputWire (continue/stopReason/suppressOutput/systemMessage) and
 # rejects unknown fields — there is no additionalContext-style field for PreCompact, and the
-# output MUST be valid JSON, unlike Claude's PreCompact hook, which reads a plain string as
-# custom_instructions. This script gathers the same git-state context Claude's pre-compact.sh
-# does, but emits it as a JSON systemMessage instead — the closest available field, though
-# systemMessage's exact downstream effect on compaction content is not confirmed (Claude's
-# custom_instructions is fed directly to the compaction LLM call; Codex's docs do not state that
-# systemMessage receives the same treatment). Treat this as best-effort context surfacing, not a
-# guaranteed compaction-summary injection, until verified against a live Codex session.
+# output MUST be valid JSON, unlike Claude's PreCompact hook, whose plain stdout was observed in
+# Claude Code 2.1.304 to be read as custom_instructions, undocumented (FU-w563w2). This script
+# gathers the same git-state context Claude's pre-compact.sh does, but emits it as a JSON
+# systemMessage instead — the closest available field, though systemMessage's exact downstream
+# effect on compaction content is not confirmed (that Claude's custom_instructions reach the
+# compaction LLM call is observed in Claude Code 2.1.304, undocumented (FU-w563w2); Codex's docs
+# do not state that systemMessage receives the same treatment). Treat this as best-effort context
+# surfacing, not a guaranteed compaction-summary injection, until verified against a live Codex
+# session.
 # The shared compaction text comes from compact-text.sh (IC-001/IC-002).
 #
 # Must never exit non-zero or block (PreCompact hooks do not support a block decision in Codex).
