@@ -51,7 +51,7 @@ remains the chain's own implementation phase.
   `requirement.md`'s `**Intent:**` field — the argument that does so is declared in `/do-brainstorm`'s
   own `argument-hint`, which is where a single-skill argument is owned. Discovery without an intent is
   unchanged and is the ordinary case.
-- **Implement gate (hard):** Denies source edits for started features missing `requirement.md`/`design.md`/`plan.md` (`missing-artifacts`), or held tasks without READY at their workflow's first source-mutating stage (`readiness-missing`, `readiness-not-ready`, `readiness-wrong-template`). Other blockers: `shared/hooks/policies/`; all other chain gates are advisory/skippable.
+- **Implement gate (hard):** Denies source edits for started features missing `requirement.md`/`design.md`/`plan.md` (`missing-artifacts`), or held tasks without READY at their workflow's first source-mutating stage (`readiness-missing`, `readiness-not-ready`, `readiness-wrong-template`, or `readiness-store-conflict` when a linked worktree's copy differs from the main checkout's). Other blockers: `shared/hooks/policies/`; all other chain gates are advisory/skippable.
 - **Two-tier constitution — what is computed vs. what is convention.**
   `references/CONSTITUTION_BASE.md` (tier-1, global) is overlaid by
   `<repo>/agent-docs/constitution.md` (tier-2, per-repo), and tier-2 takes precedence. **That

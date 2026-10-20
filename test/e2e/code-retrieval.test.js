@@ -63,14 +63,14 @@ test('unbound retrieve --scope code in a linked worktree searches the worktree w
 
   const unbound = retrieve();
   assert.equal(unbound.status, 0, unbound.stderr);
-  assert.doesNotMatch(unbound.stderr, /lives in the main checkout/);
+  assert.doesNotMatch(unbound.stderr, /records are kept in the main checkout/);
   const response = JSON.parse(unbound.stdout);
   assert.equal(response.root, wt, 'the worktree is searched, not the main checkout');
   assert.deepEqual(response.results.map((r) => r.locator.file).sort(), ['src/a.js', 'src/wt-only.js']);
 
   const slugged = retrieve('--slug', '930-wt');
   assert.equal(slugged.status, 0, slugged.stderr);
-  assert.match(slugged.stderr, /feature '930-wt' lives in the main checkout/, 'an explicit --slug keeps feature-store routing');
+  assert.match(slugged.stderr, /records are kept in the main checkout/, 'an explicit --slug keeps feature-store routing');
 });
 
 // X3: an unstaged tracked delete is an admission coverage gap, never a lexical provider-error.

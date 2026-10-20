@@ -419,7 +419,7 @@ test('stale: a feature without a register gets no stale finding', (t) => {
 test('stale: discovery mode covers data-model.md alongside the other artifacts', (t) => {
   const { repo } = featureRepo(t, 'stale-discovery', CHAIN, {
     'design/data-model.md': '# Data model\n\n## 1. Entities\n\nKeyed by number. DEC-001\n',
-    'plan.md': '# Plan\n\n## 1. Basis\n\nResting on DEC-004.\n',
+    'plan.md': `${taskPlan(['- [ ] A.1 Build'])}\n## 1. Basis\n\nResting on DEC-004.\n`,
   });
   const result = validateIn(repo);
   assert.deepEqual(result.findings.map((f) => [path.basename(f.file), f.rule, f.id]),
@@ -435,14 +435,14 @@ const BAD_DATA_MODEL = [
 ].join('\n');
 
 test('data-model.md is not a default target without a register, and is with one', (t) => {
-  const legacy = featureRepo(t, 'target-legacy', null, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': '# Plan\n' });
+  const legacy = featureRepo(t, 'target-legacy', null, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': taskPlan(['- [ ] A.1 Build']) });
   const before = validateIn(legacy.repo);
   assert.deepEqual(before.findings, []);
   assert.equal(before.status, 0);
   // Naming the file explicitly still checks it: only the default target set is gated.
   assert.deepEqual(rules(validateIn(legacy.repo, path.join(legacy.feature, 'design', 'data-model.md'))).sort(), ['parity E-1', 'parity E-2']);
 
-  const registered = featureRepo(t, 'target-registered', CHAIN, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': '# Plan\n' });
+  const registered = featureRepo(t, 'target-registered', CHAIN, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': taskPlan(['- [ ] A.1 Build']) });
   const after = validateIn(registered.repo);
   assert.deepEqual(after.findings.map((f) => `${path.basename(f.file)} ${f.rule} ${f.id}`).sort(),
     ['data-model.md parity E-1', 'data-model.md parity E-2']);
@@ -710,4 +710,163 @@ test('unknown and stale: link targets, query strings and file names are exempt; 
     ['unknown', 'DEC-090'], ['unknown', 'DEC-091'], ['unknown', 'DEC-092'],
     ['unknown', 'DEC-099'], ['unknown', 'DEC-098'],
   ]);
+});
+
+// ── 115 (IC-003): the `task-graph` rule asks the plan-check verb about each plan.md ──────────────
+// Fixture text is the one test/runtime/plan-verdict.test.js feeds planVerdict, so the two cannot
+// disagree about what a malformed plan is. The rule is advisory like the others: one finding per
+// problem plan-check reports, none when plan-check cannot run.
+
+function taskPlan(lines, { header = '**Task graph:** v1', tasksSection = true } = {}) {
+  return [
+    '# Plan', '',
+    ...(header ? [header, ''] : []),
+    ...(tasksSection ? ['## 8. Tasks', '', ...lines] : ['## Overview', 'No task list.']),
+    '',
+  ].join('\n');
+}
+
+const TASK_GRAPH_FIXTURES = [
+  { name: 'bad-acceptance range', text: taskPlan(['- [ ] A.1 Build — acceptance: FR-001..FR-005']),
+    id: 'A.1', message: "bad-acceptance 'FR-001..FR-005'" },
+  { name: 'bad-acceptance requirement kind', text: taskPlan(['- [ ] A.1 Build — acceptance: RK-001']),
+    id: 'A.1', message: "bad-acceptance 'RK-001'" },
+  { name: 'bad-acceptance decision id', text: taskPlan(['- [ ] A.1 Build — acceptance: DEC-004']),
+    id: 'A.1', message: "bad-acceptance 'DEC-004'" },
+  { name: 'bad-dependency', text: taskPlan(['- [ ] A.1 Build; depends-on: A.1 (after review)']),
+    id: 'A.1', message: "bad-dependency 'A.1 (after review)'" },
+  { name: 'unknown-dependency', text: taskPlan(['- [ ] A.1 Build; depends-on: B.1']),
+    id: 'A.1,B.1', message: 'unknown-dependency' },
+  { name: 'duplicate-id', text: taskPlan(['- [ ] A.1 Build', '### Completion Criteria', '- [ ] A.1 Build completion criteria']),
+    id: 'A.1', message: 'duplicate-id' },
+  { name: 'bad-budget', text: taskPlan(['- [ ] A.1 Build — budget: attempts=0']),
+    id: 'A.1', message: "bad-budget 'attempts=0'" },
+  { name: 'bad-header', text: taskPlan(['- [ ] A.1 Build'], { header: '**Task graph:** v2' }),
+    id: '-', message: "bad-header 'v2'" },
+  { name: 'cycle', text: taskPlan(['- [ ] A.1 First; depends-on: A.2', '- [ ] A.2 Second; depends-on: A.1']),
+    id: 'A.1,A.2', message: 'cycle via A.1->A.2, A.2->A.1' },
+  { name: 'no-tasks (empty section)', text: taskPlan([]), id: '-', message: 'no-tasks' },
+  { name: 'no-tasks (no section)', text: taskPlan([], { tasksSection: false }), id: '-', message: 'no-tasks' },
+];
+
+/** Write `body` to <scratch>/<dir>/<name> and run the checker over it with `extra` spawn options. */
+function checkIn(dir, name, body, { validator = VALIDATOR, ...options } = {}) {
+  const folder = path.join(scratch, dir);
+  fs.mkdirSync(folder, { recursive: true });
+  const file = path.join(folder, name);
+  fs.writeFileSync(file, body);
+  const run = spawnSync('bash', [validator, '--json', file], { encoding: 'utf8', ...options });
+  assert.equal(run.error, undefined, `validator failed to spawn: ${run.error && run.error.message}`);
+  return { run, file, result: parseJson(run, `${dir}/${name}`) };
+}
+
+test('task-graph: each malformed plan gives exactly one finding with the plan-check id and message', () => {
+  for (const fixture of TASK_GRAPH_FIXTURES) {
+    const dir = `task-graph-${fixture.name.replace(/\W+/g, '-')}`;
+    const { run, file, result } = checkIn(dir, 'plan.md', fixture.text);
+    assert.deepEqual(result.findings, [
+      { file, rule: 'task-graph', id: fixture.id, message: fixture.message },
+    ], fixture.name);
+    assert.equal(result.ok, false, fixture.name);
+    assert.equal(run.status, 1, `${fixture.name}: a task-graph finding exits 1 like the others`);
+    assert.doesNotMatch(run.stderr, /^note:/m, fixture.name);
+  }
+});
+
+test('task-graph: a clean plan has no finding, and the other rules still run beside it', () => {
+  const clean = checkIn('task-graph-clean', 'plan.md', taskPlan(['- [ ] A.1 First', '- [ ] A.2 Second; depends-on: A.1']));
+  assert.deepEqual(clean.result, { ok: true, findings: [] });
+  assert.equal(clean.run.status, 0);
+
+  // Two independent problems in one file: the rollup finding from awk and the task-graph finding.
+  const both = checkIn('task-graph-both', 'plan.md', [
+    '# Plan', '', '**Task graph:** v2', '',
+    '| Phase | Tasks |', '|---|---|', '| A | 3 |', '',
+    '## 8. Tasks', '', '### Phase A', '', '- [ ] A.1 First', '',
+  ].join('\n'));
+  assert.deepEqual(both.result.findings.map((f) => `${f.rule} ${f.id}`), ['rollup Phase A', 'task-graph -']);
+});
+
+test('task-graph: only a file named plan.md is asked about', () => {
+  const { run, result } = checkIn('task-graph-non-plan', 'design.md', taskPlan([]));
+  assert.deepEqual(result, { ok: true, findings: [] });
+  assert.equal(run.status, 0);
+  assert.equal(run.stderr, '');
+});
+
+test('task-graph: a plan.md that cannot be read is the one io finding, with no task-graph finding', () => {
+  const missing = path.join(scratch, 'task-graph-absent', 'plan.md');
+  const run = spawnSync('bash', [VALIDATOR, '--json', missing], { encoding: 'utf8' });
+  const parsed = parseJson(run, 'absent plan.md');
+  assert.deepEqual(parsed.findings.map((f) => f.rule), ['io']);
+  assert.equal(run.status, 1);
+});
+
+test('task-graph: the dispatcher missing prints one note on stderr and adds no finding', () => {
+  // A copy of the script with no ../bin/doflow-run beside it. Two plans, one note.
+  const lib = path.join(scratch, 'no-dispatcher', 'bash');
+  fs.mkdirSync(lib, { recursive: true });
+  const copy = path.join(lib, 'validate-artifacts.sh');
+  fs.copyFileSync(VALIDATOR, copy);
+  const one = path.join(scratch, 'no-dispatcher-one');
+  const two = path.join(scratch, 'no-dispatcher-two');
+  fs.mkdirSync(one, { recursive: true });
+  fs.mkdirSync(two, { recursive: true });
+  fs.writeFileSync(path.join(one, 'plan.md'), taskPlan([]));
+  fs.writeFileSync(path.join(two, 'plan.md'), taskPlan([]));
+  const run = spawnSync('bash', [copy, '--json', path.join(one, 'plan.md'), path.join(two, 'plan.md')], { encoding: 'utf8' });
+  assert.deepEqual(parseJson(run, 'no dispatcher'), { ok: true, findings: [] });
+  assert.equal(run.status, 0);
+  const notes = run.stderr.split('\n').filter((l) => l.startsWith('note:'));
+  assert.equal(notes.length, 1, `expected exactly one note line, got: ${JSON.stringify(run.stderr)}`);
+  assert.match(notes[0], /plan-check/);
+});
+
+test('task-graph: Node missing from PATH prints one note and adds no finding', (t) => {
+  // A PATH holding only the tools the checker itself needs, not node, which the dispatcher needs.
+  const bin = tempDir(t, 'doflow-artifact-grammar-nonode-');
+  for (const tool of ['bash', 'env', 'dirname', 'basename', 'awk', 'sed', 'jq', 'cat', 'grep', 'tr', 'head', 'sort', 'uname', 'rm', 'mkdir', 'mktemp', 'sh']) {
+    const found = spawnSync('bash', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).stdout.trim();
+    if (found) fs.symlinkSync(found, path.join(bin, tool));
+  }
+  const { run, result } = checkIn('task-graph-no-node', 'plan.md', taskPlan([]), {
+    env: { PATH: bin, HOME: bin },
+  });
+  assert.deepEqual(result, { ok: true, findings: [] });
+  assert.equal(run.status, 0);
+  assert.equal(run.stderr.split('\n').filter((l) => l.startsWith('note:')).length, 1, run.stderr);
+});
+
+// ── 115 (IC-005, validate half): default targets join to feature_root, falling back to repo_root ──
+// A stub resolver next to a copy of the script stands in for do-paths.sh, so the two roots can be
+// told apart without a second checkout.
+
+function stubbedValidator(name, resolverJson) {
+  const lib = path.join(scratch, name, 'bash');
+  fs.mkdirSync(lib, { recursive: true });
+  fs.copyFileSync(VALIDATOR, path.join(lib, 'validate-artifacts.sh'));
+  fs.writeFileSync(path.join(lib, 'do-paths.sh'), `#!/usr/bin/env bash\ncat <<'JSON'\n${JSON.stringify(resolverJson)}\nJSON\n`);
+  return path.join(lib, 'validate-artifacts.sh');
+}
+
+const ORPHAN_DESIGN = '# Design\n\n## 1. Choices\n\n| ID | Choice | Status |\n|---|---|---|\n| D-1 | x | Live |\n\n**Detail**\n';
+
+test('default targets resolve under feature_root, and under repo_root when the key is absent', () => {
+  const here = path.join(scratch, 'fr-here');
+  const main = path.join(scratch, 'fr-main');
+  for (const root of [here, main]) fs.mkdirSync(path.join(root, 'f'), { recursive: true });
+  fs.writeFileSync(path.join(main, 'f', 'design.md'), ORPHAN_DESIGN);
+
+  const withKey = stubbedValidator('fr-with-key', { repo_root: here, feature_root: main, feature_slug: 's', design: 'f/design.md' });
+  const viaMain = spawnSync('bash', [withKey, '--json'], { encoding: 'utf8' });
+  assert.deepEqual(parseJson(viaMain, 'feature_root').findings.map((f) => [f.file, f.rule, f.id]),
+    [[path.join(main, 'f', 'design.md'), 'parity', 'D-1']]);
+
+  const withoutKey = stubbedValidator('fr-without-key', { repo_root: here, feature_slug: 's', design: 'f/design.md' });
+  const viaHere = spawnSync('bash', [withoutKey, '--json'], { encoding: 'utf8' });
+  assert.equal(parseJson(viaHere, 'repo_root fallback').note, 'no-artifacts-present');
+
+  fs.writeFileSync(path.join(here, 'f', 'design.md'), ORPHAN_DESIGN);
+  const fallback = spawnSync('bash', [withoutKey, '--json'], { encoding: 'utf8' });
+  assert.deepEqual(parseJson(fallback, 'repo_root fallback').findings.map((f) => f.file), [path.join(here, 'f', 'design.md')]);
 });

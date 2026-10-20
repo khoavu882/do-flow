@@ -1,10 +1,10 @@
 'use strict';
-// task-scope.test.js — task records are namespaced by feature, but only for a feature that has a
-// decision register (feature 045, IC-001 / IC-002; FR-006, FR-007).
+// task-scope.test.js — task records are namespaced by feature (feature 045, IC-001 / IC-002), for
+// every feature a slug resolves to, with or without a decision register (115 C-1, D-2).
 //
-// A task id such as `A.1` repeats across features. Two scratch features share that id here; the one
-// with a register keeps its records under its own slug and never reads the other's, and the one
-// without keeps the flat layout exactly, so a folder from before the register behaves as before.
+// A task id such as `A.1` repeats across features. Two scratch features share that id here; each keeps
+// its records under its own slug and never reads the other's. A flat record from before that rule is
+// read in place only when the namespaced file does not exist (115 D-3, worktree-records.e2e.test.js).
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -15,10 +15,10 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
-const { resolveFeature, resolveTaskScope, clearTaskScopeCache, setDefaultSlug } = require('../../src/runtime/task-scope.ts');
+const { resolveFeature, resolveTaskScope, clearTaskScopeCache, setRecordSlug } = require('../../src/runtime/task-scope.ts');
 
-// The `--slug` default and the per-root cache are process-wide; every test leaves them as it found them.
-test.afterEach(() => { setDefaultSlug(null); clearTaskScopeCache(); });
+// The call's record slug and the per-root cache are process-wide; every test leaves them as it found them.
+test.afterEach(() => { setRecordSlug(undefined); clearTaskScopeCache(); });
 
 test('resolveFeature memoizes the raw result per root and slug until the cache is cleared', () => {
   const root = suiteTempDir('doflow-task-scope-resolve-feature-');
@@ -81,23 +81,23 @@ function addEvidence(cwd, taskId, slug, locator) {
 
 const evidenceDir = (root) => path.join(root, '.doflow', 'state', 'evidence');
 
-test('a register feature namespaces its records; a feature without one keeps the flat file', () => {
+test('a feature namespaces its records with or without a register (115 D-2)', () => {
   const root = project('layout');
   addEvidence(root, 'A.1', WITH, 'a.js');
   addEvidence(root, 'A.1', WITHOUT, 'a.js');
 
   assert.ok(fs.existsSync(path.join(evidenceDir(root), WITH, 'A.1.json')), 'namespaced file written');
-  assert.ok(fs.existsSync(path.join(evidenceDir(root), 'A.1.json')), 'flat file written for the legacy feature');
-  assert.deepEqual(fs.readdirSync(evidenceDir(root)).sort(), [WITH, 'A.1.json'].sort());
+  assert.ok(fs.existsSync(path.join(evidenceDir(root), WITHOUT, 'A.1.json')), 'namespaced file written for the feature without a register');
+  assert.deepEqual(fs.readdirSync(evidenceDir(root)).sort(), [WITH, WITHOUT].sort(), 'no flat A.1 shared by the two');
 });
 
 test('the register feature never sees the other feature\'s records for the same task id', () => {
   const root = project('isolation');
-  addEvidence(root, 'A.1', WITHOUT, 'a.js');   // legacy feature writes flat A.1
+  addEvidence(root, 'A.1', WITHOUT, 'a.js');   // the feature without a register writes its own A.1
 
   const list = (slug) => json(root, ['evidence', '--task-id', 'A.1', '--slug', slug, '--action', 'list']);
-  assert.equal(list(WITH).data.evidenceCount, 0, 'namespaced read must not fall back to the flat file');
-  assert.equal(list(WITHOUT).data.evidenceCount, 1, 'legacy feature still reads its flat record');
+  assert.equal(list(WITH).data.evidenceCount, 0, 'a namespaced read never reads another namespace');
+  assert.equal(list(WITHOUT).data.evidenceCount, 1, 'the feature without a register reads its own record');
 
   addEvidence(root, 'A.1', WITH, 'a.js');
   addEvidence(root, 'A.1', WITH, 'a.js');
@@ -116,7 +116,7 @@ test('claims, outcome, retrieval and research records follow the same layout', (
 
   const legacy = json(root, ['claim', '--task-id', 'A.1', '--slug', WITHOUT, '--action', 'add', '--statement', 'y holds']);
   assert.equal(legacy.status, 0, legacy.stderr);
-  assert.ok(fs.existsSync(path.join(state, 'evidence', 'A.1_claims.json')));
+  assert.ok(fs.existsSync(path.join(state, 'evidence', WITHOUT, 'A.1_claims.json')));
   const seen = json(root, ['claim', '--task-id', 'A.1', '--slug', WITH, '--action', 'list']);
   assert.equal(JSON.stringify(seen.data).includes('y holds'), false, 'no claim from the other feature');
 
@@ -139,7 +139,7 @@ test('claims, outcome, retrieval and research records follow the same layout', (
   assert.equal(new ResearchRequestStore({ projectRoot: root, slug: WITH }).file('A.1'),
     path.join(state, 'research', WITH, 'A.1.json'));
   assert.equal(new ResearchRequestStore({ projectRoot: root, slug: WITHOUT }).file('A.1'),
-    path.join(state, 'research', 'A.1.json'));
+    path.join(state, 'research', WITHOUT, 'A.1.json'));
 });
 
 test('the context pack of a namespaced task contains only that feature\'s evidence', () => {
@@ -167,7 +167,7 @@ test('resolveTaskScope reports the namespace and the reason for every outcome', 
   assert.deepEqual(resolveTaskScope({ projectRoot: root, taskId: WITH, slug: WITH }),
     { namespace: null, slug: WITH, reason: 'feature-level-id' });
   assert.deepEqual(resolveTaskScope({ projectRoot: root, taskId: 'A.1', slug: WITHOUT }),
-    { namespace: null, slug: WITHOUT, reason: 'no-register' });
+    { namespace: WITHOUT, slug: WITHOUT, reason: 'namespaced' }, 'a register is not needed (115 D-2)');
 
   // No feature folder anywhere above, and a resolver that cannot name one: null, never a throw.
   const bare = suiteTempDir('doflow-task-scope-bare-');
@@ -236,23 +236,26 @@ test('readiness resolves the feature from the branch when no --slug is given', (
 test('an ambient --slug default routes a store, and clearing it restores the branch lookup', () => {
   const root = project('ambient');
   const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-  setDefaultSlug(WITH);
+  setRecordSlug(WITH);
   assert.equal(resolveTaskScope({ projectRoot: root, taskId: 'A.1' }).namespace, WITH);
   const ledger = new EvidenceLedger({ repoRoot: root });
   assert.equal(ledger.fileFor('A.1'), path.join(evidenceDir(root), WITH, 'A.1.json'));
-  setDefaultSlug(null);
+  // A call for which no slug resolved routes flat, and never falls back to the branch lookup.
+  setRecordSlug(null);
+  assert.equal(new EvidenceLedger({ repoRoot: root }).fileFor('A.1'), path.join(evidenceDir(root), 'A.1.json'));
+  setRecordSlug(undefined);
   assert.equal(new EvidenceLedger({ repoRoot: root }).fileFor('A.1'), path.join(evidenceDir(root), 'A.1.json'));
 });
 
-// ── a well-formed --slug that names no feature says so on stderr and changes nothing else ───────────
+// ── a well-formed --slug that names no feature folder says so on stderr ─────────────────────────────
 
-test('an explicit slug naming no feature notes it on stderr; stdout and the layout are unchanged', () => {
+test('an explicit slug naming no feature folder notes it on stderr; the records are kept under that slug', () => {
   const root = project('no-feature');
   const spawn = (extra) => spawnSync('node', [DOFLOW, 'evidence', '--task-id', 'A.1', '--action', 'list', '--json', ...extra],
     { cwd: root, env: { ...process.env, HOME: root }, encoding: 'utf8' });
   const named = spawn(['--slug', '099-nothing']);
   assert.equal(named.status, 0);
-  assert.equal(named.stderr, "doflow evidence: note: --slug '099-nothing' names no feature; using the shared task store\n");
+  assert.equal(named.stderr, "doflow evidence: note: --slug '099-nothing' names no feature folder; its records are kept under that slug\n");
   assert.deepEqual(JSON.parse(named.stdout), JSON.parse(spawn([]).stdout));
   // A real feature, with or without a register, and no --slug at all, are silent.
   assert.equal(spawn(['--slug', WITH]).stderr, '');
@@ -262,5 +265,5 @@ test('an explicit slug naming no feature notes it on stderr; stdout and the layo
   const bare = suiteTempDir('doflow-task-scope-bare2-');
   const res = spawnSync('node', [DOFLOW, 'evidence', '--task-id', 'A.1', '--slug', '099-nothing', '--action', 'list', '--json'],
     { cwd: bare, env: { ...process.env, HOME: bare }, encoding: 'utf8' });
-  assert.match(res.stderr, /names no feature/);
+  assert.match(res.stderr, /names no feature folder/);
 });

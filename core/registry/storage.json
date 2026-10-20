@@ -129,7 +129,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -147,7 +148,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -166,7 +168,8 @@
       ],
       "writers": [
         "src/runtime/readiness-record.ts",
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -184,7 +187,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -202,7 +206,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/outcome.ts"
+        "src/runtime/outcome.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -221,7 +226,8 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/retrieval-record.ts"
+        "src/runtime/retrieval-record.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -389,7 +395,8 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/workflow-orchestrator.ts"
+        "src/runtime/workflow-orchestrator.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -484,6 +491,25 @@
       ],
       "writers": [
         "src/runtime/advice/record.ts"
+      ]
+    },
+    {
+      "id": "slots-user",
+      "root": "user-state",
+      "path": "slots",
+      "entry": "record",
+      "match": "^[a-z0-9][a-z0-9-]{0,63}\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 64,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/slots.ts"
       ]
     },
     {

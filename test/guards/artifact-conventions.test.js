@@ -364,7 +364,7 @@ const CHECKER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', '
  * header comment, so the comparison is against behaviour rather than a second transcription. */
 function implementedRules() {
   const text = read(CHECKER);
-  return new Set([...text.matchAll(/\bfinding\("([a-z]+)"/g)].map(([, rule]) => rule));
+  return new Set([...text.matchAll(/\bfinding\("([a-z-]+)"/g)].map(([, rule]) => rule));
 }
 
 /** Section 9's "Checked:" line, split into the clauses it separates with `·`. */

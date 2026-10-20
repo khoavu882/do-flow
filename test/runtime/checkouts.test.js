@@ -1,6 +1,7 @@
 'use strict';
 // checkouts.test.js — the repository's checkouts from one `git worktree list`, and a state file
-// looked up in the current checkout first, then in the others.
+// looked up in the main checkout first from a linked worktree (115 C-3), else in the current
+// checkout first, then in the others.
 //
 // Every repository is built under one scratch root removed when the file finishes; git runs with
 // no global config and a fixed identity, so nothing here reads or writes the user's settings.
@@ -154,14 +155,36 @@ function unplace(...dirs) {
 
 const noGit = () => { throw new Error('git must not run when the file is in the current checkout'); };
 
-test('findStateFile: a file in the current checkout is found without a git call', () => {
+test('findStateFile: from the main checkout a file there is found without a git call', () => {
   place(at.wt);
   place(at.m);
   try {
     clearCheckoutCache();
-    const r = findStateFile({ stateRoot: at.wt, relPath: REL, exec: noGit });
-    assert.deepEqual(r, { status: 'found', file: path.join(at.wt, REL), root: at.wt, origin: 'current', candidates: [] });
+    const r = findStateFile({ stateRoot: at.m, relPath: REL, exec: noGit });
+    assert.deepEqual(r, { status: 'found', file: path.join(at.m, REL), root: at.m, origin: 'current', candidates: [] });
   } finally { unplace(at.wt, at.m); }
+});
+
+test('findStateFile: from a linked worktree the main checkout\'s file is read first; a copy with other bytes is a conflict', () => {
+  place(at.wt);
+  place(at.m);
+  try {
+    clearCheckoutCache();
+    assert.deepEqual(findStateFile({ stateRoot: at.wt, relPath: REL }),
+      { status: 'found', file: path.join(at.m, REL), root: at.m, origin: 'other', candidates: [] }, 'equal bytes are one record');
+    fs.writeFileSync(path.join(at.wt, REL), '{"stale":true}\n');
+    assert.deepEqual(findStateFile({ stateRoot: at.wt, relPath: REL }),
+      { status: 'conflict', file: null, root: null, origin: null, candidates: [path.join(at.wt, REL), path.join(at.m, REL)] });
+  } finally { unplace(at.wt, at.m); }
+});
+
+test('findStateFile: from a linked worktree a file only there is found when the main checkout has none', () => {
+  place(at.wt);
+  try {
+    clearCheckoutCache();
+    assert.deepEqual(findStateFile({ stateRoot: at.wt, relPath: REL }),
+      { status: 'found', file: path.join(at.wt, REL), root: at.wt, origin: 'current', candidates: [] });
+  } finally { unplace(at.wt); }
 });
 
 test('findStateFile: a file in exactly one other checkout is found there', () => {
@@ -173,16 +196,22 @@ test('findStateFile: a file in exactly one other checkout is found there', () =>
   } finally { unplace(at.m); }
 });
 
-test('findStateFile: the same file in two other checkouts is ambiguous and names both', () => {
+test('findStateFile: the main checkout\'s file decides over another worktree\'s; two other worktrees are ambiguous and named', () => {
   place(at.m);
   place(at.wt2);
   try {
     clearCheckoutCache();
-    const r = findStateFile({ stateRoot: at.wt, relPath: REL });
+    assert.equal(findStateFile({ stateRoot: at.wt, relPath: REL }).file, path.join(at.m, REL));
+  } finally { unplace(at.m, at.wt2); }
+  place(at.wt);
+  place(at.wt2);
+  try {
+    clearCheckoutCache();
+    const r = findStateFile({ stateRoot: at.m, relPath: REL });
     assert.equal(r.status, 'ambiguous');
     assert.equal(r.file, null);
-    assert.deepEqual(r.candidates, [path.join(at.m, REL), path.join(at.wt2, REL)]);
-  } finally { unplace(at.m, at.wt2); }
+    assert.deepEqual(r.candidates, [path.join(at.wt, REL), path.join(at.wt2, REL)]);
+  } finally { unplace(at.wt, at.wt2); }
 });
 
 test('findStateFile: a file in no checkout is missing', () => {
