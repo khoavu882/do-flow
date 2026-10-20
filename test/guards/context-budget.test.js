@@ -13,8 +13,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared');
-const { GENERATED_EXCLUSIONS, alwaysLoaded, measureSource } = require('../helper/always-loaded');
+const { GENERATED_EXCLUSIONS, alwaysLoaded, measureSource, lineCount } = require('../helper/always-loaded');
 const { resolveTransform } = require('../../src/adapters/copy-tree.ts');
+const { guidanceManifest } = require('../../src/adapters/guidance-manifest.ts');
 const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 // The ceiling, in bytes, over the DoFlow-authored always-loaded set.
@@ -73,32 +74,52 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
 
 /**
  * What each harness loads before the user types, classified from the registry rather than named per
- * harness: a harness's projections and `WHOLESALE_ASSETS` decide which components it pays for. A
- * harness no condition matches is refused, so a ninth harness cannot be reported as costing nothing.
+ * harness (IC-006). A harness's projections and `WHOLESALE_ASSETS` decide which components it pays for:
+ *   - `guidance.core`: the pointer plus the @import walk;
+ *   - a copy-tree-family projection that declares `select`: the core set after that projection's
+ *     transform, listed through `guidanceManifest` (or `selectFiles`, the injection point of the controls);
+ *   - a wholesale projection with no `select`: the whole source tree;
+ *   - `guidance.codex-pointer`: the pointer, plus the walk when the harness has no selected projection
+ *     (the pointer tells the agent to read DOFLOW_CORE.md, so the walk is paid on instruction).
+ * A harness no condition matches is refused, so a ninth harness cannot be reported as costing nothing.
  */
-function alwaysLoadedByHarness({ harnesses, assets }, wholesale) {
+function alwaysLoadedByHarness({ harnesses, assets }, wholesale, selectFiles = (dir) => guidanceManifest(dir, fs).files) {
   const walk = alwaysLoaded().files;
+  const walkSize = {
+    lines: walk.reduce((n, file) => n + file.lines, 0), bytes: walk.reduce((n, file) => n + file.bytes, 0),
+  };
   const projection = (harness, assetId) => assets.find((asset) => asset.id === assetId)?.projection?.[harness];
   const sourceOf = (assetId) => assets.find((asset) => asset.id === assetId).source;
+  const measureSelected = (assetId, projected) => {
+    const source = sourceOf(assetId);
+    const transform = resolveTransform(projected.transform);
+    return selectFiles(path.join(REPO, source)).reduce((total, rel) => {
+      let bytes = fs.readFileSync(path.join(REPO, source, rel));
+      if (transform) bytes = transform(path.join(source, rel), bytes);
+      return { lines: total.lines + lineCount(bytes.toString('utf8')), bytes: total.bytes + bytes.length };
+    }, { lines: 0, bytes: 0 });
+  };
   return harnesses.map(({ id }) => {
     const parts = [];
     const add = (basis, size) => parts.push({ basis, ...size });
+    const selectedAssets = assets.filter((asset) => asset.projection?.[id]?.select);
+    const selected = selectedAssets.length > 0;
     if (projection(id, 'guidance.core')) {
       add('pointer', measureSource(sourceOf('guidance.core')));
-      add('+ @import walk', {
-        lines: walk.reduce((n, file) => n + file.lines, 0), bytes: walk.reduce((n, file) => n + file.bytes, 0),
-      });
+      add('+ @import walk', walkSize);
     }
     if (projection(id, 'guidance.codex-pointer')) {
-      add('pointer; DOFLOW_CORE.md read on instruction', measureSource(sourceOf('guidance.codex-pointer')));
+      add('pointer', measureSource(sourceOf('guidance.codex-pointer')));
+      if (!selected) add('+ DOFLOW_CORE.md read on instruction', walkSize);
     }
-    const copilot = projection(id, 'instructions.copilot');
-    if (copilot) {
-      add("+ rules as applyTo '**'", measureSource(sourceOf('instructions.copilot'), resolveTransform(copilot.transform)));
+    for (const asset of selectedAssets) {
+      const projected = asset.projection[id];
+      add(`+ core set via ${asset.id} select ${projected.select}${projected.transform ? ` (${projected.transform})` : ''}`,
+        measureSelected(asset.id, projected));
     }
-    if (projection(id, 'rules.antigravity')) add('+ rules copy', measureSource(sourceOf('rules.antigravity')));
-    if ((wholesale[id] ?? []).includes('guidance.context-layer')) {
-      add('whole guidance tree as steering', measureSource(sourceOf('guidance.context-layer')));
+    for (const assetId of wholesale[id] ?? []) {
+      if (projection(id, assetId)?.select) continue;
+      add(`+ whole ${assetId} tree as steering`, measureSource(sourceOf(assetId)));
     }
     if (!parts.length) throw new Error(`no always-loaded rule for harness ${id}; classify it in alwaysLoadedByHarness`);
     return {
@@ -141,6 +162,64 @@ test('G13: controls — a harness no condition matches is refused', () => {
   assert.equal(claude.basis, 'pointer + @import walk');
   assert.ok(claude.bytes > alwaysLoaded().files.reduce((n, file) => n + file.bytes, 0),
     'a harness importing the walk must pay for the walk plus its pointer');
+});
+
+// ── G13 (IC-006): every harness loads the core set and a bounded overhead ────────────────────────
+//
+// 1,024 B: the most a harness may load beyond the core set itself. The legitimate overhead is the
+// harness's pointer text (claude/gemini and codex-family pointers) and the per-file `applyTo` front
+// matter Copilot's rule transform adds; a harness that loads a whole unselected tree (the shape
+// before 107-B) exceeds it by orders of magnitude. Raising it needs the new number and its reason.
+const PROJECTION_OVERHEAD_MAX = 1024;
+
+/** The rows of `rows` outside walk <= bytes <= walk + max, as readable strings naming the harness. */
+function parityViolations(rows, max = PROJECTION_OVERHEAD_MAX) {
+  const walkBytes = alwaysLoaded().files.reduce((n, file) => n + file.bytes, 0);
+  return rows.flatMap((row) => {
+    if (row.bytes < walkBytes) return [`${row.harness}: ${row.bytes} B is below the ${walkBytes} B core set (${row.basis})`];
+    if (row.bytes > walkBytes + max) {
+      return [`${row.harness}: ${row.bytes} B is ${row.bytes - walkBytes} B over the core set, more than ${max} B (${row.basis})`];
+    }
+    return [];
+  });
+}
+
+const cloneRegistry = () => JSON.parse(JSON.stringify(readRegistry()));
+
+test('G13: every harness loads the core set and at most a fixed overhead more', () => {
+  const registry = readRegistry();
+  const rows = alwaysLoadedByHarness(registry, WHOLESALE_ASSETS);
+  assert.equal(rows.length, registry.harnesses.length);
+  assert.deepEqual(parityViolations(rows), [],
+    'a harness loads less than the core set or far more than it; fix the projection, do not raise the bound');
+});
+
+test('G13: controls — Kiro without select fails the upper bound and names kiro', () => {
+  const registry = cloneRegistry();
+  delete registry.assets.find((asset) => asset.id === 'guidance.context-layer').projection.kiro.select;
+  const violations = parityViolations(alwaysLoadedByHarness(registry, WHOLESALE_ASSETS));
+  assert.equal(violations.length, 1, violations.join('\n'));
+  assert.match(violations[0], /^kiro: .* over the core set/);
+});
+
+test('G13: controls — a pointer-only harness without its pointer projection fails the lower bound', () => {
+  const registry = cloneRegistry();
+  delete registry.assets.find((asset) => asset.id === 'guidance.codex-pointer').projection.codex;
+  assert.throws(() => alwaysLoadedByHarness(registry, WHOLESALE_ASSETS), /no always-loaded rule for harness codex/);
+  // The same harness with a stub rule below the walk fails the lower bound.
+  const rows = [{ harness: 'codex', basis: 'pointer only', lines: 1, bytes: 10 }];
+  assert.match(parityViolations(rows)[0], /^codex: 10 B is below the \d+ B core set/);
+});
+
+test('G13: controls — a selector returning every source file fails the upper bound', () => {
+  const everyFile = (dir) => require('../../src/adapters/copy-tree.ts').walkRelFiles(dir, fs);
+  const violations = parityViolations(alwaysLoadedByHarness(readRegistry(), WHOLESALE_ASSETS, everyFile));
+  assert.ok(violations.some((line) => line.startsWith('kiro: ')), violations.join('\n'));
+});
+
+test('G13: controls — the overhead bound binds (a bound of 0 turns the real registry red)', () => {
+  const rows = alwaysLoadedByHarness(readRegistry(), WHOLESALE_ASSETS);
+  assert.notDeepEqual(parityViolations(rows, 0), [], 'no harness carries any overhead; the bound would not bind');
 });
 
 // ── G13 (same budget family): loaded context per representative task ─────────────────────────────
