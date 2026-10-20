@@ -51,6 +51,7 @@ function assertNoBackupRequiresForce(o: any): void {
 
 function parseArgs(argv: string[]): any {
   const o: any = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false, adopt: false,
+    otlpHttp: false,
     noBackup: false, prune: null, global: false, json: false, help: false, version: false,
     tools: null, action: 'status', days: null, slug: null,
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
@@ -65,6 +66,7 @@ function parseArgs(argv: string[]): any {
       case '-h': case '--help': o.help = true; break;
       case '-v': case '--version': o.version = true; break;
       case '-n': case '--dry-run': o.dryRun = true; break;
+      case '--otlp-http': o.otlpHttp = true; break;
       case '-f': case '--force': o.force = true; break;
       case '--adopt': o.adopt = true; break;
       // task-attempt --action cancel (run): a switch, so it cannot go through parseRuntimeFlag,
@@ -375,7 +377,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--spawn-grant', 'spawnGrant'],     // dispatch start: the spawn grant declaration as JSON
   ['--dispatch', 'dispatch'],          // dispatch submit: a d-<12 hex> dispatch id
   ['--child-of', 'childOf'],           // worker run: the granter's w-<12 hex> run id
-  ['--run', 'run'],                    // trace spans: keep one run key or run id (088 IC-011)
+  ['--run', 'run'],                    // trace spans, trace analyze, trace export: keep one run key or run id (088 IC-011, 091 IC-001, 091 IC-006)
+  ['--emit', 'emit'],                  // trace analyze: print a batch for an existing verb, evidence | followups (091 IC-001)
   ['--row', 'row'],                    // roadmap: restricts the step to one in-flight row (108 IC-001)
   ['--draft', 'draft'],                // roadmap seed: the draft file to check, apply or amend (113 IC-001)
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
@@ -500,7 +503,9 @@ Commands:
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
   recover              Classify a verification failure and plan the bounded retry (--error)
-  trace                Trajectory of the current or most recent workflow (run ledger)
+  trace                Trajectory of the current or most recent workflow (run ledger);
+                       trace spans [<project>] the span view; trace analyze [<project>] its detectors (exit 1 on a finding);
+                       trace export --otlp-http [<project>] export spans via OTLP/HTTP
   stats                Aggregate local run-ledger usage
   indicators           Per-stage and per-gate timings from the orchestration record
   discover             Missed capability opportunities in recorded runs
@@ -547,12 +552,17 @@ Options:
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
       --prune <N>      Keep the N newest backups after install or update (default 3; 0 keeps all)
       --days <N>       Run-ledger window in calendar days (trace, stats, discover)
-      --run <key|id>   trace spans: keep the traces of one run key or run id
+      --run <key|id>   trace spans, trace analyze, trace export: keep the traces of one run key or run id
+      --emit evidence|followups
+                       trace analyze: print only the batch for evidence --action add --batch -,
+                       or for followup --action add --batch <file> (with --task-id, cites its evidence)
+      --otlp-http      trace export: export spans to an OpenTelemetry collector via OTLP/HTTP JSON
       --slug <name>    Scaffold this feature instead of the branch-resolved active one
 
 Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack, outcome --action record
-      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve
+      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve,
+                       trace analyze --emit followups (the ledger read for evidence ids)
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
                        verify: report|contract · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure · tools: see above

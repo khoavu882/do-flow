@@ -90,10 +90,13 @@ function evidenceRoot(o: any): string {
   return path.resolve(o.positional[0] || '.');
 }
 
-/** `trace spans [<project>]` (088 IC-011): the view name takes the first positional slot, so the
+/** The `trace` views that take the first positional slot: `spans` (088 IC-011), `analyze` (091 IC-001), `export` (091 IC-006). */
+const TRACE_VIEWS = new Set(['spans', 'analyze', 'export']);
+
+/** `trace spans|analyze|export [<project>]`: the view name takes the first positional slot, so the
  * project root is the one after it. Every other call is `evidenceRoot(o)`. */
 function traceViewRoot(o: any): string {
-  return o.cmd === 'trace' && o.positional[0] === 'spans' && !o.global ? path.resolve(o.positional[1] || '.') : evidenceRoot(o);
+  return o.cmd === 'trace' && TRACE_VIEWS.has(o.positional[0]) && !o.global ? path.resolve(o.positional[1] || '.') : evidenceRoot(o);
 }
 
 /** `roadmap`: the runner, or the `seed` sub-verb (113 IC-001), which takes the first positional slot and sets the exit code itself. */
@@ -103,9 +106,37 @@ function handleRoadmapVerbCommand(o: any): number {
   return handleRoadmapCommand({ action, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
 }
 
-/** `trace`: the ledger trajectory, unchanged, or the `spans` view, whose module loads only for that
- * view so `trace` and `stats` read nothing new (NFR-010). */
-function handleTraceViewCommand(o: any): number {
+/**
+ * Where `trace analyze --emit followups --task-id` reads the task's evidence ledger: the store root
+ * and record slug the `evidence` verb writes under (115 IC-004, C-1), so a linked worktree reads the
+ * main checkout's namespaced ledger. Read only: no sweep, so a record still left in the worktree's
+ * own store is not cited. Undefined when no ledger is read; the handler refuses the flag mix itself.
+ */
+function analyzeLedgerRoot(o: any): string | undefined {
+  if (o.emit !== 'followups' || typeof o.taskId !== 'string') return undefined;
+  const caller = traceViewRoot(o);
+  const checkouts = !o.global && mayBeLinked(caller) ? listCheckouts({ cwd: caller }) : null;
+  setRecordSlug(() => o.slug || callerFeatureSlug({ projectRoot: caller, taskId: o.taskId }) || null);
+  return taskStateRoot({ global: o.global, positional: [caller] }, checkouts).root;
+}
+
+/** `trace`: the ledger trajectory, unchanged, or the `spans`, `analyze` or `export` view, whose modules load
+ * only for that view so `trace` and `stats` read nothing new (NFR-010, 091 NFR-009). */
+function handleTraceViewCommand(o: any): any {
+  if (o.positional[0] === 'analyze') {
+    return require('../runtime/trace/analyze.ts').handleTraceAnalyze({ positional: o.positional.slice(1), run: o.run, json: o.json, global: o.global,
+      emit: o.emit, taskId: o.taskId, stateRoot: analyzeLedgerRoot(o) });
+  }
+  if (o.positional[0] === 'export') {
+    return require('../runtime/trace/otlp-export.ts').handleTraceExport({
+      positional: o.positional.slice(1),
+      run: o.run,
+      json: o.json,
+      global: o.global,
+      dryRun: o.dryRun,
+      otlpHttp: o.otlpHttp,
+    });
+  }
   if (o.positional[0] !== 'spans') return handleTraceCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
   return require('../runtime/trace/spans.ts').handleTraceSpans({ positional: o.positional.slice(1), run: o.run, json: o.json, global: o.global });
 }

@@ -143,12 +143,30 @@ nudge_message() {
 # scoped summary, the warning, a grant, the nudge's place in the budget), prints the response and
 # marks the session nudged and records `advisory prompt-nudge` itself when the nudge was rendered.
 
+# Rider R1 (091): the emission metadata for the bridge's hook line, as one record on the decision
+# fd after the decision records: the reason, the byte count and the digest, never a response byte. The
+# bridge validates each value before it writes it. Telemetry off or no fd writes nothing.
+doflow_emit_record() {
+  local fd="${DOFLOW_DECISION_FD:-}" digest=null
+  [ "${DOFLOW_TELEMETRY:-}" != off ] && [ -n "${DF_EMIT_REASON:-}" ] || return 0
+  [ -z "${DF_EMIT_DIGEST:-}" ] || digest="\"$DF_EMIT_DIGEST\""
+  case "$fd" in
+    3|4|5|6|7|8|9)
+      { printf '\036{"v":1,"emit":{"reason":"%s","bytes":%s,"digest":%s}}\n' "$DF_EMIT_REASON" "${DF_EMIT_BYTES:-0}" "$digest" >&"$fd"; } 2>/dev/null || :
+      ;;
+  esac
+  return 0
+}
+
 NUDGE=$(nudge_message 2>/dev/null) || NUDGE=""
 if ! declare -F doflow_emit_prompt >/dev/null 2>&1; then
   ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure user-prompt-submit emission-deps ) >/dev/null 2>&1 || true
   printf '{}\n'
+  DF_EMIT_REASON=fault:deps DF_EMIT_BYTES=0 DF_EMIT_DIGEST=""
+  doflow_emit_record
   exit 0
 fi
 doflow_emit_prompt "$SESSION_ID" "$CWD" "$PAYLOAD_TITLE" "$SUBAGENT" "$NUDGE"
+doflow_emit_record
 
 exit 0

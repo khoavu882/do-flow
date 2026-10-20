@@ -17,12 +17,13 @@ const { REPO } = require('./_shared');
 const { tempDir, suiteTempDir, removeTree } = require('../helper/tmp');
 const { TelemetryWriter } = require('../../src/runtime/trace/telemetry.ts');
 const { RunLedger } = require('../../src/runtime/trace/ledger.ts');
+const { attributeRule } = require('../../src/runtime/trace/otlp-map.ts');
 
 const REGISTRY_FILE = 'core/registry/telemetry.json';
 const WRITER_FILE = 'src/runtime/trace/telemetry.ts';
 const FIXTURE_DIR = 'test/fixtures/telemetry';
 const TUPLE_FIXTURE_FIELDS = {
-  hook: ['role', 'worker_run', 'test_class', 'tool_duration_ms'],
+  hook: ['role', 'worker_run', 'test_class', 'tool_duration_ms', 'emit_reason', 'emit_bytes', 'emit_digest'],
   'verify.run': ['dispatch_run'],
 };
 const TYPE_ATOMS = new Set(['token', 'id', 'uint', 'int', 'hex16', 'hex32', 'iso8601ms', 'date', 'null']);
@@ -80,7 +81,9 @@ function checkRegistryShape(registry) {
   for (const entry of registry.excludedStores || []) {
     if (!entry.store || !String(entry.reason || '').trim()) at('excludedStores', 'every entry needs a store and a reason');
   }
-  if (/gen_ai\./.test(JSON.stringify(registry))) at('', "no 'gen_ai.*' key belongs to contract v1 (FR-001)");
+  const withoutExport = { ...registry };
+  delete withoutExport.export;
+  if (/gen_ai\./.test(JSON.stringify(withoutExport))) at('', "no 'gen_ai.*' key belongs to contract v1 (FR-001)");
   return errors;
 }
 
@@ -251,18 +254,133 @@ function checkNoNodeOnHooks(files) {
 
 // --- G45.3: no network client in the runtime ----------------------------------------------------
 
-/** The model-endpoint client of feature 072; 088 adds nothing here (NFR-006). */
-const PINNED_NETWORK_FILES = ['src/runtime/advice/client.ts', 'src/runtime/advice/endpoint-guard.ts'];
-const NETWORK_USE = /(?:require\(\s*|from\s+|import\(\s*)['"](?:node:)?(?:http|https|http2|net|tls|dgram|dns|undici)['"]|(?<![.\w])fetch\s*\(|\bundici\b/;
+/** The model-endpoint client of feature 072; 091 adds otlp-export.ts (DEC-008, O1). */
+const PINNED_NETWORK_FILES = ['src/runtime/advice/client.ts', 'src/runtime/advice/endpoint-guard.ts', 'src/runtime/trace/otlp-export.ts'];
+const NETWORK_ROOTS = ['src'];
+const NETWORK_EXT = /\.(?:ts|js|mjs|cjs|mts|cts)$/;
+const NETWORK_MODULES = /^(?:node:)?(?:http|https|http2|net|tls|dgram|dns|undici)(?:\/.*)?$/;
+/** Identifiers that reach the network without a module load (C-2): any reference, member access included. */
+const NETWORK_IDENTIFIERS = /(?<![\w$])(?:fetch|WebSocket|EventSource|getBuiltinModule|undici)(?![\w$])|(?<![\w$.])(?:globalThis|global)\s*(?:\?\.)?\s*\[|\bprocess\s*\.\s*(?:binding|_linkedBinding)\b/g;
+
+/**
+ * The source with comments blanked and string, template and regex literal bodies masked, keeping
+ * offsets and newlines, plus the string literals found: `{ code, literals: [{ start, end, value }] }`.
+ * A template literal is kept as one literal only when it has no `${`.
+ */
+function maskSource(text) {
+  const out = text.split('');
+  const literals = [];
+  const blank = (from, to, keepQuotes) => {
+    for (let k = from; k < to; k += 1) {
+      if (out[k] === '\n') continue;
+      if (keepQuotes && (k === from || k === to - 1)) continue;
+      out[k] = keepQuotes ? 'x' : ' ';
+    }
+  };
+  const regexAllowedAfter = /[(,=:[!&|?{};+\-*%<>~^]$|(?:^|[^\w$])(?:return|typeof|case|do|else|in|of|void|yield|await)$/;
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (c === '/' && next === '/') {
+      let j = text.indexOf('\n', i);
+      if (j === -1) j = text.length;
+      blank(i, j, false);
+      i = j;
+      continue;
+    }
+    if (c === '/' && next === '*') {
+      let j = text.indexOf('*/', i + 2);
+      j = j === -1 ? text.length : j + 2;
+      blank(i, j, false);
+      i = j;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < text.length && text[j] !== c && text[j] !== '\n') j += text[j] === '\\' ? 2 : 1;
+      const end = Math.min(j + 1, text.length);
+      literals.push({ start: i, end, quote: c, value: text.slice(i + 1, end - 1) });
+      blank(i, end, true);
+      i = end;
+      continue;
+    }
+    if (c === '`') {
+      // Template text is masked; `${...}` expressions stay code. Only a template with none is a literal.
+      let j = i + 1;
+      let interpolated = false;
+      while (j < text.length && text[j] !== '`') {
+        if (text[j] === '\\') { if (text[j + 1] !== '\n') out[j + 1] = 'x'; out[j] = 'x'; j += 2; continue; }
+        if (text[j] === '$' && text[j + 1] === '{') {
+          interpolated = true;
+          let depth = 1;
+          j += 2;
+          while (j < text.length && depth > 0) {
+            if (text[j] === '{') depth += 1;
+            else if (text[j] === '}') depth -= 1;
+            j += 1;
+          }
+          continue;
+        }
+        if (text[j] !== '\n') out[j] = 'x';
+        j += 1;
+      }
+      const end = Math.min(j + 1, text.length);
+      if (!interpolated) literals.push({ start: i, end, quote: c, value: text.slice(i + 1, end - 1) });
+      i = end;
+      continue;
+    }
+    if (c === '/' && regexAllowedAfter.test(text.slice(Math.max(0, i - 12), i).trimEnd() || '(')) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < text.length && text[j] !== '\n') {
+        if (text[j] === '\\') j += 1;
+        else if (text[j] === '[') inClass = true;
+        else if (text[j] === ']') inClass = false;
+        else if (text[j] === '/' && !inClass) break;
+        j += 1;
+      }
+      if (text[j] === '/') {
+        blank(i, j + 1, true);
+        i = j + 1;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return { code: out.join(''), literals };
+}
+
+/** Network use in one file (C-2): a network module load, a network identifier, or a load with a non-literal argument. */
+function networkUses(text) {
+  const { code, literals } = maskSource(text);
+  const literalAt = new Map(literals.map((lit) => [lit.start, lit]));
+  const hits = [];
+  const add = (offset, what) => hits.push({ line: text.slice(0, offset).split('\n').length, what });
+  for (const match of code.matchAll(NETWORK_IDENTIFIERS)) add(match.index, match[0].trim());
+  // require(...) and import(...): the argument must be one plain string literal; then its module is checked.
+  for (const match of code.matchAll(/(?<![\w$.])(require|import)\s*\(/g)) {
+    let k = match.index + match[0].length;
+    while (/\s/.test(code[k] || '')) k += 1;
+    const lit = literalAt.get(k);
+    let after = lit ? lit.end : k;
+    while (/\s/.test(code[after] || '')) after += 1;
+    if (!lit || code[after] !== ')') { add(match.index, `${match[1]} with a non-literal argument`); continue; }
+    if (NETWORK_MODULES.test(lit.value)) add(match.index, `${match[1]}('${lit.value}')`);
+  }
+  // static import / export ... from '<module>' and bare import '<module>'
+  for (const match of code.matchAll(/(?<![\w$.])(?:from|import)\s*(?=['"])/g)) {
+    const lit = literalAt.get(match.index + match[0].length);
+    if (lit && NETWORK_MODULES.test(lit.value)) add(match.index, `import '${lit.value}'`);
+  }
+  return hits;
+}
 
 function checkNoNetwork(files) {
   const errors = [];
   for (const { rel, text } of files) {
     if (PINNED_NETWORK_FILES.includes(rel)) continue;
-    text.split('\n').forEach((line, index) => {
-      if (/^\s*(?:\/\/|\/\*|\*)/.test(line)) return;
-      if (NETWORK_USE.test(line)) errors.push(`${rel}:${index + 1} uses a network module outside an export module`);
-    });
+    for (const hit of networkUses(text)) errors.push(`${rel}:${hit.line} uses a network module outside an export module (${hit.what})`);
   }
   return errors;
 }
@@ -318,6 +436,108 @@ function checkStoreIsolation(registry, storage) {
   return errors;
 }
 
+// --- G45.7: the export block maps only closed descriptors and the analysis block is well formed ---
+
+const REQUIRED_ANALYSIS_KEYS = ['minSamples', 'tailRatio', 'minTailMs', 'retryRun'];
+const OWNED_NAMES_LISTS = new Set(['cli-commands', 'workflow-stages', 'workflow-classes']);
+const COMMIT_HEX40 = /^[0-9a-f]{40}$/;
+
+function checkExportMapping(reg) {
+  const errors = [];
+  const at = (where, message) => errors.push(`${REGISTRY_FILE} ${where}: ${message}`);
+
+  const analysis = reg.analysis;
+  if (!analysis || typeof analysis !== 'object' || Array.isArray(analysis)) {
+    at('analysis', 'missing or not an object');
+  } else {
+    for (const key of REQUIRED_ANALYSIS_KEYS) {
+      if (!Object.hasOwn(analysis, key)) {
+        at(`analysis.${key}`, 'missing key');
+      } else {
+        const val = analysis[key];
+        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
+          at(`analysis.${key}`, 'must be a positive integer');
+        }
+      }
+    }
+  }
+
+  const exp = reg.export;
+  if (!exp || typeof exp !== 'object' || Array.isArray(exp)) {
+    at('export', 'missing or not an object');
+    return errors;
+  }
+
+  const semconv = exp.semconv;
+  if (!semconv || typeof semconv !== 'object') {
+    at('export.semconv', 'missing or not an object');
+  } else {
+    if (typeof semconv.commit !== 'string' || !COMMIT_HEX40.test(semconv.commit)) {
+      at('export.semconv.commit', 'must be 40 lowercase hex');
+    }
+    if (typeof semconv.schemaUrl !== 'string' || !semconv.schemaUrl.startsWith('https://')) {
+      at('export.semconv.schemaUrl', 'must be an https:// URL');
+    }
+  }
+
+  const names = exp.names || {};
+  for (const [key, value] of Object.entries(names)) {
+    if (!OWNED_NAMES_LISTS.has(value)) {
+      at(`export.names.${key}`, `'${value}' must be one of cli-commands, workflow-stages, workflow-classes`);
+    }
+  }
+
+  const localFields = new Set([
+    ...(Array.isArray(reg.common) ? reg.common : []),
+    ...Object.keys(names),
+  ]);
+  const fieldClasses = new Map();
+  if (reg.commonClasses) {
+    for (const [key, cls] of Object.entries(reg.commonClasses)) {
+      if (!fieldClasses.has(key)) fieldClasses.set(key, new Set());
+      fieldClasses.get(key).add(cls);
+    }
+  }
+  for (const kindSpec of Object.values(reg.kinds || {})) {
+    for (const [key, field] of Object.entries(kindSpec.fields || {})) {
+      localFields.add(key);
+      if (!fieldClasses.has(key)) fieldClasses.set(key, new Set());
+      if (field.class) fieldClasses.get(key).add(field.class);
+    }
+  }
+
+  const vocabularies = reg.vocabularies || {};
+  const attributes = exp.attributes || {};
+  for (const [key, attrSpec] of Object.entries(attributes)) {
+    const where = `export.attributes.${key}`;
+    if (!localFields.has(key)) {
+      at(where, `'${key}' is not a local field`);
+    }
+
+    // The typed rule check the mapper itself applies (one shared function, C-1).
+    const checked = attributeRule(key, attrSpec);
+    if ('error' in checked) at(where, checked.error);
+
+    if (!('error' in checked) && checked.rule === 'vocabulary') {
+      const vocab = attrSpec.vocabulary;
+      const exists = Object.hasOwn(vocabularies, vocab) || OWNED_NAMES_LISTS.has(vocab);
+      if (!exists) {
+        at(`${where}.vocabulary`, `'${vocab}' is neither in vocabularies nor an owned list`);
+      }
+    }
+
+    const classes = fieldClasses.get(key) || new Set();
+    if (classes.has('T2-local')) {
+      at(where, `attribute '${key}' has class T2-local and cannot be exported`);
+    }
+    if (classes.has('T0') && ('error' in checked || checked.rule !== 'id')) {
+      at(where, `T0 attribute '${key}' listed without id: true`);
+    }
+  }
+
+  return errors;
+}
+
 // --- file helpers -------------------------------------------------------------------------------
 
 function filesUnder(relativeRoot, accept = () => true) {
@@ -367,7 +587,7 @@ test('G45.1: observer runtime has its own measure and the prose states hook late
   const runtime = hookRows.split('\n').find((line) => line.startsWith('| `tool_duration_ms` |'));
   assert.match(latency, /hook latency.*always null on `post-shell-observe`/);
   assert.match(runtime, /T1 \| P3 \|.*native `duration_ms` runtime on the observer.*null on other hook lines/);
-  assert.match(hookRows, /Hook lines carry no content and may reach about 600 bytes with maximum-length ids/);
+  assert.match(hookRows, /Hook lines carry no content and may reach about 700 bytes with maximum-length ids/);
   const v0 = contract.split('\n').find((line) => line.startsWith('| `verify.run` | `v0` |'));
   assert.match(v0, /L3 is null with the flag on and `off` with the flag off; dispatch is null/);
 });
@@ -402,9 +622,10 @@ test('G45.2: no node process is started on a shell hook path, and the node files
   assert.deepEqual(checkPinnedShellDoors(files), []);
 });
 
-test('G45.3: no network module or fetch under src/runtime outside the pinned advice client', () => {
-  const files = filesUnder('src/runtime', (rel) => /\.(?:ts|js)$/.test(rel));
+test('G45.3: no network module, fetch or dynamic load under src outside the pinned advice client and export sender', () => {
+  const files = NETWORK_ROOTS.flatMap((root) => filesUnder(root, (rel) => NETWORK_EXT.test(rel)));
   assert.ok(files.length > 50);
+  assert.ok(files.some(({ rel }) => rel.startsWith('src/cli/')), 'src/cli is scanned');
   for (const pinned of PINNED_NETWORK_FILES) assert.ok(files.some(({ rel }) => rel === pinned), `${pinned} exists`);
   assert.deepEqual(checkNoNetwork(files), []);
 });
@@ -429,6 +650,10 @@ test('G45.6: telemetry stores are declared runs/ subdirectories, and the ledger 
   fs.writeFileSync(path.join(dir, 'telemetry', '2026-10-17.jsonl'), `${JSON.stringify({ timestamp: '2026-10-17T00:00:00.000Z', kind: 'hook', verb: 'trace' })}\n`);
   const read = new RunLedger({ dir }).read();
   assert.deepEqual([read.files, read.records.length, read.malformedLines], [[], 0, 0], 'RunLedger lists only partitions directly under runs/');
+});
+
+test('G45.7: the export block maps only closed descriptors and the analysis block is well formed', () => {
+  assert.deepEqual(checkExportMapping(registry), []);
 });
 
 // --- Self-tests: every check fails on a planted violation ----------------------------------------
@@ -554,12 +779,63 @@ test('G45.2 self-test: the observer is a pinned shell front door and starting no
 
 test('G45.3 self-test: a network require, import or fetch fails; the pinned client and comments do not', () => {
   const run = (rel, text) => checkNoNetwork([{ rel, text }]);
-  assert.deepEqual(run('src/runtime/trace/x.ts', "const net = require('node:net');\n"), ['src/runtime/trace/x.ts:1 uses a network module outside an export module']);
+  assert.deepEqual(run('src/runtime/trace/x.ts', "const net = require('node:net');\n"), ["src/runtime/trace/x.ts:1 uses a network module outside an export module (require('node:net'))"]);
   assert.equal(run('src/runtime/x.ts', "import http from 'http';\n").length, 1);
   assert.equal(run('src/runtime/x.ts', 'const r = await fetch(url);\n').length, 1);
   assert.equal(run('src/runtime/x.ts', "const { request } = require('undici');\n").length, 1);
-  assert.deepEqual(run('src/runtime/x.ts', "// require('node:http')\n * fetch(x)\nconst a = git.fetch(1) || prefetch(2);\n"), []);
+  assert.equal(run('src/runtime/x.ts', 'const u = undici.request;\n').length, 1, 'the undici identifier');
+  assert.equal(run('src/runtime/trace/otlp-map.ts', 'const r = await fetch(url);\n').length, 1);
+  assert.deepEqual(run('src/runtime/trace/otlp-export.ts', 'const r = await fetch(url);\n'), []);
   assert.deepEqual(run('src/runtime/advice/client.ts', "const http = require('node:http');\n"), []);
+  // Comments, strings, templates and regex literals are not code.
+  assert.deepEqual(run('src/runtime/x.ts', [
+    "// require('node:http')", '/**', ' * fetch(x)', ' */', '/* fetch(u) */ const ok = 1;', "const msg = 'do not push, fetch or change git config';",
+    'const t = `git fetch ${depth} origin`;', 'const re = /fetch|WebSocket/;', "execFileSync('git', ['fetch', '--depth=1']);",
+    'const prefetched = prefetch(2);', "const p = require('./otlp-map.ts');", "import x from './local.ts';", "const q = await import('./lazy.ts');",
+  ].join('\n') + '\n'), []);
+});
+
+test('G45.3 self-test: every evasion shape of the review fails in an unpinned file (C-2)', () => {
+  const shapes = {
+    'plain fetch(': "const x = () => fetch('http://127.0.0.1:1');",
+    "require('node:http')": "const h = require('node:http');",
+    'https.request via require': "const h = require('https'); h.request('https://x');",
+    "require('node:net').connect": "require('node:net').connect(1);",
+    "import('node:http')": "const p = import('node:http');",
+    'globalThis.fetch(': "const x = () => globalThis.fetch('http://127.0.0.1:1');",
+    "globalThis['fe'+'tch'](": "const x = () => globalThis['fe' + 'tch']('http://127.0.0.1:1');",
+    "require('ht'+'tp')": "const h = require('ht' + 'tp');",
+    'require(`node:http`) template': 'const h = require(`node:http`);',
+    'require(`${x}`) template': 'const h = require(`${name}`);',
+    'multi-line require': "const h = require(\n  'node:http');",
+    'new WebSocket(': "const w = () => new WebSocket('ws://127.0.0.1:1');",
+    'new EventSource(': "const e = new EventSource('http://x');",
+    'alias const f = fetch': 'const f = fetch;',
+    '/**/ comment prefix then fetch(': "/**/ const x = () => fetch('http://127.0.0.1:1');",
+    "process.getBuiltinModule('node:http')": "const h = process.getBuiltinModule('node:http');",
+    'fetchImpl default (otlp-export shape)': "async function s(u, { fetchImpl = (globalThis as any).fetch } = {}) { return fetchImpl(u, { method: 'POST' }); }",
+    'member .fetch': 'const r = client.fetch(u);',
+    'require(variable)': 'const m = require(name);',
+    'import(variable)': 'const m = await import(spec);',
+    "export from 'node:tls'": "export { connect } from 'node:tls';",
+    'process.binding': "process.binding('tcp_wrap');",
+    'fetch inside a template expression': 'const s = `${await fetch(u)}`;',
+  };
+  for (const [name, code] of Object.entries(shapes)) {
+    for (const rel of ['src/runtime/trace/analyze.ts', 'src/cli/net-probe.ts', 'src/runtime/trace/net-probe.mjs', 'src/runtime/x.cjs']) {
+      assert.ok(checkNoNetwork([{ rel, text: `${code}\n` }]).length >= 1, `${name} in ${rel} is caught`);
+    }
+  }
+});
+
+test('G45.3 self-test: the real sender with its pin removed, or a verbatim copy under another name, fails (C-2)', () => {
+  const sender = fs.readFileSync(path.join(REPO, 'src/runtime/trace/otlp-export.ts'), 'utf8');
+  assert.deepEqual(checkNoNetwork([{ rel: 'src/runtime/trace/otlp-export.ts', text: sender }]), [], 'pinned');
+  const copy = checkNoNetwork([{ rel: 'src/runtime/trace/otlp-export-copy.ts', text: sender }]);
+  assert.ok(copy.length >= 1, 'a verbatim copy of the sender is caught');
+  assert.ok(copy.some((message) => /\(fetch\)/.test(message)), copy.join('\n'));
+  const advice = fs.readFileSync(path.join(REPO, 'src/runtime/advice/client.ts'), 'utf8');
+  assert.ok(checkNoNetwork([{ rel: 'src/runtime/advice/client-copy.ts', text: advice }]).length >= 1, 'a copy of the advice client is caught');
 });
 
 test('G45.4 self-test: a skill or guidance file naming a trace view or the baseline fails', () => {
@@ -588,4 +864,99 @@ test('G45.6 self-test: an undeclared store, a non-runs path, a ledger-shaped pat
   assert.match(checkStoreIsolation(registry, moved({ root: 'user-state' })).join('\n'), /must be a subdirectory of project-state runs\//);
   assert.match(checkStoreIsolation(registry, moved({ path: 'runs/2026-10-17.jsonl' })).join('\n'), /would be listed as a ledger partition/);
   assert.match(checkStoreIsolation(registry, moved({ writers: [] })).join('\n'), /does not list src\/runtime\/trace\/telemetry\.ts/);
+});
+
+test('G45.7 self-test: a 39-hex commit fails, naming commit', () => {
+  const copy = clone(registry);
+  copy.export.semconv.commit = '547934afa90a34298441caf80c43b27255c3a29';
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /commit/);
+});
+
+test('G45.7 self-test: an http schema URL fails, naming schemaUrl', () => {
+  const copy = clone(registry);
+  copy.export.semconv.schemaUrl = 'http://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev';
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /schemaUrl/);
+});
+
+test('G45.7 self-test: an attribute naming no local field fails, naming the field', () => {
+  const copy = clone(registry);
+  copy.export.attributes.not_a_field = { measure: true };
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /not_a_field/);
+});
+
+test('G45.7 self-test: a vocabulary name that does not exist fails, naming the vocabulary', () => {
+  const copy = clone(registry);
+  copy.export.attributes.event = { vocabulary: 'nonexistent_vocab' };
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /nonexistent_vocab/);
+});
+
+test('G45.7 self-test: id: true on session fails, naming session', () => {
+  const copy = clone(registry);
+  copy.export.attributes.session = { id: true };
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /session/);
+});
+
+test('G45.7 self-test: each type variant of the id rule and every malformed rule fails, naming the key (C-1)', () => {
+  const plants = [
+    ['session', { id: 1 }, /'session' id must be the boolean true/],
+    ['policy', { id: 'true' }, /'policy' id must be the boolean true/],
+    ['session', { vocabulary: 'harness', id: 1 }, /'session' must hold exactly one of id, vocabulary, measure/],
+    ['duration_ms', { measure: 'yes' }, /'duration_ms' measure must be the boolean true/],
+    ['event', { vocabulary: 'event', raw: true }, /'event' has unknown rule key\(s\) raw/],
+    ['event', {}, /'event' must hold exactly one/],
+    ['tool_call_id', { id: 1, export: 'gen_ai.tool.call.id' }, /'tool_call_id' id must be the boolean true/],
+  ];
+  for (const [key, spec, pattern] of plants) {
+    const copy = clone(registry);
+    copy.export.attributes[key] = spec;
+    assert.match(checkExportMapping(copy).join('\n'), pattern, `${key} ${JSON.stringify(spec)}`);
+  }
+});
+
+test('G45.7 self-test: a T2-local field listed in export.attributes fails, naming the field (C-12)', () => {
+  const copy = clone(registry);
+  const [kind] = Object.keys(copy.kinds);
+  copy.kinds[kind].fields.planted_local = { name: `doflow.${kind}.planted_local`, class: 'T2-local', type: 'token|null', phase: 'P2' };
+  copy.export.attributes.planted_local = { vocabulary: 'event' };
+  assert.match(checkExportMapping(copy).join('\n'), /attribute 'planted_local' has class T2-local and cannot be exported/);
+});
+
+test('G45.7 self-test: a T0 key listed without id fails, naming the key', () => {
+  const copy = clone(registry);
+  copy.export.attributes.session = {};
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /session/);
+});
+
+test('G45.7 self-test: a names value outside the three owned lists fails, naming the value', () => {
+  const copy = clone(registry);
+  copy.export.names.verb = 'not-an-owned-list';
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /not-an-owned-list/);
+});
+
+test('G45.7 self-test: an analysis key of 0 fails, naming the key', () => {
+  const copy = clone(registry);
+  copy.analysis.minSamples = 0;
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /minSamples/);
+});
+
+test('G45.7 self-test: a missing analysis key fails, naming the key', () => {
+  const copy = clone(registry);
+  delete copy.analysis.retryRun;
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /retryRun/);
+});
+
+test('G45.7 self-test: a planted gen_ai key in kinds fails checkRegistryShape', () => {
+  const copy = clone(registry);
+  copy.kinds.hook.fields.gen_ai_model = { name: 'gen_ai.request.model', class: 'T2', type: 'token', phase: 'P2' };
+  const errors = checkRegistryShape(copy);
+  assert.match(errors.join('\n'), /gen_ai/);
 });

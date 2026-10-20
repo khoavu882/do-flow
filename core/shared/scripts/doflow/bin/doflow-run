@@ -425,7 +425,7 @@ Verification and recovery:
   leak-scan        report DoFlow-internal identifiers in shipped files
 
 Observability:
-  trace            current run trajectory
+  trace            current run trajectory; trace spans: the span view; trace analyze: its detectors; trace export: OTLP/HTTP export
   stats            aggregate run usage
   indicators       per-stage and per-gate timings from the orchestration record
   discover         missed opportunities in recorded runs

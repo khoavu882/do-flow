@@ -3,10 +3,13 @@
 // 088 D.3 (G-O3, FR-002, NFR-005, IC-004, IC-006): compare real CLI and shared-bridge hook
 // outcomes as raw bytes with telemetry on, off and faulted. The loops keep all harness variants on
 // one install mirror and reuse one project per command; no command or fault case is dropped.
+// 091 E.1 (NFR-002): `trace`, `stats`, `discover` and `trace spans` print the same bytes with
+// telemetry on, off and with an OTLP endpoint configured; no export command runs, so nothing connects.
 
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const net = require('node:net');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { suiteTempDir, removeTree } = require('../helper/tmp');
@@ -106,7 +109,7 @@ let homeSequence = 0;
 function cleanEnv() {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
-    if (key.startsWith('DOFLOW_') || key === 'EPOCHREALTIME' || key === 'FORCE_COLOR') delete env[key];
+    if (key.startsWith('DOFLOW_') || key.startsWith('OTEL_') || key === 'EPOCHREALTIME' || key === 'FORCE_COLOR') delete env[key];
   }
   return env;
 }
@@ -578,3 +581,50 @@ test('G-O3: CLI verbs and bridge hooks are byte-identical on, off and faulted', 
   assert.equal(hookLines(hooks.root).length, 0, 'fault comparisons leave no telemetry line behind');
 });
 
+
+/** A 127.0.0.1 port that was bound and released, so a connection to it is refused. */
+function closedPort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+test('091 E.1 NFR-002: trace, stats, discover and trace spans are byte-identical with telemetry on, off and an OTLP endpoint set', { timeout: 60000 }, async () => {
+  const port = await closedPort();
+  const root = path.join(SCRATCH, 'read-verbs-project');
+  const data = path.join(root, 'data');
+  fs.mkdirSync(root, { recursive: true });
+  writeProject(root);
+  const cases = [
+    ['trace'], ['trace', '--json'], ['stats'], ['stats', '--json'],
+    ['discover'], ['discover', '--json'], ['trace', 'spans'], ['trace', 'spans', '--json'],
+  ];
+  const modes = [
+    { id: 'off', telemetry: 'off', extraEnv: {} },
+    { id: 'on', telemetry: 'on', extraEnv: {} },
+    { id: 'otlp-endpoint', telemetry: 'on', extraEnv: { OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${port}` } },
+  ];
+  let comparisons = 0;
+  for (const args of cases) {
+    const outcomes = modes.map((mode) => {
+      // Each trial reads freshly seeded stores at the same path, so a write by an earlier trial cannot leak into a later one.
+      fs.rmSync(data, { recursive: true, force: true });
+      fs.mkdirSync(path.join(data, '.doflow', 'state', 'runs'), { recursive: true });
+      seedTraceInputs(data);
+      const result = runCli(root, [...args, data], { telemetry: mode.telemetry, extraEnv: mode.extraEnv, label: mode.id });
+      assert.equal(result.status, 0, `${args.join(' ')}/${mode.id}: ${result.stderr.toString()}`);
+      assert.ok(result.stdout.length > 0, `${args.join(' ')}/${mode.id}: printed nothing`);
+      return result;
+    });
+    for (let i = 1; i < outcomes.length; i += 1) {
+      sameOutcome(outcomes[0], outcomes[i], `${args.join(' ')}/${modes[i].id}`);
+      comparisons += 1;
+    }
+  }
+  assert.equal(comparisons, cases.length * 2, 'every read verb compared on and with an endpoint against off');
+});

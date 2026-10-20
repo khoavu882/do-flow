@@ -20,7 +20,7 @@ const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const HOOK_FIXTURE = path.join(REPO, 'test/fixtures/telemetry/hook.jsonl');
 const ENVELOPE = '.doflow/shared/hooks/bridge/envelope.jq';
 const BASH = '/bin/bash';
-const LINE_KEYS = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt', 'role', 'worker_run', 'tool_duration_ms', 'test_class'];
+const LINE_KEYS = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'emit_reason', 'emit_bytes', 'emit_digest', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt', 'role', 'worker_run', 'tool_duration_ms', 'test_class'];
 const TEST_CLASS_VALUES = new Set(['verify.verb', 'test.full', 'test.scoped', 'test.other', 'none']);
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const INJECT_FROM = 'session:dft_token($d.identity.session)';
@@ -126,7 +126,7 @@ function utcDates() {
   return [now, now + 86400000].map((ms) => new Date(ms).toISOString().slice(0, 10));
 }
 
-const COUNTED_COMMANDS = ['bash', 'cat', 'date', 'dirname', 'jq', 'mkdir'];
+const COUNTED_COMMANDS = ['bash', 'cat', 'cksum', 'date', 'dirname', 'jq', 'mkdir'];
 let forkShimSets = 0;
 
 function shellQuote(value) {
@@ -180,6 +180,17 @@ function commandCountDelta(off, on) {
   }));
 }
 
+function commandCountMap(off) {
+  const commands = Array.isArray(off) ? off : off.commands;
+  const names = [...new Set(commands)].sort();
+  return Object.fromEntries(names.map((name) => [name, commands.filter((c) => c === name).length]));
+}
+
+const OFF_BASELINES = {
+  'claude:pre-bash-guard': { bash: 1, cat: 2, dirname: 1, jq: 2 },
+  'claude:user-prompt-submit': { bash: 1, cat: 2, dirname: 1, jq: 3, mkdir: 1 },
+};
+
 function assertForkBudget(counts, label) {
   const delta = counts.on.commands.length - counts.off.commands.length;
   assert.ok(delta <= 1, `${label}: telemetry adds ${delta} external commands; budget is 1`);
@@ -198,9 +209,14 @@ test('telemetry adds at most one external command on pre-bash-guard and user-pro
     const root = project();
     const counts = compareForkCounts(root, surface, fixtureNative(surface), shimDir);
     assertForkBudget(counts, key);
+    assert.deepEqual(commandCountMap(counts.off), OFF_BASELINES[key], `${key}: exact baseline OFF-mode command counts`);
     assert.deepEqual(counts.deltaByCommand, { mkdir: 1 }, `${key}: mkdir is the only added external command`);
     assert.deepEqual(counts.on.result, counts.off.result, `${key}: telemetry leaves hook output unchanged`);
     assert.equal(hookLines(path.join(root, '.doflow')).length, 1, `${key}: ON wrote one line`);
+    // Once the telemetry directory exists, telemetry adds no counted command at all (rider R1, 091).
+    const later = runCounted(root, surface, fixtureNative(surface), 'on', shimDir);
+    assert.deepEqual(commandCountDelta(counts.off, later), {}, `${key}: a later ON run adds no external command`);
+    assert.deepEqual(later.result, counts.off.result, `${key}: a later ON run leaves hook output unchanged`);
   }
 });
 
@@ -225,7 +241,7 @@ test('one allowlisted hook line per harness fixture, with the contract keys and 
   for (const surface of Object.values(SURFACES)) {
     const before = hookLines(path.join(root, '.doflow')).length;
     const native = fixtureNative(surface);
-    run(root, surface, native, { env });
+    const result = run(root, surface, native, { env });
     const lines = hookLines(path.join(root, '.doflow'));
     assert.equal(lines.length, before + 1, `${surface.harness}/${surface.policy}: one line`);
     const line = lines.at(-1);
@@ -239,7 +255,14 @@ test('one allowlisted hook line per harness fixture, with the contract keys and 
     assert.match(line.timestamp, TIMESTAMP);
     assert.deepEqual({ ...line, timestamp: 'T' }, {
       kind: 'hook', harness: surface.harness, event: surface.event, policy: surface.policy, verdict: 'allow',
-      duration_ms: null, timestamp: 'T', session: native.session_id || null, tool: surface.tool,
+      duration_ms: null,
+      // Rider R1 (091): null off the prompt policy; there, emit with the stdout byte count, else silence.
+      ...(surface.policy === 'pre-bash-guard'
+        ? { emit_reason: null, emit_bytes: null, emit_digest: null }
+        : result.stdout === '{}\n'
+          ? { emit_reason: 'silent:unchanged', emit_bytes: 0, emit_digest: null }
+          : { emit_reason: 'emit', emit_bytes: Buffer.byteLength(result.stdout), emit_digest: /^[0-9a-f]{8}$/.test(line.emit_digest) ? line.emit_digest : 'not-8-hex' }),
+      timestamp: 'T', session: native.session_id || null, tool: surface.tool,
       tool_call_id: surface.harness === 'pi' ? native.toolCallId : null, run: 'run-088', lineage: 'lineage-088', attempt: 2, role: null, worker_run: null,
       tool_duration_ms: null,
       test_class: surface.policy === 'pre-bash-guard' ? 'none' : null,
