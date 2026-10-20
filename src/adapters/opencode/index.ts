@@ -25,6 +25,7 @@ const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEnt
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { destructiveCommandGlobs } = require('../../helper/guardrails.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
+const { renderGuidancePointer } = require('../guidance-pointer.ts');
 
 const HARNESS = 'opencode';
 /**
@@ -308,7 +309,8 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
 
     const guidance = assets.find((asset: any) => asset.capability === 'instructions');
     if (guidance) {
-      const rendered = render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') });
+      const pointer = renderGuidancePointer(fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8'), { scope, scopeRoot });
+      const rendered = render({ content: pointer });
       const outcome = removing
         ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
         : managedInstruction(found.instruction, rendered);

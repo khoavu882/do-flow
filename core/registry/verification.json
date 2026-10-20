@@ -46,6 +46,23 @@
         "L1",
         "L2"
       ]
+    },
+    "reuse": {
+      "levels": [
+        "L1",
+        "L2"
+      ],
+      "maxAgeMs": 86400000,
+      "ignoredInputs": [
+        "node_modules/.package-lock.json",
+        "node_modules/.modules.yaml",
+        "node_modules/.yarn-state.yml",
+        ".pnp.cjs",
+        ".env",
+        ".env.local",
+        ".env.test",
+        ".venv/pyvenv.cfg"
+      ]
     }
   },
   "tierStatuses": [
@@ -292,7 +309,7 @@
       "riskLevels": [
         "MEDIUM"
       ],
-      "note": "impacted = broad-tests until 089"
+      "note": "impacted = broad-tests until an impact-replay verdict and a recorded decision enable selection (089)"
     },
     "L3": {
       "riskLevels": [

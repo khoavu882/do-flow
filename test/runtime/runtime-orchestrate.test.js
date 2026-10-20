@@ -143,13 +143,15 @@ test('a run started in the main checkout is read and updated from a linked workt
   execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'feat/other', wt], { stdio: 'ignore' });
   // The run names its feature, `other`, which is the worktree's branch feature: only then is it this task's.
   json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-cross', '--task-class', 'feature', '--slug', 'other']);
-  assert.equal(JSON.parse(fs.readFileSync(runFileOf(cwd, 't-cross'), 'utf8')).featureSlug, 'other');
+  // 115 C-1: a task id other than its feature's slug keeps its run under the feature's namespace.
+  const mainRun = path.join(cwd, '.doflow', 'state', 'orchestration', 'other', 't-cross.json');
+  assert.equal(JSON.parse(fs.readFileSync(mainRun, 'utf8')).featureSlug, 'other');
   const status = json(wt, ['orchestrate', '--action', 'status', '--task-id', 't-cross']);
   assert.equal(status.status, 0, status.stderr);
   assert.equal(status.data.taskId, 't-cross');
   const annotated = json(wt, ['orchestrate', '--action', 'annotate', '--task-id', 't-cross', '--node', 'discovery', '--note', 'from the worktree']);
   assert.equal(annotated.status, 0, annotated.stderr);
-  const journal = JSON.parse(fs.readFileSync(runFileOf(cwd, 't-cross'), 'utf8'));
+  const journal = JSON.parse(fs.readFileSync(mainRun, 'utf8'));
   assert.equal(journal.history.at(-1).note, 'from the worktree', 'the main checkout\'s run was updated');
   assert.equal(fs.existsSync(runFileOf(wt, 't-cross')), false, 'no copy was created in the worktree');
 });
@@ -442,7 +444,12 @@ test('a run with the same id for another feature in another worktree neither blo
   t.after(() => fs.rmSync(w1, { recursive: true, force: true }));
   execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'fix/other', w1], { stdio: 'ignore' });
   json(w1, ['orchestrate', '--action', 'start', '--task-id', 'A.1', '--task-class', 'bug']);
-  const theirs = fs.readFileSync(runFileOf(w1, 'A.1'));
+  // 115 C-1: the worktree's run is kept in the main checkout, under its feature's namespace.
+  const theirsFile = path.join(cwd, '.doflow', 'state', 'orchestration', 'other', 'A.1.json');
+  assert.ok(fs.existsSync(theirsFile), 'the worktree run is created under main, in its feature\'s namespace');
+  assert.ok(!fs.existsSync(runFileOf(cwd, 'A.1')), 'no flat A.1 run shared by every feature');
+  assert.ok(!fs.existsSync(runFileOf(w1, 'A.1')), 'nothing in the worktree');
+  const theirs = fs.readFileSync(theirsFile);
 
   const missing = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1']);
   assert.equal(missing.status, 1, 'the other feature\'s run is not this checkout\'s task');
@@ -452,5 +459,42 @@ test('a run with the same id for another feature in another worktree neither blo
   assert.equal(started.status, 0, started.stderr);
   assert.ok(fs.existsSync(runFileOf(cwd, 'A.1')), 'start is always local');
   json(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 'A.1', '--stage', 'reproduction']);
-  assert.deepEqual(fs.readFileSync(runFileOf(w1, 'A.1')), theirs, 'the other worktree\'s run is untouched');
+  assert.deepEqual(fs.readFileSync(theirsFile), theirs, 'the other feature\'s run is untouched');
+});
+
+test('O6: a run an earlier version left in a worktree\'s own store is read from another checkout for its feature only', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  const w1 = `${cwd}-w1`;
+  t.after(() => fs.rmSync(w1, { recursive: true, force: true }));
+  execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'fix/other', w1], { stdio: 'ignore' });
+  // Written as a version before 115 wrote it: the run of feature `other`, flat, in the worktree.
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'A.1', '--task-class', 'bug', '--slug', 'other']);
+  const legacy = runFileOf(w1, 'A.1');
+  fs.mkdirSync(path.dirname(legacy), { recursive: true });
+  fs.renameSync(path.join(cwd, '.doflow', 'state', 'orchestration', 'other', 'A.1.json'), legacy);
+  assert.equal(JSON.parse(fs.readFileSync(legacy, 'utf8')).featureSlug, 'other');
+
+  const found = json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1', '--slug', 'other']);
+  assert.equal(found.status, 0, found.stderr);
+  assert.equal(found.data.current.id, 'reproduction');
+  const other = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1', '--slug', 'third']);
+  assert.equal(other.status, 1, 'another feature\'s legacy run is not this task\'s');
+});
+
+test('C-10: a run\'s brief records are read from the checkout the verb runs in, not from the state root', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  const wt = `${cwd}-wt`;
+  t.after(() => fs.rmSync(wt, { recursive: true, force: true }));
+  execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'feat/950-brief', wt], { stdio: 'ignore' });
+  // The feature folder, and its brief record, exist only in the worktree.
+  const exec = path.join(wt, 'agent-docs', 'doflow', '950-brief', 'exec');
+  fs.mkdirSync(exec, { recursive: true });
+  fs.writeFileSync(path.join(exec, 'A.1-brief.json'), JSON.stringify({ runTaskId: '950-brief', stage: 'discovery', tier: 'sonnet' }));
+  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+  const orchestrator = new WorkflowOrchestrator({ projectRoot: cwd, sourceRoot: fs.realpathSync(wt), featureSlug: '950-brief' });
+  const { briefRecords, repoRoot } = orchestrator.readBriefRecords('950-brief');
+  assert.deepEqual(briefRecords, [{ runTaskId: '950-brief', stage: 'discovery', tier: 'sonnet' }]);
+  assert.equal(repoRoot, fs.realpathSync(wt), 'report paths resolve in the checkout that holds the folder');
 });

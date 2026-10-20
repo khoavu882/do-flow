@@ -8,7 +8,7 @@ const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readi
 const { listCheckouts } = require('./checkouts.ts');
 const { readTaskState } = require('./task-state.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
-const { isSafeSlug } = require('./task-scope.ts');
+const { isSafeSlug, flatRecordIsOurs } = require('./task-scope.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // The implementation gate: which stage of a workflow needs a READY readiness record before it is
@@ -55,13 +55,14 @@ function nextCommand({ taskId, slug, template }: any) {
 
 /**
  * The refusal for one check code.
- * @param {'missing'|'not-ready'|'wrong-template'|'unusable'|'ambiguous'} code
+ * @param {'missing'|'not-ready'|'wrong-template'|'unusable'|'ambiguous'|'store-conflict'|'ambiguous-run'} code
  * @param {Object} options
  * @param {string} options.taskId
  * @param {string|null} [options.slug]
  * @param {string} options.template the template the gated stage needs
  * @param {Object|null} [options.record] the record read, for `not-ready` and `wrong-template`
- * @param {Array<string>} [options.candidates] the files found, for `ambiguous`
+ * @param {Array<string>} [options.candidates] the files found, for `ambiguous`; the worktree's then the
+ *   main checkout's, for `store-conflict`
  * @param {string|null} [options.detail] why the record cannot be used, for `unusable`
  * @param {string|null} [options.file] the record's file, for `unusable` when a newer DoFlow wrote it
  * @param {number|null} [options.newerVersion] that newer record version; `readiness` would refuse to
@@ -86,6 +87,8 @@ function refusalText(code: any, { taskId, slug = null, template, record = null, 
       return `${GATE}: task '${taskId}' has a readiness record that cannot be used (${detail}). ${tail}`;
     case 'ambiguous':
       return `${GATE}: task '${taskId}' has records in more than one other checkout (${candidates.join(', ')}). Next: run the command from the checkout that holds the one you mean, or run ${next} here. Nothing was changed.`;
+    case 'store-conflict':
+      return `${GATE}: task '${taskId}' has a readiness record in this worktree (${candidates[0]}) that differs from the main checkout's (${candidates[1]}). Next: keep one of the two and remove the other, then re-run. Nothing was changed.`;
     case 'ambiguous-run':
       // A readiness record written here cannot say which run is meant, so it is not offered.
       return `${GATE}: task '${taskId}' has runs in more than one other checkout (${candidates.join(', ')}). Next: run verify from the checkout that holds the run you mean. Nothing was changed.`;
@@ -170,33 +173,36 @@ function runSlugOf(run: any, root: any) {
 
 /**
  * A task's run file: in this checkout, else in exactly one other checkout whose run belongs to the
- * same feature. Task ids repeat across features, so another checkout's run with the same id but
- * another feature (or none) is not this task's and is never read or updated from here.
+ * same feature. The run of a task id other than its feature's slug is `orchestration/<slug>/<id>.json`
+ * (115 C-1); a flat run of that id is read in its place only when it is this feature's or names none
+ * (D-3). Task ids repeat across features, so another checkout's run with the same id but another
+ * feature (or none) is not this task's and is never read or updated from here.
  * @param {{stateRoot: string, taskId: string, slug: string|null, exec?: Function}} options
  * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>}}
  */
 function findRunFile({ stateRoot, taskId, slug, exec }: any) {
-  const rel = path.join('.doflow', 'state', 'orchestration', `${taskId}.json`);
+  const store = path.join('.doflow', 'state', 'orchestration');
+  const flat = path.join(store, `${taskId}.json`);
+  const namespaced = slug && slug !== taskId ? path.join(store, slug, `${taskId}.json`) : null;
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
-  if (fs.existsSync(path.join(stateRoot, rel))) {
-    return { status: 'found', file: path.join(stateRoot, rel), root: stateRoot, origin: 'current', candidates: [] };
-  }
+  const here = namespaced && fs.existsSync(path.join(stateRoot, namespaced)) ? namespaced
+    : fs.existsSync(path.join(stateRoot, flat)) && (!namespaced || flatRecordIsOurs(path.join(stateRoot, flat), slug)) ? flat : null;
+  if (here) return { status: 'found', file: path.join(stateRoot, here), root: stateRoot, origin: 'current', candidates: [] };
   if (!slug) return missing;
   const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
   if (!checkouts.ok || checkouts.sandbox) return missing;
-  const matches = checkouts.others.filter((root: any) => {
-    const file = path.join(root, rel);
-    if (!fs.existsSync(file)) return false;
-    try {
-      return runSlugOf(JSON.parse(fs.readFileSync(file, 'utf8')), root) === slug;
-    } catch {
-      return false;
-    }
-  });
+  const matches: Array<{ file: string; root: string }> = [];
+  for (const root of checkouts.others) {
+    const file = [namespaced, flat].filter(Boolean).map((rel: any) => path.join(root, rel)).find((f: string) => {
+      if (!fs.existsSync(f)) return false;
+      try { return runSlugOf(JSON.parse(fs.readFileSync(f, 'utf8')), root) === slug; } catch { return false; }
+    });
+    if (file) matches.push({ file, root });
+  }
   if (matches.length === 0) return missing;
-  if (matches.length > 1) return { ...missing, status: 'ambiguous', candidates: matches.map((root: any) => path.join(root, rel)) };
-  return { status: 'found', file: path.join(matches[0], rel), root: matches[0], origin: 'other', candidates: [] };
+  if (matches.length > 1) return { ...missing, status: 'ambiguous', candidates: matches.map((m) => m.file) };
+  return { status: 'found', file: matches[0].file, root: matches[0].root, origin: 'other', candidates: [] };
 }
 
 /** The slug a refusal's next command names: one whose feature folder exists in this checkout or in
@@ -231,7 +237,7 @@ function unusableDetail(record: any, now: any) {
  * @param {string} options.template
  * @param {Date} [options.now]
  * @param {Function} [options.exec]
- * @returns {{ok: boolean, code: 'ready'|'missing'|'not-ready'|'wrong-template'|'unusable'|'ambiguous',
+ * @returns {{ok: boolean, code: 'ready'|'missing'|'not-ready'|'wrong-template'|'unusable'|'ambiguous'|'store-conflict',
  *   record: Object|null, file: string|null, origin: string|null, candidates: Array<string>,
  *   detail: string|null, nextSlug: string|null, message: string|null}}
  */
@@ -254,6 +260,7 @@ function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Da
     }),
   });
   if (read.status === 'ambiguous') return result('ambiguous');
+  if (read.status === 'conflict') return result('store-conflict');
   if (read.status === 'missing') return result('missing');
   const detail = read.status === 'unreadable' ? read.detail : unusableDetail(read.record, now);
   if (detail) return result('unusable', detail);

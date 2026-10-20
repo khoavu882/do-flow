@@ -237,7 +237,7 @@ test('IC-008: all automatic functions swallow filesystem/pass errors, stay silen
   } finally { process.exitCode = previous; }
 });
 
-test('IC-010: verify is unthrottled, locked and restricted to project verification logs', t => {
+test('IC-010: verify is unthrottled, locked and restricted to project verification logs and reuse', t => {
   const f = fixture(t), root = f.roots['project-state'];
   const log = put(path.join(root, 'verification/logs'), `${NOW - 31 * DAY}-old.log`);
   const work = put(path.join(root, 'research'), 'finished.json', '{}', 31);
@@ -245,7 +245,7 @@ test('IC-010: verify is unthrottled, locked and restricted to project verificati
   const original = engine.runPass, calls = [];
   t.mock.method(engine, 'runPass', options => { calls.push(options.stores); assert.ok(fs.existsSync(path.join(root, 'upkeep.lock'))); return original(options); });
   upkeep().upkeepAfterVerify(f);
-  assert.deepEqual(calls, [['verification-logs']]);
+  assert.deepEqual(calls, [['verification-logs', 'verification-reuse']]);
   assert.equal(fs.existsSync(log), false); assert.equal(fs.existsSync(work), true);
   assert.equal(fs.readFileSync(marker, 'utf8'), `${NOW / 1000 + 86400}\n`);
   put(f.roots['project-doflow'], 'prune', 'off\n');
@@ -452,4 +452,41 @@ test('F2: upkeepAfterVerify({projectRoot:<W>}) writes ledger line under <P>/.dof
   assert.ok(indexed.includes(fs.realpathSync(P)), 'upkeep-roots lists <P>');
   assert.ok(!indexed.includes(W), 'upkeep-roots does not list <W>');
 });
+
+test('C-8: bound.either on verification-reuse prunes when either count or age is exceeded; mtime store without either requires both', t => {
+  const f = fixture(t, ['project-state']);
+  const reuseDir = path.join(f.roots['project-state'], 'verification/reuse');
+  const v0Dir = path.join(f.roots['project-state'], 'verification/v0');
+
+  // S1: 401 recent records (age 0) in verification-reuse -> keeps 400 (prunes 1)
+  for (let i = 0; i < 401; i++) {
+    put(reuseDir, `reuse-${i.toString(16).padStart(16, '0')}.json`, '{}', 0);
+  }
+  // Control: 41 recent records (age 0) in verification-v0 (keepNewest: 40, maxAgeDays: 7, no either) -> keeps all 41
+  for (let i = 0; i < 41; i++) {
+    put(v0Dir, `failed-first-T-${i}.json`, '{}', 0);
+  }
+
+  upkeep().upkeepAfterVerb(f);
+
+  assert.equal(fs.readdirSync(reuseDir).length, 400, 'S1: 401 recent records keeps 400 (prunes 1)');
+  assert.equal(fs.readdirSync(v0Dir).length, 41, 'control: mtime store without either keeps all 41 recent records');
+
+  // S2: 400 records 3 days old in verification-reuse (maxAgeDays: 2) -> prunes all 400 (0 left)
+  for (const file of fs.readdirSync(reuseDir)) fs.unlinkSync(path.join(reuseDir, file));
+  for (let i = 0; i < 400; i++) {
+    put(reuseDir, `reuse-${i.toString(16).padStart(16, '0')}.json`, '{}', 3);
+  }
+  // Control: 40 records 8 days old in verification-v0 (maxAgeDays: 7, count <= 40) -> keeps all 40
+  for (const file of fs.readdirSync(v0Dir)) fs.unlinkSync(path.join(v0Dir, file));
+  for (let i = 0; i < 40; i++) {
+    put(v0Dir, `failed-first-T-${i}.json`, '{}', 8);
+  }
+
+  upkeep().upkeepAfterVerb({ ...f, now: NOW + 2 * DAY });
+
+  assert.equal(fs.readdirSync(reuseDir).length, 0, 'S2: 400 records 3 days old prunes all (0 left)');
+  assert.equal(fs.readdirSync(v0Dir).length, 40, 'control: mtime store without either keeps all 40 old records because count not exceeded');
+});
+
 

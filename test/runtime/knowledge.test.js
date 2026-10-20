@@ -149,13 +149,14 @@ test('retrieve answers from a project subdirectory and from a home-only install'
   assert.ok(retrieveFrom(elsewhere, home).some((hit) => hit.path === 'safety.md'), 'home tree reached with no project install');
 });
 
-test('retrieve answers after a Kiro-only install, whose steering copy is not the shared tree', () => {
+test('retrieve answers after a Kiro-only install, whose steering copy holds the core set only', () => {
   const project = fs.realpathSync(scratch()); const home = fs.realpathSync(scratch());
   const install = spawnSync(process.execPath, [path.resolve(__dirname, '../../bin/doflow.js'), 'install', project, '--force', '--target', 'kiro'],
     { env: { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, 'xdg'), GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig') }, encoding: 'utf8', input: '\n' });
   assert.equal(install.status, 0, install.stderr);
-  // Before the shared tree was projected for Kiro, MCP_INDEX.md was the only file there.
-  assert.ok(retrieveFrom(project, home).some((hit) => hit.path !== 'MCP_INDEX.md'), 'the shared guidance tree is installed and indexed');
+  // Steering holds the core set only, so a reference file can come from .doflow/guidance alone.
+  assert.ok(!fs.existsSync(path.join(project, '.kiro', 'steering', 'references')), 'steering holds no reference files');
+  assert.ok(retrieveFrom(project, home).some((hit) => hit.path.startsWith('references/')), 'the shared guidance tree is installed and indexed');
 });
 
 test('retrieve skips a project .doflow that holds state but no guidance tree and answers from home', () => {

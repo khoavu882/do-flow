@@ -422,6 +422,9 @@ interface EmitOptions {
   maxBytes?: number;
   taskId?: string;
   slug?: string;
+  /** Where the pack's task records live (115 IC-004: the main checkout from a linked worktree);
+   * default `cwd`, which is always where the feature folder and source files are read. */
+  stateRoot?: string;
   /** Decide and render; take no claim and write no ledger line. */
   peek?: boolean;
   /** Default process.env: identity, budget and the store root are read from it. */
@@ -614,7 +617,7 @@ function emitContext(options: EmitOptions): EmitResult {
     if (decision.actions.pack === 'include') {
       const { packForEmission } = require('../context-pack.ts');
       const since = lastPackKey(ledger);
-      const compiled = packForEmission({ root: cwd, taskId: options.taskId, slug: options.slug, harness: options.harness ?? null, maxBytes: max, since, noRecord: peek, env });
+      const compiled = packForEmission({ root: cwd, stateRoot: options.stateRoot ?? cwd, taskId: options.taskId, slug: options.slug, harness: options.harness ?? null, maxBytes: max, since, noRecord: peek, env });
       const digest: string = compiled.pack.delivery.packDigest;
       pack = { packDigest: digest, form: 'markdown', deltaRefused: compiled.pack.delivery.deltaRefused ?? null };
       if (compiled.pack.status === 'OVERFLOW') {

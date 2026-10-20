@@ -2,7 +2,7 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
-const { measureFreshness } = require('./freshness.ts');
+const { measureFreshness, fileRootFor } = require('./freshness.ts');
 const { measureTreeState, sourceVersionFor } = require('./source-version.ts');
 const { VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger.ts');
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
@@ -58,6 +58,7 @@ interface BuildContext {
   treeState?: any;
   absenceTreeState?: any;
   probeRoot?: string;
+  sourceRoot?: string;
   attemptRef?: string;
   attemptRoot?: string;
   slug?: string | null;
@@ -159,11 +160,12 @@ function parseLocator(raw: any) {
  * @param {Object} raw
  * @param {string} taskId the task the batch is being written to
  * @param {string} taskId the task the batch is being written to
- * @param {string} repoRoot root a relative locator resolves against
+ * @param {string} repoRoot the task's state root (its retrieval plan)
  * @param {string|null} [slug] feature slug
+ * @param {string} [sourceRoot] the checkout a relative locator resolves in (default repoRoot)
  * @returns {{kind:string, provenance:string, source:Object, locator:Object, content:(string|null)}}
  */
-function validateEvidenceItem(raw: any, taskId: any, repoRoot: any, slug: any = null) {
+function validateEvidenceItem(raw: any, taskId: any, repoRoot: any, slug: any = null, sourceRoot: any = repoRoot) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('an evidence item must be a JSON object');
   assertNoScoreFields(raw, '');
 
@@ -253,7 +255,8 @@ function validateEvidenceItem(raw: any, taskId: any, repoRoot: any, slug: any = 
   // gate. The refusal names what the file actually offers, so the writer can correct it here rather
   // than discover it at the gate.
   if (!isAbsence && raw.provenance === 'extracted' && locator) {
-    const resolution = resolveLocator({ locator, repoRoot });
+    // IC-007: a relative locator names a file in the checkout the verb runs in (fileRootFor).
+    const resolution = resolveLocator({ locator, repoRoot: fileRootFor(sourceRoot, repoRoot, locator) });
     if (!resolution.resolved) {
       throw new Error(`the locator does not resolve: ${describeResolution(locator, resolution)}. `
         + "An 'extracted' item asserts a read of the repository, so a locator that points at nothing "
@@ -372,6 +375,7 @@ function toEvidence(
   const taskId = ctx.taskId;
   const root = ctx.root || process.cwd();
   const treeState = ctx.treeState || measureTreeState(root);
+  const sourceRoot = ctx.sourceRoot || root;
 
   let rawItem: any;
 
@@ -398,7 +402,7 @@ function toEvidence(
       if (typeof loc === 'string') {
         loc = parseLocator(loc);
       }
-      const sv = sourceVersionFor(root, loc, treeState);
+      const sv = sourceVersionFor(fileRootFor(sourceRoot, root, loc), loc, treeState);
       const measuredHash = sv.fileHash;
       const searchedHash = candidate.sourceVersion.fileHash;
       if (searchedHash !== measuredHash) {
@@ -432,8 +436,8 @@ function toEvidence(
     throw new Error("toEvidence requires either 'candidate' or 'item'");
   }
 
-  const validated = validateEvidenceItem(rawItem, taskId, root, ctx.slug);
-  const sv = sourceVersionFor(root, validated.locator, treeState);
+  const validated = validateEvidenceItem(rawItem, taskId, root, ctx.slug, sourceRoot);
+  const sv = sourceVersionFor(fileRootFor(sourceRoot, root, validated.locator), validated.locator, treeState);
 
   const source: Record<string, any> = { ...validated.source };
 
@@ -482,7 +486,7 @@ function toEvidence(
     }
   } else {
     freshness = {
-      ...measureFreshness(root, validated.locator, sv.gitCommit),
+      ...measureFreshness(root, validated.locator, sv.gitCommit, sourceRoot),
       isDirty: sv.isDirty,
     };
   }

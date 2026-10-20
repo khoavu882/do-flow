@@ -503,7 +503,8 @@ function readiness(cwd, ...args) {
   });
 }
 
-const RECORD_REL = path.join('.doflow', 'state', 'readiness', 'A.1.json');
+// Under the branch feature's namespace whenever a slug resolves, with or without a register (115 C-1).
+const RECORD_REL = path.join('.doflow', 'state', 'readiness', SLUG, 'A.1.json');
 
 test('the readiness record\'s declared scope bounds a plan-less change, and an equal --scope is accepted', () => {
   const root = repo({ plan: null });

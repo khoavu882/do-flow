@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir, ledgerSiblingFingerprints, siblingReplacedNotices, TRANSFORMS } = require('../../src/adapters/copy-tree.ts');
+const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, resolveSelect, SELECTORS, TRANSFORMS } = require('../../src/adapters/copy-tree.ts');
 
 function scratch() { return suiteTempDir('doflow-copy-tree-'); }
 
@@ -44,6 +44,97 @@ test('planTree proposes create for every file on a fresh (empty) destination', (
   assert.deepEqual(conflicts, []);
   assert.equal(changes.length, 2);
   assert.ok(changes.every((c) => c.operation === 'create'));
+});
+
+test('copy-tree guidance-manifest selection plans and verifies only the imported core files', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, {
+    'DOFLOW_CORE.md': '@rules/core.md\n',
+    'rules/core.md': 'core rule',
+    'rules/on-demand.md': 'not core',
+  });
+  const destDir = path.join(root, 'dest');
+
+  const planned = planTree({ sourceDir, destDir, select: 'guidance-manifest' });
+  assert.deepEqual(planned.conflicts, []);
+  assert.deepEqual(planned.changes.map((change) => change.relPath), ['DOFLOW_CORE.md', path.join('rules', 'core.md')]);
+  applyTree({ changes: planned.changes });
+
+  const verified = verifyTree({ sourceDir, destDir, select: 'guidance-manifest' });
+  assert.equal(verified.ok, true);
+  assert.deepEqual(verified.conflicts, []);
+  assert.deepEqual(verified.resources.map((resource) => resource.relPath), ['DOFLOW_CORE.md', path.join('rules', 'core.md')]);
+});
+
+test('copy-tree select is threaded through stale-file removal and keeps a modified unselected file', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'DOFLOW_CORE.md': 'core', 'extra.md': 'source has moved on' });
+  const destDir = path.join(root, 'dest');
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.writeFileSync(path.join(destDir, 'extra.md'), 'old');
+
+  const removal = planTree({
+    sourceDir,
+    destDir,
+    select: 'guidance-manifest',
+    previousResources: [{ relPath: 'extra.md', fingerprint: sha256('old') }],
+  });
+  assert.deepEqual(removal.conflicts, []);
+  assert.deepEqual(removal.changes.map(({ relPath, operation }) => [relPath, operation]), [['DOFLOW_CORE.md', 'create'], ['extra.md', 'remove']]);
+
+  fs.writeFileSync(path.join(destDir, 'extra.md'), 'user edit');
+  fs.writeFileSync(path.join(sourceDir, 'extra.md'), 'user edit');
+  const kept = planTree({
+    sourceDir,
+    destDir,
+    select: 'guidance-manifest',
+    keepModified: true,
+    previousResources: [{ relPath: 'extra.md', fingerprint: sha256('old') }],
+  });
+  assert.deepEqual(kept.conflicts, []);
+  assert.deepEqual(kept.kept, [{ relPath: 'extra.md', target: path.join(destDir, 'extra.md') }]);
+  assert.deepEqual(kept.changes.find((change) => change.relPath === 'extra.md'), {
+    relPath: 'extra.md',
+    target: path.join(destDir, 'extra.md'),
+    operation: 'remove',
+    fingerprint: sha256('user edit'),
+    kept: true,
+  });
+});
+
+test('resolveSelect returns null for no selection and reports the known selector names for typos', () => {
+  assert.equal(resolveSelect(null), null);
+  assert.deepEqual(Object.keys(SELECTORS), ['guidance-manifest']);
+  assert.throws(() => resolveSelect('nope'), /Unknown copy-tree select 'nope'.*guidance-manifest/);
+});
+
+test('flat layout uses the basename and reports selected basename collisions as conflicts', () => {
+  assert.equal(resolveLayout('flat')(path.join('rules', 'RULE_01_SAFETY.md')), 'RULE_01_SAFETY.md');
+
+  const root = scratch();
+  const sourceDir = seedSource(root, {
+    'DOFLOW_CORE.md': '@rules/RULE_01_SAFETY.md\n@modes/RULE_01_SAFETY.md\n',
+    'rules/RULE_01_SAFETY.md': 'rule',
+    'modes/RULE_01_SAFETY.md': 'mode',
+  });
+  const result = planTree({ sourceDir, destDir: path.join(root, 'dest'), select: 'guidance-manifest', layout: 'flat' });
+  assert.equal(result.conflicts.length, 1);
+  assert.match(result.conflicts[0], /rules[/\\]RULE_01_SAFETY\.md/);
+  assert.match(result.conflicts[0], /modes[/\\]RULE_01_SAFETY\.md/);
+});
+
+test('no select preserves the pre-selection change list and explicit null matches the default', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A', 'nested/b.md': 'B' });
+  const destDir = path.join(root, 'dest');
+  const beforeSelection = planTree({ sourceDir, destDir });
+  const explicitNone = planTree({ sourceDir, destDir, select: null });
+
+  assert.deepEqual(explicitNone.changes, beforeSelection.changes);
+  assert.deepEqual(beforeSelection.changes, [
+    { relPath: 'a.md', target: path.join(destDir, 'a.md'), source: path.join(sourceDir, 'a.md'), operation: 'create', fingerprint: sha256('A') },
+    { relPath: path.join('nested', 'b.md'), target: path.join(destDir, 'nested', 'b.md'), source: path.join(sourceDir, 'nested', 'b.md'), operation: 'create', fingerprint: sha256('B') },
+  ]);
 });
 
 test('applyTree writes files and preserves the source file mode (hook script +x survives)', () => {

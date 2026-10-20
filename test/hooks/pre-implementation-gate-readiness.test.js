@@ -320,14 +320,20 @@ HOOK_TEST('a linked worktree reads the main checkout\'s feature folder, run and 
   writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'READY' });
   expectHook({ ...base, code: 0, stderr: '' });
 
-  // A record in exactly one other checkout decides; in two others the hook cannot tell which is meant.
+  // The main checkout's record decides (115 C-3: every record lives there), even when another
+  // worktree holds one too; with none in the main checkout, a record in exactly one other checkout
+  // decides, and in two others the hook cannot tell which is meant.
+  const notReady = `${refusalText('not-ready', { taskId: '900-demo', template: 'feature', record: { state: 'NEEDS_EVIDENCE', evaluatedAt: EVALUATED_AT } })}\n`;
   writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
-  expectHook({
-    ...base, code: 2,
-    stderr: `${refusalText('not-ready', { taskId: '900-demo', template: 'feature', record: { state: 'NEEDS_EVIDENCE', evaluatedAt: EVALUATED_AT } })}\n`,
-  });
+  expectHook({ ...base, code: 2, stderr: notReady });
   git(main, 'worktree', 'add', '-q', '-b', 'feat/920-other', path.join(root, 'wt2'));
+  writeRecord(fs.realpathSync(path.join(root, 'wt2')), '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'READY' });
+  expectHook({ ...base, code: 2, stderr: notReady });
+  fs.rmSync(recordPath(main, '900-demo.json'));
   writeRecord(fs.realpathSync(path.join(root, 'wt2')), '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  expectHook({ ...base, code: 2, stderr: notReady });
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/921-third', path.join(root, 'wt3'));
+  writeRecord(fs.realpathSync(path.join(root, 'wt3')), '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
   expectHook({ ...base, code: 0, stderr: '' });
 
   // A DoFlow sandbox sees no other checkout, so the main checkout's folder does not hold it.
@@ -348,8 +354,47 @@ HOOK_TEST('the hook reads records where the runtime does, and another feature\'s
   git(other.main, 'worktree', 'add', '-q', '-b', 'fix/other', path.join(other.root, 'w1'));
   const w1 = fs.realpathSync(path.join(other.root, 'w1'));
   walkTo(w1, '901-bug', 'bug', 'implementation');
-  assert.strictEqual(JSON.parse(fs.readFileSync(runFile(w1, '901-bug'), 'utf8')).featureSlug, 'other');
+  // 115 C-1: the worktree's run is kept in the main checkout, under its own feature's namespace, so
+  // the main checkout's task `901-bug` (feature `901-bug`) is not held by it.
+  const theirs = path.join(other.main, '.doflow', 'state', 'orchestration', 'other', '901-bug.json');
+  assert.strictEqual(JSON.parse(fs.readFileSync(theirs, 'utf8')).featureSlug, 'other');
+  assert.ok(!fs.existsSync(runFile(other.main, '901-bug')) && !fs.existsSync(runFile(w1, '901-bug')));
   expectHook({ cwd: other.main, caseRoot: other.root, event: editEvent(path.join(other.main, 'src', 'a.js')), code: 0, stderr: '' });
+});
+
+HOOK_TEST('O6: a run an earlier version left in a worktree\'s own store holds its feature\'s task, and no other', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('fix/901-bug');
+  git(main, 'worktree', 'add', '-q', '-b', 'fix/other', path.join(root, 'w1'));
+  const w1 = fs.realpathSync(path.join(root, 'w1'));
+  // Written as a version before 115 wrote it: the main checkout's feature's run, left in the worktree.
+  walkTo(main, '901-bug', 'bug', 'implementation');
+  write(runFile(w1, '901-bug'), fs.readFileSync(runFile(main, '901-bug'), 'utf8'));
+  fs.rmSync(runFile(main, '901-bug'));
+  const base = { cwd: main, caseRoot: root, event: editEvent(path.join(main, 'src', 'a.js')) };
+  expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '901-bug', template: 'bug' })}\n` });
+  const run = JSON.parse(fs.readFileSync(runFile(w1, '901-bug'), 'utf8'));
+  write(runFile(w1, '901-bug'), JSON.stringify({ ...run, featureSlug: 'other' }));
+  expectHook({ ...base, code: 0, stderr: '' });
+});
+
+HOOK_TEST('from a linked worktree a readiness copy that differs from the main checkout\'s refuses, as the runtime does', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  writeFeature(main, '900-demo');
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/900-demo', path.join(root, 'wt'));
+  const wt = fs.realpathSync(path.join(root, 'wt'));
+  const base = { cwd: wt, caseRoot: root, event: editEvent(path.join(wt, 'src', 'a.js')) };
+  writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  writeRecord(wt, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'READY' });
+  expectHook({
+    ...base, code: 2,
+    stderr: `${refusalText('store-conflict', { taskId: '900-demo', template: 'feature', candidates: [recordPath(wt, '900-demo.json'), recordPath(main, '900-demo.json')] })}\n`,
+  });
+  // The same bytes in both are one record.
+  writeRecord(wt, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  expectHook({
+    ...base, code: 2,
+    stderr: `${refusalText('not-ready', { taskId: '900-demo', template: 'feature', record: { state: 'NEEDS_EVIDENCE', evaluatedAt: EVALUATED_AT } })}\n`,
+  });
 });
 
 HOOK_TEST('the hook and the runtime print the same refusal for the same task, slug or none', { timeout: CASE_TIMEOUT_MS }, () => {
@@ -409,7 +454,7 @@ HOOK_TEST('from a linked worktree whose feature folder lives only in the main ch
     '--provenance', 'extracted', '--provider', 'graph', '--capability', 'code.structural', '--locator', 'agent-docs/doflow/930-wt/plan.md',
     '--content', 'plan lists src/a.js', '--establishes', 'affected_components', '--json'], { cwd: wt, env: spawnEnv(), encoding: 'utf8' });
   assert.strictEqual(evidence.status, 0, `${evidence.stdout}\n${evidence.stderr}`);
-  assert.ok(evidence.stderr.includes(`feature '930-wt' lives in the main checkout ${main}`), evidence.stderr);
+  assert.ok(evidence.stderr.includes(`records are kept in the main checkout ${main}`), evidence.stderr);
   assert.ok(!evidence.stderr.includes('names no feature'), evidence.stderr);
 
   const next = missing.match(/Next: (doflow-run readiness [^,]+),/)[1].replace(/^doflow-run /, '').split(' ');

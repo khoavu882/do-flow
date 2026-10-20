@@ -120,8 +120,9 @@ test('a feature with a register namespaces a task id that differs from its slug'
   assert.equal(write(root, 'A.1').file, path.join(root, '.doflow', 'state', 'readiness', SLUG, 'A.1.json'));
   assert.equal(write(root, 'A.1').record.slug, SLUG);
   assert.equal(write(root, SLUG).file, path.join(root, '.doflow', 'state', 'readiness', `${SLUG}.json`), 'the feature-level id stays flat');
-  const flat = featureRepo('no-register', { register: false });
-  assert.equal(write(flat, 'A.1').file, path.join(flat, '.doflow', 'state', 'readiness', 'A.1.json'), 'no register, no namespace');
+  // 115 D-2: a register is not needed; every feature a slug resolves to is namespaced.
+  const noRegister = featureRepo('no-register', { register: false });
+  assert.equal(write(noRegister, 'A.1').file, path.join(noRegister, '.doflow', 'state', 'readiness', SLUG, 'A.1.json'), 'no register, still namespaced');
 });
 
 test('a second evaluation replaces the first', () => {
@@ -167,8 +168,8 @@ test('records in two other checkouts are ambiguous, and neither is picked', () =
   git(m, 'worktree', 'add', '-q', '-b', 'feat/one', wt1);
   git(m, 'worktree', 'add', '-q', '-b', 'feat/two', wt2);
   clearCheckoutCache();
-  write(wt1, 'T-3');
-  write(wt2, 'T-3');
+  // Flat records an earlier version left in two worktrees (their branches would namespace a new write).
+  for (const wt of [wt1, wt2]) rawRecord(wt, 'T-3.json', { version: 1, taskId: 'T-3', slug: null, taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
   const read = readReadinessRecord({ stateRoot: m, taskId: 'T-3' });
   assert.equal(read.status, 'ambiguous');
   assert.equal(read.record, null);
@@ -254,6 +255,11 @@ test('every reader takes the same candidates: the namespaced path, then the flat
   const root = dir('candidates');
   rawRecord(root, 'A.1.json', { version: 1, taskId: 'A.1', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
   assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).status, 'found', 'a flat record is found under a slug');
+  // 115 D-3: the write goes to the namespace, and readers take it first from then on.
   const replaced = write(root, 'A.1', { slug: SLUG });
-  assert.equal(replaced.file, path.join(root, store, 'A.1.json'), 'the writer replaces the record readers find, not a second one');
+  assert.equal(replaced.file, path.join(root, store, SLUG, 'A.1.json'), 'the writer writes the namespaced record');
+  assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).file, replaced.file);
+  // A flat record that names another feature is not read under this one.
+  rawRecord(root, 'B.1.json', { version: 1, taskId: 'B.1', slug: 'other', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
+  assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'B.1', slug: SLUG }).status, 'missing');
 });

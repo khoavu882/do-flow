@@ -41,6 +41,7 @@ const {
   validateNoiseArtifact,
   buildDecision,
 } = require('./noise.js');
+const { cmdImpactReplay } = require('./impact-replay.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -1834,6 +1835,8 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
                                                       per-case delta of a run against the baseline
   node bench/runner.js noise --iterations <a,b[,c...]> [--out <file>] [--json]
                                                       measure eval noise floor over k baseline repeats
+  node bench/runner.js impact-replay [--rev <ref>] [--commits <n>] [--json] [--out <path>]
+                                                      replay historical commits to evaluate impact-selected test detection
   node bench/runner.js verify-baseline --snapshot <dir> [--json] [--out <dir>]
                                                       verification baseline computation over a recorded snapshot
   node bench/runner.js retrieval <verb> [flags]       retrieval benchmark: verify|run|rerun|capture|seal|migrate
@@ -1885,6 +1888,29 @@ function parseArgs(argv) {
         return { cmd: null, opts: { error: 2 } };
       }
       opts['decision-out'] = value;
+      i += 1;
+    }
+    else if (a === '--rev') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --rev requires a value');
+        return { cmd: null, opts: { error: 2 } };
+      }
+      opts.rev = value;
+      i += 1;
+    }
+    else if (a === '--commits') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --commits requires a value');
+        return { cmd: null, opts: { error: 2 } };
+      }
+      const num = Number(value);
+      if (!Number.isInteger(num) || num <= 0) {
+        console.error('bench: --commits must be a positive integer');
+        return { cmd: null, opts: { error: 2 } };
+      }
+      opts.commits = num;
       i += 1;
     }
     else if (a === '--from') opts.from = argv[++i];
@@ -2082,7 +2108,7 @@ function main(argv = process.argv.slice(2)) {
     console.error(`bench ${cmd}: --snapshot is not accepted`);
     return 2;
   }
-  if (opts.out && cmd !== 'verify-baseline' && cmd !== 'noise') {
+  if (opts.out && cmd !== 'verify-baseline' && cmd !== 'noise' && cmd !== 'impact-replay') {
     console.error(`bench ${cmd}: --out is not accepted`);
     return 2;
   }
@@ -2092,6 +2118,14 @@ function main(argv = process.argv.slice(2)) {
   }
   if (opts['decision-out'] && cmd !== 'report') {
     console.error(`bench ${cmd}: --decision-out is not accepted`);
+    return 2;
+  }
+  if (opts.rev && cmd !== 'impact-replay') {
+    console.error(`bench ${cmd}: --rev is not accepted`);
+    return 2;
+  }
+  if (opts.commits !== undefined && cmd !== 'impact-replay') {
+    console.error(`bench ${cmd}: --commits is not accepted`);
     return 2;
   }
   const cfg = loadConfig();
@@ -2106,6 +2140,7 @@ function main(argv = process.argv.slice(2)) {
     case 'baseline': return cmdBaseline(cfg, opts);
     case 'report': return cmdReport(cfg, opts);
     case 'noise': return cmdNoise(cfg, opts);
+    case 'impact-replay': return cmdImpactReplay(cfg, opts);
     case 'verify-baseline': return cmdVerifyBaseline(opts);
     default:
       console.error(`unknown command "${cmd}"\n`);
@@ -2295,6 +2330,7 @@ module.exports = {
   ARMS,
   cmdVerifyBaseline,
   cmdNoise,
+  cmdImpactReplay,
   readRepeat,
   formatNoiseText,
   formatScopeDecision,

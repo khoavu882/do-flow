@@ -126,12 +126,12 @@ flowchart LR
 
 ### Phase A — [name]
 
-- [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
-- [ ] A.2 [US1] [task, depends A.1] — owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
+- [ ] A.1 [P] [US1] [task] — acceptance: [FR-/NFR-/IC- ids, comma-separated]; owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
+- [ ] A.2 [US1] [task, depends A.1] — acceptance: [FR-/NFR-/IC- ids, comma-separated]; owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
 
 ### Phase B — [name]
 
-- [ ] B.1 [P] [US2] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
+- [ ] B.1 [P] [US2] [task] — acceptance: [FR-/NFR-/IC- ids, comma-separated]; owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
 
 ### Checkpoints
 

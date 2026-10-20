@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { updateTaskState } = require('./task-state.ts');
-const { resolveTaskScope } = require('./task-scope.ts');
+const { resolveTaskScope, flatRecordIsOurs } = require('./task-scope.ts');
 const { findStateFile } = require('./checkouts.ts');
 
 // The readiness record: the latest evaluation of one task, kept where `readiness` ran.
@@ -20,7 +20,7 @@ const STORE = path.join('.doflow', 'state', 'readiness');
 
 /**
  * Where a task's record may be under one checkout, in the order every reader takes them: under the
- * feature's namespace, then flat. The writer, `verify`, `orchestrate` and the edit hook all use this
+ * feature's namespace, then flat. `verify`, `orchestrate` and the edit hook all read through this
  * one list, so a record written anywhere is found by each of them from any checkout.
  * @param {string} taskId
  * @param {string|null} slug the task's feature slug, when one is known
@@ -89,10 +89,10 @@ function priorRecord(file: any, fsImpl: any) {
 function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, declaredScope = null, mode, now = new Date(), fsImpl = fs }: any) {
   const scope = resolveTaskScope({ projectRoot: stateRoot, taskId, slug });
   const recordSlug = scope.slug || slug || null;
-  // The record a reader would find in this checkout is the one replaced; with none, the record goes
-  // where the task's evidence goes (under the feature's namespace when it has a register).
-  const file = recordCandidates(taskId, recordSlug).map((rel) => path.join(stateRoot, rel)).find((f) => fsImpl.existsSync(f))
-    || path.join(stateRoot, STORE, ...(scope.namespace ? [scope.namespace] : []), `${taskId}.json`);
+  // Written where the task's evidence goes (115 C-1): under the feature's namespace whenever one
+  // applies. A flat record of the task from before that rule stays where it is, and is no longer
+  // read once this one exists.
+  const file = path.join(stateRoot, STORE, ...(scope.namespace ? [scope.namespace] : []), `${taskId}.json`);
   const record = {
     version: RECORD_VERSION,
     taskId,
@@ -124,20 +124,25 @@ function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, 
 }
 
 /**
- * The task's record in this checkout, else in exactly one other checkout, at the first of
- * `recordCandidates` that exists in each. No resolver is run: the candidates depend only on the
- * task id and the slug the caller names.
+ * The task's record where `findStateFile` looks (the main checkout first from a linked worktree),
+ * at the first of `recordCandidates` that exists in each checkout; the flat candidate of a
+ * namespaced task only when it is this feature's or names none (D-3). No resolver is run: the
+ * candidates depend only on the task id and the slug the caller names. `conflict` is a worktree
+ * copy that differs from the main checkout's (115 C-3).
  * @param {Object} options
  * @param {string} options.stateRoot
  * @param {string} options.taskId
  * @param {string|null} [options.slug]
  * @param {Function} [options.exec]
  * @param {Object} [options.fsImpl]
- * @returns {{status: 'found'|'missing'|'ambiguous'|'unreadable', record: Object|null, file: string|null,
+ * @returns {{status: 'found'|'missing'|'ambiguous'|'conflict'|'unreadable', record: Object|null, file: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>, detail: string|null}}
  */
 function readReadinessRecord({ stateRoot, taskId, slug = null, exec, fsImpl = fs }: any) {
-  const found = findStateFile({ stateRoot, relPath: recordCandidates(taskId, slug), ...(exec ? { exec } : {}), fsImpl });
+  const [first, flat] = recordCandidates(taskId, slug);
+  const relPath = flat === undefined ? first
+    : (root: string) => (fsImpl.existsSync(path.join(root, first)) ? first : flatRecordIsOurs(path.join(root, flat), slug, fsImpl) ? flat : null);
+  const found = findStateFile({ stateRoot, relPath, ...(exec ? { exec } : {}), fsImpl });
   const base = { record: null, file: found.file, origin: found.origin, candidates: found.candidates, detail: null };
   if (found.status !== 'found') return { ...base, status: found.status };
   try {

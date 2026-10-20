@@ -6,7 +6,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { createPiAdapter, nativePaths } = require('../../../src/adapters/pi/index.ts');
 const { assertAdapter } = require('../../../src/adapters/index.ts');
-const { MARKER_START } = require('../../../src/helper/marker-merge.ts');
+const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge.ts');
 
 function scratch() { return suiteTempDir('doflow-pi-'); }
 
@@ -50,6 +50,52 @@ test('refuses to merge into a foreign AGENTS.md that has no DoFlow managed secti
   fs.writeFileSync(sourceFile, '# DoFlow');
   const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets: [guidanceAsset(sourceFile)], context: contextWithSource(sourceFile) });
   assert.match(planned.conflicts[0], /without a DoFlow managed section/);
+});
+
+function pointerFixture() {
+  const repoRoot = scratch();
+  const guidanceRoot = path.join(repoRoot, 'core/shared/guidance');
+  fs.mkdirSync(path.join(guidanceRoot, 'pointers'), { recursive: true });
+  fs.writeFileSync(path.join(guidanceRoot, 'pointers/codex.md'), '# DoFlow\n\nRead {{GUIDANCE}}/DOFLOW_CORE.md and {{GUIDANCE}}/RULES.md.\n');
+  fs.writeFileSync(path.join(guidanceRoot, 'DOFLOW_CORE.md'), '# Core guidance\n');
+  return {
+    repoRoot,
+    assets: [
+      { id: 'guidance.codex-pointer', capability: 'instructions', source: 'core/shared/guidance/pointers/codex.md' },
+      { id: 'guidance.context-layer', capability: 'instructions', renderer: 'copy-tree', source: 'core/shared/guidance', nativeDir: '../.doflow/guidance' },
+    ],
+  };
+}
+
+test('renders per-scope guidance paths, preserves user text, and converges after install', () => {
+  const adapter = createPiAdapter();
+  const fixture = pointerFixture();
+  for (const scope of ['global', 'project']) {
+    const scopeRoot = scratch();
+    const target = nativePaths({ scope, scopeRoot, homeDir: scopeRoot }).instruction;
+    const prefix = '# User instructions before\n\n';
+    const suffix = '# User instructions after\n';
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${prefix}${MARKER_START}\nold pointer\n${MARKER_END}${suffix}`);
+    const input = { scope, scopeRoot, assets: fixture.assets, context: { repoRoot: fixture.repoRoot } };
+    const planned = adapter.plan(input);
+    assert.deepEqual(planned.conflicts, []);
+    adapter.apply({ changes: planned.changes });
+
+    const entry = fs.readFileSync(target, 'utf8');
+    const expectedGuidance = scope === 'global' ? path.join(scopeRoot, '.doflow/guidance') : '.doflow/guidance';
+    assert.ok(entry.includes(`${expectedGuidance}/DOFLOW_CORE.md`));
+    assert.ok(fs.existsSync(path.join(scopeRoot, '.doflow/guidance/DOFLOW_CORE.md')));
+    assert.match(fs.readFileSync(path.join(scopeRoot, '.doflow/guidance/pointers/codex.md'), 'utf8'), /\{\{GUIDANCE\}\}/);
+    assert.ok(entry.startsWith(prefix));
+    assert.ok(entry.endsWith(suffix));
+
+    const verified = adapter.verify(input);
+    assert.equal(verified.ok, true);
+    const nextPlan = adapter.plan(input);
+    assert.equal(nextPlan.conflicts.length, 0);
+    assert.equal(nextPlan.changes.some((change) => change.projection?.renderer === 'pi-instructions'), false);
+  }
 });
 
 test('remove strips only the managed section, preserving foreign content on both sides', () => {

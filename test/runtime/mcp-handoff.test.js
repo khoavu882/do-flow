@@ -181,7 +181,7 @@ test('a subagent report line counts: the outcome is attributed to tools-used and
   const [row] = data.consultations.toolsUsed;
   assert.equal(row.status, 'recorded');
   assert.match(row.evidenceId, /^ev_/);
-  const ledger = JSON.parse(fs.readFileSync(path.join(p.dir, '.doflow', 'state', 'evidence', 'A.1.json'), 'utf8'));
+  const ledger = JSON.parse(fs.readFileSync(path.join(p.dir, '.doflow', 'state', 'evidence', SLUG, 'A.1.json'), 'utf8'));
   assert.equal(ledger.evidence.length, 1);
   const [item] = ledger.evidence;
   assert.equal(item.id, row.evidenceId);
@@ -203,7 +203,7 @@ test('the same report line is not recorded twice on a rerun', (t) => {
   assert.equal(first.consultations.toolsUsed[0].status, 'recorded');
   assert.equal(again.consultations.toolsUsed[0].status, 'already-recorded');
   assert.equal(again.consultations.toolsUsed[0].evidenceId, first.consultations.toolsUsed[0].evidenceId);
-  const ledger = JSON.parse(fs.readFileSync(path.join(p.dir, '.doflow', 'state', 'evidence', 'A.1.json'), 'utf8'));
+  const ledger = JSON.parse(fs.readFileSync(path.join(p.dir, '.doflow', 'state', 'evidence', SLUG, 'A.1.json'), 'utf8'));
   assert.equal(ledger.evidence.length, 1);
   const [annotation] = entries(p, 'annotate');
   assert.equal(annotation.consultations.skill, 'do-brainstorm', 'a rerun handoff stores its record on the annotate entry');
@@ -233,7 +233,7 @@ test('a report without a Tools used line warns, names the task and path, and sti
   assert.equal(res.stderr.trim(), `[WARN] tools-used: task A.1 report ${report} has no "Tools used:" line`);
   const [entry] = entries(p, 'complete-stage');
   assert.deepEqual(entry.consultations.toolsUsed, [{ taskId: 'A.1', status: 'no-line', report }]);
-  assert.equal(fs.existsSync(path.join(p.dir, '.doflow', 'state', 'evidence', 'A.1.json')), false);
+  assert.equal(fs.existsSync(path.join(p.dir, '.doflow', 'state', 'evidence', SLUG, 'A.1.json')), false);
 });
 
 test('a brief record whose report file is missing warns and exits 0', (t) => {
@@ -371,8 +371,9 @@ test('X11 fail-open: a corrupt brief record, an unreadable evidence ledger and a
   fs.writeFileSync(path.join(p.dir, FEATURE, 'exec', 'task-B.1-brief.json'), '{ not json');
   const report = writeBrief(p);
   writeReport(p, report, 'Tools used: context7=used, sequential-thinking=used\n');
-  fs.mkdirSync(path.join(p.dir, '.doflow', 'state', 'evidence'), { recursive: true });
-  for (const id of [SLUG, 'A.1']) fs.writeFileSync(path.join(p.dir, '.doflow', 'state', 'evidence', `${id}.json`), '{ not json');
+  // The run's own ledger is flat (its id is the slug); the subagent task's is under the slug (115 C-1).
+  fs.mkdirSync(path.join(p.dir, '.doflow', 'state', 'evidence', SLUG), { recursive: true });
+  for (const rel of [`${SLUG}.json`, path.join(SLUG, 'A.1.json')]) fs.writeFileSync(path.join(p.dir, '.doflow', 'state', 'evidence', rel), '{ not json');
   const res = handoff(p, 'do-brainstorm');
   assert.equal(res.status, 0, res.stdout + res.stderr);
   assert.match(res.stdout, /Handoff: completed/);
@@ -419,7 +420,7 @@ test('X11 retry: evidence saved before a refused completion is found again, not 
   const refused = handoff(p, 'do-brainstorm');
   assert.equal(refused.status, 1, refused.stdout + refused.stderr);
   assert.equal(entries(p, 'complete-stage').length, 0, 'the completion was refused');
-  const ledgerFile = path.join(p.dir, '.doflow', 'state', 'evidence', 'A.1.json');
+  const ledgerFile = path.join(p.dir, '.doflow', 'state', 'evidence', SLUG, 'A.1.json');
   const saved = JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).evidence;
   assert.equal(saved.length, 1, 'the evidence went in before the refusal');
 

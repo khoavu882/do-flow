@@ -215,7 +215,9 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
         const isNotRun = s.attrs?.status === 'NOT_RUN';
         const isSharedInRun = s.attrs?.shared === 'in-run';
         const isSharedFollower = s.attrs?.shared === 'follower';
-        const isExecuted = !isNotRun && !isSharedInRun && !isSharedFollower;
+        // 089 IC-007: a reused check read a recorded PASS; like in-run and follower, it ran nothing.
+        const isReused = s.attrs?.shared === 'reused';
+        const isExecuted = !isNotRun && !isSharedInRun && !isSharedFollower && !isReused;
 
         if (isExecuted) {
           const duration = typeof s.durationMs === 'number' ? s.durationMs : (startMs !== null && endMs !== null ? Math.max(0, endMs - startMs) : 0);
@@ -404,7 +406,7 @@ function buildBaseline(spansView: any = {}, manifest: any = {}): any {
       basis: 'derived',
       recordsRead: 'executed verify.check spans, outside-verb test spans',
       uncapturedInputs: 'per-check timing on pre-FR-016 records, test durations on non-Claude harnesses',
-      cause: 'sum of executed check durations (excluding in-run and follower) + outside-verb test durations',
+      cause: 'sum of executed check durations (excluding in-run, follower and reused) + outside-verb test durations',
     },
     {
       metric: 'implementationMs',

@@ -167,8 +167,7 @@ projected into each harness's own `bin/` directory by the `locator.doflow` asset
 table — it finds the dispatcher and `exec`s it — so adding a verb never edits eight files. Note the
 placement, because it decides what a single-harness install can actually do: `locator.doflow` and
 `scripts.doflow`, which carries the dispatcher itself, apply to all eight harnesses, and every
-harness projects the dispatcher into the same shared `<scope root>/.doflow/scripts`, except
-Antigravity at global scope, which has no skills there and projects no runtime (see Harness reach). A tree that is
+harness projects the dispatcher into the same shared `<scope root>/.doflow/scripts`. A tree that is
 missing from every searched path gets the documented exit-2 message naming each one and the
 `install -t <harness>` command that provides it, rather than a silent failure.
 
@@ -402,13 +401,23 @@ writer of `settlements.jsonl`.
 
 The runtime reaches every harness at every scope where it gets skills: a standalone install of any
 of the eight projects the `scripts.doflow` and `runtime.*` assets to `<scope root>/.doflow`, so the
-follow-up, capture and maintain lines run after installing one harness alone. Pi, OpenCode and
-GitHub Copilot CLI also receive the shared guidance tree at `<scope root>/.doflow/guidance`, which
-the pointer in their instructions names; Kiro keeps its steering files and also receives that tree,
-which `doflow retrieve` searches. Antigravity has no skills at
-global scope, so its global install projects no runtime and prints a notice; install it per
-project. `doflow doctor` prints a `[Runtime Reach]` section with one line per installed harness and
-scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. At project scope
+follow-up, capture and maintain lines run after installing one harness alone. Codex, OpenCode, Pi
+and GitHub Copilot CLI also receive the full shared guidance tree at `<scope root>/.doflow/guidance`,
+which the pointer in their instructions names; Kiro receives the same full tree there (the
+`kiro.guidance-tree` asset), which `doflow retrieve` searches. What each harness loads before the
+user types is smaller than that mirror: Kiro steering (`.kiro/steering/`, both scopes), Copilot
+instructions (`*.instructions.md` files, each with an `applyTo: '**'` header, in `instructions/`
+under `.github/` at project scope and `~/.copilot/` at global scope) and Antigravity rules
+(`.agents/rules`, flat, project scope, each file under a `trigger: always_on` front-matter header, without
+which Antigravity discards a rules file per the vendor page, unverified against `agy`) hold only the core set, the `@` import walk of
+`DOFLOW_CORE.md`; the other files are read from `.doflow/guidance` on demand. The core set is loaded once
+per scope: a Copilot or Kiro install at both project and global scope probably loads it twice (untested;
+Copilot's documented de-duplication covers identical `copilot-instructions.md` files, not
+`*.instructions.md`). A global Antigravity install
+projects skills (`~/.gemini/config/skills`), agents, the `doflow-run` locator and the runtime and guidance
+trees under `~/.doflow`, but no rules and no instruction pointer: the rules and the `AGENTS.md` section are
+project scope only, and `~/.gemini/GEMINI.md` is shared with Gemini CLI. `doflow doctor` prints a
+`[Runtime Reach]` section with one line per installed harness and scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. At project scope
 every ledger from the working directory upward is read, so a nested ledger left by a removed harness
 does not hide the install that encloses it. Nothing in the loop
 depends on one harness's own commands; a goal is DoFlow's record, whatever a harness's own `goal`
@@ -463,7 +472,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names, except Kiro, which gets this tree as `.kiro/steering/` and a second, Kiro-only `kiro.guidance-tree` asset that mirrors it into `.doflow/guidance/`; that copy is never loaded as steering |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names. Three projections carry only the core set (the `@` import walk of `DOFLOW_CORE.md`, computed by `src/adapters/guidance-manifest.ts` and selected with `select: guidance-manifest`): Kiro steering (`.kiro/steering/`, the same asset's Kiro projection, with a second Kiro-only `kiro.guidance-tree` asset mirroring the full tree into `.doflow/guidance/`), the Copilot `instructions.copilot` asset (`*.instructions.md` with an `applyTo: '**'` header) and the Antigravity `rules.antigravity` asset (`flat` layout into project `.agents/rules`, each file under a `trigger: always_on` header from the `antigravity-always-on-rules` transform). `.doflow/guidance/` stays the full mirror for on-demand reads and is never loaded as steering |
 | `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.ts`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
@@ -477,12 +486,22 @@ declares target capability and ownership inputs, and is not itself a native conf
 | The runtime locator shim | `core/harnesses/shared/locator/` | Byte-identical on every harness; only the native path it is written to differs |
 | MCP server catalog | `core/registry/mcp.json` | Single neutral source every harness's adapter selects from |
 
-Each harness's native entry file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) no longer receives a full
-copy of the guidance content — its managed section is a short pointer into `.doflow/guidance/`
-instead: `@`-import syntax for Claude and Gemini (both resolve relative/absolute `@file` imports
-natively), a prose read-instruction for Codex (AGENTS.md has no native import-expansion
-mechanism, unlike Claude/Gemini). This replaces the physical per-harness duplication this section
-previously described as pending — see `CHANGELOG.md` for when it landed.
+Each harness's native entry file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and Copilot's
+`copilot-instructions.md`) no longer receives a full copy of the guidance content — its managed
+section is a short pointer into `.doflow/guidance/` instead: `@`-import syntax for Claude and
+Gemini (both resolve relative/absolute `@file` imports natively), a prose read-instruction for
+Codex, OpenCode and Pi (`AGENTS.md` has no native import-expansion mechanism, unlike Claude/Gemini),
+and the same prose read-instruction for Copilot and Antigravity at project scope (Copilot CLI reads a
+user-level `~/.copilot/copilot-instructions.md`, but DoFlow projects no pointer there; Antigravity's
+global instructions file, `~/.gemini/GEMINI.md`, is shared with Gemini CLI and is not written by the
+Antigravity adapter). The prose pointer
+(`core/shared/guidance/pointers/codex.md`) tells the model to read `DOFLOW_CORE.md` and the files it
+imports unless they are already in its instructions, and to read other files under the guidance
+directory only when a skill names them. Its guidance path is filled per scope by
+`renderGuidancePointer` (`src/adapters/guidance-pointer.ts`): an absolute path under the home
+directory at global scope, `.doflow/guidance` at project scope. This replaces the physical
+per-harness duplication this section previously described as pending — see `CHANGELOG.md` for when
+it landed.
 
 For Codex-specific configuration, keep durable preferences and MCP servers in the applicable
 `config.toml` layer, use a single `hooks.json` representation per layer for lifecycle handlers,
@@ -504,6 +523,7 @@ differently in the shell hook and `ledger.ts` (logical path) than in `doflow-run
 so hook and ledger lines can split across two stores. Read-only workers on claim worktrees outside
 the project still have no route to the project store (follow-up). Lifecycle commands no longer anchor
 metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
+A task's records (evidence, claims, readiness, research requests, outcome, delivery, retrieval plan and the orchestration run) have one root, `taskStateRoot` in `src/runtime/state-root.ts`: a linked, non-sandbox worktree always uses the main checkout's `.doflow/state`, and a sandbox checkout or `-g` keeps its own. Every task id other than its feature's slug is kept under `<store>/<slug>/` whenever a slug resolves (`--slug`, else the checkout's feature), with a read-through to a flat record of the same feature or of none. Every redirected call first runs one locked sweep that moves the records the worktree already holds to the main checkout, and a file present in both with different bytes, or reached through a link, refuses the call with `store-conflict`; the swept stores are the ones `core/registry/storage.json` names with that module as a writer. Source files, and so the freshness hash of a relative evidence locator, stay in the checkout the verb runs in, and `doflow-run paths --json` reports the checkout holding the feature folder as `feature_root`. The machine-wide `slot` queue is the one store outside the project: `slots-user` under `~/.doflow/state/slots`, one file per slot name.
 Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the runtime prune (`pruneRetiredRuntimeFiles`): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. The same directory holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
 
 Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
@@ -663,7 +683,9 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   reports lines and bytes per always-loaded file and per harness (what each harness's projections
   load before the user types, classified from the registry) as diagnostics, so a change shows what it
   costs each harness; a harness the classification does not recognize fails the guard rather than
-  reporting zero.
+  reporting zero. A per-harness assertion computed from the registry holds every harness to the
+  core set at least and the core set plus 1,024 B at most (the pointer or the `applyTo` headers), so
+  a projection that loads a whole tree, or none of the core set, fails by name.
 - **G14** (`agent-specs.test.js`) — an agent specification references no file outside itself, since
   a dispatched agent has no working directory to resolve one against.
 - **G15** (`skill-seam.test.js`) — one path to the runtime entrypoint, one spelling of the resolver
@@ -708,7 +730,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `TRANSFORMS` table over a probe file and reads the frontmatter it produces — a projection whose
   transform renders an apply-to-everything directive must appear in the constant — and the
   constant may hold no entry that is neither derived this way nor recorded, nor one naming a
-  projection that no longer exists. The recorded half exists for Kiro, whose steering tree is
+  projection that no longer exists. The recorded half exists for Kiro, whose steering directory (the core set) is
   loaded wholesale with no transform to execute; that entry instead pins the two registry facts its
   rationale rests on, and becomes removable if the registry ever declares load semantics per
   projection.
@@ -736,9 +758,13 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   malformed policy file, fails the lint, so the policy cannot rot into a blanket suppression.
   Policy pairs in `instruction-lint.json` guard against contradictory guidance: `default-vs-disjoint-parallelism`
   (parallel work, including "parallel-first" wording, must be conditional on disjoint write sets),
-  `imposed-layout-vs-project-conventions`, `universal-load-vs-pointer-read`, `confidence-bands-vs-no-confidence`,
+  `imposed-layout-vs-project-conventions`, `confidence-bands-vs-no-confidence`,
   `ask-only-vs-always-ask`, `continue-vs-wait-at-plan`, and `incremental-vs-no-commit` (with near-miss controls for
-  "do not commit secrets" and confirmation wording).
+  "do not commit secrets" and confirmation wording). The policy file's `harnessOnlyNames` list adds a
+  harness-only tool-name check: a tool or token only one harness provides (`TodoWrite`,
+  `AskUserQuestion`, `ToolSearch`, `<env>`, all Claude Code's) may appear in the shipped guidance,
+  skills, agent specs and templates only in a paragraph that also names that harness, so text every
+  harness loads does not name a tool the others lack.
 - **G25** (`prompt-nudge-registry.test.js`) — the standalone-prompt nudge reads its rules from the
   `promptNudge` key of `core/registry/workflows.json` with `jq` and has no built-in defaults, so a
   missing or mistyped field would make the decision fail silently. The guard checks that object's

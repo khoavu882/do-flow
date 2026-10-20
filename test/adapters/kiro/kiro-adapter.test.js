@@ -194,6 +194,9 @@ test('confirms the real registry routes guidance, skills, and agents trees to ki
   assert.deepEqual(instructions.map((asset) => [asset.id, asset.nativeDir.kiro]),
     [['guidance.context-layer', 'steering'], ['kiro.guidance-tree', '../.doflow/guidance']]);
   assert.equal(instructions[1].source, instructions[0].source);
+  // Steering takes the core set only; the shared mirror stays whole.
+  assert.equal(instructions[0].projection.kiro.select, 'guidance-manifest');
+  assert.equal(instructions[1].projection.kiro.select, undefined);
 
   const skills = selectAssets(registry, { harness: 'kiro', capability: 'skills' });
   assert.equal(skills.length, 1);
@@ -202,6 +205,47 @@ test('confirms the real registry routes guidance, skills, and agents trees to ki
 
   const agents = selectAssets(registry, { harness: 'kiro', capability: 'agents' });
   assert.deepEqual(agents.map((asset) => asset.id), ['agents.shared', 'kiro.doflow-agent']);
+});
+
+// ---- the real registry: steering holds the core set, .doflow/guidance the whole tree ----
+
+const CORE_SET = ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'rules/RULE_01_SAFETY.md', 'rules/RULE_02_WORKFLOW.md', 'rules/RULE_03_QUALITY.md', 'rules/RULE_04_QUESTIONS.md'];
+
+function filesUnder(dir) {
+  return fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile())
+    .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join('/')).sort() : [];
+}
+
+function installKiroGuidance(registry, scope) {
+  const { projectAdapterInput } = require('../../../src/adapters/index.ts');
+  const repoRoot = path.resolve(__dirname, '../../..');
+  const root = scratch(); const adapter = createKiroAdapter();
+  const harness = registry.harnesses.find((item) => item.id === 'kiro');
+  const assets = require('../../../src/registry/index.ts').selectAssets(registry, { harness: 'kiro', capability: 'instructions' });
+  const input = { ...projectAdapterInput({ registry, harness, scope, scopeRoot: root, assets, context: {} }), context: { repoRoot, homeDir: root }, ledger: { resources: [] } };
+  const planned = adapter.plan(input);
+  assert.deepEqual(planned.conflicts, []);
+  adapter.apply({ changes: planned.changes });
+  assert.equal(adapter.verify(input).ok, true);
+  return { root, source: path.join(repoRoot, 'core', 'shared', 'guidance') };
+}
+
+for (const scope of ['project', 'global']) {
+  test(`${scope} install leaves exactly the core set in steering and the whole tree in .doflow/guidance`, () => {
+    const { loadRegistry } = require('../../../src/registry/index.ts');
+    const { root, source } = installKiroGuidance(loadRegistry({ repoRoot: path.resolve(__dirname, '../../..') }), scope);
+    assert.deepEqual(filesUnder(path.join(root, '.kiro', 'steering')), CORE_SET);
+    assert.deepEqual(filesUnder(path.join(root, '.doflow', 'guidance')), filesUnder(source));
+    assert.ok(filesUnder(source).length > CORE_SET.length, 'the source tree is larger than the core set');
+  });
+}
+
+test('without the select the steering would hold the whole tree (control for the file-set test)', () => {
+  const { loadRegistry } = require('../../../src/registry/index.ts');
+  const registry = structuredClone(loadRegistry({ repoRoot: path.resolve(__dirname, '../../..') }));
+  delete registry.assets.find((asset) => asset.id === 'guidance.context-layer').projection.kiro.select;
+  const { root, source } = installKiroGuidance(registry, 'project');
+  assert.deepEqual(filesUnder(path.join(root, '.kiro', 'steering')), filesUnder(source));
 });
 
 // ---- MCP entries, owned per server through ledger rows ----

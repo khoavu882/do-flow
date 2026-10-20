@@ -131,6 +131,8 @@ class VerificationEngine {
   runner: any;
   recoveryOverride: any;
   v0: boolean;
+  /** 089 IC-005: the `verify.reuse` setting, resolved once by the verb; false unless injected. */
+  reuse: boolean;
   platform: string;
   configDir: string;
 
@@ -147,6 +149,7 @@ class VerificationEngine {
    * @param {string} [options.platform] platform used for command execution
    * @param {string} [options.configDir] resolved verification state store
    * @param {boolean} [options.v0] whether V0 behavior is enabled (IC-015)
+   * @param {boolean} [options.reuse] whether recorded PASSes are stored and reused (089 IC-005)
    */
   constructor(options: any = {}) {
     this.cwd = options.cwd || process.cwd();
@@ -172,6 +175,7 @@ class VerificationEngine {
     });
     this.recoveryOverride = options.recovery || null;
     this.v0 = options.v0 !== undefined ? Boolean(options.v0) : true;
+    this.reuse = options.reuse === true;
   }
 
   /** @returns {string} ISO timestamp from the injected clock */
@@ -682,22 +686,27 @@ class VerificationEngine {
     let fatalTier: string | null = null;
     let checksRun = 0;
     let checksPassed = 0;
+    let checksReused = 0;
     // One evaluation pass, one cache: two tiers declaring the same command (targeted and broad
     // tests are often both `npm test`) run it once and share the result. A recovery retry calls
     // runContract again and gets a fresh cache, so retries always observe live behaviour.
     const dedupeCache = new Map<string, any>();
 
     const v0Active = Boolean(this.v0 && v0Applies(this.registry, contract.riskLevel));
-    if (v0Active) {
+    if (v0Active || this.reuse) {
+      // 089 IC-005: the runner decides reuse eligibility per level; a recovery retry comes back here.
       this.runner.beginContract({
         v0: this.v0,
+        reuse: this.reuse,
         registry: this.registry,
         riskLevel: contract.riskLevel,
         configDir: this.configDir,
       });
     } else {
-      // A reused engine must not carry L1/L2 sharing into an L3 or flag-off contract.
+      // A reused engine must not carry L1/L2 sharing or reuse into an L3 or flag-off contract.
       this.runner.inflightContext = undefined;
+      this.runner.reuseContext = undefined;
+      this.runner.reuseStore = undefined;
     }
     let taskIdValid = false;
     if (typeof contract.taskId === 'string') {
@@ -894,6 +903,7 @@ class VerificationEngine {
             fullResult.failedFirst = { ran: true, status: 'PASS', files: matchedFiles.length };
             entry.checks.push(fullResult);
             checksRun += 1;
+            if (fullResult.reused) checksReused += 1;
             if (fullResult.status === 'PASS') checksPassed += 1;
             else failedChecks.push(fullResult.name);
 
@@ -927,6 +937,7 @@ class VerificationEngine {
         if (check.requirementId) result.requirementId = check.requirementId;
         entry.checks.push(result);
         checksRun += 1;
+        if (result.reused) checksReused += 1;
         if (result.status === 'PASS') checksPassed += 1;
         else failedChecks.push(result.name);
 
@@ -1022,6 +1033,7 @@ class VerificationEngine {
         checksRun,
         checksPassed,
         checksFailed: checksRun - checksPassed,
+        ...(this.reuse ? { checksReused } : {}),
         tiersRequired: requiredTiers.length,
         tiersPassed: requiredTiers.filter((t) => t.status === 'PASS').length,
         tiersFailed: requiredFailed.length,
@@ -1598,8 +1610,22 @@ function verificationRunRecordFile(root: string, taskId: string): string {
   return path.join(root, '.doflow', 'state', 'verification', 'runs', `${taskId}.jsonl`);
 }
 
-/** Persist the already printed report as one JSONL line; state I/O never changes its answer. */
-function appendVerificationRunRecord({ taskId, report, gitState, fsImpl = nodeFs }: any): void {
+/** 089 IC-006: how many checks of a report carry the `reused` label. */
+function reusedCount(report: any): number {
+  if (typeof report?.counts?.checksReused === 'number') return report.counts.checksReused;
+  let count = 0;
+  for (const tier of Array.isArray(report?.tiers) ? report.tiers : []) {
+    for (const check of Array.isArray(tier?.checks) ? tier.checks : []) {
+      if (check && typeof check === 'object' && check.reused) count += 1;
+    }
+  }
+  return count;
+}
+
+/** Persist the already printed report as one JSONL line; state I/O never changes its answer.
+ * 089 IC-006: with reuse on for the run, `reused` (the count) precedes `reportSha256`; with reuse
+ * off the record is byte-identical to the one before reuse existed. */
+function appendVerificationRunRecord({ taskId, report, gitState, reuse = false, fsImpl = nodeFs }: any): void {
   if (!gitState) return;
   try {
     const reportJson = JSON.stringify(report, null, 2);
@@ -1610,6 +1636,7 @@ function appendVerificationRunRecord({ taskId, report, gitState, fsImpl = nodeFs
       clean: gitState.clean,
       verdict: report.status,
       at: new Date().toISOString(),
+      ...(reuse === true ? { reused: reusedCount(report) } : {}),
       reportSha256: `sha256:${nodeCrypto.createHash('sha256').update(reportJson, 'utf8').digest('hex')}`,
     };
     const file = verificationRunRecordFile(gitState.projectRoot, taskId);
@@ -1617,6 +1644,20 @@ function appendVerificationRunRecord({ taskId, report, gitState, fsImpl = nodeFs
     fsImpl.appendFileSync(file, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
   } catch {
     // Reporting is authoritative. A read-only or unavailable state directory is only a lost record.
+  }
+}
+
+/**
+ * 089 IC-005: the `verify.reuse` setting, read once per verify command. Only a valid resolved `on`
+ * enables reuse; an invalid value, a load error or any fault is the key's fail-safe `off`.
+ */
+function readVerifyReuse(env: any = process.env): boolean {
+  try {
+    const { loadSettings } = require('../settings/resolve.ts');
+    const resolution = loadSettings({ global: true, env: { ...env } }).get('verify.reuse', 'global');
+    return resolution?.state === 'ok' && resolution.value === 'on';
+  } catch {
+    return false;
   }
 }
 
@@ -1698,10 +1739,11 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
 
   const state = verifyStateRoot({ start: cwd, env, fsImpl });
   const v0 = v0Enabled(env, state.configDir, fsImpl);
+  const reuse = readVerifyReuse(env);
   let engine: any;
   let contract: any;
   try {
-    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT, logDir: path.join(state.configDir, 'state', 'verification', 'logs'), configDir: state.configDir, v0, fsImpl });
+    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT, logDir: path.join(state.configDir, 'state', 'verification', 'logs'), configDir: state.configDir, v0, reuse, fsImpl });
     // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
     // declared scope; with neither the change-scope tier is UNRESOLVED and says where it looked.
     const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared, baselineRef });
@@ -1779,9 +1821,21 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
       if (boundLines.has(tier.id)) console.log(boundLines.get(tier.id));
       if (tier.reason) console.log(`      ${tier.reason}`);
       if (tier.selection) console.log(`      ${selectionText(tier.selection)}`);
+      if (Array.isArray(tier.checks)) {
+        for (const check of tier.checks) {
+          if (check?.reused) {
+            const atIso = typeof check.reused.recordedAt === 'number'
+              ? new Date(check.reused.recordedAt).toISOString()
+              : String(check.reused.recordedAt);
+            console.log(`      reused ${atIso} ref ${check.reused.ref}`);
+          }
+        }
+      }
     }
     console.log('─'.repeat(78));
-    console.log(`Checks: ${report.counts.checksPassed}/${report.counts.checksRun} passed`);
+    const reused = report.counts?.checksReused ?? reusedCount(report);
+    const reusedSuffix = reused > 0 ? ` (${reused} reused, not executed)` : '';
+    console.log(`Checks: ${report.counts.checksPassed}/${report.counts.checksRun} passed${reusedSuffix}`);
     if (report.unresolved.length) {
       console.log('Never evaluated (not a pass):');
       for (const u of report.unresolved) console.log(`  ${u.tier}${u.required ? ' [required]' : ''} — ${u.reason}`);
@@ -1791,7 +1845,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   const exitCode = report.status === 'PASS' ? 0 : 1;
-  if (action === 'report') appendVerificationRunRecord({ taskId, report, gitState: runGitState, fsImpl });
+  if (action === 'report') appendVerificationRunRecord({ taskId, report, gitState: runGitState, reuse, fsImpl });
   // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
   emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode, v0: v0 ? 'on' : 'off' }, start: state.projectRoot || cwd, env, fsImpl });
   upkeepAfterVerify({ projectRoot: state.projectRoot });
@@ -1828,6 +1882,7 @@ module.exports = {
   MAX_STREAM_CHARS,
   REGISTRY_FILENAME,
   handleVerifyCommand,
+  readVerifyReuse,
   verifyStateRoot,
   validateVerificationInput,
   saveFailedFirstFile,

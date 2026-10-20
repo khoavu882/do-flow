@@ -36,7 +36,7 @@ function linkedWorld(t) {
   return { main, wt, doflow };
 }
 
-const NOTE = /lives in the main checkout/;
+const NOTE = /records are kept in the main checkout/;
 const files = (out) => JSON.parse(out.stdout).results.map((r) => r.locator.file).sort();
 
 test('bound code retrieve in a linked worktree searches the worktree and keeps the main checkout as the state root', (t) => {

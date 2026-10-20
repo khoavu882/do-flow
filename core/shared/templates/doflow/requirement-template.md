@@ -5,7 +5,7 @@
 **Intent:** [agent-docs/intent/<name>.md, or "none"]
 
 > WHAT and WHY only — no tech or implementation detail. Zero unresolved clarification markers at
-> hand-off — every ambiguity is resolved via `AskUserQuestion` before this file is written;
+> hand-off — every ambiguity is resolved via the question tool before this file is written;
 > deferred answers become assumptions in §8.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full

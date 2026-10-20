@@ -56,9 +56,11 @@ function parseArgs(argv: string[]): any {
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
     // `'default'`, and a JavaScript default parameter fires on `undefined` — so an *absent* key
     // silently reinstated exactly the identity defect readiness.ts fixed by failing closed.
-    taskClass: null, taskId: null };
+    taskClass: null, taskId: null,
+    flagsGiven: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a.startsWith('-')) o.flagsGiven.push(a);
     switch (a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': case '--version': o.version = true; break;
@@ -70,6 +72,15 @@ function parseArgs(argv: string[]): any {
       case '--adopt-unowned': o.adoptUnowned = true; break;
       // worker --action run: wait for the run to end. A switch, like --adopt-unowned (081 IC-026).
       case '--wait': o.wait = true; break;
+      // slot --action run: refuse at once instead of queueing (115 IC-008). A switch, so key `noWait`.
+      case '--no-wait': o.noWait = true; break;
+      // slot --action run -- <command> [args...]: everything after the first `--` is the command's
+      // own argv, never parsed here (115 IC-008). Any other verb still refuses a bare `--` below.
+      case '--':
+        if (o.cmd === 'slot') { o.slotCommand = argv.slice(i + 1); i = argv.length; break; }
+        if (o.cmd === 'plan-check') break;
+        console.error(`doflow: unknown flag '${a}'`); process.exit(1);
+        break;
       // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
       case '--edit': o.edit = true; break;
       case '-g': case '--global': o.global = true; break;
@@ -203,12 +214,15 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        if (a.startsWith('-')) { console.error(`doflow: unknown flag '${a}'`); process.exit(1); }
+        // slot reports an unknown flag as its own usage error (exit 2, 115 IC-008).
+        if (a.startsWith('-') && o.cmd === 'slot') (o.extraFlags = o.extraFlags || []).push(a);
+        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(`doflow: unknown flag '${a}'`); process.exit(1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
       }
     }
   }
+  if (o.cmd === 'plan-check') o.extraFlags = o.flagsGiven;
   return o;
 }
 
@@ -364,6 +378,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--run', 'run'],                    // trace spans: keep one run key or run id (088 IC-011)
   ['--row', 'row'],                    // roadmap: restricts the step to one in-flight row (108 IC-001)
   ['--draft', 'draft'],                // roadmap seed: the draft file to check, apply or amend (113 IC-001)
+  ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
+  ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -386,6 +402,7 @@ const RUNTIME_LIST_FLAGS = new Map([
 const RUNTIME_INT_FLAGS = new Map([
   ['--iteration', 'iteration'],        // recover: retries already spent, bounding the retry budget
   ['--observed-exit', 'observedExit'], // evidence --action add: exit status of the observed command (0 is meaningful)
+  ['--timeout', 'timeout'],            // slot --action run: seconds to wait for the slot; the verb checks 1 to 86400 (115 IC-008)
 ]);
 
 /**
@@ -499,6 +516,10 @@ Commands:
                        (a value beginning with '-' must be written --flag=value)
   roadmap              Session-driven autopilot runner (--action render|status|next|audit [--check] [--row <id>] [--run <id>]);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows
+  plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
+  slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
+                       slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
+                       slot --action release --name <name> --by <who> --reason <text>
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
@@ -543,6 +564,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
                        roadmap: render|status|next|audit (seed: check|apply|amend)
+                       slot: run|list|release
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -658,6 +680,11 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             disposition in the JSON; 2 usage or an unreadable store or plan)
       --error, --failed-check,
       --iteration, --agent                  recover
+      --name, --label, --timeout,
+      --no-wait, --by, --reason             slot (run: --name [--label <text>] [--timeout 1-86400] [--no-wait] -- <command> [args...],
+                                            everything after -- is the command's own argv; list; release: --name --by
+                                            --reason. Exit: run passes the command's code, 75 when busy or timed out;
+                                            release 1 while the holder is alive; 2 usage)
       --json           Machine-readable output (status)
 
 External tools:

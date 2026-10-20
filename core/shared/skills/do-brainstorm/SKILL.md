@@ -63,7 +63,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g.
    doflow installed at a multi-service container root — with 2+ `agent-docs/doflow/` feature dirs
    and no branch to disambiguate), this is NOT "no active feature" — it's an unresolved choice.
-   Ask via `AskUserQuestion`, one option per `candidate_slugs` entry, before continuing to step 3;
+   Ask via the question tool, one option per `candidate_slugs` entry, before continuing to step 3;
    never fall through to step 4's fresh-feature path on an ambiguous result, that would create a
    duplicate feature dir. Re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"` and
    use that slug for the rest of this flow. If `/do-flow` already disambiguated and is invoking this skill
@@ -101,8 +101,8 @@ workflow never reads.
      reason it per `MCP_Sequential.md`.
    After each dialogue round, before moving to the next round, partition any ambiguities
    surfaced that round into: *independent* ones (answerable without knowing another's answer) —
-   up to 4 — batched into one `AskUserQuestion` call (the tool's 4-question max); *dependent*
-   ones (whose options depend on a prior answer) — asked as their own individual `AskUserQuestion`
+   up to 4 — batched into one question-tool call (the tool's 4-question max); *dependent*
+   ones (whose options depend on a prior answer) — asked as their own individual question-tool
    call, in dependency order, after the dependency resolves; never batched with something it
    depends on. Every question built for this loop MUST include an explicit "Decide for me" choice
    among its listed options (on top of the tool's automatic "Other" free-text escape), so the
@@ -156,7 +156,7 @@ The template is `templates/doflow/requirement-template.md` in the install step 1
    with a one-line rationale.
    The `[NEEDS CLARIFICATION]` marker syntax remains only as a fallback for a session aborted
    mid-loop, not for a completed artifact. Populate the `**Ticket:**` header field only if the user
-   referenced a PBI/epic/ticket ID during the dialogue (confirm the exact ID via `AskUserQuestion`
+   referenced a PBI/epic/ticket ID during the dialogue (confirm the exact ID via the question tool
    if it was ambiguous) — otherwise write `none`; do not add a new forced question to every
    brainstorm session just to fill this field.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
