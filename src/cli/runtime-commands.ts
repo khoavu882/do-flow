@@ -90,10 +90,10 @@ function evidenceRoot(o: any): string {
   return path.resolve(o.positional[0] || '.');
 }
 
-/** The `trace` views that take the first positional slot: `spans` (088 IC-011), `analyze` (091 IC-001). */
-const TRACE_VIEWS = new Set(['spans', 'analyze']);
+/** The `trace` views that take the first positional slot: `spans` (088 IC-011), `analyze` (091 IC-001), `export` (091 IC-006). */
+const TRACE_VIEWS = new Set(['spans', 'analyze', 'export']);
 
-/** `trace spans|analyze [<project>]`: the view name takes the first positional slot, so the
+/** `trace spans|analyze|export [<project>]`: the view name takes the first positional slot, so the
  * project root is the one after it. Every other call is `evidenceRoot(o)`. */
 function traceViewRoot(o: any): string {
   return o.cmd === 'trace' && TRACE_VIEWS.has(o.positional[0]) && !o.global ? path.resolve(o.positional[1] || '.') : evidenceRoot(o);
@@ -120,12 +120,22 @@ function analyzeLedgerRoot(o: any): string | undefined {
   return taskStateRoot({ global: o.global, positional: [caller] }, checkouts).root;
 }
 
-/** `trace`: the ledger trajectory, unchanged, or the `spans` or `analyze` view, whose modules load
+/** `trace`: the ledger trajectory, unchanged, or the `spans`, `analyze` or `export` view, whose modules load
  * only for that view so `trace` and `stats` read nothing new (NFR-010, 091 NFR-009). */
-function handleTraceViewCommand(o: any): number {
+function handleTraceViewCommand(o: any): any {
   if (o.positional[0] === 'analyze') {
     return require('../runtime/trace/analyze.ts').handleTraceAnalyze({ positional: o.positional.slice(1), run: o.run, json: o.json, global: o.global,
       emit: o.emit, taskId: o.taskId, stateRoot: analyzeLedgerRoot(o) });
+  }
+  if (o.positional[0] === 'export') {
+    return require('../runtime/trace/otlp-export.ts').handleTraceExport({
+      positional: o.positional.slice(1),
+      run: o.run,
+      json: o.json,
+      global: o.global,
+      dryRun: o.dryRun,
+      otlpHttp: o.otlpHttp,
+    });
   }
   if (o.positional[0] !== 'spans') return handleTraceCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
   return require('../runtime/trace/spans.ts').handleTraceSpans({ positional: o.positional.slice(1), run: o.run, json: o.json, global: o.global });
