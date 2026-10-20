@@ -174,10 +174,11 @@ function cmdReport(ctx, flags) {
   const result = report.reportOf({
     runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(),
     noisePath: explicitNoise ? path.resolve(flags.noise) : path.join(ctx.resultsDir, 'noise.json'), explicitNoise, repoRoot: ctx.repoRoot,
+    pathInfo: ctx.pathInfo(),
   });
   const out = flags['decision-out'] ? path.resolve(flags['decision-out']) : null;
   if (out) writeJson(out, result.decision);
-  if (flags.json) ctx.out(JSON.stringify({ decision: result.decision, tokens: result.tokens }, null, 2));
+  if (flags.json) ctx.out(JSON.stringify({ decision: result.decision, tokens: result.tokens, graderRerun: result.graderRerun }, null, 2));
   else {
     for (const line of report.reportLines(result)) ctx.out(line);
     if (out) ctx.out(`decision: ${rel(ctx.repoRoot, out)}`);

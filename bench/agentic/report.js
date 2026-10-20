@@ -3,15 +3,16 @@
 /**
  * Agentic baseline band, decision and token report (feature 097, IC-008, IC-009). Turns graded
  * iterations into 096 repeats and hands them, unchanged in meaning, to `computeNoise` (arm N, the A/A
- * band) and `buildDecision` (arm D against that band). Offline: reads run directories, spawns nothing.
+ * band) and `buildDecision` (arm D against that band). Offline: reads run directories and spawns no
+ * harness; the only child process is `git diff` when the band and the candidate differ in sourceAt.
  *
  * Why arm N alone makes the band and arm D alone is the candidate: the baseline side of a decision is
  * the noise artifact's k repeats. Feeding arm D to `noise`, or arm N to `report`, would measure a
  * change against itself, so both refuse the wrong arm instead of reading it.
  *
- * Why the repeat key is the case key with its truth digest (IC-002): a run graded against an older
- * question or truth carries the older key, so it can never be scored as the current task; 096 then
- * sees a case-set mismatch or a missing case, never a silent substitution.
+ * Why every run is checked against its launch record (C-8) and regraded in memory (C-10): a run
+ * captured under an older question, truth or prompt is refused rather than restamped with the current
+ * key, and a stored grading.json edited or left stale after `grade` is reported, never scored.
  *
  * Exclusion (096 vocabulary only): the grading's infra class or `malformed`; a run whose isolation is
  * not `clean` (leaked or unverifiable) is `source-unverified`. An excluded run scores null, never 0.
@@ -23,11 +24,12 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { computeNoise, buildDecision, validateNoiseArtifact } = require('../noise.js');
 const { mean, median } = require('../retrieval/lib/stats.js');
 const { UsageError } = require('./tasks.js');
 const { RUN_FILES, readIteration } = require('./execute.js');
-const { gradeRun, serializeGrading } = require('./grade.js');
+const { gradeRun, serializeGrading, checkLaunch, loadPathInfo } = require('./grade.js');
 
 /** The arm whose repeats make the band, and the arm a decision measures against it. */
 const BASELINE_ARM = 'N';
@@ -98,12 +100,13 @@ function storedGrading(runDir, label) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * One arm N repeat, regraded in memory: the fresh grading is the score (so a grader or task edit made
- * after `grade` cannot hide), a second in-memory grading that differs marks the run `differing`, and a
- * stored grading.json that differs from the fresh one marks it `stale`. Every task of the set must have
- * a run directory and a stored grading.
+ * One repeat, regraded in memory (`noise` for arm N, `report` for arm D, C-10): the fresh grading is
+ * the score (so a grader or task edit made after `grade` cannot hide), a second in-memory grading that
+ * differs marks the run `differing`, and a stored grading.json that differs from the fresh one marks
+ * it `stale`. Each run must match its launch record (C-8) and have a stored grading. `noise` needs a
+ * run directory for every task; for `report` a missing run is 096's `missing`, never a score.
  */
-function noiseRepeat({ iteration, taskSet, config, pathInfo }) {
+function regradeRepeat({ iteration, taskSet, config, pathInfo, verb }) {
   const runs = {};
   const differing = [];
   const stale = [];
@@ -111,8 +114,10 @@ function noiseRepeat({ iteration, taskSet, config, pathInfo }) {
     const runKey = `${iteration.name}/${task.id}`;
     const runDir = path.join(iteration.dir, task.id);
     if (!fs.existsSync(runDir)) {
+      if (verb !== 'noise') continue;
       throw new UsageError('run-missing', `noise: ${runKey} has no run directory; every iteration must hold every task of the task set`);
     }
+    checkLaunch({ runDir, task, arm: iteration.meta.arm, config, label: `${verb}: ${runKey}` });
     const stored = storedGrading(runDir, runKey);
     const args = { runDir, task, arm: iteration.meta.arm, config, pathInfo };
     const first = serializeGrading(gradeRun(args));
@@ -141,7 +146,7 @@ function noiseOf({ runRoot, iterations, taskSet, config, noiseConfig, pathInfo }
     if (it.meta.model !== first.meta.model) throw new UsageError('repeats-differ', `noise: model ${it.meta.model} of ${it.name} differs from ${first.meta.model} of ${first.name}`);
     if (it.meta.sourceAt !== first.meta.sourceAt) throw new UsageError('repeats-differ', `noise: sourceAt of ${it.name} differs from ${first.name}`);
   }
-  const graded = its.map((iteration) => noiseRepeat({ iteration, taskSet, config, pathInfo }));
+  const graded = its.map((iteration) => regradeRepeat({ iteration, taskSet, config, pathInfo, verb: 'noise' }));
   const artifact = computeNoise({
     repeats: graded.map((g) => g.repeat),
     config: noiseConfig,
@@ -156,23 +161,31 @@ function noiseOf({ runRoot, iterations, taskSet, config, noiseConfig, pathInfo }
 // Report (IC-009)
 // ---------------------------------------------------------------------------------------------
 
-/** One arm D repeat from the stored gradings, keyed by the key each grading was made under. */
-function candidateRepeat({ iteration, taskSet }) {
-  const runs = {};
-  for (const task of taskSet.tasks) {
-    const runDir = path.join(iteration.dir, task.id);
-    if (!fs.existsSync(runDir)) continue; // a missing run is 096's `missing`, never a score
-    const label = `${iteration.name}/${task.id}`;
-    let grading;
-    try {
-      grading = JSON.parse(storedGrading(runDir, label));
-    } catch (e) {
-      if (e instanceof UsageError) throw e;
-      throw new UsageError('grading-unreadable', `report: ${label}/${RUN_FILES.grading} is not valid JSON; re-run grade`);
+/** The iteration.json fields that must be equal for the band and the candidate to be comparable. */
+const CAPTURE_FIELDS = Object.freeze(['snapshot', 'harness', 'harnessVersion', 'model', 'captureSha256']);
+/** Paths whose change between two source commits does not change what a capture ran on. */
+const RECORD_PATHS = Object.freeze([':(exclude)agent-docs', ':(exclude)bench/agentic/results', ':(exclude)CHANGELOG.md']);
+
+/**
+ * C-12: refuses (UsageError 'capture-mismatch') unless every band and candidate iteration matches the
+ * first candidate in CAPTURE_FIELDS and, where sourceAt differs, `git diff` shows no change outside the
+ * record paths (exit 1 = differs; any other failure cannot prove sameness, so it refuses too).
+ */
+function assertSameCapture({ baseline, candidate, repoRoot }) {
+  const [ref] = candidate;
+  for (const it of [...baseline, ...candidate.slice(1)]) {
+    for (const field of CAPTURE_FIELDS) {
+      if (it.meta[field] !== ref.meta[field]) {
+        throw new UsageError('capture-mismatch', `report: ${field} of ${it.name} (${JSON.stringify(it.meta[field])}) differs from ${ref.name} (${JSON.stringify(ref.meta[field])}); the band and the candidate must come from the same capture`);
+      }
     }
-    runs[grading.key] = repeatRun(grading);
+    if (it.meta.sourceAt === ref.meta.sourceAt) continue;
+    const r = spawnSync('git', ['diff', '--quiet', it.meta.sourceAt, ref.meta.sourceAt, '--', '.', ...RECORD_PATHS], { cwd: repoRoot, stdio: 'ignore' });
+    if (r.status !== 0) {
+      const why = r.status === 1 ? 'changes inputs outside agent-docs, bench/agentic/results and CHANGELOG.md' : `cannot be compared (git diff exit ${r.status ?? r.error?.code ?? r.signal})`;
+      throw new UsageError('capture-mismatch', `report: sourceAt of ${it.name} (${it.meta.sourceAt}) and ${ref.name} (${ref.meta.sourceAt}) ${why}`);
+    }
   }
-  return { iteration: iteration.name, model: iteration.meta.model, commit: iteration.meta.sourceAt, runs };
 }
 
 /** Tokens of one arm over named iterations: unknown usage is counted, never summed as 0. */
@@ -242,20 +255,29 @@ function readNoiseFile({ noisePath, explicit, repoRoot }) {
 
 /**
  * `bench agentic report`. The baseline file is synthesised from the task set (IC-009) so the expected
- * case set is the current keys; `model` is the config label for every side.
- * @returns {{exit: 0, decision: object, tokens: object}}
+ * case set is the current keys; `model` is the config label for every side. Arm D is regraded in
+ * memory (C-10); with a valid band, its iterations (the artifact's `iterations` under `runRoot`) must
+ * share the candidate's capture identity (C-12).
+ * @returns {{exit: 0, decision: object, tokens: object, graderRerun: {runs: number, differing: string[], stale: string[]}}}
  */
-function reportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePath, explicitNoise = false, repoRoot }) {
+function reportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePath, explicitNoise = false, repoRoot, pathInfo = loadPathInfo() }) {
   const names = parseIterations(iterations);
   const its = loadIterations(runRoot, names, CANDIDATE_ARM, 'report');
-  const candidate = its.map((iteration) => candidateRepeat({ iteration, taskSet }));
   const { noise, noiseFile } = readNoiseFile({ noisePath, explicit: explicitNoise, repoRoot });
+  const band = noise !== null && validateNoiseArtifact(noise).length === 0 ? noise.iterations : [];
+  if (band.length) assertSameCapture({ baseline: loadIterations(runRoot, band, BASELINE_ARM, 'report'), candidate: its, repoRoot });
+  const graded = its.map((iteration) => regradeRepeat({ iteration, taskSet, config, pathInfo, verb: 'report' }));
+  const candidate = graded.map((g) => g.repeat);
   const label = config.model.label;
   const baselineFile = { model: label, commit: null, results: taskSet.tasks.map((t) => ({ key: t.key, kind: t.kind, split: t.split })) };
   const decision = buildDecision({ noise, noiseFile, baselineFile, model: label, candidate, thresholds: noiseConfig });
-  const band = noise !== null && validateNoiseArtifact(noise).length === 0 ? noise.iterations : [];
   const tokens = tokenReport({ runRoot, taskSet, candidateIterations: names, baselineIterations: band });
-  return { exit: 0, decision, tokens };
+  const graderRerun = {
+    runs: candidate.reduce((sum, r) => sum + Object.keys(r.runs).length, 0),
+    differing: graded.flatMap((g) => g.differing),
+    stale: graded.flatMap((g) => g.stale),
+  };
+  return { exit: 0, decision, tokens, graderRerun };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -282,11 +304,18 @@ function scopeLine(name, s) {
   return `decision ${name}: ${s.verdict} (${s.reason}) -> ${s.recommendation}; gain ${signed(s.gain)} over n ${s.n}, band ${num(s.band)}, ci95 ${Array.isArray(s.ci95) ? `[${num(s.ci95[0])}, ${num(s.ci95[1])}]` : 'none'}`;
 }
 
-function reportLines({ decision, tokens }) {
+/** N-5: the agentic band command (096's detail names `bench noise`, which reads no agentic runs). */
+const NO_BAND_LINE = 'no noise band: run `npm run bench -- agentic noise --iterations <n-r1,n-r2,n-r3> --out bench/agentic/results/noise.json` over the arm N repeats first';
+
+function reportLines({ decision, tokens, graderRerun }) {
   const lines = [
     scopeLine('corpus', decision.corpus),
     scopeLine('train', decision.splits.train),
     scopeLine('heldout', decision.splits.heldout),
+    ...(decision.corpus.reason === 'no-noise-band' ? [NO_BAND_LINE] : []),
+    ...(graderRerun && (graderRerun.differing.length || graderRerun.stale.length)
+      ? [`warning: grader re-run of arm D: ${graderRerun.differing.length} differing, ${graderRerun.stale.length} stale grading.json of ${graderRerun.runs} run(s); the fresh grading is the score: ${[...new Set([...graderRerun.differing, ...graderRerun.stale])].join(', ')}`]
+      : []),
     `overfitSuspected: ${decision.overfitSuspected}; precondition: ${decision.precondition ?? 'none'}`,
     `noise artifact: ${decision.inputs.noiseArtifact ? `${decision.inputs.noiseArtifact.path} (${decision.inputs.noiseArtifact.verdict ?? 'invalid'})` : 'none'}`,
     `excluded runs: baseline ${marks(decision.infra.baseline)}; candidate ${marks(decision.infra.candidate)}`,

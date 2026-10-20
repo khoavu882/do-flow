@@ -30,7 +30,7 @@
       "paragraph": "Search the repository with your own tools.",
       "pathAdd": [],
       "leak": [
-        "(?:^|[;&|(`]|\\$\\(|\\b(?:ba|z|da)?sh\\s+-[A-Za-z]*c\\s+[\"'])\\s*(?:(?:[^\\s;&|()\"'`]*/)?doflow(?:-run)?|node\\s+\\S*doflow\\.js)\\s+retrieve\\b",
+        "^doflow(?:-run)?(?:\\.[cm]?js)?(?: -\\S*)* retrieve(?: |$)",
         "^mcp[:_]"
       ]
     },
@@ -43,7 +43,7 @@
         "^mcp[:_]"
       ],
       "count": [
-        "(?:^|[;&|(`]|\\$\\(|\\b(?:ba|z|da)?sh\\s+-[A-Za-z]*c\\s+[\"'])\\s*(?:(?:[^\\s;&|()\"'`]*/)?doflow(?:-run)?|node\\s+\\S*doflow\\.js)\\s+retrieve\\b"
+        "^doflow(?:-run)?(?:\\.[cm]?js)?(?: -\\S*)* retrieve(?: |$)"
       ]
     }
   },

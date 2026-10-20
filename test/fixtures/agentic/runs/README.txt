@@ -3,14 +3,16 @@ Hand-built run directories for test/bench/agentic-grade.test.js (feature 097, IC
 These are test fixtures, not captures: no model or harness produced them. Each folder is one run
 directory (run_status.json, transcript.jsonl in codex-exec-json-v1 shape, last-message.txt,
 timing.json). The task and arm each one is graded as are declared in the test's scenario table, not in
-the folder, so the same folder can be graded as either arm.
+the folder, so the same folder can be graded as either arm. No folder holds a launch.json: the tests
+that go through gradeIteration write one for the task and arm they grade as (C-8), and gradeRun alone
+grades without one (only system paths allowed by the outside-path rule).
 
 full-answer                     answer lists the one relevant file of DC-011 (score 1.0)
 partial-answer                  hits one of two relevant files of a derived two-qrel task (score 0.5); fenced JSON
 no-answer                       completed, events present, no JSON object (model failure, score 0)
 timeout / api-error             infra run statuses with partial transcripts
 silent                          completed, no events, empty last message (no-output)
-empty-transcript                completed, answer present, transcript has no event (isolation unverifiable)
+empty-transcript                completed, answer present, transcript has no event (isolation unverifiable, no turn end: truncated)
 leak-doflow-retrieve            arm N ran `doflow retrieve`
 leak-doflow-run-retrieve        arm N ran `doflow-run retrieve`
 leak-node-doflow-retrieve       arm N ran `node bin/doflow.js retrieve`
