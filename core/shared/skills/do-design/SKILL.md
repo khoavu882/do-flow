@@ -87,7 +87,7 @@ a `design.md` for it invents an artifact its workflow never reads.
    for any design-level ambiguity encountered while shaping architecture/API/data-model choices
    (e.g. "extend an existing endpoint vs. add a new one", "single container vs. split service").
    Concretely: partition ambiguities surfaced while designing into independent ones (up to 4,
-   batched into one `AskUserQuestion` call) and dependent ones (asked individually, in dependency
+   batched into one question-tool call) and dependent ones (asked individually, in dependency
    order, after their dependency resolves, never batched with what they depend on). Every question
    built for this loop MUST include an explicit "Decide for me" choice among its listed options
    (on top of the tool's automatic "Other" free-text escape), so this defer path is actually

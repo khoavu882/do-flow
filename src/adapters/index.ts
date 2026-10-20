@@ -52,6 +52,7 @@ function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [],
       // source paths, which is all of them except Antigravity's directory-per-agent requirement.
       layout: projection.layout ?? null,
       transform: projection.transform ?? null,
+      select: projection.select ?? null,
       prerequisites: [...(capability.prerequisites || [])],
     });
   };

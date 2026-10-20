@@ -16,9 +16,12 @@ const MARKER_END = '<!-- doflow:end -->';
 /**
  * Merge `srcAbs`'s content into `dstAbs` inside a doflow-owned marker span,
  * preserving any of `dstAbs`'s own content outside that span byte-for-byte.
+ * With `content`, that text is merged instead of the file `srcAbs` names.
  */
-function mergeMarkedSection(srcAbs: string, dstAbs: string, { dryRun = false }: { dryRun?: boolean } = {}): { changed: boolean } {
-  const srcContent = fs.readFileSync(srcAbs, 'utf8').replace(/\s+$/, '');
+function mergeMarkedSection(srcAbs: string, dstAbs: string, { dryRun = false, content }: { dryRun?: boolean, content?: string } = {}): { changed: boolean } {
+  // `content` is already-rendered text (a pointer with its per-scope path filled in); it replaces
+  // reading `srcAbs`, so a caller never has to stage a temporary source file.
+  const srcContent = (content !== undefined ? content : fs.readFileSync(srcAbs, 'utf8')).replace(/\s+$/, '');
   const section = `${MARKER_START}\n${srcContent}\n${MARKER_END}\n`;
 
   // Read once, reused both for parsing and for the final no-op comparison below.

@@ -8,6 +8,7 @@ const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts')
 const { harnessFor } = require('../../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 const { normalizeContext, discover, render, plan, apply, remove, verify } = require('../../../src/adapters/codex/index.ts');
+const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge.ts');
 
 const REPO = path.resolve(__dirname, "../../..");
 function scratch() { return suiteTempDir('doflow-codex-adapter-'); }
@@ -33,6 +34,48 @@ test('normalizes user root to ~/.codex and project root to the selected reposito
   assert.equal(projectContext.scope, 'project');
   assert.equal(projectContext.projectRoot, repository);
   assert.equal(discover({ scope: 'project', scopeRoot: workspace, projectRoot: repository }).config.file, path.join(repository, '.codex', 'config.toml'));
+});
+
+test('renders per-scope guidance pointers and verifies the rendered section fingerprint', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const harness = harnessFor(registry, 'codex');
+  const assets = selectAssets(registry, { harness: 'codex' })
+    .filter((asset) => ['guidance.codex-pointer', 'guidance.context-layer'].includes(asset.id));
+
+  for (const scope of ['global', 'project']) {
+    const scopeRoot = scratch();
+    const projected = projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp: [], policies: [], context: { sourceVersion: 'pointer-test' } });
+    const instructionsPath = scope === 'global' ? path.join(scopeRoot, '.codex', 'AGENTS.md') : path.join(scopeRoot, 'AGENTS.md');
+    const prefix = '# User notes before\n\n';
+    const suffix = '# User notes after\n';
+    fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
+    fs.writeFileSync(instructionsPath, `${prefix}${MARKER_START}\nold pointer\n${MARKER_END}${suffix}`);
+    const input = {
+      ...projected, ...(scope === 'global' ? { homeDir: scopeRoot } : { projectRoot: scopeRoot }),
+      registry, context: { repoRoot: REPO, sourceVersion: 'pointer-test' },
+    };
+    const planned = plan(input);
+    assert.equal(planned.ok, true, planned.failures.join('\n'));
+    const pointerChange = planned.changes.find((change) => change.projection?.renderer === 'codex-agents');
+    assert.ok(pointerChange);
+    apply({ ...input, changes: planned.changes });
+
+    const entry = fs.readFileSync(instructionsPath, 'utf8');
+    const expectedGuidance = scope === 'global' ? path.join(scopeRoot, '.doflow/guidance') : '.doflow/guidance';
+    assert.ok(entry.includes(`${expectedGuidance}/DOFLOW_CORE.md`));
+    assert.ok(fs.existsSync(path.join(scopeRoot, '.doflow/guidance/DOFLOW_CORE.md')));
+    assert.match(fs.readFileSync(path.join(scopeRoot, '.doflow/guidance/pointers/codex.md'), 'utf8'), /\{\{GUIDANCE\}\}/);
+    assert.ok(entry.startsWith(prefix));
+    assert.ok(entry.endsWith(suffix));
+
+    const verified = verify({ ...input, assets: projected.assets });
+    assert.equal(verified.ok, true, verified.conflicts.join('\n'));
+    const instructionResource = verified.resources.find((resource) => resource.projection?.renderer === 'codex-agents');
+    assert.equal(instructionResource.fingerprint, pointerChange.afterFingerprint);
+    const secondPlan = plan({ ...input, managedResources: verified.resources.map((resource) => ({ ...resource, harness: 'codex' })) });
+    assert.equal(secondPlan.changes.some((change) => change.projection?.renderer === 'codex-agents'), false);
+    assert.equal(secondPlan.components.instructions.ok, true);
+  }
 });
 
 test('renders registry projections without making native writes', () => {

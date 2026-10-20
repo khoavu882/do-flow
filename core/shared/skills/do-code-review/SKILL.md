@@ -271,7 +271,7 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
        "Before commit or merge", in the `feature` workflow, which is the only shipped class with any
        gate at all. This stage is that workflow's last and nothing downstream runs to ask it (its own
        `handoff` sends commit and merge to `/do-git`, outside the workflow), so ask it here: put
-       `awaitingGate.prompt` to the user through `AskUserQuestion` as a plain go/no-go. Its trigger
+       `awaitingGate.prompt` to the user through the question tool as a plain go/no-go. Its trigger
        is `always` — nothing in this review's own output answers it, so never approve it mechanically.
        No gate is ever auto-approved by `catch-up`, `clarification`-kind included — only a human or
        that gate's own owning skill decides it. On approve:

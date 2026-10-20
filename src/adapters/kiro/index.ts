@@ -7,11 +7,13 @@
 // Kiro's native root is symmetric across scopes — `.kiro/` (project) / `~/.kiro/` (global) is the
 // one directory that holds everything Kiro reads: steering, agents, hooks, and settings/mcp.json
 // (see src/targets.js's toolDirs() for the same convention this adapter's own nativePaths()
-// mirrors). Unlike every other harness in this codebase, Kiro receives DoFlow's *full* guidance
-// tree as steering files rather than a single marker-wrapped pointer file plus a separately-copied
-// tree (design.md §4's "research decision D3"): there is no single-file instruction surface here
-// at all, so — unlike src/adapters/gemini or src/adapters/opencode — this adapter never renders a
-// marker-wrapped instruction file.
+// mirrors). Unlike every other harness in this codebase, Kiro receives DoFlow's guidance as
+// steering files rather than a single marker-wrapped pointer file plus a separately-copied tree
+// (design.md §4's "research decision D3"): there is no single-file instruction surface here at all,
+// so — unlike src/adapters/gemini or src/adapters/opencode — this adapter never renders a
+// marker-wrapped instruction file. Steering holds the core set only (DOFLOW_CORE.md and the files it
+// imports, selected by the `guidance-manifest` select); the full guidance tree remains under
+// `.doflow/guidance` through kiro.guidance-tree, where `retrieve` and the runtime read it.
 //
 // Evidence: https://kiro.dev/docs/steering/, https://kiro.dev/docs/mcp/configuration/,
 // https://kiro.dev/docs/hooks/
@@ -59,8 +61,8 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
 
   /**
    * Kiro has no single-file, marker-managed instruction surface for this adapter to render into —
-   * the guidance tree is projected file-for-file by the copy-tree engine below, once as steering
-   * (guidance.context-layer) and once into the shared `.doflow/guidance` (kiro.guidance-tree). Every
+   * guidance is projected file-for-file by the copy-tree engine below, the core set as steering
+   * (guidance.context-layer) and the whole tree into the shared `.doflow/guidance` (kiro.guidance-tree). Every
    * asset routed to 'kiro' in core/registry/assets.json uses `renderer: copy-tree` or
    * `kiro-agents`, so nothing reaches this function. It is kept as a pure passthrough only to
    * satisfy the six-function adapter contract every harness must implement identically.
@@ -98,7 +100,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform, keepModified: !removing,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform, select: asset.select, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
@@ -153,7 +155,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     for (const asset of kiroTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, select: asset.select, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

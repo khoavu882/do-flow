@@ -5,15 +5,20 @@
 // GitHub Copilot CLI adapter.
 //
 // Copilot has no single native root the way Claude's `.claude` is one — instructions, skills,
-// agents, and MCP each live under a different path, split further by scope. Skills and agents are
-// both trees materialised via the shared copy-tree engine in ../copy-tree.ts; the single instruction
-// pointer is a marker-merged section in a shared file, the same shape opencode/pi/gemini already use;
-// MCP servers are entries of one JSON map that DoFlow owns one at a time through ../mcp-entries.ts,
-// never touching an entry it does not own.
+// agents, and MCP each live under a different path, split further by scope. Skills, agents and the
+// core guidance rules are trees materialised via the shared copy-tree engine in ../copy-tree.ts; the
+// single instruction pointer is a marker-merged section in a shared file, the same shape
+// opencode/pi/gemini already use; MCP servers are entries of one JSON map that DoFlow owns one at a
+// time through ../mcp-entries.ts, never touching an entry it does not own.
 //
 // Native paths (see design.md §4's harness-native-surfaces table):
-//   instructions -> <projectRoot>/.github/copilot-instructions.md (project only — Copilot documents
-//                   no global instructions file, so global scope installs nothing for this asset)
+//   instructions -> <projectRoot>/.github/copilot-instructions.md, the pointer to .doflow/guidance
+//                   (project only — Copilot CLI also reads a user-level ~/.copilot/copilot-instructions.md,
+//                   but this adapter does not project a pointer there, so global scope writes none)
+//   rules        -> <projectRoot>/.github/instructions/ (project) / ~/.copilot/instructions/ (global):
+//                   the core set (DOFLOW_CORE.md and the files it imports) as `*.instructions.md`
+//                   with an `applyTo: '**'` header, under instructions/rules/ for the rule files;
+//                   the full guidance tree stays in .doflow/guidance
 //   skills       -> ~/.agents/skills (global) / <projectRoot>/.agents/skills (project)
 //   agents       -> ~/.copilot/agents (global) / <projectRoot>/.github/agents (project)
 //   mcp          -> ~/.copilot/mcp-config.json (global) / <projectRoot>/.mcp.json (project)
@@ -27,6 +32,7 @@ const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
+const { renderGuidancePointer } = require('../guidance-pointer.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
@@ -49,8 +55,9 @@ const LEGACY_MCP_REGISTRATION = `${HARNESS}:mcp:registration`;
  *     list per https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills.
  *   - `agentsConfigDir` is genuinely asymmetric: `~/.copilot` globally, `.github` at project scope,
  *     because that is where Copilot's own custom-agents documentation places each.
- *   - `instruction` is project-only: Copilot documents no global instructions file, so no user-scope
- *     rule is declared and it resolves to null rather than inventing a path with no reader.
+ *   - `instruction` is project-only: Copilot CLI reads a user-level ~/.copilot/copilot-instructions.md,
+ *     but this adapter does not project a pointer there, so no user-scope rule is declared and it
+ *     resolves to null.
  * createCopilotAdapter({ declaredPaths }) is the injection point buildAdapterRegistry() uses;
  * module-level exports delegate to a default-configured instance so direct callers keep their
  * historical shape.
@@ -108,9 +115,9 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   }
 
   /** Plan the single instructions change (or none). Global scope always yields no change and no
-   * conflict — Copilot documents no global instructions file, so there is nothing to skip *to*,
-   * mirroring how other adapters skip a capability with no native equivalent for a given scope. */
-  function planInstructionsChange({ assets, found, context, removing, fsImpl }: any) {
+   * conflict — the user-level ~/.copilot/copilot-instructions.md is not projected, so there is no
+   * global target, the same way other adapters skip a capability they do not project at a scope. */
+  function planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, fsImpl }: any) {
     if (!found.paths.instruction) return { changes: [], conflicts: [] };
     // The marker-managed instruction file is one specific asset: exclude tree-projected rule
     // assets (copilot-rule-instructions), whose `source` is a directory, not a file.
@@ -118,7 +125,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     if (!guidance) return { changes: [], conflicts: [] };
     const outcome = removing
       ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
-      : managedInstruction(found.instruction, render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') }));
+      : managedInstruction(found.instruction, render({ content: renderGuidancePointer(fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8'), { scope, scopeRoot }) }));
     if (!outcome.ok) return { changes: [], conflicts: [outcome.conflict] };
     if (outcome.operation === 'none' || outcome.content === null) return { changes: [], conflicts: [] };
     return {
@@ -160,7 +167,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform, keepModified: !removing,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform, select: asset.select, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
@@ -214,7 +221,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     for (const asset of treeAssetsFor(assets, renderer)) {
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout, transform: asset.transform, select: asset.select, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
@@ -283,7 +290,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     const conflicts = [];
     const removing = context.operation === 'remove';
 
-    const instructions = planInstructionsChange({ assets, found, context, removing, fsImpl });
+    const instructions = planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, fsImpl });
     changes.push(...instructions.changes);
     conflicts.push(...instructions.conflicts);
 

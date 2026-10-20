@@ -26,6 +26,7 @@ const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDes
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp.ts');
 const { planPiHooks, verifyPiHooks, removePiHooks } = require('./hooks.ts');
+const { renderGuidancePointer } = require('../guidance-pointer.ts');
 
 const HARNESS = 'pi';
 const AGENT_DIR_MCP_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
@@ -175,7 +176,8 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
 
     const guidance = assets.find((asset: any) => asset.capability === 'instructions');
     if (guidance) {
-      const rendered = render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') });
+      const pointer = renderGuidancePointer(fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8'), { scope, scopeRoot });
+      const rendered = render({ content: pointer });
       const outcome = removing
         ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
         : managedInstruction(found.instruction, rendered);

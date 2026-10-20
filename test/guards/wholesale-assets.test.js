@@ -21,8 +21,9 @@
  *      renders apply-to-everything must appear in the constant — which is exactly the third-harness
  *      case.
  *   2. **Recorded, with the structural facts it rests on pinned.** Kiro's steering tree is loaded
- *      wholesale because Kiro loads `.kiro/steering/` as steering context and DoFlow projects the
- *      whole guidance tree there; no transform, no renderer and no registry field distinguishes
+ *      wholesale because Kiro loads `.kiro/steering/` as steering context, and a steering file
+ *      without front-matter is always included. DoFlow projects only the core set there (selected
+ *      via `guidance-manifest`), but any unmanaged or hand-added file stays operative; no transform, no renderer and no registry field distinguishes
  *      that from a name-resolved copy-tree, so it cannot be derived. `RECORDED` carries the entry
  *      with its rationale, and this guard pins the two registry facts the rationale depends on, so
  *      the constant has to be re-derived if either moves.
@@ -109,8 +110,9 @@ const RECORDED = new Map([
   [pairKey('kiro', 'guidance.context-layer'), {
     rationale: 'Kiro loads every file under .kiro/steering/ as steering context and has no '
       + 'single-file instruction surface at all (src/adapters/kiro/index.ts header; '
-      + 'https://kiro.dev/docs/steering/), and DoFlow projects the whole shared guidance tree '
-      + 'there. Nothing in the projection distinguishes that from a name-resolved copy-tree — same '
+      + 'https://kiro.dev/docs/steering/). Steering holds the core set (the @import walk from '
+      + 'DOFLOW_CORE.md, selected via guidance-manifest), and Kiro loads any steering file without '
+      + 'front-matter, so unmanaged or hand-added files there stay operative. Nothing in the projection distinguishes that from a name-resolved copy-tree — same '
       + 'renderer, no transform — so it cannot be derived from adapter behaviour the way Copilot\'s '
       + 'can, only recorded.',
     nativeDir: 'steering',
