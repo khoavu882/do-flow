@@ -123,7 +123,8 @@
       "rule": "count-and-age",
       "bound": {
         "keepNewest": 400,
-        "maxAgeDays": 2
+        "maxAgeDays": 2,
+        "either": true
       },
       "protect": null,
       "moments": [

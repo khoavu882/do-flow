@@ -93,6 +93,7 @@ test('verify report appends one head-bound record per run without changing JSON 
   assert.equal(second.status, first.status, second.stderr);
   assert.equal(second.stdout, first.stdout, 'appending a run record leaves verify --json bytes unchanged');
   assert.equal(JSON.parse(first.stdout).status, 'PASS');
+  assert.equal(JSON.parse(first.stdout).counts.checksReused, undefined, 'with reuse off counts.checksReused is omitted');
 
   const records = readRecords(p.root);
   assert.equal(records.length, 2, 'two reports append two JSONL lines');
@@ -130,7 +131,9 @@ test('with verify.reuse on the record carries the reused count before reportSha2
   assert.equal(second.status, 0, second.stderr);
   const carrying = (stdout) => JSON.parse(stdout).tiers.flatMap((tier) => tier.checks).filter((check) => check.reused).length;
   assert.equal(carrying(first.stdout), 0, 'the first run executes every check');
+  assert.equal(JSON.parse(first.stdout).counts.checksReused, 0, 'first run counts.checksReused is 0');
   assert.ok(carrying(second.stdout) > 0, 'the second run reuses the recorded PASSes');
+  assert.equal(JSON.parse(second.stdout).counts.checksReused, carrying(second.stdout), 'second run counts.checksReused matches reused count');
 
   const records = readRecords(p.root);
   assert.equal(records.length, 2);

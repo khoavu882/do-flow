@@ -74,3 +74,36 @@ test('verify runs unthrottled storage upkeep and preserves its visible result', 
     assert.equal(fs.readFileSync(dueMarker, 'utf8'), dueText, 'verify leaves the future runtime-verb due time unchanged');
   } finally { scratch.remove(); }
 });
+
+test('C-9: upkeepAfterVerify prunes verification-reuse records aged 3 days; prune-off keeps them', () => {
+  const scratch = createScratch('doflow-storage-verify-reuse-');
+  try {
+    const project = path.join(scratch.dir, 'project');
+    fs.mkdirSync(project);
+    const reuseDir = path.join(project, '.doflow/state/verification/reuse');
+    fs.mkdirSync(reuseDir, { recursive: true });
+
+    const now = Date.now();
+    const DAY = 86400000;
+    const oldTime = new Date(now - 3 * DAY);
+
+    for (let i = 0; i < 450; i++) {
+      const file = path.join(reuseDir, `reuse-${i.toString(16).padStart(16, '0')}.json`);
+      fs.writeFileSync(file, '{}');
+      fs.utimesSync(file, oldTime, oldTime);
+    }
+    assert.equal(fs.readdirSync(reuseDir).length, 450);
+
+    const pruneFile = path.join(project, '.doflow/prune');
+    fs.writeFileSync(pruneFile, 'off\n');
+    const { upkeepAfterVerify } = require('../../src/runtime/storage/upkeep.ts');
+    upkeepAfterVerify({ projectRoot: project, now, env: scratch.env() });
+    assert.equal(fs.readdirSync(reuseDir).length, 450, 'with prune-off, 450 records are kept');
+
+    fs.writeFileSync(pruneFile, 'on\n');
+    upkeepAfterVerify({ projectRoot: project, now, env: scratch.env() });
+    assert.equal(fs.readdirSync(reuseDir).length, 0, 'upkeepAfterVerify prunes all 450 records aged 3 days');
+  } finally {
+    scratch.remove();
+  }
+});

@@ -686,6 +686,7 @@ class VerificationEngine {
     let fatalTier: string | null = null;
     let checksRun = 0;
     let checksPassed = 0;
+    let checksReused = 0;
     // One evaluation pass, one cache: two tiers declaring the same command (targeted and broad
     // tests are often both `npm test`) run it once and share the result. A recovery retry calls
     // runContract again and gets a fresh cache, so retries always observe live behaviour.
@@ -872,6 +873,7 @@ class VerificationEngine {
             narrowedResult.failedFirst = { ran: true, status: 'FAIL', files: matchedFiles.length };
             entry.checks.push(narrowedResult);
             checksRun += 1;
+            if (narrowedResult.reused) checksReused += 1;
             failedChecks.push(narrowedResult.name);
             failedFirstHalted = true;
 
@@ -902,6 +904,7 @@ class VerificationEngine {
             fullResult.failedFirst = { ran: true, status: 'PASS', files: matchedFiles.length };
             entry.checks.push(fullResult);
             checksRun += 1;
+            if (fullResult.reused) checksReused += 1;
             if (fullResult.status === 'PASS') checksPassed += 1;
             else failedChecks.push(fullResult.name);
 
@@ -935,6 +938,7 @@ class VerificationEngine {
         if (check.requirementId) result.requirementId = check.requirementId;
         entry.checks.push(result);
         checksRun += 1;
+        if (result.reused) checksReused += 1;
         if (result.status === 'PASS') checksPassed += 1;
         else failedChecks.push(result.name);
 
@@ -1030,6 +1034,7 @@ class VerificationEngine {
         checksRun,
         checksPassed,
         checksFailed: checksRun - checksPassed,
+        ...(this.reuse ? { checksReused } : {}),
         tiersRequired: requiredTiers.length,
         tiersPassed: requiredTiers.filter((t) => t.status === 'PASS').length,
         tiersFailed: requiredFailed.length,
@@ -1608,6 +1613,7 @@ function verificationRunRecordFile(root: string, taskId: string): string {
 
 /** 089 IC-006: how many checks of a report carry the `reused` label. */
 function reusedCount(report: any): number {
+  if (typeof report?.counts?.checksReused === 'number') return report.counts.checksReused;
   let count = 0;
   for (const tier of Array.isArray(report?.tiers) ? report.tiers : []) {
     for (const check of Array.isArray(tier?.checks) ? tier.checks : []) {
@@ -1816,9 +1822,21 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
       if (boundLines.has(tier.id)) console.log(boundLines.get(tier.id));
       if (tier.reason) console.log(`      ${tier.reason}`);
       if (tier.selection) console.log(`      ${selectionText(tier.selection)}`);
+      if (Array.isArray(tier.checks)) {
+        for (const check of tier.checks) {
+          if (check?.reused) {
+            const atIso = typeof check.reused.recordedAt === 'number'
+              ? new Date(check.reused.recordedAt).toISOString()
+              : String(check.reused.recordedAt);
+            console.log(`      reused ${atIso} ref ${check.reused.ref}`);
+          }
+        }
+      }
     }
     console.log('─'.repeat(78));
-    console.log(`Checks: ${report.counts.checksPassed}/${report.counts.checksRun} passed`);
+    const reused = report.counts?.checksReused ?? reusedCount(report);
+    const reusedSuffix = reused > 0 ? ` (${reused} reused, not executed)` : '';
+    console.log(`Checks: ${report.counts.checksPassed}/${report.counts.checksRun} passed${reusedSuffix}`);
     if (report.unresolved.length) {
       console.log('Never evaluated (not a pass):');
       for (const u of report.unresolved) console.log(`  ${u.tier}${u.required ? ' [required]' : ''} — ${u.reason}`);

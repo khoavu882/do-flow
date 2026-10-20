@@ -169,7 +169,7 @@ function upkeepAfterVerify({ projectRoot, now = Date.now(), env = process.env, f
   return silently(() => {
     projectRoot = projectRoot && outerProjectRoot(projectRoot);
     const roots = resolveRoots({ registry, projectRoot, env });
-    return passForRoot({ roots, rootId: 'project-state', stores: ['verification-logs'], now, env, fsImpl });
+    return passForRoot({ roots, rootId: 'project-state', stores: ['verification-logs', 'verification-reuse'], now, env, fsImpl });
   });
 }
 
