@@ -142,17 +142,16 @@ supported; see Settings keys), and `doflow config -g` then shows `verify.reuse =
   in the `verification-reuse` store (see Storage stores). Levels L1 and L2 look a stored PASS up; L3 (risk HIGH or
   CRITICAL) always executes its checks. A lookup refuses a record older than 24 hours, a record whose schema or payload
   digest does not match, and a record the key does not name. A stored output excerpt is bounded to 2,200 characters, so a
-  reused check shows what the executed one showed.
+  reused check shows the same excerpt as the executed one; `truncated` and the log path are not kept for a reused check, so no log file exists for it. An executed non-PASS result for a key removes the stored PASS of that key while reuse is on, at every level.
 - **The key.** A record answers a check only when its key is equal: the command, its timeout, the real working directory,
   `HEAD`, the digest of modified and untracked files, the sorted names of ignored entries, the bytes of the declared
   ignored inputs (`policy.reuse.ignoredInputs` in `core/registry/verification.json`), the identity (real path, size,
   modification time, inode) of `node` and of the command's first word on `PATH`, the Node version, platform, architecture
-  and the environment digest. A tree that cannot be keyed (git fault, over 500 modified files or 50 MB, an unreadable or
-  linked declared input) runs unshared.
+  and the environment digest. The digest of modified files also covers tracked files under `.doflow/`, and the key covers the target of a tracked symlink that points outside the repository. A tree that cannot be keyed (git fault, over 500 modified files or 50 MB, an unreadable or
+  linked declared input) runs unshared. A check is stored only when its inputs are the same after it ran as before.
 - **How it shows.** A reused check is labelled `reused: {ref, recordedAt}` in the report, its telemetry entry says
-  `shared: "reused"`, and the run record gains the `reused` count.
-- **Residual risk.** An ignored file outside the declared list, or a tool behind a wrapper, that changes while the key
-  stays equal is not seen, so a reused PASS can be stale in that case. The 24-hour limit and the off default bound it.
+  `shared: "reused"`, and the run record gains the `reused` count. The report counts gain `checksReused` when reuse is on; `checksRun` still counts every evaluated check, reused ones included. The text form prints `Checks: P/N passed (R reused, not executed)` when R is above 0 and a `reused <time> ref <ref>` line under the tier of each reused check.
+- **Residual risk.** Reuse trusts the key, and the key does not see: network, time, external services or flaky tests; files outside the repository, such as `~/.npmrc`, the global git config or `<config home>` files; the contents of an ignored directory whose name is unchanged (`dist/`, `node_modules/`); ignored inputs other than those declared, which are read only at the git root, so a subpackage `.env` is not seen; untracked files under `.doflow/`; and the dependencies of a wrapper (`npm run`, `npx`, `env`, `cd … &&`). A check whose command the key cannot parse safely (quotes, escapes, `$`, an inline `PATH=`), or that links to a directory outside the repository, is never reused. A check that changes the files it reads is never stored. Reusing a producer check (a build) skips its side effects, so a later check that executes may fail spuriously. An executed failure removes the stored PASS only while reuse is on, so a PASS stored while reuse was on can be reused for up to 24 hours after reuse is switched on again, even if a FAIL ran in between with reuse off. Use reuse only for deterministic checks. The 24-hour limit and the off default bound the rest. The store trusts its own account: someone who can swap a directory above the store between a check and its lookup can already edit the source, so reuse does not defend against that.
   Turn reuse off with `"verify.reuse": "off"` in `<config home>/settings.json` or `DOFLOW_VERIFY_REUSE=off` when a run must execute everything.
 - **Test selection is not wired in.** `verify` does not choose tests by impact. `bench impact-replay` (Runtime &
   Diagnostics Commands) only measures how such a selection would have done on past commits; its verdict enables nothing.
