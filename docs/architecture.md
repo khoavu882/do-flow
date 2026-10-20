@@ -910,7 +910,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   client and export sender, a static source check and not a sandbox (G45.3); no skill, guidance or
   agent spec names `trace spans`, `trace export`, `trace analyze` or `verify-baseline` (G45.4); the
   package has no dependency map of any of the four kinds (`dependencies`, `optionalDependencies`,
-  `peerDependencies`, `bundleDependencies`/`bundledDependencies`), no `console/` entry in `files`, and
+  `peerDependencies`, `bundleDependencies`/`bundledDependencies`), no `files` entry that npm resolves
+  to `console/` (checked after normalising slashes, `..` and case), and
   G30.2 is still enforced (G45.5); every telemetry store is a declared `runs/` subdirectory the ledger
   readers skip (G45.6); and the export block maps only closed descriptors and the analysis block is
   well formed (G45.7). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
