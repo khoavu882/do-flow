@@ -194,7 +194,7 @@ test('leak and count patterns: command position only, MCP tool-call names, teste
     'doflow retrieve --scope code --query x --root .',
     '/usr/local/bin/doflow retrieve --query x',
     'doflow-run retrieve --query x',
-    'node /home/u/proj/bin/doflow.js retrieve --query x',
+    'node /home/user/proj/bin/doflow.js retrieve --query x',
     'cd src && doflow retrieve --query x',
     'rg frob | doflow retrieve --query x',
     'ls; doflow retrieve --query x',

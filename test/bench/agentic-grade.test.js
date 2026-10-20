@@ -10,13 +10,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
 const {
   extractAnswer, classifyIsolation, gradeRun, gradeIteration, loadPathInfo, serializeGrading, parseTranscript,
 } = require('../../bench/agentic/grade.js');
 const { loadTaskSet } = require('../../bench/agentic/tasks.js');
+const { tempDir } = require('../helper/tmp.js');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FIXTURES = path.join(ROOT, 'test', 'fixtures', 'agentic', 'runs');
@@ -109,8 +109,8 @@ test('timeout, api-error and silent runs are excluded with their 096 class and a
   }
 });
 
-test('a missing run_status.json is status absent: output makes it a run, no output makes it no-output', () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-grade-'));
+test('a missing run_status.json is status absent: output makes it a run, no output makes it no-output', (t) => {
+  const tmp = tempDir(t, 'doflow-agentic-grade-');
   try {
     for (const f of ['transcript.jsonl', 'last-message.txt']) fs.copyFileSync(path.join(FIXTURES, 'full-answer', f), path.join(tmp, f));
     const withOutput = gradeRun({ runDir: tmp, task: DC011, arm: 'N', config, pathInfo });
@@ -127,8 +127,8 @@ test('a missing run_status.json is status absent: output makes it a run, no outp
   }
 });
 
-test('an unreadable run_status.json is malformed and excluded; a truncated status keeps its class', () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-grade-'));
+test('an unreadable run_status.json is malformed and excluded; a truncated status keeps its class', (t) => {
+  const tmp = tempDir(t, 'doflow-agentic-grade-');
   try {
     for (const f of ['transcript.jsonl', 'last-message.txt']) fs.copyFileSync(path.join(FIXTURES, 'full-answer', f), path.join(tmp, f));
     fs.writeFileSync(path.join(tmp, 'run_status.json'), '{not json');
@@ -237,8 +237,8 @@ test('parseTranscript skips lines that are not JSON objects', () => {
 // ---------------------------------------------------------------------------
 // Iteration grading
 
-test('gradeIteration writes grading.json per task, byte-identical when graded twice, and reports missing tasks', () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-iter-'));
+test('gradeIteration writes grading.json per task, byte-identical when graded twice, and reports missing tasks', (t) => {
+  const tmp = tempDir(t, 'doflow-agentic-iter-');
   try {
     fs.writeFileSync(path.join(tmp, 'iteration.json'), JSON.stringify({ arm: 'N', model: 'm', sourceAt: 'abc', snapshot: 's', harness: 'h', harnessVersion: '1', startedAt: 't' }));
     const tasks = [DC011, byId('DC-012')];
@@ -261,8 +261,8 @@ test('gradeIteration writes grading.json per task, byte-identical when graded tw
   }
 });
 
-test('gradeIteration with write=false leaves the directory untouched; gradeRun alone never writes', () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-iter-'));
+test('gradeIteration with write=false leaves the directory untouched; gradeRun alone never writes', (t) => {
+  const tmp = tempDir(t, 'doflow-agentic-iter-');
   try {
     fs.writeFileSync(path.join(tmp, 'iteration.json'), JSON.stringify({ arm: 'D' }));
     fs.cpSync(path.join(FIXTURES, 'arm-d-two-retrieves'), path.join(tmp, 'DC-011'), { recursive: true });
