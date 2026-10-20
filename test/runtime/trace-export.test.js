@@ -257,6 +257,14 @@ test('resolveOtlpEnv: empty OTEL header and timeout variables count as unset', (
     OTEL_EXPORTER_OTLP_TIMEOUT: '750',
     OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: '',
   }).timeoutMs, 750);
+
+  // N-4: an empty or blank traces endpoint counts as unset, so the base endpoint is used
+  for (const value of ['', '   ']) {
+    assert.equal(resolveOtlpEnv({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: value, OTEL_EXPORTER_OTLP_ENDPOINT: endpoint }).endpoint,
+      'http://127.0.0.1:4318/v1/traces');
+    assert.throws(() => resolveOtlpEnv({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: value, OTEL_EXPORTER_OTLP_ENDPOINT: value }),
+      (err) => /^missing endpoint/.test(err.message));
+  }
 });
 
 test('resolveOtlpEnv: invalid header token and decoded control characters name only the variable', () => {
@@ -440,6 +448,42 @@ test('sendRequests: 200 with partialSuccess.rejectedSpans gives status partial',
     assert.equal(res.reason, null);
   } finally {
     await receiver.close();
+  }
+});
+
+test('sendRequests N-2: a malformed partialSuccess count or the snake_case form is failed/bad-response and stops the loop', async () => {
+  const bad = ['{"partialSuccess":{"rejectedSpans":1e30}}', '{"partialSuccess":{"rejectedSpans":"9007199254740993"}}',
+    '{"partialSuccess":{"rejectedSpans":2.5}}', '{"partialSuccess":{"rejectedSpans":-1}}', '{"partialSuccess":{"rejectedSpans":true}}',
+    '{"partialSuccess":{"rejectedSpans":""}}', '{"partialSuccess":{"rejectedSpans":"0x2"}}', '{"partialSuccess":"x"}',
+    '{"partial_success":{"rejected_spans":2}}'];
+  for (const body of bad) {
+    let received = 0;
+    const receiver = await createReceiver((req, res) => {
+      received++;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(body);
+    });
+    try {
+      const res = await sendRequests([{ resourceSpans: [] }, { resourceSpans: [] }], { endpoint: receiver.url, timeoutMs: 5000 });
+      assert.deepEqual({ status: res.status, reason: res.reason, sent: res.sent, httpStatus: res.httpStatus, received },
+        { status: 'failed', reason: 'bad-response', sent: 1, httpStatus: 200, received: 1 }, body);
+    } finally {
+      await receiver.close();
+    }
+  }
+  // the valid forms: int64 as a decimal string, zero, an empty partialSuccess, an errorMessage only
+  for (const [body, status, rejected] of [['{"partialSuccess":{"rejectedSpans":"2"}}', 'partial', 2], ['{"partialSuccess":{"rejectedSpans":0}}', 'ok', 0],
+    ['{"partialSuccess":{}}', 'ok', 0], ['{"partialSuccess":{"errorMessage":"warn"}}', 'ok', 0]]) {
+    const receiver = await createReceiver((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(body);
+    });
+    try {
+      const res = await sendRequests([{ resourceSpans: [] }], { endpoint: receiver.url, timeoutMs: 5000 });
+      assert.deepEqual({ status: res.status, rejected: res.rejected, reason: res.reason }, { status, rejected, reason: null }, body);
+    } finally {
+      await receiver.close();
+    }
   }
 });
 

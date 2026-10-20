@@ -206,6 +206,27 @@ async function readResponseText(res: any): Promise<string> {
   return new TextDecoder().decode(bytes);
 }
 
+/**
+ * The rejected-span count of a parsed 2xx body: 0 when there is no `partialSuccess` or no
+ * `rejectedSpans`; null (malformed) for the snake_case `partial_success` form, a non-object
+ * `partialSuccess`, or a count that is not a non-negative safe integer (a JSON number, or the
+ * proto3 JSON int64 decimal string).
+ */
+function partialRejected(body: any): number | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 0;
+  if (Object.prototype.hasOwnProperty.call(body, 'partial_success')) return null;
+  const ps = body.partialSuccess;
+  if (ps === undefined || ps === null) return 0;
+  if (typeof ps !== 'object' || Array.isArray(ps)) return null;
+  const raw = ps.rejectedSpans;
+  if (raw === undefined || raw === null) return 0;
+  let n: number;
+  if (typeof raw === 'number') n = raw;
+  else if (typeof raw === 'string' && /^(0|[1-9][0-9]*)$/.test(raw)) n = Number(raw);
+  else return null;
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
 function responseReadFailureReason(err: any): 'timeout' | 'connection' | 'bad-response' {
   const chain: any[] = [];
   let current = err;
@@ -366,8 +387,11 @@ async function sendRequests(
       if (text) {
         try {
           const body = JSON.parse(text);
-          const rejectedSpans = Number(body?.partialSuccess?.rejectedSpans);
-          if (Number.isSafeInteger(rejectedSpans) && rejectedSpans > 0) {
+          const rejectedSpans = partialRejected(body);
+          if (rejectedSpans === null) {
+            return { requests: requests.length, sent, rejected, status: 'failed', httpStatus: res.status, reason: 'bad-response' };
+          }
+          if (rejectedSpans > 0) {
             rejected += rejectedSpans;
             hasPartial = true;
           }
