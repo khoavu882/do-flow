@@ -115,6 +115,26 @@
       ]
     },
     {
+      "id": "verification-reuse",
+      "root": "project-state",
+      "path": "verification/reuse",
+      "entry": "file",
+      "match": "^reuse-[0-9a-f]{16}\\.json$|^reuse-[0-9a-f]{16}\\.[0-9a-f]{32}\\.tmp$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 400,
+        "maxAgeDays": 2
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/reuse.ts"
+      ]
+    },
+    {
       "id": "task-evidence",
       "root": "project-state",
       "path": "evidence",
