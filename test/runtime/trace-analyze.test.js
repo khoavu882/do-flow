@@ -166,6 +166,53 @@ test('hotspots: hook lines without a post-shell observation carry no duration, s
   assert.equal(a.verdict, 'insufficient-data');
 });
 
+test('hotspots C-10: verify.tier latency finding carries derivedFrom when verify.check exists, producing one proposal', (t) => {
+  const durs = [100, 100, 100, 100, 5000];
+  const telemetry = durs.flatMap((dur, i) => {
+    const vId = crypto.createHash('sha256').update(`v${i + 1}`).digest('hex').slice(0, 16);
+    const ts = sec(i + 1);
+    return [
+      { timestamp: ts, kind: 'verify.check', verify_id: vId, tier: 'targeted-tests', status: 'PASS', duration_ms: dur, check_key: `ck-${i}` },
+      { timestamp: ts, kind: 'verify.tier', verify_id: vId, tier: 'targeted-tests', status: 'PASS', duration_ms: dur },
+    ];
+  });
+  const dir = seed(t, telemetry);
+  const a = analyzeDir(dir);
+  const d = detector(a, 'latency-hotspots');
+  assert.equal(d.status, 'FINDING');
+  assert.equal(d.findings.length, 2);
+  const checkFinding = d.findings.find((f) => f.measures.kind === 'verify.check');
+  const tierFinding = d.findings.find((f) => f.measures.kind === 'verify.tier');
+  assert.ok(checkFinding, 'verify.check finding exists');
+  assert.ok(tierFinding, 'verify.tier finding exists');
+  assert.equal(tierFinding.derivedFrom, 'verify.check');
+  assert.equal(checkFinding.derivedFrom, undefined);
+
+  // Finding ID does not include derivedFrom
+  const spans = view(dir).ungrouped[0].spans;
+  const tierSpans = spans.filter((s) => s.kind === 'verify.tier' && s.durationMs > 100);
+  const expectedTierId = crypto.createHash('sha256').update(`latency-hotspots\n${DAY_SCOPE}\n${tierSpans.map((s) => s.spanId).sort().join(',')}`).digest('hex').slice(0, 16);
+  assert.equal(tierFinding.id, expectedTierId);
+
+  // Proposal batch skips finding with derivedFrom: exactly 1 proposal
+  const proposals = buildProposalBatch(a, null);
+  assert.equal(proposals.length, 1);
+  assert.match(proposals[0].statement, /verify\.check\/targeted-tests/);
+
+  // Text output carries ` derivedFrom verify.check` suffix
+  const r = captured(() => handleTraceAnalyze({ positional: [dir], env: {} }));
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, new RegExp(`^latency-hotspots ${tierFinding.id} day p95_ms:verify\\.tier/targeted-tests=5000 derivedFrom verify\\.check$`, 'm'));
+  assert.match(r.stdout, new RegExp(`^latency-hotspots ${checkFinding.id} day p95_ms:verify\\.check/targeted-tests=5000$`, 'm'));
+
+  // JSON output keeps derivedFrom
+  const j = captured(() => handleTraceAnalyze({ positional: [dir], json: true, env: {} }));
+  assert.equal(j.code, 1);
+  const parsed = JSON.parse(j.stdout);
+  const jTier = parsed.detectors.find((x) => x.id === 'latency-hotspots').findings.find((f) => f.measures.kind === 'verify.tier');
+  assert.equal(jTier.derivedFrom, 'verify.check');
+});
+
 // ── redundant verification (IC-003, IC-011) ─────────────────────────────────────────────────────
 
 test('redundant: two executed PASS checks on one key are one finding', (t) => {

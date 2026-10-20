@@ -105,6 +105,7 @@ function latencyHotspots(scopes: any[], th: any, latency: any[]): any {
   const findings: any[] = [];
   let determined = false;
   for (const sc of scopes) {
+    const scopeFindings: any[] = [];
     const groups = new Map<string, any>();
     for (const s of sc.spans) {
       if (!Number.isInteger(s.durationMs)) continue;
@@ -122,9 +123,19 @@ function latencyHotspots(scopes: any[], th: any, latency: any[]): any {
       latency.push({ scope: sc.scope, ...row });
       if (p95 >= th.tailRatio * p50 && p95 - p50 >= th.minTailMs) {
         const slow = g.spans.filter((s: any) => s.durationMs > p50);
-        findings.push(finding('latency-hotspots', sc, slow, row, [...slow].sort((a, b) => b.durationMs - a.durationMs || cmp(a.spanId, b.spanId))));
+        scopeFindings.push(finding('latency-hotspots', sc, slow, row, [...slow].sort((a, b) => b.durationMs - a.durationMs || cmp(a.spanId, b.spanId))));
       }
     }
+    const hasCheck = scopeFindings.some((f) => f.measures.kind === 'verify.check');
+    const hasTier = scopeFindings.some((f) => f.measures.kind === 'verify.tier');
+    if (hasCheck && hasTier) {
+      for (const f of scopeFindings) {
+        if (f.measures.kind === 'verify.tier') {
+          f.derivedFrom = 'verify.check';
+        }
+      }
+    }
+    findings.push(...scopeFindings);
   }
   return result('latency-hotspots', findings, determined, {
     [FINDING]: `${findings.length} span name(s) have p95 >= ${th.tailRatio}x p50 and a tail of at least ${th.minTailMs} ms.`,
@@ -344,7 +355,9 @@ function statementFor(f: any, ids: string[]): string {
  * @param {Object[]|null} ledgerItems the `--task-id` ledger's items, or null without `--task-id`
  */
 function buildProposalBatch(analysis: any, ledgerItems: any[] | null): any[] {
-  return findingsOf(analysis).map((f: any) => ({ statement: statementFor(f, citedIds(f, ledgerItems)), stage: 'maintain', source: { kind: 'manual' } }));
+  return findingsOf(analysis)
+    .filter((f: any) => !f.derivedFrom)
+    .map((f: any) => ({ statement: statementFor(f, citedIds(f, ledgerItems)), stage: 'maintain', source: { kind: 'manual' } }));
 }
 
 // ── the verb (IC-001) ───────────────────────────────────────────────────────────────────────────
@@ -354,7 +367,8 @@ function printAnalysis(analysis: any): void {
   for (const d of analysis.detectors) console.log(`${d.id} ${d.status} findings ${d.findings.length}`);
   for (const f of findingsOf(analysis)) {
     const { prefix, name, value } = metricOf(f);
-    console.log(`${f.detector} ${f.id} ${f.scopeKind} ${prefix}${name}=${value}`);
+    const suffix = f.derivedFrom ? ` derivedFrom ${f.derivedFrom}` : '';
+    console.log(`${f.detector} ${f.id} ${f.scopeKind} ${prefix}${name}=${value}${suffix}`);
   }
   const c = analysis.context;
   if (c.status !== 'MEASURED') {

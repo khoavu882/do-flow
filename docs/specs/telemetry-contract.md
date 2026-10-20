@@ -247,7 +247,7 @@ Configured in `core/registry/telemetry.json` under `analysis`. All four must be 
 
 Three detectors run per scope:
 
-1. **`latency-hotspots`**: Groups spans with integer `durationMs` by `(kind, name)`. A group with at least `minSamples` durations is a finding when `p95 >= tailRatio * p50` and `p95 - p50 >= minTailMs`. Reported spans are those with `durationMs > p50`, ordered by descending duration then `spanId`, capped at 20 (`measures.spanCount` reports the uncapped count). Percentiles use nearest-rank `percentile` from `views.ts`. State: `FINDING` if any group qualifies; `CLEAR` if at least one group has `minSamples` durations and none qualifies; `NOT_DETERMINED` ("no span name has <minSamples> durations") otherwise.
+1. **`latency-hotspots`**: Groups spans with integer `durationMs` by `(kind, name)`. A group with at least `minSamples` durations is a finding when `p95 >= tailRatio * p50` and `p95 - p50 >= minTailMs`. Reported spans are those with `durationMs > p50`, ordered by descending duration then `spanId`, capped at 20 (`measures.spanCount` reports the uncapped count). Percentiles use nearest-rank `percentile` from `views.ts`. State: `FINDING` if any group qualifies; `CLEAR` if at least one group has `minSamples` durations and none qualifies; `NOT_DETERMINED` ("no span name has <minSamples> durations") otherwise. A `verify.tier` hotspot whose scope also has a `verify.check` hotspot carries `derivedFrom: verify.check` and is left out of `--emit followups` (one slow check is one proposal; FU-b4nbjn). The `test` group spans a whole session, so its hotspots mix unrelated commands (FU-xz9h35).
 2. **`redundant-verification`**: Evaluates executed `verify.check` spans with a non-null `attrs.check_key`. A key observed on two or more executed `PASS` checks with no `FAIL` check of the same key between first and last is a finding; measures `{checkKey, passes, tier}`. State: `FINDING` if any key qualifies; `CLEAR` if at least one executed keyed check exists and none qualifies; `NOT_DETERMINED` ("no executed verify.check carries a check_key") otherwise. The check key is local-only (T0) and is never exported.
 3. **`retry-loops`**: Groups `verify.run` spans sorted by start then `spanId` by `attrs.task` (a null task groups by scope). The failure class of a `FAIL` run is the sorted set of failing `verify.tier` names under it (`attrs.verify_id` matching), or `exit:<exit_code>` when it has no tier spans. Runs with status neither `PASS` nor `FAIL` (null, `UNRESOLVED`) neither extend nor break a sequence. A maximal sequence of at least `retryRun` consecutive `FAIL` runs with an identical failure class and no `PASS` between is a finding; measures `{task, runs, failureClass, grouping}` (`grouping` is `"task"` or `"scope"`). State: `FINDING` if any group qualifies; `CLEAR` if at least one `verify.run` carries a non-null status and none qualifies; `NOT_DETERMINED` ("no verify.run carries a status") otherwise.
 
@@ -297,7 +297,7 @@ The analyzer prints two machine-readable batch formats:
     "source": { "kind": "manual" }
   }
   ```
-  Statements are at most 280 characters and carry no 32-character run so `maskLine` leaves them unchanged. Metric is `p95_ms:<kind>/<name>` (hotspots), `passes:<tier>` (redundant), or `failed_runs:<task|scopeKind>` (retry). With `--task-id`, the command reads that task's evidence ledger (read-only) and cites up to two newest matching evidence IDs; without `--task-id` or matching evidence, it cites `unrecorded`. Lines exceeding 280 characters drop the second evidence ID and truncate `<name>` or replace it with `h<sha16(name).slice(0, 8)>`.
+  Statements are at most 280 characters and carry no 32-character run so `maskLine` leaves them unchanged. Metric is `p95_ms:<kind>/<name>` (hotspots), `passes:<tier>` (redundant), or `failed_runs:<task|scopeKind>` (retry). With `--task-id`, the command reads that task's evidence ledger (read-only) and cites up to two newest matching evidence IDs; without `--task-id` or matching evidence, it cites `unrecorded` (meaning no matching evidence in the store that was read: the main checkout's namespaced ledger; a pre-115 worktree-local store is not read). Lines exceeding 280 characters drop the second evidence ID and truncate `<name>` or replace it with `h<sha16(name).slice(0, 8)>`.
 
 ### Context section (rider R1)
 
@@ -308,7 +308,7 @@ The analysis view includes a top-level `context` object reporting `UserPromptSub
   - `hookCalls`: count of all hook and test spans in the session
   - `emissions`: count of hook lines where `emit_reason` is `emit` or `refused:*`
   - `emittedBytes`: sum of `emit_bytes` for emissions (0 for `silent:*` and `fault:*`)
-  - `duplicates`: count of emissions whose `emit_digest` matched an earlier emission in the same session (ordered by start then `spanId`)
+  - `duplicates`: count of emissions whose `emit_digest` matched an earlier emission in the same session (ordered by start then `spanId`); duplicates are a hash-match count on the 32-bit `emit_digest`, not byte identity (two different responses can collide)
   - `duplicateBytes`: sum of `emit_bytes` for duplicate emissions
   - `reasons`: dictionary of counts per `emit_reason`
 
@@ -332,7 +332,7 @@ The export pins semantic conventions in `export.semconv`:
 
 ### Span mapping
 
-Spans are exported with `kind: 1` (INTERNAL). `parentSpanId` is omitted on root spans. Span names map according to `export.spans`:
+Spans are exported with `kind: 1` (INTERNAL). `parentSpanId` is omitted on root spans. Exported span ids are not the local view's ids. At export time each span id is remapped to `sha16` of values already in the payload (trace id, exported span name, start and end times, exported attributes and status, the remapped parent id, and an ordinal among spans with identical values, ordered by the exported content of their subtrees), so no local identifier (slug, task id, locator, run key or path hash) is an input. `parentSpanId` and links are remapped the same way inside one export; a parent that is not exported is dropped. Two dry runs are byte-identical. A re-export after a span's end changes yields a new id (the collector sees a duplicate). Spans in each request are ordered by start time then exported id. Span names map according to `export.spans`:
 
 | Local Kind | Export Span Name | Operation (`gen_ai.operation.name`) |
 |---|---|---|
@@ -346,7 +346,7 @@ Placeholders `{tool}`, `{harness}`, and `{name}` resolve to their filtered attri
 
 ### Attribute mapping and privacy filter rules
 
-Attributes are mapped according to `export.attributes`, applying these rules in order:
+Each `export.attributes` entry holds exactly one rule key, `id: true` (boolean, only on `tool_call_id`), `vocabulary: <list name>` or `measure: true`, optionally `export: <key>`; any other shape is dropped by the mapper and fails G45.7. Attributes are mapped according to `export.attributes`, applying these rules in order:
 
 1. A local attribute not listed in `export.attributes` is not exported.
 2. An entry with `id: true` exports the value unchanged only when it passes `SAFE_TOKEN`; only `tool_call_id` carries this. All other T0 fields are never listed.
@@ -394,6 +394,7 @@ Attributes are mapped according to `export.attributes`, applying these rules in 
 ### What is never exported
 
 - **Identifiers (T0)**: All T0 fields except `tool_call_id` are never exported: `run`, `lineage`, `attempt`, `session`, `task`, `worker_run`, `dispatch_run`, `verify_id`, `check_key`, `shared_ref`, `token`, and `emit_digest`.
+- **Local span ids**: the local view's span ids (digests of record locators) are never exported; see Span mapping.
 - **Local-only descriptors (T2-local)**: Descriptors marked `T2-local` are never exported.
 - **Content (T4)**: Content is never recorded and never exported.
 - **Ungrouped and start-less spans**: Spans lacking a `traceId` (`view.ungrouped`) and spans with a null `start` are not exported (counted as `skipped`).
@@ -409,18 +410,21 @@ The sender resolves configuration once from the invoking environment:
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `k=v` pairs, trimmed, values percent-decoded; bad escape or empty key exits 2 |
 | `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | `OTEL_EXPORTER_OTLP_TIMEOUT` | Integer milliseconds, default 10000, clamped to maximum 30000; non-positive integer exits 2 |
 
+An empty or whitespace-only value counts as unset; `TRACES_*` overrides only when non-empty; empty header members are skipped; header names must be RFC 7230 tokens and values must not contain CR, LF or NUL (exit 2, the error names the variable only); `OTEL_EXPORTER_OTLP_ENDPOINT` gets `/v1/traces` appended to its path, its query is kept, a fragment on either endpoint variable exits 2; `OTEL_EXPORTER_OTLP_[TRACES_]PROTOCOL` is not read: `--otlp-http` always sends HTTP/JSON, and a value other than `http/json` prints one stderr note naming the variable.
+
 **Bounds:**
 - Spans are chunked into requests of at most 512 spans each.
 - At most 20 requests per export invocation (maximum 10,240 spans). Larger exports are refused before any network connection with exit 2 advising `--run`.
 - Requests are sent sequentially using `fetch` with `redirect: "error"` and `AbortSignal.timeout(timeoutMs)`.
 - The first failure (timeout, network error, redirect, or non-2xx status) stops the send loop with status `failed`. No retries are attempted.
 - A 2xx response parses `partialSuccess.rejectedSpans`; if positive, status is `partial`.
+- A 2xx body is read up to 64 KiB; a body read that times out gives `failed`/`timeout`, a connection lost during the body gives `failed`/`connection`, a body over 64 KiB gives `failed`/`bad-response`; in each case the request counts as sent, `httpStatus` is the 2xx code and the loop stops; a body received in full that is not JSON counts as accepted.
 
 ### Exit codes
 
 - `0`: All requests accepted with zero rejected spans, or `--dry-run`.
 - `1`: Any request failed or returned rejected spans (`partial` or `failed`).
-- `2`: Usage error (missing `--otlp-http`, missing endpoint, invalid URL scheme or userinfo, malformed headers/timeout, request cap exceeded).
+- `2`: Usage error (missing `--otlp-http`, missing endpoint, invalid URL scheme, userinfo or a fragment, malformed headers/timeout including a header name that is not a token or a value with CR, LF or NUL, request cap exceeded).
 
 ## Excluded stores
 
@@ -450,11 +454,11 @@ excerpts) is listed there too; a `verify.check` line carries only the record's r
    lines (`test/fixtures/telemetry/*.jsonl`) carry; `hook.jsonl` there is held equal to a real bridge
    line's keys by `test/hooks/bridge-hook-line.test.js`;
 2. no `node` process starts on a shell hook path, and the node files there are the pinned three;
-3. no network module or `fetch` under `src/runtime` outside the pinned advice client and export sender (`src/runtime/trace/otlp-export.ts`);
+3. no network use under `src` (`.ts .js .mjs .cjs .mts .cts`, `src/cli` included) outside the pinned advice client and export sender: a network module import or require, any reference to `fetch` (including `globalThis.fetch`, member access and aliases), `WebSocket`, `EventSource`, `process.getBuiltinModule`, `undici`, computed `globalThis[...]` access, `process.binding`, and `require`/`import` with a non-literal argument; comments and string, template and regex literals are not code; a verbatim copy of the sender under another name fails;
 4. no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze` or
    `verify-baseline`;
 5. the package has no runtime dependency and G30.2 is still enforced;
 6. every telemetry store is a declared `runs/` subdirectory the ledger readers skip;
-7. the export block maps only closed descriptors and the analysis block is well formed.
+7. the export block maps only closed descriptors and the analysis block is well formed; each attribute rule is typed (one rule key; `id: true` only on `tool_call_id`) and the mapper uses the same check.
 
 Each check has a self-test that plants a violation and expects the check to name it.

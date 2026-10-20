@@ -180,6 +180,17 @@ function commandCountDelta(off, on) {
   }));
 }
 
+function commandCountMap(off) {
+  const commands = Array.isArray(off) ? off : off.commands;
+  const names = [...new Set(commands)].sort();
+  return Object.fromEntries(names.map((name) => [name, commands.filter((c) => c === name).length]));
+}
+
+const OFF_BASELINES = {
+  'claude:pre-bash-guard': { bash: 1, cat: 2, dirname: 1, jq: 2 },
+  'claude:user-prompt-submit': { bash: 1, cat: 2, dirname: 1, jq: 3, mkdir: 1 },
+};
+
 function assertForkBudget(counts, label) {
   const delta = counts.on.commands.length - counts.off.commands.length;
   assert.ok(delta <= 1, `${label}: telemetry adds ${delta} external commands; budget is 1`);
@@ -198,6 +209,7 @@ test('telemetry adds at most one external command on pre-bash-guard and user-pro
     const root = project();
     const counts = compareForkCounts(root, surface, fixtureNative(surface), shimDir);
     assertForkBudget(counts, key);
+    assert.deepEqual(commandCountMap(counts.off), OFF_BASELINES[key], `${key}: exact baseline OFF-mode command counts`);
     assert.deepEqual(counts.deltaByCommand, { mkdir: 1 }, `${key}: mkdir is the only added external command`);
     assert.deepEqual(counts.on.result, counts.off.result, `${key}: telemetry leaves hook output unchanged`);
     assert.equal(hookLines(path.join(root, '.doflow')).length, 1, `${key}: ON wrote one line`);

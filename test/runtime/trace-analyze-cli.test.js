@@ -103,6 +103,36 @@ test('CLI exit codes: 0 with no finding, 1 with findings, 2 on usage errors', (t
   assert.deepEqual(files(p.dir).filter((f) => /state\/(evidence|lifecycle)\//.test(f)), []);
 });
 
+test('CLI C-10: trace analyze text prints derivedFrom suffix and --emit followups skips it', (t) => {
+  const durs = [100, 100, 100, 100, 5000];
+  const telemetry = durs.flatMap((dur, i) => {
+    const vId = hex16(i + 1);
+    const ts = at(i);
+    return [
+      { timestamp: ts, kind: 'verify.check', verify_id: vId, tier: 'targeted-tests', status: 'PASS', duration_ms: dur, check_key: `ck-${i}` },
+      { timestamp: ts, kind: 'verify.tier', verify_id: vId, tier: 'targeted-tests', status: 'PASS', duration_ms: dur },
+    ];
+  });
+  const p = seed(t, telemetry);
+  const text = cli(p, ['trace', 'analyze', p.dir]);
+  assert.equal(text.status, 1);
+  assert.match(text.stdout, /^latency-hotspots [0-9a-f]{16} day p95_ms:verify\.tier\/targeted-tests=5000 derivedFrom verify\.check$/m);
+  assert.match(text.stdout, /^latency-hotspots [0-9a-f]{16} day p95_ms:verify\.check\/targeted-tests=5000$/m);
+
+  const j = cli(p, ['trace', 'analyze', '--json', p.dir]);
+  assert.equal(j.status, 1);
+  const parsed = JSON.parse(j.stdout);
+  const findings = parsed.detectors.find((d) => d.id === 'latency-hotspots').findings;
+  assert.equal(findings.find((f) => f.measures.kind === 'verify.tier').derivedFrom, 'verify.check');
+  assert.equal(findings.find((f) => f.measures.kind === 'verify.check').derivedFrom, undefined);
+
+  const fu = cli(p, ['trace', 'analyze', '--emit', 'followups', p.dir]);
+  assert.equal(fu.status, 1);
+  const proposals = JSON.parse(fu.stdout);
+  assert.equal(proposals.length, 1);
+  assert.match(proposals[0].statement, /verify\.check\/targeted-tests/);
+});
+
 test('--emit evidence piped into the real `evidence --action add --batch -`, then --emit followups into `followup --action add --batch <file>`', (t) => {
   const p = seed(t);
   const ev = cli(p, ['trace', 'analyze', '--emit', 'evidence', p.dir]);
