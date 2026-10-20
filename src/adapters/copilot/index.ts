@@ -55,8 +55,9 @@ const LEGACY_MCP_REGISTRATION = `${HARNESS}:mcp:registration`;
  *     list per https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills.
  *   - `agentsConfigDir` is genuinely asymmetric: `~/.copilot` globally, `.github` at project scope,
  *     because that is where Copilot's own custom-agents documentation places each.
- *   - `instruction` is project-only: Copilot documents no global instructions file, so no user-scope
- *     rule is declared and it resolves to null rather than inventing a path with no reader.
+ *   - `instruction` is project-only: Copilot CLI reads a user-level ~/.copilot/copilot-instructions.md,
+ *     but this adapter does not project a pointer there, so no user-scope rule is declared and it
+ *     resolves to null.
  * createCopilotAdapter({ declaredPaths }) is the injection point buildAdapterRegistry() uses;
  * module-level exports delegate to a default-configured instance so direct callers keep their
  * historical shape.
@@ -114,8 +115,8 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   }
 
   /** Plan the single instructions change (or none). Global scope always yields no change and no
-   * conflict — Copilot documents no global instructions file, so there is nothing to skip *to*,
-   * mirroring how other adapters skip a capability with no native equivalent for a given scope. */
+   * conflict — the user-level ~/.copilot/copilot-instructions.md is not projected, so there is no
+   * global target, the same way other adapters skip a capability they do not project at a scope. */
   function planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, fsImpl }: any) {
     if (!found.paths.instruction) return { changes: [], conflicts: [] };
     // The marker-managed instruction file is one specific asset: exclude tree-projected rule
