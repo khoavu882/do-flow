@@ -487,16 +487,21 @@ function assertCompactParity(cwd, env = {}) {
   return claude;
 }
 
-test('PreCompact builds exact IC-002 git text from repository state', () => {
+// C-1: the exact text and Claude/Codex parity hold for every role, so a role-only edit is caught here.
+const ROLES = [['main', {}], ['worker', WORKER], ['launched worker', LAUNCHED_WORKER]];
+
+test('PreCompact builds exact IC-002 git text from repository state for every role', () => {
   const cwd = knownGitProject();
-  assert.equal(preCompact(mirror, 'claude', cwd), expectedGitText(cwd));
+  for (const [role, env] of ROLES) assert.equal(assertCompactParity(cwd, env), expectedGitText(cwd), role);
 });
 
-test('PreCompact emits exact non-git text for project and unknown cwd', () => {
+test('PreCompact emits exact non-git text for project and unknown cwd for every role', () => {
   const cwd = project();
-  assert.equal(preCompact(mirror, 'claude', cwd), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: ${cwd} (not a git repository)`);
-  assert.equal(preCompact(mirror, 'claude', undefined), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: unknown (not a git repository)`);
-  assert.equal(preCompact(mirror, 'claude', ''), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: unknown (not a git repository)`);
+  for (const [role, env] of ROLES) {
+    assert.equal(assertCompactParity(cwd, env), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: ${cwd} (not a git repository)`, role);
+    assert.equal(assertCompactParity(undefined, env), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: unknown (not a git repository)`, role);
+    assert.equal(assertCompactParity('', env), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: unknown (not a git repository)`, role);
+  }
 });
 
 test('PreCompact separates two recent commits with " | "', () => {
@@ -516,22 +521,9 @@ test('PreCompact cap keeps preserve line first and later git context', () => {
   assert.ok(text.includes('\n- uncommitted files: 0\n'), text);
 });
 
-test('PreCompact Claude and Codex stay byte-identical with one JSON key across contract cases', () => {
-  assertCompactParity(knownGitProject());
-  assertCompactParity(project());
-  assertCompactParity(undefined);
-  assertCompactParity('');
-  assertCompactParity(twoCommitProject());
-  assertCompactParity(longGitProject());
-});
-
-test('PreCompact worker role still emits for Claude and Codex', () => {
-  const cwd = project();
-  for (const harness of ['claude', 'codex']) {
-    const output = preCompact(mirror, harness, cwd, WORKER);
-    assert.ok(output.length > 0, `${harness} worker output is non-empty`);
-    if (harness === 'codex') assert.ok(JSON.parse(output).systemMessage.length > 0);
-  }
+test('PreCompact Claude and Codex stay byte-identical with one JSON key across contract cases and roles', () => {
+  const cases = [knownGitProject(), project(), undefined, '', twoCommitProject(), longGitProject()];
+  for (const [, env] of ROLES) for (const cwd of cases) assertCompactParity(cwd, env);
 });
 
 test('PreCompact skip rule exits silently on Claude and Codex', () => {
