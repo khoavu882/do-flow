@@ -75,7 +75,13 @@ function resolveLayout(name: any): (sourceRel: string) => string {
 
 /** Source-file selectors for projections that intentionally materialize only part of a tree. */
 const SELECTORS: Record<string, (sourceDir: string, fsImpl: any) => Set<string>> = {
-  'guidance-manifest': (sourceDir: string, fsImpl: any) => new Set(guidanceManifest(sourceDir, fsImpl).files),
+  // A dangling import that is not generated would install a core set missing a file the entry file
+  // names, silently; the selector fails instead (MCP_INDEX.md is generated and exempt) (107-B C-4).
+  'guidance-manifest': (sourceDir: string, fsImpl: any) => {
+    const { files, dangling } = guidanceManifest(sourceDir, fsImpl);
+    if (dangling.length) throw new Error(`guidance-manifest: DOFLOW_CORE.md imports files that do not exist under ${sourceDir}: ${dangling.join(', ')}`);
+    return new Set(files);
+  },
 };
 
 /** Resolve a declared selector name, or return null when a projection mirrors the whole tree. */

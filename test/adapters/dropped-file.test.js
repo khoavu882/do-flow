@@ -12,6 +12,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
 const { applyLifecycle } = require('../../src/lifecycle/index.ts');
+const { dropCoreFile, restoreEdited } = require('../helper/drop-core-file');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const EDIT = '\nA line the user added.\n';
@@ -60,6 +61,7 @@ function dropRound(harness, { edit = false } = {}) {
   const scratch = createScratch(`doflow-dropped-file-${harness}-`);
   scratch.apply();
   let picked;
+  let edits = [];
   try {
     const install = run(harness);
     picked = droppableRow(install.ledger, harness);
@@ -67,7 +69,8 @@ function dropRound(harness, { edit = false } = {}) {
     const { target } = picked.row;
     if (edit) fs.appendFileSync(target, EDIT);
     const edited = edit ? fs.readFileSync(target) : null;
-    fs.rmSync(picked.source);
+    // The import lines naming the file go with it: a core set that still imports a missing file is refused.
+    edits = dropCoreFile(path.join(pkg, 'core', 'shared', 'guidance'), picked.source);
     const update = run(harness);
     return {
       target, edited, installNotices: install.notices, notices: update.notices,
@@ -77,6 +80,7 @@ function dropRound(harness, { edit = false } = {}) {
     };
   } finally {
     if (picked) fs.copyFileSync(path.join(REPO, path.relative(pkg, picked.source)), picked.source);
+    restoreEdited(edits);
     scratch.restore();
     scratch.remove();
   }

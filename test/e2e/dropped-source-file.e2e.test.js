@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { dropCoreFile, restoreEdited } = require('../helper/drop-core-file');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const DROPPED = 'RESEARCH_CONFIG.md';
@@ -68,12 +69,17 @@ function installedCopies(home) {
     .filter((full) => path.basename(full) === DROPPED && !full.startsWith(backups));
 }
 
+let importEdits = [];
+
+/** Drop a source file the way a real change does: the `@import` lines naming it go with it. */
 function dropSource(source = SOURCE) {
-  fs.rmSync(path.join(pkg, source));
+  importEdits = dropCoreFile(path.join(pkg, 'core', 'shared', 'guidance'), path.join(pkg, source));
 }
 
 function restoreSource(source = SOURCE) {
   fs.copyFileSync(path.join(REPO, source), path.join(pkg, source));
+  restoreEdited(importEdits);
+  importEdits = [];
 }
 
 /** One Kiro round: install, optionally edit the steering copy, drop the source, update. `dir` and
