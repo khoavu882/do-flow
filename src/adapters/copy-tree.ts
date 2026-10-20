@@ -11,6 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { guidanceManifest } = require('./guidance-manifest.ts');
 
 function sha256(buf: any): string {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -59,6 +60,8 @@ const LAYOUTS: Record<string, (sourceRel: string) => string> = {
     const ext = path.extname(sourceRel);
     return `${sourceRel.slice(0, sourceRel.length - ext.length)}.json`;
   },
+  /** `rules/RULE_01_SAFETY.md` -> `RULE_01_SAFETY.md` for flat rule directories. */
+  flat: (sourceRel: string) => path.basename(sourceRel),
 };
 
 /** Resolve a declared layout name to its mapper. Unknown names fail loudly rather than silently
@@ -68,6 +71,19 @@ function resolveLayout(name: any): (sourceRel: string) => string {
   const layout = LAYOUTS[name];
   if (!layout) throw new Error(`Unknown copy-tree layout '${name}' (known: ${Object.keys(LAYOUTS).join(', ')})`);
   return layout;
+}
+
+/** Source-file selectors for projections that intentionally materialize only part of a tree. */
+const SELECTORS: Record<string, (sourceDir: string, fsImpl: any) => Set<string>> = {
+  'guidance-manifest': (sourceDir: string, fsImpl: any) => new Set(guidanceManifest(sourceDir, fsImpl).files),
+};
+
+/** Resolve a declared selector name, or return null when a projection mirrors the whole tree. */
+function resolveSelect(name: any): ((sourceDir: string, fsImpl: any) => Set<string>) | null {
+  if (name == null) return null;
+  const selector = SELECTORS[name];
+  if (!selector) throw new Error(`Unknown copy-tree select '${name}' (known: ${Object.keys(SELECTORS).join(', ')})`);
+  return selector;
 }
 
 /** Destination content transforms. Where a harness reads a supported but different file FORMAT
@@ -233,11 +249,15 @@ function renderOpencodeAgent(text: string): string {
  * the destination tree beyond checking existence. `relPath` is destination-relative and doubles as
  * the ledger identity, so a layout change relocates the recorded resource too — planTree's
  * relocation handling then removes the old path rather than orphaning it. */
-function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: any): { files: any[] } {
+function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform, select }: any): { files: any[] } {
   if (!fsImpl.existsSync(sourceDir)) throw new Error(`copy-tree source is missing: ${sourceDir}`);
   const mapRel = typeof layout === 'function' ? layout : resolveLayout(layout);
   const mapContent = typeof transform === 'function' ? transform : resolveTransform(transform);
-  const files = walkRelFiles(sourceDir, fsImpl).map((sourceRel) => {
+  const selected = resolveSelect(select)?.(sourceDir, fsImpl);
+  const files = walkRelFiles(sourceDir, fsImpl).filter((sourceRel) => {
+    if (!selected) return true;
+    return selected.has(sourceRel.split(path.sep).join('/'));
+  }).map((sourceRel) => {
     const relPath = mapRel(sourceRel);
     const sourceAbs = path.join(sourceDir, sourceRel);
     const destAbs = path.join(destDir, relPath);
@@ -245,6 +265,27 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: an
     return { relPath, sourceAbs, destAbs, exists: fsImpl.existsSync(destAbs), fingerprint: sha256(mapContent ? mapContent(sourceRel, raw) : raw) };
   });
   return { files };
+}
+
+/** Selected files that map to one destination cannot both be installed safely. */
+function selectedDestinationCollisions(files: any[], sourceDir: string, destDir: string): { destinations: Set<string>, conflicts: string[] } {
+  const sourcesByDestination = new Map<string, any[]>();
+  for (const file of files) {
+    const key = path.resolve(file.destAbs);
+    const sources = sourcesByDestination.get(key) || [];
+    sources.push(file);
+    sourcesByDestination.set(key, sources);
+  }
+
+  const destinations = new Set<string>();
+  const conflicts: string[] = [];
+  for (const [destination, sources] of sourcesByDestination) {
+    if (sources.length < 2) continue;
+    destinations.add(destination);
+    const names = sources.map((file) => path.relative(sourceDir, file.sourceAbs).split(path.sep).join('/'));
+    conflicts.push(`selected files ${names.map((name) => `'${name}'`).join(' and ')} map to the same destination '${path.relative(destDir, destination).split(path.sep).join('/')}'`);
+  }
+  return { destinations, conflicts };
 }
 
 /** A file's identity on disk (device + inode), or null when the path does not resolve to one. */
@@ -292,7 +333,7 @@ function sameFileIndex(paths: string[], fsImpl: any = fs): (target: string) => s
  * `siblingReplaced` lists the harnesses whose recorded bytes this plan replaces: the file matches
  * neither the source nor this harness's own record, only a sibling's (forced or not).
  */
-function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false, keepModified = false, siblingFingerprints = new Map() }: any): any {
+function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, select, force = false, keepModified = false, siblingFingerprints = new Map() }: any): any {
   const prevByPath = new Map<string, any>(previousResources.map((resource: any) => [resource.relPath, resource]));
   const changes: any[] = [];
   const conflicts: string[] = [];
@@ -307,7 +348,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   const sourceFingerprint = (destAbs: string): string | undefined => {
     if (sourceByDest === undefined) {
       sourceByDest = sourceDir && fsImpl.existsSync(sourceDir)
-        ? new Map<string, string>(discoverTree({ sourceDir, destDir, fsImpl, layout, transform }).files.map((file): [string, string] => [file.destAbs, file.fingerprint]))
+        ? new Map<string, string>(discoverTree({ sourceDir, destDir, fsImpl, layout, transform, select }).files.map((file): [string, string] => [file.destAbs, file.fingerprint]))
         : new Map();
     }
     return sourceByDest.get(destAbs);
@@ -366,10 +407,18 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     return { changes, conflicts, kept, siblingReplaced: [] };
   }
 
-  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
+  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform, select });
+  const collisions = select == null
+    ? { destinations: new Set<string>(), conflicts: [] }
+    : selectedDestinationCollisions(files, sourceDir, destDir);
+  conflicts.push(...collisions.conflicts);
   producedSameFile = sameFileIndex(files.map((file) => file.destAbs), fsImpl);
   const satisfiedAtSameLocation = new Set();
   for (const file of files) {
+    if (collisions.destinations.has(path.resolve(file.destAbs))) {
+      satisfiedAtSameLocation.add(file.relPath);
+      continue;
+    }
     const prev = prevByPath.get(file.relPath);
     // prev.target === undefined means "location unknown" (pre-this-fix ledger data, or a
     // caller-constructed previousResources entry) — treat as same-location, matching pre-fix
@@ -500,12 +549,17 @@ function pruneEmptyAncestors(startDir: string, { fsImpl = fs }: { fsImpl?: any }
  * `plannedWrites` lists the destinations the run being verified wrote. An absent source file is
  * not reported in general, because a user may delete one, but an absent file this run wrote means
  * the run lost it (a case-only rename once deleted the file it had just written) and is a conflict. */
-function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform, plannedWrites = [] }: any): { ok: boolean, resources: any[], conflicts: string[] } {
-  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
+function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform, select, plannedWrites = [] }: any): { ok: boolean, resources: any[], conflicts: string[] } {
+  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform, select });
   const written = new Set(plannedWrites);
   const resources: any[] = [];
   const conflicts: string[] = [];
+  const collisions = select == null
+    ? { destinations: new Set<string>(), conflicts: [] }
+    : selectedDestinationCollisions(files, sourceDir, destDir);
+  conflicts.push(...collisions.conflicts);
   for (const file of files) {
+    if (collisions.destinations.has(path.resolve(file.destAbs))) continue;
     if (!file.exists) {
       if (written.has(file.destAbs)) conflicts.push(`${file.relPath} was written by this run but is missing`);
       continue;
@@ -617,4 +671,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
