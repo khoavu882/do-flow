@@ -72,6 +72,11 @@ function paidStages({ taskSet, config, k }) {
     N: stage('N', 'n', (its) => `${STAGE_PREFIX} noise --iterations ${its} --out ${RESULT_NOISE}`),
     D: stage('D', 'd', (its) => `${STAGE_PREFIX} report --iterations ${its} --decision-out ${RESULT_DECISION}`),
     note: 'Paid: each stage needs the user\'s approval of the cap, the model and the credential copy (O-1, O-2, O-5) before it runs; stage D waits until the arm N band has been read.',
+    // R-8: the cap bounds one execute command, so a stage of several commands can end at the sum of
+    // their caps plus one overshoot per command.
+    capScope: `--cap applies per execute command, not per stage: stage R: 2 x ${config.maxTokensPerRun} = ${2 * config.maxTokensPerRun} tokens plus up to 2 one-run overshoots; `
+      + `stage N: ${k} x ${ceiling} = ${k * ceiling} tokens plus up to ${k} one-run overshoots; `
+      + `stage D: ${k} x ${ceiling} = ${k * ceiling} tokens plus up to ${k} one-run overshoots`,
   };
 }
 
@@ -96,16 +101,18 @@ function cmdPlan(ctx, flags) {
   ctx.out(capMeaning(config));
   ctx.out('paid stages (text only, never run by plan):');
   for (const name of ['R', 'N', 'D']) for (const line of stages[name]) ctx.out(`  stage ${name}: ${line}`);
+  ctx.out(`stage figures: ${stages.capScope}`);
   ctx.out(stages.note);
   return 0;
 }
 
 /**
- * What `--cap` guarantees (review C-5): a projected ceiling, not a hard stop inside a run. Usage is
- * known only at the turn end, so a run can pass maxTokensPerRun; only timeoutSeconds bounds it.
+ * What `--cap` guarantees (review C-5, R-8): a projected ceiling for one execute command, not a hard
+ * stop inside a run and not a stage total. Usage is known only at the turn end, so a run can pass
+ * maxTokensPerRun; only timeoutSeconds bounds it, and nothing does after a SIGKILL of the executor.
  */
-const capMeaning = (config) => `cap: execute starts a run only while spent + maxTokensPerRun (${config.maxTokensPerRun}) <= --cap; `
-  + `a run's real usage is known only at its end, so the worst case is --cap plus one run's overshoot beyond maxTokensPerRun, bounded only by timeoutSeconds (${config.timeoutSeconds}s); `
+const capMeaning = (config) => `cap: per execute command, execute starts a run only while spent + maxTokensPerRun (${config.maxTokensPerRun}) <= --cap; `
+  + `a run's real usage is known only at its end, so the worst case is --cap plus one run's overshoot beyond maxTokensPerRun, bounded only by timeoutSeconds (${config.timeoutSeconds}s) unless the executor is SIGKILLed; `
   + 'passing --cap ends execute with exit 3 and "cap exceeded by N tokens on <task>"';
 
 /** The text result of `execute` (exit 0 or 3). */

@@ -737,8 +737,9 @@ function readTextIfPresent(file) {
  * another execute holds the iteration, a listed task already has a run directory, the run root or
  * iteration is a symlink, the plan's ceiling exceeds the cap, or the plan itself is invalid. Exit 3
  * means the cap stopped it before a run that could overshoot (`undone` lists those), or a run's real
- * usage passed the cap (`capExceeded: { by, task }`): the cap is a projected ceiling, so the worst
- * case is the cap plus one run's overshoot beyond `maxTokensPerRun`, bounded only by the timeout.
+ * usage passed the cap (`capExceeded: { by, task }`): the cap is a projected ceiling for this one
+ * command, so the worst case is the cap plus one run's overshoot beyond `maxTokensPerRun`, bounded only
+ * by the timeout (and not at all after a SIGKILL of the executor, review R-2).
  *
  * Interruption (review C-1, R-1): while it runs, SIGINT, SIGTERM and SIGHUP end the worker's process
  * group, record the run as `truncated` with the usage its transcript already holds (it counts at the

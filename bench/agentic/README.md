@@ -33,10 +33,12 @@ verb or flag, or a missing required flag, exits 2.
 | `report` | `--iterations a,b,c` (required); `--noise <file>`, `--decision-out <file>`, `--json` | no, offline | 0; 2 invalid input. Arm D iterations only |
 
 `plan` prints the projection (runs, `maxTokensPerRun`, ceiling) and the paid stage commands as text; it
-never runs them. The cap is a projected ceiling: `execute` starts a run only while recorded spend
-plus one `maxTokensPerRun` is at most the cap. A run can overshoot that reservation because usage is
-known only at turn end. The worst case is the cap plus one run's overshoot, bounded only by
-`timeoutSeconds`. If spend passes the cap, `execute` exits 3 and prints
+never runs them. The cap is a projected ceiling for one `execute` command: `execute` starts a run only
+while recorded spend plus one `maxTokensPerRun` is at most the cap. A run can overshoot that reservation
+because usage is known only at turn end. The worst case for one command is the cap plus one run's
+overshoot, bounded only by `timeoutSeconds`. The cap applies per command, not per stage: a stage of k
+commands can end at k times its cap plus up to k one-run overshoots, and `plan` prints that figure per
+stage (`stage figures:`). If spend passes the cap, `execute` exits 3 and prints
 `cap exceeded by N tokens on <task>`. Accepting this cap meaning is O-1, the user's decision at gate-b.
 `execute` counts a run with unknown usage at `maxTokensPerRun`, and a run that did not complete
 (interrupted, timed out or truncated) at the larger of its reported usage and `maxTokensPerRun`, since a
@@ -76,10 +78,10 @@ Stage D waits until the arm N band has been read.
 
 | Stage | Command (copied from `plan`; stage N and D repeat for `r1`..`r3`) | Ceiling | Planning figure (INFERRED) |
 |---|---|---|---|
-| R rehearsal, one train task per arm | `npm run bench -- agentic execute --iteration rehearsal-N --arm N --tasks DC-011 --cap 250000`, then the same with `rehearsal-D` and `--arm D` | 500,000 tokens (2 x 250,000) | 2 x 120,000 |
-| N arm N, k=3 | `npm run bench -- agentic execute --iteration n-r1 --arm N --cap 5000000` (`n-r2`, `n-r3`); `grade --iteration n-r1` (each); `noise --iterations n-r1,n-r2,n-r3 --out bench/agentic/results/noise.json` | 15,000,000 (3 x 20 x 250,000) | 7,200,000 |
-| D arm D, k=3, after the band is read | `npm run bench -- agentic execute --iteration d-r1 --arm D --cap 5000000` (`d-r2`, `d-r3`); `grade --iteration d-r1` (each); `report --iterations d-r1,d-r2,d-r3 --decision-out bench/agentic/results/decision.json` | 15,000,000 | 7,200,000 |
-| Total | | 30,500,000 | 14,640,000 (122 runs at 120,000) |
+| R rehearsal, one train task per arm | `npm run bench -- agentic execute --iteration rehearsal-N --arm N --tasks DC-011 --cap 250000`, then the same with `rehearsal-D` and `--arm D` | 500,000 tokens (2 x 250,000), plus up to 2 one-run overshoots | 2 x 120,000 |
+| N arm N, k=3 | `npm run bench -- agentic execute --iteration n-r1 --arm N --cap 5000000` (`n-r2`, `n-r3`); `grade --iteration n-r1` (each); `noise --iterations n-r1,n-r2,n-r3 --out bench/agentic/results/noise.json` | 15,000,000 (3 x 20 x 250,000), plus up to 3 one-run overshoots | 7,200,000 |
+| D arm D, k=3, after the band is read | `npm run bench -- agentic execute --iteration d-r1 --arm D --cap 5000000` (`d-r2`, `d-r3`); `grade --iteration d-r1` (each); `report --iterations d-r1,d-r2,d-r3 --decision-out bench/agentic/results/decision.json` | 15,000,000, plus up to 3 one-run overshoots | 7,200,000 |
+| Total | | 30,500,000, plus up to 8 one-run overshoots (one per `execute` command) | 14,640,000 (122 runs at 120,000) |
 
 Each iteration holds one arm, so the rehearsal uses two iteration names. Sources for the figures:
 `maxTokensPerRun` 250,000 is `bench/agentic/config.json` (provisional; the rehearsal resets it); the
@@ -89,7 +91,7 @@ measured. There is no price sheet in the repository, so no currency cost is stat
 
 | Decision | Value |
 |---|---|
-| O-1 cap and staging | Stage R, then N, then D, each under the `--cap` above |
+| O-1 cap and staging | Stage R, then N, then D, each command under the `--cap` above. The cap is per command: a stage ends at most at its ceiling plus one run's overshoot per command (2 in R, 3 in N, 3 in D), bounded by `timeoutSeconds` except after a SIGKILL of the executor |
 | O-2 model | `model.label` in `config.json`: `codex:gpt-6-luna:medium`. The only harness with a verified headless read-only worker is the one the registry selects (`harness.select: worker.readOnly`) |
 | O-5 credential copy | Only the harness auth file (`home.copy`) is copied into a mode-0700 temp home outside the repository, removed after each run. Residual: after a SIGKILL of the executor the copy stays until the user deletes the profile the next `execute` names (section 2) |
 

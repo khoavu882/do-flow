@@ -1045,6 +1045,24 @@ test('N-2: each rehearsal command authorizes one run, so stage R stays at two ru
   for (const line of stages.R) assert.match(line, / --cap 250000$/);
 });
 
+test('R-8: plan says the cap applies per execute command and gives each stage its end figure with the overshoots', async () => {
+  const runner = require('../../bench/agentic/runner.js');
+  const stages = runner.paidStages({ taskSet: { train: [{ id: 'DC-1' }], tasks: [{ id: 'DC-1' }, { id: 'DC-2' }] }, config: { maxTokensPerRun: 250000 }, k: 3 });
+  assert.match(stages.capScope, /per execute command/);
+  assert.match(stages.capScope, /stage R: 2 x 250000 = 500000 tokens plus up to 2 one-run overshoots/);
+  assert.match(stages.capScope, /stage N: 3 x 500000 = 1500000 tokens plus up to 3 one-run overshoots/);
+  assert.match(stages.capScope, /stage D: 3 x 500000 = 1500000 tokens plus up to 3 one-run overshoots/);
+  const s = setup();
+  const lines = [];
+  const code = await runner.main(['plan', '--iteration', 'x1', '--arm', 'N'], {
+    repoRoot: s.repoRoot, config: s.opts.config, registry: REGISTRY, taskSet: { ...TASK_SET, train: TASKS.slice(0, 2) }, runRoot: s.runRoot,
+    noiseConfig: { k: 3 }, out: (m) => lines.push(m), err: (m) => lines.push(m),
+  });
+  assert.equal(code, 0, lines.join('\n'));
+  assert.ok(lines.some((l) => /^cap: .*per execute command/.test(l)), lines.join('\n'));
+  assert.ok(lines.some((l) => l.startsWith('stage figures: ') && /plus up to 3 one-run overshoots/.test(l)), lines.join('\n'));
+});
+
 test('C-5: plan states the one-run residual; the execute text names the amount the cap was exceeded by', async () => {
   const runner = require('../../bench/agentic/runner.js');
   const s = setup();

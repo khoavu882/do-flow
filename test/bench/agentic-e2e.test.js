@@ -495,12 +495,14 @@ test('plan prints the projection and the paid stages as text only; --json carrie
   ]) assert.ok(text.out.includes(line), `missing: ${line}`);
   assert.match(text.out, /paid/);
   assert.match(text.out, /O-1, O-2, O-5/);
+  assert.match(text.out, /stage figures: --cap applies per execute command/);
 
   const json = await cli(['plan', '--iteration', 'dry', '--arm', 'D', '--tasks', first, '--json']);
   assert.equal(json.code, 0, json.err);
   const plan = JSON.parse(json.out);
   assert.equal(plan.projection.runs, 1);
-  assert.deepEqual(Object.keys(plan.stages), ['R', 'N', 'D', 'note']);
+  assert.deepEqual(Object.keys(plan.stages), ['R', 'N', 'D', 'note', 'capScope']);
+  assert.match(plan.stages.capScope, new RegExp(`stage N: 3 x ${projectedCap} = ${3 * projectedCap} tokens plus up to 3 one-run overshoots`), 'R-8: the per-command cap scope');
   assert.ok(plan.stages.N.includes(`npm run bench -- agentic execute --iteration n-r1 --arm N --cap ${projectedCap}`), 'stage caps use the selected task set');
   assert.equal(fs.existsSync(path.join(RUN_ROOT, 'dry')), false, 'plan writes nothing');
 });
