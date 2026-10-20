@@ -826,6 +826,58 @@ test('C-2: two concurrent executors on one iteration spawn the task once; a seco
   assert.equal(runDump(s2).length, 1);
 });
 
+test('R-2: a lock left by a dead executor is refused with the scratch profile it left and the instruction to delete it', async () => {
+  const s = setup();
+  const dead = childProcess.spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
+  const deadPid = Number(dead.stdout);
+  assert.equal(isAlive(deadPid), false);
+  const iterDir = path.join(s.runRoot, 'it1');
+  const profileRoot = path.join(s.tmpDir, 'doflow-agentic-left');
+  fs.mkdirSync(path.join(profileRoot, 'home'), { recursive: true });
+  fs.writeFileSync(path.join(profileRoot, 'home', 'auth.json'), '{}');
+  fs.mkdirSync(path.join(iterDir, 'T9'), { recursive: true });
+  fs.writeFileSync(path.join(iterDir, 'T9', 'launch.json'), JSON.stringify({ profileRoot }));
+  fs.mkdirSync(path.join(iterDir, 'T8'));
+  fs.writeFileSync(path.join(iterDir, 'T8', 'launch.json'), JSON.stringify({ profileRoot: path.join(s.tmpDir, 'doflow-agentic-gone') }));
+  fs.writeFileSync(path.join(iterDir, '.lock'), `${deadPid}\n`);
+  const result = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+  assert.equal(result.exit, 2);
+  assert.equal(result.reason, 'iteration-locked');
+  assert.match(result.refusal, new RegExp(`pid ${deadPid}, which is not running`));
+  assert.ok(result.refusal.includes(profileRoot), `names the profile left behind: ${result.refusal}`);
+  assert.equal(result.refusal.includes('doflow-agentic-gone'), false, 'a removed profile is not named');
+  assert.match(result.refusal, /may still be running/);
+  assert.match(result.refusal, /delete/);
+  assert.match(result.refusal, /credential copy/);
+  assert.deepEqual(runDump(s), [], 'nothing was spawned');
+  assert.equal(fs.existsSync(profileRoot), true, 'the executor never deletes it on its own');
+});
+
+test('R-2: after SIGKILL of the executor the next execute names the live profile from launch.json (the known residual)', { timeout: 30000 }, async () => {
+  const s = setup({ config: testConfig((c) => { c.timeoutSeconds = 60; }) });
+  const pidfile = path.join(s.dir, 'sleeper.pid');
+  const scenario = writeScenario(s, 'hangkill', oneTask({ behaviour: 'timeout' }));
+  const { child, done } = spawnDriver(s, { tasks: ['T1'], extraEnv: { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario, AGENTIC_FAKE_PIDFILE: pidfile } });
+  assert.ok(await waitFor(() => fs.existsSync(pidfile) && fs.readFileSync(pidfile, 'utf8') !== ''), 'the worker started');
+  const workerPid = runDump(s)[0].pid;
+  const sleeperPid = Number(fs.readFileSync(pidfile, 'utf8'));
+  child.kill('SIGKILL');
+  assert.equal((await done).signal, 'SIGKILL');
+  try {
+    const { profileRoot } = readJson(s.runRoot, 'it1', 'T1', 'launch.json');
+    assert.equal(isAlive(workerPid), true, 'the residual: the worker outlives a SIGKILLed executor');
+    assert.equal(authCopies(profileRoot).length, 1, 'the residual: the credential copy is left');
+    const result = await execute.executeIteration({ ...s.opts, tasks: ['T2'] });
+    assert.equal(result.reason, 'iteration-locked');
+    assert.ok(result.refusal.includes(profileRoot), result.refusal);
+    assert.match(result.refusal, /delete/);
+  } finally {
+    for (const pid of [workerPid, sleeperPid]) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    }
+  }
+});
+
 test('C-3: an executor error after the spawn keeps the run record, counts it, and a rerun cannot spend again', async () => {
   const s = setup();
   const real = fs.writeFileSync;

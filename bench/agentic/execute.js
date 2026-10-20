@@ -683,9 +683,16 @@ function lockIteration(runRoot, iterDir) {
       process.kill(holder, 0);
       running = Number.isInteger(holder) && holder > 0;
     } catch { /* not running */ }
-    throw new UsageError('iteration-locked', running
-      ? `iteration is held by another execute (pid ${holder}); wait for it to finish`
-      : `iteration lock ${file} is left by pid ${holder}, which is not running; check that no worker of it is still running, then remove the lock`);
+    if (running) throw new UsageError('iteration-locked', `iteration is held by another execute (pid ${holder}); wait for it to finish`);
+    // R-2: an executor ended by SIGKILL ran no cleanup. Its worker may still be running (no timer
+    // ends it any more) and its scratch profile still holds the credential copy.
+    const left = leftProfiles(iterDir);
+    throw new UsageError('iteration-locked', `iteration lock ${file} is left by pid ${holder}, which is not running. `
+      + 'Its worker may still be running and spending, no longer bounded by timeoutSeconds: check for it and end it. '
+      + (left.length
+        ? `The scratch profile it left still holds the credential copy: delete ${left.join(', ')}. `
+        : 'If the profileRoot named in a run\'s launch.json still exists, it holds the credential copy: delete it. ')
+      + 'Then remove the lock.');
   }
   fs.writeSync(fd, `${process.pid}\n`);
   fs.closeSync(fd);
@@ -704,6 +711,16 @@ function lockIteration(runRoot, iterDir) {
       }
     },
   };
+}
+
+/** `profileRoot` of each run record under `iterDir` whose directory still exists (review R-2). */
+function leftProfiles(iterDir) {
+  const out = [];
+  for (const dir of runDirsOf(iterDir)) {
+    const root = readJsonIfPresent(path.join(dir, RUN_FILES.launch))?.profileRoot;
+    if (typeof root === 'string' && root && fs.existsSync(root)) out.push(root);
+  }
+  return out;
 }
 
 function readTextIfPresent(file) {

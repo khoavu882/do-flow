@@ -43,7 +43,12 @@ known only at turn end. The worst case is the cap plus one run's overshoot, boun
 turn may have been in flight. On SIGINT, SIGTERM or SIGHUP, it stops the worker's process group, removes
 the scratch profile and workspace, records the usage the worker already reported (so an overshoot
 followed by an interrupt still stops the next `execute`), then re-raises the signal as exit 130, 143 or
-129, respectively.
+129, respectively. SIGKILL (`kill -9`) of the executor cannot be caught, so none of that cleanup runs;
+this residual is known and not fixed. The worker keeps running and spending with no timer to end it, so
+that run's overshoot is no longer bounded by `timeoutSeconds`; its scratch profile, holding the
+credential copy, stays under the OS temp dir; the iteration lock stays. The next `execute` on that
+iteration refuses with `iteration-locked`, names the left profile (`profileRoot` in the run's
+`launch.json`) and says to end the worker, delete the profile, then remove the lock.
 
 ## 3. What each result triggers
 
@@ -86,13 +91,13 @@ measured. There is no price sheet in the repository, so no currency cost is stat
 |---|---|
 | O-1 cap and staging | Stage R, then N, then D, each under the `--cap` above |
 | O-2 model | `model.label` in `config.json`: `codex:gpt-6-luna:medium`. The only harness with a verified headless read-only worker is the one the registry selects (`harness.select: worker.readOnly`) |
-| O-5 credential copy | Only the harness auth file (`home.copy`) is copied into a mode-0700 temp home outside the repository, removed after each run |
+| O-5 credential copy | Only the harness auth file (`home.copy`) is copied into a mode-0700 temp home outside the repository, removed after each run. Residual: after a SIGKILL of the executor the copy stays until the user deletes the profile the next `execute` names (section 2) |
 
 ## 5. Isolation and tokens
 
 | Rule | How |
 |---|---|
-| Scratch HOME | Each run gets a fresh mode-0700 directory under the OS temp dir with its own `HOME` and harness home, holding only the credential file (mode 0600); removed after the run, on an executor error and on SIGINT, SIGTERM or SIGHUP. The caller's global guidance and MCP tools never reach the run |
+| Scratch HOME | Each run gets a fresh mode-0700 directory under the OS temp dir with its own `HOME` and harness home, holding only the credential file (mode 0600); removed after the run, on an executor error and on SIGINT, SIGTERM or SIGHUP, but not after a SIGKILL of the executor (section 2: the next `execute` names it for deletion). The caller's global guidance and MCP tools never reach the run |
 | Fixed PATH | A per-run `bin` directory holding one symlink per tool in `path` (`node`, `rg`, `git`), then system `/usr/bin:/bin`; no caller directory is on the run PATH (a directory shared with other binaries such as the harness or `doflow` would expose them); arm D adds a per-run `doflow` shim |
 | Own workspace | The workspace is its own git root under the OS temp dir. No checkout path is handed to the worker: paths in argv and env, the shim, and the `-o` file are under the scratch profile. The arm D shim runs a pruned export of `HEAD` containing only `bin/`, `src/`, `core/`, `types/` and `package.json` |
 | Read isolation | Isolation is by detection, not by the sandbox: `-s read-only` limits writes, not reads. A command naming a path outside the workspace and profile, or naming `tasks-heldout`, `bench/retrieval/tasks` or `bench/runs`, grades `source-unverified` in both arms. The check is conservative: any word starting with `/` outside those roots counts as a path, so a search pattern such as `rg '/api/'` also excludes the run (it is never scored wrongly, but it raises the excluded share). No harness provides a hard read boundary; the user may override this default at gate-b |
