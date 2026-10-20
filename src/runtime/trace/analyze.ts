@@ -100,7 +100,13 @@ function result(id: string, findings: any[], determined: boolean, detail: Record
   return { id, status, detail: detail[status], findings };
 }
 
-/** Per scope and (kind, name): p95 >= tailRatio x p50 and p95 - p50 >= minTailMs. */
+/** 089: a reused or follower check carries lookup or wait time, not a run of the check. */
+const ranItself = (s: any): boolean => s.attrs?.shared == null || EXECUTED_SHARED.has(s.attrs.shared);
+
+/**
+ * Per scope and (kind, name): p95 >= tailRatio x p50 and p95 - p50 >= minTailMs. A span whose
+ * `shared` is not none or leader (089 reused, follower) never enters a group.
+ */
 function latencyHotspots(scopes: any[], th: any, latency: any[]): any {
   const findings: any[] = [];
   let determined = false;
@@ -108,7 +114,7 @@ function latencyHotspots(scopes: any[], th: any, latency: any[]): any {
     const scopeFindings: any[] = [];
     const groups = new Map<string, any>();
     for (const s of sc.spans) {
-      if (!Number.isInteger(s.durationMs)) continue;
+      if (!Number.isInteger(s.durationMs) || !ranItself(s)) continue;
       const key = `${s.kind}\n${s.name ?? ''}`;
       if (!groups.has(key)) groups.set(key, { kind: s.kind, name: s.name ?? null, spans: [] });
       groups.get(key).spans.push(s);
@@ -145,8 +151,7 @@ function latencyHotspots(scopes: any[], th: any, latency: any[]): any {
 }
 
 /** IC-011: a status other than NOT_RUN or null, and `shared` none, leader or null. */
-const executed = (s: any): boolean => s.attrs.status != null && s.attrs.status !== 'NOT_RUN'
-  && (s.attrs.shared == null || EXECUTED_SHARED.has(s.attrs.shared));
+const executed = (s: any): boolean => s.attrs.status != null && s.attrs.status !== 'NOT_RUN' && ranItself(s);
 
 /** Per scope: one check key passed by two or more executed checks with no FAIL of that key between. */
 function redundantVerification(scopes: any[]): any {

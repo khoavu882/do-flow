@@ -213,6 +213,20 @@ test('hotspots C-10: verify.tier latency finding carries derivedFrom when verify
   assert.equal(jTier.derivedFrom, 'verify.check');
 });
 
+test('hotspots S-1: reused and follower checks (089) carry lookup time, so they never enter a latency group', (t) => {
+  const reused = [2, 3, 2, 3].map((dur, i) => check({ key: null, dur, shared: i % 2 ? 'follower' : 'reused' }));
+  const a = analyzeDir(seed(t, [...reused, check({ key: null, dur: 4000, shared: 'none' })]));
+  const d = detector(a, 'latency-hotspots');
+  assert.deepEqual(d.findings, []);
+  assert.equal(d.status, 'NOT_DETERMINED');
+  assert.deepEqual(a.latency, []);
+  assert.deepEqual(buildProposalBatch(a, null), []);
+  // executed shapes (none, leader, absent) still count
+  const real = analyzeDir(seed(t, [check({ key: null, dur: 500, shared: 'leader' }), check({ key: null, dur: 500, shared: 'none' }),
+    ...durations([500, 500, 2000])]));
+  assert.equal(detector(real, 'latency-hotspots').status, 'FINDING');
+});
+
 // ── redundant verification (IC-003, IC-011) ─────────────────────────────────────────────────────
 
 test('redundant: two executed PASS checks on one key are one finding', (t) => {
