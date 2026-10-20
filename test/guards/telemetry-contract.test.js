@@ -403,11 +403,36 @@ function checkNoModelStep(files) {
 
 // --- G45.5: zero dependencies -------------------------------------------------------------------
 
+const FORBIDDEN_DEPENDENCY_KEYS = [
+  'dependencies',
+  'optionalDependencies',
+  'peerDependencies',
+  'bundleDependencies',
+  'bundledDependencies',
+];
+
+function isNonEmptyDependency(value) {
+  if (!value) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value).length > 0;
+  return true;
+}
+
 function checkZeroDependencies(packageText, adviceGuardText) {
   const errors = [];
   const manifest = JSON.parse(packageText);
-  for (const key of ['dependencies', 'optionalDependencies']) {
-    if (manifest[key] && Object.keys(manifest[key]).length) errors.push(`package.json has ${key}`);
+  for (const key of FORBIDDEN_DEPENDENCY_KEYS) {
+    if (isNonEmptyDependency(manifest[key])) errors.push(`package.json has ${key}`);
+  }
+  if (Array.isArray(manifest.files)) {
+    for (const entry of manifest.files) {
+      if (typeof entry === 'string') {
+        const norm = entry.replace(/\\/g, '/').replace(/^(\.\/)+/, '');
+        if (norm === 'console' || norm.startsWith('console/')) {
+          errors.push(`package.json files ships console (${entry})`);
+        }
+      }
+    }
   }
   if (!/G30\.2: shipped package has no runtime dependencies/.test(adviceGuardText)) errors.push('test/guards/advice.test.js no longer enforces G30.2');
   return errors;
@@ -853,6 +878,33 @@ test('G45.5 self-test: a dependency, or a missing G30.2 guard, fails', () => {
   assert.deepEqual(checkZeroDependencies('{"dependencies":{"left-pad":"1"}}', guard), ['package.json has dependencies']);
   assert.deepEqual(checkZeroDependencies('{"optionalDependencies":{"x":"1"}}', guard), ['package.json has optionalDependencies']);
   assert.deepEqual(checkZeroDependencies('{}', 'nothing'), ['test/guards/advice.test.js no longer enforces G30.2']);
+
+  assert.deepEqual(checkZeroDependencies('{"peerDependencies":{"x":"1"}}', guard), ['package.json has peerDependencies']);
+  assert.deepEqual(checkZeroDependencies('{"bundleDependencies":["x"]}', guard), ['package.json has bundleDependencies']);
+  assert.deepEqual(checkZeroDependencies('{"bundledDependencies":["x"]}', guard), ['package.json has bundledDependencies']);
+
+  assert.deepEqual(checkZeroDependencies('{"dependencies":[]}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"optionalDependencies":{}}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"optionalDependencies":[]}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"peerDependencies":{}}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"peerDependencies":[]}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"bundleDependencies":[]}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"bundleDependencies":{}}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"bundledDependencies":[]}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"bundledDependencies":{}}', guard), []);
+
+  assert.deepEqual(checkZeroDependencies('{"peerDependencies":true}', guard), ['package.json has peerDependencies']);
+  assert.deepEqual(checkZeroDependencies('{"bundleDependencies":"all"}', guard), ['package.json has bundleDependencies']);
+
+  assert.deepEqual(checkZeroDependencies('{"files":["console/"]}', guard), ['package.json files ships console (console/)']);
+  assert.deepEqual(checkZeroDependencies('{"files":["console"]}', guard), ['package.json files ships console (console)']);
+  assert.deepEqual(checkZeroDependencies('{"files":["console/**"]}', guard), ['package.json files ships console (console/**)']);
+  assert.deepEqual(checkZeroDependencies('{"files":["./console"]}', guard), ['package.json files ships console (./console)']);
+  assert.deepEqual(checkZeroDependencies('{"files":["console/x.js"]}', guard), ['package.json files ships console (console/x.js)']);
+
+  assert.deepEqual(checkZeroDependencies('{"files":["src/","consoles/"]}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"files":["src/console.ts"]}', guard), []);
+  assert.deepEqual(checkZeroDependencies('{"files":[]}', guard), []);
 });
 
 test('G45.6 self-test: an undeclared store, a non-runs path, a ledger-shaped path and an unlisted writer fail', () => {
