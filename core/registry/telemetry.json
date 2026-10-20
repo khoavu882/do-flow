@@ -111,7 +111,7 @@
     "selection_basis": ["changed-test-files", "explicit-pattern", "none"],
     "fallback": ["change-scope-unavailable", "no-changed-tests", "unsafe-path", "not-scopable"],
     "test_class": ["test.full", "test.scoped", "test.other", "verify.verb", "none"],
-    "shared": ["none", "in-run", "leader", "follower"],
+    "shared": ["none", "in-run", "leader", "follower", "reused"],
     "failed_first": ["none", "pass", "fail"],
     "resource_basis": ["proc-children", "unreached-platform", "unreached-read"],
     "v0": ["on", "off"]
@@ -120,6 +120,10 @@
     {
       "store": "verification-v0",
       "reason": "coordination state excluded from telemetry: digests, transient pid and token in a mode-0600 lock deleted after use (U-1), and bounded output excerpts with a short TTL"
+    },
+    {
+      "store": "verification-reuse",
+      "reason": "reuse records excluded from telemetry: key and payload digests, a random ref and bounded output excerpts of passing checks in mode-0600 files, usable for 24 hours (089 IC-002); lines carry only the ref"
     }
   ]
 }

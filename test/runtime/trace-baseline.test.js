@@ -219,6 +219,34 @@ test('2. Overlapping spans: a seeded overlap is counted once in the union and tw
   assert.equal(metrics.totalTestMs, 8000, 'Seeded overlap must be counted TWICE in the sum, excluding in-run and follower');
 });
 
+// 2b. 089 IC-007: a reused check read a recorded PASS and executed nothing
+test('2b. A reused check is not an execution: totalTestMs, duplicates, fullSuiteRuns and cpuMs ignore it, and the cause names it', () => {
+  const check = (spanId, attrs) => ({
+    spanId, parentSpanId: 'vr1', kind: 'verify.check', name: 'test:all',
+    start: '2026-10-18T10:00:00.000Z', end: '2026-10-18T10:00:04.000Z', durationMs: 4000,
+    basis: 'recorded', locator: spanId,
+    attrs: { status: 'PASS', tier: 'broad-tests', check_key: '0123456789abcdef', resource_basis: 'proc-children', cpu_ms: 500, ...attrs },
+  });
+  const spansView = { v: 1, traces: [{
+    traceId: 'tr-reused', runKey: 'key/run/reused', epoch: 1,
+    window: { from: '2026-10-18T10:00:00.000Z', to: '2026-10-18T10:00:10.000Z' },
+    spans: [
+      { spanId: 'vr1', parentSpanId: null, kind: 'verify.run', name: 'verify', start: '2026-10-18T10:00:00.000Z',
+        end: '2026-10-18T10:00:04.000Z', durationMs: 4000, basis: 'recorded', locator: 'vr1', attrs: { verify_id: 'v1' } },
+      check('executed', { shared: 'none' }),
+      check('reused', { shared: 'reused', shared_ref: 'a'.repeat(32) }),
+    ],
+  }] };
+  const report = buildBaseline(spansView, { harness: 'claude' });
+  const metrics = report.goalLoops[0].metrics;
+  assert.equal(metrics.totalTestMs, 4000, 'only the executed check counts');
+  assert.equal(metrics.duplicates, 0, 'a reused line on the same key is not a duplicate execution');
+  assert.equal(metrics.fullSuiteRuns, 1, 'a reused broad-tests check is not a full-suite run');
+  assert.equal(metrics.cpuMs, 500, 'a reused check spent no cpu');
+  const row = report.inputTable.find((entry) => entry.metric === 'totalTestMs');
+  assert.match(row.cause, /reused/);
+});
+
 // 3. Idle gaps longer than 30 minutes are reported apart (D-8)
 test('3. Idle gaps longer than 30 minutes are reported apart (D-8)', () => {
   const spansView = {
