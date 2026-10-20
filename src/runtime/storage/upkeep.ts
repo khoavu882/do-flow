@@ -168,6 +168,8 @@ function upkeepAfterVerb({ projectRoot, now = Date.now(), env = process.env, fsI
 
 /** IC-010: the verify moment is project-only and unthrottled. Wiring belongs to D.3. */
 function upkeepAfterVerify({ projectRoot, now = Date.now(), env = process.env, fsImpl = fs }: any = {}) {
+  // IC-004: the switch covers every upkeep moment, so `off` prunes, locks and writes nothing here either.
+  if (env.DOFLOW_UPKEEP === 'off') return;
   return silently(() => {
     projectRoot = projectRoot && outerProjectRoot(projectRoot);
     const roots = resolveRoots({ registry, projectRoot, env });
@@ -177,6 +179,8 @@ function upkeepAfterVerify({ projectRoot, now = Date.now(), env = process.env, f
 
 /** IC-011: only this scope's recovery store; install/update call sites belong to D.4. */
 function storageAfterInstall({ scope, scopeRoot, now = Date.now(), env = process.env, fsImpl = fs }: any = {}) {
+  // IC-004: no ignore file, prune pass or lock at install time under the switch either.
+  if (env.DOFLOW_UPKEEP === 'off') return;
   return silently(() => {
     if (!['project', 'global'].includes(scope)) return;
     const global = scope === 'global';

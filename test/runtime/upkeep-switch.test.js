@@ -85,6 +85,49 @@ function snapshotRoots(roots) {
   return Object.fromEntries(['project-state', 'user-state', 'config-home'].map(id => [id, treeSnapshot(roots[id])]));
 }
 
+function writeExpiredVerificationEntries(f) {
+  const logsStore = registry.stores.find(store => store.id === 'verification-logs');
+  const reuseStore = registry.stores.find(store => store.id === 'verification-reuse');
+  const logsDir = path.join(f.roots[logsStore.root], logsStore.path);
+  const reuseDir = path.join(f.roots[reuseStore.root], reuseStore.path);
+  fs.mkdirSync(logsDir, { recursive: true });
+  fs.mkdirSync(reuseDir, { recursive: true });
+  for (let index = 0; index < logsStore.bound.keepNewest + 5; index += 1) {
+    const at = NOW - (logsStore.bound.maxAgeDays + 60) * DAY - index * 1000;
+    fs.writeFileSync(path.join(logsDir, `${at}-expired-${index}.log`), 'expired verification log\n');
+  }
+  for (let index = 0; index < 2; index += 1) {
+    const file = path.join(reuseDir, `reuse-${String(index + 1).padStart(16, '0')}.json`);
+    fs.writeFileSync(file, '{}\n');
+    const expiredAt = new Date(NOW - (reuseStore.bound.maxAgeDays + 1) * DAY);
+    fs.utimesSync(file, expiredAt, expiredAt);
+  }
+  return { logsDir, reuseDir };
+}
+
+function writeRecoveryEntries(roots, storeId) {
+  const store = registry.stores.find(candidate => candidate.id === storeId);
+  const root = roots[store.root];
+  const recoveryDir = path.join(root, store.path);
+  fs.mkdirSync(recoveryDir, { recursive: true });
+  fs.writeFileSync(path.join(root, 'ledger.json'), '{"lastRecoveryId":"recovery_d"}\n');
+  for (const suffix of ['a', 'b', 'c', 'd']) {
+    fs.writeFileSync(path.join(recoveryDir, `recovery_${suffix}.json`), `{"id":"recovery_${suffix}"}\n`);
+  }
+  return recoveryDir;
+}
+
+function assertNoUpkeepArtifacts(roots) {
+  for (const id of ['project-state', 'user-state', 'config-home']) {
+    assert.equal(fs.existsSync(path.join(roots[id], 'upkeep.lock')), false);
+    assert.equal(fs.existsSync(path.join(roots[id], 'runs')), false);
+  }
+}
+
+function fileCount(dir) {
+  return fs.readdirSync(dir).filter(name => fs.statSync(path.join(dir, name)).isFile()).length;
+}
+
 function runCli(cwd, args, env) {
   return spawnSync(process.execPath, [CLI, ...args], { cwd, env, encoding: 'utf8' });
 }
@@ -198,6 +241,85 @@ test('DOFLOW_UPKEEP=off does not suppress followup add event writes', t => {
   assert.equal(event.type, 'followup.added');
   assert.equal(event.data.statement, 'keep this event');
 });
+
+test('upkeepAfterVerify exact off leaves expired verification entries and roots unchanged', t => {
+  const f = fixture(t);
+  const { logsDir, reuseDir } = writeExpiredVerificationEntries(f);
+  f.env.DOFLOW_UPKEEP = 'off';
+  const before = treeSnapshot(f.dir);
+
+  upkeep().upkeepAfterVerify({ projectRoot: f.projectRoot, env: f.env, now: f.now });
+
+  assert.deepEqual(treeSnapshot(f.dir), before);
+  assert.equal(fileCount(logsDir), registry.stores.find(store => store.id === 'verification-logs').bound.keepNewest + 5);
+  assert.equal(fileCount(reuseDir), 2);
+  assertNoUpkeepArtifacts(f.roots);
+});
+
+test('upkeepAfterVerify with the switch unset prunes expired verification entries', t => {
+  const f = fixture(t);
+  const { logsDir, reuseDir } = writeExpiredVerificationEntries(f);
+  setSwitch(f.env, undefined);
+
+  upkeep().upkeepAfterVerify({ projectRoot: f.projectRoot, env: f.env, now: f.now });
+
+  assert.equal(fileCount(logsDir), 0);
+  assert.equal(fileCount(reuseDir), 0);
+});
+
+test('storageAfterInstall exact off leaves project and global scopes unchanged', async t => {
+  for (const scope of ['project', 'global']) {
+    await t.test(`${scope} scope`, t => {
+      const f = fixture(t);
+      const rootId = scope === 'global' ? 'user-state' : 'project-state';
+      const storeId = scope === 'global' ? 'recovery-user' : 'recovery-project';
+      writeRecoveryEntries(f.roots, storeId);
+      f.env.DOFLOW_UPKEEP = 'off';
+      const before = treeSnapshot(f.dir);
+
+      upkeep().storageAfterInstall({ scope, scopeRoot: scope === 'global' ? f.env.HOME : f.projectRoot, env: f.env, now: f.now });
+
+      assert.deepEqual(treeSnapshot(f.dir), before);
+      assert.equal(fs.existsSync(path.join(f.roots[rootId], '.gitignore')), false);
+      assert.equal(fs.existsSync(path.join(f.roots['user-state'], 'upkeep-roots')), false);
+      assertNoUpkeepArtifacts(f.roots);
+    });
+  }
+});
+
+test('storageAfterInstall with the switch unset writes the ignore file and prunes recovery entries', t => {
+  const f = fixture(t);
+  const recoveryDir = writeRecoveryEntries(f.roots, 'recovery-project');
+  setSwitch(f.env, undefined);
+
+  upkeep().storageAfterInstall({ scope: 'project', scopeRoot: f.projectRoot, env: f.env, now: f.now });
+
+  assert.equal(fs.readFileSync(path.join(f.roots['project-state'], '.gitignore'), 'utf8'), IGNORE);
+  assert.equal(fileCount(recoveryDir), registry.stores.find(store => store.id === 'recovery-project').bound.keepNewest);
+});
+
+const NON_OFF_MOMENT_VALUES = [
+  ['uppercase OFF', 'OFF'],
+  ['leading space', ' off'],
+  ['zero', '0'],
+  ['false', 'false'],
+  ['empty string', ''],
+];
+
+for (const [label, value] of NON_OFF_MOMENT_VALUES) {
+  test(`upkeepAfterVerify and storageAfterInstall run when DOFLOW_UPKEEP is ${label}`, t => {
+    const verify = fixture(t);
+    const { logsDir } = writeExpiredVerificationEntries(verify);
+    setSwitch(verify.env, value);
+    upkeep().upkeepAfterVerify({ projectRoot: verify.projectRoot, env: verify.env, now: verify.now });
+    assert.equal(fileCount(logsDir), 0);
+
+    const install = fixture(t);
+    setSwitch(install.env, value);
+    upkeep().storageAfterInstall({ scope: 'project', scopeRoot: install.projectRoot, env: install.env, now: install.now });
+    assert.equal(fs.readFileSync(path.join(install.roots['project-state'], '.gitignore'), 'utf8'), IGNORE);
+  });
+}
 
 const NON_OFF_VALUES = [
   ['unset', undefined],
