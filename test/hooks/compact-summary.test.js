@@ -43,6 +43,15 @@ function hook(harness, script, payload, env = {}) {
   return r.stdout;
 }
 
+function preCompact(root, harness, cwd, env = {}) {
+  const payload = { session_id: 'PRECOMPACT', ...(cwd === undefined ? {} : { cwd }) };
+  const r = spawnSync('bash', [path.join(root, `.${harness}`, 'hooks', 'pre-compact.sh')], {
+    input: JSON.stringify(payload), env: scratch.env(env), encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout;
+}
+
 function compact(sessionId, cwd, summary, env) {
   hook('claude', 'post-compact.sh', { session_id: sessionId, cwd, trigger: 'auto', compact_summary: summary }, env);
 }
@@ -422,10 +431,149 @@ test('meta.json compacted_at moves only for the default main lineage', () => {
   assert.equal(after.keep, 1);
 });
 
+const PRESERVE_LINE = 'Preserve: decisions made, files modified, open questions, planned next steps, acceptance criteria and pending verification of the active task.';
+
+function gitOutput(cwd, ...args) {
+  const r = spawnSync('git', ['-C', cwd, ...args], { env: scratch.env(), encoding: 'utf8' });
+  assert.equal(r.status, 0, `git ${args.join(' ')} failed: ${r.stderr}`);
+  return r.stdout;
+}
+
+function commitFile(cwd, filename, subject) {
+  fs.writeFileSync(path.join(cwd, filename), `${subject}\n`);
+  gitOutput(cwd, 'add', '.');
+  gitOutput(cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', subject);
+}
+
+function knownGitProject() {
+  const cwd = project('topic');
+  commitFile(cwd, 'first.txt', 'first');
+  fs.writeFileSync(path.join(cwd, 'dirty.txt'), 'dirty\n');
+  return cwd;
+}
+
+function twoCommitProject() {
+  const cwd = project('topic');
+  commitFile(cwd, 'first.txt', 'first');
+  commitFile(cwd, 'second.txt', 'second');
+  return cwd;
+}
+
+function longGitProject() {
+  const cwd = project('b'.repeat(200));
+  commitFile(cwd, 'first.txt', 'a'.repeat(300));
+  commitFile(cwd, 'second.txt', 'c'.repeat(300));
+  const deep = path.join(cwd, 'd'.repeat(72), 'e'.repeat(72), 'f'.repeat(72));
+  fs.mkdirSync(deep, { recursive: true });
+  const realDeep = fs.realpathSync(deep);
+  assert.ok(realDeep.length > 200, 'the deep cwd is longer than 200 characters');
+  return realDeep;
+}
+
+// C-2: a repository with no commit, and a detached HEAD, take the IC-001 fallbacks.
+function noCommitProject() {
+  return project('topic');
+}
+
+function detachedProject() {
+  const cwd = twoCommitProject();
+  gitOutput(cwd, 'checkout', '-q', '--detach', 'HEAD');
+  return cwd;
+}
+
+function expectedGitText(cwd) {
+  const branch = gitOutput(cwd, 'rev-parse', '--abbrev-ref', 'HEAD').trim() || 'unknown';
+  const sha = gitOutput(cwd, 'rev-parse', '--short', 'HEAD').trim() || 'unknown';
+  const status = gitOutput(cwd, 'status', '--porcelain');
+  const dirtyCount = status.split('\n').filter(Boolean).length;
+  const recent = gitOutput(cwd, 'log', '--format=%h %s', '-2').trimEnd().split('\n').filter(Boolean).join(' | ') || 'none';
+  return `${PRESERVE_LINE}\nInclude in compact summary:\n- git branch: ${branch} sha: ${sha}\n- uncommitted files: ${dirtyCount}\n- cwd: ${cwd || 'unknown'}\n- recent commits: ${recent}`;
+}
+
+function assertCompactParity(cwd, env = {}) {
+  const claude = preCompact(mirror, 'claude', cwd, env);
+  const codex = JSON.parse(preCompact(mirror, 'codex', cwd, env));
+  assert.deepEqual(Object.keys(codex), ['systemMessage']);
+  assert.equal(claude, codex.systemMessage);
+  return claude;
+}
+
+// C-1: the exact text and Claude/Codex parity hold for every role, so a role-only edit is caught here.
+const ROLES = [['main', {}], ['worker', WORKER], ['launched worker', LAUNCHED_WORKER]];
+
+test('PreCompact builds exact IC-002 git text from repository state for every role', () => {
+  const cwd = knownGitProject();
+  for (const [role, env] of ROLES) assert.equal(assertCompactParity(cwd, env), expectedGitText(cwd), role);
+});
+
+test('PreCompact emits exact non-git text for project and unknown cwd for every role', () => {
+  const cwd = project();
+  for (const [role, env] of ROLES) {
+    assert.equal(assertCompactParity(cwd, env), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: ${cwd} (not a git repository)`, role);
+    assert.equal(assertCompactParity(undefined, env), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: unknown (not a git repository)`, role);
+    assert.equal(assertCompactParity('', env), `${PRESERVE_LINE}\nInclude in compact summary:\n- cwd: unknown (not a git repository)`, role);
+  }
+});
+
+test('PreCompact takes the no-commit and detached-HEAD fallbacks with exact text for every role', () => {
+  const empty = noCommitProject();
+  const detached = detachedProject();
+  const sha = gitOutput(detached, 'rev-parse', '--short', 'HEAD').trim();
+  const recent = gitOutput(detached, 'log', '--format=%h %s', '-2').trimEnd().split('\n').join(' | ');
+  for (const [role, env] of ROLES) {
+    assert.equal(assertCompactParity(empty, env),
+      `${PRESERVE_LINE}\nInclude in compact summary:\n- git branch: topic sha: unknown\n- uncommitted files: 0\n- cwd: ${empty}\n- recent commits: none`, role);
+    assert.equal(assertCompactParity(detached, env),
+      `${PRESERVE_LINE}\nInclude in compact summary:\n- git branch: unknown sha: ${sha}\n- uncommitted files: 0\n- cwd: ${detached}\n- recent commits: ${recent}`, role);
+  }
+});
+
+test('PreCompact separates two recent commits with " | "', () => {
+  const cwd = twoCommitProject();
+  const expectedRecent = gitOutput(cwd, 'log', '--format=%h %s', '-2').trimEnd().split('\n').join(' | ');
+  const text = preCompact(mirror, 'claude', cwd);
+  assert.ok(text.includes(`- recent commits: ${expectedRecent}`), text);
+});
+
+test('PreCompact cap keeps preserve line first and later git context', () => {
+  const cwd = longGitProject();
+  const text = preCompact(mirror, 'claude', cwd);
+  assert.ok(text.length <= 490, `got ${text.length} characters`);
+  assert.equal(text.split('\n')[0], PRESERVE_LINE);
+  assert.ok(text.includes('\nInclude in compact summary:\n'), text);
+  assert.ok(text.includes('\n- git branch: '), text);
+  assert.ok(text.includes('\n- uncommitted files: 0\n'), text);
+});
+
+test('PreCompact Claude and Codex stay byte-identical with one JSON key across contract cases and roles', () => {
+  const cases = [knownGitProject(), project(), undefined, '', twoCommitProject(), longGitProject(), noCommitProject(), detachedProject()];
+  for (const [, env] of ROLES) for (const cwd of cases) assertCompactParity(cwd, env);
+});
+
+test('PreCompact skip rule exits silently on Claude and Codex', () => {
+  const skipped = path.join(scratch.dir, 'skip-mirror');
+  fs.cpSync(mirror, skipped, { recursive: true });
+  const rulesPath = path.join(skipped, '.doflow/shared/hooks/policies/emission-rules.sh');
+  const rules = fs.readFileSync(rulesPath, 'utf8');
+  const skippedRules = rules.replace(/('compact-instructions\.instructions\|(main|worker)'\)) DF_ACTION=include/g, '$1 DF_ACTION=skip');
+  assert.equal((skippedRules.match(/'compact-instructions\.instructions\|(main|worker)'\) DF_ACTION=skip/g) || []).length, 2, 'both role rules were changed');
+  fs.writeFileSync(rulesPath, skippedRules);
+  const cwd = project();
+  for (const harness of ['claude', 'codex']) assert.equal(preCompact(skipped, harness, cwd), '');
+});
+
+test('PreCompact exits silently when the shared builder is missing', () => {
+  const missing = path.join(scratch.dir, 'missing-builder-mirror');
+  fs.cpSync(mirror, missing, { recursive: true });
+  fs.rmSync(path.join(missing, '.doflow/shared/hooks/policies/compact-text.sh'), { force: true });
+  const cwd = project();
+  for (const harness of ['claude', 'codex']) assert.equal(preCompact(missing, harness, cwd), '');
+});
+
 // Pre-compact output bytes are pinned to develop 468e77b (DEC-023), taken from `git archive`.
 const GOLDEN_REF = '468e77b';
 const hasGoldenRef = spawnSync('git', ['-C', REPO, 'cat-file', '-e', `${GOLDEN_REF}^{commit}`]).status === 0;
-test('pre-compact output on Claude, Codex and Gemini is byte-identical to 468e77b', { skip: !hasGoldenRef && `${GOLDEN_REF} not in this clone` }, () => {
+test('pre-compact output on Gemini is byte-identical to 468e77b', { skip: !hasGoldenRef && `${GOLDEN_REF} not in this clone` }, () => {
   const golden = path.join(scratch.dir, 'golden');
   const extract = path.join(scratch.dir, 'golden-src');
   fs.mkdirSync(extract);
@@ -433,7 +581,7 @@ test('pre-compact output on Claude, Codex and Gemini is byte-identical to 468e77
   assert.equal(archive.status, 0, String(archive.stderr));
   const untar = spawnSync('tar', ['-x', '-C', extract], { input: archive.stdout });
   assert.equal(untar.status, 0, String(untar.stderr));
-  for (const harness of ['claude', 'codex', 'gemini']) {
+  for (const harness of ['gemini']) {
     fs.cpSync(path.join(extract, 'core', 'harnesses', harness, 'hooks'), path.join(golden, `.${harness}`, 'hooks'), { recursive: true });
   }
   fs.cpSync(path.join(extract, 'core', 'harnesses', 'shared', 'hooks'), path.join(golden, '.doflow', 'shared', 'hooks'), { recursive: true });
@@ -447,7 +595,7 @@ test('pre-compact output on Claude, Codex and Gemini is byte-identical to 468e77
   const run = (root, harness, cwd, env) => spawnSync('bash', [path.join(root, `.${harness}`, 'hooks', 'pre-compact.sh')], {
     input: JSON.stringify({ session_id: 'P', cwd }), env: scratch.env(env),
   });
-  for (const harness of ['claude', 'codex', 'gemini']) {
+  for (const harness of ['gemini']) {
     for (const cwd of [repo, project()]) {
       for (const env of [{}, WORKER, LAUNCHED_WORKER]) {
         const before = run(golden, harness, cwd, env);

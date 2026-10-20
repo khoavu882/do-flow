@@ -7,7 +7,7 @@
   "fault": "none",
   "expect": {
     "exit": 0,
-    "stdout": "Include in compact summary:\n- cwd: unknown (not a git repository)\nPreserve: decisions made, files modified, open questions, planned next steps.",
+    "stdout": "Preserve: decisions made, files modified, open questions, planned next steps, acceptance criteria and pending verification of the active task.\nInclude in compact summary:\n- cwd: unknown (not a git repository)",
     "stderrIncludes": null,
     "decision": null,
     "envelope": null,

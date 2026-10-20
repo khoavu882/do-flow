@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # pre-compact.sh — PreCompact hook
 #
-# Outputs a plain string to stdout that Claude Code passes as custom_instructions
-# to the compaction LLM call. This enriches the compact summary with git state
-# so the summary preserves branch/commit context for the next session.
-#
-# Output is a plain string — NOT JSON.
-# Must be under ~500 chars (Claude Code may truncate longer strings).
+# Outputs plain stdout, not JSON. In Claude Code 2.1.304, this reached the
+# compaction summary model as custom instructions; vendor docs are silent on
+# PreCompact stdout (FU-w563w2).
+# Text comes from the shared compact-text.sh (IC-001/IC-002), capped at 490.
 # Must never exit non-zero or block.
 
 set -euo pipefail
@@ -32,27 +30,10 @@ if [[ -f "$POLICIES/emission-rules.sh" ]]; then
 fi
 [[ "$DF_ACTION" == include ]] || exit 0
 
-BRANCH=""
-SHA=""
-UNCOMMITTED=0
-
-if [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
-  BRANCH=$(git_branch_of "$CWD" || echo "")
-  SHA=$(git_short_sha_of "$CWD" || echo "")
-  UNCOMMITTED=$(git_uncommitted_count_of "$CWD" || echo "0")
-
-  # Last 2 commits (short SHA only for brevity) — keeps output under 500 chars
-  RECENT=$(run_with_timeout 1 -- git -C "$CWD" log --format="%h %s" -2 2>/dev/null \
-    | paste -sd ' | ' - || echo "")
-
-  # Build output and hard-cap at 490 chars to stay within Claude Code's limit
-  OUT=$(printf 'Include in compact summary:\n- git branch: %s sha: %s\n- recent commits: %s\n- uncommitted files: %s\n- cwd: %s\nPreserve: decisions made, files modified, open questions, planned next steps.' \
-    "${BRANCH:-unknown}" "${SHA:-unknown}" "${RECENT:-none}" "$UNCOMMITTED" "${CWD:-unknown}")
-  printf '%s' "${OUT:0:490}"
-else
-  OUT=$(printf 'Include in compact summary:\n- cwd: %s (not a git repository)\nPreserve: decisions made, files modified, open questions, planned next steps.' \
-    "${CWD:-unknown}")
-  printf '%s' "${OUT:0:490}"
-fi
+[[ -f "$POLICIES/compact-text.sh" ]] || exit 0
+# shellcheck source=/dev/null
+source "$POLICIES/compact-text.sh"
+doflow_compact_text "$CWD"
+printf '%s' "$DF_COMPACT_TEXT"
 
 exit 0
