@@ -103,6 +103,13 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
     void sourceRel;
     return Buffer.from(`---\napplyTo: '**'\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
   },
+  /** `<rule>.md` -> the same body under Antigravity's `trigger: always_on` front-matter. Antigravity
+   * silently discards a `.agents/rules/*.md` file without valid front-matter, so the shared core
+   * files (which carry none) are loaded only through this header (107-B review C-2). */
+  'antigravity-always-on-rules': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(`---\ntrigger: always_on\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
+  },
   /** Shared agent spec frontmatter -> only the keys Gemini CLI's subagent schema accepts */
   'gemini-agents': (sourceRel: string, content: any) => {
     void sourceRel;

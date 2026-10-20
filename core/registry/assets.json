@@ -709,6 +709,7 @@
         "antigravity": {
           "renderer": "copy-tree",
           "capability": "instructions",
+          "transform": "antigravity-always-on-rules",
           "layout": "flat",
           "select": "guidance-manifest"
         }

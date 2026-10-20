@@ -409,7 +409,8 @@ which the pointer in their instructions names; Kiro receives the same full tree 
 user types is smaller than that mirror: Kiro steering (`.kiro/steering/`, both scopes), Copilot
 instructions (`*.instructions.md` files, each with an `applyTo: '**'` header, in `instructions/`
 under `.github/` at project scope and `~/.copilot/` at global scope) and Antigravity rules
-(`.agents/rules`, flat, project scope) hold only the core set, the `@` import walk of
+(`.agents/rules`, flat, project scope, each file under a `trigger: always_on` front-matter header, without
+which Antigravity discards a rules file) hold only the core set, the `@` import walk of
 `DOFLOW_CORE.md`; the other files are read from `.doflow/guidance` on demand. Antigravity has no skills at
 global scope, so its global install projects no runtime and prints a notice; install it per
 project. `doflow doctor` prints a `[Runtime Reach]` section with one line per installed harness and
@@ -468,7 +469,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names. Three projections carry only the core set (the `@` import walk of `DOFLOW_CORE.md`, computed by `src/adapters/guidance-manifest.ts` and selected with `select: guidance-manifest`): Kiro steering (`.kiro/steering/`, the same asset's Kiro projection, with a second Kiro-only `kiro.guidance-tree` asset mirroring the full tree into `.doflow/guidance/`), the Copilot `instructions.copilot` asset (`*.instructions.md` with an `applyTo: '**'` header) and the Antigravity `rules.antigravity` asset (`flat` layout into project `.agents/rules`). `.doflow/guidance/` stays the full mirror for on-demand reads and is never loaded as steering |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names. Three projections carry only the core set (the `@` import walk of `DOFLOW_CORE.md`, computed by `src/adapters/guidance-manifest.ts` and selected with `select: guidance-manifest`): Kiro steering (`.kiro/steering/`, the same asset's Kiro projection, with a second Kiro-only `kiro.guidance-tree` asset mirroring the full tree into `.doflow/guidance/`), the Copilot `instructions.copilot` asset (`*.instructions.md` with an `applyTo: '**'` header) and the Antigravity `rules.antigravity` asset (`flat` layout into project `.agents/rules`, each file under a `trigger: always_on` header from the `antigravity-always-on-rules` transform). `.doflow/guidance/` stays the full mirror for on-demand reads and is never loaded as steering |
 | `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.ts`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in

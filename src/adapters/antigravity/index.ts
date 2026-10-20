@@ -23,7 +23,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree.ts');
+const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { renderGuidancePointer } = require('../guidance-pointer.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
@@ -282,7 +282,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   for (const { asset, destDir } of targets) {
     const sourceDir = sourceDirFor(asset, { repoRoot }, fsImpl, HARNESS);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, select: asset.select, keepModified: !removing,
+    const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform, select: asset.select, keepModified: !removing,
       // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
       // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
       // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
@@ -300,6 +300,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
         ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
         kind: 'copy-tree-file', identity: change.relPath,
         afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+        transformName: asset.transform || null,
         ...(change.kept ? { retained: true, retainedFor: [] } : {}),
         projection: { renderer: 'copy-tree' },
       });
@@ -318,7 +319,8 @@ function runTreeChanges(changes: any, mode: any) {
     .filter((c: any) => c.projection?.renderer === 'copy-tree' || c.kind === 'copy-tree-file')
     .map((c: any) => ({ relPath: c.identity ?? c.relPath, target: c.target,
       source: c._text ? undefined : c.source, operation: c.operation,
-      fingerprint: c.fingerprint, pruneGuard: c.pruneGuard, ...(c._text ? { _text: c._text } : {}) }));
+      fingerprint: c.fingerprint, pruneGuard: c.pruneGuard, transformName: c.transformName || null,
+      ...(c._text ? { _text: c._text } : {}) }));
   // Content-managed tree files (hook scripts): write rendered text with +x, not a byte copy.
   for (const t of treeChanges) {
     if (t._text === undefined) continue;
@@ -333,16 +335,18 @@ function runTreeChanges(changes: any, mode: any) {
       const plain = treeChanges.filter((t: any) => t._text === undefined);
       const writes = plain.filter((c: any) => c.operation !== 'remove');
       const removals = plain.filter((c: any) => c.operation === 'remove');
-      const applied = writes.length ? applyTree({ changes: writes }).applied : 0;
+      // A projection that declares a transform (the rules' always_on header) is re-derived from the
+      // source at write time, so each change is applied under its own transform.
+      const byTransform = new Map<string | null, any[]>();
+      for (const change of writes) byTransform.set(change.transformName, [...(byTransform.get(change.transformName) || []), change]);
+      let applied = 0;
+      for (const [transformName, group] of byTransform) {
+        applied += applyTree({ changes: group, transform: transformName ? resolveTransform(transformName) : undefined }).applied;
+      }
       const removed = removals.length ? removeTree({ changes: removals }).removed : 0;
       return { applied, removed };
     })(),
   };
-  const writes = treeChanges.filter((c: any) => c.operation !== 'remove');
-  const removals = treeChanges.filter((c: any) => c.operation === 'remove');
-  const applied = writes.length ? applyTree({ changes: writes }).applied : 0;
-  const removed = removals.length ? removeTree({ changes: removals }).removed : 0;
-  return { applied, removed };
 }
 
 // ---- instructions component ----
@@ -623,7 +627,7 @@ function verify(options: any = {}, impl: any = {}) {
     const destDir = treeDestFor(asset, paths, scope);
     if (!destDir) continue;
     const sourceDir = sourceDirFor(asset, { repoRoot: context.repoRoot }, fsImpl, HARNESS);
-    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, select: asset.select, plannedWrites: context.plannedWrites });
+    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, select: asset.select, plannedWrites: context.plannedWrites });
     conflictsToStatuses(result.conflicts, asset.id, statuses);
     for (const resource of result.resources) {
       resources.push({

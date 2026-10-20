@@ -51,6 +51,7 @@ function oldRegistry(current) {
   Object.assign(asset('rules.antigravity'), { source: 'core/shared/guidance/rules' });
   delete asset('rules.antigravity').projection.antigravity.select;
   delete asset('rules.antigravity').projection.antigravity.layout;
+  delete asset('rules.antigravity').projection.antigravity.transform;
   return old;
 }
 
@@ -99,6 +100,10 @@ test('updating an install made before the core-set projections migrates Kiro, Co
 
   // Antigravity: the three core files joined the four rules, flat.
   assert.deepEqual(filesUnder(rules), ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md', 'RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md']);
+  for (const name of filesUnder(rules)) {
+    assert.ok(fs.readFileSync(path.join(rules, name), 'utf8').startsWith('---\ntrigger: always_on\n---\n\n'),
+      `${name} gained the always_on front-matter, including the four rules the old install wrote bare`);
+  }
 
   // Every ledger row names a file that exists, none names a path no longer produced, and reconcile
   // finds the install clean.

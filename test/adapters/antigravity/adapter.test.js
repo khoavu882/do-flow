@@ -293,6 +293,45 @@ test('a project install writes the seven core files flat in .agents/rules, plus 
   assert.equal(adapter.verify(input).ok, true);
 });
 
+// 107-B review C-2: Antigravity silently discards a `rules/*.md` file without valid front-matter
+// (research/vendor-mechanisms.md section 4), so every projected rule carries `trigger: always_on`.
+const ALWAYS_ON_HEADER = '---\ntrigger: always_on\n---\n\n';
+const CORE_RULE_SOURCES = {
+  'DOFLOW_CORE.md': 'DOFLOW_CORE.md', 'FLAGS.md': 'FLAGS.md', 'PRINCIPLES.md': 'PRINCIPLES.md',
+  'RULE_01_SAFETY.md': 'rules/RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md': 'rules/RULE_02_WORKFLOW.md',
+  'RULE_03_QUALITY.md': 'rules/RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md': 'rules/RULE_04_QUESTIONS.md',
+};
+
+test('107-B C-2: all seven projected .agents/rules files open with the always_on front-matter and keep the source body', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
+  const planned = adapter.plan(input);
+  adapter.apply({ ...input, changes: planned.changes });
+  const rules = path.join(root, '.agents', 'rules');
+  assert.deepEqual(fs.readdirSync(rules).sort(), Object.keys(CORE_RULE_SOURCES).sort());
+  for (const [name, sourceRel] of Object.entries(CORE_RULE_SOURCES)) {
+    const projected = fs.readFileSync(path.join(rules, name), 'utf8');
+    const source = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', sourceRel), 'utf8');
+    assert.ok(projected.startsWith(ALWAYS_ON_HEADER), `${name} must open with the always_on front-matter`);
+    assert.equal(projected, ALWAYS_ON_HEADER + source, `${name} body must be the source bytes after the header`);
+  }
+  assert.equal(adapter.verify(input).ok, true);
+});
+
+test('107-B C-2 control: verify refuses a projected rule whose front-matter was stripped', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
+  const planned = adapter.plan(input);
+  adapter.apply({ ...input, changes: planned.changes });
+  const target = path.join(root, '.agents', 'rules', 'PRINCIPLES.md');
+  const projected = fs.readFileSync(target, 'utf8');
+  assert.ok(projected.startsWith(ALWAYS_ON_HEADER), 'precondition: the projected rule carries the front-matter');
+  fs.writeFileSync(target, projected.slice(ALWAYS_ON_HEADER.length));
+  assert.equal(adapter.verify(input).ok, false, 'a rule without front-matter is silently discarded by the harness');
+});
+
 function verifiedResources(adapt, input) {
   const v = adapt.verify(input);
   return (v.resources || []).map((r) => ({ ...r, harness: 'antigravity', kind: r.kind || 'copy-tree-file' }));
