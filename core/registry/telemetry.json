@@ -114,7 +114,68 @@
     "shared": ["none", "in-run", "leader", "follower", "reused"],
     "failed_first": ["none", "pass", "fail"],
     "resource_basis": ["proc-children", "unreached-platform", "unreached-read"],
-    "v0": ["on", "off"]
+    "v0": ["on", "off"],
+    "tool": ["Bash"]
+  },
+  "analysis": {
+    "minSamples": 5,
+    "tailRatio": 4,
+    "minTailMs": 1000,
+    "retryRun": 2
+  },
+  "export": {
+    "semconv": {
+      "repo": "open-telemetry/semantic-conventions-genai",
+      "commit": "547934afa90a34298441caf80c43b27255c3a292",
+      "schemaUrl": "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev"
+    },
+    "resource": {
+      "service.name": "doflow"
+    },
+    "spans": {
+      "hook": { "name": "execute_tool {tool}", "operation": "execute_tool" },
+      "test": { "name": "execute_tool {tool}", "operation": "execute_tool" },
+      "worker": { "name": "invoke_agent {harness}", "operation": "invoke_agent" },
+      "run": { "name": "invoke_workflow", "operation": "invoke_workflow" },
+      "*": { "name": "doflow.{kind} {name}" }
+    },
+    "names": {
+      "verb": "cli-commands",
+      "stage": "workflow-stages",
+      "task_class": "workflow-classes"
+    },
+    "attributes": {
+      "tool": { "export": "gen_ai.tool.name", "vocabulary": "tool" },
+      "tool_call_id": { "export": "gen_ai.tool.call.id", "id": true },
+      "harness": { "export": "gen_ai.agent.name", "vocabulary": "harness" },
+      "event": { "vocabulary": "event" },
+      "policy": { "vocabulary": "policy" },
+      "verdict": { "vocabulary": "verdict" },
+      "role": { "vocabulary": "role" },
+      "test_class": { "vocabulary": "test_class" },
+      "source": { "vocabulary": "source" },
+      "risk": { "vocabulary": "risk" },
+      "level": { "vocabulary": "level" },
+      "status": { "vocabulary": "status" },
+      "v0": { "vocabulary": "v0" },
+      "selection_basis": { "vocabulary": "selection_basis" },
+      "fallback": { "vocabulary": "fallback" },
+      "resource_basis": { "vocabulary": "resource_basis" },
+      "shared": { "vocabulary": "shared" },
+      "failed_first": { "vocabulary": "failed_first" },
+      "verb": { "vocabulary": "cli-commands" },
+      "stage": { "vocabulary": "workflow-stages" },
+      "task_class": { "vocabulary": "workflow-classes" },
+      "duration_ms": { "measure": true },
+      "tool_duration_ms": { "measure": true },
+      "exit_code": { "measure": true },
+      "checks_run": { "measure": true },
+      "selected": { "measure": true },
+      "total": { "measure": true },
+      "tests": { "measure": true },
+      "tests_failed": { "measure": true },
+      "cpu_ms": { "measure": true }
+    }
   },
   "excludedStores": [
     {

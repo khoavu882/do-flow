@@ -80,7 +80,9 @@ function checkRegistryShape(registry) {
   for (const entry of registry.excludedStores || []) {
     if (!entry.store || !String(entry.reason || '').trim()) at('excludedStores', 'every entry needs a store and a reason');
   }
-  if (/gen_ai\./.test(JSON.stringify(registry))) at('', "no 'gen_ai.*' key belongs to contract v1 (FR-001)");
+  const withoutExport = { ...registry };
+  delete withoutExport.export;
+  if (/gen_ai\./.test(JSON.stringify(withoutExport))) at('', "no 'gen_ai.*' key belongs to contract v1 (FR-001)");
   return errors;
 }
 
@@ -318,6 +320,108 @@ function checkStoreIsolation(registry, storage) {
   return errors;
 }
 
+// --- G45.7: the export block maps only closed descriptors and the analysis block is well formed ---
+
+const REQUIRED_ANALYSIS_KEYS = ['minSamples', 'tailRatio', 'minTailMs', 'retryRun'];
+const OWNED_NAMES_LISTS = new Set(['cli-commands', 'workflow-stages', 'workflow-classes']);
+const COMMIT_HEX40 = /^[0-9a-f]{40}$/;
+
+function checkExportMapping(reg) {
+  const errors = [];
+  const at = (where, message) => errors.push(`${REGISTRY_FILE} ${where}: ${message}`);
+
+  const analysis = reg.analysis;
+  if (!analysis || typeof analysis !== 'object' || Array.isArray(analysis)) {
+    at('analysis', 'missing or not an object');
+  } else {
+    for (const key of REQUIRED_ANALYSIS_KEYS) {
+      if (!Object.hasOwn(analysis, key)) {
+        at(`analysis.${key}`, 'missing key');
+      } else {
+        const val = analysis[key];
+        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
+          at(`analysis.${key}`, 'must be a positive integer');
+        }
+      }
+    }
+  }
+
+  const exp = reg.export;
+  if (!exp || typeof exp !== 'object' || Array.isArray(exp)) {
+    at('export', 'missing or not an object');
+    return errors;
+  }
+
+  const semconv = exp.semconv;
+  if (!semconv || typeof semconv !== 'object') {
+    at('export.semconv', 'missing or not an object');
+  } else {
+    if (typeof semconv.commit !== 'string' || !COMMIT_HEX40.test(semconv.commit)) {
+      at('export.semconv.commit', 'must be 40 lowercase hex');
+    }
+    if (typeof semconv.schemaUrl !== 'string' || !semconv.schemaUrl.startsWith('https://')) {
+      at('export.semconv.schemaUrl', 'must be an https:// URL');
+    }
+  }
+
+  const names = exp.names || {};
+  for (const [key, value] of Object.entries(names)) {
+    if (!OWNED_NAMES_LISTS.has(value)) {
+      at(`export.names.${key}`, `'${value}' must be one of cli-commands, workflow-stages, workflow-classes`);
+    }
+  }
+
+  const localFields = new Set([
+    ...(Array.isArray(reg.common) ? reg.common : []),
+    ...Object.keys(names),
+  ]);
+  const fieldClasses = new Map();
+  if (reg.commonClasses) {
+    for (const [key, cls] of Object.entries(reg.commonClasses)) {
+      if (!fieldClasses.has(key)) fieldClasses.set(key, new Set());
+      fieldClasses.get(key).add(cls);
+    }
+  }
+  for (const kindSpec of Object.values(reg.kinds || {})) {
+    for (const [key, field] of Object.entries(kindSpec.fields || {})) {
+      localFields.add(key);
+      if (!fieldClasses.has(key)) fieldClasses.set(key, new Set());
+      if (field.class) fieldClasses.get(key).add(field.class);
+    }
+  }
+
+  const vocabularies = reg.vocabularies || {};
+  const attributes = exp.attributes || {};
+  for (const [key, attrSpec] of Object.entries(attributes)) {
+    const where = `export.attributes.${key}`;
+    if (!localFields.has(key)) {
+      at(where, `'${key}' is not a local field`);
+    }
+
+    if (attrSpec.vocabulary !== undefined) {
+      const vocab = attrSpec.vocabulary;
+      const exists = Object.hasOwn(vocabularies, vocab) || OWNED_NAMES_LISTS.has(vocab);
+      if (!exists) {
+        at(`${where}.vocabulary`, `'${vocab}' is neither in vocabularies nor an owned list`);
+      }
+    }
+
+    if (attrSpec.id === true && key !== 'tool_call_id') {
+      at(where, `'${key}' declared id: true but only tool_call_id may declare id: true`);
+    }
+
+    const classes = fieldClasses.get(key) || new Set();
+    if (classes.has('T2-local')) {
+      at(where, `attribute '${key}' has class T2-local and cannot be exported`);
+    }
+    if (classes.has('T0') && !attrSpec.id) {
+      at(where, `T0 attribute '${key}' listed without id: true`);
+    }
+  }
+
+  return errors;
+}
+
 // --- file helpers -------------------------------------------------------------------------------
 
 function filesUnder(relativeRoot, accept = () => true) {
@@ -429,6 +533,10 @@ test('G45.6: telemetry stores are declared runs/ subdirectories, and the ledger 
   fs.writeFileSync(path.join(dir, 'telemetry', '2026-10-17.jsonl'), `${JSON.stringify({ timestamp: '2026-10-17T00:00:00.000Z', kind: 'hook', verb: 'trace' })}\n`);
   const read = new RunLedger({ dir }).read();
   assert.deepEqual([read.files, read.records.length, read.malformedLines], [[], 0, 0], 'RunLedger lists only partitions directly under runs/');
+});
+
+test('G45.7: the export block maps only closed descriptors and the analysis block is well formed', () => {
+  assert.deepEqual(checkExportMapping(registry), []);
 });
 
 // --- Self-tests: every check fails on a planted violation ----------------------------------------
@@ -588,4 +696,74 @@ test('G45.6 self-test: an undeclared store, a non-runs path, a ledger-shaped pat
   assert.match(checkStoreIsolation(registry, moved({ root: 'user-state' })).join('\n'), /must be a subdirectory of project-state runs\//);
   assert.match(checkStoreIsolation(registry, moved({ path: 'runs/2026-10-17.jsonl' })).join('\n'), /would be listed as a ledger partition/);
   assert.match(checkStoreIsolation(registry, moved({ writers: [] })).join('\n'), /does not list src\/runtime\/trace\/telemetry\.ts/);
+});
+
+test('G45.7 self-test: a 39-hex commit fails, naming commit', () => {
+  const copy = clone(registry);
+  copy.export.semconv.commit = '547934afa90a34298441caf80c43b27255c3a29';
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /commit/);
+});
+
+test('G45.7 self-test: an http schema URL fails, naming schemaUrl', () => {
+  const copy = clone(registry);
+  copy.export.semconv.schemaUrl = 'http://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev';
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /schemaUrl/);
+});
+
+test('G45.7 self-test: an attribute naming no local field fails, naming the field', () => {
+  const copy = clone(registry);
+  copy.export.attributes.not_a_field = { measure: true };
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /not_a_field/);
+});
+
+test('G45.7 self-test: a vocabulary name that does not exist fails, naming the vocabulary', () => {
+  const copy = clone(registry);
+  copy.export.attributes.event = { vocabulary: 'nonexistent_vocab' };
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /nonexistent_vocab/);
+});
+
+test('G45.7 self-test: id: true on session fails, naming session', () => {
+  const copy = clone(registry);
+  copy.export.attributes.session = { id: true };
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /session/);
+});
+
+test('G45.7 self-test: a T0 key listed without id fails, naming the key', () => {
+  const copy = clone(registry);
+  copy.export.attributes.session = {};
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /session/);
+});
+
+test('G45.7 self-test: a names value outside the three owned lists fails, naming the value', () => {
+  const copy = clone(registry);
+  copy.export.names.verb = 'not-an-owned-list';
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /not-an-owned-list/);
+});
+
+test('G45.7 self-test: an analysis key of 0 fails, naming the key', () => {
+  const copy = clone(registry);
+  copy.analysis.minSamples = 0;
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /minSamples/);
+});
+
+test('G45.7 self-test: a missing analysis key fails, naming the key', () => {
+  const copy = clone(registry);
+  delete copy.analysis.retryRun;
+  const errors = checkExportMapping(copy);
+  assert.match(errors.join('\n'), /retryRun/);
+});
+
+test('G45.7 self-test: a planted gen_ai key in kinds fails checkRegistryShape', () => {
+  const copy = clone(registry);
+  copy.kinds.hook.fields.gen_ai_model = { name: 'gen_ai.request.model', class: 'T2', type: 'token', phase: 'P2' };
+  const errors = checkRegistryShape(copy);
+  assert.match(errors.join('\n'), /gen_ai/);
 });
