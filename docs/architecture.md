@@ -907,11 +907,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   formats and the fixture lines carry, with `harness`, `status` and `risk` equal to their owning
   registries (G45.1); no `node` process starts on a shell hook path, and the node files there are the
   pinned three (G45.2); no network module or `fetch` under `src/runtime` outside the pinned advice
-  client and export sender (G45.3); no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze`
+  client and export sender, a static source check and not a sandbox (G45.3); no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze`
   or `verify-baseline` (G45.4); the package has no runtime dependency and G30.2 is still enforced
   (G45.5); every telemetry store is a declared `runs/` subdirectory the ledger readers skip
   (G45.6); and the export block maps only closed descriptors and the analysis block is well formed
-  (G45.7, provisional sub-id). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
+  (G45.7). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
 - **G46** (`guidance-truth.test.js`) — prose claims that restate runtime gate behavior, install layout or
   packaged file sets must agree with the scripts and registries that own those facts. The numbered `# Denies` cases in the header of `core/harnesses/shared/hooks/policies/pre-implementation-gate.sh` must be as many as the deny-code families the script emits, and the backticked deny codes in the implement-gate bullet in `core/shared/guidance/references/DOFLOW_CHAIN.md` must equal the codes the script emits (G46.1); a "hard gate" or "hard hook" scope claim anywhere in guidance, skills, or agent specs
   must cite `DOFLOW_CHAIN.md` in its own sentence or an adjacent one (G46.2); the Layout table's

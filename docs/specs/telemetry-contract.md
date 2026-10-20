@@ -410,14 +410,14 @@ The sender resolves configuration once from the invoking environment:
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `k=v` pairs, trimmed, values percent-decoded; bad escape or empty key exits 2 |
 | `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | `OTEL_EXPORTER_OTLP_TIMEOUT` | Integer milliseconds, default 10000, clamped to maximum 30000; non-positive integer exits 2 |
 
-An empty or whitespace-only value counts as unset; `TRACES_*` overrides only when non-empty; empty header members are skipped; header names must be RFC 7230 tokens and values must not contain CR, LF or NUL (exit 2, the error names the variable only); `OTEL_EXPORTER_OTLP_ENDPOINT` gets `/v1/traces` appended to its path, its query is kept, a fragment on either endpoint variable exits 2; `OTEL_EXPORTER_OTLP_[TRACES_]PROTOCOL` is not read: `--otlp-http` always sends HTTP/JSON, and a value other than `http/json` prints one stderr note naming the variable.
+An empty or whitespace-only value counts as unset; `TRACES_*` overrides only when non-empty; empty header members are skipped; header names must be RFC 7230 tokens and values must not contain CR, LF or NUL (exit 2, the error names the variable only); other control characters and characters above U+00FF are not checked here: `fetch` refuses such a value, so the export exits 1 (`connection` or `bad-response`) with no request sent and no value echoed; `OTEL_EXPORTER_OTLP_ENDPOINT` gets `/v1/traces` appended to its path, its query is kept, a fragment on either endpoint variable exits 2; `OTEL_EXPORTER_OTLP_[TRACES_]PROTOCOL` is not read: `--otlp-http` always sends HTTP/JSON, and a value other than `http/json` prints one stderr note naming the variable.
 
 **Bounds:**
 - Spans are chunked into requests of at most 512 spans each.
 - At most 20 requests per export invocation (maximum 10,240 spans). Larger exports are refused before any network connection with exit 2 advising `--run`.
-- Requests are sent sequentially using `fetch` with `redirect: "error"` and `AbortSignal.timeout(timeoutMs)`.
+- Requests are sent sequentially using `fetch` with `redirect: "error"` and `AbortSignal.timeout(timeoutMs)`. Node's own proxy support applies: with `NODE_USE_ENV_PROXY=1` and `HTTP_PROXY`/`HTTPS_PROXY` set, the payload and the auth headers go through that proxy.
 - The first failure (timeout, network error, redirect, or non-2xx status) stops the send loop with status `failed`. No retries are attempted.
-- A 2xx response parses `partialSuccess.rejectedSpans`; if positive, status is `partial`.
+- A 2xx response parses `partialSuccess.rejectedSpans` (a JSON number or the int64 decimal string); if positive, status is `partial`. A count that is not a non-negative safe integer, a `partialSuccess` that is not an object, or the snake_case `partial_success` form gives `failed`/`bad-response` (the request counts as sent and the loop stops).
 - A 2xx body is read up to 64 KiB; a body read that times out gives `failed`/`timeout`, a connection lost during the body gives `failed`/`connection`, a body over 64 KiB gives `failed`/`bad-response`; in each case the request counts as sent, `httpStatus` is the 2xx code and the loop stops; a body received in full that is not JSON counts as accepted.
 
 ### Exit codes
@@ -454,7 +454,7 @@ excerpts) is listed there too; a `verify.check` line carries only the record's r
    lines (`test/fixtures/telemetry/*.jsonl`) carry; `hook.jsonl` there is held equal to a real bridge
    line's keys by `test/hooks/bridge-hook-line.test.js`;
 2. no `node` process starts on a shell hook path, and the node files there are the pinned three;
-3. no network use under `src` (`.ts .js .mjs .cjs .mts .cts`, `src/cli` included) outside the pinned advice client and export sender: a network module import or require, any reference to `fetch` (including `globalThis.fetch`, member access and aliases), `WebSocket`, `EventSource`, `process.getBuiltinModule`, `undici`, computed `globalThis[...]` access, `process.binding`, and `require`/`import` with a non-literal argument; comments and string, template and regex literals are not code; a verbatim copy of the sender under another name fails;
+3. no network use under `src` (`.ts .js .mjs .cjs .mts .cts`, `src/cli` included) outside the pinned advice client and export sender. It is a static source check, not a sandbox, and it catches only these shapes: a network module `import` or a direct `require(...)` call, any reference to `fetch` (including `globalThis.fetch`, member access and aliases), `WebSocket`, `EventSource`, `process.getBuiltinModule`, `undici`, computed `globalThis[...]` access, `process.binding`, and `require`/`import` with a non-literal argument; comments and string, template and regex literals are not code; a verbatim copy of the sender under another name fails. It does not catch `createRequire`, `module.require` or `process.mainModule.require`, an aliased `globalThis` (`g = globalThis; g[...]`), `Reflect.get(globalThis, ...)` or `(0, globalThis)[...]` access, `eval`/`new Function`/Worker `eval` strings, a subprocess that reaches the network, `node:inspector`, or any file under `bin/` (FU-tgfbkv);
 4. no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze` or
    `verify-baseline`;
 5. the package has no runtime dependency and G30.2 is still enforced;
