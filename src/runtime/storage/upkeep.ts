@@ -147,6 +147,8 @@ function passForRoot({ roots, rootId, stores, now, env, fsImpl, throttled = fals
 
 /** IC-009: silent throttled upkeep after a verb, using that verb's resolved store root. */
 function upkeepAfterVerb({ projectRoot, now = Date.now(), env = process.env, fsImpl = fs }: any = {}) {
+  // IC-004: the read switch, exact `off` like DOFLOW_TELEMETRY; nothing at all is written.
+  if (env.DOFLOW_UPKEEP === 'off') return;
   return silently(() => {
     projectRoot = projectRoot && outerProjectRoot(projectRoot);
     const roots = resolveRoots({ registry, projectRoot, env });
