@@ -253,8 +253,8 @@ function checkNoNodeOnHooks(files) {
 
 // --- G45.3: no network client in the runtime ----------------------------------------------------
 
-/** The model-endpoint client of feature 072; 088 adds nothing here (NFR-006). */
-const PINNED_NETWORK_FILES = ['src/runtime/advice/client.ts', 'src/runtime/advice/endpoint-guard.ts'];
+/** The model-endpoint client of feature 072; 091 adds otlp-export.ts (DEC-008, O1). */
+const PINNED_NETWORK_FILES = ['src/runtime/advice/client.ts', 'src/runtime/advice/endpoint-guard.ts', 'src/runtime/trace/otlp-export.ts'];
 const NETWORK_USE = /(?:require\(\s*|from\s+|import\(\s*)['"](?:node:)?(?:http|https|http2|net|tls|dgram|dns|undici)['"]|(?<![.\w])fetch\s*\(|\bundici\b/;
 
 function checkNoNetwork(files) {
@@ -666,6 +666,8 @@ test('G45.3 self-test: a network require, import or fetch fails; the pinned clie
   assert.equal(run('src/runtime/x.ts', "import http from 'http';\n").length, 1);
   assert.equal(run('src/runtime/x.ts', 'const r = await fetch(url);\n').length, 1);
   assert.equal(run('src/runtime/x.ts', "const { request } = require('undici');\n").length, 1);
+  assert.deepEqual(run('src/runtime/trace/otlp-map.ts', 'const r = await fetch(url);\n'), ['src/runtime/trace/otlp-map.ts:1 uses a network module outside an export module']);
+  assert.deepEqual(run('src/runtime/trace/otlp-export.ts', 'const r = await fetch(url);\n'), []);
   assert.deepEqual(run('src/runtime/x.ts', "// require('node:http')\n * fetch(x)\nconst a = git.fetch(1) || prefetch(2);\n"), []);
   assert.deepEqual(run('src/runtime/advice/client.ts', "const http = require('node:http');\n"), []);
 });
