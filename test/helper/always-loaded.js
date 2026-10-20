@@ -6,19 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('../guards/_shared');
-
-const ROOT_FILE = path.join(GUIDANCE, 'DOFLOW_CORE.md');
-
-// Generated per install, excluded by name rather than forgotten.
-//
-// MCP_INDEX.md and everything it imports under guidance/mcp/ are written at install time from the
-// MCP servers the user actually selected. Their size is a property of the machine, not of
-// DoFlow-authored content, and it differs between two correct installs — so measuring them would
-// make this guard's result depend on who ran it. The import walk stops at MCP_INDEX.md and does
-// not descend into its @mcp/* imports.
-const GENERATED_EXCLUSIONS = new Map([
-  ['MCP_INDEX.md', 'generated per install from the servers actually selected; size varies per machine'],
-]);
+const { GENERATED_EXCLUSIONS, guidanceManifest } = require('../../src/adapters/guidance-manifest.ts');
 
 /** Newline-separated lines, without the empty line a trailing newline would add. */
 function lineCount(text) {
@@ -38,26 +26,13 @@ function importsIn(text) {
  * needs to bind. Returns { files, dangling, excluded } — relative to the guidance root.
  */
 function alwaysLoaded() {
-  const files = [];
-  const dangling = [];
-  const excluded = [];
-  const seen = new Set();
-  const queue = [path.relative(GUIDANCE, ROOT_FILE)];
-
-  while (queue.length) {
-    const rel = queue.shift();
-    if (seen.has(rel)) continue;                              // an import cycle must not hang the guard
-    seen.add(rel);
-    if (GENERATED_EXCLUSIONS.has(rel)) { excluded.push(rel); continue; }
+  const manifest = guidanceManifest(GUIDANCE, fs);
+  const files = manifest.files.map((rel) => {
     const full = path.join(GUIDANCE, rel);
-    if (!fs.existsSync(full)) { dangling.push(rel); continue; }
     const text = fs.readFileSync(full, 'utf8');
-    files.push({ rel, lines: lineCount(text), bytes: Buffer.byteLength(text, 'utf8') });
-    for (const target of importsIn(text)) {
-      queue.push(path.normalize(path.join(path.dirname(rel), target)));
-    }
-  }
-  return { files, dangling, excluded };
+    return { rel, lines: lineCount(text), bytes: Buffer.byteLength(text, 'utf8') };
+  });
+  return { files, dangling: manifest.dangling, excluded: manifest.generated };
 }
 
 /** Every `*.md` under `dir` (repo-relative), depth first. */

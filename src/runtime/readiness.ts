@@ -224,7 +224,10 @@ class ReadinessEngine {
     const queryBound = Boolean(plan?.planId);
     const binding = queryBound ? bindEvidence(plan, allTaskEvidence) : null;
     const unboundIds = new Set(binding ? binding.unbound.map((item: any) => item.id) : []);
+    // A superseded item is retired: it neither satisfies a requirement nor can it be unresolvable
+    // (the stale check below already skips it), so nothing else can be left that clears it.
     const taskEvidence = allTaskEvidence.filter((item: any) => item.freshness?.status === 'FRESH'
+      && item.status !== 'superseded'
       && (!queryBound || !unboundIds.has(item.id)));
 
     // An item accepted before FR-004 existed, or one whose target file has since shrunk, can be
@@ -296,7 +299,18 @@ class ReadinessEngine {
       // not by any supported claim the task happens to hold (review R1 — a supported claim about an
       // unrelated invariant satisfied the bug template's root-cause requirement).
       else if (reqDef.requiresClaimStatus) {
-        let matchingClaims = taskClaims.filter((c: any) => c.status === reqDef.requiresClaimStatus);
+        // A `supported` claim counts only while at least one of its supporting items is live
+        // (active, FRESH, bound) in `taskEvidence`: support that was superseded, went stale or is
+        // unbound no longer backs it (107-B review C-1). Other statuses are not evidence-backed.
+        const liveEvidenceIds = new Set(taskEvidence.map((item: any) => item.id));
+        const statusMatched = taskClaims.filter((c: any) => c.status === reqDef.requiresClaimStatus);
+        const hasLiveSupport = (c: any) => reqDef.requiresClaimStatus !== 'supported'
+          || (c.supportingEvidence || []).some((id: string) => liveEvidenceIds.has(id));
+        // A claim whose stored status still reads `supported` but whose support was retired is
+        // named as such, so the user is not told to add a supported claim they can already see.
+        const retired = statusMatched.filter((c: any) => !hasLiveSupport(c)
+          && (!reqDef.requiresClaimRole || c.role === reqDef.requiresClaimRole));
+        let matchingClaims = statusMatched.filter(hasLiveSupport);
         if (reqDef.requiresClaimRole) {
           const withRole = matchingClaims.filter((c: any) => c.role === reqDef.requiresClaimRole);
           if (withRole.length === 0 && matchingClaims.length > 0) {
@@ -309,6 +323,12 @@ class ReadinessEngine {
         if (matchingClaims.length > 0) {
           isSatisfied = true;
           matchedEvidenceIds = matchingClaims.flatMap((c: any) => c.supportingEvidence);
+        } else if (!reason && retired.length > 0) {
+          reasonCode = 'claim-support-retired';
+          reason = `${retired.length} claim(s) with status '${reqDef.requiresClaimStatus}'`
+            + `${reqDef.requiresClaimRole ? ` and role '${reqDef.requiresClaimRole}'` : ''} have no live supporting `
+            + `evidence (${retired.slice(0, 5).map((c: any) => c.id).join(', ')}): each supporting item was superseded, `
+            + 'went stale or is not bound to the task plan. Link a fresh item with `claim --action link` and re-evaluate.';
         } else if (!reason) {
           reason = `Requires at least one claim with status '${reqDef.requiresClaimStatus}'`
             + `${reqDef.requiresClaimRole ? ` and role '${reqDef.requiresClaimRole}'` : ''}.`;

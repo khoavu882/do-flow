@@ -115,7 +115,7 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    Read `references/ARTIFACT_VOICE.md` at the same point: it carries the prose rules the artifact's sentences follow, and the carve-outs where one of those rules meets a construct the checker parses.
    This stage fills the plan from requirement + design + constitution rather than by eliciting, so
    it writes no dialogue log — its sibling stages' `intention/`/`design/` question files have no
-   counterpart here. Should a future revision of this skill add an `AskUserQuestion` clarification
+   counterpart here. Should a future revision of this skill add a question-tool clarification
    loop, each of its rounds logs to `plan-<NN>-question.md` at the feature root exactly as
    `/do-brainstorm` and `/do-design` log theirs to their own subdirectories, numbered from step 1's
    `plan_next_round`.

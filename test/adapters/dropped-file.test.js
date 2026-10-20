@@ -12,6 +12,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
 const { applyLifecycle } = require('../../src/lifecycle/index.ts');
+const { dropCoreFile, restoreEdited } = require('../helper/drop-core-file');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const EDIT = '\nA line the user added.\n';
@@ -36,13 +37,16 @@ function run(harness) {
   return { notices: target.notices ?? [], ledger };
 }
 
-/** The first copy-tree row of `harness` whose source file exists under the package copy's core/. */
+/** The first copy-tree row of `harness` whose source file exists under the package copy's core/.
+ * DOFLOW_CORE.md is skipped: it is the root every `guidance-manifest` selection starts from, so a
+ * package without it has no core set to project (guidanceManifest refuses it, by design). */
 function droppableRow(ledger, harness) {
   const assets = new Map(loadRegistry({ repoRoot: pkg }).assets.map((asset) => [asset.id, asset]));
   const core = path.join(pkg, 'core') + path.sep;
   for (const row of ledger.resources) {
     if (row.harness !== harness || row.kind !== 'copy-tree-file' || !assets.has(row.assetId)) continue;
     const source = path.join(pkg, assets.get(row.assetId).source, row.identity);
+    if (path.basename(source) === 'DOFLOW_CORE.md') continue;
     if (source.startsWith(core) && fs.existsSync(source) && fs.statSync(source).isFile()) return { row, source };
   }
   return null;
@@ -57,6 +61,7 @@ function dropRound(harness, { edit = false } = {}) {
   const scratch = createScratch(`doflow-dropped-file-${harness}-`);
   scratch.apply();
   let picked;
+  let edits = [];
   try {
     const install = run(harness);
     picked = droppableRow(install.ledger, harness);
@@ -64,7 +69,8 @@ function dropRound(harness, { edit = false } = {}) {
     const { target } = picked.row;
     if (edit) fs.appendFileSync(target, EDIT);
     const edited = edit ? fs.readFileSync(target) : null;
-    fs.rmSync(picked.source);
+    // The import lines naming the file go with it: a core set that still imports a missing file is refused.
+    edits = dropCoreFile(path.join(pkg, 'core', 'shared', 'guidance'), picked.source);
     const update = run(harness);
     return {
       target, edited, installNotices: install.notices, notices: update.notices,
@@ -74,6 +80,7 @@ function dropRound(harness, { edit = false } = {}) {
     };
   } finally {
     if (picked) fs.copyFileSync(path.join(REPO, path.relative(pkg, picked.source)), picked.source);
+    restoreEdited(edits);
     scratch.restore();
     scratch.remove();
   }

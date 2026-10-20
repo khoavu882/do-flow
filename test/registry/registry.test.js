@@ -4,8 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  REGISTRY_FILES, loadRegistry, validateRegistry, selectAssets, selectMcpServers, mcpCapable, capabilityMapData,
+  REGISTRY_FILES, COPY_TREE_SELECTS, loadRegistry, validateRegistry, selectAssets, selectMcpServers, mcpCapable, capabilityMapData,
 } = require('../../src/registry/index.ts');
+const { SELECTORS } = require('../../src/adapters/copy-tree.ts');
+const { projectAdapterInput } = require('../../src/adapters/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -22,6 +24,43 @@ test('loads and validates the complete multi-harness registry', () => {
   assert.deepEqual(registry.harnesses.find((harness) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);
   assert.deepEqual(registry.externalTools.map((tool) => tool.id), ['rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml']);
+});
+
+test('registry copy-tree select names stay in sync with the adapter selector table', () => {
+  assert.deepEqual([...COPY_TREE_SELECTS].sort(), Object.keys(SELECTORS).sort());
+});
+
+test('adapter input carries the projection select name', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const harness = registry.harnesses.find((item) => item.id === 'claude');
+  const asset = registry.assets.find((item) => item.appliesTo.includes('claude')
+    && item.projection?.claude?.renderer === 'copy-tree');
+  asset.projection.claude.select = 'guidance-manifest';
+
+  const input = projectAdapterInput({ registry, harness, scope: 'project', scopeRoot: REPO, assets: [asset] });
+  assert.equal(input.assets[0].select, 'guidance-manifest');
+});
+
+test('registry rejects select on non-copy-tree projections and unknown selector names with asset and harness', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+
+  const wrongRenderer = structuredClone(registry);
+  const nonCopyAsset = wrongRenderer.assets.find((asset) => asset.appliesTo.includes('claude')
+    && asset.projection?.claude?.renderer !== 'copy-tree');
+  assert.ok(nonCopyAsset, 'fixture must contain a non-copy-tree Claude projection');
+  nonCopyAsset.projection.claude.select = 'guidance-manifest';
+  const wrongRendererResult = validateRegistry(wrongRenderer, { repoRoot: REPO });
+  assert.equal(wrongRendererResult.ok, false);
+  assert.match(wrongRendererResult.errors.join('\n'), new RegExp(`asset '${nonCopyAsset.id}'.*projection 'claude'.*select`));
+
+  const unknownSelector = structuredClone(registry);
+  const copyTreeAsset = unknownSelector.assets.find((asset) => asset.appliesTo.includes('claude')
+    && asset.projection?.claude?.renderer === 'copy-tree');
+  assert.ok(copyTreeAsset, 'fixture must contain a copy-tree Claude projection');
+  copyTreeAsset.projection.claude.select = 'nope';
+  const unknownSelectorResult = validateRegistry(unknownSelector, { repoRoot: REPO });
+  assert.equal(unknownSelectorResult.ok, false);
+  assert.match(unknownSelectorResult.errors.join('\n'), new RegExp(`asset '${copyTreeAsset.id}'.*projection 'claude'.*select.*guidance-manifest`));
 });
 
 test('loads evidence-backed external tool definitions with argument-vector commands only', () => {

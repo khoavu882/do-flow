@@ -5,7 +5,8 @@
 //   1. every `doflow-run <verb>` they name must be a verb the dispatcher serves;
 //   2. every backticked path they cite must resolve to a file or directory that ships (G8 checks the
 //      same for docs/ and README.md; this guard does not read docs/);
-//   3. no two defaults that contradict each other may both be present (`pairs` in instruction-lint.json).
+//   3. a tool or token only one harness provides is named only beside that harness (`harnessOnlyNames`);
+//   4. no two defaults that contradict each other may both be present (`pairs` in instruction-lint.json).
 // A path or verb that is intentionally not in the tree (generated, or created at runtime) is declared
 // in instruction-lint.json `allow`; an entry that suppresses nothing, or a policy file that is
 // malformed, fails the lint, so the policy cannot rot into a blanket suppression.
@@ -55,6 +56,44 @@ function lintFiles() {
   return rels.map((rel) => ({ rel, text: fs.readFileSync(path.join(REPO, rel), 'utf8') }));
 }
 
+/** The prose the harness-name check reads: lintFiles' roots plus the templates the installer ships. */
+function harnessNameFiles() {
+  const roots = ['guidance', 'skills', 'agent-specs', 'templates'];
+  const skipFixtures = (rel, isDir) => (isDir ? !FIXTURE_DIRS.has(path.posix.basename(rel)) : rel.endsWith('.md'));
+  return roots.flatMap((root) => walk(`${SHARED}/${root}`, skipFixtures)
+    .map((rel) => ({ root, rel, text: fs.readFileSync(path.join(REPO, rel), 'utf8') })));
+}
+
+/** Registry display names by harness id. */
+function harnessDisplayNames() {
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
+  return new Map(registry.harnesses.map((h) => [h.id, h.displayName]));
+}
+
+/** Paragraphs (blank-line separated, fenced code included) as `{ line, text }`, `line` being the first line. */
+function paragraphs(text) {
+  const out = [];
+  let current = null;
+  text.split('\n').forEach((line, i) => {
+    if (!line.trim()) { current = null; return; }
+    if (!current) { current = { line: i + 1, text: line }; out.push(current); } else current.text += `\n${line}`;
+  });
+  return out;
+}
+
+/** Paragraphs naming a harness-only name without naming that harness: `rel:line name`. */
+function harnessNameFindings(entries, files, displayNames) {
+  const findings = [];
+  for (const { rel, text } of files) {
+    for (const para of paragraphs(text)) {
+      for (const { name, harness } of entries) {
+        if (para.text.includes(name) && !para.text.includes(displayNames.get(harness))) findings.push(`${rel}:${para.line} ${name}`);
+      }
+    }
+  }
+  return findings;
+}
+
 /** The resolver's view of the repository: whether a repo-relative path exists, and which basenames ship. */
 function repoContext() {
   const basenames = new Set(['core', 'src', 'bin'].flatMap((root) => walk(root, () => true))
@@ -94,6 +133,7 @@ function resolves(token, rel, { exists, basenames }) {
 
 const PATH_ENTRY_KEYS = new Set(['kind', 'target', 'match', 'files', 'reason']);
 const PAIR_KEYS = new Set(['id', 'a', 'b', 'reason']);
+const NAME_KEYS = new Set(['name', 'harness']);
 const isEntry = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const blank = (value) => typeof value !== 'string' || !value.trim();
 
@@ -102,11 +142,11 @@ function compiles(source, flags = '') {
 }
 
 /** Structural problems of the policy, each naming its entry; empty when it is well formed. */
-function policyProblems(policy, exists) {
+function policyProblems(policy, exists, harnessIds = harnessDisplayNames()) {
   const problems = [];
   if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return ['policy: not a JSON object'];
   for (const key of Object.keys(policy)) {
-    if (key !== 'allow' && key !== 'pairs') problems.push(`policy: unknown top-level key "${key}"`);
+    if (!['allow', 'pairs', 'harnessOnlyNames'].includes(key)) problems.push(`policy: unknown top-level key "${key}"`);
   }
   const allow = policy.allow ?? [];
   if (!Array.isArray(allow)) problems.push('allow: not an array');
@@ -122,6 +162,15 @@ function policyProblems(policy, exists) {
       if (!Array.isArray(entry.files)) problems.push(`${at}: files must be an array`);
       else for (const file of entry.files) if (!exists(file)) problems.push(`${at}: files entry ${file} does not exist`);
     }
+  });
+  const names = policy.harnessOnlyNames ?? [];
+  if (!Array.isArray(names)) problems.push('harnessOnlyNames: not an array');
+  else names.forEach((entry, i) => {
+    const at = `harnessOnlyNames[${i}]`;
+    if (!isEntry(entry)) { problems.push(`${at}: not an object`); return; }
+    for (const key of Object.keys(entry)) if (!NAME_KEYS.has(key)) problems.push(`${at}: unknown key "${key}"`);
+    if (blank(entry.name)) problems.push(`${at}: missing or blank name`);
+    if (!harnessIds.has(entry.harness)) problems.push(`${at}: unknown harness "${entry.harness}"`);
   });
   if (!Array.isArray(policy.pairs) || policy.pairs.length === 0) problems.push('pairs: empty or missing; the lint would guard nothing');
   else {
@@ -221,6 +270,16 @@ test('G24: the shipped instructions cite only verbs and paths that exist, and ho
   assert.deepEqual(problems, [], `instruction lint findings:\n  ${problems.join('\n  ')}`);
 });
 
+test('G24: harness-only names appear only beside their harness, in every shipped prose root', () => {
+  const entries = readPolicy().harnessOnlyNames;
+  assert.ok(entries.length > 0, 'no harnessOnlyNames; the check would guard nothing');
+  const files = harnessNameFiles();
+  for (const root of ['guidance', 'skills', 'agent-specs', 'templates']) {
+    assert.ok(files.some((f) => f.root === root), `no ${root} file scanned; the check would measure nothing there`);
+  }
+  assert.deepEqual(harnessNameFindings(entries, files, harnessDisplayNames()), []);
+});
+
 test('G24: dispatcherVerbs reads the shell-backed and Node-backed verb tables', () => {
   const verbs = dispatcherVerbs();
   for (const verb of ['paths', 'validate', 'evidence', 'lifecycle', 'help']) assert.ok(verbs.has(verb), `missing verb ${verb}`);
@@ -237,7 +296,6 @@ const run = (text, policy = FIXTURE_POLICY, rel = 'core/shared/guidance/x.md') =
 const PAIR_SAMPLES = {
   'default-vs-disjoint-parallelism': ['Parallel by default', 'disjoint write sets'],
   'imposed-layout-vs-project-conventions': ['tests → `tests/', 'existing code conventions'],
-  'universal-load-vs-pointer-read': ['loaded into **every** session', 'Codex does not expand `@file` imports'],
   'confidence-bands-vs-no-confidence': ['confidence-banded estimates', 'percentage certainty'],
   'ask-only-vs-always-ask': ['Ask ONLY for decisions', 'Always ask first'],
   'continue-vs-wait-at-plan': ['continue into execution', 'wait for approval again'],
@@ -247,7 +305,6 @@ const PAIR_SAMPLES = {
 const PAIR_NEAR_MISSES = {
   'default-vs-disjoint-parallelism': 'Parallel work runs when write sets are disjoint.',
   'imposed-layout-vs-project-conventions': 'Follow the repository\'s existing conventions for new modules.',
-  'universal-load-vs-pointer-read': 'Codex expands `@file` imports from this pointer.',
   'confidence-bands-vs-no-confidence': 'Use numeric certainty only when the evidence supports it.',
   'ask-only-vs-always-ask': 'Ask one question at a time.',
   'continue-vs-wait-at-plan': 'At each gate, wait for approval before the next phase.',
@@ -340,4 +397,47 @@ test('G24: controls — a malformed policy fails closed, naming the entry', () =
   assert.deepEqual(problems({ allow: [null, 'x', [good]], pairs: FIXTURE_POLICY.pairs }),
     ['allow[0]: not an object', 'allow[1]: not an object', 'allow[2]: not an object']);
   assert.deepEqual(problems({ pairs: [null, pair] }), ['pairs[0]: not an object']);
+});
+
+test('G24: controls — a harness-only name needs its harness in the same paragraph', () => {
+  const entries = [{ name: 'TodoWrite', harness: 'claude' }];
+  const names = new Map([['claude', 'Claude Code']]);
+  const find = (text) => harnessNameFindings(entries, [{ rel: 'x.md', text }], names);
+  assert.deepEqual(find('Use TodoWrite here.'), ['x.md:1 TodoWrite']);
+  assert.deepEqual(find('intro\n\nUse TodoWrite here.'), ['x.md:3 TodoWrite']);
+  assert.deepEqual(find('Use TodoWrite here in Claude Code.'), []);
+  assert.deepEqual(find('On Claude Code only:\nTodoWrite is the list tool.'), []);
+  assert.deepEqual(find('Claude Code is named here.\n\nUse TodoWrite here.'), ['x.md:3 TodoWrite'], 'a neighbouring paragraph does not count');
+  assert.deepEqual(harnessNameFindings(entries, [{ rel: 'x.md', text: 'Use TodoWrite in Codex.' }], new Map([['claude', 'Claude Code'], ['codex', 'Codex']])),
+    ['x.md:1 TodoWrite'], 'another harness name does not qualify the name');
+});
+
+test('G24: controls — harnessOnlyNames fails closed on unknown keys and harness ids', () => {
+  const pairs = FIXTURE_POLICY.pairs;
+  const ids = new Map([['claude', 'Claude Code']]);
+  const problems = (names) => policyProblems({ harnessOnlyNames: names, pairs }, policyExists, ids);
+  assert.deepEqual(problems([{ name: 'TodoWrite', harness: 'claude' }]), []);
+  assert.deepEqual(problems([{ name: 'TodoWrite', harness: 'claude', extra: 1 }]), ['harnessOnlyNames[0]: unknown key "extra"']);
+  assert.deepEqual(problems([{ name: 'TodoWrite', harness: 'nope' }]), ['harnessOnlyNames[0]: unknown harness "nope"']);
+  assert.deepEqual(problems([{ name: ' ', harness: 'claude' }]), ['harnessOnlyNames[0]: missing or blank name']);
+  assert.deepEqual(problems('x'), ['harnessOnlyNames: not an array']);
+  assert.deepEqual(problems([null]), ['harnessOnlyNames[0]: not an object']);
+});
+
+// 107-B review C-9: a byte-neutral rewording left "response to any / the question tool means" in
+// do-flow's SKILL.md. A reworded sentence that keeps the old determiner is a grammar defect no other
+// guard sees, so the instruction prose may not carry a doubled determiner.
+const DOUBLED_DETERMINER = /\b(?:any|an?)\s+(?:the|an?)\b/gi;
+
+test('G24: instruction prose has no doubled determiner ("any the", "a the")', () => {
+  const findings = harnessNameFiles().flatMap(({ rel, text }) => {
+    return [...text.matchAll(DOUBLED_DETERMINER)].map((match) => `${rel}:${text.slice(0, match.index).split('\n').length} "${match[0].replace(/\s+/g, ' ')}"`);
+  });
+  assert.deepEqual(findings, []);
+});
+
+test('G24 control: the doubled-determiner check sees the broken sentence across a line break', () => {
+  const broken = 'an unanswered or unclear response to any\n   the question tool means stop';
+  assert.equal([...broken.matchAll(DOUBLED_DETERMINER)].length, 1);
+  assert.equal([...'a response to the question tool means stop'.matchAll(DOUBLED_DETERMINER)].length, 0);
 });

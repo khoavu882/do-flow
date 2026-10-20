@@ -19,7 +19,7 @@ follows is the call that positions the run and every branch off its response.
 - Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
 - **`reason` is `awaiting-gate:<gate id>`** — **first check `<gate id>` against step 2's
   `<expected gate id>`.** They match in the ordinary case (`gate-a`, standing immediately before
-  this stage) — present `awaitingGate.prompt` to the user through `AskUserQuestion` as a plain
+  this stage) — present `awaitingGate.prompt` to the user through the question tool as a plain
   go/no-go, the same way step 1's prerequisite gate stops and asks rather than assuming. On yes:
   ```bash
   "$DOFLOW" orchestrate --action decide-gate --task-id "<slug>" --gate "<awaitingGate.gateId>" --decision approve --note "<the user's own answer, one line>" --json

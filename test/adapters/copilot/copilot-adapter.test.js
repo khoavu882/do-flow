@@ -474,6 +474,51 @@ test('rules project as .github/instructions/*.instructions.md with applyTo heade
     'remove reclaims every projected rule file');
 });
 
+// ---- the real registry: the core set as path-specific instructions, plus the pointer ----
+
+const CORE_INSTRUCTIONS = ['DOFLOW_CORE.instructions.md', 'FLAGS.instructions.md', 'PRINCIPLES.instructions.md', 'rules/RULE_01_SAFETY.instructions.md', 'rules/RULE_02_WORKFLOW.instructions.md', 'rules/RULE_03_QUALITY.instructions.md', 'rules/RULE_04_QUESTIONS.instructions.md'];
+
+function filesUnder(dir) {
+  return fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile())
+    .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join('/')).sort() : [];
+}
+
+function installRealInstructions(scope) {
+  const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
+  const { projectAdapterInput } = require('../../../src/adapters/index.ts');
+  const repoRoot = path.resolve(__dirname, '../../..');
+  const registry = loadRegistry({ repoRoot });
+  const harness = registry.harnesses.find((item) => item.id === 'copilot');
+  const root = scratch(); const adapter = createCopilotAdapter();
+  const assets = selectAssets(registry, { harness: 'copilot', capability: 'instructions' });
+  const input = { ...projectAdapterInput({ registry, harness, scope, scopeRoot: root, assets, context: {} }), context: { repoRoot, homeDir: root }, ledger: { resources: [] } };
+  const planned = adapter.plan(input);
+  assert.deepEqual(planned.conflicts, []);
+  adapter.apply({ changes: planned.changes });
+  assert.equal(adapter.verify(input).ok, true);
+  return root;
+}
+
+for (const [scope, dir] of [['project', ['.github', 'instructions']], ['global', ['.copilot', 'instructions']]]) {
+  test(`${scope} install writes the seven core files as *.instructions.md with applyTo '**'`, () => {
+    const root = installRealInstructions(scope);
+    const instructions = path.join(root, ...dir);
+    assert.deepEqual(filesUnder(instructions), CORE_INSTRUCTIONS);
+    for (const rel of CORE_INSTRUCTIONS) {
+      assert.match(fs.readFileSync(path.join(instructions, rel), 'utf8'), /^---\napplyTo: '\*\*'\n---\n\n/, rel);
+    }
+  });
+}
+
+test('the project install writes the pointer naming the project guidance directory, the global install none', () => {
+  const project = installRealInstructions('project');
+  const pointer = fs.readFileSync(path.join(project, '.github', 'copilot-instructions.md'), 'utf8');
+  assert.match(pointer, /`?\.doflow\/guidance\/DOFLOW_CORE\.md`?/);
+  assert.doesNotMatch(pointer, /\{\{GUIDANCE\}\}/);
+  const global = installRealInstructions('global');
+  assert.equal(fs.existsSync(path.join(global, '.github', 'copilot-instructions.md')), false);
+});
+
 test('Copilot discovery reports the servers in its MCP config, sorted, and null when the file is absent', () => {
   const root = scratch(); const adapter = createCopilotAdapter();
   const first = adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } });

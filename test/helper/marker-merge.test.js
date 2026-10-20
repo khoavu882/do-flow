@@ -375,3 +375,14 @@ test('removeMarkedSection: duplicate MARKER_START throws', (t) => {
 
   assert.throws(() => removeMarkedSection(file));
 });
+
+test('rendered content is merged instead of the source file, and the source is not read', (t) => {
+  const dir = scratchDir(t);
+  const dst = dstPath(dir);
+  const result = mergeMarkedSection(path.join(dir, 'does-not-exist.md'), dst, { content: 'rendered pointer\n\n' });
+  assert.strictEqual(result.changed, true);
+  assert.strictEqual(fs.readFileSync(dst, 'utf8'), `${MARKER_START}\nrendered pointer\n${MARKER_END}\n`);
+  assert.strictEqual(mergeMarkedSection(path.join(dir, 'does-not-exist.md'), dst, { content: 'rendered pointer' }).changed, false);
+  assert.strictEqual(mergeMarkedSection('', dst, { content: 'changed', dryRun: true }).changed, true);
+  assert.match(fs.readFileSync(dst, 'utf8'), /rendered pointer/);
+});

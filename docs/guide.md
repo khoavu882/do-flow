@@ -389,7 +389,7 @@ fast-search is done with C2 unmet: caching is out of scope
 
 - A merge git cannot show (a squash, a rebase, a fast-forward or a cherry-pick) is not detected as shipped. List the feature with `--feature <slug>` when you record the release, or confirm the merge with `doflow lifecycle --action merged --slug <slug> --reason "<line>"`.
 - Features created before the loop existed keep working as they did; their earlier follow-ups are not collected.
-- The loop runs on all eight harnesses, in every scope where the harness gets skills: installing any one of them projects the DoFlow runtime. Antigravity has no skills at global scope, so install it per project. `doflow doctor` shows which harnesses reach the runtime.
+- The loop runs on all eight harnesses, in every scope where the harness gets skills: installing any one of them projects the DoFlow runtime. `doflow doctor` shows which harnesses reach the runtime.
 
 ## Drive the roadmap one step at a time
 
