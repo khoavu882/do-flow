@@ -8,8 +8,8 @@ const crypto = require('node:crypto');
 const { acquireLock, updateTaskState, readTaskState } = require('./task-state.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { ClaimsManager } = require('./claims.ts');
-const { taskStoreDir } = require('./task-scope.ts');
-const { FreshnessValidator } = require('./freshness.ts');
+const { taskRecord } = require('./task-scope.ts');
+const { FreshnessValidator, fileRootFor } = require('./freshness.ts');
 const { resolveLocator } = require('./locator-resolve.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 
@@ -24,7 +24,7 @@ const safeId = (value: any, label: any) => {
   return value;
 };
 
-function hasLocatedSource(item: any, projectRoot: any) {
+function hasLocatedSource(item: any, projectRoot: any, stateRoot: any = projectRoot) {
   const locator = item.locator || {};
   if (locator.uri !== undefined) {
     if (typeof locator.uri !== 'string') return false;
@@ -34,33 +34,43 @@ function hasLocatedSource(item: any, projectRoot: any) {
     } catch { return false; }
   }
   return Boolean((locator.uri && typeof locator.uri === 'string')
-    || (locator.file && resolveLocator({ locator, repoRoot: projectRoot }).resolved));
+    || (locator.file && resolveLocator({ locator, repoRoot: fileRootFor(projectRoot, stateRoot, locator) }).resolved));
 }
 
+// The run, the requests, the evidence and the claims are all read and written under `projectRoot`,
+// the task's state root (115 IC-004); `sourceRoot` is the checkout the verb runs in, where a relative
+// evidence locator resolves and is hashed (IC-007). Both default to the same directory.
 class ResearchRequestStore {
   declare projectRoot: any;
+  declare sourceRoot: any;
   declare fsImpl: any;
   declare slug: any;
   declare stateDir: any;
-  constructor({ projectRoot = process.cwd(), fsImpl = fs, slug = null }: any = {}) {
+  constructor({ projectRoot = process.cwd(), sourceRoot, fsImpl = fs, slug = null }: any = {}) {
     this.projectRoot = projectRoot;
+    this.sourceRoot = sourceRoot || projectRoot;
     this.fsImpl = fsImpl;
     this.slug = slug;
     this.stateDir = path.join(projectRoot, '.doflow', 'state', 'research');
   }
 
-  /** The feature's namespace directory when the task has one (task-scope.js), else the flat store. */
-  file(taskId: any) {
-    const dir = taskStoreDir({ projectRoot: this.projectRoot, store: 'research', taskId: assertSafeTaskId(taskId), slug: this.slug });
-    return path.join(dir, `${taskId}.json`);
+  /** The task's request file in the feature's namespace when it has one (task-scope.ts), else the flat store. */
+  record(taskId: any) {
+    return taskRecord({ projectRoot: this.projectRoot, store: 'research', taskId: assertSafeTaskId(taskId), slug: this.slug, fsImpl: this.fsImpl });
   }
 
+  /** Where the task's requests are written. */
+  file(taskId: any) {
+    return this.record(taskId).file;
+  }
+
+  /** The task's run, read where the orchestrator keeps it (115 IC-004). */
   runFile(taskId: any) {
-    return path.join(this.projectRoot, '.doflow', 'state', 'orchestration', `${assertSafeTaskId(taskId)}.json`);
+    return taskRecord({ projectRoot: this.projectRoot, store: 'orchestration', taskId: assertSafeTaskId(taskId), slug: this.slug, fsImpl: this.fsImpl }).read;
   }
 
   read(taskId: any) {
-    const data = readTaskState(this.fsImpl, this.file(taskId));
+    const data = readTaskState(this.fsImpl, this.record(taskId).read);
     if (!data) return { taskId, revision: 0, requests: [] };
     if (data.taskId !== taskId || !Array.isArray(data.requests)
       || data.requests.some((r: any) => !STATES.has(r.status))) {
@@ -72,7 +82,8 @@ class ResearchRequestStore {
   // Re-read inside updateTaskState's lock: overlapping writers cannot lose a request.
   change(taskId: any, update: any) {
     let result;
-    updateTaskState({ fsImpl: this.fsImpl, file: this.file(taskId), build: (disk: any) => {
+    const { file, seed } = this.record(taskId);
+    updateTaskState({ fsImpl: this.fsImpl, file, prepare: seed, build: (disk: any) => {
       if (disk && (disk.taskId !== taskId || !Array.isArray(disk.requests))) {
         throw new Error(`Invalid research state for task '${taskId}'`);
       }
@@ -152,7 +163,7 @@ class ResearchRequestStore {
       if (!claimId || evidenceIds.length === 0) throw new Error('answered requires a claim and evidence IDs');
       const ledger = new EvidenceLedger({ repoRoot: this.projectRoot, slug: this.slug });
       ledger.load(taskId);
-      new FreshnessValidator({ repoRoot: this.projectRoot }).validateLedgerFreshness(ledger);
+      new FreshnessValidator({ repoRoot: this.projectRoot, treeRoot: this.sourceRoot, sourceRoot: this.sourceRoot }).validateLedgerFreshness(ledger);
       const claims = new ClaimsManager({ repoRoot: this.projectRoot, evidenceLedger: ledger, slug: this.slug });
       claims.load(taskId); claims.evaluateAll();
       const claim = claims.getClaim(claimId);
@@ -163,7 +174,7 @@ class ResearchRequestStore {
         const item = ledger.getEvidence(id);
         if (!item || item.taskId !== taskId || item.provenance !== 'extracted'
           || item.status === 'superseded' || item.freshness?.status !== 'FRESH'
-          || !hasLocatedSource(item, this.projectRoot)
+          || !hasLocatedSource(item, this.sourceRoot, this.projectRoot)
           || !claim.supportingEvidence.includes(id)) {
           throw new Error(`Evidence '${id}' is not fresh, located support for this claim and task`);
         }
@@ -200,7 +211,7 @@ class ResearchRequestStore {
   validateAnswer(taskId: any, request: any) {
     const ledger = new EvidenceLedger({ repoRoot: this.projectRoot, slug: this.slug });
     ledger.load(taskId);
-    new FreshnessValidator({ repoRoot: this.projectRoot }).validateLedgerFreshness(ledger);
+    new FreshnessValidator({ repoRoot: this.projectRoot, treeRoot: this.sourceRoot, sourceRoot: this.sourceRoot }).validateLedgerFreshness(ledger);
     const claims = new ClaimsManager({ repoRoot: this.projectRoot, evidenceLedger: ledger, slug: this.slug });
     claims.load(taskId); claims.evaluateAll();
     const claim = claims.getClaim(request.claimId);
@@ -215,7 +226,7 @@ class ResearchRequestStore {
       const item = ledger.getEvidence(id);
       if (!item || item.taskId !== taskId || item.provenance !== 'extracted'
         || item.status === 'superseded' || item.freshness?.status !== 'FRESH'
-        || !hasLocatedSource(item, this.projectRoot)
+        || !hasLocatedSource(item, this.sourceRoot, this.projectRoot)
         || !claim.supportingEvidence.includes(id)) {
         throw new Error(`Research evidence '${id}' is no longer fresh, located support`);
       }
@@ -224,9 +235,9 @@ class ResearchRequestStore {
 }
 
 function handleResearchRequestCommand({ action = 'list', taskId, stageId, question, reason,
-  blocking, requestId, outcome, claimId, evidenceIds, gap, json = false, projectRoot, slug }: any = {}) {
+  blocking, requestId, outcome, claimId, evidenceIds, gap, json = false, projectRoot, sourceRoot, slug }: any = {}) {
   try {
-    const store = new ResearchRequestStore({ projectRoot, slug });
+    const store = new ResearchRequestStore({ projectRoot, sourceRoot, slug });
     let result;
     switch (action) {
       case 'open': result = store.open({ taskId, stageId, question, reason, blocking }); break;

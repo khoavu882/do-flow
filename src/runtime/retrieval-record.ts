@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { taskStoreDir, resolveTaskScope } = require('./task-scope.ts');
+const { taskStoreDir, taskRecord, resolveTaskScope } = require('./task-scope.ts');
 const { assertSafeTaskId } = require('./evidence-ledger.ts');
 const { readTaskState, updateTaskState } = require('./task-state.ts');
 const { storeFile, activeAttempt } = require('./task-attempts.ts');
@@ -36,8 +36,7 @@ function planPath(projectRoot: any, taskId: any, slug: any = null): string {
  * @returns {any|null}
  */
 function readPlan(projectRoot: any, taskId: any, slug: any = null, fsImpl: any = fs): any | null {
-  const file = planPath(projectRoot, taskId, slug);
-  return readTaskState(fsImpl, file);
+  return readTaskState(fsImpl, taskRecord({ projectRoot, store: 'retrieval', taskId: assertSafeTaskId(taskId), slug, fsImpl }).read);
 }
 
 /**
@@ -50,8 +49,8 @@ function readPlan(projectRoot: any, taskId: any, slug: any = null, fsImpl: any =
  * @returns {string} the written file path
  */
 function updatePlan(projectRoot: any, taskId: any, slug: any, build: any, fsImpl: any = fs, prepare?: any): string {
-  const file = planPath(projectRoot, taskId, slug);
-  return updateTaskState({ fsImpl, file, build, prepare });
+  const { file, seed } = taskRecord({ projectRoot, store: 'retrieval', taskId: assertSafeTaskId(taskId), slug, fsImpl });
+  return updateTaskState({ fsImpl, file, build, prepare: () => { seed(); if (prepare) prepare(); } });
 }
 
 /** Move a syntactically unreadable plan aside before its replacement is written under the lock. */

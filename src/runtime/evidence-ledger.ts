@@ -7,7 +7,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { updateTaskState, readTaskState, mergeRecords } = require('./task-state.ts');
-const { taskStoreDir } = require('./task-scope.ts');
+const { taskRecord } = require('./task-scope.ts');
 const { assertNoScoreFields } = require('./evidence-fields.ts');
 
 const VALID_EVIDENCE_KINDS = new Set([
@@ -101,11 +101,16 @@ class EvidenceLedger {
     this.seq = 0;
   }
 
-  /** Where this task's evidence file lives: the feature's namespace when it has one (IC-002). */
+  /** Where this task's evidence file is written: the feature's namespace when it has one (IC-002). */
   fileFor(taskId: any) {
-    const dir = this.fixedStateDir
-      || taskStoreDir({ projectRoot: this.repoRoot, store: 'evidence', taskId, slug: this.slug });
-    return path.join(dir, `${assertSafeTaskId(taskId)}.json`);
+    return this.recordFor(taskId).file;
+  }
+
+  /** The task's evidence file, where it is read from and the write lock's seed (task-scope.ts). */
+  recordFor(taskId: any) {
+    const name = `${assertSafeTaskId(taskId)}.json`;
+    if (this.fixedStateDir) { const file = path.join(this.fixedStateDir, name); return { file, read: file, seed: () => {} }; }
+    return taskRecord({ projectRoot: this.repoRoot, store: 'evidence', taskId, slug: this.slug, name, fsImpl: this.fsImpl });
   }
 
   /**
@@ -291,9 +296,10 @@ class EvidenceLedger {
    * @returns {string} filePath
    */
   save(taskId = 'default'): string {
-    const targetFile = this.fileFor(taskId);
+    const { file: targetFile, seed } = this.recordFor(taskId);
     let merged: any;
     const file = updateTaskState({
+      prepare: seed,
       fsImpl: this.fsImpl, file: targetFile,
       build: (disk: any) => {
         merged = mergeRecords(this.queryEvidence({ taskId }), disk?.evidence || [], this.baseline);
@@ -313,7 +319,7 @@ class EvidenceLedger {
    * @returns {number} count of loaded items
    */
   load(taskId = 'default'): number {
-    const targetFile = this.fileFor(taskId);
+    const targetFile = this.recordFor(taskId).read;
     const data = readTaskState(this.fsImpl, targetFile);
     if (data && Array.isArray(data.evidence)) {
       for (const item of data.evidence) {

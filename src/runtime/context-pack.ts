@@ -54,7 +54,7 @@ const { boundedAcquire } = require('./task-state.ts');
 const pointerTools = require('./context/pointer.ts');
 const { arbitrate, emitContext } = require('./context/arbitrate.ts');
 const { updateTaskState } = require('./task-state.ts');
-const { taskStoreDir } = require('./task-scope.ts');
+const { taskRecord } = require('./task-scope.ts');
 
 let correctiveTrimFallbackCount = 0;
 function getCorrectiveTrimFallbackCount(): number { return correctiveTrimFallbackCount; }
@@ -127,10 +127,9 @@ function profileRetention(harnessId: string | null, profiles: any[] | null): any
 }
 
 function appendPointerExpansion({ projectRoot, taskId, slug, key, expansion, fsImpl = fs }: any): void {
-  const dir = taskStoreDir({ projectRoot, store: 'delivery', taskId, slug });
-  const file = path.join(dir, `${taskId}.json`);
+  const { file, seed } = taskRecord({ projectRoot, store: 'delivery', taskId, slug, fsImpl });
   updateTaskState({
-    fsImpl, file,
+    fsImpl, file, prepare: seed,
     acquire: (impl: any, target: string) => boundedAcquire(impl, target, { retries: 3, waitMs: 5 }),
     build(disk: any) {
       const deliveries = Array.isArray(disk?.deliveries) ? disk.deliveries : [];
@@ -875,6 +874,7 @@ class ContextPackCompiler {
  * @param {string} [options.objective]
  * @param {boolean} [options.json=false]
  * @param {string} [options.stateRoot]
+ * @param {string} [options.sourceRoot] the checkout the verb runs in (default stateRoot)
  * @param {string} [options.slug] feature slug, when the task id is not the feature's own
  * @returns {number} exit code
  */
@@ -884,6 +884,7 @@ function handleContextPackCommand({
   objective,
   json = false,
   stateRoot,
+  sourceRoot,
   slug,
   mandatoryFile,
   harness = null,
@@ -896,6 +897,9 @@ function handleContextPackCommand({
   profiles = null,
 }: any = {}) {
   const root = stateRoot || process.cwd();
+  // 115 IC-004/IC-007: records live under `root`; the feature folder, its plan and pointers, and the
+  // source files a delivery hashes are read in the checkout the verb runs in.
+  const source = sourceRoot || root;
   const effectiveTaskClass = (!taskClass || typeof taskClass !== 'string' || taskClass.trim() === '') ? 'feature' : taskClass.trim();
 
   // IC-001 Usage errors
@@ -935,7 +939,7 @@ function handleContextPackCommand({
 
   const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness, profiles });
 
-  const feature = resolveFeature({ projectRoot: root, slug: slug || null });
+  const feature = resolveFeature({ projectRoot: source, slug: slug || null });
 
   let deltaExpansions: any[] = [];
   if (parsedMaxBytes !== undefined) {
@@ -946,7 +950,7 @@ function handleContextPackCommand({
       deltaExpansions.push({ at: new Date().toISOString(), kind: 'cap-raised', target: null, reason, bytesAdded: null });
     }
   }
-  const basis = resolveDeltaBasis({ root, taskId, slug, since: expand ? null : since, budget, profiles });
+  const basis = resolveDeltaBasis({ root, source, taskId, slug, since: expand ? null : since, budget, profiles });
   const { sinceEntry, deltaRefused, retention } = basis;
   if (basis.expansion) deltaExpansions.push(basis.expansion);
 
@@ -955,7 +959,7 @@ function handleContextPackCommand({
     if (!prior) return usageError('context-pack', `Unknown digest '${since}'`, json);
     const pointer = (prior.pointers || []).find((candidate: any) => candidate.id === expand);
     if (!pointer) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
-    const current = pointerTools.readPointerSlice({ projectRoot: root, pointer });
+    const current = pointerTools.readPointerSlice({ projectRoot: source, pointer });
     if (!current) return usageError('context-pack', `Unknown pointer '${expand}' in digest '${since}'`, json);
     const compiler = new ContextPackCompiler();
     const pack = compiler.compileContextPack({ taskId, taskClass: effectiveTaskClass, objective: '', mandatory: { fields: {}, provenance: {} }, budget,
@@ -1009,7 +1013,7 @@ function handleContextPackCommand({
     return finishRuntime(EXIT.OK);
   }
 
-  let mandatory = gatherMandatory({ root, taskId, feature });
+  let mandatory = gatherMandatory({ root: source, taskId, feature });
 
   if (mandatoryFile) {
     try {
@@ -1032,7 +1036,7 @@ function handleContextPackCommand({
   }
 
   const { pack, output } = deliverPack({
-    root, taskId, slug, effectiveTaskClass, objective, mandatory, budget, harness, parsedMaxBytes, bare, noRecord,
+    root, source, taskId, slug, effectiveTaskClass, objective, mandatory, budget, harness, parsedMaxBytes, bare, noRecord,
     json, reason, since, sinceEntry, deltaRefused, deltaExpansions, expand, retention, feature,
   });
   if (console.log !== nativeConsoleLog) {
@@ -1049,7 +1053,7 @@ function handleContextPackCommand({
  * to `emitContext()`. Returns the final pack and its rendered text in the requested form.
  */
 function deliverPack({
-  root, taskId, slug, effectiveTaskClass, objective, mandatory, budget, harness, parsedMaxBytes, bare, noRecord,
+  root, source = root, taskId, slug, effectiveTaskClass, objective, mandatory, budget, harness, parsedMaxBytes, bare, noRecord,
   json, reason, since, sinceEntry, deltaRefused, deltaExpansions, expand, retention, feature,
 }: any): { pack: any; output: string } {
   const ledger = new EvidenceLedger({ repoRoot: root, slug });
@@ -1079,11 +1083,11 @@ function deliverPack({
     deltaSinceEntry: since && !deltaRefused && !expand ? sinceEntry : null,
     deltaRefused,
     expand,
-    pointers: pointerTools.collectPointers({ projectRoot: root, feature }),
+    pointers: pointerTools.collectPointers({ projectRoot: source, feature }),
     evidenceLedger: ledger,
     claimsManager: claims,
     researchRequests,
-    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null }),
+    decisions: loadLiveDecisions({ projectRoot: source, slug: slug || null }),
   });
 
   let deliverySources: any = null;
@@ -1100,7 +1104,7 @@ function deliverPack({
     pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, !noRecord);
   }
   if (!noRecord) {
-    deliverySources = hashSourceFiles(root, pack.relevantFiles || []);
+    deliverySources = hashSourceFiles(source, pack.relevantFiles || []);
     deliveryRetention = retention?.value === 'supported' || retention?.value === 'unsupported'
       ? { status: retention.value, basis: `declared:${retention.source || 'profile'}` }
       : { status: 'unknown', basis: retention?.unverified || 'contextProfile.retention is unverified' };
@@ -1228,7 +1232,7 @@ function deliverPack({
 }
 
 /** The delta basis of a `since` digest: its delivery entry, or why a delta was refused (widened to full). */
-function resolveDeltaBasis({ root, taskId, slug, since, budget, profiles }: any) {
+function resolveDeltaBasis({ root, source = root, taskId, slug, since, budget, profiles }: any) {
   const retention = profileRetention(budget.harness?.id || null, profiles);
   let sinceEntry: any = null;
   let deltaRefused: string | null = null;
@@ -1236,7 +1240,7 @@ function resolveDeltaBasis({ root, taskId, slug, since, budget, profiles }: any)
   if (since) {
     sinceEntry = readDeliveryEntry({ projectRoot: root, taskId, slug, packDigest: since });
     if (!sinceEntry) deltaRefused = 'since-unknown';
-    else if (sourcesChanged(root, sinceEntry.sources || {})) deltaRefused = 'sources-changed';
+    else if (sourcesChanged(source, sinceEntry.sources || {})) deltaRefused = 'sources-changed';
     else if (!budget.harness?.id) deltaRefused = 'harness-unstated';
     else if (retention?.value !== 'supported') deltaRefused = 'retention-unproven';
     if (deltaRefused) {
@@ -1305,12 +1309,14 @@ function gatherMandatory({ root, taskId, feature }: any) {
  * unit's last delivered pack digest (a delta when its entry qualifies, else widened to full).
  * `noRecord` (peek) leaves the delivery store untouched. Rendered as markdown.
  */
-function packForEmission({ root, taskId = 'default', taskClass = 'feature', slug = null, harness = null, maxBytes, since = null, noRecord = false, env = process.env }: any): { pack: any; output: string } {
+function packForEmission({ root, stateRoot = root, taskId = 'default', taskClass = 'feature', slug = null, harness = null, maxBytes, since = null, noRecord = false, env = process.env }: any): { pack: any; output: string } {
   const budget = resolveBudget({ taskClass, maxBytes, harnessFlag: harness, env });
   const feature = resolveFeature({ projectRoot: root, slug: slug || null });
-  const basis = resolveDeltaBasis({ root, taskId, slug, since, budget, profiles: null });
+  // 115 C-2: the delivery record goes where `context-pack` puts it, under the state root; the feature
+  // folder, the plan and the hashed source files are read in `root`, the checkout emitting.
+  const basis = resolveDeltaBasis({ root: stateRoot, source: root, taskId, slug, since, budget, profiles: null });
   return deliverPack({
-    root, taskId, slug, effectiveTaskClass: taskClass, objective: undefined, mandatory: gatherMandatory({ root, taskId, feature }),
+    root: stateRoot, source: root, taskId, slug, effectiveTaskClass: taskClass, objective: undefined, mandatory: gatherMandatory({ root, taskId, feature }),
     budget, harness, parsedMaxBytes: maxBytes, bare: false, noRecord, json: false, reason: null, since,
     sinceEntry: basis.sinceEntry, deltaRefused: basis.deltaRefused, deltaExpansions: basis.expansion ? [basis.expansion] : [],
     expand: null, retention: basis.retention, feature,
