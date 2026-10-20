@@ -14,8 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared');
 const { GENERATED_EXCLUSIONS, alwaysLoaded, measureSource, lineCount } = require('../helper/always-loaded');
-const { resolveTransform } = require('../../src/adapters/copy-tree.ts');
-const { guidanceManifest } = require('../../src/adapters/guidance-manifest.ts');
+const { resolveTransform, resolveSelect } = require('../../src/adapters/copy-tree.ts');
 const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 // The ceiling, in bytes, over the DoFlow-authored always-loaded set.
@@ -77,13 +76,14 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
  * harness (IC-006). A harness's projections and `WHOLESALE_ASSETS` decide which components it pays for:
  *   - `guidance.core`: the pointer plus the @import walk;
  *   - a copy-tree-family projection that declares `select`: the core set after that projection's
- *     transform, listed through `guidanceManifest` (or `selectFiles`, the injection point of the controls);
+ *     transform, listed through the registered selector the projection names (`resolveSelect`, the code
+ *     the adapters run), or `selectFiles`, the injection point of the controls;
  *   - a wholesale projection with no `select`: the whole source tree;
  *   - `guidance.codex-pointer`: the pointer, plus the walk when the harness has no selected projection
  *     (the pointer tells the agent to read DOFLOW_CORE.md, so the walk is paid on instruction).
  * A harness no condition matches is refused, so a ninth harness cannot be reported as costing nothing.
  */
-function alwaysLoadedByHarness({ harnesses, assets }, wholesale, selectFiles = (dir) => guidanceManifest(dir, fs).files) {
+function alwaysLoadedByHarness({ harnesses, assets }, wholesale, selectFiles = (dir, selectName) => resolveSelect(selectName)(dir, fs)) {
   const walk = alwaysLoaded().files;
   const walkSize = {
     lines: walk.reduce((n, file) => n + file.lines, 0), bytes: walk.reduce((n, file) => n + file.bytes, 0),
@@ -93,7 +93,7 @@ function alwaysLoadedByHarness({ harnesses, assets }, wholesale, selectFiles = (
   const measureSelected = (assetId, projected) => {
     const source = sourceOf(assetId);
     const transform = resolveTransform(projected.transform);
-    return selectFiles(path.join(REPO, source)).reduce((total, rel) => {
+    return [...selectFiles(path.join(REPO, source), projected.select)].reduce((total, rel) => {
       let bytes = fs.readFileSync(path.join(REPO, source, rel));
       if (transform) bytes = transform(path.join(source, rel), bytes);
       return { lines: total.lines + lineCount(bytes.toString('utf8')), bytes: total.bytes + bytes.length };
@@ -215,6 +215,22 @@ test('G13: controls — a selector returning every source file fails the upper b
   const everyFile = (dir) => require('../../src/adapters/copy-tree.ts').walkRelFiles(dir, fs);
   const violations = parityViolations(alwaysLoadedByHarness(readRegistry(), WHOLESALE_ASSETS, everyFile));
   assert.ok(violations.some((line) => line.startsWith('kiro: ')), violations.join('\n'));
+});
+
+test('G13: controls — a registered selector that drops a core file turns the guard red and names kiro, copilot and antigravity', () => {
+  const { SELECTORS } = require('../../src/adapters/copy-tree.ts');
+  const real = SELECTORS['guidance-manifest'];
+  assert.deepEqual(parityViolations(alwaysLoadedByHarness(readRegistry(), WHOLESALE_ASSETS)), [], 'precondition: the real selector is in bound');
+  SELECTORS['guidance-manifest'] = (dir, fsImpl) => new Set([...real(dir, fsImpl)].filter((rel) => rel !== 'PRINCIPLES.md'));
+  try {
+    const violations = parityViolations(alwaysLoadedByHarness(readRegistry(), WHOLESALE_ASSETS));
+    for (const harness of ['kiro', 'copilot', 'antigravity']) {
+      assert.ok(violations.some((line) => line.startsWith(`${harness}: `) && /below the \d+ B core set/.test(line)),
+        `${harness} lost PRINCIPLES.md through the registered selector and G13 must say so:\n${violations.join('\n')}`);
+    }
+  } finally {
+    SELECTORS['guidance-manifest'] = real;
+  }
 });
 
 test('G13: controls — the overhead bound binds (a bound of 0 turns the real registry red)', () => {
