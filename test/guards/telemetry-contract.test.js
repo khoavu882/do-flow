@@ -427,7 +427,15 @@ function checkZeroDependencies(packageText, adviceGuardText) {
   if (Array.isArray(manifest.files)) {
     for (const entry of manifest.files) {
       if (typeof entry === 'string') {
-        const norm = entry.replace(/\\/g, '/').replace(/^(\.\/)+/, '');
+        // Normalise the way npm resolves an entry: a leading '/', a '..' segment or a case-folding
+        // file system ('Console/') still ships console/, so each spelling must meet the check.
+        let norm = entry.replace(/\\/g, '/');
+        norm = path.posix.normalize(norm);
+        while (norm.startsWith('./') || norm.startsWith('/')) {
+          norm = norm.startsWith('./') ? norm.slice(2) : norm.slice(1);
+        }
+        if (norm.startsWith('../')) continue;
+        norm = norm.toLowerCase();
         if (norm === 'console' || norm.startsWith('console/')) {
           errors.push(`package.json files ships console (${entry})`);
         }
@@ -905,6 +913,14 @@ test('G45.5 self-test: a dependency, or a missing G30.2 guard, fails', () => {
   assert.deepEqual(checkZeroDependencies('{"files":["src/","consoles/"]}', guard), []);
   assert.deepEqual(checkZeroDependencies('{"files":["src/console.ts"]}', guard), []);
   assert.deepEqual(checkZeroDependencies('{"files":[]}', guard), []);
+});
+
+test('G45.5 self-test: files entry variants /console, Console/ and src/../console fail (C-7)', () => {
+  const guard = "test('G30.2: shipped package has no runtime dependencies', () => {});";
+  assert.deepEqual(checkZeroDependencies('{"files":["/console"]}', guard), ['package.json files ships console (/console)']);
+  assert.deepEqual(checkZeroDependencies('{"files":["Console/"]}', guard), ['package.json files ships console (Console/)']);
+  assert.deepEqual(checkZeroDependencies('{"files":["src/../console"]}', guard), ['package.json files ships console (src/../console)']);
+  assert.deepEqual(checkZeroDependencies('{"files":["../console"]}', guard), []);
 });
 
 test('G45.6 self-test: an undeclared store, a non-runs path, a ledger-shaped path and an unlisted writer fail', () => {
