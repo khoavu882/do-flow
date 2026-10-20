@@ -7,6 +7,8 @@
 //   instructions — marker-managed section in PROJECT AGENTS.md only. Global memory is
 //     ~/.gemini/GEMINI.md, shared with the Gemini CLI harness; two adapters writing one file with
 //     one marker pair would fight, so global instructions are reported, never written.
+//   rules        — the core set (DOFLOW_CORE.md and the files it imports), flat, in project .agents/rules
+//     only; the full guidance tree stays in .doflow/guidance.
 //   skills       — folder-form copy-tree into project .agents/skills or user ~/.gemini/config/skills.
 //   agents       — copy-tree into project .agents/agents or user ~/.gemini/config/agents.
 //   mcp          — entries of the mcpServers object in .agents/mcp_config.json (workspace) or
@@ -23,6 +25,7 @@ const path = require('node:path');
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
+const { renderGuidancePointer } = require('../guidance-pointer.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 
 const HARNESS = 'antigravity';
@@ -279,7 +282,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   for (const { asset, destDir } of targets) {
     const sourceDir = sourceDirFor(asset, { repoRoot }, fsImpl, HARNESS);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, keepModified: !removing,
+    const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, select: asset.select, keepModified: !removing,
       // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
       // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
       // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
@@ -365,8 +368,9 @@ function planInstructions({ paths, assets, removing, repoRoot, fsImpl = fs }: an
   }
   const sourceText = pointerBody(fsImpl);
   if (!sourceText) return { changes: [], conflicts: [] };
+  const pointer = renderGuidancePointer(sourceText, { scope: scopeOf(paths), scopeRoot: paths.root });
   const existing = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-  const outcome = managedInstruction(existing, render({ content: sourceText }));
+  const outcome = managedInstruction(existing, render({ content: pointer }));
   if (!outcome.ok) return { changes: [], conflicts: [outcome.conflict] };
   if (outcome.operation === 'none') return { changes: [], conflicts: [] };
   return {
@@ -619,7 +623,7 @@ function verify(options: any = {}, impl: any = {}) {
     const destDir = treeDestFor(asset, paths, scope);
     if (!destDir) continue;
     const sourceDir = sourceDirFor(asset, { repoRoot: context.repoRoot }, fsImpl, HARNESS);
-    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, plannedWrites: context.plannedWrites });
+    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, select: asset.select, plannedWrites: context.plannedWrites });
     conflictsToStatuses(result.conflicts, asset.id, statuses);
     for (const resource of result.resources) {
       resources.push({

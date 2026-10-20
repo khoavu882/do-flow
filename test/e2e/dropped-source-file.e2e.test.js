@@ -12,6 +12,10 @@ const { createScratch } = require('../helper/scratch-env');
 const REPO = path.resolve(__dirname, '..', '..');
 const DROPPED = 'RESEARCH_CONFIG.md';
 const SOURCE = path.join('core', 'shared', 'guidance', 'references', DROPPED);
+// A file in Kiro's steering core set (DOFLOW_CORE.md and what it imports), unlike RESEARCH_CONFIG.md
+// which Kiro's steering no longer holds.
+const CORE_DROPPED = 'RULE_04_QUESTIONS.md';
+const CORE_SOURCE = path.join('core', 'shared', 'guidance', 'rules', CORE_DROPPED);
 const CASE_TIMEOUT_MS = 300_000;
 
 const scratches = [];
@@ -53,7 +57,8 @@ function ledgerRows(scratch) {
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).resources : [];
 }
 
-const namesDropped = (row) => typeof row.target === 'string' && row.target.endsWith(DROPPED);
+const namesFile = (name) => (row) => typeof row.target === 'string' && row.target.endsWith(name);
+const namesDropped = namesFile(DROPPED);
 
 /** Every file named RESEARCH_CONFIG.md under `home`, outside the backups an update takes first. */
 function installedCopies(home) {
@@ -63,52 +68,72 @@ function installedCopies(home) {
     .filter((full) => path.basename(full) === DROPPED && !full.startsWith(backups));
 }
 
-function dropSource() {
-  fs.rmSync(path.join(pkg, SOURCE));
+function dropSource(source = SOURCE) {
+  fs.rmSync(path.join(pkg, source));
 }
 
-function restoreSource() {
-  fs.copyFileSync(path.join(REPO, SOURCE), path.join(pkg, SOURCE));
+function restoreSource(source = SOURCE) {
+  fs.copyFileSync(path.join(REPO, source), path.join(pkg, source));
 }
 
-/** One Kiro round: install, optionally edit the steering copy, drop the source, update. */
-function kiroRound(label, { edit }) {
+/** One Kiro round: install, optionally edit the steering copy, drop the source, update. `dir` and
+ * `source` name the dropped file under guidance/ and in the package; it must be a core-set file when
+ * the steering copy is expected, because Kiro's steering holds only the core set. */
+function kiroRound(label, { edit, name = CORE_DROPPED, dir = 'rules', source = CORE_SOURCE }) {
   const scratch = newScratch(label);
-  const global = path.join(scratch.home, '.doflow', 'guidance', 'references', DROPPED);
-  const steering = path.join(scratch.home, '.kiro', 'steering', 'references', DROPPED);
+  const global = path.join(scratch.home, '.doflow', 'guidance', dir, name);
+  const steering = path.join(scratch.home, '.kiro', 'steering', dir, name);
   runOk(scratch, ['install', '-g', '-t', 'kiro', '-f', '--mcp', 'none']);
   assert.ok(fs.existsSync(global), 'install projected the guidance copy');
   assert.ok(fs.existsSync(steering), 'install projected the Kiro steering copy');
   if (edit) fs.appendFileSync(steering, '\nA line the user added.\n');
   const edited = edit ? fs.readFileSync(steering) : null;
-  dropSource();
+  dropSource(source);
   try {
     const update = runOk(scratch, ['update', '-g', '-t', 'kiro', '-f']);
     return { scratch, global, steering, edited, update };
   } finally {
-    restoreSource();
+    restoreSource(source);
   }
 }
 
-test('Kiro drops a guidance file: both installed copies and their rows go, and retrieve no longer returns it', { timeout: CASE_TIMEOUT_MS }, () => {
+test('Kiro drops a core guidance file: both installed copies and their rows go, and retrieve no longer returns it', { timeout: CASE_TIMEOUT_MS }, () => {
   const { scratch, global, steering, update } = kiroRound('kiro-drop', { edit: false });
   assert.equal(fs.existsSync(global), false);
   assert.equal(fs.existsSync(steering), false);
-  assert.deepEqual(ledgerRows(scratch).filter(namesDropped), []);
+  assert.deepEqual(ledgerRows(scratch).filter(namesFile(CORE_DROPPED)), []);
   assert.doesNotMatch(update.stdout, /kept hand-edited/);
-  const retrieve = runOk(scratch, ['retrieve', '--query', 'RESEARCH_CONFIG'], { cwd: scratch.home });
-  const paths = retrieve.stdout.split('\n').filter((line) => line.includes(DROPPED));
-  assert.deepEqual(paths, [], `retrieve output names no ${DROPPED}\n${retrieve.stdout}`);
+  const retrieve = runOk(scratch, ['retrieve', '--query', 'RULE_04_QUESTIONS'], { cwd: scratch.home });
+  // Result lines are `N. [score] <path>`; other guidance files still mention the dropped one in their text.
+  const paths = retrieve.stdout.split('\n').filter((line) => /^\s*\d+\.\s+\[[^\]]*\]\s+\S*RULE_04_QUESTIONS\.md/.test(line));
+  assert.deepEqual(paths, [], `retrieve output names no ${CORE_DROPPED}\n${retrieve.stdout}`);
 });
 
-test('Kiro drops a guidance file the user edited: the edited copy stays, its row goes, one notice names it', { timeout: CASE_TIMEOUT_MS }, () => {
+test('Kiro drops a non-core guidance file: only the shared copy existed, and it and its row go', { timeout: CASE_TIMEOUT_MS }, () => {
+  const scratch = newScratch('kiro-drop-noncore');
+  const global = path.join(scratch.home, '.doflow', 'guidance', 'references', DROPPED);
+  const steering = path.join(scratch.home, '.kiro', 'steering', 'references', DROPPED);
+  runOk(scratch, ['install', '-g', '-t', 'kiro', '-f', '--mcp', 'none']);
+  assert.ok(fs.existsSync(global), 'install projected the guidance copy');
+  assert.equal(fs.existsSync(steering), false, 'Kiro steering holds the core set only');
+  dropSource();
+  try {
+    runOk(scratch, ['update', '-g', '-t', 'kiro', '-f']);
+  } finally {
+    restoreSource();
+  }
+  assert.equal(fs.existsSync(global), false);
+  assert.deepEqual(ledgerRows(scratch).filter(namesDropped), []);
+});
+
+test('Kiro drops a core guidance file the user edited: the edited copy stays, its row goes, one notice names it', { timeout: CASE_TIMEOUT_MS }, () => {
   const { scratch, global, steering, edited, update } = kiroRound('kiro-edited', { edit: true });
   assert.deepEqual(fs.readFileSync(steering), edited);
   assert.equal(fs.existsSync(global), false);
-  assert.deepEqual(ledgerRows(scratch).filter(namesDropped), []);
+  assert.deepEqual(ledgerRows(scratch).filter(namesFile(CORE_DROPPED)), []);
   const notices = update.stdout.split('\n').filter((line) => line.includes('kept hand-edited'));
   assert.equal(notices.length, 1, update.stdout);
-  assert.ok(notices[0].includes(path.join('.kiro', 'steering', 'references', DROPPED)), notices[0]);
+  assert.ok(notices[0].includes(path.join('.kiro', 'steering', 'rules', CORE_DROPPED)), notices[0]);
 });
 
 test('every harness: update removes what install projected from the dropped source, and leaves no copy no row names', { timeout: 8 * CASE_TIMEOUT_MS }, () => {

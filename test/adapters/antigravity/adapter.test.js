@@ -277,6 +277,22 @@ test('rules and workflows are workspace-scope only, landing under .agents/, and 
     'neither rules nor workflows have a documented user-scope home');
 });
 
+test('a project install writes the seven core files flat in .agents/rules, plus the pointer naming .doflow/guidance', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
+  const planned = adapter.plan(input);
+  assert.deepEqual(planned.conflicts, []);
+  adapter.apply({ ...input, changes: planned.changes });
+  const rules = path.join(root, '.agents', 'rules');
+  assert.deepEqual(fs.readdirSync(rules, { recursive: true }).sort(),
+    ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md', 'RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md']);
+  const agentsMd = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+  assert.match(agentsMd, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
+  assert.doesNotMatch(agentsMd, /\{\{GUIDANCE\}\}/);
+  assert.equal(adapter.verify(input).ok, true);
+});
+
 function verifiedResources(adapt, input) {
   const v = adapt.verify(input);
   return (v.resources || []).map((r) => ({ ...r, harness: 'antigravity', kind: r.kind || 'copy-tree-file' }));

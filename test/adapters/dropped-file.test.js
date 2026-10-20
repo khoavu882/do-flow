@@ -36,13 +36,16 @@ function run(harness) {
   return { notices: target.notices ?? [], ledger };
 }
 
-/** The first copy-tree row of `harness` whose source file exists under the package copy's core/. */
+/** The first copy-tree row of `harness` whose source file exists under the package copy's core/.
+ * DOFLOW_CORE.md is skipped: it is the root every `guidance-manifest` selection starts from, so a
+ * package without it has no core set to project (guidanceManifest refuses it, by design). */
 function droppableRow(ledger, harness) {
   const assets = new Map(loadRegistry({ repoRoot: pkg }).assets.map((asset) => [asset.id, asset]));
   const core = path.join(pkg, 'core') + path.sep;
   for (const row of ledger.resources) {
     if (row.harness !== harness || row.kind !== 'copy-tree-file' || !assets.has(row.assetId)) continue;
     const source = path.join(pkg, assets.get(row.assetId).source, row.identity);
+    if (path.basename(source) === 'DOFLOW_CORE.md') continue;
     if (source.startsWith(core) && fs.existsSync(source) && fs.statSync(source).isFile()) return { row, source };
   }
   return null;

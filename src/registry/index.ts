@@ -19,6 +19,9 @@ const REGISTRY_FILES = Object.freeze({
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
 // Kept local to avoid a registry -> adapter import cycle; registry.test.js ties this list to SELECTORS.
 const COPY_TREE_SELECTS = new Set(['guidance-manifest']);
+// Renderers that materialize through the copy-tree engine and so may carry a `select`: the generic one and
+// Copilot's rule renderer, which differs only by its transform and layout.
+const COPY_TREE_SELECT_RENDERERS = new Set(['copy-tree', 'copilot-rule-instructions']);
 /** The orchestration block's own status vocabulary (074 IC-026): whether a harness exposes a
  * primitive, kept apart from CAPABILITY_STATUS because "unknown" is a recorded state here, not a gap. */
 const ORCHESTRATION_STATUS = new Set(['supported', 'unsupported', 'unknown']);
@@ -753,7 +756,7 @@ function validateRegistry(
       if (!capability) issue(errors, at, `projection '${harnessId}' references unknown capability '${projection.capability}'`);
       else if (capability.status === 'unavailable') issue(errors, at, `projection '${harnessId}' cannot render unavailable capability '${projection.capability}'`);
       if (projection.select !== undefined) {
-        if (projection.renderer !== 'copy-tree') issue(errors, at, `projection '${harnessId}' select is only valid for 'copy-tree'`);
+        if (!COPY_TREE_SELECT_RENDERERS.has(projection.renderer)) issue(errors, at, `projection '${harnessId}' select is only valid for ${[...COPY_TREE_SELECT_RENDERERS].map((name) => `'${name}'`).join(' and ')}`);
         if (typeof projection.select !== 'string' || !COPY_TREE_SELECTS.has(projection.select)) {
           issue(errors, at, `projection '${harnessId}' has unknown select '${projection.select}' (known: ${[...COPY_TREE_SELECTS].join(', ')})`);
         }

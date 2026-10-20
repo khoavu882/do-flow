@@ -85,7 +85,8 @@
         },
         "kiro": {
           "renderer": "copy-tree",
-          "capability": "instructions"
+          "capability": "instructions",
+          "select": "guidance-manifest"
         },
         "antigravity": {
           "renderer": "copy-tree",
@@ -655,7 +656,7 @@
     {
       "id": "instructions.copilot",
       "kind": "instructions",
-      "source": "core/shared/guidance/rules",
+      "source": "core/shared/guidance",
       "appliesTo": [
         "copilot"
       ],
@@ -668,7 +669,8 @@
           "renderer": "copilot-rule-instructions",
           "capability": "instructions",
           "transform": "copilot-rule-instructions",
-          "layout": "instructions-md"
+          "layout": "instructions-md",
+          "select": "guidance-manifest"
         }
       }
     },
@@ -695,7 +697,7 @@
     {
       "id": "rules.antigravity",
       "kind": "guidance",
-      "source": "core/shared/guidance/rules",
+      "source": "core/shared/guidance",
       "appliesTo": [
         "antigravity"
       ],
@@ -706,7 +708,9 @@
       "projection": {
         "antigravity": {
           "renderer": "copy-tree",
-          "capability": "instructions"
+          "capability": "instructions",
+          "layout": "flat",
+          "select": "guidance-manifest"
         }
       }
     },
