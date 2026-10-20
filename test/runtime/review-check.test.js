@@ -1,0 +1,386 @@
+'use strict';
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp');
+const { countFindings } = require('../../src/runtime/review/findings.ts');
+const { handleReviewCommand } = require('../../src/runtime/review/command.ts');
+
+const REPO = path.resolve(__dirname, '../..');
+const SECRET = 'SECRET-095-PLANT';
+const HEAD_A = '0123456789abcdef0123456789abcdef01234567';
+const HEAD_B = 'fedcba9876543210fedcba9876543210fedcba98';
+
+function validRecord() {
+  return {
+    schema: 1,
+    row: '095',
+    slug: '095-review-convergence',
+    reviewedHead: HEAD_B,
+    rounds: 2,
+    seats: [
+      { id: 'seat-a', findings: [{ id: 'source-a', severity: 'should-fix', locator: 'src/a.ts:4', summary: 'Type narrowing' }] },
+      { id: 'seat-b', findings: [] },
+    ],
+    converged: [
+      { id: 'finding-a', from: ['source-a'], severity: 'should-fix', locator: 'src/a.ts:4', status: 'open' },
+    ],
+  };
+}
+
+function fakeWriter() {
+  const records = [];
+  return { records, writer: { write: (batch) => records.push(...batch) } };
+}
+
+function invoke(options) {
+  const lines = [];
+  const exitCode = handleReviewCommand({ ...options, out: (line) => lines.push(line) });
+  process.exitCode = 0;
+  return { exitCode, lines };
+}
+
+function writeRecord(root, record, relativePath = 'feature/review/findings.json') {
+  const file = path.join(root, relativePath);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(record)}\n`, 'utf8');
+  return file;
+}
+
+function baseOptions(cwd, recordPath, writer) {
+  return {
+    action: 'check',
+    path: recordPath,
+    cwd,
+    env: {},
+    git: () => ({ status: 0 }),
+    writer,
+    resolve: () => ({ error: 'unexpected-resolve', message: 'path locator should not resolve a feature' }),
+  };
+}
+
+function parseJsonOutput(lines) {
+  assert.equal(lines.length, 1, 'JSON result is exactly one output line');
+  return JSON.parse(lines[0]);
+}
+
+test('valid review check exits zero and reports the shared finding counts', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-valid-');
+  const record = validRecord();
+  const file = writeRecord(cwd, record);
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(body, {
+    schema: 1,
+    path: file,
+    valid: true,
+    errors: [],
+    advisories: [],
+    counts: countFindings(record),
+  });
+  assert.equal(capture.records.length, 1);
+  assert.equal(capture.records[0].kind, 'review.run');
+});
+
+test('invalid review check exits one with validation errors and null counts', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-invalid-');
+  const record = validRecord();
+  record.slug = 'not-the-row-slug';
+  const file = writeRecord(cwd, record);
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(body.valid, false);
+  assert.deepEqual(body.errors, ['slug']);
+  assert.deepEqual(body.advisories, []);
+  assert.equal(body.counts, null);
+  assert.equal(capture.records.length, 1);
+  assert.equal(capture.records[0].task, 'not-the-row-slug');
+  for (const key of Object.keys(countFindings(validRecord())).filter((name) => name !== 'task')) {
+    assert.equal(capture.records[0][key], null, `${key} is null for an invalid record`);
+  }
+  assert.equal(capture.records[0].errors, 1);
+});
+
+test('text output prints its summary followed by one counts line for a valid record', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-text-');
+  const record = validRecord();
+  const file = writeRecord(cwd, record);
+  const capture = fakeWriter();
+  const result = invoke(baseOptions(cwd, file, capture.writer));
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.lines[0], 'review check: valid (0 errors, 0 advisories)');
+  assert.equal(result.lines[1], Object.entries(countFindings(record)).map(([key, value]) => `${key}=${value}`).join(' '));
+  assert.equal(result.lines.length, 2);
+});
+
+test('missing findings file exits one and writes missing telemetry', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-missing-');
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, path.join(cwd, 'absent.json'), capture.writer), json: true });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(body.errors, ['missing']);
+  assert.equal(body.counts, null);
+  assert.equal(capture.records.length, 1);
+  assert.equal(capture.records[0].task, null);
+  assert.equal(capture.records[0].errors, 1);
+});
+
+test('bad JSON exits one with the validator json error', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-json-');
+  const file = path.join(cwd, 'findings.json');
+  fs.writeFileSync(file, '{', 'utf8');
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(body.errors, ['json']);
+  assert.equal(body.counts, null);
+  assert.equal(capture.records.length, 1);
+  assert.equal(capture.records[0].task, null);
+});
+
+test('unreadable findings path exits one with unreadable error', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-unreadable-');
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, cwd, capture.writer), json: true });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(body.errors, ['unreadable']);
+  assert.equal(body.counts, null);
+  assert.equal(capture.records.length, 1);
+});
+
+test('usage errors reject both locators, missing or unknown action, and empty values without telemetry', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-usage-');
+  const capture = fakeWriter();
+  const common = { cwd, env: {}, writer: capture.writer, resolve: () => ({}) };
+
+  assert.equal(invoke({ ...common, action: 'check', slug: '095-review-convergence', path: 'findings.json' }).exitCode, 2);
+  assert.equal(invoke({ ...common, action: 'nope' }).exitCode, 2);
+  assert.equal(invoke({ ...common }).exitCode, 2);
+  assert.equal(invoke({ ...common, action: 'check', path: '' }).exitCode, 2);
+  assert.equal(invoke({ ...common, action: 'check', slug: '   ' }).exitCode, 2);
+  assert.deepEqual(capture.records, []);
+});
+
+test('pre-existing commit must be an ancestor of the reviewed head', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-non-ancestor-');
+  const record = validRecord();
+  record.converged[0].origin = 'pre-existing';
+  record.converged[0].preExistingAt = HEAD_A;
+  const file = writeRecord(cwd, record);
+  const capture = fakeWriter();
+  let gitCall;
+  const result = invoke({
+    ...baseOptions(cwd, file, capture.writer),
+    json: true,
+    git: (args, gitCwd) => { gitCall = { args, cwd: gitCwd }; return { status: 1 }; },
+  });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(gitCall, { args: ['merge-base', '--is-ancestor', HEAD_A, HEAD_B], cwd: path.dirname(file) });
+  assert.deepEqual(body.errors, ['preExistingAt-not-ancestor:finding-a']);
+  assert.equal(body.counts, null);
+  assert.equal(body.counts, null);
+});
+
+test('git status 128 is an ancestry advisory and does not invalidate the record', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-git-unavailable-');
+  const record = validRecord();
+  record.rounds = 3;
+  record.converged[0].severity = 'blocker';
+  record.converged[0].origin = 'pre-existing';
+  record.converged[0].preExistingAt = HEAD_A;
+  const file = writeRecord(cwd, record);
+  const capture = fakeWriter();
+  const result = invoke({
+    ...baseOptions(cwd, file, capture.writer),
+    json: true,
+    git: () => ({ status: 128 }),
+  });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(body.errors, []);
+  assert.deepEqual(body.advisories, [
+    'ancestry-unchecked:finding-a',
+    'round-cap:3',
+    'unverified-blocker:finding-a',
+  ]);
+  assert.deepEqual(body.counts, countFindings(record));
+});
+
+test('round-cap review advisory preserves a successful exit', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-round-cap-');
+  const record = validRecord();
+  record.rounds = 3;
+  const file = writeRecord(cwd, record);
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(body.errors, []);
+  assert.deepEqual(body.advisories, ['round-cap:3']);
+});
+
+test('slug locator uses the injected resolver and reads its feature review record', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-slug-');
+  const featureFolder = path.join(cwd, 'agent-docs', 'doflow', '095-review-convergence');
+  const record = validRecord();
+  const file = writeRecord(cwd, record, 'agent-docs/doflow/095-review-convergence/review/findings.json');
+  const capture = fakeWriter();
+  let resolution;
+  const result = invoke({
+    action: 'check',
+    slug: '095-review-convergence',
+    cwd,
+    env: {},
+    git: () => ({ status: 0 }),
+    writer: capture.writer,
+    resolve: (options) => { resolution = options; return { featureFolder }; },
+    json: true,
+  });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(resolution, { projectRoot: cwd, slug: '095-review-convergence' });
+  assert.equal(body.path, file);
+});
+
+test('resolver error reports missing and explains the reason in text output', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-resolve-error-');
+  const capture = fakeWriter();
+  const result = invoke({
+    action: 'check',
+    slug: '095-review-convergence',
+    cwd,
+    env: {},
+    writer: capture.writer,
+    resolve: () => ({ error: 'no-active-feature', message: 'branch has no active feature' }),
+  });
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.lines[0], /^review check: invalid \(1 errors, 0 advisories\)$/);
+  assert.equal(result.lines[1], 'error: missing: branch has no active feature');
+  assert.equal(capture.records.length, 1);
+});
+
+test('each check writes one review.run record using only declared review fields', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-telemetry-');
+  const record = validRecord();
+  const file = writeRecord(cwd, record);
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
+  const declared = new Set(['kind', ...Object.keys(registry.kinds['review.run'].fields)]);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(capture.records.length, 1);
+  assert.equal(capture.records[0].kind, 'review.run');
+  assert.ok(Object.keys(capture.records[0]).every((key) => declared.has(key)), 'telemetry record has no undeclared keys');
+  assert.equal(capture.records[0].errors, 0);
+  assert.equal(capture.records[0].advisories, 0);
+});
+
+test('privacy: telemetry omits planted review content and the record path', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-secret-');
+  const record = validRecord();
+  record.seats[0].id = `${SECRET}-seat`;
+  record.seats[0].findings[0].id = `${SECRET}-source`;
+  record.seats[0].findings[0].locator = `${SECRET}/seat.ts:1`;
+  record.seats[0].findings[0].summary = `${SECRET} summary text`;
+  record.converged[0] = {
+    id: `${SECRET}-converged`,
+    from: [`${SECRET}-source`],
+    severity: 'should-fix',
+    locator: `${SECRET}/converged.ts:2`,
+    status: 'open',
+    bugClass: `${SECRET} bug class`,
+    sweep: `${SECRET} sweep command`,
+  };
+  const file = writeRecord(cwd, record, `${SECRET}/review/findings.json`);
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(capture.records.length, 1);
+  assert.equal(JSON.stringify(capture.records[0]).includes(SECRET), false);
+});
+
+test('end-to-end: real telemetry writer and git verify ancestry and omit planted content', (t) => {
+  const project = tempDir(t, 'doflow-review-check-e2e-');
+  const runs = path.join(project, '.doflow', 'state', 'runs');
+  fs.mkdirSync(runs, { recursive: true });
+
+  const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' };
+  const git = (args, cwd) => spawnSync('git', args, { cwd, env: gitEnv, stdio: 'ignore' });
+  assert.equal(git(['init', '-q'], project).status, 0);
+  fs.writeFileSync(path.join(project, 'tracked.txt'), 'first\n', 'utf8');
+  assert.equal(git(['add', 'tracked.txt'], project).status, 0);
+  assert.equal(git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'first'], project).status, 0);
+  const first = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: project, env: gitEnv, encoding: 'utf8' }).stdout.trim();
+
+  fs.writeFileSync(path.join(project, 'tracked.txt'), 'second\n', 'utf8');
+  assert.equal(git(['add', 'tracked.txt'], project).status, 0);
+  assert.equal(git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'second'], project).status, 0);
+  const second = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: project, env: gitEnv, encoding: 'utf8' }).stdout.trim();
+
+  const record = validRecord();
+  record.reviewedHead = second;
+  record.seats[0].id = `${SECRET}-seat`;
+  record.seats[0].findings[0].id = `${SECRET}-source`;
+  record.seats[0].findings[0].locator = `${SECRET}/seat.ts:1`;
+  record.seats[0].findings[0].summary = `${SECRET} summary text`;
+  record.converged[0] = {
+    id: `${SECRET}-converged`,
+    from: [`${SECRET}-source`],
+    severity: 'blocker',
+    locator: `${SECRET}/converged.ts:2`,
+    status: 'open',
+    origin: 'pre-existing',
+    preExistingAt: first,
+    escapedFrom: '094',
+    bugClass: `${SECRET} bug class`,
+    sweep: `${SECRET} sweep command`,
+  };
+  const recordPath = writeRecord(project, record, `feature-${SECRET}/review/findings.json`);
+  const options = { action: 'check', path: recordPath, cwd: project, env: {}, git, json: true };
+
+  const valid = invoke(options);
+  assert.equal(valid.exitCode, 0);
+  assert.deepEqual(parseJsonOutput(valid.lines).errors, []);
+
+  record.reviewedHead = first;
+  record.converged[0].preExistingAt = second;
+  fs.writeFileSync(recordPath, JSON.stringify(record), 'utf8');
+  const swapped = invoke(options);
+  assert.equal(swapped.exitCode, 1);
+  assert.deepEqual(parseJsonOutput(swapped.lines).errors, [`preExistingAt-not-ancestor:${SECRET}-converged`]);
+
+  const telemetryDir = path.join(runs, 'telemetry');
+  const files = fs.readdirSync(telemetryDir).filter((name) => name.endsWith('.jsonl'));
+  assert.equal(files.length, 1);
+  const lines = fs.readFileSync(path.join(telemetryDir, files[0]), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(lines.length, 2);
+  assert.deepEqual(lines.map((line) => line.kind), ['review.run', 'review.run']);
+  assert.ok(lines.every((line) => !JSON.stringify(line).includes(SECRET)), 'real telemetry lines omit planted content and path');
+  assert.equal(lines[0].errors, 0);
+  assert.equal(lines[1].errors, 1);
+});
+
