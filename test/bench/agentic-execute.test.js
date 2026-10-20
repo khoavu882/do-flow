@@ -532,6 +532,58 @@ test('execute: api-error, silent and unreported usage are recorded outcomes with
   assert.deepEqual(leftovers(s), [], 'workspace and profile removed after success and api-error');
 });
 
+// R-1 / R-6: usage the worker already reported is never thrown away when the run does not end on its
+// own terms. An interrupted or timed-out run counts at the larger of its transcript sum and
+// maxTokensPerRun, so an overshoot followed by an interrupt still stops the next command.
+const R1_CONFIG = () => testConfig((c) => { c.timeoutSeconds = 60; c.maxTokensPerRun = 250000; });
+const reportedTurn = (s) => {
+  const file = path.join(s.runRoot, 'it1', 'T1', 'transcript.jsonl');
+  return fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('turn.completed');
+};
+
+test('R-1: SIGINT after the worker reported 900000 tokens records the larger of the sum and maxTokensPerRun; the next command is stopped by the cap', { timeout: 30000 }, async () => {
+  const s = setup({ config: R1_CONFIG() });
+  const scenario = writeScenario(s, 'overhang', oneTask({ behaviour: 'report-then-hang', tokens: 900000 }));
+  const extraEnv = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
+  const { child, done } = spawnDriver(s, { tasks: ['T1'], extraEnv });
+  assert.ok(await waitFor(() => reportedTurn(s)), 'the worker reported its turn');
+  child.kill('SIGINT');
+  const ended = await done;
+  assert.equal(ended.signal, 'SIGINT', `the executor re-raises SIGINT (stderr: ${ended.stderr})`);
+  const dir = path.join(s.runRoot, 'it1', 'T1');
+  assert.equal(readJson(dir, 'run_status.json').status, 'truncated');
+  assert.equal(readJson(dir, 'timing.json').total_tokens, 900000, 'the reported usage is kept, not replaced by unknown');
+  const next = await execute.executeIteration({ ...s.opts, tasks: ['T2'], cap: 500000, extraEnv });
+  assert.equal(next.exit, 3, 'counting the interrupted run at 250000 would admit T2 (250000 + 250000 <= 500000)');
+  assert.deepEqual(next.ran, []);
+  assert.deepEqual(next.undone, ['T2']);
+  assert.equal(next.spent, 900000);
+  assert.equal(runDump(s).length, 1, 'no second paid spawn');
+});
+
+test('R-1: SIGINT after a small reported usage still counts the run at maxTokensPerRun', { timeout: 30000 }, async () => {
+  const s = setup({ config: R1_CONFIG() });
+  const scenario = writeScenario(s, 'smallhang', oneTask({ behaviour: 'report-then-hang', tokens: 100 }));
+  const extraEnv = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
+  const { child, done } = spawnDriver(s, { tasks: ['T1'], extraEnv });
+  assert.ok(await waitFor(() => reportedTurn(s)), 'the worker reported its turn');
+  child.kill('SIGINT');
+  assert.equal((await done).signal, 'SIGINT');
+  const next = await execute.executeIteration({ ...s.opts, tasks: ['T2'], cap: 400000, extraEnv });
+  assert.equal(next.exit, 3, '250000 + 250000 > 400000');
+  assert.equal(next.spent, 250000, 'a turn may have been in flight: the run counts at maxTokensPerRun, not 100');
+});
+
+test('R-6: a timed-out run that reported a turn counts at the larger of its sum and maxTokensPerRun', async () => {
+  const s = setup({ config: testConfig((c) => { c.timeoutSeconds = 0.5; c.maxTokensPerRun = 250000; }) });
+  const scenario = writeScenario(s, 'timeouthang', oneTask({ behaviour: 'report-then-hang', tokens: 100 }));
+  const extraEnv = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
+  const first = await execute.executeIteration({ ...s.opts, tasks: ['T1'], extraEnv });
+  assert.equal(readJson(s.runRoot, 'it1', 'T1', 'run_status.json').status, 'timeout');
+  assert.equal(readJson(s.runRoot, 'it1', 'T1', 'timing.json').total_tokens, 100, 'the reported sum is kept as recorded');
+  assert.equal(first.spent, 250000, 'counting the reported 100 would hide a turn in flight');
+});
+
 test('execute: a timeout ends the whole process tree, records it, and removes workspace and profile', async () => {
   const config = testConfig((c) => { c.timeoutSeconds = 0.5; });
   const s = setup({ config });

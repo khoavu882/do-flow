@@ -16,11 +16,13 @@
  *       "tasks": { "<taskId>": { "match": "<substring of the Question line>",
  *                                 "N": <spec>, "D": <spec> } },
  *       "default": { "N": <spec>, "D": <spec> } }
- *     <spec> = { "behaviour": "ok"|"timeout"|"api-error"|"silent"|"crash"|"exit" (default ok),
+ *     <spec> = { "behaviour": "ok"|"timeout"|"api-error"|"silent"|"crash"|"exit"|"report-then-hang" (default ok),
  *                "files": [...], "truthFiles": k, "decoys": m, "commands": [...],
  *                "tokens": n|null, "outputTokens": n, "message": "<api-error text>",
  *                "usageEvents": [<usage object>|null, ...], "exitCode": n }
  *     `crash` writes the answer (stdout and the -o file) and then SIGKILLs itself before any turn end;
+ *     `report-then-hang` reports one turn end with `tokens` and then never exits (an interrupt or a
+ *     timeout after the worker already reported usage);
  *     `exit` answers like `ok` and then exits with `exitCode`. `usageEvents`, when present, replaces
  *     the single `turn.completed`: one event per entry, with that `usage` (null: no usage field).
  *     `match` may be left out when AGENTIC_FAKE_TRUTH is set: the task is then found by the truth
@@ -144,6 +146,13 @@ function main(prompt) {
     // A child in the same process group proves the executor ends the whole tree, not just the leader.
     const sleeper = childProcess.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
     if (env.AGENTIC_FAKE_PIDFILE) fs.writeFileSync(env.AGENTIC_FAKE_PIDFILE, String(sleeper.pid));
+    setInterval(() => {}, 1000);
+    return;
+  }
+
+  if (behaviour === 'report-then-hang') {
+    const output = Math.min(spec.tokens, spec.outputTokens ?? 100);
+    emit({ type: 'turn.completed', usage: { input_tokens: spec.tokens - output, output_tokens: output } });
     setInterval(() => {}, 1000);
     return;
   }

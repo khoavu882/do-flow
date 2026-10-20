@@ -38,9 +38,12 @@ plus one `maxTokensPerRun` is at most the cap. A run can overshoot that reservat
 known only at turn end. The worst case is the cap plus one run's overshoot, bounded only by
 `timeoutSeconds`. If spend passes the cap, `execute` exits 3 and prints
 `cap exceeded by N tokens on <task>`. Accepting this cap meaning is O-1, the user's decision at gate-b.
-`execute` counts a run with unknown usage at `maxTokensPerRun`. On SIGINT, SIGTERM or SIGHUP, it stops
-the worker's process group, removes the scratch profile and workspace, counts the interrupted run at
-`maxTokensPerRun`, then re-raises the signal as exit 130, 143 or 129, respectively.
+`execute` counts a run with unknown usage at `maxTokensPerRun`, and a run that did not complete
+(interrupted, timed out or truncated) at the larger of its reported usage and `maxTokensPerRun`, since a
+turn may have been in flight. On SIGINT, SIGTERM or SIGHUP, it stops the worker's process group, removes
+the scratch profile and workspace, records the usage the worker already reported (so an overshoot
+followed by an interrupt still stops the next `execute`), then re-raises the signal as exit 130, 143 or
+129, respectively.
 
 ## 3. What each result triggers
 

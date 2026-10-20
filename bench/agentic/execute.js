@@ -254,15 +254,21 @@ const runDirsOf = (iterDir) => entriesOf(iterDir).runs;
 
 /**
  * Tokens spent so far in one iteration: each run's recorded `total_tokens`, a run with unknown usage
- * counted at `maxTokensPerRun` (the unsafe-low direction would let a blind run hide spend). A
- * symlinked entry counts at `maxTokensPerRun` too: its target is not this iteration's record.
+ * counted at `maxTokensPerRun` (the unsafe-low direction would let a blind run hide spend). A run that
+ * did not complete (interrupted, timed out, truncated, failed, or with no status) counts at the larger
+ * of its recorded sum and `maxTokensPerRun` (review R-1, R-6): a turn may have been in flight, and an
+ * overshoot it already reported is never dropped. A symlinked entry counts at `maxTokensPerRun` too:
+ * its target is not this iteration's record.
  */
 function spentOf(iterDir, maxTokensPerRun) {
   const { runs, links } = entriesOf(iterDir);
   let spent = links.length * maxTokensPerRun;
   for (const dir of runs) {
-    const tokens = readJsonIfPresent(path.join(dir, RUN_FILES.timing))?.total_tokens;
-    spent += Number.isFinite(tokens) && tokens >= 0 ? tokens : maxTokensPerRun;
+    const raw = readJsonIfPresent(path.join(dir, RUN_FILES.timing))?.total_tokens;
+    const tokens = Number.isFinite(raw) && raw >= 0 ? raw : null;
+    const completed = readJsonIfPresent(path.join(dir, RUN_FILES.runStatus))?.status === 'completed';
+    if (tokens === null) spent += maxTokensPerRun;
+    else spent += completed ? tokens : Math.max(tokens, maxTokensPerRun);
   }
   return spent;
 }
@@ -717,8 +723,9 @@ function readTextIfPresent(file) {
  * usage passed the cap (`capExceeded: { by, task }`): the cap is a projected ceiling, so the worst
  * case is the cap plus one run's overshoot beyond `maxTokensPerRun`, bounded only by the timeout.
  *
- * Interruption (review C-1): while it runs, SIGINT, SIGTERM and SIGHUP end the worker's process
- * group, record the run as `truncated` with unknown usage (so it counts at `maxTokensPerRun`), remove
+ * Interruption (review C-1, R-1): while it runs, SIGINT, SIGTERM and SIGHUP end the worker's process
+ * group, record the run as `truncated` with the usage its transcript already holds (it counts at the
+ * larger of that sum and `maxTokensPerRun`), remove
  * every scratch directory and the lock, and then re-raise the signal. Once a worker may have started,
  * its run directory is never removed (review C-3): an executor error leaves the record counted.
  *
@@ -811,7 +818,14 @@ async function executeIteration(opts = {}) {
         if (run) {
           try {
             writeJson(path.join(run.runDir, RUN_FILES.runStatus), { status: 'truncated', evidence: `executor interrupted by ${sig}`, exitCode: null, signal: null });
-            writeJson(path.join(run.runDir, RUN_FILES.timing), { duration_ms: now().getTime() - run.started, usage: 'unknown' });
+            // R-1: usage the worker already reported is kept; spentOf counts this truncated run at
+            // the larger of it and maxTokensPerRun.
+            const usage = usageOf(run.transcriptFile);
+            writeJson(path.join(run.runDir, RUN_FILES.timing), {
+              ...(usage.total_tokens !== undefined ? { total_tokens: usage.total_tokens } : {}),
+              duration_ms: now().getTime() - run.started,
+              usage: usage.usage,
+            });
           } catch { /* launch.json alone already counts the run at maxTokensPerRun */ }
         }
         cleanupScratch();
@@ -905,8 +919,8 @@ async function executeIteration(opts = {}) {
         const parser = parserFor(recipe.structuredOutput.parser).create();
         if (state.interrupted) return halted();
         spawned = true; // from here the run may have spent: its directory is never removed
-        state.run = { runDir: run.runDir, started: now().getTime() };
         const transcriptFile = path.join(run.runDir, RUN_FILES.transcript);
+        state.run = { runDir: run.runDir, transcriptFile, started: now().getTime() };
         const outcome = await spawnHarness({
           binary, argv, cwd: workspace.root, env: childEnv, prompt, viaStdin,
           timeoutMs: config.timeoutSeconds * 1000, transcriptFile, lastMessageFile: profileMessage, parser, now,
