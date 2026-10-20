@@ -944,3 +944,33 @@ test('107-B N-a: a supported claim whose only support is unbound to the task pla
   assert.equal(run('rp_old_0#estimate-blast-radius').satisfied, false, 'support recorded under a replaced plan does not count');
   assert.equal(run('rp_na_1#estimate-blast-radius').satisfied, true, 'support bound to a declared need still counts');
 });
+
+test('107-B N-b: a supported claim whose evidence was retired says so, with a reason code', () => {
+  const taskId = 'task_nb_retired_reason';
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims, affected } = bugLedger(taskId);
+  const support = ledger.addEvidence({
+    taskId, kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/claims.ts', line: 1 }, content: 'class ClaimsManager',
+  });
+  const claimId = claims.addClaim({ taskId, statement: 'Missing keepalive', role: 'root-cause' });
+  claims.linkEvidence(claimId, support, 'supports');
+  ledger.supersedeEvidence(support, affected);
+  const rootCause = engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims)
+    .requirements.find((r) => r.id === 'root_cause');
+  assert.equal(rootCause.satisfied, false);
+  assert.equal(rootCause.reasonCode, 'claim-support-retired');
+  assert.equal(rootCause.reason, `1 claim(s) with status 'supported' and role 'root-cause' have no live supporting `
+    + `evidence (${claimId}): each supporting item was superseded, went stale or is not bound to the task plan. `
+    + 'Link a fresh item with `claim --action link` and re-evaluate.');
+});
+
+test('107-B N-b control: a task with no supported claim keeps the plain reason and no code', () => {
+  const taskId = 'task_nb_no_claim';
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims } = bugLedger(taskId);
+  const rootCause = engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims)
+    .requirements.find((r) => r.id === 'root_cause');
+  assert.equal(rootCause.reasonCode, null);
+  assert.equal(rootCause.reason, "Requires at least one claim with status 'supported' and role 'root-cause'.");
+});
