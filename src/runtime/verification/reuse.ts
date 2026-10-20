@@ -10,7 +10,9 @@ const KEY = /^[0-9a-f]{16}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const REF = /^[0-9a-f]{32}$/;
 const LEVELS = new Set(['L1', 'L2', 'L3']);
-const MAX_STREAM_CHARS = 2000;
+/** The report's bounded excerpt (2,000 kept characters plus the elision marker, at most about 2,060) must fit whole,
+ * so a reused check shows exactly what the executed one showed (089 DEVIATION from IC-002's 2,000). */
+const MAX_STREAM_CHARS = 2200;
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 
 function isObject(value: any): boolean { return value !== null && typeof value === 'object' && !Array.isArray(value); }

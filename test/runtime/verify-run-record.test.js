@@ -110,6 +110,39 @@ test('verify report appends one head-bound record per run without changing JSON 
   }
 });
 
+// 089 IC-006: with verify.reuse on for the run, `reused` (the count of report checks carrying the
+// label) sits immediately before `reportSha256`; the case above keeps reuse off and its pin.
+test('with verify.reuse on the record carries the reused count before reportSha256', (t) => {
+  const reuseScratch = createScratch('doflow-verify-run-record-reuse-');
+  t.after(() => reuseScratch.remove());
+  fs.writeFileSync(path.join(reuseScratch.xdg, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'verify.reuse': 'on' }));
+  const p = project(t);
+  const clock = fixedClock(t);
+  const run = () => spawnSync(process.execPath, ['--require', clock, DOFLOW, 'verify', '--action', 'report', '--task-id', 'T-1',
+    '--risk', 'LOW', '--plan-path', p.plan, '--scope', 'src/a.js', '--json'], {
+    cwd: p.root, encoding: 'utf8',
+    env: reuseScratch.env({ DOFLOW_TELEMETRY: 'off', DOFLOW_RUN_ID: undefined, DOFLOW_LINEAGE_ID: undefined,
+      DOFLOW_ATTEMPT: undefined, DOFLOW_CONFIG_DIR: undefined, DOFLOW_VERIFY_REUSE: undefined }),
+  });
+  const first = run();
+  const second = run();
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  const carrying = (stdout) => JSON.parse(stdout).tiers.flatMap((tier) => tier.checks).filter((check) => check.reused).length;
+  assert.equal(carrying(first.stdout), 0, 'the first run executes every check');
+  assert.ok(carrying(second.stdout) > 0, 'the second run reuses the recorded PASSes');
+
+  const records = readRecords(p.root);
+  assert.equal(records.length, 2);
+  for (const [record, out] of [[records[0], first.stdout], [records[1], second.stdout]]) {
+    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'at', 'reused', 'reportSha256']);
+    assert.equal(record.schema, 1);
+    assert.equal(record.verdict, 'PASS');
+    assert.equal(record.reused, carrying(out));
+    assert.equal(record.reportSha256, recordHash(out));
+  }
+});
+
 test('a dirty working tree is recorded with clean:false', (t) => {
   const p = project(t);
   fs.writeFileSync(path.join(p.root, 'src', 'a.js'), 'module.exports = 2;\n');

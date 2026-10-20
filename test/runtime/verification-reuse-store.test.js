@@ -91,7 +91,7 @@ test('lookup returns invalid for unknown keys, FAIL, non-zero exit, and wrong ty
     ['wrong stdout type', (record) => { record.result.stdout = 1; }],
     ['wrong truncated type', (record) => { record.result.truncated = 0; }],
     ['wrong optional count type', (record) => { record.result.tests = '12'; }],
-    ['oversized excerpt', (record) => { record.result.stderr = 'x'.repeat(2001); }],
+    ['oversized excerpt', (record) => { record.result.stderr = 'x'.repeat(2201); }],
   ];
   for (const [label, change] of cases) {
     const record = goodRecord();
@@ -167,7 +167,7 @@ test('store writes a truncated owner-only record atomically into a 0700 director
     writeFileSync: (file, data, options) => { writes.push({ file, options }); return fs.writeFileSync(file, data, options); },
     renameSync: (from, to) => { renames.push([from, to]); return fs.renameSync(from, to); },
   });
-  const result = { status: 'PASS', exitCode: 0, stdout: 's'.repeat(2005), stderr: 'e'.repeat(2003), truncated: false, tests: 4393, testsFailed: 0 };
+  const result = { status: 'PASS', exitCode: 0, stdout: 's'.repeat(2205), stderr: 'e'.repeat(2203), truncated: false, tests: 4393, testsFailed: 0 };
   assert.deepEqual(storeReuse({ dir, key: KEY, payloadDigest: DIGEST, level: 'L2', result, now: () => NOW, fsImpl, mintRef: () => REF }), { stored: true, ref: REF });
   assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   const finalFile = recordFile(dir);
@@ -180,8 +180,8 @@ test('store writes a truncated owner-only record atomically into a 0700 director
   assert.deepEqual(fs.readdirSync(dir), [`reuse-${KEY}.json`]);
   const record = JSON.parse(fs.readFileSync(finalFile, 'utf8'));
   assert.deepEqual(Object.keys(record), ['v', 'key', 'payloadDigest', 'ref', 'recordedAt', 'level', 'result']);
-  assert.equal(record.result.stdout, 's'.repeat(2000));
-  assert.equal(record.result.stderr, 'e'.repeat(2000));
+  assert.equal(record.result.stdout, 's'.repeat(2200));
+  assert.equal(record.result.stderr, 'e'.repeat(2200));
   assert.equal(record.result.truncated, true);
   assert.equal(record.result.tests, 4393);
   assert.equal(record.result.testsFailed, 0);
