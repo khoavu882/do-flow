@@ -31,7 +31,7 @@ const { runKeyFor, refuseSolo } = require('./task-run.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
-  checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile, orchestrationRuns,
+  checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile, orchestrationRuns, selectRunEntries,
 } = require('./implementation-gate.ts');
 
 /** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
@@ -955,14 +955,18 @@ function compactAfterHandoff({ taskId, projectRoot }: any) {
  * IC-001: `orchestrate --action list`, every run the resolver can see as a prompt-free row plus the
  * records it could not read, by reason code only. Reads and prints; writes nothing.
  */
-function listRuns({ taskId, gate, decision, policy, forced, note, stage, node, json, stateRoot }: any) {
+function listRuns({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun, json, stateRoot }: any) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
   const supplied = (value: any) => value !== undefined && value !== null;
+  // Every flag another action reads is refused here, before any read: list takes no filter, so a
+  // `--slug` must not look like one, and an outcome nothing records must not look recorded.
   const noEffect = [
-    ['--task-id', supplied(taskId)], ['--gate', supplied(gate)],
+    ['--task-id', supplied(taskId)], ['--task-class', supplied(taskClass)], ['--gate', supplied(gate)],
     ['--decision', supplied(decision)], ['--policy', supplied(policy)],
-    ['--forced', forced], ['--note', supplied(note)], ['--stage', supplied(stage)],
-    ['--node', supplied(node)],
+    ['--forced', forced], ['--note', supplied(note)], ['--reason', supplied(reason)], ['--stage', supplied(stage)],
+    ['--node', supplied(node)], ['--verification-plan', supplied(verificationPlan)], ['--scope', supplied(scope)],
+    ['--invariants', supplied(invariants)], ['--result', supplied(result)], ['--mcp-outcome', supplied(mcpOutcome)],
+    ['--calling-skill', supplied(callingSkill)], ['--slug', supplied(slug)], ['--dry-run', Boolean(dryRun)],
   ].find(([, given]) => given);
   if (noEffect) return usageError('orchestrate', `'${noEffect[0]}' has no effect on action 'list'`, json);
 
@@ -994,7 +998,8 @@ function listRuns({ taskId, gate, decision, policy, forced, note, stage, node, j
   const journalTime = (value: any) => typeof value === 'string'
     && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
 
-  for (const entry of resolved.entries) {
+  // One row per run, the copy status reads (C-2): a shadowed flat or another checkout's copy is dropped.
+  for (const entry of selectRunEntries(resolved.entries)) {
     if (entry.error) {
       addUnreadable(entry, entry.error);
       continue;
@@ -1012,8 +1017,10 @@ function listRuns({ taskId, gate, decision, policy, forced, note, stage, node, j
     const parts = relative.split(path.sep);
     const folderSlug = parts.length > 1 ? parts[0] : null;
     const stem = path.basename(entry.file, '.json');
+    // Every id a row prints is checked, so no newline or escape byte from a record reaches the text form.
     if (typeof record.taskId !== 'string' || !ID_PATTERN.test(record.taskId) || record.taskId !== stem
-      || (folderSlug && typeof record.featureSlug === 'string' && record.featureSlug !== folderSlug)) {
+      || (folderSlug && typeof record.featureSlug === 'string' && record.featureSlug !== folderSlug)
+      || (entry.slug !== null && entry.slug !== undefined && !(typeof entry.slug === 'string' && ID_PATTERN.test(entry.slug)))) {
       addUnreadable(entry, 'id-mismatch');
       continue;
     }
@@ -1026,6 +1033,11 @@ function listRuns({ taskId, gate, decision, policy, forced, note, stage, node, j
       addUnreadable(entry, 'shape');
       continue;
     }
+    if (snapshot.current && !(typeof snapshot.current.id === 'string' && ID_PATTERN.test(snapshot.current.id))) {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    const terminal = snapshot.terminalStage;
     runs.push({
       taskId: snapshot.taskId,
       featureSlug: entry.slug,
@@ -1035,7 +1047,9 @@ function listRuns({ taskId, gate, decision, policy, forced, note, stage, node, j
       current: snapshot.current,
       awaitingGate: snapshot.awaitingGate ? { gateId: snapshot.awaitingGate.gateId, name: snapshot.awaitingGate.name } : null,
       progress: snapshot.progress,
-      terminalStage: snapshot.terminalStage,
+      // IC-001: the stage's identity only; its gate list (and the prompts in it) stays in status.
+      terminalStage: terminal && typeof terminal === 'object'
+        ? { id: terminal.id ?? null, skill: terminal.skill ?? null, kind: terminal.kind ?? null } : null,
       revision: snapshot.revision,
       startedAt: journalTime(record.startedAt),
       updatedAt: journalTime(record.updatedAt),
@@ -1070,11 +1084,13 @@ function listRuns({ taskId, gate, decision, policy, forced, note, stage, node, j
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false,
-  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, recordSlug, buildAdapters = null,
+  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, recordSlug, buildAdapters = null, dryRun = false,
 }: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
 
-  if (action === 'list') return listRuns({ taskId, gate, decision, policy, forced, note, stage, node, json, stateRoot });
+  if (action === 'list') {
+    return listRuns({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun, json, stateRoot });
+  }
 
   const root = repoRoot || REPO_ROOT;
   // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):

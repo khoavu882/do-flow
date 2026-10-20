@@ -179,21 +179,25 @@ function isRunNamespaceDir(name: string): boolean {
 }
 
 /** The run record files under one checkout's store: flat `<id>.json` and `<slug>/<id>.json`, by
- * path, without reading them. The one listing `findRunFile` and `orchestrationRuns` share. */
-function runFilesAt(root: string): Array<{ file: string; namespace: string|null }> {
+ * path, without reading them. The one listing `findRunFile` and `orchestrationRuns` share.
+ * With `listing` (IC-001, the list action), a symbolic link is never followed: a linked run file is
+ * kept with `linked: true` so it can be reported as unreadable, and a linked namespace directory is
+ * not entered, so nothing outside the store root is read or named. */
+function runFilesAt(root: string, { listing = false }: { listing?: boolean } = {}): Array<{ file: string; namespace: string|null; linked: boolean }> {
   const store = path.join(root, '.doflow', 'state', 'orchestration');
-  const files: Array<{ file: string; namespace: string|null }> = [];
+  const files: Array<{ file: string; namespace: string|null; linked: boolean }> = [];
+  const take = (entry: any) => entry.isFile() || entry.isSymbolicLink();
   let entries: any[];
   try { entries = fs.readdirSync(store, { withFileTypes: true }); } catch { return []; }
   for (const entry of entries) {
-    if ((entry.isFile() || entry.isSymbolicLink()) && RUN_RECORD_PATTERN.test(entry.name)) {
-      files.push({ file: path.join(store, entry.name), namespace: null });
-    } else if ((entry.isDirectory() || entry.isSymbolicLink()) && isRunNamespaceDir(entry.name)) {
+    if (take(entry) && RUN_RECORD_PATTERN.test(entry.name)) {
+      files.push({ file: path.join(store, entry.name), namespace: null, linked: entry.isSymbolicLink() });
+    } else if ((entry.isDirectory() || (!listing && entry.isSymbolicLink())) && isRunNamespaceDir(entry.name)) {
       let nested: any[];
       try { nested = fs.readdirSync(path.join(store, entry.name), { withFileTypes: true }); } catch { continue; }
       for (const item of nested) {
-        if ((item.isFile() || item.isSymbolicLink()) && RUN_RECORD_PATTERN.test(item.name)) {
-          files.push({ file: path.join(store, entry.name, item.name), namespace: entry.name });
+        if (take(item) && RUN_RECORD_PATTERN.test(item.name)) {
+          files.push({ file: path.join(store, entry.name, item.name), namespace: entry.name, linked: entry.isSymbolicLink() || item.isSymbolicLink() });
         }
       }
     }
@@ -201,16 +205,34 @@ function runFilesAt(root: string): Array<{ file: string; namespace: string|null 
   return files.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
 }
 
+/** A run file's text, or null when it must not be read: not a regular file (a link, a FIFO, a
+ * device, a folder) or any read error. The lifecycle reader's pattern (event-store.ts
+ * `readEventFile`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK` so neither a link nor a FIFO swapped in
+ * after the `lstat` is followed or blocks, then `fstat` on the descriptor before reading. */
+function readRunFileText(file: string): string|null {
+  const flags = fs.constants;
+  let fd: number|undefined;
+  try {
+    if (!fs.lstatSync(file).isFile()) return null;
+    fd = fs.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
+    if (!fs.fstatSync(fd).isFile()) return null;
+    return fs.readFileSync(fd, 'utf8');
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* the read is done */ } }
+  }
+}
+
 /** The run files under one checkout's store, read, with each malformed or unreadable file isolated. */
 function runEntriesAt(root: string, origin: 'current'|'other'): any[] {
-  return runFilesAt(root).map(({ file, namespace }) => {
+  return runFilesAt(root, { listing: true }).map(({ file, namespace, linked }) => {
     let record: any = null;
     let error: string|null = null;
-    try {
-      const bytes = fs.readFileSync(file, 'utf8');
+    const bytes = linked ? null : readRunFileText(file);
+    if (bytes === null) error = 'io';
+    else {
       try { record = JSON.parse(bytes); } catch { error = 'unparseable'; }
-    } catch {
-      error = 'io';
     }
     return {
       file,
@@ -239,6 +261,63 @@ function orchestrationRuns({ stateRoot, exec }: any): any {
   const entries = [...current];
   for (const root of checkouts.others) entries.push(...runEntriesAt(root, 'other'));
   return { ok: true, entries };
+}
+
+/** Whether a flat record names no feature (no `featureSlug`, no `slug`): such a run is any feature's
+ * (`flatRecordIsOurs`), so a namespaced copy of the same id in the same store shadows it. */
+function namesNoFeature(record: any): boolean {
+  return Boolean(record) && typeof record === 'object'
+    && ![record.featureSlug, record.slug].some((value) => typeof value === 'string' && value !== '');
+}
+
+/**
+ * IC-001/IC-003: one entry per logical run, the copy `status` reads, with `findRunFile`'s
+ * precedence. In one store, the namespaced `<slug>/<id>.json` wins over a flat `<id>.json` of that
+ * feature or of none (when the slug is the id, the flat file is the run's only path and wins).
+ * Across stores, the current store's copy wins over every other checkout's; with no current copy,
+ * each other checkout that holds one keeps its entry (more than one is the case `status` refuses as
+ * ambiguous). A losing copy is dropped: `status` never reads it for this run.
+ * @param {Array<Object>} entries `orchestrationRuns(...).entries`
+ * @returns {Array<Object>} the winning entries, in input order
+ */
+function selectRunEntries(entries: any[]): any[] {
+  const stem = (entry: any) => path.basename(entry.file, '.json');
+  const namespaceOf = (entry: any) => {
+    const parts = path.relative(path.join(entry.root, '.doflow', 'state', 'orchestration'), entry.file).split(path.sep);
+    return parts.length > 1 ? parts[0] : null;
+  };
+  const rank = (entry: any) => namespaceOf(entry) === null ? (entry.slug === stem(entry) ? 0 : 1)
+    : namespaceOf(entry) === stem(entry) ? 2 : 0;
+  // A flat run that names no feature joins the key of the one namespaced copy of its id in its store.
+  const keyOf = (entry: any) => {
+    if (namespaceOf(entry) === null && namesNoFeature(entry.record)) {
+      const owners = entries.filter((other) => other.root === entry.root && namespaceOf(other) !== null
+        && namespaceOf(other) !== stem(entry) && stem(other) === stem(entry));
+      if (owners.length > 0) return `${namespaceOf(owners[0])}\0${stem(entry)}`;
+    }
+    return entry.slug === null || entry.slug === undefined ? null : `${entry.slug}\0${stem(entry)}`;
+  };
+  const best = new Map<string, any[]>();
+  const perRoot = new Map<string, any>();
+  for (const entry of entries) {
+    const key = keyOf(entry);
+    if (key === null) continue;
+    const local = `${entry.root}\0${key}`;
+    const held = perRoot.get(local);
+    if (!held || rank(entry) < rank(held)) perRoot.set(local, entry);
+  }
+  for (const entry of perRoot.values()) {
+    const key = keyOf(entry) as string; // only keyed entries were kept above
+    const held = best.get(key);
+    if (!held) best.set(key, [entry]);
+    else if (held[0].origin === 'current') continue;
+    else if (entry.origin === 'current') best.set(key, [entry]);
+    else held.push(entry);
+  }
+  const winners = new Set<any>();
+  for (const list of best.values()) for (const entry of list) winners.add(entry);
+  // An entry whose feature cannot be named has no key: it is its own run.
+  return entries.filter((entry) => keyOf(entry) === null || winners.has(entry));
 }
 
 /**
@@ -400,5 +479,6 @@ module.exports = {
   featureSlugFor,
   runSlugOf,
   orchestrationRuns,
+  selectRunEntries,
   findRunFile,
 };

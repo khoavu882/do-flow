@@ -8,6 +8,7 @@ const { spawnSync, execFileSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { orchestrationRuns, findRunFile } = require('../../src/runtime/implementation-gate.ts');
 const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
+const { handleOrchestrateCommand } = require('../../src/runtime/workflow-orchestrator.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
@@ -85,8 +86,30 @@ function runCli(cwd, args, options = {}) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-function listed(cwd) {
-  const result = runCli(cwd, ['orchestrate', '--action', 'list', '--json']);
+// NFR-007: the shape, order, reason and selection cases call the handler in-process; the CLI
+// tests below keep the dispatcher wiring (text form, flag parsing, linked-worktree reads) honest.
+function orchestrate(stateRoot, options = {}) {
+  const out = [];
+  const err = [];
+  const { log, error } = console;
+  const exitCode = process.exitCode;
+  console.log = (...args) => { out.push(args.join(' ')); };
+  console.error = (...args) => { err.push(args.join(' ')); };
+  let status;
+  try {
+    clearCheckoutCache();
+    status = handleOrchestrateCommand({ stateRoot, ...options });
+  } finally {
+    console.log = log;
+    console.error = error;
+    process.exitCode = exitCode;
+  }
+  const stdout = out.length ? `${out.join('\n')}\n` : '';
+  return { status, stdout, stderr: err.join('\n') };
+}
+
+function listed(cwd, options = {}) {
+  const result = orchestrate(cwd, { action: 'list', json: true, ...options });
   assert.equal(result.status, 0, result.stderr);
   return { ...result, data: JSON.parse(result.stdout) };
 }
@@ -176,9 +199,31 @@ test('list has the contract key order, removes awaitingGate.prompt, normalizes t
   assert.equal(row.startedAt, null);
   assert.equal(row.updatedAt, null);
   assert.equal(row.revision, 3);
-  const smallRow = result.data.runs.find((candidate) => candidate.taskId === 'z-small-row');
-  assert.ok(Buffer.byteLength(JSON.stringify(smallRow), 'utf8') <= 300,
-    `serialized row is ${Buffer.byteLength(JSON.stringify(smallRow), 'utf8')} bytes`);
+});
+
+test('IC-001 size: a real feature run held at its first gate is one row of at most 768 B pretty-printed, prompt-free', (t) => {
+  const root = project(t);
+  // The real program and terminal stage a feature run compiles, not a synthetic row.
+  const started = orchestrate(root, { action: 'start', taskId: 'size-run', taskClass: 'feature', json: true });
+  assert.equal(started.status, 0, started.stderr);
+  const gated = orchestrate(root, { action: 'complete-stage', taskId: 'size-run', stage: 'discovery', json: true });
+  assert.equal(gated.status, 0, gated.stderr);
+  const snapshot = JSON.parse(gated.stdout);
+  assert.equal(snapshot.state, 'AWAITING_GATE');
+  assert.ok(snapshot.terminalStage && Array.isArray(snapshot.terminalStage.gatesAfter) && snapshot.terminalStage.gatesAfter.length > 0,
+    'the fixture must carry the terminal stage gates status prints, or the bound is vacuous');
+
+  const result = listed(root);
+  const row = result.data.runs.find((candidate) => candidate.taskId === 'size-run');
+  assert.ok(row.awaitingGate, 'the measured row must be a gated row');
+  assert.deepEqual(row.terminalStage, {
+    id: snapshot.terminalStage.id, skill: snapshot.terminalStage.skill, kind: snapshot.terminalStage.kind,
+  });
+  const pretty = Buffer.byteLength(JSON.stringify(row, null, 2), 'utf8');
+  assert.ok(pretty <= 768, `pretty-printed gated row is ${pretty} bytes`);
+  const prompts = [snapshot.awaitingGate.prompt, ...snapshot.terminalStage.gatesAfter.map((gate) => gate.prompt)].filter(Boolean);
+  assert.ok(prompts.length > 0);
+  for (const prompt of prompts) assert.equal(result.stdout.includes(prompt), false, 'a gate prompt reached list output');
 });
 
 test('list sorts by updatedAt descending, then featureSlug and taskId with null slugs first', (t) => {
@@ -279,16 +324,161 @@ test('list text output includes the run line and unreadable count', (t) => {
 
 test('list refuses every flag that has no effect on the read action', (t) => {
   const root = project(t);
+  writeJournal(root, 'flag-run');
+  // Every flag another orchestrate action reads, by the handler option the dispatcher fills.
   const flags = [
-    ['--task-id', 'x'], ['--gate', 'g'], ['--decision', 'approve'], ['--policy', 'g'],
-    ['--forced'], ['--note', 'n'], ['--stage', 's'], ['--node', 'n'],
+    ['--task-id', { taskId: 'x' }], ['--task-class', { taskClass: 'bug' }], ['--gate', { gate: 'g' }],
+    ['--decision', { decision: 'approve' }], ['--policy', { policy: 'g' }], ['--forced', { forced: true }],
+    ['--note', { note: 'n' }], ['--reason', { reason: 'r' }], ['--stage', { stage: 's' }], ['--node', { node: 'n' }],
+    ['--verification-plan', { verificationPlan: 'v' }], ['--scope', { scope: 'x' }], ['--invariants', { invariants: 'i' }],
+    ['--result', { result: 'passed' }], ['--mcp-outcome', { mcpOutcome: ['context7=used'] }],
+    ['--calling-skill', { callingSkill: 'do-test' }], ['--slug', { slug: 'feat-a' }], ['--dry-run', { dryRun: true }],
   ];
-  for (const args of flags) {
-    const flag = args[0];
-    const result = runCli(root, ['orchestrate', '--action', 'list', ...args, '--json']);
+  for (const [flag, options] of flags) {
+    const result = orchestrate(root, { action: 'list', json: true, ...options });
     assert.equal(result.status, 2, `${flag}: ${result.stderr}`);
     assert.match(result.stderr + result.stdout, new RegExp(`'${flag}' has no effect on action 'list'`));
+    assert.equal(result.stdout.includes('flag-run'), false, `${flag}: list printed rows before refusing`);
   }
+  // The dispatcher passes the parsed flags through: the real CLI refuses the ones the review found accepted.
+  for (const args of [['--mcp-outcome', 'context7=used'], ['--slug', 'feat-a'], ['--dry-run']]) {
+    const result = runCli(root, ['orchestrate', '--action', 'list', ...args, '--json']);
+    assert.equal(result.status, 2, `${args[0]}: ${result.stderr}`);
+    assert.match(result.stderr + result.stdout, new RegExp(`'${args[0]}' has no effect on action 'list'`));
+  }
+});
+
+test('C-2: a shadowed flat copy is not a second run: one row, the copy status reads', (t) => {
+  const root = project(t);
+  // The upgrade path: a pre-115 flat journal of feature feat-a, then a write seeded the namespaced copy.
+  writeJournal(root, 'run-x', { featureSlug: 'feat-a', revision: 1, updatedAt: '2026-10-20T03:00:00.000Z' });
+  writeJournal(root, 'run-x', { featureSlug: 'feat-a', revision: 2, state: 'AWAITING_GATE', updatedAt: '2026-10-20T02:00:00.000Z' }, 'feat-a');
+  // A flat journal that names no feature is any feature's, so the namespaced copy shadows it too.
+  writeJournal(root, 'run-y', { revision: 1 });
+  writeJournal(root, 'run-y', { featureSlug: 'feat-b', revision: 4 }, 'feat-b');
+  // A flat journal of another feature is a different run and stays.
+  writeJournal(root, 'run-z', { featureSlug: 'feat-c', revision: 1 });
+  writeJournal(root, 'run-z', { featureSlug: 'feat-d', revision: 5 }, 'feat-d');
+
+  const rows = listed(root).data.runs.map((row) => [row.featureSlug, row.taskId, row.revision]);
+  assert.deepEqual(rows.filter(([, id]) => id === 'run-x'), [['feat-a', 'run-x', 2]]);
+  assert.deepEqual(rows.filter(([, id]) => id === 'run-y'), [['feat-b', 'run-y', 4]]);
+  assert.deepEqual(rows.filter(([, id]) => id === 'run-z').sort(), [['feat-c', 'run-z', 1], ['feat-d', 'run-z', 5]]);
+  for (const [slug, taskId, revision] of [['feat-a', 'run-x', 2], ['feat-b', 'run-y', 4]]) {
+    const status = orchestrate(root, { action: 'status', taskId, slug, recordSlug: slug, json: true });
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(JSON.parse(status.stdout).revision, revision, `${slug}/${taskId}: list and status disagree`);
+  }
+});
+
+test('C-2: another checkout\'s copy of a run held here is not a second row', (t) => {
+  const main = project(t);
+  const linked = `${main}-linked`;
+  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', '-b', 'list-test-shadow', linked, 'HEAD'], { stdio: 'ignore' });
+  writeJournal(main, 'run-a', { featureSlug: 'feat-a', revision: 2 }, 'feat-a');
+  // An unswept older copy left in the linked worktree, newer by time so order cannot hide it.
+  writeJournal(linked, 'run-a', { featureSlug: 'feat-a', revision: 1, updatedAt: '2099-01-01T00:00:00.000Z' }, 'feat-a');
+  writeJournal(linked, 'run-only-there', { featureSlug: 'feat-a', revision: 3 }, 'feat-a');
+
+  const rows = listed(main).data.runs.map((row) => [row.taskId, row.origin, row.revision]);
+  assert.deepEqual(rows.filter(([id]) => id === 'run-a'), [['run-a', 'current', 2]]);
+  assert.deepEqual(rows.filter(([id]) => id === 'run-only-there'), [['run-only-there', 'other', 3]]);
+  const status = orchestrate(main, { action: 'status', taskId: 'run-a', slug: 'feat-a', recordSlug: 'feat-a', json: true });
+  assert.equal(JSON.parse(status.stdout).revision, 2);
+});
+
+test('C-3: list never follows a link out of the store and never blocks on a FIFO', (t) => {
+  if (process.platform === 'win32') { t.skip('symbolic links and FIFOs need POSIX'); return; }
+  const root = project(t);
+  const outside = tempDir(t, 'doflow-orchestrate-list-outside-');
+  writeJournal(root, 'plain');
+  const outsideJournal = path.join(outside, 'leak.json');
+  fs.writeFileSync(outsideJournal, JSON.stringify(journal('leak', { workflowName: 'OUTSIDE_FILE_CONTENT' })));
+  fs.mkdirSync(path.join(outside, 'ns'));
+  fs.writeFileSync(path.join(outside, 'ns', 'nested.json'), JSON.stringify(journal('nested', { featureSlug: 'ns', workflowName: 'OUTSIDE_FILE_CONTENT' })));
+  fs.symlinkSync(outsideJournal, runFile(root, 'leak'));
+  fs.symlinkSync(runFile(root, 'plain'), runFile(root, 'inside-link'));
+  fs.symlinkSync(path.join(outside, 'ns'), path.join(storeAt(root), 'ns'));
+  execFileSync('mkfifo', [path.join(outside, 'pipe')]);
+  fs.symlinkSync(path.join(outside, 'pipe'), runFile(root, 'fifo-link'));
+  execFileSync('mkfifo', [runFile(root, 'fifo')]);
+
+  const started = Date.now();
+  const result = listed(root);
+  assert.ok(Date.now() - started < 5000, 'list blocked on a FIFO');
+  assert.deepEqual(result.data.runs.map((row) => row.taskId), ['plain']);
+  assert.deepEqual(result.data.unreadable.map(({ taskId, featureSlug, reason }) => [taskId, featureSlug, reason]), [
+    ['fifo-link', null, 'io'], ['inside-link', null, 'io'], ['leak', null, 'io'],
+  ]);
+  // A FIFO in the store itself is neither a file nor a link: the listing skips it without opening it.
+  assert.equal(result.stdout.includes('OUTSIDE_FILE_CONTENT'), false);
+  assert.equal(result.stdout.includes('nested'), false, 'a linked namespace directory was entered');
+});
+
+test('C-9: an id that fails ID_PATTERN never reaches the output as a row', (t) => {
+  const root = project(t);
+  writeJournal(root, 'inj', {
+    featureSlug: '../../etc\nAWAITING_GATE forged-slug forged-task gate-b rev 99\u001b[31m',
+  });
+  writeJournal(root, 'inj-stage', {
+    program: [{ type: 'stage', id: 'build\nRUNNING fake fake - rev 7\u001b[0m', status: 'pending' }],
+  });
+  writeJournal(root, 'fine', { featureSlug: 'feat-a' });
+  const json = listed(root);
+  assert.deepEqual(json.data.runs.map((row) => row.taskId), ['fine']);
+  assert.deepEqual(json.data.unreadable.map(({ taskId, featureSlug, reason }) => [taskId, featureSlug, reason]), [
+    ['inj', null, 'id-mismatch'], ['inj-stage', null, 'shape'],
+  ]);
+  const text = orchestrate(root, { action: 'list' });
+  assert.equal(text.status, 0, text.stderr);
+  assert.deepEqual(text.stdout.trimEnd().split('\n'), ['RUNNING feat-a fine build rev 0', 'unreadable: 2']);
+  assert.equal(/\u001b/.test(text.stdout + json.stdout.replace(/\\u001b/g, '')), false);
+});
+
+test('C-1: list and status from a linked worktree read the main store and move nothing, switch on or off', (t) => {
+  const main = project(t);
+  const linked = `${main}-linked`;
+  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', '-b', 'list-test-nosweep', linked, 'HEAD'], { stdio: 'ignore' });
+  writeJournal(main, 'run-a', { featureSlug: 'feat-a', revision: 2 }, 'feat-a');
+  // A record left in the worktree's own store (unswept), and a differing copy that a sweep refuses on.
+  const left = writeJournal(linked, 'run-c', { featureSlug: 'feat-b', revision: 1 }, 'feat-b');
+  const differing = writeJournal(linked, 'run-a', { featureSlug: 'feat-a', revision: 1, updatedAt: '2020-01-01T00:00:00.000Z' }, 'feat-a');
+  const snap = () => [main, linked].map((root) => {
+    const entries = [];
+    const visit = (dir) => {
+      for (const name of fs.readdirSync(dir).sort()) {
+        const file = path.join(dir, name);
+        const info = fs.lstatSync(file, { bigint: true });
+        entries.push(`${path.relative(root, file)} ${info.mtimeNs} ${info.ino} ${info.isFile() ? fs.readFileSync(file, 'utf8').length : 'd'}`);
+        if (info.isDirectory()) visit(file);
+      }
+    };
+    visit(path.join(root, '.doflow'));
+    return entries;
+  });
+  // With the switch unset, after-verb upkeep may still write when due (IC-001): settle it once from
+  // the main checkout and push the marker out, so any change left can only come from a sweep.
+  assert.equal(runCli(main, ['orchestrate', '--action', 'list', '--json']).status, 0);
+  fs.writeFileSync(path.join(main, '.doflow', 'state', 'upkeep-due'), `${Math.floor(Date.now() / 1000) + 365 * 86400}\n`);
+  for (const env of [{ DOFLOW_UPKEEP: 'off' }, {}]) {
+    for (const args of [['--action', 'list'], ['--action', 'status', '--task-id', 'run-c', '--slug', 'feat-b']]) {
+      const before = snap();
+      const result = runCli(linked, ['orchestrate', ...args, '--json'], { env: { DOFLOW_UPKEEP: undefined, ...env } });
+      const label = `${args.join(' ')} ${JSON.stringify(env)}`;
+      assert.equal(result.status, 0, `${label}: ${result.stdout}${result.stderr}`);
+      assert.deepEqual(snap(), before, `${label} changed a store`);
+      assert.equal(result.stdout.includes(main), false, `${label} printed an absolute path`);
+      if (args[1] === 'list') {
+        const rows = JSON.parse(result.stdout).runs.map((row) => [row.taskId, row.origin, row.revision]);
+        assert.deepEqual(rows.filter(([id]) => id === 'run-a'), [['run-a', 'current', 2]]);
+        assert.deepEqual(rows.filter(([id]) => id === 'run-c'), [['run-c', 'other', 1]]);
+      } else {
+        assert.equal(JSON.parse(result.stdout).revision, 1);
+      }
+    }
+  }
+  assert.ok(fs.existsSync(left) && fs.existsSync(differing));
+  assert.equal(fs.existsSync(runFile(main, 'run-c', 'feat-b')), false);
 });
 
 test('a checkout-listing failure has a redacted JSON and text error form', (t) => {
