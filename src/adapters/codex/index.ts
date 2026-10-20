@@ -15,6 +15,7 @@ const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents }
 const { planCodexHooks, deployCodexHooks, removeCodexHookScripts, scriptFingerprint } = require('./hooks.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree.ts');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
+const { renderGuidancePointer } = require('../guidance-pointer.ts');
 const { nativeMcpCatalog } = require('../../registry/index.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
@@ -275,6 +276,37 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   }
   function sha256Text(text: any) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
+  function withInstructionSource(content: string, callback: (source: string) => any) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-guidance-'));
+    const source = path.join(directory, 'instructions.md');
+    try {
+      fs.writeFileSync(source, content, 'utf8');
+      return callback(source);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+
+  function instructionBody(content: any) {
+    if (typeof content !== 'string') return null;
+    const start = content.indexOf(MARKER_START);
+    if (start === -1) return null;
+    const bodyStart = start + MARKER_START.length;
+    const end = content.indexOf(MARKER_END, bodyStart);
+    if (end === -1 || content.indexOf(MARKER_START, end + MARKER_END.length) !== -1) return null;
+    let from = bodyStart;
+    if (content[from] === '\n') from += 1;
+    let to = end;
+    if (to > from && content[to - 1] === '\n') to -= 1;
+    return content.slice(from, to);
+  }
+
+  function renderedInstructionContent(asset: any, context: any, repoRoot: any) {
+    const source = sourceDirFor(asset, repoRoot);
+    const content = fs.readFileSync(source, 'utf8');
+    return renderGuidancePointer(content, { scope: context.scope, scopeRoot: context.paths.root }).replace(/\s+$/, '');
+  }
+
   function planInstructionsAsset({ assets, context, removing, repoRoot, claimedElsewhere = () => false }: any) {
     const asset = instructionsAsset(assets);
     const changes: any[] = [];
@@ -298,18 +330,19 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       return { changes, conflicts };
     }
     const source = sourceDirFor(asset, repoRoot);
-    if (!mergeMarkedSection(source, target, { dryRun: true }).changed) return { changes, conflicts };
-    const content = fs.readFileSync(source, 'utf8').replace(/\s+$/, '');
+    const content = renderedInstructionContent(asset, context, repoRoot);
+    const merged = withInstructionSource(content, (renderedSource) => mergeMarkedSection(renderedSource, target, { dryRun: true }));
+    if (!merged.changed) return { changes, conflicts };
     changes.push({ assetId: asset.id, target, source, operation: fs.existsSync(target) ? 'update' : 'create',
       ownershipIdentity: 'doflow:codex:instructions:managed-section', kind: 'instructions-section', identity: 'AGENTS.md',
-      afterFingerprint: sha256Text(content), sourceVersion: 'registry-v1', projection: { renderer: 'codex-agents' } });
+      afterFingerprint: sha256Text(content), renderedContent: content, sourceVersion: 'registry-v1', projection: { renderer: 'codex-agents' } });
     return { changes, conflicts };
   }
 
   function applyInstructionsAsset(changes: any) {
     for (const change of changes) {
       if (change.projection?.renderer !== 'codex-agents' || change.operation === 'remove') continue;
-      mergeMarkedSection(change.source, change.target);
+      withInstructionSource(change.renderedContent, (renderedSource) => mergeMarkedSection(renderedSource, change.target));
     }
   }
 
@@ -325,11 +358,14 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     if (!asset) return { statuses, resources };
     const target = instructionsPath(context);
     const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
-    const managed = existing !== null && existing.includes(MARKER_START) && existing.includes(MARKER_END);
-    statuses.push({ assetId: asset.id, capability: asset.capability, status: managed ? 'managed' : 'absent', target });
+    const expected = renderedInstructionContent(asset, context, repoRoot);
+    const actual = instructionBody(existing);
+    const hasMarkers = existing !== null && existing.includes(MARKER_START) && existing.includes(MARKER_END);
+    const managed = actual !== null && actual === expected;
+    statuses.push({ assetId: asset.id, capability: asset.capability, status: managed ? 'managed' : (hasMarkers ? 'missing' : 'absent'), target });
     if (managed) {
       resources.push({ assetId: asset.id, target, ownershipIdentity: 'doflow:codex:instructions:managed-section',
-        kind: 'instructions-section', identity: 'AGENTS.md', fingerprint: sha256Text(existing), sourceVersion: 'registry-v1',
+        kind: 'instructions-section', identity: 'AGENTS.md', fingerprint: sha256Text(expected), sourceVersion: 'registry-v1',
         projection: { renderer: 'codex-agents' } });
     }
     return { statuses, resources };

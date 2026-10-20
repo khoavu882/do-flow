@@ -1,6 +1,3 @@
 # DoFlow shared guidance
 
-Codex does not expand `@file` imports inside AGENTS.md automatically. Before proceeding, read
-`.doflow/guidance/DOFLOW_CORE.md` and the files it references under `.doflow/guidance/`
-(`rules/`, `modes/`, `mcp/`, `references/`) for DoFlow's shared engineering rules and
-workflow.
+This harness does not expand `@file` imports. Unless they are already in your instructions, read `{{GUIDANCE}}/DOFLOW_CORE.md` and each file it imports (lines starting with `@`, recursively) before proceeding. Read other files under `{{GUIDANCE}}/` only when a skill names them.
