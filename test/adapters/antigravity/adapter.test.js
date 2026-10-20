@@ -610,3 +610,10 @@ test('Antigravity discovery reports the servers in mcp_config.json, sorted, and 
   fs.writeFileSync(first.paths.mcpFile, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
   assert.deepStrictEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
 });
+
+// 107-B re-review N-c: the discard rule is the vendor page's statement, not something agy was seen
+// to do; the architecture doc qualifies it the way CHANGELOG.md does.
+test('107-B N-c: docs/architecture.md states the always_on discard rule as vendor-stated and unverified', () => {
+  const text = fs.readFileSync(path.join(REPO, 'docs', 'architecture.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(text, /without which Antigravity discards a rules file per the vendor page, unverified against `agy`/);
+});

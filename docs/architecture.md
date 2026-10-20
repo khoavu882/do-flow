@@ -409,7 +409,7 @@ user types is smaller than that mirror: Kiro steering (`.kiro/steering/`, both s
 instructions (`*.instructions.md` files, each with an `applyTo: '**'` header, in `instructions/`
 under `.github/` at project scope and `~/.copilot/` at global scope) and Antigravity rules
 (`.agents/rules`, flat, project scope, each file under a `trigger: always_on` front-matter header, without
-which Antigravity discards a rules file) hold only the core set, the `@` import walk of
+which Antigravity discards a rules file per the vendor page, unverified against `agy`) hold only the core set, the `@` import walk of
 `DOFLOW_CORE.md`; the other files are read from `.doflow/guidance` on demand. The core set is loaded once
 per scope: a Copilot or Kiro install at both project and global scope probably loads it twice (untested;
 Copilot's documented de-duplication covers identical `copilot-instructions.md` files, not
