@@ -873,7 +873,6 @@ class VerificationEngine {
             narrowedResult.failedFirst = { ran: true, status: 'FAIL', files: matchedFiles.length };
             entry.checks.push(narrowedResult);
             checksRun += 1;
-            if (narrowedResult.reused) checksReused += 1;
             failedChecks.push(narrowedResult.name);
             failedFirstHalted = true;
 
