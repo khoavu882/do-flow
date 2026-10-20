@@ -70,6 +70,16 @@ function validateStorageRegistry(registry: any): { ok: boolean; errors: string[]
         for (const field of RULES.get(store.rule) || []) if (!positiveInteger(store.bound[field])) error(errors, `${where}.bound.${field}`, 'must be a positive integer');
         if (['existing', 'control'].includes(store.rule) && (typeof store.bound.text !== 'string' || !store.bound.text)) error(errors, `${where}.bound.text`, 'must be a non-empty string');
         if (store.rule === 'existing' && store.bound.value !== undefined && !positiveInteger(store.bound.value)) error(errors, `${where}.bound.value`, 'must be a positive integer when present');
+        if (store.rule === 'count-and-age' && store.bound.either !== undefined && typeof store.bound.either !== 'boolean') error(errors, `${where}.bound.either`, 'must be a boolean when present');
+        const allowed = new Set([
+          ...(RULES.get(store.rule) || []),
+          ...(['existing', 'control'].includes(store.rule) ? ['text'] : []),
+          ...(store.rule === 'existing' ? ['value'] : []),
+          ...(store.rule === 'count-and-age' ? ['either'] : []),
+        ]);
+        for (const key of Object.keys(store.bound)) {
+          if (!allowed.has(key)) error(errors, `${where}.bound`, `unknown key '${key}'`);
+        }
       }
       if (store.protect !== null && store.protect !== 'open-work') error(errors, `${where}.protect`, 'must be open-work or null');
       if (!Array.isArray(store.moments) || store.moments.some((moment: any) => !MOMENTS.has(moment)) || new Set(store.moments).size !== store.moments.length) error(errors, `${where}.moments`, 'must be a unique subset of known moments');

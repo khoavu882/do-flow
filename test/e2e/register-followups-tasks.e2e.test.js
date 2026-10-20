@@ -29,14 +29,14 @@ describe('Scenario: Same task id in two features (FR-006, FR-007)', { skip: SKIP
   const affectedCode = (slug) => run(repo, ['readiness', '--task-id', 'A.1', '--task-class', 'bug', '--slug', slug, '--json'])
     .json.requirements.find((r) => r.id === 'affected_code');
 
-  test('041 keeps its flat record; the register features write under their own slug', () => {
-    assert.strictEqual(evidence('A.1', LEGACY).status, 0);           // pre-register feature: flat
+  test('every feature writes under its own slug, the pre-register one included (115 D-2)', () => {
+    assert.strictEqual(evidence('A.1', LEGACY).status, 0);           // pre-register feature: namespaced since 115
     assert.strictEqual(evidence('A.1').status, 0);                    // branch-derived feature: namespaced
     assert.strictEqual(evidence('A.1', OTHER).status, 0);             // --slug routing, branch says NEW
-    assert.ok(fs.existsSync(path.join(state, 'evidence', 'A.1.json')));
+    assert.ok(fs.existsSync(path.join(state, 'evidence', LEGACY, 'A.1.json')));
     assert.ok(fs.existsSync(path.join(state, 'evidence', NEW, 'A.1.json')));
     assert.ok(fs.existsSync(path.join(state, 'evidence', OTHER, 'A.1.json')));
-    assert.ok(!fs.existsSync(path.join(state, 'evidence', LEGACY)), 'the legacy feature gets no namespace directory');
+    assert.ok(!fs.existsSync(path.join(state, 'evidence', 'A.1.json')), 'no flat A.1 shared by the features');
   });
 
   test('readiness for the new feature\'s A.1 never sees 041\'s record, and 041\'s own record is still returned', () => {
@@ -50,7 +50,7 @@ describe('Scenario: Same task id in two features (FR-006, FR-007)', { skip: SKIP
     const other = readiness(NEW);
     const own = readiness(LEGACY);
     const req = (res) => res.json.requirements.find((r) => r.id === 'affected_code');
-    assert.strictEqual(req(own).satisfied, true, '041 reads its own flat record');
+    assert.strictEqual(req(own).satisfied, true, '041 reads its own record');
     assert.strictEqual(req(other).satisfied, false, 'the new feature must not borrow it');
     assert.deepStrictEqual(req(other).evidenceIds, []);
     assert.notStrictEqual(other.json.state, 'READY', 'the stale record does not move the new feature\'s verdict');
@@ -80,7 +80,7 @@ describe('Scenario: Same task id in two features (FR-006, FR-007)', { skip: SKIP
   test('claims and the context pack follow the same isolation', () => {
     const claim = (slug, text) => run(repo, ['claim', '--task-id', 'A.1', '--slug', slug, '--action', 'add', '--statement', text, '--json']);
     assert.strictEqual(claim(LEGACY, 'legacy claim').status, 0);
-    assert.ok(fs.existsSync(path.join(state, 'evidence', 'A.1_claims.json')));
+    assert.ok(fs.existsSync(path.join(state, 'evidence', LEGACY, 'A.1_claims.json')));
     assert.strictEqual(claim(NEW, 'new claim').status, 0);
     assert.ok(fs.existsSync(path.join(state, 'evidence', NEW, 'A.1_claims.json')));
 

@@ -115,6 +115,27 @@
       ]
     },
     {
+      "id": "verification-reuse",
+      "root": "project-state",
+      "path": "verification/reuse",
+      "entry": "file",
+      "match": "^reuse-[0-9a-f]{16}\\.json$|^reuse-[0-9a-f]{16}\\.[0-9a-f]{32}\\.tmp$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 400,
+        "maxAgeDays": 2,
+        "either": true
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/reuse.ts"
+      ]
+    },
+    {
       "id": "task-evidence",
       "root": "project-state",
       "path": "evidence",
@@ -129,7 +150,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -147,7 +169,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -166,7 +189,8 @@
       ],
       "writers": [
         "src/runtime/readiness-record.ts",
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -184,7 +208,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -202,7 +227,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/outcome.ts"
+        "src/runtime/outcome.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -221,7 +247,8 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/retrieval-record.ts"
+        "src/runtime/retrieval-record.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -389,7 +416,8 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/workflow-orchestrator.ts"
+        "src/runtime/workflow-orchestrator.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -484,6 +512,25 @@
       ],
       "writers": [
         "src/runtime/advice/record.ts"
+      ]
+    },
+    {
+      "id": "slots-user",
+      "root": "user-state",
+      "path": "slots",
+      "entry": "record",
+      "match": "^[a-z0-9][a-z0-9-]{0,63}\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 64,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/slots.ts"
       ]
     },
     {

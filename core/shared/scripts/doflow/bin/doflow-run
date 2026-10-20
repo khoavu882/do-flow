@@ -416,6 +416,8 @@ Workflow and evidence:
   goal             add, check, link, list or close a goal and its checklist
   failure          list, settle or switch off the failures DoFlow captured on this machine
   roadmap          session-driven autopilot runner: render or status the roadmap table
+  plan-check       check a plan's task lines the way the task-attempt ledger reads them
+  slot             named machine-wide queue: run a command as its one holder, list or release
 
 Verification and recovery:
   verify           compile the contract, run checks, emit the report
@@ -423,7 +425,7 @@ Verification and recovery:
   leak-scan        report DoFlow-internal identifiers in shipped files
 
 Observability:
-  trace            current run trajectory
+  trace            current run trajectory; trace spans: the span view; trace analyze: its detectors; trace export: OTLP/HTTP export
   stats            aggregate run usage
   indicators       per-stage and per-gate timings from the orchestration record
   discover         missed opportunities in recorded runs
@@ -541,7 +543,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|slot) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -573,8 +575,13 @@ dispatch_node() {
   if [ "$NODE_CLI_KIND" = "script" ]; then
     command -v node >/dev/null 2>&1 || fail 2 "node-not-found" \
       "verb '$verb' needs node on PATH to run $NODE_CLI_PATH"
-    case "$NODE_CLI_SOURCE" in
-      project-runtime|global-runtime)
+    case "$NODE_CLI_SOURCE:$verb" in
+      # `slot run` streams its command's output and holds the queue for as long as the command
+      # runs, so its stderr is never held back for the stale-runtime check below.
+      *:slot)
+        node "$NODE_CLI_PATH" "$verb" "$@"
+        ;;
+      project-runtime:*|global-runtime:*)
         # These two sources are a *projected copy* of the runtime, not the checkout itself, so
         # they can drift out of sync with the working tree's registry. Stdout still streams
         # directly; only stderr is captured, so a version-drift crash can be told apart from a

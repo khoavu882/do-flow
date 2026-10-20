@@ -245,8 +245,9 @@ function selectCandidates(store: any, entries: any, context: any) {
         if (shouldStop?.()) return null;
         const entry = ordered[index], time = entryTime(entry);
         const beyondCount = index >= store.bound.keepNewest, beyondAge = now - time > store.bound.maxAgeDays * DAY;
-        // Preserve timestamped stores' count-or-age policy; mtime entries must exceed both bounds.
-        if (hasTimestamp(entry) ? beyondCount || beyondAge : beyondCount && beyondAge)
+        // Preserve timestamped stores' count-or-age policy; mtime entries must exceed both bounds unless bound.either is set.
+        const eitherBound = hasTimestamp(entry) || store.bound?.either === true;
+        if (eitherBound ? beyondCount || beyondAge : beyondCount && beyondAge)
           selected.push({ name: entry.name, reason: beyondCount ? 'count' : 'age', bytes: entry.stat.size, mtimeMs: time });
       }
       return selected;

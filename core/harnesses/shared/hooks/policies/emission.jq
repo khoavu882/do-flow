@@ -25,7 +25,9 @@
 #   mode          "response" (default) prints the hook response; "render" prints
 #                 {text, bytes, refused, dropped, segments}, the renderEmission() result, for parity;
 #                 "hook" (emission.sh, run with -r) prints one first line holding the dropped
-#                 segment names joined with tabs (possibly empty), then the hook response
+#                 segment names joined with tabs (possibly empty), a second line holding the
+#                 response digest (empty unless plan.digest), then the hook response
+#   digest        hook mode: true computes response_digest (rider R1, 091); other modes ignore it
 #
 # Response bytes (jq's default pretty print): emission is
 #   {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ...}}
@@ -179,9 +181,29 @@ def response($plan; $in; $result):
         + (if $title != null and $title != "" then {"sessionTitle": $title} else {} end))}
   end;
 
+# Rider R1 (091): the response exactly as jq's default pretty print writes it (indent 2, insertion
+# order, the same string escaping as tojson), without the trailing newline. The response shape is
+# fixed: {} or one hookSpecificOutput object of string values.
+def pretty_response:
+  if . == {} then "{}"
+  else "{\n  \"hookSpecificOutput\": {\n"
+    + ([.hookSpecificOutput | to_entries[] | "    \(.key | tojson): \(.value | tojson)"] | join(",\n"))
+    + "\n  }\n}"
+  end;
+
+# 8 lowercase hex of h = (h*31 + c) mod 2^32 over the code points of the pretty response. Every step
+# stays below 2^38, exact in doubles; mod and the nibbles use floor, not %, which casts to int on old jq.
+def response_digest:
+  (pretty_response | explode | reduce .[] as $c (0; (. * 31 + $c) | . - ((. / 4294967296) | floor) * 4294967296)) as $h
+  | [268435456, 16777216, 1048576, 65536, 4096, 256, 16, 1]
+  | map(($h / . | floor) - (($h / . / 16) | floor) * 16)
+  | map("0123456789abcdef"[.:. + 1]) | join("");
+
 {git: $git, summary: $summary, grant: $grant, warning: $warning, nudge: $nudge} as $in
 | render($plan; $in) as $result
 | ($plan.mode // "response") as $mode
 | if $mode == "render" then $result
-  elif $mode == "hook" then ($result.dropped | join("\t")), response($plan; $in; $result)
+  elif $mode == "hook" then
+    response($plan; $in; $result) as $response
+    | ($result.dropped | join("\t")), (if $plan.digest == true then $response | response_digest else "" end), $response
   else response($plan; $in; $result) end

@@ -451,6 +451,7 @@ function buildDiscover(read: any, { providerHealth = null, gapMs = SESSION_GAP_M
 
 module.exports = {
   SESSION_GAP_MS,
+  percentile,
   groupSessions,
   buildTrace,
   buildStats,

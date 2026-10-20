@@ -14,7 +14,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadVerificationRegistry, levelOf, v0Applies } = require('../../src/runtime/verification/registry.ts');
+const { loadVerificationRegistry, levelOf, v0Applies, reuseApplies } = require('../../src/runtime/verification/registry.ts');
 const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -155,3 +155,61 @@ test('negative control: registry with unassigned or duplicate risk level fails r
   );
 });
 
+
+// 089 A.1 (IC-008): the policy.reuse block is data and validated at load.
+test('policy.reuse declares L1/L2, a 24 h bound and the ignored inputs', () => {
+  const { policy } = loadVerificationRegistry();
+  assert.deepEqual(policy.reuse.levels, ['L1', 'L2']);
+  assert.equal(policy.reuse.maxAgeMs, 24 * 60 * 60 * 1000);
+  assert.deepEqual(policy.reuse.ignoredInputs, [
+    'node_modules/.package-lock.json', 'node_modules/.modules.yaml', 'node_modules/.yarn-state.yml',
+    '.pnp.cjs', '.env', '.env.local', '.env.test', '.venv/pyvenv.cfg',
+  ]);
+});
+
+test('reuseApplies follows policy.reuse.levels, not policy.v0.levels', () => {
+  const registry = loadVerificationRegistry();
+  assert.equal(reuseApplies(registry, 'LOW'), true);
+  assert.equal(reuseApplies(registry, 'MEDIUM'), true);
+  assert.equal(reuseApplies(registry, 'HIGH'), false);
+  assert.equal(reuseApplies(registry, 'CRITICAL'), false);
+  assert.equal(reuseApplies(registry, null), false);
+  assert.equal(reuseApplies(registry, 'UNKNOWN'), false);
+  assert.equal(reuseApplies(null, 'LOW'), false);
+  const narrowed = JSON.parse(JSON.stringify(registry));
+  narrowed.policy.reuse.levels = ['L1'];
+  assert.equal(reuseApplies(narrowed, 'LOW'), true);
+  assert.equal(reuseApplies(narrowed, 'MEDIUM'), false);
+  assert.equal(v0Applies(narrowed, 'MEDIUM'), true);
+});
+
+test('negative control: invalid policy.reuse blocks fail registry load', () => {
+  const registry = loadVerificationRegistry();
+  const withReuse = (patch) => {
+    const bad = JSON.parse(JSON.stringify(registry));
+    Object.assign(bad.policy.reuse, patch);
+    return bad;
+  };
+  const load = (patch) => () => loadVerificationRegistry({ registry: withReuse(patch) });
+  assert.throws(load({ levels: ['L3'] }), /policy\.reuse\.levels must be a subset of \['L1', 'L2'\]/);
+  assert.throws(load({ levels: ['L0'] }), /policy\.reuse\.levels must be a subset/);
+  assert.throws(load({ levels: 'L1' }), /policy\.reuse\.levels must be an array/);
+  for (const maxAgeMs of [0, -1, 1.5, '86400000', null]) {
+    assert.throws(load({ maxAgeMs }), /policy\.reuse\.maxAgeMs must be a positive integer/, String(maxAgeMs));
+  }
+  for (const bad of ['../x', 'a/../b', '..', '/etc/passwd', 'a\\..\\b', 'C:\\x', '', 7]) {
+    assert.throws(load({ ignoredInputs: ['.env', bad] }), /ignoredInputs entries must be relative paths/, String(bad));
+  }
+  assert.throws(load({ ignoredInputs: '.env' }), /policy\.reuse\.ignoredInputs must be an array/);
+  const missing = JSON.parse(JSON.stringify(registry));
+  delete missing.policy.reuse;
+  assert.throws(() => loadVerificationRegistry({ registry: missing }), /policy\.reuse must be an object/);
+  assert.doesNotThrow(load({ levels: [], ignoredInputs: [] }));
+});
+
+test('the L2 note says what enables impacted selection', () => {
+  assert.equal(
+    loadVerificationRegistry().levels.L2.note,
+    'impacted = broad-tests until an impact-replay verdict and a recorded decision enable selection (089)',
+  );
+});

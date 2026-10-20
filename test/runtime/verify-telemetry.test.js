@@ -170,8 +170,10 @@ for (const name of ['pass', 'fail']) {
     assert.deepEqual(checks.map((line) => [line.tier, line.status]), reportChecks);
     if (name === 'fail') assert.ok(checks.some((line) => line.tier === 'targeted-tests' && line.status === 'FAIL'));
     for (const check of checks) {
-      assert.ok(['none', 'in-run', 'leader', 'follower'].includes(check.shared), `check.shared ${check.shared}`);
-      if (check.shared === 'leader' || check.shared === 'follower') assert.match(check.shared_ref, /^[0-9a-f]{32}$/);
+      assert.deepEqual(REGISTRY.vocabularies.shared, ['none', 'in-run', 'leader', 'follower', 'reused']);
+      assert.ok(REGISTRY.vocabularies.shared.includes(check.shared), `check.shared ${check.shared}`);
+      assert.notEqual(check.shared, 'reused', 'verify.reuse is off in the scratch HOME, so nothing is reused (089 IC-005)');
+      if (['leader', 'follower', 'reused'].includes(check.shared)) assert.match(check.shared_ref, /^[0-9a-f]{32}$/);
       else assert.equal(check.shared_ref, null);
       assert.ok(['none', 'pass', 'fail'].includes(check.failed_first), `check.failed_first ${check.failed_first}`);
       if (check.status !== 'NOT_RUN') {

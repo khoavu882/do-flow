@@ -76,9 +76,12 @@ doflow_bridge_drops_tool_stderr() {
 
 # One hook line (IC-004) for an allowlisted surface, from the encode tuple in DF_TUPLE, appended to
 # <config>/state/runs/telemetry/<UTC date>.jsonl. Builtins only on the path that writes; every step
-# returns 0, and nothing reaches stdout or stderr. Args: harness, normalised event, policy.
+# returns 0, and nothing reaches stdout or stderr. Args: harness, normalised event, policy, and the
+# policy's emit record (rider R1, user-prompt-submit only): its reason, byte count and digest are
+# written only when each passes its pattern (a vocabulary member, digits, 8 lowercase hex or null),
+# else all three are null, as they are on every other line.
 doflow_bridge_hook_line() {
-  local d="" f="" day="" rest="" duration=null t1=""
+  local d="" f="" day="" rest="" duration=null t1="" er=null eb=null eg=null r="" b="" g=""
   [ "${DOFLOW_TELEMETRY:-}" != off ] || return 0
   case "$DF_TUPLE" in ''|'{"dft":1}') return 0 ;; esac
   case "$1:$3:$2" in
@@ -110,15 +113,31 @@ doflow_bridge_hook_line() {
     t1=${EPOCHREALTIME:-}; t1=${t1/[.,]/}; _df_t0=${_df_t0/[.,]/}
     case "$t1$_df_t0" in ''|*[!0-9]*) ;; *) duration=$(( (t1 - _df_t0) / 1000 )); [ "$duration" -ge 0 ] || duration=null ;; esac
   fi
+  if [ "$3" = user-prompt-submit ] && [ -n "${4:-}" ]; then
+    r=${4#*\"reason\":\"}; r=${r%%\"*}
+    b=${4#*\"bytes\":}; b=${b%%[,\}]*}
+    g=${4#*\"digest\":}; g=${g%%[,\}]*}
+    case "$r" in
+      emit|refused:mandatory-over-budget|silent:already-bootstrapped|silent:unchanged|silent:no-home|fault:deps|fault:unit|fault:slot|fault:summary|fault:grant|fault:warning|fault:render) ;;
+      *) r="" ;;
+    esac
+    # Explicit character lists: a locale's collation can put capitals inside a range such as [a-f].
+    case "$b" in ''|*[!0123456789]*|0?*|???????????*) b="" ;; esac
+    case "$g" in
+      null|\"[0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef][0123456789abcdef]\") ;;
+      *) g="" ;;
+    esac
+    if [ -n "$r" ] && [ -n "$b" ] && [ -n "$g" ]; then er=\"$r\"; eb=$b; eg=$g; fi
+  fi
   [ -d "$d/state/runs/telemetry" ] || mkdir "$d/state/runs/telemetry" 2>/dev/null || return 0
   f=$d/state/runs/telemetry/$day.jsonl
   [ ! -e "$f" ] || [ -f "$f" ] || return 0
-  { printf '{"kind":"hook","harness":"%s","event":"%s","policy":"%s","verdict":"%s","duration_ms":%s,%s\n' "$1" "$2" "$3" "$DF_BRIDGE_OUTCOME" "$duration" "$rest" >>"$f"; } 2>/dev/null || true
+  { printf '{"kind":"hook","harness":"%s","event":"%s","policy":"%s","verdict":"%s","duration_ms":%s,"emit_reason":%s,"emit_bytes":%s,"emit_digest":%s,%s\n' "$1" "$2" "$3" "$DF_BRIDGE_OUTCOME" "$duration" "$er" "$eb" "$eg" "$rest" >>"$f"; } 2>/dev/null || true
   return 0
 }
 
 doflow_bridge() {
-  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 encode_failed=0 _df_t0=""
+  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" emit_record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 encode_failed=0 _df_t0=""
   DF_TUPLE=""
   if [ "${BASH_VERSINFO[0]:-0}" -ge 5 ] 2>/dev/null; then _df_t0=${EPOCHREALTIME:-}; fi
   . "$_DOFLOW_BRIDGE_DIR/respond.sh"
@@ -166,7 +185,11 @@ doflow_bridge() {
     case "$line" in
       *$'\036'*)
         local prefix="${line%%$'\036'*}"
-        record="${line#*$'\036'}"
+        # Rider R1: the emit record is telemetry, never the decision record.
+        case "${line#*$'\036'}" in
+          '{"v":1,"emit":'*) emit_record="${line#*$'\036'}" ;;
+          *) record="${line#*$'\036'}" ;;
+        esac
         [ -z "$prefix" ] || err="$err$prefix"$'\n'
         ;;
       *) err="$err$line"$'\n' ;;
@@ -178,7 +201,7 @@ doflow_bridge() {
   if [ "$spawn_failed" -eq 1 ]; then DF_BRIDGE_OUTCOME=error; DF_BRIDGE_CODE=bridge-spawn; DF_BRIDGE_REASON=bridge-spawn; DF_BRIDGE_VERSION=0; DF_BRIDGE_POINT=bridge-spawn; fi
   if [ -n "$DF_BRIDGE_POINT" ] && [ "$DF_BRIDGE_POINT" != decision-mismatch ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-TERM ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-INT ] && [ "$DF_BRIDGE_POINT" != eval-error:signal-PIPE ]; then doflow_bridge_failure "$policy" "$DF_BRIDGE_POINT"; fi
   doflow_bridge_effect "$harness" "$event" "$policy" "$DF_BRIDGE_OUTCOME"
-  doflow_bridge_hook_line "$harness" "$response_event" "$policy"
+  doflow_bridge_hook_line "$harness" "$response_event" "$policy" "$emit_record"
   if [ "$DF_BRIDGE_EFFECT" = block ] && [ "$DF_BRIDGE_OUTCOME" != deny ]; then reason="[$policy] DoFlow policy error; details: doflow-run failure list"; fi
   if [ "$DF_BRIDGE_OUTCOME" != deny ] && [ "$DF_BRIDGE_EFFECT" = proceed ]; then
     case "$harness:$response_event:$DF_BRIDGE_OUTCOME" in

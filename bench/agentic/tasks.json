@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "train": ["DC-011", "DC-012", "DC-013", "DC-014", "DC-015", "DC-016", "DC-021", "DC-022", "DC-023", "DC-024", "DC-025", "DC-026"],
+  "heldoutFile": "bench/agentic/tasks-heldout.json",
+  "selection": "lowest 6 ids per class among code conceptual-discovery and impact-refactor dev tasks"
+}

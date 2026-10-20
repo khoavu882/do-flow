@@ -245,6 +245,8 @@ function historyArtifacts() {
         '**Detail**', '', '- **IC-001:** old.', '- **IC-002:** new.', '');
     } else {
       body.push('Body line that must stay.', '');
+      // A plan without a task list draws a task-graph finding; the fixture is only after History.
+      if (rel === 'plan.md') body.push('## 8. Tasks', '', '- [ ] A.1 Build', '');
     }
     body.push(heading, '', '<!-- keep this comment -->', '', ...lines, '');
     files[rel] = body.join('\n');
@@ -418,7 +420,7 @@ test('10. the active stage fixes only its own flagged line (FR-010)', { skip: SK
   assert.strictEqual(decision(repo, ['--action', 'init']).status, 0);
   const design = ['# Design', '', '## 1. Overview', '', 'Shared line stays.', 'The store follows DEC-001 here.', 'Another untouched line.', '',
     '## 9. History', '', 'None — initial version.', ''].join('\n');
-  const plan = ['# Plan', '', '## 1. Basis', '', 'The tasks rest on DEC-001.', '', '## 9. History', '', 'None — initial version.', ''].join('\n');
+  const plan = ['# Plan', '', '## 1. Basis', '', 'The tasks rest on DEC-001.', '', '## 8. Tasks', '', '- [ ] A.1 Build', '', '## 9. History', '', 'None — initial version.', ''].join('\n');
   writeFiles(dir, {
     'intention/requirement.md': '# Requirement\n\n## 1. Overview\n\nText.\n\n## 9. History\n\nNone — initial version.\n',
     'design/design.md': design, 'plan.md': plan,

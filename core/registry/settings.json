@@ -53,6 +53,12 @@
     "guard.workerDropDatabases": { "type": "string", "default": null, "scope": "project-only", "combine": "override",
       "securityRelevant": false, "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
       "consumers": ["src/runtime/worker/launch.ts"],
-      "description": "Space-separated exact database names a worker session may DROP DATABASE; project layer only." }
+      "description": "Space-separated exact database names a worker session may DROP DATABASE; project layer only." },
+    "verify.reuse": { "type": "enum", "values": ["off", "on"], "order": ["off", "on"], "default": "off",
+      "scope": "global-only", "combine": "override", "securityRelevant": true, "failSafe": "off",
+      "env": { "name": "DOFLOW_VERIFY_REUSE", "parse": "off-words", "direction": "narrow" },
+      "flag": null, "shellRead": null, "needsConfigHome": true, "legacy": [],
+      "consumers": ["src/runtime/verification/engine.ts"],
+      "description": "Reuse of a recorded PASS at L1/L2 when the check key is unchanged, off until the owner turns it on; the env can only turn it off." }
   }
 }

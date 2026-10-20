@@ -88,7 +88,8 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         durationMs = null;
         failedFirst = null;
       } else if (timing) {
-        if (timing.shared !== 'follower') checksRun += 1;
+        // A follower waited on another run and a reused check (089 IC-007) read a record: neither executed.
+        if (timing.shared !== 'follower' && timing.shared !== 'reused') checksRun += 1;
         if (Number.isFinite(timing.startedAt)) at = timing.startedAt;
         if (Number.isFinite(timing.durationMs)) durationMs = Math.round(timing.durationMs);
         if (at !== undefined) cursor = Math.max(cursor ?? at, at + (durationMs ?? 0));

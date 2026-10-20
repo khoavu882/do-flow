@@ -51,18 +51,22 @@ function assertNoBackupRequiresForce(o: any): void {
 
 function parseArgs(argv: string[]): any {
   const o: any = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false, adopt: false,
+    otlpHttp: false,
     noBackup: false, prune: null, global: false, json: false, help: false, version: false,
     tools: null, action: 'status', days: null, slug: null,
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
     // `'default'`, and a JavaScript default parameter fires on `undefined` — so an *absent* key
     // silently reinstated exactly the identity defect readiness.ts fixed by failing closed.
-    taskClass: null, taskId: null };
+    taskClass: null, taskId: null,
+    flagsGiven: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a.startsWith('-')) o.flagsGiven.push(a);
     switch (a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': case '--version': o.version = true; break;
       case '-n': case '--dry-run': o.dryRun = true; break;
+      case '--otlp-http': o.otlpHttp = true; break;
       case '-f': case '--force': o.force = true; break;
       case '--adopt': o.adopt = true; break;
       // task-attempt --action cancel (run): a switch, so it cannot go through parseRuntimeFlag,
@@ -70,6 +74,15 @@ function parseArgs(argv: string[]): any {
       case '--adopt-unowned': o.adoptUnowned = true; break;
       // worker --action run: wait for the run to end. A switch, like --adopt-unowned (081 IC-026).
       case '--wait': o.wait = true; break;
+      // slot --action run: refuse at once instead of queueing (115 IC-008). A switch, so key `noWait`.
+      case '--no-wait': o.noWait = true; break;
+      // slot --action run -- <command> [args...]: everything after the first `--` is the command's
+      // own argv, never parsed here (115 IC-008). Any other verb still refuses a bare `--` below.
+      case '--':
+        if (o.cmd === 'slot') { o.slotCommand = argv.slice(i + 1); i = argv.length; break; }
+        if (o.cmd === 'plan-check') break;
+        console.error(`doflow: unknown flag '${a}'`); process.exit(1);
+        break;
       // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
       case '--edit': o.edit = true; break;
       case '-g': case '--global': o.global = true; break;
@@ -203,12 +216,15 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        if (a.startsWith('-')) { console.error(`doflow: unknown flag '${a}'`); process.exit(1); }
+        // slot reports an unknown flag as its own usage error (exit 2, 115 IC-008).
+        if (a.startsWith('-') && o.cmd === 'slot') (o.extraFlags = o.extraFlags || []).push(a);
+        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(`doflow: unknown flag '${a}'`); process.exit(1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
       }
     }
   }
+  if (o.cmd === 'plan-check') o.extraFlags = o.flagsGiven;
   return o;
 }
 
@@ -361,9 +377,12 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--spawn-grant', 'spawnGrant'],     // dispatch start: the spawn grant declaration as JSON
   ['--dispatch', 'dispatch'],          // dispatch submit: a d-<12 hex> dispatch id
   ['--child-of', 'childOf'],           // worker run: the granter's w-<12 hex> run id
-  ['--run', 'run'],                    // trace spans: keep one run key or run id (088 IC-011)
+  ['--run', 'run'],                    // trace spans, trace analyze, trace export: keep one run key or run id (088 IC-011, 091 IC-001, 091 IC-006)
+  ['--emit', 'emit'],                  // trace analyze: print a batch for an existing verb, evidence | followups (091 IC-001)
   ['--row', 'row'],                    // roadmap: restricts the step to one in-flight row (108 IC-001)
   ['--draft', 'draft'],                // roadmap seed: the draft file to check, apply or amend (113 IC-001)
+  ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
+  ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -386,6 +405,7 @@ const RUNTIME_LIST_FLAGS = new Map([
 const RUNTIME_INT_FLAGS = new Map([
   ['--iteration', 'iteration'],        // recover: retries already spent, bounding the retry budget
   ['--observed-exit', 'observedExit'], // evidence --action add: exit status of the observed command (0 is meaningful)
+  ['--timeout', 'timeout'],            // slot --action run: seconds to wait for the slot; the verb checks 1 to 86400 (115 IC-008)
 ]);
 
 /**
@@ -483,7 +503,9 @@ Commands:
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
   recover              Classify a verification failure and plan the bounded retry (--error)
-  trace                Trajectory of the current or most recent workflow (run ledger)
+  trace                Trajectory of the current or most recent workflow (run ledger);
+                       trace spans [<project>] the span view; trace analyze [<project>] its detectors (exit 1 on a finding);
+                       trace export --otlp-http [<project>] export spans via OTLP/HTTP
   stats                Aggregate local run-ledger usage
   indicators           Per-stage and per-gate timings from the orchestration record
   discover             Missed capability opportunities in recorded runs
@@ -499,6 +521,10 @@ Commands:
                        (a value beginning with '-' must be written --flag=value)
   roadmap              Session-driven autopilot runner (--action render|status|next|audit [--check] [--row <id>] [--run <id>]);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows
+  plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
+  slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
+                       slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
+                       slot --action release --name <name> --by <who> --reason <text>
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
@@ -526,12 +552,17 @@ Options:
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
       --prune <N>      Keep the N newest backups after install or update (default 3; 0 keeps all)
       --days <N>       Run-ledger window in calendar days (trace, stats, discover)
-      --run <key|id>   trace spans: keep the traces of one run key or run id
+      --run <key|id>   trace spans, trace analyze, trace export: keep the traces of one run key or run id
+      --emit evidence|followups
+                       trace analyze: print only the batch for evidence --action add --batch -,
+                       or for followup --action add --batch <file> (with --task-id, cites its evidence)
+      --otlp-http      trace export: export spans to an OpenTelemetry collector via OTLP/HTTP JSON
       --slug <name>    Scaffold this feature instead of the branch-resolved active one
 
 Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack, outcome --action record
-      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve
+      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve,
+                       trace analyze --emit followups (the ledger read for evidence ids)
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
                        verify: report|contract · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
@@ -543,6 +574,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
                        roadmap: render|status|next|audit (seed: check|apply|amend)
+                       slot: run|list|release
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -658,6 +690,11 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             disposition in the JSON; 2 usage or an unreadable store or plan)
       --error, --failed-check,
       --iteration, --agent                  recover
+      --name, --label, --timeout,
+      --no-wait, --by, --reason             slot (run: --name [--label <text>] [--timeout 1-86400] [--no-wait] -- <command> [args...],
+                                            everything after -- is the command's own argv; list; release: --name --by
+                                            --reason. Exit: run passes the command's code, 75 when busy or timed out;
+                                            release 1 while the holder is alive; 2 usage)
       --json           Machine-readable output (status)
 
 External tools:

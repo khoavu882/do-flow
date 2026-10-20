@@ -166,7 +166,7 @@ query silently rebuilds or refreshes the index. Retrieval state stays under the 
 `.doflow/index/code/semble/`. Provider faults leave lexical search available and report the gap.
 Hybrid remains an experimental, incomplete promotion: lexical-only is the default until repeated
 provider conformance and the full retrieval gate pass. The paid task-success and token-cost checks
-remain unreached without separate authorization.
+remain unreached without separate authorization; the protocol is in `bench/agentic/README.md`.
 
 An unknown `--scope` value exits 2 and lists `guidance` and `code`. The search root is `--root`, or the current
 directory when it is omitted; task state (`--task-id`, `--slug`) stays in the feature store root, so in a linked
@@ -389,7 +389,7 @@ fast-search is done with C2 unmet: caching is out of scope
 
 - A merge git cannot show (a squash, a rebase, a fast-forward or a cherry-pick) is not detected as shipped. List the feature with `--feature <slug>` when you record the release, or confirm the merge with `doflow lifecycle --action merged --slug <slug> --reason "<line>"`.
 - Features created before the loop existed keep working as they did; their earlier follow-ups are not collected.
-- The loop runs on all eight harnesses, in every scope where the harness gets skills: installing any one of them projects the DoFlow runtime. Antigravity has no skills at global scope, so install it per project. `doflow doctor` shows which harnesses reach the runtime.
+- The loop runs on all eight harnesses, in every scope where the harness gets skills: installing any one of them projects the DoFlow runtime. `doflow doctor` shows which harnesses reach the runtime.
 
 ## Drive the roadmap one step at a time
 
