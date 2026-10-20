@@ -44,17 +44,17 @@ function isSpawnTest(text: string): boolean {
 /** Extracts static relative specifiers starting with `.` from file text. */
 function extractRelativeSpecifiers(text: string): string[] {
   const specs = new Set<string>();
-  // require('...') and import('...')
+  // call forms: require and dynamic import with a literal relative specifier
   const callPattern = /\b(?:require|import)\s*\(\s*(['"`])(\.[^'"`]*)\1\s*\)/g;
   for (const match of text.matchAll(callPattern)) {
     specs.add(match[2]);
   }
-  // import ... from '...' and export ... from '...'
+  // static import and re-export forms with a from clause
   const fromPattern = /\b(?:import|export)\b(?:(?!import|export)[^;])*?\bfrom\s*(['"`])(\.[^'"`]*)\1/g;
   for (const match of text.matchAll(fromPattern)) {
     specs.add(match[2]);
   }
-  // side-effect import '...'
+  // side-effect import with a literal specifier
   const sideImportPattern = /\bimport\s+(['"`])(\.[^'"`]*)\1/g;
   for (const match of text.matchAll(sideImportPattern)) {
     specs.add(match[2]);
