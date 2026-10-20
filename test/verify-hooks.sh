@@ -630,10 +630,10 @@ else
   fail "pre-compact.sh produced no output"
 fi
 
-if [[ $LEN -lt 500 ]]; then
-  pass "output is under 500 chars (got $LEN)"
+if [[ $LEN -le 490 ]]; then
+  pass "output is within the 490-character cap (got $LEN)"
 else
-  fail "output OVER 500 chars (got $LEN) — may be truncated by Claude Code"
+  fail "output OVER the 490-character cap of compact-text.sh (got $LEN)"
 fi
 
 if echo "$OUT_COMPACT" | grep -q "git branch:"; then
