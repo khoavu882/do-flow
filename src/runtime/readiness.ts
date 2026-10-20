@@ -299,7 +299,13 @@ class ReadinessEngine {
       // not by any supported claim the task happens to hold (review R1 — a supported claim about an
       // unrelated invariant satisfied the bug template's root-cause requirement).
       else if (reqDef.requiresClaimStatus) {
-        let matchingClaims = taskClaims.filter((c: any) => c.status === reqDef.requiresClaimStatus);
+        // A `supported` claim counts only while at least one of its supporting items is live
+        // (active, FRESH, bound) in `taskEvidence`: support that was superseded, went stale or is
+        // unbound no longer backs it (107-B review C-1). Other statuses are not evidence-backed.
+        const liveEvidenceIds = new Set(taskEvidence.map((item: any) => item.id));
+        let matchingClaims = taskClaims.filter((c: any) => c.status === reqDef.requiresClaimStatus
+          && (reqDef.requiresClaimStatus !== 'supported'
+            || (c.supportingEvidence || []).some((id: string) => liveEvidenceIds.has(id))));
         if (reqDef.requiresClaimRole) {
           const withRole = matchingClaims.filter((c: any) => c.role === reqDef.requiresClaimRole);
           if (withRole.length === 0 && matchingClaims.length > 0) {

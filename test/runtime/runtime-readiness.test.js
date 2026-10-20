@@ -804,3 +804,76 @@ test('FU-h6671a control: a superseded item never satisfies a requirement', () =>
   assert.equal(requirement.satisfied, false, 'the retired item no longer proves affected_components');
   assert.notEqual(report.state, 'READY');
 });
+
+// ── 107-B review C-1: a claim counts only while a live item supports it ──────────────────────
+//
+// The claim branch of the gate read `taskClaims` and never `taskEvidence`, so a root-cause claim
+// whose only support had been superseded kept the bug template READY once the superseded item
+// stopped blocking through the unresolvable check.
+
+function bugLedger(taskId) {
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  const reproduction = ledger.addEvidence({
+    taskId, kind: 'runtime-observation', content: 'Observed HTTP 504', establishes: ['reproduction'],
+    observation: { command: 'curl -sf http://localhost:8080/pay', exitCode: 22 },
+  });
+  const affected = ledger.addEvidence({
+    taskId, kind: 'exact-search', locator: { file: 'src/runtime/readiness.ts', lineRange: [45, 60] },
+    content: 'function processPayment()', establishes: ['affected_code'],
+  });
+  const blast = ledger.addEvidence({
+    taskId, kind: 'structural', locator: { file: 'src/runtime/claims.ts' },
+    content: 'CheckoutController -> PaymentService', establishes: ['blast_radius'],
+  });
+  return { ledger, claims, reproduction, affected, blast };
+}
+const BUG_INPUT = (taskId) => ({ taskId, taskClass: 'bug', verificationPlan: 'node --test test/payment.test.js' });
+
+test('107-B C-1: a root-cause claim supported only by superseded evidence does not satisfy the bug template', () => {
+  const taskId = 'task_c1_superseded_support';
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims, affected } = bugLedger(taskId);
+  const gone = ledger.addEvidence({
+    taskId, kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/branch-only-file.ts', line: 1 }, content: 'recorded from a worktree',
+  });
+  const claimId = claims.addClaim({ taskId, statement: 'Missing keepalive', role: 'root-cause' });
+  claims.linkEvidence(claimId, gone, 'supports');
+  const before = engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims);
+  assert.equal(before.state, 'NEEDS_EVIDENCE', 'unresolvable live support blocks before supersede');
+  assert.equal(before.unresolvableEvidence.length, 1);
+
+  ledger.supersedeEvidence(gone, affected);
+  const report = engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims);
+  const rootCause = report.requirements.find((r) => r.id === 'root_cause');
+  assert.equal(rootCause.satisfied, false, 'a retired item no longer supports the claim');
+  assert.equal(report.state, 'NEEDS_EVIDENCE');
+  assert.ok(!(report.satisfiedRequirements || []).some((r) => (r.id || r) === 'root_cause'));
+});
+
+test('107-B C-1 control: a claim supported by live evidence still gives READY', () => {
+  const taskId = 'task_c1_live_support';
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims, affected } = bugLedger(taskId);
+  const claimId = claims.addClaim({ taskId, statement: 'Missing keepalive', role: 'root-cause' });
+  claims.linkEvidence(claimId, affected, 'supports');
+  const report = engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims);
+  assert.equal(report.state, 'READY');
+});
+
+test('107-B C-1 control: linking a valid replacement to the claim restores READY', () => {
+  const taskId = 'task_c1_replacement_linked';
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const { ledger, claims, affected } = bugLedger(taskId);
+  const gone = ledger.addEvidence({
+    taskId, kind: 'structural', provenance: 'extracted',
+    locator: { file: 'src/runtime/branch-only-file.ts', line: 1 }, content: 'recorded from a worktree',
+  });
+  const claimId = claims.addClaim({ taskId, statement: 'Missing keepalive', role: 'root-cause' });
+  claims.linkEvidence(claimId, gone, 'supports');
+  ledger.supersedeEvidence(gone, affected);
+  assert.equal(engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims).state, 'NEEDS_EVIDENCE');
+  claims.linkEvidence(claimId, affected, 'supports');
+  assert.equal(engine.evaluateReadiness(BUG_INPUT(taskId), ledger, claims).state, 'READY');
+});
