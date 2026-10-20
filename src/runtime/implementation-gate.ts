@@ -205,8 +205,11 @@ function runFilesAt(root: string, { listing = false }: { listing?: boolean } = {
   return files.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
 }
 
+/** The largest run file the list action reads; a bigger one is reported as `io` (a journal is a few KiB). */
+const MAX_RUN_FILE_BYTES = 1024 * 1024;
+
 /** A run file's text, or null when it must not be read: not a regular file (a link, a FIFO, a
- * device, a folder) or any read error. The lifecycle reader's pattern (event-store.ts
+ * device, a folder), larger than `MAX_RUN_FILE_BYTES`, or any read error. The lifecycle reader's pattern (event-store.ts
  * `readEventFile`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK` so neither a link nor a FIFO swapped in
  * after the `lstat` is followed or blocks, then `fstat` on the descriptor before reading. */
 function readRunFileText(file: string): string|null {
@@ -215,8 +218,15 @@ function readRunFileText(file: string): string|null {
   try {
     if (!fs.lstatSync(file).isFile()) return null;
     fd = fs.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
-    if (!fs.fstatSync(fd).isFile()) return null;
-    return fs.readFileSync(fd, 'utf8');
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > MAX_RUN_FILE_BYTES) return null;
+    // Read at most one byte past the cap, so a file that grew after the fstat is still refused.
+    const buffer = Buffer.alloc(MAX_RUN_FILE_BYTES + 1);
+    let length = 0;
+    for (let n = -1; n !== 0 && length <= MAX_RUN_FILE_BYTES; length += n) {
+      n = fs.readSync(fd, buffer, length, buffer.length - length, null);
+    }
+    return length > MAX_RUN_FILE_BYTES ? null : buffer.subarray(0, length).toString('utf8');
   } catch {
     return null;
   } finally {
@@ -272,11 +282,15 @@ function namesNoFeature(record: any): boolean {
 
 /**
  * IC-001/IC-003: one entry per logical run, the copy `status` reads, with `findRunFile`'s
- * precedence. In one store, the namespaced `<slug>/<id>.json` wins over a flat `<id>.json` of that
- * feature or of none (when the slug is the id, the flat file is the run's only path and wins).
- * Across stores, the current store's copy wins over every other checkout's; with no current copy,
- * each other checkout that holds one keeps its entry (more than one is the case `status` refuses as
- * ambiguous). A losing copy is dropped: `status` never reads it for this run.
+ * precedence. In one store, the namespaced `<slug>/<id>.json` wins over a flat `<id>.json` that
+ * names that feature (when the slug is the id, the flat file is the run's only path and wins).
+ * A flat file that names no feature, or that cannot be read or is a link, is keyed as `findRunFile`
+ * would first read it, the id as its slug, and stays its own entry. Across stores, the current
+ * store's copy of a key wins over every other checkout's; a current flat file `status` reads for
+ * any feature without a namespaced copy here (one naming no feature, or a link it would follow)
+ * also shadows the other checkouts' copies of that id. With no current copy, each other checkout
+ * that holds one keeps its entry (more than one is the case `status` refuses as ambiguous). A
+ * losing copy is dropped: `status` never reads it for this run.
  * @param {Array<Object>} entries `orchestrationRuns(...).entries`
  * @returns {Array<Object>} the winning entries, in input order
  */
@@ -286,28 +300,33 @@ function selectRunEntries(entries: any[]): any[] {
     const parts = path.relative(path.join(entry.root, '.doflow', 'state', 'orchestration'), entry.file).split(path.sep);
     return parts.length > 1 ? parts[0] : null;
   };
-  const rank = (entry: any) => namespaceOf(entry) === null ? (entry.slug === stem(entry) ? 0 : 1)
-    : namespaceOf(entry) === stem(entry) ? 2 : 0;
-  // A flat run that names no feature joins the key of the one namespaced copy of its id in its store.
-  const keyOf = (entry: any) => {
-    if (namespaceOf(entry) === null && namesNoFeature(entry.record)) {
-      const owners = entries.filter((other) => other.root === entry.root && namespaceOf(other) !== null
-        && namespaceOf(other) !== stem(entry) && stem(other) === stem(entry));
-      if (owners.length > 0) return `${namespaceOf(owners[0])}\0${stem(entry)}`;
-    }
-    return entry.slug === null || entry.slug === undefined ? null : `${entry.slug}\0${stem(entry)}`;
+  const named = (entry: any) => entry.record && !namesNoFeature(entry.record) && !entry.error;
+  const linked = (entry: any) => {
+    try { return fs.lstatSync(entry.file).isSymbolicLink(); } catch { return false; }
   };
-  const best = new Map<string, any[]>();
+  const keyOf = (entry: any) => {
+    const ns = namespaceOf(entry);
+    if (ns !== null) return `${ns}\0${stem(entry)}`;
+    if (named(entry) && entry.slug) return `${entry.slug}\0${stem(entry)}`;
+    return `${stem(entry)}\0${stem(entry)}`;
+  };
+  const rank = (entry: any) => {
+    const ns = namespaceOf(entry);
+    if (ns === null) return named(entry) && entry.slug !== stem(entry) ? 1 : 0;
+    return ns === stem(entry) ? 2 : 0;
+  };
+  // Ids a current flat file answers for any feature: status reads it before any other checkout.
+  const wildcards = new Set(entries.filter((entry) => entry.origin === 'current' && namespaceOf(entry) === null
+    && ((entry.record && namesNoFeature(entry.record)) || linked(entry))).map(stem));
   const perRoot = new Map<string, any>();
   for (const entry of entries) {
-    const key = keyOf(entry);
-    if (key === null) continue;
-    const local = `${entry.root}\0${key}`;
+    const local = `${entry.root}\0${keyOf(entry)}`;
     const held = perRoot.get(local);
     if (!held || rank(entry) < rank(held)) perRoot.set(local, entry);
   }
+  const best = new Map<string, any[]>();
   for (const entry of perRoot.values()) {
-    const key = keyOf(entry) as string; // only keyed entries were kept above
+    const key = keyOf(entry);
     const held = best.get(key);
     if (!held) best.set(key, [entry]);
     else if (held[0].origin === 'current') continue;
@@ -315,9 +334,13 @@ function selectRunEntries(entries: any[]): any[] {
     else held.push(entry);
   }
   const winners = new Set<any>();
-  for (const list of best.values()) for (const entry of list) winners.add(entry);
-  // An entry whose feature cannot be named has no key: it is its own run.
-  return entries.filter((entry) => keyOf(entry) === null || winners.has(entry));
+  for (const list of best.values()) {
+    for (const entry of list) {
+      if (entry.origin !== 'current' && wildcards.has(stem(entry))) continue;
+      winners.add(entry);
+    }
+  }
+  return entries.filter((entry) => winners.has(entry));
 }
 
 /**

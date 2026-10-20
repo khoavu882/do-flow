@@ -353,7 +353,8 @@ test('C-2: a shadowed flat copy is not a second run: one row, the copy status re
   // The upgrade path: a pre-115 flat journal of feature feat-a, then a write seeded the namespaced copy.
   writeJournal(root, 'run-x', { featureSlug: 'feat-a', revision: 1, updatedAt: '2026-10-20T03:00:00.000Z' });
   writeJournal(root, 'run-x', { featureSlug: 'feat-a', revision: 2, state: 'AWAITING_GATE', updatedAt: '2026-10-20T02:00:00.000Z' }, 'feat-a');
-  // A flat journal that names no feature is any feature's, so the namespaced copy shadows it too.
+  // A flat journal that names no feature is any feature's: feat-b reads its namespaced copy, every
+  // other feature still reads the flat one, so both are runs (S-1, the re-review's a4 shape).
   writeJournal(root, 'run-y', { revision: 1 });
   writeJournal(root, 'run-y', { featureSlug: 'feat-b', revision: 4 }, 'feat-b');
   // A flat journal of another feature is a different run and stays.
@@ -362,9 +363,9 @@ test('C-2: a shadowed flat copy is not a second run: one row, the copy status re
 
   const rows = listed(root).data.runs.map((row) => [row.featureSlug, row.taskId, row.revision]);
   assert.deepEqual(rows.filter(([, id]) => id === 'run-x'), [['feat-a', 'run-x', 2]]);
-  assert.deepEqual(rows.filter(([, id]) => id === 'run-y'), [['feat-b', 'run-y', 4]]);
+  assert.deepEqual(rows.filter(([, id]) => id === 'run-y'), [[null, 'run-y', 1], ['feat-b', 'run-y', 4]]);
   assert.deepEqual(rows.filter(([, id]) => id === 'run-z').sort(), [['feat-c', 'run-z', 1], ['feat-d', 'run-z', 5]]);
-  for (const [slug, taskId, revision] of [['feat-a', 'run-x', 2], ['feat-b', 'run-y', 4]]) {
+  for (const [slug, taskId, revision] of [['feat-a', 'run-x', 2], ['feat-b', 'run-y', 4], ['feat-zz', 'run-y', 1]]) {
     const status = orchestrate(root, { action: 'status', taskId, slug, recordSlug: slug, json: true });
     assert.equal(status.status, 0, status.stderr);
     assert.equal(JSON.parse(status.stdout).revision, revision, `${slug}/${taskId}: list and status disagree`);
@@ -385,6 +386,58 @@ test('C-2: another checkout\'s copy of a run held here is not a second row', (t)
   assert.deepEqual(rows.filter(([id]) => id === 'run-only-there'), [['run-only-there', 'other', 3]]);
   const status = orchestrate(main, { action: 'status', taskId: 'run-a', slug: 'feat-a', recordSlug: 'feat-a', json: true });
   assert.equal(JSON.parse(status.stdout).revision, 2);
+});
+
+test('S-1: a current flat copy status would read first shadows every other checkout\'s copy', (t) => {
+  const main = project(t);
+  const linked = `${main}-linked`;
+  execFileSync('git', ['-C', main, 'worktree', 'add', '-q', '-b', 'list-test-s1', linked, 'HEAD'], { stdio: 'ignore' });
+  const at = '2099-01-01T00:00:00.000Z';
+  // h: a current flat journal that names no feature, and a namespaced copy left in the worktree.
+  writeJournal(main, 'run-h', { revision: 1 });
+  writeJournal(linked, 'run-h', { featureSlug: 'feat-a', revision: 2, updatedAt: at }, 'feat-a');
+  // e3: the id is the slug, the current flat copy is corrupt, the worktree holds a stale flat copy.
+  writeRaw(main, 'feat-e', '{ corrupt');
+  writeJournal(linked, 'feat-e', { featureSlug: 'feat-e', revision: 1, updatedAt: at });
+  // f: the current flat copy is a link (status follows it), the worktree holds a namespaced copy.
+  const target = path.join(tempDir(t, 'doflow-orchestrate-list-s1-'), 'run-f.json');
+  fs.writeFileSync(target, JSON.stringify(journal('run-f', { featureSlug: 'feat-a', revision: 5 })));
+  if (process.platform !== 'win32') fs.symlinkSync(target, runFile(main, 'run-f'));
+  writeJournal(linked, 'run-f', { featureSlug: 'feat-a', revision: 1, updatedAt: at }, 'feat-a');
+  // A corrupt current flat copy of another feature's id is not read for feat-a: the worktree copy stays.
+  writeRaw(main, 'run-k', '{ corrupt');
+  writeJournal(linked, 'run-k', { featureSlug: 'feat-a', revision: 3 }, 'feat-a');
+
+  const result = listed(main).data;
+  const rows = result.runs.map((row) => [row.featureSlug, row.taskId, row.origin, row.revision]);
+  const unreadable = result.unreadable.map((row) => [row.taskId, row.origin, row.reason]);
+  assert.deepEqual(rows.filter(([, id]) => id === 'run-h'), [[null, 'run-h', 'current', 1]]);
+  assert.deepEqual(rows.filter(([, id]) => id === 'feat-e'), []);
+  assert.deepEqual(unreadable.filter(([id]) => id === 'feat-e'), [['feat-e', 'current', 'unparseable']]);
+  assert.deepEqual(rows.filter(([, id]) => id === 'run-k'), [['feat-a', 'run-k', 'other', 3]]);
+  if (process.platform !== 'win32') {
+    assert.deepEqual(rows.filter(([, id]) => id === 'run-f'), []);
+    assert.deepEqual(unreadable.filter(([id]) => id === 'run-f'), [['run-f', 'current', 'io']]);
+  }
+  // The copies status reads are the ones list keeps.
+  for (const [taskId, slug, revision] of [['run-h', 'feat-a', 1], ['run-k', 'feat-a', 3], ['run-f', 'feat-a', 5]]) {
+    if (taskId === 'run-f' && process.platform === 'win32') continue;
+    const status = orchestrate(main, { action: 'status', taskId, slug, recordSlug: slug, json: true });
+    assert.equal(status.status, 0, `${taskId}: ${status.stderr}`);
+    assert.equal(JSON.parse(status.stdout).revision, revision, `${taskId}: list and status disagree`);
+  }
+});
+
+test('N2: a run file over 1 MiB is reported as io without being read whole', (t) => {
+  const root = project(t);
+  writeJournal(root, 'small');
+  const huge = runFile(root, 'huge');
+  const fd = fs.openSync(huge, 'w');
+  fs.ftruncateSync(fd, 64 * 1024 * 1024); // sparse: no disk cost
+  fs.closeSync(fd);
+  const result = listed(root).data;
+  assert.deepEqual(result.runs.map((row) => row.taskId), ['small']);
+  assert.deepEqual(result.unreadable.map(({ taskId, reason }) => [taskId, reason]), [['huge', 'io']]);
 });
 
 test('C-3: list never follows a link out of the store and never blocks on a FIFO', (t) => {
