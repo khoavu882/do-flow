@@ -540,6 +540,13 @@ test('091 E.1 NFR-001: trace analyze --json, --emit evidence, --emit followups a
   assert.ok(exported.length >= 1, 'the dry run mapped at least one span');
   const hookSpans = exported.filter((sp) => sp.attributes.some((a) => a.key === 'gen_ai.agent.name' && a.value.stringValue === 'claude'));
   assert.ok(hookSpans.length >= 1, 'the dry run holds a claude hook span, whose local record carries the session canary');
+  // C-4: the local view's span ids (digests of locators naming the slug, task ids and worktree key) never leave.
+  const localIds = JSON.parse(run.spansStdout).traces.flatMap((tr) => tr.spans.map((sp) => sp.spanId));
+  assert.ok(localIds.length >= 1, 'the local view holds span ids');
+  const exportedText = byId['export-dry-run'].stdout;
+  assert.deepEqual(localIds.filter((id) => exportedText.includes(id)), [], 'no local span id is in the export');
+  const exportedIds = new Set(exported.map((sp) => sp.spanId));
+  assert.ok(exported.every((sp) => !sp.parentSpanId || exportedIds.has(sp.parentSpanId)), 'every exported parent is in the payload');
 
   // Every content canary and the feature slug: zero hits in all four outputs.
   assert.deepEqual(scanOutputs(outputTargets(outputs091), canaries, [...CONTENT_KEYS, 'slug']), []);
@@ -559,7 +566,7 @@ test('091 E.1 NFR-001: trace analyze --json, --emit evidence, --emit followups a
   }
 });
 
-test('091 E.1 negative control: a planted export mapping for `session` makes the dry-run canary search find the session canary', async () => {
+test('091 E.1 negative control: a planted export mapping for `session` makes the dry-run canary search find the session canary; the banned id rule exports nothing', async () => {
   const run = getRun();
   const { canaries } = run;
   // The same in-process path with the real registry is clean, so the planted entry alone turns it red.
@@ -567,8 +574,19 @@ test('091 E.1 negative control: a planted export mapping for `session` makes the
   assert.equal(clean.status, 0);
   assert.deepEqual(scanOutputs(outputTargets([clean]), canaries, ['session']), []);
 
+  // C-1: the banned id rule on `session`, in any type, now exports nothing (the mapper fails closed).
+  for (const rule of [{ id: true }, { id: 1 }, { id: 'true' }, { vocabulary: 'harness', id: 1 }]) {
+    const banned = JSON.parse(JSON.stringify(REGISTRY));
+    banned.export.attributes.session = rule;
+    const out = await dryRunExport(run, banned);
+    assert.equal(out.status, 0);
+    assert.deepEqual(scanOutputs(outputTargets([out]), canaries, ['session']), [], `session ${JSON.stringify(rule)} exports nothing`);
+  }
+
+  // A well-formed rule whose planted vocabulary lists the canary does export it, so the scan can see a leak.
   const planted = JSON.parse(JSON.stringify(REGISTRY));
-  planted.export.attributes.session = { id: true };
+  planted.vocabularies.planted_session = [canaries.session];
+  planted.export.attributes.session = { vocabulary: 'planted_session' };
   const leaked = await dryRunExport(run, planted);
   assert.equal(leaked.status, 0);
   const errors = scanOutputs(outputTargets([leaked]), canaries, ['session']);

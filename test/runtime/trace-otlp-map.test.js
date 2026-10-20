@@ -87,7 +87,8 @@ test('OTLP envelope, resource, and scope match IC-007', () => {
   assert.equal(ss.spans.length, 1);
   const span = ss.spans[0];
   assert.equal(span.traceId, '0123456789abcdef0123456789abcdef');
-  assert.equal(span.spanId, '1234567890abcdef');
+  assert.match(span.spanId, /^[0-9a-f]{16}$/);
+  assert.notEqual(span.spanId, '1234567890abcdef', 'the local view id is not exported (C-4)');
   assert.equal(span.parentSpanId, undefined);
   assert.equal(span.kind, 1);
   assert.equal(span.name, 'invoke_workflow');
@@ -95,7 +96,7 @@ test('OTLP envelope, resource, and scope match IC-007', () => {
   assert.equal(span.endTimeUnixNano, (BigInt(Date.parse('2026-10-20T10:01:00.123Z')) * 1000000n).toString());
 });
 
-test('ids pass through as 32 and 16 lowercase hex; parentSpanId omitted on roots', () => {
+test('trace ids pass through as 32 lowercase hex; span ids are remapped 16 hex; parentSpanId omitted on roots and names the remapped parent', () => {
   const view = {
     v: 1,
     traces: [
@@ -140,12 +141,14 @@ test('ids pass through as 32 and 16 lowercase hex; parentSpanId omitted on roots
   const { requests } = buildOtlpRequests(view, registry, DEFAULT_META);
   const spans = requests[0].resourceSpans[0].scopeSpans[0].spans;
   assert.equal(spans[0].traceId, 'abcdef0123456789abcdef0123456789');
-  assert.equal(spans[0].spanId, 'abcdef0123456789');
+  assert.match(spans[0].spanId, /^[0-9a-f]{16}$/);
+  assert.notEqual(spans[0].spanId, 'abcdef0123456789', 'the local root id is not exported (C-4)');
   assert.ok(!Object.hasOwn(spans[0], 'parentSpanId'), 'root span has no parentSpanId');
 
   assert.equal(spans[1].traceId, 'abcdef0123456789abcdef0123456789');
-  assert.equal(spans[1].spanId, '1234567890abcdef');
-  assert.equal(spans[1].parentSpanId, 'abcdef0123456789');
+  assert.match(spans[1].spanId, /^[0-9a-f]{16}$/);
+  assert.notEqual(spans[1].spanId, '1234567890abcdef', 'the local child id is not exported (C-4)');
+  assert.equal(spans[1].parentSpanId, spans[0].spanId, 'the parent is the remapped root id');
 });
 
 test('times as decimal strings equal to ISO ms x 1e6; null end uses start', () => {
@@ -512,8 +515,9 @@ test('links: root span links to target trace root span when traceLink matches a 
 
   assert.equal(spans[0].links, undefined);
   assert.deepEqual(spans[1].links, [
-    { traceId: '77777777777777777777777777777771', spanId: '8888888888888881' },
-  ]);
+    { traceId: '77777777777777777777777777777771', spanId: spans[0].spanId },
+  ], 'the link names the remapped root of the linked trace');
+  assert.notEqual(spans[0].spanId, '8888888888888881');
   assert.equal(spans[2].links, undefined, 'non-root span has no links');
 });
 
@@ -580,7 +584,8 @@ test('skip counts: ungrouped spans and spans with null start are counted and ski
   assert.equal(skipped.noStart, 1);
   const spans = requests[0].resourceSpans[0].scopeSpans[0].spans;
   assert.equal(spans.length, 1);
-  assert.equal(spans[0].spanId, 'bbbbbbbbbbbbbbb1');
+  assert.match(spans[0].spanId, /^[0-9a-f]{16}$/);
+  assert.notEqual(spans[0].spanId, 'bbbbbbbbbbbbbbb1');
 });
 
 test('chunking at 512: 513 spans produce exactly 2 requests in order', () => {
@@ -621,8 +626,11 @@ test('chunking at 512: 513 spans produce exactly 2 requests in order', () => {
   assert.equal(requests.length, 2, '513 spans must produce 2 requests');
   assert.equal(requests[0].resourceSpans[0].scopeSpans[0].spans.length, 512);
   assert.equal(requests[1].resourceSpans[0].scopeSpans[0].spans.length, 1);
-  assert.equal(requests[0].resourceSpans[0].scopeSpans[0].spans[0].spanId, '0000000000000000');
-  assert.equal(requests[1].resourceSpans[0].scopeSpans[0].spans[0].spanId, (512).toString(16).padStart(16, '0'));
+  const all = requests.flatMap((r) => r.resourceSpans[0].scopeSpans[0].spans);
+  assert.equal(new Set(all.map((x) => x.spanId)).size, 513, 'equal-valued siblings get distinct ids by ordinal');
+  const root = all.find((x) => !x.parentSpanId);
+  assert.ok(root, 'one root');
+  assert.ok(all.every((x) => x === root || x.parentSpanId === root.spanId), 'every child names the remapped root');
 });
 
 test('privacy: session, task, run, lineage, check_key, verify_id, worker_run never appear in serialized bodies', () => {
@@ -715,4 +723,123 @@ test('byte identity: two invocations with identical inputs produce identical ser
   const run1 = JSON.stringify(buildOtlpRequests(view, registry, DEFAULT_META));
   const run2 = JSON.stringify(buildOtlpRequests(view, registry, DEFAULT_META));
   assert.equal(run1, run2, 'two runs must produce byte-identical JSON');
+});
+
+// --- 091 review fixes: C-1 typed attribute rules, C-4 export-time span ids, C-5 pinned filters ---
+
+const crypto = require('node:crypto');
+const { attributeRule } = require('../../src/runtime/trace/otlp-map.ts');
+const sha16 = (text) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const oneSpanView = (attrs, extra = {}) => ({
+  v: 1,
+  traces: [{
+    traceId: '0123456789abcdef0123456789abcdef', traceLink: null, runKey: 'k/r/l', epoch: 'e',
+    window: { from: '2026-10-20T10:00:00.000Z', to: '2026-10-20T10:00:01.000Z' },
+    spans: [{ spanId: '1111111111111111', parentSpanId: null, kind: 'hook', name: 'hook', start: '2026-10-20T10:00:00.000Z',
+      end: '2026-10-20T10:00:01.000Z', durationMs: 1000, basis: 'recorded', locator: 'loc', attrs, ...extra }],
+  }],
+  ungrouped: [], gaps: [],
+});
+
+test('C-1: attributeRule accepts every shipped rule and rejects each type variant of the banned id rule', () => {
+  for (const [key, spec] of Object.entries(registry.export.attributes)) {
+    assert.ok(!('error' in attributeRule(key, spec)), `${key} is a well-formed rule`);
+  }
+  const bad = [
+    ['session', { id: 1 }], ['policy', { id: 'true' }], ['session', { vocabulary: 'harness', id: 1 }],
+    ['duration_ms', { measure: 'yes' }], ['session', { id: true }], ['tool_call_id', { id: 1 }],
+    ['event', { vocabulary: 'event', raw: true }], ['event', {}], ['event', null], ['event', ['vocabulary']],
+    ['event', { vocabulary: '' }], ['event', { vocabulary: 'event', export: 7 }], ['duration_ms', { measure: true, id: true }],
+  ];
+  for (const [key, spec] of bad) assert.ok('error' in attributeRule(key, spec), `${key} ${JSON.stringify(spec)} is rejected`);
+});
+
+test('C-1: the mapper fails closed on a malformed rule: no canary is exported for any planted rule', () => {
+  const canary = 'CANARYc1value';
+  const plants = [
+    ['session', { id: 1 }], ['policy', { id: 'true' }], ['session', { vocabulary: 'harness', id: 1 }],
+    ['session', { measure: 'yes' }], ['session', { id: true }], ['policy', { id: true, export: 'x.y' }],
+  ];
+  for (const [key, spec] of plants) {
+    const reg = clone(registry);
+    reg.export.attributes[key] = spec;
+    const body = JSON.stringify(buildOtlpRequests(oneSpanView({ [key]: canary }), reg, DEFAULT_META));
+    assert.ok(!body.includes(canary), `${key} ${JSON.stringify(spec)} exports no raw value`);
+  }
+});
+
+test('C-5: a tool_call_id that fails SAFE_TOKEN is omitted and a safe one round-trips', () => {
+  const ids = (value) => buildOtlpRequests(oneSpanView({ tool_call_id: value }), registry, DEFAULT_META)
+    .requests[0].resourceSpans[0].scopeSpans[0].spans[0].attributes.filter((a) => a.key === 'gen_ai.tool.call.id');
+  assert.deepEqual(ids('call_999'), [{ key: 'gen_ai.tool.call.id', value: { stringValue: 'call_999' } }]);
+  for (const unsafe of ['call 999', 'CANARY/../x', 'x'.repeat(65), '-leading', 'a\nb']) assert.deepEqual(ids(unsafe), [], JSON.stringify(unsafe));
+});
+
+test('C-5: a status outside FAIL/fail/error with a non-zero exit exports error.type exit:<code>, never the status', () => {
+  const out = buildOtlpRequests(oneSpanView({ status: 'CANARYstatus', exit_code: 1 }), registry, DEFAULT_META);
+  const span = out.requests[0].resourceSpans[0].scopeSpans[0].spans[0];
+  assert.deepEqual(span.status, { code: 2 });
+  assert.deepEqual(span.attributes.filter((a) => a.key === 'error.type'), [{ key: 'error.type', value: { stringValue: 'exit:1' } }]);
+  assert.ok(!JSON.stringify(out).includes('CANARYstatus'));
+});
+
+/** A trace whose local ids and locators embed a slug, a task id and a worktree key, as spans.ts makes them. */
+function identifiedView(slug, task, key) {
+  const traceId = 'feedfacefeedfacefeedfacefeedface';
+  const loc = (rest) => `task-attempts/${slug}.json#${key}/local/main/${rest}`;
+  const id = (l) => sha16(traceId + l);
+  const root = loc('0');
+  const att = loc(`${task}/1`);
+  const att2 = loc(`${task}/2`);
+  const hook = `runs/telemetry/2026-10-20.jsonl:${key}:3`;
+  const orphanParent = loc(`${task}/0`);
+  const span = (l, parent, kind, name, start, end, attrs = {}) => ({ spanId: id(l), parentSpanId: parent ? id(parent) : null, kind, name, start, end,
+    durationMs: null, basis: 'recorded', locator: l, attrs });
+  return {
+    v: 1,
+    traces: [{
+      traceId, traceLink: null, runKey: `${key}/local/main`, epoch: 'e', window: { from: 'a', to: 'b' },
+      spans: [
+        span(root, null, 'run', 'run', '2026-10-20T10:00:00.000Z', '2026-10-20T10:05:00.000Z'),
+        span(att, root, 'attempt', task, '2026-10-20T10:00:01.000Z', '2026-10-20T10:00:02.000Z', { status: 'FAIL' }),
+        span(att2, root, 'attempt', task, '2026-10-20T10:00:01.000Z', '2026-10-20T10:00:02.000Z', { status: 'FAIL' }),
+        span(hook, att, 'hook', 'hook', '2026-10-20T10:00:01.500Z', '2026-10-20T10:00:01.600Z', { tool: 'Bash', event: 'PreToolUse' }),
+        span(orphanParent, root, 'attempt', task, null, null),
+        span(loc(`${task}/3`), orphanParent, 'hook', 'hook', '2026-10-20T10:00:03.000Z', '2026-10-20T10:00:03.100Z', { tool: 'Bash' }),
+      ],
+    }],
+    ungrouped: [], gaps: [],
+  };
+}
+
+test('C-4 planted guess: two slugs, task ids and worktree keys with identical payload values export identical span ids', () => {
+  const a = identifiedView('feature-alpha', 'A.1', '0011223344556677');
+  const b = identifiedView('other-slug', 'Z.9', 'ffeeddccbbaa9988');
+  const outA = JSON.stringify(buildOtlpRequests(a, registry, DEFAULT_META));
+  const outB = JSON.stringify(buildOtlpRequests(b, registry, DEFAULT_META));
+  assert.equal(outA, outB, 'the exported bodies, ids included, do not depend on any local identifier');
+  const shuffled = clone(a);
+  shuffled.traces[0].spans.reverse();
+  assert.equal(JSON.stringify(buildOtlpRequests(shuffled, registry, DEFAULT_META)), outA, 'the input order does not change the output');
+});
+
+test('C-4: no exported id equals a local id or sha16(traceId + locator); parents resolve inside the payload; an unexported parent is dropped', () => {
+  const view = identifiedView('feature-alpha', 'A.1', '0011223344556677');
+  const local = new Set(view.traces[0].spans.flatMap((s) => [s.spanId, sha16(view.traces[0].traceId + s.locator)]));
+  const { requests } = buildOtlpRequests(view, registry, DEFAULT_META);
+  const spans = requests[0].resourceSpans[0].scopeSpans[0].spans;
+  assert.equal(spans.length, 5, 'the start-less span is skipped');
+  const ids = new Set(spans.map((s) => s.spanId));
+  assert.equal(ids.size, 5, 'two equal-valued attempts get distinct ids');
+  for (const s of spans) {
+    assert.ok(!local.has(s.spanId), `${s.spanId} is not a local id`);
+    if (s.parentSpanId !== undefined) assert.ok(ids.has(s.parentSpanId), 'the parent is in the payload');
+  }
+  const body = JSON.stringify(requests);
+  for (const l of local) assert.ok(!body.includes(l), `local id ${l} never appears`);
+  const orphan = spans.find((s) => s.startTimeUnixNano === (BigInt(Date.parse('2026-10-20T10:00:03.000Z')) * 1000000n).toString());
+  assert.ok(!Object.hasOwn(orphan, 'parentSpanId'), 'a child of an unexported span is exported as a root');
+  const sortedBy = [...spans].sort((x, y) => (BigInt(x.startTimeUnixNano) < BigInt(y.startTimeUnixNano) ? -1 : BigInt(x.startTimeUnixNano) > BigInt(y.startTimeUnixNano) ? 1 : x.spanId < y.spanId ? -1 : 1));
+  assert.deepEqual(spans.map((s) => s.spanId), sortedBy.map((s) => s.spanId), 'spans are ordered by start then exported id');
 });

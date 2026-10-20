@@ -17,6 +17,7 @@ const { REPO } = require('./_shared');
 const { tempDir, suiteTempDir, removeTree } = require('../helper/tmp');
 const { TelemetryWriter } = require('../../src/runtime/trace/telemetry.ts');
 const { RunLedger } = require('../../src/runtime/trace/ledger.ts');
+const { attributeRule } = require('../../src/runtime/trace/otlp-map.ts');
 
 const REGISTRY_FILE = 'core/registry/telemetry.json';
 const WRITER_FILE = 'src/runtime/trace/telemetry.ts';
@@ -255,16 +256,131 @@ function checkNoNodeOnHooks(files) {
 
 /** The model-endpoint client of feature 072; 091 adds otlp-export.ts (DEC-008, O1). */
 const PINNED_NETWORK_FILES = ['src/runtime/advice/client.ts', 'src/runtime/advice/endpoint-guard.ts', 'src/runtime/trace/otlp-export.ts'];
-const NETWORK_USE = /(?:require\(\s*|from\s+|import\(\s*)['"](?:node:)?(?:http|https|http2|net|tls|dgram|dns|undici)['"]|(?<![.\w])fetch\s*\(|\bundici\b/;
+const NETWORK_ROOTS = ['src'];
+const NETWORK_EXT = /\.(?:ts|js|mjs|cjs|mts|cts)$/;
+const NETWORK_MODULES = /^(?:node:)?(?:http|https|http2|net|tls|dgram|dns|undici)(?:\/.*)?$/;
+/** Identifiers that reach the network without a module load (C-2): any reference, member access included. */
+const NETWORK_IDENTIFIERS = /(?<![\w$])(?:fetch|WebSocket|EventSource|getBuiltinModule|undici)(?![\w$])|(?<![\w$.])(?:globalThis|global)\s*(?:\?\.)?\s*\[|\bprocess\s*\.\s*(?:binding|_linkedBinding)\b/g;
+
+/**
+ * The source with comments blanked and string, template and regex literal bodies masked, keeping
+ * offsets and newlines, plus the string literals found: `{ code, literals: [{ start, end, value }] }`.
+ * A template literal is kept as one literal only when it has no `${`.
+ */
+function maskSource(text) {
+  const out = text.split('');
+  const literals = [];
+  const blank = (from, to, keepQuotes) => {
+    for (let k = from; k < to; k += 1) {
+      if (out[k] === '\n') continue;
+      if (keepQuotes && (k === from || k === to - 1)) continue;
+      out[k] = keepQuotes ? 'x' : ' ';
+    }
+  };
+  const regexAllowedAfter = /[(,=:[!&|?{};+\-*%<>~^]$|(?:^|[^\w$])(?:return|typeof|case|do|else|in|of|void|yield|await)$/;
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (c === '/' && next === '/') {
+      let j = text.indexOf('\n', i);
+      if (j === -1) j = text.length;
+      blank(i, j, false);
+      i = j;
+      continue;
+    }
+    if (c === '/' && next === '*') {
+      let j = text.indexOf('*/', i + 2);
+      j = j === -1 ? text.length : j + 2;
+      blank(i, j, false);
+      i = j;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < text.length && text[j] !== c && text[j] !== '\n') j += text[j] === '\\' ? 2 : 1;
+      const end = Math.min(j + 1, text.length);
+      literals.push({ start: i, end, quote: c, value: text.slice(i + 1, end - 1) });
+      blank(i, end, true);
+      i = end;
+      continue;
+    }
+    if (c === '`') {
+      // Template text is masked; `${...}` expressions stay code. Only a template with none is a literal.
+      let j = i + 1;
+      let interpolated = false;
+      while (j < text.length && text[j] !== '`') {
+        if (text[j] === '\\') { if (text[j + 1] !== '\n') out[j + 1] = 'x'; out[j] = 'x'; j += 2; continue; }
+        if (text[j] === '$' && text[j + 1] === '{') {
+          interpolated = true;
+          let depth = 1;
+          j += 2;
+          while (j < text.length && depth > 0) {
+            if (text[j] === '{') depth += 1;
+            else if (text[j] === '}') depth -= 1;
+            j += 1;
+          }
+          continue;
+        }
+        if (text[j] !== '\n') out[j] = 'x';
+        j += 1;
+      }
+      const end = Math.min(j + 1, text.length);
+      if (!interpolated) literals.push({ start: i, end, quote: c, value: text.slice(i + 1, end - 1) });
+      i = end;
+      continue;
+    }
+    if (c === '/' && regexAllowedAfter.test(text.slice(Math.max(0, i - 12), i).trimEnd() || '(')) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < text.length && text[j] !== '\n') {
+        if (text[j] === '\\') j += 1;
+        else if (text[j] === '[') inClass = true;
+        else if (text[j] === ']') inClass = false;
+        else if (text[j] === '/' && !inClass) break;
+        j += 1;
+      }
+      if (text[j] === '/') {
+        blank(i, j + 1, true);
+        i = j + 1;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return { code: out.join(''), literals };
+}
+
+/** Network use in one file (C-2): a network module load, a network identifier, or a load with a non-literal argument. */
+function networkUses(text) {
+  const { code, literals } = maskSource(text);
+  const literalAt = new Map(literals.map((lit) => [lit.start, lit]));
+  const hits = [];
+  const add = (offset, what) => hits.push({ line: text.slice(0, offset).split('\n').length, what });
+  for (const match of code.matchAll(NETWORK_IDENTIFIERS)) add(match.index, match[0].trim());
+  // require(...) and import(...): the argument must be one plain string literal; then its module is checked.
+  for (const match of code.matchAll(/(?<![\w$.])(require|import)\s*\(/g)) {
+    let k = match.index + match[0].length;
+    while (/\s/.test(code[k] || '')) k += 1;
+    const lit = literalAt.get(k);
+    let after = lit ? lit.end : k;
+    while (/\s/.test(code[after] || '')) after += 1;
+    if (!lit || code[after] !== ')') { add(match.index, `${match[1]} with a non-literal argument`); continue; }
+    if (NETWORK_MODULES.test(lit.value)) add(match.index, `${match[1]}('${lit.value}')`);
+  }
+  // static import / export ... from '<module>' and bare import '<module>'
+  for (const match of code.matchAll(/(?<![\w$.])(?:from|import)\s*(?=['"])/g)) {
+    const lit = literalAt.get(match.index + match[0].length);
+    if (lit && NETWORK_MODULES.test(lit.value)) add(match.index, `import '${lit.value}'`);
+  }
+  return hits;
+}
 
 function checkNoNetwork(files) {
   const errors = [];
   for (const { rel, text } of files) {
     if (PINNED_NETWORK_FILES.includes(rel)) continue;
-    text.split('\n').forEach((line, index) => {
-      if (/^\s*(?:\/\/|\/\*|\*)/.test(line)) return;
-      if (NETWORK_USE.test(line)) errors.push(`${rel}:${index + 1} uses a network module outside an export module`);
-    });
+    for (const hit of networkUses(text)) errors.push(`${rel}:${hit.line} uses a network module outside an export module (${hit.what})`);
   }
   return errors;
 }
@@ -398,7 +514,11 @@ function checkExportMapping(reg) {
       at(where, `'${key}' is not a local field`);
     }
 
-    if (attrSpec.vocabulary !== undefined) {
+    // The typed rule check the mapper itself applies (one shared function, C-1).
+    const checked = attributeRule(key, attrSpec);
+    if ('error' in checked) at(where, checked.error);
+
+    if (!('error' in checked) && checked.rule === 'vocabulary') {
       const vocab = attrSpec.vocabulary;
       const exists = Object.hasOwn(vocabularies, vocab) || OWNED_NAMES_LISTS.has(vocab);
       if (!exists) {
@@ -406,15 +526,11 @@ function checkExportMapping(reg) {
       }
     }
 
-    if (attrSpec.id === true && key !== 'tool_call_id') {
-      at(where, `'${key}' declared id: true but only tool_call_id may declare id: true`);
-    }
-
     const classes = fieldClasses.get(key) || new Set();
     if (classes.has('T2-local')) {
       at(where, `attribute '${key}' has class T2-local and cannot be exported`);
     }
-    if (classes.has('T0') && !attrSpec.id) {
+    if (classes.has('T0') && ('error' in checked || checked.rule !== 'id')) {
       at(where, `T0 attribute '${key}' listed without id: true`);
     }
   }
@@ -506,9 +622,10 @@ test('G45.2: no node process is started on a shell hook path, and the node files
   assert.deepEqual(checkPinnedShellDoors(files), []);
 });
 
-test('G45.3: no network module or fetch under src/runtime outside the pinned advice client', () => {
-  const files = filesUnder('src/runtime', (rel) => /\.(?:ts|js)$/.test(rel));
+test('G45.3: no network module, fetch or dynamic load under src outside the pinned advice client and export sender', () => {
+  const files = NETWORK_ROOTS.flatMap((root) => filesUnder(root, (rel) => NETWORK_EXT.test(rel)));
   assert.ok(files.length > 50);
+  assert.ok(files.some(({ rel }) => rel.startsWith('src/cli/')), 'src/cli is scanned');
   for (const pinned of PINNED_NETWORK_FILES) assert.ok(files.some(({ rel }) => rel === pinned), `${pinned} exists`);
   assert.deepEqual(checkNoNetwork(files), []);
 });
@@ -662,14 +779,63 @@ test('G45.2 self-test: the observer is a pinned shell front door and starting no
 
 test('G45.3 self-test: a network require, import or fetch fails; the pinned client and comments do not', () => {
   const run = (rel, text) => checkNoNetwork([{ rel, text }]);
-  assert.deepEqual(run('src/runtime/trace/x.ts', "const net = require('node:net');\n"), ['src/runtime/trace/x.ts:1 uses a network module outside an export module']);
+  assert.deepEqual(run('src/runtime/trace/x.ts', "const net = require('node:net');\n"), ["src/runtime/trace/x.ts:1 uses a network module outside an export module (require('node:net'))"]);
   assert.equal(run('src/runtime/x.ts', "import http from 'http';\n").length, 1);
   assert.equal(run('src/runtime/x.ts', 'const r = await fetch(url);\n').length, 1);
   assert.equal(run('src/runtime/x.ts', "const { request } = require('undici');\n").length, 1);
-  assert.deepEqual(run('src/runtime/trace/otlp-map.ts', 'const r = await fetch(url);\n'), ['src/runtime/trace/otlp-map.ts:1 uses a network module outside an export module']);
+  assert.equal(run('src/runtime/x.ts', 'const u = undici.request;\n').length, 1, 'the undici identifier');
+  assert.equal(run('src/runtime/trace/otlp-map.ts', 'const r = await fetch(url);\n').length, 1);
   assert.deepEqual(run('src/runtime/trace/otlp-export.ts', 'const r = await fetch(url);\n'), []);
-  assert.deepEqual(run('src/runtime/x.ts', "// require('node:http')\n * fetch(x)\nconst a = git.fetch(1) || prefetch(2);\n"), []);
   assert.deepEqual(run('src/runtime/advice/client.ts', "const http = require('node:http');\n"), []);
+  // Comments, strings, templates and regex literals are not code.
+  assert.deepEqual(run('src/runtime/x.ts', [
+    "// require('node:http')", '/**', ' * fetch(x)', ' */', '/* fetch(u) */ const ok = 1;', "const msg = 'do not push, fetch or change git config';",
+    'const t = `git fetch ${depth} origin`;', 'const re = /fetch|WebSocket/;', "execFileSync('git', ['fetch', '--depth=1']);",
+    'const prefetched = prefetch(2);', "const p = require('./otlp-map.ts');", "import x from './local.ts';", "const q = await import('./lazy.ts');",
+  ].join('\n') + '\n'), []);
+});
+
+test('G45.3 self-test: every evasion shape of the review fails in an unpinned file (C-2)', () => {
+  const shapes = {
+    'plain fetch(': "const x = () => fetch('http://127.0.0.1:1');",
+    "require('node:http')": "const h = require('node:http');",
+    'https.request via require': "const h = require('https'); h.request('https://x');",
+    "require('node:net').connect": "require('node:net').connect(1);",
+    "import('node:http')": "const p = import('node:http');",
+    'globalThis.fetch(': "const x = () => globalThis.fetch('http://127.0.0.1:1');",
+    "globalThis['fe'+'tch'](": "const x = () => globalThis['fe' + 'tch']('http://127.0.0.1:1');",
+    "require('ht'+'tp')": "const h = require('ht' + 'tp');",
+    'require(`node:http`) template': 'const h = require(`node:http`);',
+    'require(`${x}`) template': 'const h = require(`${name}`);',
+    'multi-line require': "const h = require(\n  'node:http');",
+    'new WebSocket(': "const w = () => new WebSocket('ws://127.0.0.1:1');",
+    'new EventSource(': "const e = new EventSource('http://x');",
+    'alias const f = fetch': 'const f = fetch;',
+    '/**/ comment prefix then fetch(': "/**/ const x = () => fetch('http://127.0.0.1:1');",
+    "process.getBuiltinModule('node:http')": "const h = process.getBuiltinModule('node:http');",
+    'fetchImpl default (otlp-export shape)': "async function s(u, { fetchImpl = (globalThis as any).fetch } = {}) { return fetchImpl(u, { method: 'POST' }); }",
+    'member .fetch': 'const r = client.fetch(u);',
+    'require(variable)': 'const m = require(name);',
+    'import(variable)': 'const m = await import(spec);',
+    "export from 'node:tls'": "export { connect } from 'node:tls';",
+    'process.binding': "process.binding('tcp_wrap');",
+    'fetch inside a template expression': 'const s = `${await fetch(u)}`;',
+  };
+  for (const [name, code] of Object.entries(shapes)) {
+    for (const rel of ['src/runtime/trace/analyze.ts', 'src/cli/net-probe.ts', 'src/runtime/trace/net-probe.mjs', 'src/runtime/x.cjs']) {
+      assert.ok(checkNoNetwork([{ rel, text: `${code}\n` }]).length >= 1, `${name} in ${rel} is caught`);
+    }
+  }
+});
+
+test('G45.3 self-test: the real sender with its pin removed, or a verbatim copy under another name, fails (C-2)', () => {
+  const sender = fs.readFileSync(path.join(REPO, 'src/runtime/trace/otlp-export.ts'), 'utf8');
+  assert.deepEqual(checkNoNetwork([{ rel: 'src/runtime/trace/otlp-export.ts', text: sender }]), [], 'pinned');
+  const copy = checkNoNetwork([{ rel: 'src/runtime/trace/otlp-export-copy.ts', text: sender }]);
+  assert.ok(copy.length >= 1, 'a verbatim copy of the sender is caught');
+  assert.ok(copy.some((message) => /\(fetch\)/.test(message)), copy.join('\n'));
+  const advice = fs.readFileSync(path.join(REPO, 'src/runtime/advice/client.ts'), 'utf8');
+  assert.ok(checkNoNetwork([{ rel: 'src/runtime/advice/client-copy.ts', text: advice }]).length >= 1, 'a copy of the advice client is caught');
 });
 
 test('G45.4 self-test: a skill or guidance file naming a trace view or the baseline fails', () => {
@@ -733,6 +899,31 @@ test('G45.7 self-test: id: true on session fails, naming session', () => {
   copy.export.attributes.session = { id: true };
   const errors = checkExportMapping(copy);
   assert.match(errors.join('\n'), /session/);
+});
+
+test('G45.7 self-test: each type variant of the id rule and every malformed rule fails, naming the key (C-1)', () => {
+  const plants = [
+    ['session', { id: 1 }, /'session' id must be the boolean true/],
+    ['policy', { id: 'true' }, /'policy' id must be the boolean true/],
+    ['session', { vocabulary: 'harness', id: 1 }, /'session' must hold exactly one of id, vocabulary, measure/],
+    ['duration_ms', { measure: 'yes' }, /'duration_ms' measure must be the boolean true/],
+    ['event', { vocabulary: 'event', raw: true }, /'event' has unknown rule key\(s\) raw/],
+    ['event', {}, /'event' must hold exactly one/],
+    ['tool_call_id', { id: 1, export: 'gen_ai.tool.call.id' }, /'tool_call_id' id must be the boolean true/],
+  ];
+  for (const [key, spec, pattern] of plants) {
+    const copy = clone(registry);
+    copy.export.attributes[key] = spec;
+    assert.match(checkExportMapping(copy).join('\n'), pattern, `${key} ${JSON.stringify(spec)}`);
+  }
+});
+
+test('G45.7 self-test: a T2-local field listed in export.attributes fails, naming the field (C-12)', () => {
+  const copy = clone(registry);
+  const [kind] = Object.keys(copy.kinds);
+  copy.kinds[kind].fields.planted_local = { name: `doflow.${kind}.planted_local`, class: 'T2-local', type: 'token|null', phase: 'P2' };
+  copy.export.attributes.planted_local = { vocabulary: 'event' };
+  assert.match(checkExportMapping(copy).join('\n'), /attribute 'planted_local' has class T2-local and cannot be exported/);
 });
 
 test('G45.7 self-test: a T0 key listed without id fails, naming the key', () => {

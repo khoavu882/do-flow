@@ -2,6 +2,7 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
+const crypto = require('node:crypto');
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const { SAFE_TOKEN } = require('./telemetry.ts');
@@ -140,6 +141,37 @@ function resolveSpanName(span: any, spanSpec: any, registry: any, lists: Record<
   return pattern.trim();
 }
 
+const RULE_KEYS = ['id', 'vocabulary', 'measure'];
+const SPEC_KEYS = new Set([...RULE_KEYS, 'export']);
+
+/**
+ * The one typed check of an `export.attributes` entry (091 C-1), shared by the mapper and G45.7.
+ * An entry holds exactly one rule key: `id: true` (boolean, only on `tool_call_id`), `vocabulary:
+ * <non-empty list name>` or `measure: true`, plus an optional `export: <non-empty key>`. Anything
+ * else is an error, and the mapper drops the attribute (fail closed).
+ */
+function attributeRule(key: string, attrSpec: any): { rule: 'id' | 'vocabulary' | 'measure'; exportKey: string | null } | { error: string } {
+  if (!attrSpec || typeof attrSpec !== 'object' || Array.isArray(attrSpec)) return { error: `'${key}' rule must be an object` };
+  const unknown = Object.keys(attrSpec).filter((k) => !SPEC_KEYS.has(k));
+  if (unknown.length) return { error: `'${key}' has unknown rule key(s) ${unknown.join(',')}` };
+  const rules = RULE_KEYS.filter((k) => Object.hasOwn(attrSpec, k));
+  if (rules.length !== 1) return { error: `'${key}' must hold exactly one of id, vocabulary, measure (has ${rules.length})` };
+  if (Object.hasOwn(attrSpec, 'export') && (typeof attrSpec.export !== 'string' || attrSpec.export === '')) {
+    return { error: `'${key}' export must be a non-empty string` };
+  }
+  const exportKey = Object.hasOwn(attrSpec, 'export') ? attrSpec.export : null;
+  const rule = rules[0] as 'id' | 'vocabulary' | 'measure';
+  if (rule === 'id') {
+    if (attrSpec.id !== true) return { error: `'${key}' id must be the boolean true` };
+    if (key !== 'tool_call_id') return { error: `'${key}' declared id: true but only tool_call_id may declare id: true` };
+  } else if (rule === 'vocabulary') {
+    if (typeof attrSpec.vocabulary !== 'string' || attrSpec.vocabulary === '') return { error: `'${key}' vocabulary must name a list` };
+  } else if (attrSpec.measure !== true) {
+    return { error: `'${key}' measure must be the boolean true` };
+  }
+  return { rule, exportKey };
+}
+
 /** Resolves span attributes per IC-008 rules 1-5 and 7. */
 function resolveAttributes(span: any, spanSpec: any, registry: any, lists: Record<string, string[]>): any[] {
   const attrs: any[] = [];
@@ -151,19 +183,21 @@ function resolveAttributes(span: any, spanSpec: any, registry: any, lists: Recor
     if (!Object.hasOwn(exportAttrs, key)) continue;
 
     const attrSpec = exportAttrs[key];
+    const checked = attributeRule(key, attrSpec);
+    if ('error' in checked) continue; // fail closed: a malformed rule exports nothing
     const exportKey =
-      attrSpec.export ||
+      checked.exportKey ||
       registry?.kinds?.[span.kind]?.fields?.[key]?.name ||
       `doflow.${span.kind}.${key}`;
 
     let valueObj: any = null;
 
-    if (attrSpec.id) {
-      // rule 2: id: true exports the value unchanged only when it passes SAFE_TOKEN
+    if (checked.rule === 'id') {
+      // rule 2: id: true (tool_call_id only) exports the value unchanged only when it passes SAFE_TOKEN
       if (typeof rawValue === 'string' && SAFE_TOKEN.test(rawValue)) {
         valueObj = { stringValue: rawValue };
       }
-    } else if (attrSpec.vocabulary) {
+    } else if (checked.rule === 'vocabulary') {
       // rule 3: vocabulary exports the value when it is a member of the named list, else "other"
       const listName = attrSpec.vocabulary;
       const list = lists[listName] || registry?.vocabularies?.[listName] || [];
@@ -172,7 +206,7 @@ function resolveAttributes(span: any, spanSpec: any, registry: any, lists: Recor
       } else {
         valueObj = { stringValue: 'other' };
       }
-    } else if (attrSpec.measure) {
+    } else if (checked.rule === 'measure') {
       // rule 4: measure: true exports a number unchanged
       if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
         if (Math.trunc(rawValue) === rawValue) {
@@ -198,6 +232,79 @@ function resolveAttributes(span: any, spanSpec: any, registry: any, lists: Recor
   }
 
   return attrs;
+}
+
+const sha16 = (text: string): string => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
+const byStartThenId = (x: any, y: any): number => {
+  const a = BigInt(x.body.startTimeUnixNano);
+  const b = BigInt(y.body.startTimeUnixNano);
+  return a < b ? -1 : a > b ? 1 : cmp(x.id, y.id);
+};
+
+/**
+ * Export-time span ids (091 C-4, D-ORCH option a). The local view's span ids are digests of record
+ * locators (slug, task id, run key, path hash), so they are never exported. Each exported id is
+ * `sha16` of values already in the payload only: the trace id, the remapped parent id, the span's
+ * exported body (name, times, attributes, status), and an ordinal among spans whose inputs are equal,
+ * ordered by the exported content of their subtrees. A parent that is not exported is dropped.
+ * Sets `id` and `parent` (exported id or null) on each entry.
+ */
+function remapSpanIds(traceId: string, entries: any[]): void {
+  const byLocal = new Map<string, any>();
+  for (const e of entries) if (e.localId && !byLocal.has(e.localId)) byLocal.set(e.localId, e);
+  const parentOf = (e: any): any => {
+    const p = e.localParent ? byLocal.get(e.localParent) : undefined;
+    return p && p !== e ? p : null;
+  };
+  const children = new Map<any, any[]>();
+  for (const e of entries) {
+    const p = parentOf(e);
+    if (p) {
+      if (!children.has(p)) children.set(p, []);
+      children.get(p)!.push(e);
+    }
+  }
+  // Content signature of a subtree, from exported values only (cycle-safe).
+  const sig = new Map<any, string>();
+  const subtree = (e: any, seen: Set<any>): string => {
+    if (sig.has(e)) return sig.get(e)!;
+    if (seen.has(e)) return '';
+    seen.add(e);
+    const kids = (children.get(e) || []).map((c) => subtree(c, seen)).sort(cmp);
+    const value = sha16(`${e.content}\n${kids.join(',')}`);
+    seen.delete(e);
+    sig.set(e, value);
+    return value;
+  };
+  for (const e of entries) subtree(e, new Set());
+
+  const done = new Map<any, string>();
+  const assign = (group: any[], parentId: string): void => {
+    const bases = new Map<string, any[]>();
+    for (const e of group) {
+      const base = `${traceId}\n${parentId}\n${e.content}`;
+      if (!bases.has(base)) bases.set(base, []);
+      bases.get(base)!.push(e);
+    }
+    for (const [base, same] of bases) {
+      same.sort((x, y) => cmp(sig.get(x), sig.get(y)));
+      same.forEach((e, ordinal) => {
+        if (done.has(e)) return;
+        const id = sha16(`doflow-otlp-span-v1\n${base}\n${ordinal}`);
+        done.set(e, id);
+        e.id = id;
+        e.parent = parentId === '' ? null : parentId;
+      });
+    }
+    for (const e of group) {
+      const kids = (children.get(e) || []).filter((c) => !done.has(c));
+      if (kids.length) assign(kids, e.id);
+    }
+  };
+  // Roots: no exported parent. Spans caught in a parent cycle are treated as roots.
+  assign(entries.filter((e) => parentOf(e) === null), '');
+  const rest = entries.filter((e) => !done.has(e));
+  if (rest.length) assign(rest, '');
 }
 
 /**
@@ -238,35 +345,18 @@ function buildOtlpRequests(
   let skippedNoStart = 0;
   const traces = view?.traces || [];
 
-  // Index root spans per trace for link resolution
-  const traceRoots = new Map<string, string>();
-  for (const trace of traces) {
-    const tId = String(trace.traceId || '').toLowerCase();
-    for (const span of trace.spans || []) {
-      if (span.start != null && (span.parentSpanId == null || span.parentSpanId === '')) {
-        traceRoots.set(tId, String(span.spanId || '').toLowerCase());
-        break;
-      }
-    }
-  }
-
-  const mappedSpans: any[] = [];
-
+  // Map every exportable span first (no ids yet), then remap ids from payload values only (C-4).
+  const mappedTraces: { traceId: string; traceLink: string | null; spans: any[] }[] = [];
   for (const trace of traces) {
     const traceId = String(trace.traceId || '').toLowerCase();
     const traceLink = trace.traceLink ? String(trace.traceLink).toLowerCase() : null;
+    const entries: any[] = [];
 
     for (const span of trace.spans || []) {
       if (span.start == null) {
         skippedNoStart++;
         continue;
       }
-
-      const spanId = String(span.spanId || '').toLowerCase();
-      const parentSpanId =
-        span.parentSpanId != null && span.parentSpanId !== ''
-          ? String(span.parentSpanId).toLowerCase()
-          : undefined;
 
       const kind = 1;
       const startMs = Date.parse(span.start);
@@ -296,25 +386,49 @@ function buildOtlpRequests(
         attributes.push({ key: 'error.type', value: { stringValue: errorType } });
       }
 
-      let links: any = undefined;
-      if (!parentSpanId && traceLink && traceRoots.has(traceLink)) {
-        links = [{ traceId: traceLink, spanId: traceRoots.get(traceLink) }];
-      }
-
-      const otlpSpan: any = {
-        traceId,
-        spanId,
-        ...(parentSpanId !== undefined ? { parentSpanId } : {}),
+      const body: any = {
         name,
         kind,
         startTimeUnixNano,
         endTimeUnixNano,
-        attributes: attributes.sort((a: any, b: any) => cmp(a.key, b.key)),
+        attributes: attributes.sort((x: any, y: any) => cmp(x.key, y.key)),
         ...(status !== undefined ? { status } : {}),
-        ...(links !== undefined ? { links } : {}),
       };
+      entries.push({
+        localId: String(span.spanId || '').toLowerCase(),
+        localParent: span.parentSpanId != null && span.parentSpanId !== '' ? String(span.parentSpanId).toLowerCase() : null,
+        body,
+        content: JSON.stringify(sorted(body)),
+      });
+    }
+    mappedTraces.push({ traceId, traceLink, spans: entries });
+  }
+  // Remap once per trace id, so spans of two segments that share a trace id never share an id.
+  const byTrace = new Map<string, any[]>();
+  for (const t of mappedTraces) byTrace.set(t.traceId, [...(byTrace.get(t.traceId) || []), ...t.spans]);
+  for (const [traceId, entries] of byTrace) remapSpanIds(traceId, entries);
 
-      mappedSpans.push(otlpSpan);
+  // A trace's root for links: the earliest exported span without an exported parent.
+  const traceRoots = new Map<string, string>();
+  for (const t of mappedTraces) {
+    const root = t.spans.filter((e) => e.parent === null).sort(byStartThenId)[0];
+    if (root && !traceRoots.has(t.traceId)) traceRoots.set(t.traceId, root.id);
+  }
+
+  const mappedSpans: any[] = [];
+  for (const t of mappedTraces) {
+    for (const e of [...t.spans].sort(byStartThenId)) {
+      let links: any = undefined;
+      if (e.parent === null && t.traceLink && traceRoots.has(t.traceLink)) {
+        links = [{ traceId: t.traceLink, spanId: traceRoots.get(t.traceLink) }];
+      }
+      mappedSpans.push({
+        traceId: t.traceId,
+        spanId: e.id,
+        ...(e.parent !== null ? { parentSpanId: e.parent } : {}),
+        ...e.body,
+        ...(links !== undefined ? { links } : {}),
+      });
     }
   }
 
@@ -359,6 +473,7 @@ function buildOtlpRequests(
 }
 
 module.exports = {
+  attributeRule,
   buildOtlpRequests,
   ownedLists,
 };
