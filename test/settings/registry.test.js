@@ -17,7 +17,8 @@ const { REF_META, createRefs } = require('../../src/runtime/settings/refs.ts');
 
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
 
-// The seven v1 entries plus 112's project-only guard entry and 089's verify.reuse switch (the
+// The seven v1 entries plus 112's project-only guard entry, 089's verify.reuse switch and 106's
+// dispatch.fallback default (the
 // design folder is not in the repo, so the contract is pinned here; a registry edit must change
 // this table on purpose).
 const V1 = {
@@ -79,6 +80,12 @@ const V1 = {
     flag: null, shellRead: null, needsConfigHome: true, legacy: [],
     consumers: ['src/runtime/verification/engine.ts'],
     description: 'Reuse of a recorded PASS at L1/L2 when the check key is unchanged, off until the owner turns it on; the env can only turn it off.' },
+  // 106 IC-005: the quota fallback default; `auto` is deliberately not a value (per run only).
+  'dispatch.fallback': { type: 'enum', values: ['off', 'ask'], order: ['off', 'ask'], default: 'ask',
+    scope: 'narrow-only', combine: 'override', securityRelevant: false, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/dispatch/command.ts'],
+    description: 'Quota fallback ladder default for dispatch runs: ask holds and proposes, off holds without a proposal; auto exists only per run via --fallback.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -126,11 +133,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key and the 089 verify.reuse switch, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch and the 106 dispatch.fallback default, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 10);
+  assert.equal(Object.keys(SHIPPED.keys).length, 11);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -382,6 +389,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'failure.capture': 'off',
     'autopilot.enabled': 'off',
     'verify.reuse': 'off',
+    'dispatch.fallback': 'off',
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';
