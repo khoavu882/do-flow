@@ -11,7 +11,8 @@ const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
 
 type ReviewRecord = Record<string, any>;
-type GitRunner = (args: string[], cwd: string) => { status: number | null };
+type Env = Record<string, string | undefined>;
+type GitRunner = (args: string[], cwd: string, env: Env) => { status: number | null };
 type ReviewWriter = { write: (records: ReviewRecord[]) => void };
 type FeatureResolver = (options: { projectRoot: string; slug?: string | null }) => any;
 
@@ -21,8 +22,16 @@ const TELEMETRY_COUNT_KEYS = Object.freeze([
   'plausible', 'unverified_blockers', 'bug_classes',
 ]);
 
-function defaultGit(args: string[], cwd: string): { status: number | null } {
-  return spawnSync('git', args, { cwd, stdio: 'ignore' });
+// Inherited location variables would point the check at another repository (C-8).
+const GIT_LOCATION_KEYS = Object.freeze([
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+]);
+
+function defaultGit(args: string[], cwd: string, env: Env): { status: number | null } {
+  const gitEnv = { ...env };
+  for (const key of GIT_LOCATION_KEYS) delete gitEnv[key];
+  return spawnSync('git', ['-C', cwd, ...args], { cwd, env: gitEnv, stdio: 'ignore' });
 }
 
 function usage(message: string, json: boolean, out: (line: string) => void): number {
@@ -100,7 +109,7 @@ function handleReviewCommand({
 
     if (errors.length === 0) {
       const validation = validateFindings(raw);
-      errors.push(...validation.errors);
+      for (const error of validation.errors) errors.push(error); // a spread overflows the stack at ~200k errors (C-6)
       if (!validation.errors.includes('json')) {
         try { record = JSON.parse(raw); } catch { record = null; }
       }
@@ -112,6 +121,7 @@ function handleReviewCommand({
             status = (git as GitRunner)(
               ['merge-base', '--is-ancestor', finding.preExistingAt, record.reviewedHead],
               path.dirname(file),
+              env,
             )?.status;
           } catch {
             status = null;
@@ -142,7 +152,8 @@ function handleReviewCommand({
     if (counts) out(Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(' '));
   }
 
-  const task = record && typeof record.slug === 'string' ? record.slug : null;
+  // Only a validated slug is a feature slug; an invalid record's slug can hold anything (C-1, IC-004).
+  const task = valid && record && typeof record.slug === 'string' ? record.slug : null;
   const telemetryRecord: ReviewRecord = {
     kind: 'review.run',
     task,

@@ -34,10 +34,35 @@ function scratch(t, { telemetry = false } = {}) {
     fs.writeFileSync(path.join(cwd, name), typeof record === 'string' ? record : JSON.stringify(record));
     return name;
   };
-  const cli = (args) => spawnSync(process.execPath, [CLI, 'review', ...args], { cwd, env, encoding: 'utf8' });
+  const cli = (args) => spawnSync(process.execPath, [CLI, 'review', ...args], { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const dispatcher = (args) => spawnSync('/bin/bash', [RUN, 'review', ...args], { cwd, env, encoding: 'utf8' });
-  const git = (args) => spawnSync('git', args, { cwd, env, encoding: 'utf8' });
-  return { cwd, env, write, cli, dispatcher, git };
+  const git = (args) => spawnSync('git', args, { cwd, env: gitEnv(env), encoding: 'utf8' });
+  return { root: dir, cwd, env, write, cli, dispatcher, git };
+}
+
+// The test's own git calls never follow a GIT_DIR a test plants in the CLI env.
+function gitEnv(env) {
+  const copy = { ...env };
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE']) delete copy[key];
+  return copy;
+}
+
+/** Every regular file under `root`, as relative path -> content. */
+function snapshot(root, base = root, out = {}) {
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) snapshot(full, base, out);
+    else out[path.relative(base, full)] = fs.readFileSync(full, 'latin1');
+  }
+  return out;
+}
+
+function treeDiff(before, after) {
+  return {
+    added: Object.keys(after).filter((rel) => !(rel in before)).sort(),
+    changed: Object.keys(after).filter((rel) => rel in before && before[rel] !== after[rel]).sort(),
+    removed: Object.keys(before).filter((rel) => !(rel in after)).sort(),
+  };
 }
 
 const record = () => JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
@@ -121,6 +146,7 @@ test('with telemetry on, one review.run line lands in the project runs store', (
   const s = scratch(t, { telemetry: true });
   fs.mkdirSync(path.join(s.cwd, '.doflow', 'state', 'runs'), { recursive: true }); // telemetry never creates the ledger dir
   s.write('findings.json', record());
+  const before = snapshot(s.root);
   const res = s.cli(['--action', 'check', '--path', 'findings.json', '--json']);
   assert.equal(res.status, 0, res.stderr);
   const dir = path.join(s.cwd, '.doflow', 'state', 'runs', 'telemetry');
@@ -129,5 +155,60 @@ test('with telemetry on, one review.run line lands in the project runs store', (
   const lines = fs.readFileSync(path.join(dir, files[0]), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
   assert.deepEqual(lines.map((line) => line.kind), ['review.run']);
   assert.equal(lines[0].errors, 0);
-  assert.equal(fs.existsSync(path.join(s.cwd, '.gitignore')), false, 'review runs no upkeep');
+  // C-2: review runs no upkeep (no `.doflow/state/.gitignore`, `upkeep-due` or ledger line); the
+  // whole scratch tree (HOME and the project) gains exactly the one telemetry partition.
+  assert.deepEqual(treeDiff(before, snapshot(s.root)), {
+    added: [path.join('work', '.doflow', 'state', 'runs', 'telemetry', files[0])], changed: [], removed: [],
+  });
+  // C-10: the persisted count fields equal the printed counts, every key.
+  const { counts } = JSON.parse(res.stdout);
+  assert.ok(Object.keys(counts).length > 0);
+  for (const [key, value] of Object.entries(counts)) assert.deepEqual(lines[0][key], value, `persisted ${key}`);
+});
+
+test('C-6: a record with 200000 null seats is reported invalid, not crashed, with one telemetry line', (t) => {
+  const s = scratch(t, { telemetry: true });
+  delete s.env.DOFLOW_FAILURE_CAPTURE;
+  fs.mkdirSync(path.join(s.cwd, '.doflow', 'state', 'runs'), { recursive: true });
+  s.write('big.json', { ...record(), seats: Array(200000).fill(null) });
+  const res = s.cli(['--action', 'check', '--path', 'big.json', '--json']);
+  assert.equal(res.status, 1, res.stderr);
+  assert.equal(JSON.parse(res.stdout).valid, false);
+  const dir = path.join(s.cwd, '.doflow', 'state', 'runs', 'telemetry');
+  const lines = fs.readdirSync(dir).flatMap((name) => fs.readFileSync(path.join(dir, name), 'utf8').trim().split('\n'));
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0]).kind, 'review.run');
+  const failures = Object.keys(snapshot(s.root)).filter((rel) => rel.includes(`failures${path.sep}`));
+  assert.deepEqual(failures, [], 'no failure capture was written');
+});
+
+test('C-8: an inherited GIT_DIR naming another repository does not redirect the ancestry check', (t) => {
+  const s = scratch(t);
+  const commit = (text) => {
+    fs.writeFileSync(path.join(s.cwd, 'tracked.txt'), text);
+    assert.equal(s.git(['add', 'tracked.txt']).status, 0);
+    assert.equal(s.git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', text]).status, 0);
+    return s.git(['rev-parse', 'HEAD']).stdout.trim();
+  };
+  assert.equal(s.git(['init', '-q']).status, 0);
+  const first = commit('first');
+  const second = commit('second');
+  const other = path.join(s.root, 'other');
+  fs.mkdirSync(other);
+  assert.equal(spawnSync('git', ['init', '-q', other], { env: s.env }).status, 0);
+  const data = record();
+  data.reviewedHead = first;
+  Object.assign(data.converged[0], { origin: 'pre-existing', preExistingAt: second });
+  s.write('review/findings.json', data);
+  Object.assign(s.env, { GIT_DIR: path.join(other, '.git'), GIT_WORK_TREE: other });
+  const res = s.cli(['--action', 'check', '--path', 'review/findings.json', '--json']);
+  assert.equal(res.status, 1, res.stdout + res.stderr);
+  assert.deepEqual(JSON.parse(res.stdout).errors, [`preExistingAt-not-ancestor:${data.converged[0].id}`]);
+});
+
+test('C-9: --action with no value is a usage error, exit 2', (t) => {
+  const s = scratch(t);
+  const res = s.cli(['--action']);
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /--action requires a value/);
 });

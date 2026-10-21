@@ -103,7 +103,7 @@ test('invalid review check exits one with validation errors and null counts', (t
   assert.deepEqual(body.advisories, []);
   assert.equal(body.counts, null);
   assert.equal(capture.records.length, 1);
-  assert.equal(capture.records[0].task, 'not-the-row-slug');
+  assert.equal(capture.records[0].task, null, 'an unchecked slug never reaches telemetry');
   for (const key of Object.keys(countFindings(validRecord())).filter((name) => name !== 'task')) {
     assert.equal(capture.records[0][key], null, `${key} is null for an invalid record`);
   }
@@ -321,6 +321,34 @@ test('privacy: telemetry omits planted review content and the record path', (t) 
   assert.equal(result.exitCode, 0);
   assert.equal(capture.records.length, 1);
   assert.equal(JSON.stringify(capture.records[0]).includes(SECRET), false);
+});
+
+test('C-1: an invalid record whose slug is a sha, a seat id or a canary persists task null and no slug text', (t) => {
+  const project = tempDir(t, 'doflow-review-check-invalid-slug-');
+  const runs = path.join(project, '.doflow', 'state', 'runs');
+  fs.mkdirSync(runs, { recursive: true });
+  const sha = '58c6e191aa00bb11cc22dd33ee44ff5566778899';
+  const seatId = `seat-${SECRET}-name`;
+  const slugs = [sha, seatId, `${SECRET}-slug`];
+  for (const slug of slugs) {
+    const record = validRecord();
+    record.seats[0].id = seatId;
+    record.slug = slug;
+    const file = writeRecord(project, record, `checks/${slugs.indexOf(slug)}/findings.json`);
+    const result = invoke({ action: 'check', path: file, cwd: project, env: {}, git: () => ({ status: 0 }), json: true });
+    assert.equal(result.exitCode, 1);
+    assert.deepEqual(parseJsonOutput(result.lines).errors, ['slug']);
+  }
+
+  const telemetryDir = path.join(runs, 'telemetry');
+  const files = fs.readdirSync(telemetryDir).filter((name) => name.endsWith('.jsonl'));
+  assert.equal(files.length, 1);
+  const text = fs.readFileSync(path.join(telemetryDir, files[0]), 'utf8');
+  const lines = text.trim().split('\n').map(JSON.parse);
+  assert.equal(lines.length, slugs.length);
+  assert.ok(lines.every((line) => line.kind === 'review.run' && line.task === null), 'every invalid check persists task null');
+  assert.equal(text.includes(sha), false, 'the sha slug is absent');
+  assert.equal(text.includes(SECRET), false, 'the seat id and canary slugs are absent');
 });
 
 test('end-to-end: real telemetry writer and git verify ancestry and omit planted content', (t) => {

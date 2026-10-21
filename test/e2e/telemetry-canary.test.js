@@ -370,6 +370,18 @@ function runCanaryFixture() {
   const reviewRes = spawnSync(process.execPath, [DOFLOW, 'review', '--action', 'check', '--path', reviewFile, '--json'],
     { cwd: root, env: childEnv(), encoding: 'utf8' });
   assert.equal(reviewRes.status, 0, `review check: ${reviewRes.stdout}\n${reviewRes.stderr}`);
+  // Producer (e2, 095 C-1): an INVALID record whose slug carries a content canary (it does not start
+  // with the row) and is checked with exit 1; nothing validated that slug, so it never reaches telemetry.
+  const invalidReviewFile = path.join(canarySubdir, `invalid-${canaries.path}.json`);
+  fs.writeFileSync(invalidReviewFile, JSON.stringify({
+    schema: 1, row: '095', slug: `x-${canaries.argv}`, reviewedHead: head, rounds: 1,
+    seats: [{ id: 'seat-a', findings: [{ id: 'F-a', severity: 'note', locator: `${sourceRel}:1`, summary: 's' }] }],
+    converged: [{ id: 'C-a', from: ['F-a'], severity: 'note', locator: `${sourceRel}:1`, status: 'open' }],
+  }));
+  const invalidReviewRes = spawnSync(process.execPath, [DOFLOW, 'review', '--action', 'check', '--path', invalidReviewFile, '--json'],
+    { cwd: root, env: childEnv(), encoding: 'utf8' });
+  assert.equal(invalidReviewRes.status, 1, `invalid review check: ${invalidReviewRes.stdout}\n${invalidReviewRes.stderr}`);
+  assert.deepEqual(JSON.parse(invalidReviewRes.stdout).errors, ['slug']);
 
   // Producer (b): bridge hook path across pre-bash-guard (all 6 harnesses + MCP tool calls) and
   // user-prompt-submit (claude and codex), with planted argv, path, prompt, ft:<canary> and mcp__<canary>__tool.

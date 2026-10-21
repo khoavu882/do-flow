@@ -132,7 +132,8 @@ function parseArgs(argv: string[]): any {
       }
       case '--action': {
         const val = argv[i + 1];
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        // `review` answers a missing value as usage, exit 2 (095 IC-003); other verbs keep exit 1.
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' ? 2 : 1); }
         o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
