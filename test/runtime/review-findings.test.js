@@ -94,6 +94,25 @@ test('FR-002: verifiedBy rejects normalized self-verification and unsafe values'
   }
 });
 
+test('FR-002 (095 R-1): invisible, format and dash variants of a finding seat cannot verify it; folding is full', () => {
+  const withSeat = (seatId, verifiedBy) => {
+    const rec = record([open({ from: ['P1'], verification: 'confirmed', verifiedBy })]);
+    rec.seats[0] = { id: seatId, findings: [{ id: 'P1', severity: 'blocker', locator: 'src/p.ts:1', summary: 'p' }] };
+    rec.seats = rec.seats.filter((seat, i) => i === 0 || seat.id !== seatId); // seat ids stay unique
+    return validateFindings(rec).errors;
+  };
+  const refused = [
+    'PSE\u2060', 'PSE\u00ad', 'PSE\u034f', 'PSE\ufe0f', 'PSE\u180e', 'PSE\u202c', '\u200ePSE', '\u{E0050}PSE',
+  ];
+  for (const v of refused) assert.deepEqual(withSeat('PSE', v), ['verifiedBy:C1'], JSON.stringify(v));
+  assert.deepEqual(withSeat('principle-software-engineer', 'principle\u2011software\u2011engineer'), ['verifiedBy:C1']);
+  assert.deepEqual(withSeat('PSE', '\u2060'), ['verifiedBy:C1'], 'only a word joiner is empty once normalised');
+  assert.deepEqual(withSeat('STRASSE', 'stra\u00dfe'), ['verifiedBy:C1'], 'full case folding');
+  for (const v of ['backend-expert', 'principle-software-engineer', 'seat-2', 'a1-b2-3', 'codex-gpt-6.1-sol', 'Opus_seat']) {
+    assert.deepEqual(withSeat('PSE', v), [], v);
+  }
+});
+
 test('validateFindings handles 200,000 converged findings that each produce an error', () => {
   const converged = Array.from({ length: 200_000 }, (_, i) => open({
     id: `C${i}`, verification: 'confirmed', verifiedBy: 'backend-expert',

@@ -16,7 +16,10 @@ const ORIGINS = Object.freeze(['introduced', 'pre-existing']);
 const VERIFICATIONS = Object.freeze(['confirmed', 'plausible']);
 const ACCEPTED_AS = Object.freeze(['intentional', 'not-worth-fixing']);
 const ROUND_CAP = 3;
-const ZERO_WIDTH = /[\u200b-\u200d\ufeff]/g;
+// Invisible and format characters (zero-width, word joiner, soft hyphen, bidi and tag marks) are
+// stripped and dash variants unified before a verifier id is compared with a seat id (095 C-7, R-1).
+const IGNORABLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu;
+const DASH = /\p{Pd}/gu;
 /** The closed top-level key set (IC-001). */
 const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'rounds', 'seats', 'converged']);
 /** The optional convergence keys of a converged finding (IC-001); other finding keys stay open. */
@@ -40,7 +43,7 @@ function evidenceLocator(value: any): boolean {
 }
 
 function normalizedSeatId(value: string): string {
-  return value.normalize('NFKC').replace(ZERO_WIDTH, '').trim().toLowerCase();
+  return value.normalize('NFKC').replace(IGNORABLE, '').replace(DASH, '-').trim().toUpperCase().toLowerCase();
 }
 
 /** Schema checks only. Git ancestry and register-channel backing are separate facts. */
