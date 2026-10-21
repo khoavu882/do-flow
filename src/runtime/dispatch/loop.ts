@@ -174,17 +174,22 @@ function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingC
 const REVIEW_OWNERS = Object.freeze(['quality-guardian']);
 
 /**
- * 106 IC-004 / review C-2: why a task of plan owner `owner` never steps to another rung, or null when
- * it may. The owner is matched case-insensitively against `dispatchTiers.byOwner`: an owner that is
- * missing or not listed (or a registry with no `dispatchTiers`) is `unknown`, tier `frontier` is
- * `frontier`, a review archetype is `review`. Each holds with the one reason `frontier-no-step`.
+ * 106 IC-004 / review C-2, R-1: why a task of plan owner `owner` and task-line tier `tier` never
+ * steps to another rung, or null when it may. The tier resolves as brief-tools resolves it: a task
+ * line's tier that `dispatchTiers.tiers` lists wins, else the owner's (an invalid one is ignored).
+ * A resolved `frontier` is `frontier`, whatever the owner. The owner is matched case-insensitively
+ * against `dispatchTiers.byOwner`: one that is missing or not listed (or a registry with no
+ * `dispatchTiers`) is `unknown`, a review archetype is `review`. Each holds `frontier-no-step`.
  */
-function noStepReason(registry: any, owner: string | null): 'unknown' | 'frontier' | 'review' | null {
-  const byOwner = registry && registry.dispatchTiers && registry.dispatchTiers.byOwner;
+function noStepReason(registry: any, owner: string | null, tier: string | null = null): 'unknown' | 'frontier' | 'review' | null {
+  const tiers = registry && registry.dispatchTiers;
+  const byOwner = tiers && tiers.byOwner;
+  const taskTier = typeof tier === 'string' && tiers && Array.isArray(tiers.tiers) && tiers.tiers.includes(tier.trim()) ? tier.trim() : null;
+  if (taskTier === 'frontier') return 'frontier';
   const key = typeof owner === 'string' ? owner.trim().toLowerCase() : '';
   const match = key && byOwner ? Object.keys(byOwner).find((name) => name.toLowerCase() === key) : undefined;
   if (match === undefined) return 'unknown';
-  if (byOwner[match] === 'frontier') return 'frontier';
+  if ((taskTier ?? byOwner[match]) === 'frontier') return 'frontier';
   if (REVIEW_OWNERS.includes(match.toLowerCase())) return 'review';
   return null;
 }
@@ -201,15 +206,16 @@ function noStepReason(registry: any, owner: string | null): 'unknown' | 'frontie
  * task's highest-token ended dispatch with a harness (`lastWorkerDispatch`). The rung the task
  * moves `from` (review C-1): after a quota end, that dispatch's harness, so any next harness is a
  * change; else none when the task already runs on the chosen rung; else the first exhausted rung
- * passed. With no `from` the rule above holds exactly. With one: an owner that may not step
- * (`noStepReason`) holds `frontier-no-step`; no rung left holds `ladder-exhausted`; mode `off`
- * holds `quota` with no proposal and `ask` proposing the chosen rung, unless the task's proposal was
- * accepted (`fallback.accepted`, review C-14: one step, `accepted: true`); `auto` runs the chosen
+ * passed. With no `from` the rule above holds exactly. With one: a task that may not step
+ * (`noStepReason` over its `owner` and task-line `tier`) holds `frontier-no-step`; no rung left holds
+ * `ladder-exhausted`; mode `off` holds `quota` with no proposal and `ask` proposing the chosen rung,
+ * unless in `ask` the task accepted exactly that rung (`fallback.accepted`, review C-14 and R-2: one
+ * step, `accepted: true`); `auto` runs the chosen
  * rung with `selection.fallback = { kind: 'step', from, to }`. A hold returns `{ hold: { reason,
  * from, proposed }, selection }`. The `launch` shortcut runs first only when nothing is exhausted
  * and `last` is not a quota end (review C-3), else only with no `from`. Pure: the caller persists.
  */
-function selectMode({ policy = 'auto', held = false, lastFailureClass = null, cache = null, fallback = null, owner = null, task = null, last = null, ...rest }: any) {
+function selectMode({ policy = 'auto', held = false, lastFailureClass = null, cache = null, fallback = null, owner = null, tier = null, task = null, last = null, ...rest }: any) {
   const fixed = (mode: string) => ({ mode, harness: null, selection: { policy, chosen: mode, candidates: [] } });
   if (held) return fixed(policy === 'manual' ? 'manual' : 'sequential');
   if (policy === 'manual' || policy === 'sequential') return fixed(policy);
@@ -248,12 +254,16 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
     mode: 'subagent', harness: chosen.harness,
     selection: { ...selection, fallback: { kind: 'step', from, to: chosen.harness, ...(accepted ? { accepted: true } : {}) } },
   });
-  if (noStepReason(rest.registry || loadRegistry({ repoRoot: REPO_ROOT }), owner) !== null) return hold('frontier-no-step', null);
+  if (noStepReason(rest.registry || loadRegistry({ repoRoot: REPO_ROOT }), owner, tier) !== null) return hold('frontier-no-step', null);
   if (!chosen) return hold('ladder-exhausted', null);
   const mode = fallback && FALLBACK_MODES.includes(fallback.mode) ? fallback.mode : 'off';
   if (mode === 'auto') return step(false);
-  const accepted = fallback && fallback.accepted && typeof fallback.accepted === 'object' && task !== null && Object.hasOwn(fallback.accepted, task);
-  if (accepted) return step(true);
+  // Review R-2: an acceptance steps only to the rung it accepted, and only in `ask` (an `off` hold
+  // proposes nothing, and `resume --fallback off` revokes acceptances); any other chosen rung holds
+  // again with the new proposal, and the hold's write drops the acceptance.
+  const accepted = fallback && fallback.accepted && typeof fallback.accepted === 'object' && task !== null && Object.hasOwn(fallback.accepted, task)
+    ? fallback.accepted[task] : undefined;
+  if (mode === 'ask' && accepted === chosen.harness) return step(true);
   return hold('quota', mode === 'ask' ? chosen.harness : null);
 }
 
@@ -1092,6 +1102,8 @@ function recordFallback(p: any, holds: Map<string, any>, admitted: any[], bases:
     for (const [task, h] of holds) {
       if (Object.hasOwn(f.holds, task)) continue;
       f.holds[task] = { reason: h.reason, from: h.from, proposed: h.proposed, at };
+      // Review R-2: a new hold supersedes the task's acceptance (it named another rung).
+      if (f.accepted && typeof f.accepted === 'object') delete f.accepted[task];
       out.push({ event: appendFallbackEvent(s.run, { at, task, dispatchId: null, kind: 'hold', from: h.from, to: h.proposed, reason: h.reason, mode: f.mode, basis: bases.get(h.from) ?? 'unverified' }, p.fallbackDefault), token: null });
     }
     for (const id of stepped) {
@@ -1124,7 +1136,7 @@ async function admitAndLaunch(p: any) {
       billingCap: run.billingCap,
       harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
       coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
-      evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner: p.ownerOf ? p.ownerOf(task) : null,
+      evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner: p.ownerOf ? p.ownerOf(task) : null, tier: p.tierOf ? p.tierOf(task) : null,
       task, last: lastWorkerDispatch(s, task),
     });
     if (!choice.hold) return choice;
@@ -1428,11 +1440,14 @@ async function runPass(p: any) {
   }
   if (['completed', 'cancelled'].includes(current.run.state)) return finishPass(p, current.run.state);
   {
-    const view = attempts.inspect({ file: p.ledgerFile, fsImpl: fs, roots: p.roots, slug: p.slug, env: p.env, cwd: p.cwd });
-    const files = new Map<string, string[]>(view.graph.tasks.map((t: any) => [t.id, t.files || []]));
-    const owners = new Map<string, string | null>(view.graph.tasks.map((t: any) => [t.id, t.owner ?? null]));
+    // The plan's own graph tasks (loadPlan, as inspect reads it): files, owner and the task-line tier.
+    const { graph } = attempts.loadPlan({ roots: p.roots, slug: p.slug, fsImpl: fs });
+    const files = new Map<string, string[]>(graph.tasks.map((t: any) => [t.id, t.files || []]));
+    const owners = new Map<string, string | null>(graph.tasks.map((t: any) => [t.id, t.owner ?? null]));
+    const tiers = new Map<string, string | null>(graph.tasks.map((t: any) => [t.id, t.tier ?? null]));
     p.filesOf = (task: string) => files.get(task) || [];
-    p.ownerOf = (task: string) => owners.get(task) ?? null; // 106 IC-004: the tier's owner
+    p.ownerOf = (task: string) => owners.get(task) ?? null; // 106 IC-004: the owner and
+    p.tierOf = (task: string) => tiers.get(task) ?? null; // the task-line tier (review R-1)
   }
   const phases: Array<(p: any) => Promise<any>> = [
     collect,

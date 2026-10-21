@@ -42,6 +42,9 @@ const { readRuns, storeFileFor: runStoreFileFor } = require(path.join(SRC, 'work
 const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
 const { loadSettings } = require(path.join(SRC, 'settings', 'resolve.ts'));
 const { loadRegistry } = require(path.join(REPO, 'src', 'registry', 'index.ts'));
+const { parsePlan } = require(path.join(SRC, 'scaffold', 'artifacts.ts'));
+const { taskLineHash } = require(path.join(SRC, 'task-attempts.ts'));
+const { buildGraph, graphDigest, graphTuples } = require(path.join(SRC, 'task-graph.ts'));
 
 const SLUG = '106-fallback-fixture';
 const POSIX = { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' };
@@ -55,9 +58,9 @@ const SCENARIO = {
     'fake-gemini': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { emit: SUCCESS }] },
   },
 };
-const planFor = (owner = 'core-implementer', budget = 3) => [
+const planFor = (owner = 'core-implementer', budget = 3, tier = null) => [
   '# Implementation Plan: fallback fixture', '', '**Task graph:** v1', '', '## 8. Tasks', '', '### Phase A', '',
-  `- [ ] A.1 Write the module — owner: ${owner}; files: src/retry.js; budget: attempts=${budget}`, '',
+  `- [ ] A.1 Write the module — owner: ${owner}${tier ? `; tier: ${tier}` : ''}; files: src/retry.js; budget: attempts=${budget}`, '',
 ].join('\n');
 const FRONTIER_PLAN = planFor('system-architect', 2);
 /** Every named fake binary ends on quota, unless `ok` names the one that edits and succeeds. */
@@ -158,6 +161,51 @@ test('106 IC-004 / C-2: frontier, review (quality-guardian), mis-cased and unkno
   }
   const plain = select(all, { owner: 'core-implementer', registry: { harnesses: [] }, fallback: fb({ mode: 'auto', exhausted: ['claude'] }) });
   assert.deepEqual(plain.hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, 'a registry without dispatchTiers: every owner unknown, held');
+});
+
+test('106 R-1: the task line tier wins over the owner tier; a valid task-line frontier holds in every mode, an invalid one falls back to the owner', () => {
+  const all = [cand('claude'), cand('codex')];
+  const at = (owner, tier, mode) => select(all, { owner, tier, fallback: fb({ mode, exhausted: ['claude'] }) });
+  for (const mode of ['off', 'ask', 'auto']) {
+    for (const owner of ['core-implementer', 'spec-analyst', 'Core-Implementer']) {
+      assert.deepEqual(at(owner, 'frontier', mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `${owner} ${mode}`);
+    }
+    assert.deepEqual(at('system-architect', 'ultra', mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `invalid tier, frontier owner, ${mode}`);
+    assert.deepEqual(at('not-an-owner', 'standard', mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `unknown owner stays held, ${mode}`);
+    assert.deepEqual(at('quality-guardian', 'light', mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `review owner stays held, ${mode}`);
+  }
+  assert.equal(at('core-implementer', 'ultra', 'auto').harness, 'codex', 'an invalid task-line tier is ignored');
+  assert.equal(at('system-architect', 'standard', 'auto').harness, 'codex', 'a valid task-line tier wins over the owner tier, as brief-tools resolves it');
+});
+
+test('106 R-1: the parser keeps tier only on a line that carries one; the line hash, graph tuples and digest ignore it', () => {
+  const withTier = '- [ ] A.1 Review the branch — owner: core-implementer; tier: frontier; files: src/a.js; budget: attempts=2';
+  const without = '- [ ] A.1 Review the branch — owner: core-implementer; files: src/a.js; budget: attempts=2';
+  const parse = (line) => parsePlan(['# Plan', '', '**Task graph:** v1', '', '## 8. Tasks', '', '### Phase A', '', line, ''].join('\n'));
+  const [a] = parse(withTier).tasks;
+  const [b] = parse(without).tasks;
+  assert.equal(a.tier, 'frontier');
+  assert.equal(Object.hasOwn(b, 'tier'), false, 'a line with no tier: is parsed exactly as before');
+  const { tier, ...rest } = a;
+  assert.deepEqual(rest, b, 'tier is the only difference');
+  assert.equal(taskLineHash(a), taskLineHash(b));
+  const ga = buildGraph(parse(withTier)).graph;
+  const gb = buildGraph(parse(without)).graph;
+  assert.equal(ga.tasks[0].tier, 'frontier', 'the graph task carries it to dispatch');
+  assert.deepEqual(graphTuples(ga), graphTuples(gb));
+  assert.equal(graphDigest(ga), graphDigest(gb));
+});
+
+test('106 R-2: an acceptance steps only to the accepted rung; another chosen rung holds with the new proposal', () => {
+  const all = [cand('claude'), cand('gemini', false), cand('opencode')];
+  const last = { harness: 'claude', failureClass: 'quota', token: 1 };
+  const at = (mode, accepted) => select(all, { task: 'A.1', last, owner: 'core-implementer', fallback: fb({ mode, ladder: ['claude', 'gemini', 'opencode'], exhausted: ['claude'], accepted }) });
+  assert.deepEqual(at('ask', { 'A.1': 'gemini' }).hold, { reason: 'quota', from: 'claude', proposed: 'opencode' });
+  assert.deepEqual(at('off', { 'A.1': 'gemini' }).hold, { reason: 'quota', from: 'claude', proposed: null });
+  assert.deepEqual(at('off', { 'A.1': null }).hold, { reason: 'quota', from: 'claude', proposed: null }, 'an off hold proposed nothing, so nothing can be accepted');
+  assert.deepEqual(at('off', { 'A.1': 'opencode' }).hold, { reason: 'quota', from: 'claude', proposed: null }, 'off never steps on an acceptance');
+  const ok = at('ask', { 'A.1': 'opencode' });
+  assert.deepEqual([ok.harness, ok.selection.fallback], ['opencode', { kind: 'step', from: 'claude', to: 'opencode', accepted: true }]);
 });
 
 test('106 C-1: after a quota end any next harness is a change: frontier holds in every mode, others hold, propose or step from the quota-ed rung', () => {
@@ -479,6 +527,55 @@ test('106 C-14: resume --fallback auto accepts one proposal: one step, then the 
   assert.deepEqual(p.ran(), ['claude', 'gemini'], 'one step, never a second');
   assert.deepEqual([f.mode, f.accepted, f.holds['A.1'].reason, f.holds['A.1'].from, f.holds['A.1'].proposed], ['ask', {}, 'quota', 'gemini', 'opencode']);
   assert.deepEqual(f.events.map((e) => `${e.kind}:${e.reason}`), ['quota:rate limit', 'hold:quota', 'step:accepted', 'quota:rate limit', 'hold:quota']);
+});
+
+test('106 R-1: a task line marked tier: frontier (owner core-implementer) holds frontier-no-step in auto and never launches rung 2', POSIX, async (t) => {
+  const p = await project(t, { plan: planFor('core-implementer', 3, 'frontier'), fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }) });
+  const r = await p.run();
+  assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
+  const hold = p.read().run.fallback.holds['A.1'];
+  assert.deepEqual([hold.reason, hold.from, hold.proposed], ['frontier-no-step', 'claude', null]);
+  assert.deepEqual(p.ran(), ['claude']);
+  assert.deepEqual(kinds(p), ['quota', 'hold']);
+});
+
+/** Holds A.1 proposing gemini (ask, ladder claude,gemini[,opencode]), then resume --fallback auto. */
+async function accepted(t, ladder, scenario) {
+  const p = await project(t, { plan: planFor('core-implementer', 3), fallback: fb({ mode: 'ask', ladder }), scenario });
+  assert.equal((await p.run()).outcome, 'blocked');
+  assert.equal(p.read().run.fallback.holds['A.1'].proposed, 'gemini');
+  return p;
+}
+async function resumeWith(p, fallback) {
+  const asked = await p.exec({ action: 'resume' });
+  return p.exec({ action: 'resume', ack: asked.body.digest, by: 'main', fallback });
+}
+
+test('106 R-2: an accepted gemini that is no longer ready is never replaced by opencode: held again proposing opencode', POSIX, async (t) => {
+  const p = await accepted(t, ['claude', 'gemini', 'opencode'], quotaOn(['claude'], 'opencode'));
+  fs.rmSync(path.join(p.root, '.doflow', 'state', 'worker-probes', 'gemini.json'));
+  assert.deepEqual((await resumeWith(p, 'auto')).body.fallback, { mode: 'ask', cleared: ['A.1'] });
+  const r = await p.run();
+  assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
+  const f = p.read().run.fallback;
+  assert.deepEqual(p.ran(), ['claude'], 'opencode never launched');
+  assert.deepEqual([f.holds['A.1'].reason, f.holds['A.1'].proposed, f.accepted], ['quota', 'opencode', {}]);
+  assert.deepEqual(kinds(p), ['quota', 'hold', 'hold']);
+});
+
+test('106 R-2: resume --fallback off after an acceptance revokes it: no step, held', POSIX, async (t) => {
+  const p = await accepted(t, ['claude', 'gemini'], SCENARIO);
+  await resumeWith(p, 'auto');
+  assert.deepEqual(p.read().run.fallback.accepted, { 'A.1': 'gemini' });
+  const off = await resumeWith(p, 'off');
+  assert.deepEqual(off.body.fallback, { mode: 'off', cleared: [] });
+  assert.deepEqual(p.read().run.fallback.accepted, {});
+  const r = await p.run();
+  assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
+  const f = p.read().run.fallback;
+  assert.deepEqual(p.ran(), ['claude']);
+  assert.deepEqual([f.mode, f.holds['A.1'].reason, f.holds['A.1'].proposed], ['off', 'quota', null]);
+  assert.equal(f.events.some((e) => e.kind === 'step'), false);
 });
 
 // ── the setting (IC-005) ─────────────────────────────────────────────────────────────────────────

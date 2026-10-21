@@ -410,7 +410,8 @@ function passOptions(o: any) {
 
 /**
  * 106 IC-005: after an applied resume with `--fallback`, one locked write (creating `run.fallback`
- * for a run started before 106, with the setting's mode). `off` or `ask` sets `run.fallback.mode`.
+ * for a run started before 106, with the setting's mode). `off` or `ask` sets `run.fallback.mode`
+ * and clears `run.fallback.accepted` (review R-2).
  * `auto` accepts once (review C-14): every hold whose reason is `quota` is deleted and its task
  * recorded in `run.fallback.accepted` with its proposal; the mode is unchanged, and the task's next
  * selection steps once. `frontier-no-step` and `ladder-exhausted` holds stay. Returns
@@ -422,7 +423,11 @@ function setFallbackMode(o: any, mode: string) {
     if (!s.run) return { write: false, result: { mode: initial, cleared: [] } };
     const f = fallbackOf(s.run, initial);
     const cleared: string[] = [];
-    if (mode !== 'auto') f.mode = mode;
+    if (mode !== 'auto') {
+      f.mode = mode;
+      // Review R-2: `off` or `ask` revokes every pending acceptance.
+      if (f.accepted && typeof f.accepted === 'object') f.accepted = {};
+    }
     else if (f.holds && typeof f.holds === 'object') {
       if (!f.accepted || typeof f.accepted !== 'object') f.accepted = {};
       for (const [task, hold] of Object.entries(f.holds) as [string, any][]) {
