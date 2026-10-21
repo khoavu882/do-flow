@@ -16,6 +16,7 @@ const ORIGINS = Object.freeze(['introduced', 'pre-existing']);
 const VERIFICATIONS = Object.freeze(['confirmed', 'plausible']);
 const ACCEPTED_AS = Object.freeze(['intentional', 'not-worth-fixing']);
 const ROUND_CAP = 3;
+const ZERO_WIDTH = /[\u200b-\u200d\ufeff]/g;
 /** The closed top-level key set (IC-001). */
 const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'rounds', 'seats', 'converged']);
 /** The optional convergence keys of a converged finding (IC-001); other finding keys stay open. */
@@ -36,6 +37,10 @@ function evidenceLocator(value: any): boolean {
   if (!nonempty(value) || /\s/.test(value)) return false;
   const at = /^(.+):[1-9][0-9]*(?:-[1-9][0-9]*)?$/.exec(value);
   return at ? validPath(at[1]) && !at[1].endsWith('/') : validPath(value) && /[^/]\.[A-Za-z0-9]+$/.test(value);
+}
+
+function normalizedSeatId(value: string): string {
+  return value.normalize('NFKC').replace(ZERO_WIDTH, '').trim().toLowerCase();
 }
 
 /** Schema checks only. Git ancestry and register-channel backing are separate facts. */
@@ -78,7 +83,7 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
     if (finding.status === 'fixed' && (typeof finding.fixedIn !== 'string' || !HEX_HEAD.test(finding.fixedIn))) errors.push(`fixedIn:${finding.id}`);
     if (finding.status === 'refuted' && !evidenceLocator(finding.evidence)) errors.push(`evidence:${finding.id}`);
     if (finding.status === 'user-accepted' && (typeof finding.decision !== 'string' || !/^DEC-[0-9]{3,}$/.test(finding.decision))) errors.push(`decision:${finding.id}`);
-    errors.push(...convergenceErrors(finding, data.row, seatOf));
+    for (const error of convergenceErrors(finding, data.row, seatOf)) errors.push(error);
   }
   return { ok: errors.length === 0, errors };
 }
@@ -95,7 +100,11 @@ function convergenceErrors(finding: any, row: any, seatOf: Map<string, string>):
   if (has('escapedFrom') && (!preExisting || typeof finding.escapedFrom !== 'string' || !ROW_ID.test(finding.escapedFrom) || finding.escapedFrom === row)) bad.push('escapedFrom');
   if (has('verification') && !VERIFICATIONS.includes(finding.verification)) bad.push('verification');
   if (has('verifiedBy') || finding.verification === 'confirmed') {
-    if (!nonempty(finding.verifiedBy) || finding.from.some((id: string) => seatOf.get(id) === finding.verifiedBy)) bad.push('verifiedBy');
+    const verifiedBy = typeof finding.verifiedBy === 'string' ? normalizedSeatId(finding.verifiedBy) : '';
+    if (typeof finding.verifiedBy !== 'string' || !nonempty(finding.verifiedBy)
+      || verifiedBy === '' || /[\u0000-\u001f\u007f-\u009f]/u.test(finding.verifiedBy) || /\s/u.test(verifiedBy)
+      || finding.from.some((id: string) => seatOf.has(id)
+        && normalizedSeatId(seatOf.get(id) as string) === verifiedBy)) bad.push('verifiedBy');
   }
   if (has('bugClass') && (!nonempty(finding.bugClass) || !has('sweep'))) bad.push('bugClass');
   if (has('sweep') && (!nonempty(finding.sweep) || !has('bugClass'))) bad.push('sweep');

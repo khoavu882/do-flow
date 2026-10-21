@@ -77,6 +77,34 @@ test('FR-002: verification and verifiedBy', () => {
   assert.deepEqual(errorsOf({ verifiedBy: 'principle-software-engineer' }), []);
 });
 
+test('FR-002: verifiedBy rejects normalized self-verification and unsafe values', () => {
+  const selfSeat = record([open({ from: ['P1'], verification: 'confirmed' })]);
+  selfSeat.seats[0] = { id: 'PSE', findings: [{ id: 'P1', severity: 'blocker', locator: 'src/p.ts:1', summary: 'p' }] };
+  for (const verifiedBy of ['pse', ' PSE', 'PSE\u200b', 'ＰＳＥ']) {
+    selfSeat.converged[0].verifiedBy = verifiedBy;
+    assert.deepEqual(validateFindings(selfSeat).errors, ['verifiedBy:C1'], JSON.stringify(verifiedBy));
+  }
+  for (const verifiedBy of ['\u200b', '\ufeff ']) { // only invisible characters: empty once normalised
+    selfSeat.converged[0].verifiedBy = verifiedBy;
+    assert.deepEqual(validateFindings(selfSeat).errors, ['verifiedBy:C1'], JSON.stringify(verifiedBy));
+  }
+  for (const verifiedBy of ['backend-expert', 'different-seat', 'a b', 'a\u0007']) {
+    selfSeat.converged[0].verifiedBy = verifiedBy;
+    assert.deepEqual(validateFindings(selfSeat).errors, verifiedBy === 'a b' || verifiedBy === 'a\u0007' ? ['verifiedBy:C1'] : [], JSON.stringify(verifiedBy));
+  }
+});
+
+test('validateFindings handles 200,000 converged findings that each produce an error', () => {
+  const converged = Array.from({ length: 200_000 }, (_, i) => open({
+    id: `C${i}`, verification: 'confirmed', verifiedBy: 'backend-expert',
+  }));
+  const result = validateFindings(record(converged));
+  assert.equal(result.ok, false);
+  assert.equal(result.errors.length, 200_000);
+  assert.equal(result.errors[0], 'verifiedBy:C0');
+  assert.equal(result.errors.at(-1), 'verifiedBy:C199999');
+});
+
 test('FR-002: unverified blockers are advisories, never errors', () => {
   const rec = record([
     open({ id: 'C1', severity: 'blocker' }),
