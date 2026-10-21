@@ -176,7 +176,7 @@ identifier is on one page; G45.1 does not compare them with line keys.
 
 | Kind | Key | Type | Class | Phase | Source |
 |---|---|---|---|---|---|
-| `review.run` | `task` | `token` or null | T0 | P7 | the record's `slug` when it passes `token`, else null |
+| `review.run` | `task` | `token` or null | T0 | P7 | the record's `slug` only when the record is valid and the slug passes `token`; otherwise null (an invalid record's slug is never written) |
 | `review.run` | `rounds` | `uint` or null | T1 | P7 | review round count; null when invalid |
 | `review.run` | `seats`, `seat_findings`, `converged` | `uint` or null | T1 | P7 | counts; null when invalid |
 | `review.run` | `blocker`, `should_fix`, `note` | `uint` or null | T1 | P7 | severity counts; null when invalid |
