@@ -86,8 +86,9 @@ State this before producing a single finding, and report against it when the rev
    `--exclude <segment>` (repeatable; it extends the artifact-directory exclusion). Derive that set
    from the package manifest's shipped paths plus tests, never by eye: for DoFlow `--exclude bin
    --exclude src --exclude core --exclude test`, as `bin/` is as much its implementation as `src/`.
-   Report the excluded count beside the findings you kept and never drop a path silently: the verb
-   reports each excluded file as `unscanned`. What survives is documentation about the chain, so in
+   Report the excluded count beside the findings you kept and never drop a path silently: like the
+   verb, list each excluded path as `unscanned` with its reason. What survives is documentation about
+   the chain: in other implementing repositories report the surviving count, not the lines; in
    DoFlow's own repository the step has no applicable surface; say so plainly.
 
 **Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
@@ -321,8 +322,9 @@ variant.
 
 Review read-only at `frontier`, with an agent and model different from the author; pass `model:`
 where supported. Re-review only an open blocker tests cannot settle, after asking: read only
-`reviewedHead`..new head (`"$DOFLOW" review-package --base=<reviewedHead>`), raise `rounds` by one,
-and at round 3 ask the author to reconsider the approach instead of reviewing again. See
+`reviewedHead`..new head
+(`"$DOFLOW" review-package --task=<task id> --base=<reviewedHead> --head=HEAD`), raise `rounds` by
+one, and at round 3 ask the author to reconsider the approach instead of reviewing again. See
 `references/MODEL_SELECTION.md`.
 
 This is not the multi-task orchestration the boundary above rules out: one review, one subagent, one
