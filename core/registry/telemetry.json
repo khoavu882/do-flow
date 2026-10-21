@@ -91,6 +91,32 @@
         "shared_ref": { "name": "doflow.verify.check.shared_ref", "class": "T0", "type": "hex32|null", "phase": "P5.4" },
         "failed_first": { "name": "doflow.verify.check.failed_first", "class": "T2", "type": "enum:failed_first|null", "phase": "P5.3" }
       }
+    },
+    "review.run": {
+      "store": "runs-telemetry",
+      "writers": ["src/runtime/trace/telemetry.ts"],
+      "fields": {
+        "task": { "name": "doflow.review.run.task", "class": "T0", "type": "token|null", "phase": "P7" },
+        "rounds": { "name": "doflow.review.run.rounds", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "seats": { "name": "doflow.review.run.seats", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "seat_findings": { "name": "doflow.review.run.seat_findings", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "converged": { "name": "doflow.review.run.converged", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "blocker": { "name": "doflow.review.run.blocker", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "should_fix": { "name": "doflow.review.run.should_fix", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "note": { "name": "doflow.review.run.note", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "open": { "name": "doflow.review.run.open", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "fixed": { "name": "doflow.review.run.fixed", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "refuted": { "name": "doflow.review.run.refuted", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "user_accepted": { "name": "doflow.review.run.user_accepted", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "pre_existing": { "name": "doflow.review.run.pre_existing", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "escaped": { "name": "doflow.review.run.escaped", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "confirmed": { "name": "doflow.review.run.confirmed", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "plausible": { "name": "doflow.review.run.plausible", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "unverified_blockers": { "name": "doflow.review.run.unverified_blockers", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "bug_classes": { "name": "doflow.review.run.bug_classes", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "advisories": { "name": "doflow.review.run.advisories", "class": "T1", "type": "uint", "phase": "P7" },
+        "errors": { "name": "doflow.review.run.errors", "class": "T1", "type": "uint", "phase": "P7" }
+      }
     }
   },
   "recordFields": {
@@ -101,7 +127,7 @@
     "orchestration.run.traceId": { "class": "T0", "type": "hex32" }
   },
   "vocabularies": {
-    "kind": ["hook", "verify.run", "verify.tier", "verify.check"],
+    "kind": ["hook", "verify.run", "verify.tier", "verify.check", "review.run"],
     "harness": ["claude", "codex", "gemini", "opencode", "pi", "copilot", "kiro", "antigravity"],
     "event": ["PreToolUse", "BeforeTool", "tool_call", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure"],
     "policy": ["pre-bash-guard", "user-prompt-submit", "post-shell-observe"],

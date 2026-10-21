@@ -61,8 +61,10 @@ const { handleStorageCommand } = require('../runtime/storage/cli.ts');
 const { handleRoadmapCommand, resolveMainRoot } = require('../runtime/roadmap/loop.ts');
 const { handlePlanCheckCommand } = require('../runtime/plan-check.ts');
 const { handleSlotCommand } = require('../runtime/slot-command.ts');
+const { handleReviewCommand } = require('../runtime/review/command.ts');
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
-const NO_UPKEEP = new Set(['storage', 'config', 'plan-check']);
+// `review` writes only its one telemetry line (095 IC-003).
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
@@ -395,6 +397,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
     case 'roadmap': return handleRoadmapVerbCommand(o);
     case 'plan-check': return handlePlanCheckCommand({ positional: o.positional, extraFlags: o.extraFlags, json: o.json, cwd: process.cwd() });
+    // One --path only: a second occurrence reaches the handler as a list, which it refuses as usage.
+    case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, json: o.json, cwd: process.cwd(), env: process.env });
     case 'slot': return handleSlotCommand({ action: o.actionGiven ? o.action : undefined, name: o.name, label: o.label, timeout: o.timeout, noWait: Boolean(o.noWait), command: o.slotCommand, by: o.by, reason: o.reason, positional: o.positional, extraFlags: o.extraFlags, json: o.json, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
