@@ -24,11 +24,13 @@
 //
 // Feature 106 A.2 (IC-003, IC-004): the quota fallback ladder. A `quota` end marks its harness
 // exhausted for the rest of the run, in the write that ends it. Selection walks the run's ladder (or
-// registry order) skipping exhausted harnesses; when it passes one, the run's mode and the task's
-// tier decide: a hold (`quota`, `frontier-no-step`, `ladder-exhausted`), never `sequential`, or in
-// `auto` a step to the next rung. Holds are never admitted again in the run and are decide-phase
-// gaps with cause `quota`. Every quota, step and hold is one event in `run.fallback.events`, one
-// `fallback` StepAction, and for a quota or step a copy on its dispatch. No harness id is named here.
+// registry order) skipping exhausted harnesses; when the task would change rung (after its own quota
+// end, or past an exhausted rung), the task's owner and the run's mode decide: a hold (`quota`,
+// `frontier-no-step`, `ladder-exhausted`), never `sequential`, or in `auto` (or once, for a proposal
+// `resume --fallback auto` accepted) a step to the chosen rung. A held task is not admitted while
+// held; a hold is a decide-phase gap with cause `quota` until its task SUCCEEDED. Every quota, step
+// and hold is one event in `run.fallback.events`, one `fallback` StepAction, and for a quota or step
+// a copy on its dispatch. No harness, provider or model id is named here.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -167,13 +169,24 @@ function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingC
   });
 }
 
-/** 106 IC-004: the dispatch tier of a plan task's `owner` from the registry's `dispatchTiers`
- * (`byOwner`, else `default`); a registry without `dispatchTiers` reads `standard`. */
-function tierOf(registry: any, owner: string | null): string {
-  const tiers = registry && registry.dispatchTiers;
-  if (!tiers) return 'standard';
-  if (owner && tiers.byOwner && Object.hasOwn(tiers.byOwner, owner)) return tiers.byOwner[owner];
-  return tiers.default ?? 'standard';
+/** Owners whose work is review: the static-review / security / testing-gate archetype (D-ORCH review
+ * decision C-2). Archetype ids from the plan's `owner`, not harness, provider or model ids. */
+const REVIEW_OWNERS = Object.freeze(['quality-guardian']);
+
+/**
+ * 106 IC-004 / review C-2: why a task of plan owner `owner` never steps to another rung, or null when
+ * it may. The owner is matched case-insensitively against `dispatchTiers.byOwner`: an owner that is
+ * missing or not listed (or a registry with no `dispatchTiers`) is `unknown`, tier `frontier` is
+ * `frontier`, a review archetype is `review`. Each holds with the one reason `frontier-no-step`.
+ */
+function noStepReason(registry: any, owner: string | null): 'unknown' | 'frontier' | 'review' | null {
+  const byOwner = registry && registry.dispatchTiers && registry.dispatchTiers.byOwner;
+  const key = typeof owner === 'string' ? owner.trim().toLowerCase() : '';
+  const match = key && byOwner ? Object.keys(byOwner).find((name) => name.toLowerCase() === key) : undefined;
+  if (match === undefined) return 'unknown';
+  if (byOwner[match] === 'frontier') return 'frontier';
+  if (REVIEW_OWNERS.includes(match.toLowerCase())) return 'review';
+  return null;
 }
 
 /**
@@ -184,46 +197,64 @@ function tierOf(registry: any, owner: string | null): string {
  * candidates } }`. `cache` (an object) holds the harness evaluation for one pass.
  *
  * 106 IC-004, under `auto` with the run's `fallback`: candidates follow `fallback.ladder` when set
- * (only its harnesses), and an exhausted one is skipped. Passing none is the rule above exactly.
- * Passing one: a frontier-tier `owner` holds `frontier-no-step`; no rung left holds
- * `ladder-exhausted`; mode `off` holds `quota` with no proposal, `ask` holds `quota` proposing the
- * next rung, `auto` runs it as `subagent` with `selection.fallback = { kind: 'step', from, to }`.
- * A hold returns `{ hold: { reason, from, proposed }, selection }`. Pure: the caller persists it.
+ * (only its harnesses); the chosen rung is the first eligible one not exhausted. `last` is the
+ * task's highest-token ended dispatch with a harness (`lastWorkerDispatch`). The rung the task
+ * moves `from` (review C-1): after a quota end, that dispatch's harness, so any next harness is a
+ * change; else none when the task already runs on the chosen rung; else the first exhausted rung
+ * passed. With no `from` the rule above holds exactly. With one: an owner that may not step
+ * (`noStepReason`) holds `frontier-no-step`; no rung left holds `ladder-exhausted`; mode `off`
+ * holds `quota` with no proposal and `ask` proposing the chosen rung, unless the task's proposal was
+ * accepted (`fallback.accepted`, review C-14: one step, `accepted: true`); `auto` runs the chosen
+ * rung with `selection.fallback = { kind: 'step', from, to }`. A hold returns `{ hold: { reason,
+ * from, proposed }, selection }`. The `launch` shortcut runs first only when nothing is exhausted
+ * and `last` is not a quota end (review C-3), else only with no `from`. Pure: the caller persists.
  */
-function selectMode({ policy = 'auto', held = false, lastFailureClass = null, cache = null, fallback = null, owner = null, ...rest }: any) {
+function selectMode({ policy = 'auto', held = false, lastFailureClass = null, cache = null, fallback = null, owner = null, task = null, last = null, ...rest }: any) {
   const fixed = (mode: string) => ({ mode, harness: null, selection: { policy, chosen: mode, candidates: [] } });
   if (held) return fixed(policy === 'manual' ? 'manual' : 'sequential');
   if (policy === 'manual' || policy === 'sequential') return fixed(policy);
   if (policy !== 'auto') throw usage(`mode policy '${policy}' is not auto, sequential or manual`);
-  if (lastFailureClass === 'launch') return fixed('sequential');
   const ladder = fallback && Array.isArray(fallback.ladder) ? fallback.ladder : null;
   const exhausted: string[] = fallback && Array.isArray(fallback.exhausted) ? fallback.exhausted : [];
+  const afterQuota = Boolean(last && last.failureClass === 'quota' && last.harness);
+  if (lastFailureClass === 'launch' && !exhausted.length && !afterQuota) return fixed('sequential');
   let candidates = cache && cache.candidates;
   if (!candidates) {
     candidates = evaluateHarnesses({ ...rest, ladder });
     if (cache) cache.candidates = candidates;
   }
   if (ladder) candidates = ladder.map((id: string) => candidates.find((c: any) => c.harness === id)).filter(Boolean);
-  let from: string | null = null;
+  let passed: string | null = null;
   let chosen: any = null;
   for (const c of candidates) {
-    if (exhausted.includes(c.harness)) { from = from ?? c.harness; continue; }
+    if (exhausted.includes(c.harness)) { passed = passed ?? c.harness; continue; }
     if (c.eligible) { chosen = c; break; }
   }
+  let from: string | null = passed;
+  if (afterQuota) from = last.harness;
+  else if (last && chosen && last.harness === chosen.harness) from = null;
   const selection: any = {
     policy,
     chosen: chosen ? chosen.harness : 'sequential',
     ...(!chosen && rest.billingCap === 'free' ? { reason: 'no-eligible-worker' } : {}),
     candidates: structuredClone(candidates),
   };
-  if (from === null) return chosen ? { mode: 'subagent', harness: chosen.harness, selection } : { mode: 'sequential', harness: null, selection };
+  if (from === null) {
+    if (lastFailureClass === 'launch') return fixed('sequential');
+    return chosen ? { mode: 'subagent', harness: chosen.harness, selection } : { mode: 'sequential', harness: null, selection };
+  }
   const hold = (reason: string, proposed: string | null) => ({ hold: { reason, from, proposed }, selection: { ...selection, chosen: 'held' } });
-  if (tierOf(rest.registry || loadRegistry({ repoRoot: REPO_ROOT }), owner) === 'frontier') return hold('frontier-no-step', null);
+  const step = (accepted: boolean) => ({
+    mode: 'subagent', harness: chosen.harness,
+    selection: { ...selection, fallback: { kind: 'step', from, to: chosen.harness, ...(accepted ? { accepted: true } : {}) } },
+  });
+  if (noStepReason(rest.registry || loadRegistry({ repoRoot: REPO_ROOT }), owner) !== null) return hold('frontier-no-step', null);
   if (!chosen) return hold('ladder-exhausted', null);
   const mode = fallback && FALLBACK_MODES.includes(fallback.mode) ? fallback.mode : 'off';
-  if (mode === 'off') return hold('quota', null);
-  if (mode === 'ask') return hold('quota', chosen.harness);
-  return { mode: 'subagent', harness: chosen.harness, selection: { ...selection, fallback: { kind: 'step', from, to: chosen.harness } } };
+  if (mode === 'auto') return step(false);
+  const accepted = fallback && fallback.accepted && typeof fallback.accepted === 'object' && task !== null && Object.hasOwn(fallback.accepted, task);
+  if (accepted) return step(true);
+  return hold('quota', mode === 'ask' ? chosen.harness : null);
 }
 
 /** The failure class of `task`'s most recent failed dispatch (highest token), or null. A `quota` end
@@ -235,6 +266,16 @@ function lastFailure(current: any, task: string): string | null {
     if (!last || d.token > last.token) last = d;
   }
   return last && last.disposition === 'failed' ? last.failureClass ?? null : null;
+}
+
+/** 106 review C-1: `task`'s highest-token ended dispatch that ran on a harness, or null. */
+function lastWorkerDispatch(current: any, task: string): any {
+  let last: any = null;
+  for (const d of Object.values(current.dispatches) as any[]) {
+    if (d.task !== task || d.phase !== 'ended' || !Number.isInteger(d.token) || !d.harness) continue;
+    if (!last || d.token > last.token) last = d;
+  }
+  return last;
 }
 
 // ── measurement (IC-028) ─────────────────────────────────────────────────────────────────────────
@@ -637,7 +678,8 @@ function recordQuota(p: any, s: any, cur: any, run: any, at: Date) {
     reason: quota && typeof quota.signal === 'string' && quota.signal ? quota.signal : 'quota', mode: f.mode,
     basis: quota && typeof quota.basis === 'string' && quota.basis ? quota.basis : 'unverified',
   }, p.fallbackDefault);
-  cur.fallback = [event];
+  // Review C-5: a stepped dispatch keeps its step event before the quota one.
+  cur.fallback = [...(Array.isArray(cur.fallback) ? cur.fallback : []), event];
   return event;
 }
 
@@ -1035,7 +1077,8 @@ function basisFor(p: any, f: any, from: string | null): string {
 /**
  * 106 IC-004 (D6, D7): after admission, one locked write adds the pass's new holds (add-only: a task
  * already held keeps its hold) with one `hold` event each, and one `step` event per admitted dispatch
- * whose selection stepped, copied onto it; then one StepAction per event.
+ * whose selection stepped, copied onto it (reason `accepted` for an accepted proposal, which the same
+ * write removes from `fallback.accepted`); then one StepAction per event.
  */
 function recordFallback(p: any, holds: Map<string, any>, admitted: any[], bases: Map<string, string>) {
   const stepped = admitted.map((a: any) => a.dispatchId);
@@ -1055,7 +1098,9 @@ function recordFallback(p: any, holds: Map<string, any>, admitted: any[], bases:
       const d = s.dispatches[id];
       const step = d && d.selection ? d.selection.fallback : null;
       if (!d || d.phase === 'ended' || d.fallback || !step || step.kind !== 'step') continue;
-      const event = appendFallbackEvent(s.run, { at, task: d.task, dispatchId: d.dispatchId, kind: 'step', from: step.from, to: step.to, reason: 'quota', mode: f.mode, basis: bases.get(step.from) ?? 'unverified' }, p.fallbackDefault);
+      const event = appendFallbackEvent(s.run, { at, task: d.task, dispatchId: d.dispatchId, kind: 'step', from: step.from, to: step.to, reason: step.accepted ? 'accepted' : 'quota', mode: f.mode, basis: bases.get(step.from) ?? 'unverified' }, p.fallbackDefault);
+      // Review C-14: an accepted proposal is one step; it is spent in the write that records it.
+      if (step.accepted && f.accepted && typeof f.accepted === 'object') delete f.accepted[d.task];
       d.fallback = [event];
       out.push({ event, token: Number.isInteger(d.token) ? d.token : null });
     }
@@ -1080,6 +1125,7 @@ async function admitAndLaunch(p: any) {
       harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
       coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
       evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner: p.ownerOf ? p.ownerOf(task) : null,
+      task, last: lastWorkerDispatch(s, task),
     });
     if (!choice.hold) return choice;
     newHolds.set(task, choice.hold);
@@ -1130,9 +1176,12 @@ function gapsFor(p: any, s: any, view: any) {
     if (d && d.phase !== 'ended' && d.lastError) push({ task: d.task, kind: 'ledger-error', cause: 'input', reason: d.lastError.reason });
   }
   for (const g of p.gaps) push(g);
-  // 106 IC-004 / IC-027: each fallback hold is a gap with cause `quota`.
+  // 106 IC-004 / IC-027: each fallback hold is a gap with cause `quota`, unless its task SUCCEEDED
+  // since (finished outside dispatch, the way out of a hold: review C-4).
   const holds = s.run.fallback && s.run.fallback.holds && typeof s.run.fallback.holds === 'object' ? s.run.fallback.holds : {};
+  const succeeded = new Set(view.tasks.filter((r: any) => r.state === 'SUCCEEDED').map((r: any) => r.id));
   for (const [task, h] of Object.entries(holds) as [string, any][]) {
+    if (succeeded.has(task)) continue;
     push({ task, kind: h.reason, cause: 'quota', reason: `${h.from} quota; proposed ${h.proposed ?? 'none'}` });
   }
   for (const r of view.tasks) {
@@ -1595,4 +1644,8 @@ module.exports = {
   SIGNAL_EXITS,
   LOOP_BY,
   FALLBACK_MODES,
+  REVIEW_OWNERS,
+  lastFailure,
+  lastWorkerDispatch,
+  noStepReason,
 };

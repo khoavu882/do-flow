@@ -671,7 +671,7 @@
           ],
           "parser": "codex-exec-json-v1",
           "quotaSignals": {
-            "signals": ["rate limit", "usage limit", "quota", "429", "resource_exhausted"],
+            "signals": ["rate limit", "usage limit", "quota exceeded", "too many requests", "resource_exhausted"],
             "basis": "unverified",
             "evidence": []
           }

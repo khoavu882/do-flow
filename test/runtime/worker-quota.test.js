@@ -19,18 +19,30 @@ const { storeFileFor, newRunId, insertRun } = require('../../src/runtime/worker/
 const { launchEnv, launchRecord } = require('../../src/runtime/worker/launch.ts');
 const { superviseRun } = require('../../src/runtime/worker/supervisor.ts');
 
-const SIGNALS = ['rate limit', 'usage limit', 'quota', '429', 'resource_exhausted'];
+/** The codex entry's registry signals, read, not copied (106 review C-6). */
+const SIGNALS = loadRegistry({ repoRoot: path.resolve(__dirname, '../..') }).harnesses.find((h) => h.id === 'codex').worker.structuredOutput.quotaSignals.signals;
 test('quota matcher finds declared codex signals case-insensitively and in declaration order', () => {
-  for (const [summary, signal] of [['Rate Limit reached', 'rate limit'], ['USAGE LIMIT', 'usage limit'], ['HTTP 429', '429'], ['RESOURCE_EXHAUSTED', 'resource_exhausted']]) {
+  for (const [summary, signal] of [['Rate Limit reached', 'rate limit'], ['USAGE LIMIT', 'usage limit'], ['Quota exceeded for project', 'quota exceeded'], ['429 Too Many Requests', 'too many requests'], ['RESOURCE_EXHAUSTED', 'resource_exhausted']]) {
     assert.equal(matchQuota(summary, SIGNALS), signal);
   }
-  assert.equal(matchQuota('quota then rate limit', SIGNALS), 'rate limit');
+  assert.equal(matchQuota('quota exceeded then rate limit', SIGNALS), 'rate limit');
+});
+
+test('106 C-6: the codex signals match quota phrases and never ordinary failure prose', () => {
+  assert.deepEqual(SIGNALS, ['rate limit', 'usage limit', 'quota exceeded', 'too many requests', 'resource_exhausted']);
+  for (const summary of ['You have hit your usage limit', 'Rate limit reached', '429 Too Many Requests', 'Quota exceeded for project', 'RESOURCE_EXHAUSTED']) {
+    assert.notEqual(matchQuota(summary, SIGNALS), null, summary);
+  }
+  for (const summary of ['expected 4290 got 0', 'the quota module test still fails', 'error in src/quota.ts line 12', 'HTTP 429']) {
+    assert.equal(matchQuota(summary, SIGNALS), null, summary);
+    assert.equal(quotaOf({ status: 'failure', summary }, { structuredOutput: { quotaSignals: { signals: SIGNALS, basis: 'unverified', evidence: [] } } }), null, summary);
+  }
 });
 test('quota matcher ignores other failures and scans only a UTF-8 safe 2,000 byte prefix', () => {
   for (const summary of ['400 Bad Request: invalid model', '401 Unauthorized', '502 Bad Gateway', '', null, undefined]) assert.equal(matchQuota(summary, SIGNALS), null);
   assert.equal(QUOTA_SCAN_BYTES, 2000);
-  assert.equal(matchQuota(`${'x'.repeat(2000)}quota`, SIGNALS), null);
-  assert.doesNotThrow(() => matchQuota(`${'x'.repeat(1999)}💩quota`, SIGNALS));
+  assert.equal(matchQuota(`${'x'.repeat(2000)}rate limit`, SIGNALS), null);
+  assert.doesNotThrow(() => matchQuota(`${'x'.repeat(1999)}💩rate limit`, SIGNALS));
   assert.equal(matchQuota('quota', []), null);
   assert.equal(matchQuota('quota', 'quota'), null);
 });

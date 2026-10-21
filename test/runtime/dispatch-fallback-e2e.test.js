@@ -17,7 +17,8 @@ const readiness = require('../../src/runtime/worker/readiness.ts');
 
 const SLUG = '106-fallback-e2e';
 const POSIX = { skip: process.platform === 'win32' && 'dispatch sandbox cleanup is unverified on win32' };
-const SIGNALS = ['rate limit', 'usage limit', 'quota', '429', 'resource_exhausted'];
+/** The codex entry's registry signals, read, not copied (106 review C-6). */
+const SIGNALS = require('../../src/registry/index.ts').loadRegistry({ repoRoot: path.join(__dirname, '..', '..') }).harnesses.find((h) => h.id === 'codex').worker.structuredOutput.quotaSignals.signals;
 const QUOTA = { type: 'result', status: 'failure', summary: 'You have hit your usage limit' };
 const SUCCESS = { type: 'result', status: 'success', summary: 'edited' };
 const PLAN = (owner = 'core-implementer') => [

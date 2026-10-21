@@ -33,7 +33,9 @@
 // Feature 106 A.2 (IC-005): `start` takes `--fallback off|ask|auto` and `--ladder <id[,id...]>`
 // (registry harness ids, each once, at most 8, never with `--harness`) and stores `run.fallback`;
 // without `--fallback` the `dispatch.fallback` setting applies (fail-safe `off`). `resume` takes
-// `--fallback`: once resumed, one write sets the run's mode, and `auto` clears its `quota` holds.
+// `--fallback`: once resumed, `off` or `ask` sets the run's mode in one write, and `auto` accepts the
+// pending proposals once (review C-14): it clears the `quota` holds and records each task in
+// `run.fallback.accepted`, the run's mode unchanged; run-wide `auto` comes only from `start`.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -407,22 +409,30 @@ function passOptions(o: any) {
 }
 
 /**
- * 106 IC-005: after an applied resume with `--fallback`, one locked write sets `run.fallback.mode`
- * (creating `run.fallback` for a run started before 106) and, for `auto`, clears every hold whose
- * reason is `quota`. Returns `{ mode, cleared }`.
+ * 106 IC-005: after an applied resume with `--fallback`, one locked write (creating `run.fallback`
+ * for a run started before 106, with the setting's mode). `off` or `ask` sets `run.fallback.mode`.
+ * `auto` accepts once (review C-14): every hold whose reason is `quota` is deleted and its task
+ * recorded in `run.fallback.accepted` with its proposal; the mode is unchanged, and the task's next
+ * selection steps once. `frontier-no-step` and `ladder-exhausted` holds stay. Returns
+ * `{ mode, cleared }`, `mode` the run's mode after the write.
  */
 function setFallbackMode(o: any, mode: string) {
+  const initial = mode === 'auto' ? fallbackSetting(projectRoot(o.cwd), o.env) : mode;
   return mutateDispatch(storeFileFor(projectRoot(o.cwd), o.slug), (s: any) => {
-    if (!s.run) return { write: false, result: { mode, cleared: [] } };
-    const f = fallbackOf(s.run, mode);
-    f.mode = mode;
+    if (!s.run) return { write: false, result: { mode: initial, cleared: [] } };
+    const f = fallbackOf(s.run, initial);
     const cleared: string[] = [];
-    if (mode === 'auto' && f.holds && typeof f.holds === 'object') {
+    if (mode !== 'auto') f.mode = mode;
+    else if (f.holds && typeof f.holds === 'object') {
+      if (!f.accepted || typeof f.accepted !== 'object') f.accepted = {};
       for (const [task, hold] of Object.entries(f.holds) as [string, any][]) {
-        if (hold && hold.reason === 'quota') { delete f.holds[task]; cleared.push(task); }
+        if (!hold || hold.reason !== 'quota') continue;
+        f.accepted[task] = hold.proposed ?? null;
+        delete f.holds[task];
+        cleared.push(task);
       }
     }
-    return { write: true, result: { mode, cleared } };
+    return { write: true, result: { mode: f.mode, cleared } };
   });
 }
 
@@ -527,7 +537,11 @@ function summaryLines(body: any): string[] {
     case 'spawn-requested': return [`spawn-requested ${body.requestId} ${body.state}`];
     case 'spawn-status': return [`spawn-status ${body.requestId} ${body.state}${body.childRunId ? ` child ${body.childRunId}` : ''}`];
     case 'paused': return [`paused ${body.dispatchRunId} active ${Array.isArray(body.active) ? body.active.length : body.active ?? 0}`];
-    case 'inspected': return controls.inspectLines(body);
+    case 'inspected': {
+      // Review C-10: one line per fallback hold after IC-029's lines.
+      const holds = body.fallback && body.fallback.holds && typeof body.fallback.holds === 'object' ? body.fallback.holds : {};
+      return [...controls.inspectLines(body), ...Object.entries(holds).map(([task, h]: [string, any]) => `hold ${task} ${h.reason} from ${h.from} proposed ${h.proposed ?? 'none'}`)];
+    }
     case 'cancelled': return [`cancelled ${body.dispatchRunId} cleanupVerified ${body.cleanupVerified}`];
     case 'taken-over': return [`taken-over ${body.task} token ${body.token} dispatch ${body.dispatchId}`];
     case 'resumed': return [`resumed epoch ${body.epoch} settled ${body.settled.length} orphans ${body.orphans.length}${body.fallback ? ` fallback ${body.fallback.mode} cleared ${body.fallback.cleared.length}` : ''}`];
