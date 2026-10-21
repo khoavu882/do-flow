@@ -16,7 +16,7 @@ const { tempDir } = require('../helper/tmp');
 const { claim, start, status } = require('../../src/runtime/task-attempts.ts');
 const store = require('../../src/runtime/dispatch/store.ts');
 const {
-  FAILURE_CLASSES, classFor, usageFor, endAttempt, completeAttempt, releaseAttempt,
+  FAILURE_CLASSES, CLASS_CALLS, classFor, usageFor, endAttempt, completeAttempt, releaseAttempt,
 } = require('../../src/runtime/dispatch/attempt-end.ts');
 
 const SLUG = 'feat-end';
@@ -198,16 +198,100 @@ test('IC-024: the detail is masked and cut to 200 characters; interrupted releas
 });
 
 test('IC-024: classFor maps every signal of the table and refuses an unknown one', () => {
-  assert.equal(FAILURE_CLASSES.length, 10);
+  assert.equal(FAILURE_CLASSES.length, 11, '106 IC-003 adds quota as the eleventh class');
   const expect = {
     conflict: 'conflict', verification: 'verification', deadline: 'timeout', 'report-failure': 'worker-failure',
     'not-exited': 'worker-failure', 'submit-failure': 'worker-failure', 'report-denied': 'worker-denied',
     'report-unparsed': 'worker-unparsed', 'outside-write': 'isolation', 'branch-moved': 'isolation',
     'isolation-unverifiable': 'isolation', 'group-survived': 'isolation', 'status-unknown': 'lost',
-    'run-refused': 'launch', 'not-started': 'launch', 'driver-gone': 'interrupted',
+    'run-refused': 'launch', 'not-started': 'launch', 'driver-gone': 'interrupted', 'report-quota': 'quota',
   };
   for (const [signal, cls] of Object.entries(expect)) assert.equal(classFor(signal).failureClass, cls, signal);
   assert.deepEqual([classFor('deadline').cancelRun, classFor('status-unknown').cancelRun, classFor('conflict').cancelRun], [true, true, false]);
   assert.equal(classFor('driver-gone').call, 'release');
   assert.throws(() => classFor('nope'), (e) => e.code === 'usage');
+});
+
+// ── 106 IC-003: the quota class releases (gate-a: quota only; every other class unchanged) ───────
+
+/** The ten pre-106 classes, frozen: the 080 call, cancelRun, and what one end does to the dispatch
+ * and the 080 attempt. Any drift in a non-quota class reds this table. */
+const PRE_106 = Object.freeze({
+  conflict: ['finish', false, 'failed', 'finished', 'FAILED'],
+  verification: ['finish', false, 'failed', 'finished', 'FAILED'],
+  timeout: ['finish', true, 'failed', 'finished', 'FAILED'],
+  'worker-failure': ['finish', false, 'failed', 'finished', 'FAILED'],
+  'worker-denied': ['finish', false, 'failed', 'finished', 'FAILED'],
+  'worker-unparsed': ['finish', false, 'failed', 'finished', 'FAILED'],
+  isolation: ['finish', false, 'failed', 'finished', 'FAILED'],
+  lost: ['finish', true, 'failed', 'finished', 'FAILED'],
+  launch: ['finish', false, 'failed', 'finished', 'FAILED'],
+  interrupted: ['release', false, 'interrupted', 'released', null],
+});
+/** The sixteen pre-106 signals, frozen. */
+const PRE_106_SIGNALS = Object.freeze({
+  conflict: 'conflict', verification: 'verification', deadline: 'timeout', 'report-failure': 'worker-failure',
+  'not-exited': 'worker-failure', 'submit-failure': 'worker-failure', 'report-denied': 'worker-denied',
+  'report-unparsed': 'worker-unparsed', 'outside-write': 'isolation', 'branch-moved': 'isolation',
+  'isolation-unverifiable': 'isolation', 'group-survived': 'isolation', 'status-unknown': 'lost',
+  'run-refused': 'launch', 'not-started': 'launch', 'driver-gone': 'interrupted',
+});
+
+test('106 IC-003: report-quota is class quota, call release; FAILURE_CLASSES holds eleven with quota after worker-unparsed', () => {
+  assert.deepEqual(classFor('report-quota'), { failureClass: 'quota', call: 'release', cancelRun: false });
+  assert.deepEqual(FAILURE_CLASSES, [
+    'conflict', 'verification', 'timeout', 'worker-failure', 'worker-denied', 'worker-unparsed', 'quota',
+    'isolation', 'lost', 'launch', 'interrupted',
+  ]);
+});
+
+test('106 IC-003: a quota end releases the attempt and ends the dispatch failed with failureClass quota', (t) => {
+  const p = project(t, { attempts: 5 });
+  const id = p.claimed();
+  const r = p.fail(id, 'quota', { detail: 'rate limit' });
+  assert.deepEqual([r.ended, r.disposition, r.failureClass], [true, 'failed', 'quota']);
+  const [a] = p.attempts();
+  assert.deepEqual([a.state, a.result ?? null], ['released', null]);
+  assert.equal(a.reason, 'quota: rate limit');
+  assert.deepEqual([p.dispatch(id).disposition, p.dispatch(id).failureClass], ['failed', 'quota']);
+});
+
+test('106 IC-003: two quota ends in a row leave the task pending, never BLOCKED', (t) => {
+  const p = project(t, { attempts: 5 });
+  p.fail(p.claimed(), 'quota');
+  p.fail(p.claimed(), 'quota');
+  assert.deepEqual(p.attempts().map((a) => [a.state, a.result ?? null]), [['released', null], ['released', null]]);
+  assert.notEqual(p.task().state, 'BLOCKED');
+  assert.equal(p.task().claimable, true, JSON.stringify(p.task()));
+});
+
+test('106 IC-003: worker-failure, quota, worker-failure is BLOCKED worker-failure: repeated (the quota end is not a finished dispatch)', (t) => {
+  const p = project(t, { attempts: 5 });
+  p.fail(p.claimed(), 'worker-failure');
+  p.fail(p.claimed(), 'quota');
+  p.fail(p.claimed(), 'worker-failure');
+  const states = p.attempts().map((a) => [a.state, a.result ?? null]);
+  assert.deepEqual(states, [['finished', 'FAILED'], ['released', null], ['finished', 'BLOCKED']]);
+  assert.equal(p.attempts()[2].reason, 'worker-failure: repeated');
+  assert.equal(p.task().state, 'BLOCKED');
+});
+
+test('106 negative control: every pre-106 class keeps its call, cancelRun and end, and two worker-failure ends still block', (t) => {
+  for (const [signal, cls] of Object.entries(PRE_106_SIGNALS)) assert.equal(classFor(signal).failureClass, cls, signal);
+  for (const [cls, [call, cancelRun, disposition, state, result]] of Object.entries(PRE_106)) {
+    const p = project(t, { attempts: 5 });
+    const id = p.claimed();
+    const r = p.fail(id, cls);
+    const [a] = p.attempts();
+    assert.deepEqual(
+      [CLASS_CALLS[cls].call, CLASS_CALLS[cls].cancelRun, r.ended, r.disposition, r.failureClass, a.state, a.result ?? null, a.reason],
+      [call, cancelRun, true, disposition, cls, state, result, `${cls}: exit 1`],
+      cls,
+    );
+  }
+  const p = project(t);
+  p.fail(p.claimed(), 'worker-failure');
+  p.fail(p.claimed(), 'worker-failure');
+  assert.deepEqual([p.attempts()[1].result, p.attempts()[1].reason], ['BLOCKED', 'worker-failure: repeated']);
+  assert.equal(p.task().state, 'BLOCKED');
 });

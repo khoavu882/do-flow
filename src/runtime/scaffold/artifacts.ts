@@ -151,8 +151,13 @@ function parseDesign(text: string): any {
  * `external-contract:` names the case this generator cannot help with: a dependency with no local
  * repo to scan — a vendor API, a SaaS integration, a service in another org — whose contract exists
  * only as a document. The doc is an *input* to the scaffold, never part of it.
+ *
+ * `tier:` (106 review R-1) is the task line's dispatch tier, read by dispatch the way brief-tools
+ * reads it. It never opens the metadata, and the parsed task carries `tier` only when the line has
+ * one, so a line without it parses exactly as before; the line hash and the graph tuples list their
+ * fields and do not read it.
  */
-const TASK_KEYS = ['owner', 'files', 'depends-on', 'external-contract', 'acceptance', 'budget'];
+const TASK_KEYS = ['owner', 'files', 'depends-on', 'external-contract', 'acceptance', 'budget', 'tier'];
 
 /** DEC-021: the keys that open the metadata wherever they follow whitespace or a dash (8ce5ad7). */
 const LEGACY_KEY_PATTERN = /(?:^|[\s—-])(owner|files|depends-on|external-contract):\s/;
@@ -246,6 +251,7 @@ function parsePlan(text: string): any {
       nearMissDeps: dependsOn.filter(nearMiss),
       acceptance: list(fields.acceptance),
       budget: parseBudget(fields.budget),
+      ...(fields.tier === undefined ? {} : { tier: fields.tier.replace(/`/g, '').trim() }),
     });
   }
 

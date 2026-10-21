@@ -126,8 +126,9 @@ function endDriver({ file, driver, now = new Date(), endReason = null, fsImpl = 
 
 // ── admission (IC-007) ───────────────────────────────────────────────────────────────────────────
 
-/** `modeFor`'s answer as `{ mode, harness, selection }`. */
+/** `modeFor`'s answer as `{ mode, harness, selection }`, or `{ hold }` for a held task (106 IC-004). */
 function modeOf(answer: any, task: string) {
+  if (answer && typeof answer.hold === 'string') return { hold: answer.hold };
   const out = typeof answer === 'string' ? { mode: answer } : (answer && typeof answer === 'object' ? answer : {});
   if (!MODES.includes(out.mode)) throw usage(`modeFor('${task}') returned mode '${out.mode}', not one of ${MODES.join(', ')}`);
   return { mode: out.mode, harness: out.mode === 'subagent' ? out.harness ?? null : null, selection: out.selection ?? null };
@@ -217,6 +218,7 @@ function admit({
       const active = busy.find((b) => b.task === task);
       if (active) { skipped.push({ task, reason: 'active-dispatch', dispatchId: active.dispatchId }); continue; }
       if (!isCandidate(record)) continue;
+      if (modes.get(task)?.hold) { skipped.push({ task, reason: `held:${modes.get(task).hold}` }); continue; }
       if (nonEnded.length + admitted.length >= concurrency) { skipped.push({ task, reason: 'concurrency' }); continue; }
       const mine = filesOf.get(task) || [];
       const clash = holders.find((b) => !mine.length || !(filesOf.get(b.task) || []).length || pairs.has(`${task}\u0000${b.task}`));

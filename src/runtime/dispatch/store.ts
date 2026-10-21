@@ -20,6 +20,9 @@
 // A refusal is a returned value, never a throw; a torn or future-version file is a thrown
 // `store-unreadable` (exit 2), as in 080 and 081. The callbacks run inside the lock, so they do no
 // I/O but the in-process 080 calls IC-006 lists: no git call, spawn, signal or wait.
+//
+// Feature 106 A.2 (IC-004): `fallbackOf` and `appendFallbackEvent` keep a run's `fallback` state,
+// pure helpers a locked write's callback calls on the store it holds.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -44,6 +47,8 @@ const ADD_ONLY_FIELDS = Object.freeze(['cleanup', 'removal', 'usageLate']);
 const STEP_LIMIT = 500;
 const DISPATCH_RUN_ID = /^p-[0-9a-f]{12}$/;
 const DISPATCH_ID = /^d-[0-9a-f]{12}$/;
+/** 106 IC-004: the newest fallback events a run keeps. */
+const FALLBACK_EVENTS_MAX = 200;
 
 /** A failure that is the caller's or the environment's, not a refusal: exit 2. */
 class DispatchStoreError extends Error {
@@ -190,6 +195,28 @@ function setRunState(store: any, next: string, writer: 'cancel' | 'resume' | nul
   return true;
 }
 
+/**
+ * 106 IC-004: `run.fallback`, created in place with `mode` when absent (a run started before 106).
+ * Shape: `{ mode, ladder: string[] | null, exhausted: string[], holds: { [task]: Hold }, events, eventsDropped }`.
+ */
+function fallbackOf(run: any, mode: string): any {
+  if (!isObject(run.fallback)) run.fallback = { mode, ladder: null, exhausted: [], holds: {}, events: [], eventsDropped: 0 };
+  return run.fallback;
+}
+
+/** 106 IC-004: appends `event` to `run.fallback.events`, keeping the newest 200 and counting the dropped. */
+function appendFallbackEvent(run: any, event: any, mode: string): any {
+  const f = fallbackOf(run, mode);
+  if (!Array.isArray(f.events)) f.events = [];
+  f.events.push(event);
+  const over = f.events.length - FALLBACK_EVENTS_MAX;
+  if (over > 0) {
+    f.events.splice(0, over);
+    f.eventsDropped = (Number.isInteger(f.eventsDropped) ? f.eventsDropped : 0) + over;
+  }
+  return event;
+}
+
 /** The whole store, `dispatches` keyed by id; the empty store when the file does not exist. Takes no lock. */
 function readDispatch(file: string, fsImpl: any = fs): any {
   try {
@@ -285,6 +312,9 @@ module.exports = {
   mutateDispatch,
   transitionDispatch,
   setRunState,
+  fallbackOf,
+  appendFallbackEvent,
+  FALLBACK_EVENTS_MAX,
   HELD_RUN_STATES,
   DispatchStoreError,
   PHASES,
