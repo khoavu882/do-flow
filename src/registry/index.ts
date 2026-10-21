@@ -442,7 +442,7 @@ function validateOrchestration(value: any, location: string, errors: string[]): 
 const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
   cli: { allowed: ['binary', 'versionArgv'], required: ['binary', 'versionArgv'] },
   oneShot: { allowed: ['argv', 'promptVia'], required: ['argv', 'promptVia'] },
-  structuredOutput: { allowed: ['argv', 'parser'], required: ['parser'] },
+  structuredOutput: { allowed: ['argv', 'parser', 'quotaSignals'], required: ['parser'] },
   readOnly: { allowed: ['argv'], required: ['argv'] },
   spawnDenial: { allowed: ['argv'], required: ['argv'] },
   runnableProbe: { allowed: ['argv'], required: ['argv'] },
@@ -462,7 +462,8 @@ const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
 const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES)]);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
-const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker']);
+const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals']);
+const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
 const WORKER_ARGV_MAX = 32;
@@ -542,6 +543,30 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       }
     }
     if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
+    if (key === 'structuredOutput' && Object.hasOwn(entry, 'quotaSignals')) {
+      const quota = entry.quotaSignals;
+      if (!object(quota)) fail(key, 'quotaSignals must be an object');
+      else {
+        for (const field of Object.keys(quota)) if (!WORKER_QUOTA_SIGNALS_FIELDS.has(field)) fail(key, `quotaSignals has unknown field '${field}'`);
+        if (!Array.isArray(quota.signals) || quota.signals.length < 1 || quota.signals.length > 16) fail(key, 'quotaSignals.signals must contain 1 to 16 signals');
+        else for (const signal of quota.signals) {
+          if (typeof signal !== 'string' || signal !== signal.trim() || signal.length < 3 || signal.length > 64 || /[\u0000-\u001f\u007f]/.test(signal)) {
+            fail(key, 'quotaSignals.signals must be trimmed strings of 3 to 64 characters without control characters');
+            break;
+          }
+        }
+        if (quota.basis !== 'unverified' && quota.basis !== 'transcript') fail(key, "quotaSignals.basis must be 'unverified' or 'transcript'");
+        if (!Array.isArray(quota.evidence) || quota.evidence.some((item: any) => typeof item !== 'string')) fail(key, 'quotaSignals.evidence must be an array of strings');
+        else if (quota.basis === 'transcript' && quota.evidence.length === 0) fail(key, 'quotaSignals transcript basis requires evidence');
+        else if (quota.basis === 'unverified' && quota.evidence.length !== 0) fail(key, 'quotaSignals unverified basis requires empty evidence');
+        else if (quota.basis === 'transcript') {
+          for (const item of quota.evidence) {
+            const prefix = `core/worker-evidence/${location.match(/^harness '([^']+)'/)?.[1]}/`;
+            if (!item.startsWith(prefix) || path.isAbsolute(item) || item.split(/[\\/]/).includes('..')) fail(key, 'quotaSignals transcript evidence must be under its harness worker-evidence directory');
+          }
+        }
+      }
+    }
     if (Object.hasOwn(entry, 'marker') && (typeof entry.marker !== 'string' || entry.marker.length < 1 || entry.marker.length > 200)) {
       fail(key, 'marker must be 1 to 200 characters');
     }
@@ -716,6 +741,14 @@ function validateRegistry(
     }
     validateOrchestration(harness.orchestration, at, errors);
     validateWorker(harness.worker, at, errors);
+    const quota = harness.worker?.structuredOutput?.quotaSignals;
+    if (object(quota) && quota.basis === 'transcript' && Array.isArray(quota.evidence) && typeof repoRoot === 'string') {
+      for (const evidence of quota.evidence) {
+        if (typeof evidence === 'string' && !fsImpl.existsSync(path.resolve(repoRoot, evidence))) {
+          issue(errors, `${at} worker 'structuredOutput'`, `quotaSignals transcript evidence '${evidence}' does not exist`);
+        }
+      }
+    }
     validateContextProfile(harness.contextProfile, at, errors);
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl, sources }, errors);
   }

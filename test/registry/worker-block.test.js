@@ -100,7 +100,10 @@ test('worker: the eight harnesses declare IC-002 values and nothing else as supp
 // swapping a disabled feature cannot pass with the record untouched.
 const CODEX_RECIPES = {
   oneShot: { argv: ['--ephemeral', '-'], promptVia: 'stdin' },
-  structuredOutput: { argv: ['--json', '-o', '{lastMessageFile}'], parser: 'codex-exec-json-v1' },
+  structuredOutput: {
+    argv: ['--json', '-o', '{lastMessageFile}'], parser: 'codex-exec-json-v1',
+    quotaSignals: { signals: ['rate limit', 'usage limit', 'quota', '429', 'resource_exhausted'], basis: 'unverified', evidence: [] },
+  },
   readOnly: { argv: ['exec', '-s', 'read-only'] },
   isolatedEdit: { argv: ['exec', '-s', 'workspace-write'] },
   spawnDenial: { argv: ['--disable', 'multi_agent', '--disable', 'multi_agent_v2'] },
@@ -111,9 +114,9 @@ test('worker: the six supported codex entries equal their committed status, evid
   const codex = loadRegistry({ repoRoot: REPO }).harnesses.find((harness) => harness.id === 'codex').worker;
   assert.deepEqual(Object.keys(CODEX_RECIPES).sort(), [...CODEX_SUPPORTED, 'isolatedEdit'].sort());
   for (const [key, recipe] of Object.entries(CODEX_RECIPES)) {
-    const { status, evidence, verifiedOn, argv, promptVia, parser } = codex[key];
+    const { status, evidence, verifiedOn, argv, promptVia, parser, quotaSignals } = codex[key];
     assert.deepEqual(
-      { status, evidence, verifiedOn, argv, promptVia, parser },
+      { status, evidence, verifiedOn, argv, promptVia, parser, ...(quotaSignals === undefined ? {} : { quotaSignals }) },
       { status: 'supported', evidence: CODEX_EVIDENCE[key], verifiedOn: '2026-10-18', promptVia: undefined, parser: undefined, ...recipe },
       `codex ${key}`,
     );
