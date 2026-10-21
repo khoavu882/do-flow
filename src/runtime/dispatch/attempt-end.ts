@@ -17,12 +17,16 @@
 // Usage (IC-008, DEC-039): every finish and release passes `tokens` and `basis`, so no attempt the
 // loop ends is `unreported`. An 080 call that throws, or refuses, records `lastError` on the
 // dispatch and changes nothing else (IC-024).
+//
+// Feature 106 A.2 (IC-003): the eleventh class, `quota`, releases its attempt (the task stays
+// pending) and ends the dispatch `failed` with `failureClass: 'quota'`; the repeat rule skips such a
+// dispatch, because it was released, not finished. Every other class is unchanged.
 
 const { finish, release } = require('../task-attempts.ts');
 const { maskLine } = require('../mask.ts');
 const { DispatchStoreError } = require('./store.ts');
 
-/** IC-024's ten failure classes, each with the 080 call that ends its attempt and whether the
+/** IC-024's eleven failure classes (106 IC-003 adds `quota`), each with the 080 call that ends its attempt and whether the
  * worker run is then ended with `cancelRun` (outside the lock, by the caller). */
 const CLASS_CALLS: Readonly<Record<string, Readonly<{ call: 'finish' | 'release'; cancelRun: boolean }>>> = Object.freeze({
   conflict: Object.freeze({ call: 'finish', cancelRun: false }),
@@ -31,6 +35,7 @@ const CLASS_CALLS: Readonly<Record<string, Readonly<{ call: 'finish' | 'release'
   'worker-failure': Object.freeze({ call: 'finish', cancelRun: false }),
   'worker-denied': Object.freeze({ call: 'finish', cancelRun: false }),
   'worker-unparsed': Object.freeze({ call: 'finish', cancelRun: false }),
+  quota: Object.freeze({ call: 'release', cancelRun: false }), // 106 IC-003
   isolation: Object.freeze({ call: 'finish', cancelRun: false }),
   lost: Object.freeze({ call: 'finish', cancelRun: true }),
   launch: Object.freeze({ call: 'finish', cancelRun: false }),
@@ -48,6 +53,7 @@ const SIGNALS: Readonly<Record<string, string>> = Object.freeze({
   'submit-failure': 'worker-failure', // `submit --status failure`
   'report-denied': 'worker-denied',
   'report-unparsed': 'worker-unparsed',
+  'report-quota': 'quota', // 106 IC-002 / IC-003
   'outside-write': 'isolation',
   'branch-moved': 'isolation',
   'isolation-unverifiable': 'isolation',
@@ -119,12 +125,12 @@ function maskedDetail(detail: any): string {
 }
 
 /** The task's previous finished dispatch before `current`: highest 080 token below its own, released
- * ones (and every other release disposition) ignored (DEC-007). */
+ * ones (every other release disposition, and a `quota` end, which released) ignored (DEC-007). */
 function previousFinished(store: any, current: any): any {
   let previous: any = null;
   for (const other of Object.values(store.dispatches) as any[]) {
     if (other.dispatchId === current.dispatchId || other.task !== current.task || other.phase !== 'ended') continue;
-    if (!FINISHED_DISPOSITIONS.includes(other.disposition) || !Number.isInteger(other.token)) continue;
+    if (!FINISHED_DISPOSITIONS.includes(other.disposition) || !Number.isInteger(other.token) || other.failureClass === 'quota') continue;
     if (other.token >= current.token) continue;
     if (!previous || other.token > previous.token) previous = other;
   }
@@ -184,7 +190,8 @@ function call080(dispatch: any, name: 'finish' | 'release', args: any, ctx: any,
  * IC-024: ends a failed attempt by its class's 080 call. A `finish` class finishes FAILED with
  * `<class>: <detail>`, or BLOCKED with `<class>: repeated` when the task's previous finished
  * dispatch failed with the same class; the dispatch ends `failed` with `failureClass`. The
- * `interrupted` class releases instead and ends `interrupted`. `usage` defaults to `usageFor`
+ * `interrupted` class releases instead and ends `interrupted`; `quota` releases and ends `failed`
+ * (106 IC-003). `usage` defaults to `usageFor`
  * over the dispatch alone; `evidenceId` (a verification's) is passed to 080 and stored.
  */
 function endAttempt({ store, dispatchId, failureClass, detail, usage, evidenceId, ctx }: any): { write: boolean; result: any } {
@@ -197,7 +204,7 @@ function endAttempt({ store, dispatchId, failureClass, detail, usage, evidenceId
   const reason = text ? `${failureClass}: ${text}` : failureClass;
   if (CLASS_CALLS[failureClass].call === 'release') {
     return call080(dispatch, 'release', { reason, tokens: spent.tokens, basis: spent.basis }, context,
-      { disposition: 'interrupted', failureClass });
+      { disposition: failureClass === 'quota' ? 'failed' : 'interrupted', failureClass });
   }
   const previous = previousFinished(store, dispatch);
   const repeated = Boolean(previous && previous.disposition === 'failed' && previous.failureClass === failureClass);

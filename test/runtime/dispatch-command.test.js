@@ -123,6 +123,17 @@ test('IC-001: each flag rule and a flag on the wrong action are exit 2 usage, de
     { action: 'inspect', reason: 'why' },
     { action: 'resume', task: 'A.1' },
     { action: 'spawn', requestId: `${D_ID}.c1`, by: 'w' },
+    // 106 IC-005: --fallback and --ladder.
+    { action: 'start', by: 'main', ladder: 'not-a-harness' },
+    { action: 'start', by: 'main', ladder: 'claude,codex,claude' },
+    { action: 'start', by: 'main', ladder: 'claude,codex,gemini,opencode,pi,copilot,kiro,antigravity,claude' },
+    { action: 'start', by: 'main', ladder: 'codex', harness: 'codex' },
+    { action: 'start', by: 'main', ladder: ' , ' },
+    { action: 'start', by: 'main', fallback: 'banana' },
+    { action: 'step', fallback: 'auto' },
+    { action: 'inspect', fallback: 'ask' },
+    { action: 'resume', ladder: 'claude' },
+    { action: 'resume', fallback: 'banana' },
   ];
   for (const flags of cases) {
     const { exit, body } = await executeDispatchCommand({ slug: SLUG, ...flags, env, cwd });
@@ -405,4 +416,21 @@ test('IC-001: a step whose outcome is blocked exits 0; the text form prints one 
   assert.equal(lines[0][0], 'out');
   assert.match(lines[0][1], /^started p-[0-9a-f]{12} /);
   for (const arg of q.sb.verifyArgv) assert.ok(!lines[0][1].includes(arg), 'no argv element is printed');
+});
+
+test('106 IC-005: start stores run.fallback from --fallback and --ladder, else from the dispatch.fallback setting', POSIX, async (t) => {
+  const p = project(t);
+  const r = await p.startWith({ fallback: 'auto', ladder: 'gemini, claude' });
+  assert.equal(r.exit, 0, JSON.stringify(r.body));
+  assert.deepEqual(store.readDispatch(p.file).run.fallback, { mode: 'auto', ladder: ['gemini', 'claude'], exhausted: [], holds: {}, events: [], eventsDropped: 0 });
+
+  const q = project(t);
+  assert.equal((await q.startWith()).exit, 0);
+  assert.deepEqual(store.readDispatch(q.file).run.fallback, { mode: 'ask', ladder: null, exhausted: [], holds: {}, events: [], eventsDropped: 0 }, 'the setting default');
+
+  const o = project(t);
+  fs.mkdirSync(path.join(o.sb.root, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(o.sb.root, '.doflow', 'settings.json'), `${JSON.stringify({ 'dispatch.fallback': 'off' })}\n`);
+  assert.equal((await o.startWith()).exit, 0);
+  assert.equal(store.readDispatch(o.file).run.fallback.mode, 'off', 'a project may narrow the setting to off');
 });

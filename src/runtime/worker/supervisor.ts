@@ -40,6 +40,7 @@ const processTree = require('./process-tree.ts');
 const { cancelRun, mergeCleanup } = require('./cancel.ts');
 const { bindingObserved } = require('./readiness.ts');
 const { maskBody } = require('../mask.ts');
+const { quotaOf } = require('./quota.ts');
 
 /** This module's own file, which the run command spawns (G16). */
 const SUPERVISOR_FILE = __filename;
@@ -279,7 +280,7 @@ function resultOfRun(run: any): { resultOffered: boolean; withheld: string[] } {
   }
   const report = run?.report?.status;
   if (report === 'denied') withheld.push('report-denied');
-  else if (report === 'failure') withheld.push('report-failure');
+  else if (report === 'failure') withheld.push(run?.report?.quota ? 'report-quota' : 'report-failure');
   else if (report !== 'success') withheld.push('report-unparsed');
   if (run?.process?.leftover?.status === 'survivors') withheld.push('group-survived');
   return { resultOffered: withheld.length === 0, withheld };
@@ -509,6 +510,9 @@ async function superviseRun({
   }
   if (lastMessageFile) readLastMessage(parser, lastMessageFile);
   const report = parser.end();
+  // 106 IC-002: a failure whose masked summary holds a declared quota signal is marked quota.
+  const quota = quotaOf(report, run.descriptor);
+  if (quota) report.quota = quota;
   const unit = `L.${run.identity?.run}.${run.identity?.lineage}.${run.token}`;
   const launchObserved = run.identity ? (bindingObserved(launched.env ?? env, unit) ? 'yes' : 'no') : 'unknown';
   transition(file, runId, STEP6, (r: any) => {

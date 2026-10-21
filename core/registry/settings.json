@@ -59,6 +59,11 @@
       "env": { "name": "DOFLOW_VERIFY_REUSE", "parse": "off-words", "direction": "narrow" },
       "flag": null, "shellRead": null, "needsConfigHome": true, "legacy": [],
       "consumers": ["src/runtime/verification/engine.ts"],
-      "description": "Reuse of a recorded PASS at L1/L2 when the check key is unchanged, off until the owner turns it on; the env can only turn it off." }
+      "description": "Reuse of a recorded PASS at L1/L2 when the check key is unchanged, off until the owner turns it on; the env can only turn it off." },
+    "dispatch.fallback": { "type": "enum", "values": ["off", "ask"], "order": ["off", "ask"], "default": "ask",
+      "scope": "narrow-only", "combine": "override", "securityRelevant": false, "failSafe": "off",
+      "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
+      "consumers": ["src/runtime/dispatch/command.ts"],
+      "description": "Quota fallback ladder default for dispatch runs: ask holds and proposes, off holds without a proposal; auto exists only per run via --fallback." }
   }
 }

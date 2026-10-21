@@ -669,7 +669,12 @@
             "-o",
             "{lastMessageFile}"
           ],
-          "parser": "codex-exec-json-v1"
+          "parser": "codex-exec-json-v1",
+          "quotaSignals": {
+            "signals": ["rate limit", "usage limit", "quota exceeded", "too many requests", "resource_exhausted"],
+            "basis": "unverified",
+            "evidence": []
+          }
         },
         "readOnly": {
           "status": "supported",

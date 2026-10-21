@@ -97,6 +97,20 @@ function tableTiersOf(markdown) {
   return [...section.matchAll(/^\|\s*`([^`]+)`\s*\|/gm)].map(([, tier]) => tier);
 }
 
+/** 106 review R-3: every dispatch REVIEW_OWNERS entry is a `byOwner` key (case-insensitive) and an
+ * agent spec name, so renaming the archetype cannot silently turn review work steppable. */
+function reviewOwnerProblems(reviewOwners, byOwner, specNames) {
+  const lower = (xs) => xs.map((x) => String(x).toLowerCase());
+  const keys = lower(Object.keys(byOwner));
+  const specs = lower(specNames);
+  const problems = [];
+  for (const owner of reviewOwners) {
+    if (!keys.includes(String(owner).toLowerCase())) problems.push(`REVIEW_OWNERS '${owner}' is not a dispatchTiers.byOwner key`);
+    if (!specs.includes(String(owner).toLowerCase())) problems.push(`REVIEW_OWNERS '${owner}' is not an agent spec`);
+  }
+  return problems;
+}
+
 function agentSpecNames() {
   return fs.readdirSync(AGENT_SPECS).filter((file) => file.endsWith('.md')).map((file) => {
     const match = fs.readFileSync(path.join(AGENT_SPECS, file), 'utf8').match(/^name:\s*(\S+)\s*$/m);
@@ -219,6 +233,9 @@ test('G29: dispatchTiers matches MODEL_SELECTION.md and the agent specs', () => 
     prescribedTiers: prescribedTiersOf(markdown),
   });
   assert.deepEqual(problems, []);
+  const { REVIEW_OWNERS } = require('../../src/runtime/dispatch/loop.ts');
+  assert.ok(REVIEW_OWNERS.length > 0);
+  assert.deepEqual(reviewOwnerProblems(REVIEW_OWNERS, registry.dispatchTiers.byOwner, agentSpecNames()), []);
 });
 
 test('G29: every harness toolName template holds {server} and {tool}', () => {
@@ -280,6 +297,18 @@ test('G29 control: each tier-vocabulary violation fails', () => {
   assert.match(bad({ dispatchTiers: { byOwner: { a: 'light', b: 'epic' } } })[0], /byOwner 'b' has tier 'epic'/);
   assert.match(bad({ specNames: ['a', 'b', 'c'] })[0], /differ from agent specs/);
   assert.match(bad({ dispatchTiers: { byOwner: { a: 'light' } } })[0], /differ from agent specs/);
+});
+
+test('G29 control: a REVIEW_OWNERS entry renamed away from byOwner and the agent specs fails', () => {
+  const { REVIEW_OWNERS } = require('../../src/runtime/dispatch/loop.ts');
+  const byOwner = { ...registry.dispatchTiers.byOwner };
+  const [renamed] = REVIEW_OWNERS;
+  byOwner['quality-reviewer'] = byOwner[renamed];
+  delete byOwner[renamed];
+  const specs = agentSpecNames().map((name) => (name === renamed ? 'quality-reviewer' : name));
+  assert.deepEqual(reviewOwnerProblems(REVIEW_OWNERS, byOwner, specs), [
+    `REVIEW_OWNERS '${renamed}' is not a dispatchTiers.byOwner key`, `REVIEW_OWNERS '${renamed}' is not an agent spec`,
+  ]);
 });
 
 test('G29 control: the tier table parser reads backticked first-column names only', () => {
