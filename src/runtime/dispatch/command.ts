@@ -29,6 +29,11 @@
 //
 // This module makes no fs write call: the store is written through `store.ts`, the ledger by 080's
 // `start`, the worktree by `integrate.ts`.
+//
+// Feature 106 A.2 (IC-005): `start` takes `--fallback off|ask|auto` and `--ladder <id[,id...]>`
+// (registry harness ids, each once, at most 8, never with `--harness`) and stores `run.fallback`;
+// without `--fallback` the `dispatch.fallback` setting applies (fail-safe `off`). `resume` takes
+// `--fallback`: once resumed, one write sets the run's mode, and `auto` clears its `quota` holds.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -40,7 +45,7 @@ const { projectRoot } = require('../lifecycle/root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
-const { storeFileFor, newDispatchRunId, readDispatch, mutateDispatch, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
+const { storeFileFor, newDispatchRunId, readDispatch, mutateDispatch, fallbackOf, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
 const { concurrencyOf } = require('./admission.ts');
 const { validateGrant, requestSpawn, spawnStatus } = require('./grants.ts');
 const { createIntegrationWorktree, managerFor } = require('./integrate.ts');
@@ -73,6 +78,8 @@ const SUMMARY_BYTES = 8192;
 const BLOCKERS_MAX = 20;
 const BLOCKER_CHARS = 200;
 const TOKEN_BASES = Object.freeze(['measured', 'estimated']);
+/** 106 IC-005: at most this many `--ladder` rungs. */
+const LADDER_MAX = 8;
 
 /** IC-001: the actions each flag may be given to; any other action is exit 2 `usage`. */
 const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object.freeze({
@@ -101,6 +108,8 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   requestId: { flag: '--request-id', actions: ['spawn'] },
   task: { flag: '--task', actions: ['takeover'] },
   ack: { flag: '--ack', actions: ['resume'] },
+  fallback: { flag: '--fallback', actions: ['start', 'resume'] },
+  ladder: { flag: '--ladder', actions: ['start'] },
 });
 
 type Env = Record<string, string | undefined>;
@@ -170,6 +179,41 @@ function registryOf(registry: any) {
   }
 }
 
+/** 106 IC-005: `--fallback` as a mode, or null when absent. */
+function fallbackFlag(value: any): string | null {
+  if (!given(value)) return null;
+  if (!loop.FALLBACK_MODES.includes(String(value))) throw usage(`--fallback expects ${loop.FALLBACK_MODES.join(', ')}, got '${value}'`);
+  return String(value);
+}
+
+/** 106 IC-005: `--ladder` as 1 to 8 distinct registry harness ids in order, or null when absent. */
+function ladderOf(o: any): string[] | null {
+  if (!given(o.ladder)) return null;
+  if (given(o.harness)) throw usage('--ladder does not go with --harness: a --harness run is a one-rung ladder');
+  const ids = String(o.ladder).split(',').map((id: string) => id.trim()).filter(Boolean);
+  if (ids.length < 1 || ids.length > LADDER_MAX) throw usage(`--ladder expects 1 to ${LADDER_MAX} comma-separated harness ids, got ${ids.length}`);
+  const known = registryOf(o.registry).harnesses.map((h: any) => h.id);
+  const unknown = ids.find((id: string) => !known.includes(id));
+  if (unknown !== undefined) throw usage(`--ladder names unknown harness '${unknown}'; known: ${known.join(', ')}`);
+  if (new Set(ids).size !== ids.length) throw usage('--ladder names a harness more than once');
+  return ids;
+}
+
+/**
+ * 106 IC-005: the `dispatch.fallback` setting for the project at `root`, read the way `verify.reuse`
+ * is (089 IC-005). Only a valid resolved `off` or `ask` applies; an invalid value, a load error or any
+ * fault is the key's fail-safe `off`.
+ */
+function fallbackSetting(root: string, env: Env): string {
+  try {
+    const { loadSettings } = require('../settings/resolve.ts');
+    const resolution = loadSettings({ projectRoot: root, env: { ...env } }).get('dispatch.fallback', 'project');
+    return resolution?.state === 'ok' && ['off', 'ask'].includes(resolution.value) ? resolution.value : 'off';
+  } catch {
+    return 'off';
+  }
+}
+
 /** IC-002 step 0: every start flag, validated and normalized. */
 function startSettings(o: any) {
   const by = requireBy(o.by, 'start');
@@ -199,7 +243,9 @@ function startSettings(o: any) {
     }
     if (needs.length) readiness.validateNeeds(needs, o.coverage === undefined ? reg.coverage : o.coverage);
   }
-  return { by, concurrency, mode, billingCap, argv, verifySeconds, attemptSeconds, reserveTokens, budgetAttempts, budgetTokens, spawnGrant, needs, harness };
+  const fallback = fallbackFlag(o.fallback);
+  const ladder = ladderOf(o);
+  return { by, concurrency, mode, billingCap, argv, verifySeconds, attemptSeconds, reserveTokens, budgetAttempts, budgetTokens, spawnGrant, needs, harness, fallback, ladder };
 }
 
 /**
@@ -254,6 +300,7 @@ function actionFlags(action: string, o: any) {
       if (given(o.ack)) requireBy(o.by, action);
       else if (given(o.by)) requireBy(o.by, action);
       if (given(o.reason)) requireReason(o.reason, action);
+      fallbackFlag(o.fallback);
       break;
     default: break;
   }
@@ -310,6 +357,8 @@ function start(o: any, s: any) {
     ? { argv: s.argv, argvSha256: argvDigest(s.argv), argvCount: s.argv.length, timeoutSeconds: s.verifySeconds }
     : { argv: null, argvSha256: null, argvCount: 0, timeoutSeconds: s.verifySeconds };
   const remove = () => managerFor(root, slug, 'integration', env).removeVerified(dispatchRunId);
+  // 106 IC-005: `--fallback` wins for the run, else the setting.
+  const fallback = { mode: s.fallback ?? fallbackSetting(root, env), ladder: s.ladder, exhausted: [], holds: {}, events: [], eventsDropped: 0 };
   // Steps 7 and 8: one dispatch-store write, the 080 start inside it.
   let outcome: any;
   try {
@@ -329,7 +378,7 @@ function start(o: any, s: any) {
         reserveTokens: s.reserveTokens, attemptSeconds: s.attemptSeconds, harness: s.harness, needs: s.needs,
         spawnGrant: s.spawnGrant, baseDirty, createdAt: iso(now), endedAt: null,
         integration: { worktree: integration.worktree, branch: integration.branch, base: integration.base, head: integration.head },
-        verify,
+        verify, fallback,
       };
       return { write: true, result: { started: true, epoch: res.epoch, runKey: res.runKey } };
     });
@@ -351,10 +400,30 @@ function start(o: any, s: any) {
 /** The loop's and controls' shared options: identity inputs, clock and the in-process test seams. */
 function passOptions(o: any) {
   const out: any = { slug: o.slug, env: o.env, cwd: o.cwd, now: o.clock };
-  for (const seam of ['platform', 'descriptors', 'registry', 'coverage', 'evaluateImpl', 'verify', 'sleep']) {
+  for (const seam of ['platform', 'descriptors', 'registry', 'coverage', 'evaluateImpl', 'verify', 'sleep', 'fallbackDefault']) {
     if (o[seam] !== undefined) out[seam] = o[seam];
   }
   return out;
+}
+
+/**
+ * 106 IC-005: after an applied resume with `--fallback`, one locked write sets `run.fallback.mode`
+ * (creating `run.fallback` for a run started before 106) and, for `auto`, clears every hold whose
+ * reason is `quota`. Returns `{ mode, cleared }`.
+ */
+function setFallbackMode(o: any, mode: string) {
+  return mutateDispatch(storeFileFor(projectRoot(o.cwd), o.slug), (s: any) => {
+    if (!s.run) return { write: false, result: { mode, cleared: [] } };
+    const f = fallbackOf(s.run, mode);
+    f.mode = mode;
+    const cleared: string[] = [];
+    if (mode === 'auto' && f.holds && typeof f.holds === 'object') {
+      for (const [task, hold] of Object.entries(f.holds) as [string, any][]) {
+        if (hold && hold.reason === 'quota') { delete f.holds[task]; cleared.push(task); }
+      }
+    }
+    return { write: true, result: { mode, cleared } };
+  });
 }
 
 async function perform(action: string, o: any) {
@@ -368,10 +437,20 @@ async function perform(action: string, o: any) {
       tokens: given(o.tokens) ? String(o.tokens) : undefined, tokensBasis: given(o.tokensBasis) ? String(o.tokensBasis) : undefined,
     });
     case 'pause': return controls.pause({ ...base, by: o.by, reason: o.reason });
-    case 'inspect': return controls.inspect(base);
+    case 'inspect': {
+      const body = controls.inspect(base);
+      // 106 IC-005: the run's fallback state, as stored.
+      if (body && body.disposition === 'inspected') body.fallback = readDispatch(storeFileFor(projectRoot(o.cwd), o.slug)).run?.fallback ?? null;
+      return body;
+    }
     case 'cancel': return controls.cancel({ ...base, by: o.by, reason: o.reason });
     case 'takeover': return controls.takeOver({ ...base, by: o.by, reason: o.reason, task: String(o.task) });
-    case 'resume': return controls.resume({ ...base, by: given(o.by) ? o.by : undefined, reason: given(o.reason) ? o.reason : undefined, ack: given(o.ack) ? String(o.ack) : undefined });
+    case 'resume': {
+      const body = await controls.resume({ ...base, by: given(o.by) ? o.by : undefined, reason: given(o.reason) ? o.reason : undefined, ack: given(o.ack) ? String(o.ack) : undefined });
+      const mode = fallbackFlag(o.fallback);
+      if (mode !== null && body && body.disposition === 'resumed') body.fallback = setFallbackMode(o, mode);
+      return body;
+    }
     default: throw usage(`unknown action '${action}'`);
   }
 }
@@ -381,7 +460,7 @@ async function perform(action: string, o: any) {
  * `reason`, `concurrency`, `mode`, `billingCap`, `verifyArgv`, `verifySeconds`, `attemptSeconds`, `reserveTokens`,
  * `budgetAttempts`, `budgetTokens`, `spawnGrant`, `harness`, `need`, `maxSeconds`, `dispatch`,
  * `status`, `summary`, `blocker`, `tokens`, `tokensBasis`, `promptFile`, `requestId`, `task`,
- * `ack`), plus `env`, `cwd`, `resolveSlug(cwd)`, `now`, and the in-process seams `platform`,
+ * `ack`, `fallback`, `ladder`), plus `env`, `cwd`, `resolveSlug(cwd)`, `now`, and the in-process seams `platform`,
  * `descriptors`, `registry`, `coverage`, `evaluateImpl`, `verify`, `sleep`. Prints nothing.
  */
 async function executeDispatchCommand(options: any = {}): Promise<{ exit: number; body: any }> {
@@ -409,6 +488,10 @@ async function executeDispatchCommand(options: any = {}): Promise<{ exit: number
     } else {
       // IC-001 identity checks (DEC-044), before anything the action reads for writing, runs or signals.
       const caller = loop.checkCaller({ env, cwd, file: storeFileFor(projectRoot(cwd), slug) });
+      // 106 IC-004 (D3): a run started before 106 has no `run.fallback`; the loop reads it with the setting.
+      if (!caller.refusal && (action === 'step' || action === 'run') && !caller.store.run.fallback && o.fallbackDefault === undefined) {
+        o.fallbackDefault = fallbackSetting(projectRoot(cwd), env);
+      }
       body = caller.refusal ? caller.refusal : await perform(action, o);
     }
     if (body && body.disposition === 'ran' && Number.isInteger(body.exit)) return { exit: body.exit, body };
@@ -420,7 +503,14 @@ async function executeDispatchCommand(options: any = {}): Promise<{ exit: number
   }
 }
 
-/** One summary line per result; inspect uses IC-029's lines. No envelope, output or argv content. */
+/** 106 IC-004 / FR-005: one `fallback <kind> <task> <from> -> <to|none> (...)` line per fallback StepAction. */
+function fallbackLines(actions: any): string[] {
+  return (Array.isArray(actions) ? actions : []).filter((a: any) => a && a.action === 'fallback')
+    .map((a: any) => `fallback ${String(a.reason).replace(/^([a-z]+):/, '$1 ')}`);
+}
+
+/** One summary line per result (plus one line per fallback event for step and run); inspect uses
+ * IC-029's lines. No envelope, output or argv content. */
 function summaryLines(body: any): string[] {
   const d = body.disposition;
   switch (d) {
@@ -430,9 +520,9 @@ function summaryLines(body: any): string[] {
     }
     case 'stepped': {
       const extra = body.perform ? ` perform ${body.perform.dispatchId} ${body.perform.task} token ${body.perform.token}` : '';
-      return [`stepped ${body.dispatchRunId} step ${body.step ?? '-'} outcome ${body.outcome} actions ${body.actions.length}${extra}`];
+      return [`stepped ${body.dispatchRunId} step ${body.step ?? '-'} outcome ${body.outcome} actions ${body.actions.length}${extra}`, ...fallbackLines(body.actions)];
     }
-    case 'ran': return [`ran ${body.dispatchRunId} steps ${body.steps} outcome ${body.outcome}${body.timeUp ? ' time-up' : ''}${body.signal ? ` signal ${body.signal}` : ''}`];
+    case 'ran': return [`ran ${body.dispatchRunId} steps ${body.steps} outcome ${body.outcome}${body.timeUp ? ' time-up' : ''}${body.signal ? ` signal ${body.signal}` : ''}`, ...fallbackLines(body.fallback)];
     case 'submitted': return [`submitted ${body.dispatchId} task ${body.task} token ${body.token} phase ${body.phase} changes ${body.changes.length}`];
     case 'spawn-requested': return [`spawn-requested ${body.requestId} ${body.state}`];
     case 'spawn-status': return [`spawn-status ${body.requestId} ${body.state}${body.childRunId ? ` child ${body.childRunId}` : ''}`];
@@ -440,7 +530,7 @@ function summaryLines(body: any): string[] {
     case 'inspected': return controls.inspectLines(body);
     case 'cancelled': return [`cancelled ${body.dispatchRunId} cleanupVerified ${body.cleanupVerified}`];
     case 'taken-over': return [`taken-over ${body.task} token ${body.token} dispatch ${body.dispatchId}`];
-    case 'resumed': return [`resumed epoch ${body.epoch} settled ${body.settled.length} orphans ${body.orphans.length}`];
+    case 'resumed': return [`resumed epoch ${body.epoch} settled ${body.settled.length} orphans ${body.orphans.length}${body.fallback ? ` fallback ${body.fallback.mode} cleared ${body.fallback.cleared.length}` : ''}`];
     case 'ack-required': return [`ack-required ${body.digest} settled ${Array.isArray(body.settled) ? body.settled.length : 0}`];
     default: return [`${d ?? 'refused'} ${body.reason ?? ''}`.trim()];
   }
@@ -461,4 +551,4 @@ async function handleDispatchCommand(options: any = {}): Promise<number> {
   return finishRuntime(exit);
 }
 
-module.exports = { handleDispatchCommand, executeDispatchCommand, summaryLines, ACTIONS, FLAG_ACTIONS, EXIT_ZERO, ERROR_CODES };
+module.exports = { handleDispatchCommand, executeDispatchCommand, summaryLines, fallbackSetting, ACTIONS, FLAG_ACTIONS, EXIT_ZERO, ERROR_CODES };

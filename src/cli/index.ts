@@ -371,6 +371,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   // `--ack`, `--request` and `--exec-worktree` are shared.
   ['--concurrency', 'concurrency'],    // dispatch start: 1 to 4
   ['--billing-cap', 'billingCap'],     // dispatch start: free-only worker billing ceiling
+  ['--fallback', 'fallback'],         // dispatch start|resume: quota fallback mode off | ask | auto (106 IC-005)
+  ['--ladder', 'ladder'],             // dispatch start: worker rungs, comma-separated harness ids (106 IC-005)
   ['--verify-argv', 'verifyArgv'],     // dispatch start: the verification argv as a JSON array
   ['--verify-seconds', 'verifySeconds'], // dispatch start: 1 to 14400
   ['--attempt-seconds', 'attemptSeconds'], // dispatch start: 1 to 14280

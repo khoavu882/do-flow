@@ -21,6 +21,14 @@
 // `supported` never has its binary looked up.
 //
 // Every write goes through `store.ts` (`updateTaskState`); this module makes no fs write call.
+//
+// Feature 106 A.2 (IC-003, IC-004): the quota fallback ladder. A `quota` end marks its harness
+// exhausted for the rest of the run, in the write that ends it. Selection walks the run's ladder (or
+// registry order) skipping exhausted harnesses; when it passes one, the run's mode and the task's
+// tier decide: a hold (`quota`, `frontier-no-step`, `ladder-exhausted`), never `sequential`, or in
+// `auto` a step to the next rung. Holds are never admitted again in the run and are decide-phase
+// gaps with cause `quota`. Every quota, step and hold is one event in `run.fallback.events`, one
+// `fallback` StepAction, and for a quota or step a copy on its dispatch. No harness id is named here.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -37,7 +45,9 @@ const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
-const { storeFileFor, readDispatch, mutateDispatch, setRunState, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
+const {
+  storeFileFor, readDispatch, mutateDispatch, setRunState, fallbackOf, appendFallbackEvent, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID,
+} = require('./store.ts');
 const { registerDriver, endDriver, admit, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
 const integrate = require('./integrate.ts');
 const { classFor, endAttempt, releaseAttempt, usageFor, SIGNALS } = require('./attempt-end.ts');
@@ -62,7 +72,9 @@ const STATIC_GATE = Object.freeze([
   ['one-shot', 'oneShot'], ['structured-output', 'structuredOutput'], ['isolated-edit', 'isolatedEdit'], ['spawn-denial', 'spawnDenial'],
 ]);
 /** IC-027: the gap causes in report order. */
-const CAUSE_ORDER = Object.freeze(['input', 'authorization', 'budget', 'no-progress']);
+const CAUSE_ORDER = Object.freeze(['input', 'authorization', 'budget', 'quota', 'no-progress']);
+/** 106 IC-005: the run's fallback modes; `off` is the fail-safe. */
+const FALLBACK_MODES = Object.freeze(['off', 'ask', 'auto']);
 const LIVE_WORKER_STATES = Object.freeze(['starting', 'running']);
 /** IC-010: the three chain artifacts every handoff points at, after the declared files. */
 const CHAIN_ARTIFACTS = Object.freeze(['intention/requirement.md', 'design/design.md', 'plan.md']);
@@ -140,11 +152,13 @@ function evaluateEdit({ harness, worker, needs, registry, coverage, env, cwd, ro
   return { eligible: Boolean(c && c.eligible), gaps: c ? c.gaps : [] };
 }
 
-/** Every candidate harness in registry order (or only `harness`), each `{ harness, eligible, gaps }`. */
-function evaluateHarnesses({ harness = null, needs = [], billingCap, descriptors, registry, coverage, env, cwd, root, now = Date.now, platform = process.platform, evaluateImpl = evaluateEdit }: any) {
+/** Every candidate harness in registry order (or only `harness`, or only the `ladder`'s, 106 IC-004),
+ * each `{ harness, eligible, gaps }`. */
+function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingCap, descriptors, registry, coverage, env, cwd, root, now = Date.now, platform = process.platform, evaluateImpl = evaluateEdit }: any) {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
   const cov = coverage === undefined ? reg.coverage : coverage;
-  const entries = readiness.workerDescriptors({ descriptors, registry: reg }).filter((e: any) => !harness || e.harness === harness);
+  const entries = readiness.workerDescriptors({ descriptors, registry: reg })
+    .filter((e: any) => (!harness || e.harness === harness) && (!Array.isArray(ladder) || ladder.includes(e.harness)));
   return entries.map((entry: any) => {
     const gaps = staticGate(entry.worker, billingCap);
     if (gaps.length) return { harness: entry.harness, eligible: false, gaps };
@@ -153,39 +167,71 @@ function evaluateHarnesses({ harness = null, needs = [], billingCap, descriptors
   });
 }
 
+/** 106 IC-004: the dispatch tier of a plan task's `owner` from the registry's `dispatchTiers`
+ * (`byOwner`, else `default`); a registry without `dispatchTiers` reads `standard`. */
+function tierOf(registry: any, owner: string | null): string {
+  const tiers = registry && registry.dispatchTiers;
+  if (!tiers) return 'standard';
+  if (owner && tiers.byOwner && Object.hasOwn(tiers.byOwner, owner)) return tiers.byOwner[owner];
+  return tiers.default ?? 'standard';
+}
+
 /**
  * IC-022: the mode one attempt of `task` runs in. `held` (a take over) is `manual` under policy
  * `manual`, else `sequential`; policies `manual` and `sequential` are themselves; under `auto` a
  * task whose last failure class is `launch` runs `sequential`, else the first eligible harness runs
  * it as `subagent`, else `sequential`. Returns `{ mode, harness, selection: { policy, chosen,
  * candidates } }`. `cache` (an object) holds the harness evaluation for one pass.
+ *
+ * 106 IC-004, under `auto` with the run's `fallback`: candidates follow `fallback.ladder` when set
+ * (only its harnesses), and an exhausted one is skipped. Passing none is the rule above exactly.
+ * Passing one: a frontier-tier `owner` holds `frontier-no-step`; no rung left holds
+ * `ladder-exhausted`; mode `off` holds `quota` with no proposal, `ask` holds `quota` proposing the
+ * next rung, `auto` runs it as `subagent` with `selection.fallback = { kind: 'step', from, to }`.
+ * A hold returns `{ hold: { reason, from, proposed }, selection }`. Pure: the caller persists it.
  */
-function selectMode({ policy = 'auto', held = false, lastFailureClass = null, cache = null, ...rest }: any) {
+function selectMode({ policy = 'auto', held = false, lastFailureClass = null, cache = null, fallback = null, owner = null, ...rest }: any) {
   const fixed = (mode: string) => ({ mode, harness: null, selection: { policy, chosen: mode, candidates: [] } });
   if (held) return fixed(policy === 'manual' ? 'manual' : 'sequential');
   if (policy === 'manual' || policy === 'sequential') return fixed(policy);
   if (policy !== 'auto') throw usage(`mode policy '${policy}' is not auto, sequential or manual`);
   if (lastFailureClass === 'launch') return fixed('sequential');
+  const ladder = fallback && Array.isArray(fallback.ladder) ? fallback.ladder : null;
+  const exhausted: string[] = fallback && Array.isArray(fallback.exhausted) ? fallback.exhausted : [];
   let candidates = cache && cache.candidates;
   if (!candidates) {
-    candidates = evaluateHarnesses(rest);
+    candidates = evaluateHarnesses({ ...rest, ladder });
     if (cache) cache.candidates = candidates;
   }
-  const chosen = candidates.find((c: any) => c.eligible);
-  const selection = {
+  if (ladder) candidates = ladder.map((id: string) => candidates.find((c: any) => c.harness === id)).filter(Boolean);
+  let from: string | null = null;
+  let chosen: any = null;
+  for (const c of candidates) {
+    if (exhausted.includes(c.harness)) { from = from ?? c.harness; continue; }
+    if (c.eligible) { chosen = c; break; }
+  }
+  const selection: any = {
     policy,
     chosen: chosen ? chosen.harness : 'sequential',
     ...(!chosen && rest.billingCap === 'free' ? { reason: 'no-eligible-worker' } : {}),
     candidates: structuredClone(candidates),
   };
-  return chosen ? { mode: 'subagent', harness: chosen.harness, selection } : { mode: 'sequential', harness: null, selection };
+  if (from === null) return chosen ? { mode: 'subagent', harness: chosen.harness, selection } : { mode: 'sequential', harness: null, selection };
+  const hold = (reason: string, proposed: string | null) => ({ hold: { reason, from, proposed }, selection: { ...selection, chosen: 'held' } });
+  if (tierOf(rest.registry || loadRegistry({ repoRoot: REPO_ROOT }), owner) === 'frontier') return hold('frontier-no-step', null);
+  if (!chosen) return hold('ladder-exhausted', null);
+  const mode = fallback && FALLBACK_MODES.includes(fallback.mode) ? fallback.mode : 'off';
+  if (mode === 'off') return hold('quota', null);
+  if (mode === 'ask') return hold('quota', chosen.harness);
+  return { mode: 'subagent', harness: chosen.harness, selection: { ...selection, fallback: { kind: 'step', from, to: chosen.harness } } };
 }
 
-/** The failure class of `task`'s most recent failed dispatch (highest token), or null. */
+/** The failure class of `task`'s most recent failed dispatch (highest token), or null. A `quota` end
+ * released its attempt and is skipped (106 IC-003). */
 function lastFailure(current: any, task: string): string | null {
   let last: any = null;
   for (const d of Object.values(current.dispatches) as any[]) {
-    if (d.task !== task || d.phase !== 'ended' || !Number.isInteger(d.token)) continue;
+    if (d.task !== task || d.phase !== 'ended' || !Number.isInteger(d.token) || d.failureClass === 'quota') continue;
     if (!last || d.token > last.token) last = d;
   }
   return last && last.disposition === 'failed' ? last.failureClass ?? null : null;
@@ -283,6 +329,9 @@ function passFor(options: any) {
     evaluateImpl: options.evaluateImpl || evaluateEdit,
     verify: options.verify || runVerification,
     shouldStop: typeof options.shouldStop === 'function' ? options.shouldStop : () => false,
+    // 106 IC-004 / D3: the mode a run with no `run.fallback` (started before 106) is read with; the
+    // command passes the resolved `dispatch.fallback` setting, anything else is the fail-safe `off`.
+    fallbackDefault: FALLBACK_MODES.includes(options.fallbackDefault) ? options.fallbackDefault : 'off',
     actions: [] as any[],
     integrationMs: [] as number[],
     gaps: [] as any[],
@@ -567,22 +616,51 @@ function writeResult(p: any, d: any, run: any, { outcome, staleReason = null, fa
   return { value, written };
 }
 
+/** 106 IC-004: a fallback event's StepAction detail, `<task> <from> -> <to|none> (<reason>; mode
+ * <mode>; signals <basis>)`; the human line is `fallback <kind> ` before it. */
+const fallbackLine = (e: any) => `${e.task} ${e.from} -> ${e.to ?? 'none'} (${e.reason}; mode ${e.mode}; signals ${e.basis})`;
+
+/** 106 IC-004: one StepAction per fallback event. */
+function actFallback(p: any, e: any, token: number | null = null) {
+  p.act('fallback', { dispatchId: e.dispatchId, task: e.task, token }, e.kind, fallbackLine(e));
+}
+
+/** 106 IC-004, inside the write that ended quota dispatch `cur`: its harness joins `exhausted` once,
+ * and one `quota` event goes to the run and onto the dispatch. Returns the event. */
+function recordQuota(p: any, s: any, cur: any, run: any, at: Date) {
+  const f = fallbackOf(s.run, p.fallbackDefault);
+  if (!Array.isArray(f.exhausted)) f.exhausted = [];
+  if (cur.harness && !f.exhausted.includes(cur.harness)) f.exhausted.push(cur.harness);
+  const quota = run && run.report && run.report.quota ? run.report.quota : null;
+  const event = appendFallbackEvent(s.run, {
+    at: iso(at), task: cur.task, dispatchId: cur.dispatchId, kind: 'quota', from: cur.harness ?? null, to: null,
+    reason: quota && typeof quota.signal === 'string' && quota.signal ? quota.signal : 'quota', mode: f.mode,
+    basis: quota && typeof quota.basis === 'string' && quota.basis ? quota.basis : 'unverified',
+  }, p.fallbackDefault);
+  cur.fallback = [event];
+  return event;
+}
+
 /** Ends dispatch `d` by IC-024's class for `signal`, only while its phase is one of `phases` (read
  * inside the lock: a pass-wide snapshot can be older than another driver's lease); then, outside the
- * lock, `cancelRun` when the class asks for it, and the granter's children. */
+ * lock, `cancelRun` when the class asks for it, and the granter's children. A `quota` end records
+ * its fallback state in the same write (106 IC-004). */
 async function failDispatch(p: any, d: any, phases: string[], signal: string, detail: any, run: any, parts: any, envelope: any = null) {
   const started = Date.now();
   const { failureClass, cancelRun: needCancel } = classFor(signal);
+  const at = p.clock();
   const ended = mutateDispatch(p.file, (s: any) => {
     const cur = s.dispatches[d.dispatchId];
     if (!cur || !phases.includes(cur.phase)) return { write: false, result: { ended: false, reason: 'phase-not-allowed', phase: cur ? cur.phase : null } };
     if (parts) cur.usageParts = parts.parts;
     if (envelope) cur.envelopes = { ...(cur.envelopes || {}), result: envelope.pointer };
     const end = endAttempt({ store: s, dispatchId: cur.dispatchId, failureClass, detail, usage: parts ? parts.usage : undefined, ctx: p.ctx() });
+    if (end.result.ended && failureClass === 'quota') end.result.fallback = recordQuota(p, s, cur, run, at);
     bumpPeak(s);
     return end;
   });
   p.act('finish', d, ended.ended ? `failed:${failureClass}` : `finish-refused:${failureClass}`, ended.ended ? detail : ended.reason, Date.now() - started);
+  if (ended.fallback) actFallback(p, ended.fallback, ended.token ?? null);
   if (!ended.ended) {
     // A phase refusal wrote nothing and is no 080 error (no `lastError`).
     if (ended.reason !== 'phase-not-allowed') p.errors.add(d.dispatchId);
@@ -941,20 +1019,79 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   await failDispatch(p, d, ['claimed'], 'run-refused', reason, null, null);
 }
 
+/**
+ * 106 IC-004 (D8): the signal basis a hold or step from harness `from` prints: its descriptor's
+ * `structuredOutput.quotaSignals.basis`, else the basis of the run's last quota event for it, else
+ * `unverified`. Read outside every lock.
+ */
+function basisFor(p: any, f: any, from: string | null): string {
+  const worker = workerOf(p, from);
+  const declared = worker && worker.structuredOutput && worker.structuredOutput.quotaSignals ? worker.structuredOutput.quotaSignals.basis : null;
+  if (typeof declared === 'string' && declared) return declared;
+  const last = (Array.isArray(f.events) ? f.events : []).filter((e: any) => e && e.kind === 'quota' && e.from === from).at(-1);
+  return last && typeof last.basis === 'string' && last.basis ? last.basis : 'unverified';
+}
+
+/**
+ * 106 IC-004 (D6, D7): after admission, one locked write adds the pass's new holds (add-only: a task
+ * already held keeps its hold) with one `hold` event each, and one `step` event per admitted dispatch
+ * whose selection stepped, copied onto it; then one StepAction per event.
+ */
+function recordFallback(p: any, holds: Map<string, any>, admitted: any[], bases: Map<string, string>) {
+  const stepped = admitted.map((a: any) => a.dispatchId);
+  if (!holds.size && !stepped.length) return;
+  const events = mutateDispatch(p.file, (s: any) => {
+    if (!s.run) return { write: false, result: [] };
+    const at = iso(p.clock());
+    const out: any[] = [];
+    const f = fallbackOf(s.run, p.fallbackDefault);
+    if (!f.holds || typeof f.holds !== 'object') f.holds = {};
+    for (const [task, h] of holds) {
+      if (Object.hasOwn(f.holds, task)) continue;
+      f.holds[task] = { reason: h.reason, from: h.from, proposed: h.proposed, at };
+      out.push({ event: appendFallbackEvent(s.run, { at, task, dispatchId: null, kind: 'hold', from: h.from, to: h.proposed, reason: h.reason, mode: f.mode, basis: bases.get(h.from) ?? 'unverified' }, p.fallbackDefault), token: null });
+    }
+    for (const id of stepped) {
+      const d = s.dispatches[id];
+      const step = d && d.selection ? d.selection.fallback : null;
+      if (!d || d.phase === 'ended' || d.fallback || !step || step.kind !== 'step') continue;
+      const event = appendFallbackEvent(s.run, { at, task: d.task, dispatchId: d.dispatchId, kind: 'step', from: step.from, to: step.to, reason: 'quota', mode: f.mode, basis: bases.get(step.from) ?? 'unverified' }, p.fallbackDefault);
+      d.fallback = [event];
+      out.push({ event, token: Number.isInteger(d.token) ? d.token : null });
+    }
+    return { write: out.length > 0, result: out };
+  });
+  for (const { event, token } of events) actFallback(p, event, token);
+}
+
 async function admitAndLaunch(p: any) {
   const current = readDispatch(p.file);
   const run = current.run;
-  const modeFor = (task: string, { store: s }: any) => selectMode({
-    policy: run.mode || 'auto', held: Boolean(run.held && Object.hasOwn(run.held, task)), lastFailureClass: lastFailure(s, task),
-    billingCap: run.billingCap,
-    harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
-    coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
-    evaluateImpl: p.evaluateImpl, cache: p.cache,
-  });
+  // 106 IC-004: the run's fallback state as read now (D3 for a run started before 106); new holds
+  // are collected here and written after admission, so `modeFor` stays outside every lock.
+  const f = run.fallback && typeof run.fallback === 'object' ? run.fallback : fallbackOf({}, p.fallbackDefault);
+  const heldBefore = f.holds && typeof f.holds === 'object' ? f.holds : {};
+  const newHolds = new Map<string, any>();
+  const modeFor = (task: string, { store: s }: any) => {
+    if (Object.hasOwn(heldBefore, task)) return { hold: heldBefore[task].reason };
+    const choice: any = selectMode({
+      policy: run.mode || 'auto', held: Boolean(run.held && Object.hasOwn(run.held, task)), lastFailureClass: lastFailure(s, task),
+      billingCap: run.billingCap,
+      harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
+      coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
+      evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner: p.ownerOf ? p.ownerOf(task) : null,
+    });
+    if (!choice.hold) return choice;
+    newHolds.set(task, choice.hold);
+    return { hold: choice.hold.reason };
+  };
   const result = admit({
     root: p.root, slug: p.slug, ctx: p.ctx(), driver: p.driver, by: p.by, modeFor, env: p.env, now: p.clock, storeFile: p.file,
   });
   p.actions.push(...result.actions);
+  const bases = new Map<string, string>((Array.isArray(f.exhausted) ? f.exhausted : []).map((h: string) => [h, basisFor(p, f, h)]));
+  // A step needs an exhausted harness, so with none no admitted dispatch is read for one.
+  recordFallback(p, newHolds, bases.size ? result.admitted || [] : [], bases);
   for (const gap of result.gaps || []) p.gaps.push({ task: gap.task, kind: gap.reason, cause: 'budget', reason: gap.reason });
   for (const r of result.refused || []) {
     if (!BUDGET_REFUSALS.includes(r.reason)) p.gaps.push({ task: r.task, kind: 'claim-refused', cause: 'no-progress', reason: r.reason });
@@ -993,6 +1130,11 @@ function gapsFor(p: any, s: any, view: any) {
     if (d && d.phase !== 'ended' && d.lastError) push({ task: d.task, kind: 'ledger-error', cause: 'input', reason: d.lastError.reason });
   }
   for (const g of p.gaps) push(g);
+  // 106 IC-004 / IC-027: each fallback hold is a gap with cause `quota`.
+  const holds = s.run.fallback && s.run.fallback.holds && typeof s.run.fallback.holds === 'object' ? s.run.fallback.holds : {};
+  for (const [task, h] of Object.entries(holds) as [string, any][]) {
+    push({ task, kind: h.reason, cause: 'quota', reason: `${h.from} quota; proposed ${h.proposed ?? 'none'}` });
+  }
   for (const r of view.tasks) {
     if (r.doneStale) { push({ task: r.id, kind: 'plan-changed', cause: 'input', reason: r.reason }); continue; }
     if (r.state === 'BLOCKED') {
@@ -1236,11 +1378,13 @@ async function runPass(p: any) {
     return finishPass(p, 'resume-required');
   }
   if (['completed', 'cancelled'].includes(current.run.state)) return finishPass(p, current.run.state);
-  p.filesOf = (() => {
+  {
     const view = attempts.inspect({ file: p.ledgerFile, fsImpl: fs, roots: p.roots, slug: p.slug, env: p.env, cwd: p.cwd });
-    const map = new Map<string, string[]>(view.graph.tasks.map((t: any) => [t.id, t.files || []]));
-    return (task: string) => map.get(task) || [];
-  })();
+    const files = new Map<string, string[]>(view.graph.tasks.map((t: any) => [t.id, t.files || []]));
+    const owners = new Map<string, string | null>(view.graph.tasks.map((t: any) => [t.id, t.owner ?? null]));
+    p.filesOf = (task: string) => files.get(task) || [];
+    p.ownerOf = (task: string) => owners.get(task) ?? null; // 106 IC-004: the tier's owner
+  }
   const phases: Array<(p: any) => Promise<any>> = [
     collect,
     integrateOne,
@@ -1326,12 +1470,15 @@ async function run(options: any = {}) {
   const reg = registerDriver({ file: p.file, now: p.clock() });
   let steps = 0;
   let last: any = null;
+  const fallbackActions: any[] = [];
   let timeUp = false;
   let threw = false;
   try {
     for (;;) {
       last = await step({ ...options, driver: reg.driver, shouldStop: () => signal !== null });
       steps += 1;
+      // 106 IC-004 / FR-005: every fallback event of every pass reaches the run's output.
+      if (last && Array.isArray(last.actions)) fallbackActions.push(...last.actions.filter((a: any) => a && a.action === 'fallback'));
       if (last.disposition !== 'stepped' || signal || RUN_STOPS.includes(last.outcome)) break;
       if (Date.now() - startedMs >= maxSeconds * 1000) { timeUp = true; break; }
       if (idle(last)) await sleep(IDLE_WAIT_MS);
@@ -1346,7 +1493,7 @@ async function run(options: any = {}) {
     endDriver({ file: p.file, driver: reg.driver, now: p.clock(), endReason: threw ? 'threw' : null });
   }
   if (last && last.disposition !== 'stepped') return last;
-  const result: any = { disposition: 'ran', dispatchRunId: last.dispatchRunId, steps, outcome: last.outcome, timeUp, elapsedMs: Date.now() - startedMs, last };
+  const result: any = { disposition: 'ran', dispatchRunId: last.dispatchRunId, steps, outcome: last.outcome, timeUp, elapsedMs: Date.now() - startedMs, last, fallback: fallbackActions };
   if (signal) Object.assign(result, { signal, exit: SIGNAL_EXITS[signal] });
   return result;
 }
@@ -1447,4 +1594,5 @@ module.exports = {
   RUN_MAX_SECONDS_DEFAULT,
   SIGNAL_EXITS,
   LOOP_BY,
+  FALLBACK_MODES,
 };
