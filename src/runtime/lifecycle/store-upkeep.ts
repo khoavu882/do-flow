@@ -326,7 +326,7 @@ function needsPrune(fsImpl: any, root: any, window: any, now: any) {
  * @param {string} root projectRoot() result
  * @param {{env?: Object, now?: Date, fsImpl?: Object}} [options] defaults process.env, new Date(), node:fs
  * @returns {{ok: true, lines: string[]}
- *   | {ok: false, finding: 'store-migration-failed'|'store-locked', message: string, lines: string[]}}
+ *   | {ok: false, finding: 'store-migration-pending'|'store-migration-failed'|'store-locked', message: string, lines: string[]}}
  *   `lines` are for stderr, without the verb prefix.
  * @throws {StoreUnsafeError} a symlinked new store folder, or a symlinked old folder when a copy must read it
  */
@@ -344,6 +344,17 @@ function prepareStore(root: string, { env = process.env, now = new Date(), fsImp
     } else {
       try { migrate = legacyEventFiles(fsImpl, root).length > 0; } catch (error: any) { return legacyUnreadable(error.code || error.message); }
     }
+  }
+  if (env.DOFLOW_UPKEEP === 'off') {
+    if (migrate) {
+      return {
+        ok: false,
+        finding: 'store-migration-pending',
+        message: 'the lifecycle store has not been copied yet; run any followup, lifecycle or goal command once without DOFLOW_UPKEEP=off. Nothing was written.',
+        lines: [],
+      };
+    }
+    return { ok: true, lines: [...notice, ...invalid] };
   }
   const retentionDue = readJournal(root, fsImpl).pending.length > 0 || needsPrune(fsImpl, root, window, now);
   if (!migrate && !markerDue && !retentionDue) return { ok: true, lines: [...notice, ...invalid] };

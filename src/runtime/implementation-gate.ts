@@ -19,6 +19,8 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 // orchestrator, `verify` and the edit hook (which prints the same bytes) say the same thing.
 
 const GATE = 'doflow gate readiness-before-implementation';
+const RUN_RECORD_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
+const RUN_NAMESPACE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** What clears a record a newer DoFlow wrote; `readiness` here refuses to overwrite it. */
 const NEWER_NEXT = 'run this command with the DoFlow that wrote the record, or upgrade DoFlow here.';
@@ -171,6 +173,176 @@ function runSlugOf(run: any, root: any) {
   return run && isSafeSlug(run.taskId) && isDir(folderOf(root, run.taskId)) ? run.taskId : null;
 }
 
+/** Whether a store directory can be a run namespace rather than a lock directory. */
+function isRunNamespaceDir(name: string): boolean {
+  return RUN_NAMESPACE_PATTERN.test(name) && !name.includes('..') && !name.endsWith('.lock');
+}
+
+/** The run record files under one checkout's store: flat `<id>.json` and `<slug>/<id>.json`, by
+ * path, without reading them. The one listing `findRunFile` and `orchestrationRuns` share.
+ * With `listing` (IC-001, the list action), a symbolic link is never followed: a linked run file is
+ * kept with `linked: true` so it can be reported as unreadable, and a linked namespace directory is
+ * not entered, so nothing outside the store root is read or named. */
+function runFilesAt(root: string, { listing = false }: { listing?: boolean } = {}): Array<{ file: string; namespace: string|null; linked: boolean }> {
+  const store = path.join(root, '.doflow', 'state', 'orchestration');
+  const files: Array<{ file: string; namespace: string|null; linked: boolean }> = [];
+  const take = (entry: any) => entry.isFile() || entry.isSymbolicLink();
+  let entries: any[];
+  try { entries = fs.readdirSync(store, { withFileTypes: true }); } catch { return []; }
+  for (const entry of entries) {
+    if (take(entry) && RUN_RECORD_PATTERN.test(entry.name)) {
+      files.push({ file: path.join(store, entry.name), namespace: null, linked: entry.isSymbolicLink() });
+    } else if ((entry.isDirectory() || (!listing && entry.isSymbolicLink())) && isRunNamespaceDir(entry.name)) {
+      let nested: any[];
+      try { nested = fs.readdirSync(path.join(store, entry.name), { withFileTypes: true }); } catch { continue; }
+      for (const item of nested) {
+        if (take(item) && RUN_RECORD_PATTERN.test(item.name)) {
+          files.push({ file: path.join(store, entry.name, item.name), namespace: entry.name, linked: entry.isSymbolicLink() || item.isSymbolicLink() });
+        }
+      }
+    }
+  }
+  return files.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
+}
+
+/** The largest run file the list action reads; a bigger one is reported as `io` (a journal is a few KiB). */
+const MAX_RUN_FILE_BYTES = 1024 * 1024;
+
+/** A run file's text, or null when it must not be read: not a regular file (a link, a FIFO, a
+ * device, a folder), larger than `MAX_RUN_FILE_BYTES`, or any read error. The lifecycle reader's pattern (event-store.ts
+ * `readEventFile`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK` so neither a link nor a FIFO swapped in
+ * after the `lstat` is followed or blocks, then `fstat` on the descriptor before reading. */
+function readRunFileText(file: string): string|null {
+  const flags = fs.constants;
+  let fd: number|undefined;
+  try {
+    if (!fs.lstatSync(file).isFile()) return null;
+    fd = fs.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > MAX_RUN_FILE_BYTES) return null;
+    // Read at most one byte past the cap, so a file that grew after the fstat is still refused.
+    const buffer = Buffer.alloc(MAX_RUN_FILE_BYTES + 1);
+    let length = 0;
+    for (let n = -1; n !== 0 && length <= MAX_RUN_FILE_BYTES; length += n) {
+      n = fs.readSync(fd, buffer, length, buffer.length - length, null);
+    }
+    return length > MAX_RUN_FILE_BYTES ? null : buffer.subarray(0, length).toString('utf8');
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* the read is done */ } }
+  }
+}
+
+/** The run files under one checkout's store, read, with each malformed or unreadable file isolated. */
+function runEntriesAt(root: string, origin: 'current'|'other'): any[] {
+  return runFilesAt(root, { listing: true }).map(({ file, namespace, linked }) => {
+    let record: any = null;
+    let error: string|null = null;
+    const bytes = linked ? null : readRunFileText(file);
+    if (bytes === null) error = 'io';
+    else {
+      try { record = JSON.parse(bytes); } catch { error = 'unparseable'; }
+    }
+    return {
+      file,
+      root,
+      origin,
+      slug: namespace || runSlugOf(record, root),
+      record,
+      error,
+    };
+  });
+}
+
+/**
+ * All orchestration journals in the current store and the other checkouts, when Git can list them.
+ * @param {{stateRoot: string, exec?: Function}} options
+ * @returns {{ok: true, entries: Array<Object>}|{ok: false, error: 'cannot-list-checkouts'}}
+ */
+function orchestrationRuns({ stateRoot, exec }: any): any {
+  const current = runEntriesAt(stateRoot, 'current');
+  const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
+  if (!checkouts.ok && checkouts.reason !== 'not-a-git-repository') {
+    return { ok: false, error: 'cannot-list-checkouts' };
+  }
+  if (!checkouts.ok || checkouts.sandbox) return { ok: true, entries: current };
+
+  const entries = [...current];
+  for (const root of checkouts.others) entries.push(...runEntriesAt(root, 'other'));
+  return { ok: true, entries };
+}
+
+/** Whether a flat record names no feature (no `featureSlug`, no `slug`): such a run is any feature's
+ * (`flatRecordIsOurs`), so a namespaced copy of the same id in the same store shadows it. */
+function namesNoFeature(record: any): boolean {
+  return Boolean(record) && typeof record === 'object'
+    && ![record.featureSlug, record.slug].some((value) => typeof value === 'string' && value !== '');
+}
+
+/**
+ * IC-001/IC-003: one entry per logical run, the copy `status` reads, with `findRunFile`'s
+ * precedence. In one store, the namespaced `<slug>/<id>.json` wins over a flat `<id>.json` that
+ * names that feature (when the slug is the id, the flat file is the run's only path and wins).
+ * A flat file that names no feature, or that cannot be read or is a link, is keyed as `findRunFile`
+ * would first read it, the id as its slug, and stays its own entry. Across stores, the current
+ * store's copy of a key wins over every other checkout's; a current flat file `status` reads for
+ * any feature without a namespaced copy here (one naming no feature, or a link it would follow)
+ * also shadows the other checkouts' copies of that id. With no current copy, each other checkout
+ * that holds one keeps its entry (more than one is the case `status` refuses as ambiguous). A
+ * losing copy is dropped: `status` never reads it for this run.
+ * @param {Array<Object>} entries `orchestrationRuns(...).entries`
+ * @returns {Array<Object>} the winning entries, in input order
+ */
+function selectRunEntries(entries: any[]): any[] {
+  const stem = (entry: any) => path.basename(entry.file, '.json');
+  const namespaceOf = (entry: any) => {
+    const parts = path.relative(path.join(entry.root, '.doflow', 'state', 'orchestration'), entry.file).split(path.sep);
+    return parts.length > 1 ? parts[0] : null;
+  };
+  const named = (entry: any) => entry.record && !namesNoFeature(entry.record) && !entry.error;
+  const linked = (entry: any) => {
+    try { return fs.lstatSync(entry.file).isSymbolicLink(); } catch { return false; }
+  };
+  const keyOf = (entry: any) => {
+    const ns = namespaceOf(entry);
+    if (ns !== null) return `${ns}\0${stem(entry)}`;
+    if (named(entry) && entry.slug) return `${entry.slug}\0${stem(entry)}`;
+    return `${stem(entry)}\0${stem(entry)}`;
+  };
+  const rank = (entry: any) => {
+    const ns = namespaceOf(entry);
+    if (ns === null) return named(entry) && entry.slug !== stem(entry) ? 1 : 0;
+    return ns === stem(entry) ? 2 : 0;
+  };
+  // Ids a current flat file answers for any feature: status reads it before any other checkout.
+  const wildcards = new Set(entries.filter((entry) => entry.origin === 'current' && namespaceOf(entry) === null
+    && ((entry.record && namesNoFeature(entry.record)) || linked(entry))).map(stem));
+  const perRoot = new Map<string, any>();
+  for (const entry of entries) {
+    const local = `${entry.root}\0${keyOf(entry)}`;
+    const held = perRoot.get(local);
+    if (!held || rank(entry) < rank(held)) perRoot.set(local, entry);
+  }
+  const best = new Map<string, any[]>();
+  for (const entry of perRoot.values()) {
+    const key = keyOf(entry);
+    const held = best.get(key);
+    if (!held) best.set(key, [entry]);
+    else if (held[0].origin === 'current') continue;
+    else if (entry.origin === 'current') best.set(key, [entry]);
+    else held.push(entry);
+  }
+  const winners = new Set<any>();
+  for (const list of best.values()) {
+    for (const entry of list) {
+      if (entry.origin !== 'current' && wildcards.has(stem(entry))) continue;
+      winners.add(entry);
+    }
+  }
+  return entries.filter((entry) => winners.has(entry));
+}
+
 /**
  * A task's run file: in this checkout, else in exactly one other checkout whose run belongs to the
  * same feature. The run of a task id other than its feature's slug is `orchestration/<slug>/<id>.json`
@@ -186,19 +358,24 @@ function findRunFile({ stateRoot, taskId, slug, exec }: any) {
   const flat = path.join(store, `${taskId}.json`);
   const namespaced = slug && slug !== taskId ? path.join(store, slug, `${taskId}.json`) : null;
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
-  const here = namespaced && fs.existsSync(path.join(stateRoot, namespaced)) ? namespaced
-    : fs.existsSync(path.join(stateRoot, flat)) && (!namespaced || flatRecordIsOurs(path.join(stateRoot, flat), slug)) ? flat : null;
-  if (here) return { status: 'found', file: path.join(stateRoot, here), root: stateRoot, origin: 'current', candidates: [] };
+  const here = runFilesAt(stateRoot);
+  const localNamespaced = namespaced && here.find((entry) => path.relative(stateRoot, entry.file) === namespaced);
+  const localFlat = here.find((entry) => path.relative(stateRoot, entry.file) === flat);
+  if (localNamespaced) return { status: 'found', file: localNamespaced.file, root: stateRoot, origin: 'current', candidates: [] };
+  if (localFlat && (!namespaced || flatRecordIsOurs(localFlat.file, slug))) {
+    return { status: 'found', file: localFlat.file, root: stateRoot, origin: 'current', candidates: [] };
+  }
   if (!slug) return missing;
   const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
   if (!checkouts.ok || checkouts.sandbox) return missing;
   const matches: Array<{ file: string; root: string }> = [];
   for (const root of checkouts.others) {
-    const file = [namespaced, flat].filter(Boolean).map((rel: any) => path.join(root, rel)).find((f: string) => {
-      if (!fs.existsSync(f)) return false;
-      try { return runSlugOf(JSON.parse(fs.readFileSync(f, 'utf8')), root) === slug; } catch { return false; }
+    const files = runFilesAt(root);
+    const found = [namespaced, flat].filter(Boolean).map((rel: any) => files.find((entry) => path.relative(root, entry.file) === rel)).find((entry: any) => {
+      if (!entry) return false;
+      try { return runSlugOf(JSON.parse(fs.readFileSync(entry.file, 'utf8')), root) === slug; } catch { return false; }
     });
-    if (file) matches.push({ file, root });
+    if (found) matches.push({ file: found.file, root });
   }
   if (matches.length === 0) return missing;
   if (matches.length > 1) return { ...missing, status: 'ambiguous', candidates: matches.map((m) => m.file) };
@@ -324,5 +501,7 @@ module.exports = {
   verifyReadinessCheck,
   featureSlugFor,
   runSlugOf,
+  orchestrationRuns,
+  selectRunEntries,
   findRunFile,
 };
