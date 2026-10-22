@@ -617,15 +617,18 @@ incomplete schedule, a kill switch, an interrupt (SIGINT, SIGTERM or SIGHUP, aft
 its actors and prints the partial record), a report it could not write, or a sampling run judged
 by an oracle swapped in through `DOFLOW_SAMPLER_ORACLE` (`--replay` always uses the real one). 3 is never a pass, and 0 means "no violation within
 these bounds", not a proof of safety or liveness. The gate holds the seven synchronous fs methods
-the ledger calls on the store, its lock and its temp file; any other `node:fs` or `fs.promises`
-call that reaches those paths (also through another spelling of the path, or a descriptor from
-`open`) makes the schedule incomplete. Outside the model: overlap inside one fs call, network
+the ledger calls on the store, its lock directory (and any path inside it) and its temp file; any
+other `node:fs` or `fs.promises` call that reaches those paths (also through another spelling of
+the path, or a descriptor from `open`) makes the schedule incomplete. Outside the model: overlap inside one fs call, network
 filesystems, process death, win32, worker threads, child processes, native addons, and a hard
 link or symlink to the store under another name. The regressions pinned in
 `test/state/ledger-lock-race.test.js`, which `npm test` runs, came from the sampler (R-claim) and
 from review (R-nested and the two-process trace R-two-process); each reproduces the stale-lock
 defect FU-8acds5 under its fault assumption: a lock holder paused for longer than the 10 s stale
-age, or a forward clock jump of that size. Slow controls run only on demand from
+age, or a forward clock jump of that size. The defect was reproduced on the runtime of develop
+`46df3b6c` (`src/runtime/task-state.ts` unchanged since `e76352b0`), also without the gate, by
+stopping a real lock holder with SIGSTOP past the stale age (the review record's `realpause.js`
+reproduction, kept with the 117 feature records). Slow controls run only on demand from
 `test/explore/ledger-controls.js`.
 
 The docs build needs `mkdocs`, the Dracula theme and `pymdown-extensions` (the `mermaid` fence in
