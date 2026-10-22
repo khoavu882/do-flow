@@ -619,12 +619,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-67 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-60 entries across 56 test files and carries 58 distinct G-numbers.
+68 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+61 entries across 57 test files and carries 59 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
 files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
-historical rather than a convention; G60 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G61 is the highest number in use, so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -960,6 +960,15 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G58** (`worker-billing.test.js`) — every worker block in `core/registry/harnesses.json` declares `billing`, and `validateWorker` accepts exactly `free`, `metered` and `unknown` and rejects a missing, `null`, object or other value. Every shipped descriptor must read `unknown` today, so recording a harness as `free` is a deliberate change to this guard.
 - **G59** (`review-findings-contract.test.js`) — `core/shared/skills/do-code-review/SKILL.md` names the `review/findings.json` schema 1 output contract (path, schema, `reviewedHead`, seats, converged dispositions, `converged.md` staying prose). `validateFindings` lives in `src/runtime/review/findings.ts` and is re-exported by `gates.ts`; the shipped fixture `test/fixtures/roadmap/findings/schema-1.json` passes it. The SKILL text must also name `rounds`, every optional convergence field and vocabulary value, the round cap 3, and `review --action check`, as read from `src/runtime/review/findings.ts`; `test/fixtures/roadmap/findings/schema-1-convergence.json` carries every optional field, passes validation and has non-zero counts. Controls: a scratch SKILL copy without the contract, without `verification`, or a `user-accepted` entry without its decision turns it red.
 - **G60** (`eval-noise.test.js`) — every tracked `bench-decision` JSON under `bench/` or `test/` (top level or nested in a report) passes `validateDecision` and recomputes from its recorded inputs, cases, noise, thresholds and seed through `bench/noise.js`; model mismatch and unusable-artifact preconditions follow those inputs, and source `none` requires null noise and `no-noise-band` in every scope. Every tracked `bench-noise` JSON node passes `validateNoiseArtifact`, which recomputes its scope statistics and verdict from its cases and thresholds. No other tracked JSON under `bench/` or `test/` carries `gain-above-noise` or `merge-candidate`; the README vocabulary table equals the `bench/noise.js` vocabulary exports, including `EXCLUSION_MARKS`, in order; and no other tracked bench JS file holds an array literal of two or more words of one vocabulary. G60 carries its own comment masker. It scans `test/` as well as `bench/` so committed test fixtures containing forged or stale decision records receive the same consistency check. Controls: a gain inside the band stored as `gain-above-noise`, tampered `ci95`, `n` or gain, forged preconditions and noise stats, a stray verdict value in another JSON, README value/order faults, and a scratch bench JS vocabulary list turn it red; a decision nested in a report is validated, not flagged.
+- **G61** (`docs-generated.test.js`) — the generated docs stay true to their sources: every
+  `BEGIN GENERATED` span and `docs/llms.txt` equal what `src/release/docs-blocks.ts` renders from the
+  registries, the two help texts and the nav (a); every marker is registered and paired (b); every
+  `docs/**/*.md` is a nav page or a `not_in_nav` redirect stub of the fixed shape (c); every
+  `doflow <verb>` and `doflow-run <verb>` a nav page names is a verb in that command's help (d);
+  `mkdocs.yml` keeps the four `validation` keys at `warn` (e); no action in `docs.yml` is on a lower
+  major than the same action in another workflow (f); `docs/llms.txt` stays within 4,096 bytes (g).
+  Each clause re-seeds its fault in a copy. Run `node src/release/docs-blocks.ts --write` after a
+  registry, help or nav change, then review the diff.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

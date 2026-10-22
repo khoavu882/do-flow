@@ -44,12 +44,12 @@ none.
 | `feature` | discovery → design → planning → implementation → verification → review | 3 | `feature` |
 | `bug` | reproduction → root-cause → implementation → regression-verification → review | — | `bug` |
 | `refactor` | architecture-mapping → baseline-verification → implementation → verification → review | — | `refactor` |
-| `dependency-change` | release-evidence → usage-impact → implementation → verification → review | — | `dependency-change` |
-| `trivial-edit` | implementation → verification | — | `trivial-edit` |
-| `documentation` | authoring → verification → review | — | — |
-| `operations` | state-check → preflight → execution → record | — | — |
 | `review` | verification → review | — | — |
 | `research` | scoping → synthesis | — | — |
+| `documentation` | authoring → verification → review | — | — |
+| `dependency-change` | release-evidence → usage-impact → implementation → verification → review | — | `dependency-change` |
+| `operations` | state-check → preflight → execution → record | — | — |
+| `trivial-edit` | implementation → verification | — | `trivial-edit` |
 <!-- END GENERATED:task-classes -->
 
 The differences between them are the point. `feature` is the only class with a required discovery stage

@@ -45,6 +45,117 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 ### Command index
 
 <!-- BEGIN GENERATED:command-index -->
+| Command | Summary |
+|---|---|
+| `doflow install` | Install configs to target tools (use --dry-run to preview) |
+| `doflow update` | Incremental update of changed files only |
+| `doflow reconcile` | Converge observed state onto the doflow.lock pin (drift report + heal) |
+| `doflow status` | Show resolved context + installed state from manifest (--json for scripting) |
+| `doflow rollback` | Restore from a backup (interactive pick if id omitted) |
+| `doflow remove` | Remove only lifecycle-owned native resources |
+| `doflow list-backups` | List available backups |
+| `doflow self-update` | git pull + reinstall |
+| `doflow tools` | Inspect or manage registered external tools |
+| `doflow capabilities` | Show registered abstract capabilities and resolved providers |
+| `doflow enforcement` | Report lifecycle policy enforcement coverage (--harness, --policy) |
+| `doflow doctor` | System health and capability smoke check diagnostics |
+| `doflow readiness` | Evaluate task readiness contract (--task-class, --task-id, both required) |
+| `doflow evidence` | Record a stage's evidence batch, or inspect what is recorded (--task-id) |
+| `doflow claim` | Record a claim, link evidence to it, or list them (--task-id, --action) |
+| `doflow context-pack` | Compile a task's evidence and claims into a context block (--task-id) |
+| `doflow context-emit` | Decide and render one launch, prompt or delta emission (--event, --cwd) |
+| `doflow context-grant` | Grant one compacted summary to a launched run and lineage (--summary, --to-run, --to-lineage) |
+| `doflow retrieval-plan` | Declare a stage's information needs, attempt retrieval, then report every declared item |
+| `doflow outcome` | Record a task's terminal state with its basis, or show it (--task-id) |
+| `doflow classify` | Validate a proposed task class and return its workflow (--task-class) |
+| `doflow workflow` | Resolve a task class to its stages, gates and readiness templates |
+| `doflow orchestrate` | Start or resume a run: complete stages, decide gates (--action) |
+| `doflow research-request` | Open, list or resolve a feature-stage research question (--task-id) |
+| `doflow task-attempt` | Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts (--action, --slug) |
+| `doflow worker` | Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task (--action) |
+| `doflow dispatch` | Run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume (--action) |
+| `doflow retrieve` | BM25 guidance search by default; use --scope code for scoped project retrieval (--query) |
+| `doflow model-role` | Resolve a model role to ranked provider candidates (--role, --exclude-family) |
+| `doflow advise` | Route decision questions to the configured local model (--action) |
+| `doflow brief-tools` | Tier, tools and report-format block for a dispatch brief (--owner) |
+| `doflow route` | Resolve an information need to a healthy provider (--intent) |
+| `doflow verify` | Compile the verification contract and report against it (--task-id) |
+| `doflow recover` | Classify a verification failure and plan the bounded retry (--error) |
+| `doflow trace` | Trajectory of the current or most recent workflow (run ledger); |
+| `doflow stats` | Aggregate local run-ledger usage |
+| `doflow indicators` | Per-stage and per-gate timings from the orchestration record |
+| `doflow discover` | Missed capability opportunities in recorded runs |
+| `doflow inventory` | Shadowed copies, drift and unmanaged files across both install scopes |
+| `doflow storage` | Report stored data and retention bounds (--action report\|prune\|upkeep) |
+| `doflow config` | Show each setting's effective value and where it came from (list [--show-origin] [--json]) |
+| `doflow scaffold` | Emit the reviewable code scaffold the active feature's artifacts imply |
+| `doflow decision` | Register, list or compact the active feature's decisions (--action init\|add\|list\|compact) |
+| `doflow followup` | Record, list, take, settle, promote or report what a feature left unfinished (--action add\|list\|take\|settle\|promote\|report) |
+| `doflow lifecycle` | Open follow-ups, feature tracking, releases and status for the project (--action overview\|init\|release\|status\|merged) |
+| `doflow goal` | Add, check, link, list or close a goal and its checklist (--action add\|item\|check\|link\|list\|done) |
+| `doflow failure` | List, settle or switch off the failures DoFlow captured on this machine (--action list\|settle\|capture) |
+| `doflow roadmap` | Session-driven autopilot runner (--action render\|status\|next\|audit [--check] [--row <id>] [--run <id>]); |
+| `doflow plan-check` | Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json] |
+| `doflow review` | Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage): |
+| `doflow slot` | Named machine-wide queue, one holder at a time (--action run\|list\|release); |
+| `doflow leak-scan` | Report DoFlow-internal identifiers in shipped files (--path, repeatable) |
+
+| Verb | Group | Summary |
+|---|---|---|
+| `doflow-run paths` | Artifact and repository state | resolve repo root, branch, feature slug, artifact paths |
+| `doflow-run validate` | Artifact and repository state | artifact index/detail consistency check |
+| `doflow-run render-audit` | Artifact and repository state | regenerate audit.md from the orchestration journal |
+| `doflow-run render-diagrams` | Artifact and repository state | render a chain artifact's mermaid blocks to image files |
+| `doflow-run render-puml` | Artifact and repository state | render authored PlantUML sources and project them inline |
+| `doflow-run git-state` | Artifact and repository state | branch class and derived branch names |
+| `doflow-run prereqs` | Artifact and repository state | stage prerequisite checks |
+| `doflow-run parallel-check` | Artifact and repository state | dispatch groups and write-set collisions for one plan phase |
+| `doflow-run task-brief` | Artifact and repository state | task brief extraction for execution |
+| `doflow-run brief-tools` | Artifact and repository state | tier, tools and report-format block for a brief (called by task-brief) |
+| `doflow-run advise` | Artifact and repository state | local decision-model routing, outcomes and configuration |
+| `doflow-run review-package` | Artifact and repository state | assemble a review payload |
+| `doflow-run sync-context` | Artifact and repository state | write a marker-delimited block (stdin) into an agent context file |
+| `doflow-run classify` | Workflow and evidence | validate a proposed task class, return its workflow |
+| `doflow-run workflow` | Workflow and evidence | resolve stages, dependencies and gates for a class |
+| `doflow-run orchestrate` | Workflow and evidence | start/resume a run: complete stages, skip optional ones, decide gates |
+| `doflow-run research-request` | Workflow and evidence | open, list or resolve a feature-stage research question |
+| `doflow-run task-attempt` | Workflow and evidence | claim, finish, release, start, pause, cancel, resume, inspect, reopen or report-usage on a plan's task attempts |
+| `doflow-run worker` | Workflow and evidence | discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task |
+| `doflow-run dispatch` | Workflow and evidence | run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume |
+| `doflow-run retrieve` | Workflow and evidence | BM25 search over the installed guidance tree (auto-refreshing index) |
+| `doflow-run model-role` | Workflow and evidence | resolve an abstract model role to ranked, availability-annotated providers |
+| `doflow-run route` | Workflow and evidence | resolve an information need to a healthy provider |
+| `doflow-run evidence` | Workflow and evidence | record a stage's evidence batch, or query the ledger |
+| `doflow-run claim` | Workflow and evidence | record or update a claim and its support state |
+| `doflow-run readiness` | Workflow and evidence | evaluate readiness; return state and missing items |
+| `doflow-run context-pack` | Workflow and evidence | emit the compiled context pack for a stage |
+| `doflow-run context-emit` | Workflow and evidence | decide and render one launch, prompt or delta emission (launcher entry) |
+| `doflow-run context-grant` | Workflow and evidence | grant one compacted summary to a launched run and lineage |
+| `doflow-run retrieval-plan` | Workflow and evidence | declare the needs a stage will resolve, attempt each need, then report every declared item |
+| `doflow-run outcome` | Workflow and evidence | record a task's terminal state with its basis, or show what was recorded |
+| `doflow-run scaffold` | Workflow and evidence | emit the code scaffold the active feature's artifacts imply |
+| `doflow-run decision` | Workflow and evidence | register, list or compact the active feature's decisions |
+| `doflow-run followup` | Workflow and evidence | record, list, take, settle, promote or report what a feature left unfinished |
+| `doflow-run lifecycle` | Workflow and evidence | overview, init, status, release or merged: follow-ups and feature tracking for the project |
+| `doflow-run goal` | Workflow and evidence | add, check, link, list or close a goal and its checklist |
+| `doflow-run failure` | Workflow and evidence | list, settle or switch off the failures DoFlow captured on this machine |
+| `doflow-run roadmap` | Workflow and evidence | session-driven autopilot runner: render or status the roadmap table |
+| `doflow-run plan-check` | Workflow and evidence | check a plan's task lines the way the task-attempt ledger reads them |
+| `doflow-run review` | Workflow and evidence | validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload) |
+| `doflow-run slot` | Workflow and evidence | named machine-wide queue: run a command as its one holder, list or release |
+| `doflow-run verify` | Verification and recovery | compile the contract, run checks, emit the report |
+| `doflow-run recover` | Verification and recovery | classify a failure, return the targeted action |
+| `doflow-run leak-scan` | Verification and recovery | report DoFlow-internal identifiers in shipped files |
+| `doflow-run trace` | Observability | current run trajectory; trace spans: the span view; trace analyze: its detectors; trace export: OTLP/HTTP export |
+| `doflow-run stats` | Observability | aggregate run usage |
+| `doflow-run indicators` | Observability | per-stage and per-gate timings from the orchestration record |
+| `doflow-run discover` | Observability | missed opportunities in recorded runs |
+| `doflow-run inventory` | Observability | both scopes at once: shadowed assets, drift, unmanaged contenders |
+| `doflow-run capabilities` | Observability | provider resolution |
+| `doflow-run enforcement` | Observability | verified lifecycle policy coverage |
+| `doflow-run doctor` | Observability | installation and provider health |
+| `doflow-run config` | Observability | list effective settings and their origins |
+| `doflow-run storage` | Observability | report stored data and its retention bounds |
 <!-- END GENERATED:command-index -->
 
 | Command | Description |
