@@ -3,14 +3,18 @@
 // Feature 117 A.1 (IC-001, IC-002): the actor gate over real child processes. Each schedule spawns
 // two Node children that call the real task-attempt ledger with a gated fsImpl; the parent grants one
 // gated fs call at a time. These cases check the gate itself (completion rule, faults, failure paths,
-// ungated store calls), not the ledger's correctness, which is the oracle's job (A.2).
+// ungated store calls, cleanup when the parent dies), not the ledger's correctness, which is the
+// oracle's job (A.2).
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.js');
+const { spawn, execFileSync } = require('node:child_process');
+const { tempDir, removeTree } = require('../helper/tmp.js');
 const { runSchedule, GATED_METHODS, parseTrace, formatTrace } = require('../helper/sequence-gate.js');
+
+const GATE = path.join(__dirname, '../helper/sequence-gate.js');
 
 // Round 3's P1 trace on S1 from a stale lock (A = finish, B = cancel). On the unfixed lock it ends
 // finish `applied`, cancel `cancelled`, final attempt `cancelled`: both acknowledged, one lost.
@@ -41,6 +45,17 @@ function stub(t, body) {
   fs.writeFileSync(file, `'use strict';\nmodule.exports = ({ fixture, fsImpl }) => {\n${body}\n};\n`);
   return file;
 }
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+/** Polls `check()` every 25 ms until it is true or `ms` pass; resolves to its last value. */
+async function until(check, ms) {
+  for (const end = Date.now() + ms; !check() && Date.now() < end;) await sleep(25);
+  return check();
+}
+const psOf = (pids) => {
+  try { return execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-p', pids.join(',')], { encoding: 'utf8' }).trim(); } catch { return '(none)'; }
+};
 
 /** Records the schedule's temp dir so a test can check it is gone afterwards. */
 function dirProbe() {
@@ -87,11 +102,24 @@ test('faults: init stale seeds a 60 s old lock; age-lock@k lets B break the lock
   const aged = await runSchedule({ scenario: 'S1', init: 'none', fault: { kind: 'age-lock', at: 1 }, chooser });
   assert.ok(aged.trace.startsWith('A.mkdir age-lock@1 B.mkdir B.stat B.rmdir B.mkdir'), aged.trace);
   assert.deepEqual(aged.fault, { kind: 'age-lock', at: 1 });
+  assert.equal(aged.faultApplied, true);
+  assert.equal(aged.incomplete, null);
   const fresh = await runSchedule({ scenario: 'S1', init: 'none', chooser });
   assert.ok(fresh.trace.startsWith('A.mkdir B.mkdir B.stat B.mkdir'), fresh.trace);
   assert.equal(fresh.fault, null);
+  assert.equal(fresh.faultApplied, null);
   // The fault survives a replay round trip.
   assert.deepEqual(parseTrace(aged.trace).fault, { kind: 'age-lock', at: 1 });
+});
+
+test('faults: a requested age-lock that never took effect ends INCOMPLETE fault-not-applied', async () => {
+  // at 999: the schedule ends before grant 999. at 0 from init none: no lock exists before the first grant.
+  const [late, early] = await Promise.all([999, 0].map((at) => runSchedule({ scenario: 'S1', init: 'none', fault: { kind: 'age-lock', at }, chooser: aFirst })));
+  for (const o of [late, early]) {
+    assert.equal(o.incomplete?.cause, 'fault-not-applied', JSON.stringify(o.incomplete));
+    assert.equal(o.faultApplied, false);
+  }
+  assert.equal(late.trace, A_FIRST, 'no age-lock token: the fault never applied');
 });
 
 test('failure path: a child that throws ends THREW and the temp dir is removed', async (t) => {
@@ -131,6 +159,108 @@ test('ungated store call: a store path through an ungated fs method ends INCOMPL
   assert.equal(o.incomplete?.cause, 'ungated-store-call', JSON.stringify(o.incomplete));
   assert.match(o.incomplete.detail, /appendFileSync/);
   assert.equal(fs.existsSync(probe.seen[0]), false);
+});
+
+test('ungated store call: node:fs, fs.promises, a re-spelled path and a descriptor end INCOMPLETE ungated-store-call', async (t) => {
+  // Each stub first parks once through the gate, so only the ungated call can end it INCOMPLETE.
+  const cases = [
+    ['promises.writeFile', "fsImpl.promises.writeFile(fixture.file, '{}').catch(() => {});"],
+    ['renameSync', "require('node:fs').renameSync(fixture.file, fixture.file);"], // the direct-node:fs shape
+    ['appendFileSync', "fsImpl.appendFileSync(fixture.file.replace('/task-attempts/', '/task-attempts/./'), '');"],
+    ['openSync', "require('node:fs').closeSync(require('node:fs').openSync(fixture.file, 'r'));"],
+  ];
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    cases.push(['appendFileSync', "fsImpl.appendFileSync(fixture.file.replace(/feat-race\\.json$/, 'FEAT-RACE.json'), '');"]);
+  }
+  const runs = await Promise.all(cases.map(([, call]) => runSchedule({
+    scenario: 'S1', init: 'none', chooser: aFirst, actorModule: stub(t, `fsImpl.existsSync(fixture.file);\n${call}\nreturn { ok: true };`),
+  })));
+  runs.forEach((o, i) => {
+    assert.equal(o.incomplete?.cause, 'ungated-store-call', `${cases[i][1]}: ${JSON.stringify(o.incomplete)}`);
+    assert.match(o.incomplete.detail, new RegExp(`called ${cases[i][0].replace('.', '\\.')} on`), cases[i][1]);
+  });
+});
+
+test('vacuous schedules: no gated call, or an unreadable final store, end INCOMPLETE', async (t) => {
+  const touch = stub(t, 'fsImpl.existsSync(fixture.file);\nreturn { ok: true };');
+  const [none, dir, garbage] = await Promise.all([
+    runSchedule({ scenario: 'S1', init: 'none', chooser: aFirst, actorModule: stub(t, "const e = new Error('plan gone'); e.code = 'EPLAN'; throw e;") }),
+    runSchedule({ scenario: 'S1', init: 'none', chooser: aFirst, actorModule: touch, onFixture: (f) => { fs.rmSync(f.file); fs.mkdirSync(f.file); } }),
+    runSchedule({ scenario: 'S1', init: 'none', chooser: aFirst, actorModule: touch, onFixture: (f) => fs.writeFileSync(f.file, '{"tasks":') }),
+  ]);
+  assert.equal(none.incomplete?.cause, 'no-store-call', JSON.stringify(none.incomplete));
+  assert.deepEqual(none.actors.map((a) => a.outcome.kind), ['THREW', 'THREW']);
+  assert.equal(dir.incomplete?.cause, 'store-unreadable', JSON.stringify(dir.incomplete));
+  assert.match(dir.incomplete.detail, /EISDIR/);
+  assert.equal(garbage.incomplete?.cause, 'store-unreadable', JSON.stringify(garbage.incomplete));
+  for (const o of [dir, garbage]) assert.equal(o.final, null);
+});
+
+/**
+ * Starts a driver process that runs one schedule whose actors hang outside waitGrant (Atomics.wait
+ * before any fs call), waits until both actors run, then sends `signal` to the driver alone.
+ * Resolves `{ pids, dir, driver, gone, lines, ms }` once the actors are dead and the dir is gone, or `waitMs` passed.
+ */
+async function orphanCase(t, signal, deadlineMs, waitMs) {
+  const work = tempDir(t, 'doflow-seqgate-driver-');
+  const pidsFile = path.join(work, 'pids');
+  const actorModule = stub(t, `require('node:fs').appendFileSync(${JSON.stringify(pidsFile)}, process.pid + '\\n');\n`
+    + 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20000);');
+  const driverFile = path.join(work, 'driver.js');
+  fs.writeFileSync(driverFile, `'use strict';
+const fs = require('node:fs');
+const { runSchedule, abortAll } = require(${JSON.stringify(GATE)});
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => {
+  const first = abortAll();
+  fs.writeSync(1, 'ABORT ' + JSON.stringify([first, abortAll()]) + '\\n');
+  process.exit(3);
+});
+runSchedule({ scenario: 'S1', init: 'none', chooser: (p) => p[0], deadlineMs: ${deadlineMs}, actorModule: ${JSON.stringify(actorModule)},
+  onFixture: (f) => fs.writeSync(1, 'DIR ' + f.cwd + '\\n') });
+`);
+  const t0 = Date.now();
+  const driver = spawn(process.execPath, [driverFile], { stdio: ['ignore', 'pipe', 'inherit'] });
+  let out = '';
+  driver.stdout.on('data', (d) => { out += d; });
+  const exited = new Promise((resolve) => { driver.on('exit', (code, sig) => resolve(sig || code)); });
+  let seen = []; // kept here: tempDir's own after hook may remove pidsFile first
+  const pidsOf = () => {
+    try { seen = fs.readFileSync(pidsFile, 'utf8').trim().split('\n').filter(Boolean).map(Number); } catch { /* not yet */ }
+    return seen;
+  };
+  let dir = null;
+  t.after(() => {
+    for (const pid of seen) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+    try { process.kill(driver.pid, 'SIGKILL'); } catch { /* gone */ }
+    if (dir) removeTree(dir);
+  });
+  assert.ok(await until(() => pidsOf().length === 2 && /^DIR /m.test(out), 5000), `actors never started: ${out}`);
+  dir = /^DIR (.+)$/m.exec(out)[1];
+  const pids = pidsOf();
+  assert.ok(pids.every(isAlive) && Date.now() - t0 < deadlineMs, 'the actors hang and the driver deadline has not passed');
+  const signalled = Date.now();
+  driver.kill(signal);
+  const driverExit = await exited;
+  const gone = await until(() => !pids.some(isAlive) && !fs.existsSync(dir), waitMs);
+  return { pids, dir, driverExit, gone, out, ms: Date.now() - signalled };
+}
+
+test('parent death: a hung actor outside waitGrant does not outlive its parent, nor its fixture dir', { concurrency: true }, async (t) => {
+  await Promise.all([
+    t.test('SIGTERM to the parent alone: abortAll() in its handler kills the actors and removes the dir', async (t2) => {
+      const r = await orphanCase(t2, 'SIGTERM', 20000, 2000);
+      assert.ok(r.gone, `after ${r.ms} ms; dir left: ${fs.existsSync(r.dir)}; live: ${psOf(r.pids)}`);
+      assert.equal(r.driverExit, 3);
+      // Two actors and the watchdog killed, one dir removed; a second call finds nothing.
+      assert.match(r.out, /^ABORT \[\{"killed":3,"removed":1\},\{"killed":0,"removed":0\}\]$/m);
+    }),
+    t.test('SIGKILL to the parent (no handler runs): the watchdog kills the actors and removes the dir', async (t2) => {
+      const deadlineMs = 2000;
+      const r = await orphanCase(t2, 'SIGKILL', deadlineMs, deadlineMs + 1500); // the watchdog's 1000 ms margin + slack
+      assert.ok(r.gone, `after ${r.ms} ms; dir left: ${fs.existsSync(r.dir)}; live: ${psOf(r.pids)}`);
+      assert.equal(r.driverExit, 'SIGKILL');
+    }),
+  ]);
 });
 
 test('replay divergence: a trace that names the wrong call ends INCOMPLETE replay-divergence', async () => {

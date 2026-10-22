@@ -4,9 +4,19 @@
 // loads the real task-attempt ledger from the checkout under test and calls it with a gated fsImpl:
 // before every fs call on the store file, `<store>.lock` or `<store>.<pid>.tmp` it writes
 // `OP <seq> <method> <store|lock|tmp>` to stdout and blocks on a 1-byte read from fd 3 (the grant
-// pipe; stdin stays free). It ends with `DONE <json>` or `THREW <code> <message>`. Any other fs
-// method called on a store path reports `UNGATED <method>`, so a new fs call in the implementation
-// ends the schedule INCOMPLETE instead of slipping past the gate.
+// pipe; stdin stays free). It ends with `DONE <json>` or `THREW <code> <message>`. Before the
+// ledger loads, the actor also patches the real `node:fs` module object and `fs.promises`: any call
+// that reaches a store path other than through a gated fsImpl method (an ungated fsImpl method,
+// `fsImpl.promises`, `require('node:fs')` directly, an fd from `open`) reports `UNGATED <method>`,
+// so a new fs call in the implementation ends the schedule INCOMPLETE instead of slipping past the
+// gate. Paths are compared after `path.resolve`, the dirname's realpath, and case folding on darwin
+// and win32. Not seen: worker threads, child processes, native addons, a hard link or file symlink
+// under another name, and removal of a parent directory.
+//
+// Each schedule also spawns a watchdog process that SIGKILLs the actors and removes the fixture dir
+// when the parent dies (its stdin pipe closes) or deadline + WATCHDOG_MARGIN_MS passes, so a child
+// hung outside `waitGrant()` cannot outlive a parent that is killed. `abortAll()` does the same
+// synchronously for every schedule in flight, for a caller's signal handler.
 //
 // The parent grants one gated call at a time and grants the next only after the granted actor has
 // parked again or ended (the completion rule): the order of fs calls is then the schedule's alone,
@@ -16,6 +26,7 @@
 // Run as `node sequence-gate.js --gate-actor <json>` it is an actor; required, it is the parent.
 
 const fs = require('node:fs');
+const path = require('node:path');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 const { fileURLToPath } = require('node:url');
@@ -28,6 +39,9 @@ const GATED_METHODS = ['existsSync', 'mkdirSync', 'readFileSync', 'renameSync', 
 const SHORT = new Map(GATED_METHODS.map((m) => [m.replace(/Sync$/, ''), m]));
 const GRANT_MODES = ['park', 'release'];
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const WATCHDOG_MARGIN_MS = 1000;
+// The originals, captured before an actor patches `node:fs`: the protocol itself is never reported.
+const { writeSync, readSync, realpathSync } = fs;
 
 // ── replay strings ──────────────────────────────────────────────────────────────────────────────
 
@@ -66,7 +80,7 @@ function formatTrace({ steps, fault = null }) {
 function send(line) {
   const buf = Buffer.from(`${line}\n`);
   for (let off = 0; off < buf.length;) {
-    try { off += fs.writeSync(1, buf, off); } catch (error) {
+    try { off += writeSync(1, buf, off); } catch (error) {
       if (error.code !== 'EAGAIN') process.exit(71);
       pause(1);
     }
@@ -78,7 +92,7 @@ function waitGrant() {
   const buf = Buffer.alloc(1);
   for (;;) {
     try {
-      if (fs.readSync(GRANT_FD, buf, 0, 1, null) === 1) return;
+      if (readSync(GRANT_FD, buf, 0, 1, null) === 1) return;
       process.exit(72);
     } catch (error) {
       if (error.code !== 'EAGAIN') process.exit(73);
@@ -87,42 +101,86 @@ function waitGrant() {
   }
 }
 
-/** The fs copy the ledger gets: gated methods park on a store path; every other function reports one. */
-function gatedFs(file) {
-  const asPath = (p) => {
-    if (typeof p === 'string') return p;
-    if (Buffer.isBuffer(p)) return p.toString();
-    if (p instanceof URL) return p.protocol === 'file:' ? fileURLToPath(p) : null;
-    return null;
+const asPath = (p) => {
+  if (typeof p === 'string') return p;
+  if (Buffer.isBuffer(p)) return p.toString();
+  if (p instanceof URL) return p.protocol === 'file:' ? fileURLToPath(p) : null;
+  return null;
+};
+
+/** `arg -> 'store' | 'lock' | 'tmp' | null` for `file`, after resolve, dirname realpath and case folding. */
+function storeClassifier(file) {
+  const fold = process.platform === 'darwin' || process.platform === 'win32' ? (p) => p.toLowerCase() : (p) => p;
+  const norm = (abs) => {
+    let dir = path.dirname(abs);
+    try { dir = realpathSync(dir); } catch { /* a dir that does not exist yet: as resolved */ }
+    return fold(path.join(dir, path.basename(abs)));
   };
-  const classOf = (arg) => {
+  const store = norm(path.resolve(file));
+  const base = fold(path.basename(file));
+  return (arg) => {
     const p = asPath(arg);
     if (p === null) return null;
-    if (p === file) return 'store';
-    if (p === `${file}.lock`) return 'lock';
-    return p.startsWith(`${file}.`) ? 'tmp' : null;
+    const abs = path.resolve(p);
+    if (!fold(path.basename(abs)).startsWith(base)) return null; // the cheap filter before a realpath
+    const n = norm(abs);
+    if (n === store) return 'store';
+    if (n === `${store}.lock`) return 'lock';
+    return n.startsWith(`${store}.`) ? 'tmp' : null;
   };
+}
+
+/** Lower-case own function properties: the fs API, without the classes (Stats, ReadStream, ...). */
+const apiNames = (obj) => Object.keys(obj).filter((name) => {
+  const d = Object.getOwnPropertyDescriptor(obj, name);
+  return d && 'value' in d && d.writable && typeof d.value === 'function' && !/^[A-Z]/.test(name);
+});
+
+/**
+ * Patches `node:fs` and `fs.promises` in this (actor) process so a store path reached through any of
+ * their functions reports `UNGATED <method>`, and returns the fs copy the ledger gets: the gated
+ * methods park on a store path and run the original; every other function is the patched one.
+ * Calls made inside an original (Node's own `fs.openSync` under `readFileSync`) are not reported.
+ */
+function gatedFs(file) {
+  const classOf = storeClassifier(file);
+  let depth = 0;
+  const call = (fn, self, args) => {
+    depth += 1;
+    try { return fn.apply(self, args); } finally { depth -= 1; }
+  };
+  const report = (obj, prefix) => {
+    for (const name of apiNames(obj)) {
+      const original = obj[name];
+      const patched = function (...args) {
+        if (depth === 0 && args.some(classOf)) send(`UNGATED ${prefix}${name}`);
+        return call(original, this, args);
+      };
+      for (const key of Reflect.ownKeys(original)) { // realpathSync.native, promisify.custom, ...
+        if (!['length', 'name', 'prototype'].includes(key)) patched[key] = original[key];
+      }
+      obj[name] = patched;
+    }
+  };
+  const originals = Object.fromEntries(GATED_METHODS.map((name) => [name, fs[name]]));
+  report(fs.promises, 'promises.');
+  report(fs, '');
+  require('node:module').syncBuiltinESMExports();
+
   let seq = 0;
-  const gfs = {};
-  for (const [name, value] of Object.entries(fs)) {
-    // Constructors (Stats, ReadStream, ...) and non-functions are copied as they are.
-    if (typeof value !== 'function' || /^[A-Z]/.test(name)) { gfs[name] = value; continue; }
-    if (GATED_METHODS.includes(name)) {
-      gfs[name] = (...args) => {
+  const gfs = { ...fs };
+  for (const name of GATED_METHODS) {
+    gfs[name] = (...args) => {
+      if (depth === 0) {
         const cls = classOf(args[0]);
         if (cls) {
           send(`OP ${seq} ${name} ${cls}`);
           seq += 1;
           waitGrant();
         } else if (args.slice(1).some(classOf)) send(`UNGATED ${name}`);
-        return value.apply(fs, args);
-      };
-    } else {
-      gfs[name] = (...args) => {
-        if (args.some(classOf)) send(`UNGATED ${name}`);
-        return value.apply(fs, args);
-      };
-    }
+      }
+      return call(originals[name], fs, args);
+    };
   }
   return gfs;
 }
@@ -147,15 +205,80 @@ function runActor(config) {
 
 // ── parent ──────────────────────────────────────────────────────────────────────────────────────
 
+/** Schedules in flight in this process: `{ dir, watchdog, children }`, for abortAll(). */
+const IN_FLIGHT = new Set();
+
+// The watchdog: argv `<dir> <ms>`, actor pids one per stdin line. It fires when stdin closes (the
+// parent died, even by SIGKILL), on a signal, or after <ms>: SIGKILL the pids, remove <dir>, exit.
+const WATCHDOG = `const fs = require('node:fs');
+const [dir, ms] = [process.argv[1], Number(process.argv[2])];
+const pids = [];
+let held = '';
+const fire = () => {
+  for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  process.exit(0);
+};
+process.stdin.on('data', (d) => { const lines = (held + d).split('\\n'); held = lines.pop(); for (const l of lines) pids.push(Number(l)); });
+process.stdin.on('end', fire);
+process.stdin.on('error', fire);
+for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(s, fire);
+setTimeout(fire, ms);`;
+
+function startWatchdog(dir, ms) {
+  const watchdog = spawn(process.execPath, ['-e', WATCHDOG, dir, String(ms)], {
+    env: { PATH: process.env.PATH }, stdio: ['pipe', 'ignore', 'ignore'], detached: true,
+  });
+  watchdog.unref();
+  watchdog.on('error', () => { /* no watchdog: the actors' own spawn reports the same failure */ });
+  watchdog.stdin.on('error', () => { /* it was killed; nothing to tell it */ });
+  return watchdog;
+}
+
+const alive = (child) => child.exitCode === null && child.signalCode === null;
+
+/** Ends one schedule's processes and dir; the watchdog first, so it never kills a reused pid. */
+function release(live) {
+  let killed = 0;
+  for (const child of [live.watchdog, ...live.children]) {
+    if (alive(child)) killed += 1;
+    child.kill('SIGKILL');
+  }
+  live.watchdog.stdin.destroy();
+  const removed = fs.existsSync(live.dir) ? 1 : 0;
+  removeTree(live.dir);
+  IN_FLIGHT.delete(live);
+  return { killed, removed };
+}
+
+/**
+ * Synchronous, for a signal handler: SIGKILLs every live actor and watchdog of every schedule in
+ * flight and removes their fixture dirs. Returns `{ killed, removed }`; a second call finds nothing.
+ */
+function abortAll() {
+  let killed = 0;
+  let removed = 0;
+  for (const live of [...IN_FLIGHT]) {
+    const r = release(live);
+    killed += r.killed;
+    removed += r.removed;
+  }
+  return { killed, removed };
+}
+
 /**
  * Runs one two-actor schedule in a fresh temp dir and resolves to the Observation (shared contract):
- * `{ scenario, init, fault, trace, gatedMethods, actors, final, incomplete, ms, maxRssKb }`.
+ * `{ scenario, init, fault, faultApplied, trace, gatedMethods, actors, final, incomplete, ms, maxRssKb }`.
  *
  * Exactly one of `chooser(parkedNames, step) -> name` or `replay` (a trace string; an age-lock token
  * in it is the fault unless `fault` is given). `deadlineMs` kills both children and ends the schedule
  * INCOMPLETE. Test-only: `grantOn: 'release'` grants the next step right after writing a grant
  * (the round-3 P2 defect, for the negative control); `actorModule` replaces the ledger call with
  * `require(actorModule)({ repo, fixture, op, args, fsImpl })`; `onFixture(fixture)` runs before spawn.
+ *
+ * Beyond the drive's own causes, INCOMPLETE `fault-not-applied` (a requested age-lock whose grant
+ * never came or found no lock), `no-store-call` (an actor ended with no gated call) and
+ * `store-unreadable` (the final store read failed other than ENOENT); the first cause found stands.
  */
 async function runSchedule({
   repo = DEFAULT_REPO, scenario, init = 'none', fault, chooser, replay, deadlineMs = 5000,
@@ -174,35 +297,49 @@ async function runSchedule({
 
   const started = performance.now();
   const dir = suiteTempDir('doflow-seqgate-');
-  const children = [];
+  const live = { dir, watchdog: startWatchdog(dir, deadlineMs + WATCHDOG_MARGIN_MS), children: [] };
+  IN_FLIGHT.add(live);
   try {
     const fixture = buildFixture({ repo, dir, scenario, init });
     if (onFixture) onFixture(fixture);
-    const run = await drive({ repo, scenario, fixture, fault: applied, chooser, plan, deadlineMs, grantOn, actorModule, children });
+    const run = await drive({ repo, scenario, fixture, fault: applied, chooser, plan, deadlineMs, grantOn, actorModule, live });
+    let incomplete = run.incomplete;
+    const note = (cause, detail) => { if (!incomplete) incomplete = { cause, detail }; };
+    const faultApplied = applied ? run.faultApplied === true : null;
+    if (applied && !faultApplied) {
+      note('fault-not-applied', run.faultApplied === false
+        ? `age-lock@${applied.at}: no lock to age at grant ${applied.at}`
+        : `age-lock@${applied.at}: the schedule ended after ${run.grants} grants`);
+    }
+    for (const a of run.actors) {
+      if (a.ended && a.ops === 0) note('no-store-call', `${a.name} ended ${a.outcome.kind} without a gated store call`);
+    }
     let final = null;
-    try { final = JSON.parse(fs.readFileSync(fixture.file, 'utf8')).tasks?.['A.1'] ?? null; } catch { /* absent or unreadable: null */ }
+    try { final = JSON.parse(fs.readFileSync(fixture.file, 'utf8')).tasks?.['A.1'] ?? null; } catch (error) {
+      if (error.code !== 'ENOENT') note('store-unreadable', `final store: ${error.message}`);
+    }
     const rss = run.actors.map((a) => a.rss).filter(Number.isFinite);
     return {
-      scenario, init, fault: applied, trace: run.trace, gatedMethods: [...GATED_METHODS].sort(),
+      scenario, init, fault: applied, faultApplied, trace: run.trace, gatedMethods: [...GATED_METHODS].sort(),
       actors: run.actors.map(({ name, op, args, outcome }) => ({ name, op, args, outcome })),
-      final, incomplete: run.incomplete,
+      final, incomplete,
       ms: Math.round((performance.now() - started) * 10) / 10,
       maxRssKb: rss.length ? Math.max(...rss) : null,
     };
   } finally {
-    for (const child of children) child.kill('SIGKILL');
-    removeTree(dir);
+    release(live);
   }
 }
 
-/** Spawns the actors and grants calls until both have exited. Resolves `{ trace, actors, incomplete }`. */
-function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, grantOn, actorModule, children }) {
+/** Spawns the actors and grants calls until both have exited. Resolves `{ trace, grants, faultApplied, actors, incomplete }`. */
+function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, grantOn, actorModule, live }) {
   return new Promise((resolve, reject) => {
     const actors = SCENARIOS[scenario].actors.map((a) => ({
-      ...a, args: { ...a.args }, parked: null, reported: false, ended: false, closed: false, rss: null, stderr: '', outcome: { kind: 'NONE' },
+      ...a, args: { ...a.args }, parked: null, reported: false, ended: false, closed: false, ops: 0, rss: null, stderr: '', outcome: { kind: 'NONE' },
     }));
     const trace = [];
     let grants = 0;
+    let faultApplied = null; // null: the fault's grant never came
     let incomplete = null;
     let fatal = null;
 
@@ -254,7 +391,7 @@ function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, gran
           const actor = pick();
           if (!actor) return;
           if (fault && fault.at === grants) {
-            ageLock(fixture.file);
+            faultApplied = ageLock(fixture.file);
             trace.push(`age-lock@${grants}`);
           }
           trace.push(`${actor.name}.${actor.parked.method.replace(/Sync$/, '')}`);
@@ -276,6 +413,7 @@ function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, gran
         const [seq, method, cls] = rest.split(' ');
         if (!GATED_METHODS.includes(method)) return;
         actor.parked = { seq: Number(seq), method, cls };
+        actor.ops += 1;
       } else if (tag === 'UNGATED') {
         fail('ungated-store-call', `${actor.name} called ${rest} on a store path`);
       } else if (tag === 'RSS') {
@@ -305,7 +443,8 @@ function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, gran
         env: { PATH: process.env.PATH, ...fixture.env },
         stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
       });
-      children.push(child);
+      live.children.push(child);
+      live.watchdog.stdin.write(`${child.pid}\n`);
       actor.child = child;
       actor.grant = child.stdio[GRANT_FD];
       actor.grant.on('error', () => { /* the actor exited; its close event decides */ });
@@ -321,7 +460,7 @@ function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, gran
         if (actors.every((a) => a.closed)) {
           clearTimeout(timer);
           if (fatal) reject(fatal);
-          else resolve({ trace: trace.join(' '), actors, incomplete });
+          else resolve({ trace: trace.join(' '), grants, faultApplied, actors, incomplete });
         } else step();
       });
     }
@@ -330,4 +469,4 @@ function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, gran
 
 if (require.main === module && process.argv[2] === ACTOR_FLAG) runActor(process.argv[3]);
 
-module.exports = { runSchedule, parseTrace, formatTrace, GATED_METHODS, ACTOR_FLAG };
+module.exports = { runSchedule, abortAll, parseTrace, formatTrace, GATED_METHODS, ACTOR_FLAG, WATCHDOG_MARGIN_MS };
