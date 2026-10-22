@@ -36,10 +36,11 @@ for a capability, it is shown inline.
 the target's own file format and verification process. “Unavailable” means DoFlow records the
 gap and offers guidance instead of installing a non-functional approximation.
 
-For OpenCode and Pi, several rows read “Different” because those harnesses expect **registration**
-rather than projection: DoFlow points OpenCode's settings at its existing skills directory instead
-of copying a second tree (Pi's skills are copied into `.pi/skills/` or `~/.pi/agent/skills/`;
-`settings.json` is Pi's supported settings surface, but DoFlow writes no key in it). Pi's installed
+For OpenCode, the rows reading “Different” are Modes, Hooks and Plugin / extension. OpenCode gets its
+own copy of DoFlow's skills tree (`.opencode/skills/` or `~/.config/opencode/skills/`); what DoFlow
+registers rather than copies is `AGENTS.md` in `opencode.json`'s `instructions[]` and its MCP entries.
+Pi's skills are copied into `.pi/skills/` or `~/.pi/agent/skills/`; `settings.json` is Pi's supported
+settings surface, but DoFlow writes no key in it. Pi's installed
 user- and project-scope extensions register `tool_call` and invoke the shared lifecycle bridge;
 project-scope installs require project trust.
 
@@ -110,17 +111,17 @@ capability reads Different: a full native surface is documented upstream, but Do
 it yet because its shipped scripts are Claude-payload-coupled — its cells record that status per
 event rather than hiding it behind a dash, and each note names the payload caveat blocking
 projection. Kiro's `hooks` capability is Supported — DoFlow projects a real `.kiro/hooks/*.json`
-file wiring `SessionStart`, three `PreToolUse` hooks, and `Stop` — but the registry does not yet break
-that support down into a per-event map beyond `UserPromptSubmit` (Different: a native trigger DoFlow
-does not wire), so Kiro's other cells here are dashes pending that data;
-see the `hooks` capability note in `core/registry/harnesses.json` and the verification row below for
+file wiring `SessionStart`, three `PreToolUse` hooks, and `Stop`. The registry's per-event map for Kiro
+has four events: `SessionStart` and `PreToolUse` Supported, `UserPromptSubmit` (a native trigger DoFlow
+does not wire) and `Stop` (DoFlow uses Stop where Kiro documents AgentStop) Different; the other cells
+are dashes; see the `hooks` capability note in `core/registry/harnesses.json` and the verification row below for
 Kiro's actual wired events instead of this table. Kiro CLI V3 loads standalone `.kiro/hooks/*.json` for every agent, so `doflow.json` also runs there, and its Stop hook
 returns a JSON block instead of exit 2. Kiro's hooks are not in Kiro v3's
 untrusted-workspace exclusion list (custom agents, steering, MCP configuration, skills, workflows);
 an untrusted workspace asks before every shell command, and whether that covers hook commands is
 undocumented. Antigravity's hooks are supported with a documented
-native contract; its column shows the one event DoFlow wires today (PreToolUse) as Supported and
-the other four documented events as the Different statuses recorded in the registry, and
+native contract; its column shows the two events DoFlow wires today (`PreToolUse`, `Stop`) as Supported,
+the other three documented events (`PostToolUse`, `PreInvocation`, `PostInvocation`) as Different, and
 `UserPromptSubmit` as Unavailable because no documented event fires on a prompt submission.
 
 <!-- BEGIN GENERATED:hook-event-matrix -->
@@ -349,7 +350,7 @@ require a user action or a trusted project before it takes effect.
 | Project and personal configuration | Claude settings and hooks are currently installed for Claude. | `~/.codex/config.toml` supplies user defaults; trusted `.codex/config.toml` layers supply project overrides. CLI flags and `--config` are one-off overrides. | **Different** | Project config, hooks, and local rules are ignored until the project is trusted. Reconcile only named DoFlow keys; never replace the whole file. | Inspect the expected user/project file, then start Codex in a trusted project and confirm the intended setting is effective. | [Config basics: precedence](https://learn.chatgpt.com/docs/config-file/config-basic#configuration-precedence), [Advanced config: project files](https://learn.chatgpt.com/docs/config-file/config-advanced#project-config-files-codexconfigtoml) |
 | Durable multi-agent defaults | Claude has its own agent execution conventions. | `[agents]` in `config.toml` configures enablement, concurrency, default model, reasoning effort, and interruption messages. | **Supported** | Treat model, permissions, and concurrent-thread limits as user/project policy; do not silently weaken them. | Inspect the active config layer and run a deliberate delegated task. | [Subagents: global settings](https://learn.chatgpt.com/docs/agent-configuration/subagents#global-settings) |
 | Hook event equivalence | Claude exposes product-specific hook semantics. | Codex event names and payloads differ; map only equivalent intent (for example `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`). Matching hooks across sources run concurrently. | **Different** | Do not claim order-dependent or unsupported handler behavior. `prompt` and `agent` handlers are parsed but not run; hook trust is not bypassed by installation. | Compare each managed mapping with Codex's event/input contract and perform an event-specific manual test. | [Hooks: event list and behavior](https://learn.chatgpt.com/docs/hooks#hooks), [Hooks: configuration limitations](https://learn.chatgpt.com/docs/hooks#config-shape) |
-| Unmapped Claude guardrails | Claude-only hooks currently cover all installed guardrails. | No exact Codex mapping is asserted where event semantics or handler behavior do not match. Preserve the policy as `AGENTS.md`/skill guidance or record it as a gap. | **Unavailable** | Never simulate enforcement with undocumented configuration or silently represent guidance as a hook. | Capability review shows a row-level gap and the relevant guidance location. | [Hooks](https://learn.chatgpt.com/docs/hooks), [Customization overview](https://learn.chatgpt.com/docs/customization/overview) |
+| Unmapped Claude guardrails | DoFlow installs Codex hooks for the events whose semantics match (`src/adapters/codex/hooks.ts`); a guardrail without an equivalent Codex event stays Claude-only. | No exact Codex mapping is asserted where event semantics or handler behavior do not match. Preserve the policy as `AGENTS.md`/skill guidance or record it as a gap. | **Unavailable** | Never simulate enforcement with undocumented configuration or silently represent guidance as a hook. | Capability review shows a row-level gap and the relevant guidance location. | [Hooks](https://learn.chatgpt.com/docs/hooks), [Customization overview](https://learn.chatgpt.com/docs/customization/overview) |
 | Custom slash commands | Claude commands are supplied by its command model. | Markdown custom prompts under `~/.codex/prompts/` are available in Codex CLI and IDE, but this feature is documented as deprecated in favor of skills. | **Different** | Do not use custom prompts as the primary DoFlow workflow distribution surface. | Restart/reload the client and confirm the `/prompts:<name>` entry appears. | [Custom prompts](https://learn.chatgpt.com/docs/customization/custom-prompts) |
 | Automations / scheduled tasks | Claude-oriented automation assets may exist as hooks or workflow guidance. | Scheduled tasks are a host-managed capability: available in ChatGPT web/desktop when enabled; Codex CLI and IDE do not provide the management interface. They can use skills/plugins where available. | **Unavailable** to the direct installer | No local installer-owned automation file or schedule is created. Users/workspaces create and manage schedules in supported hosts, subject to availability and permission policy. | In an eligible web/desktop workspace, create and inspect a scheduled task; CLI/IDE verification is intentionally N/A. | [Scheduled tasks](https://learn.chatgpt.com/docs/automations) |
 | CLI, desktop app, and IDE workflow | DoFlow supports its selected Claude workflow surfaces. | Codex CLI, desktop app, and IDE share configuration layers; skills are available across them. Availability of plugins, scheduled tasks, and management UIs is surface-dependent. | **Different** | Verify the selected host rather than inferring support from another host. | CLI: inspect config and `/mcp`/`/hooks`; desktop/IDE: confirm the corresponding project and settings UI recognizes the installed assets. | [Config basics](https://learn.chatgpt.com/docs/config-file/config-basic), [Customization: skills](https://learn.chatgpt.com/docs/customization/overview#skills), [Scheduled tasks](https://learn.chatgpt.com/docs/automations) |
