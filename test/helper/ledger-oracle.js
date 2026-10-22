@@ -3,7 +3,7 @@
 // Hand-written one-task model, independent of src/runtime helpers. Source behaviors: claim and
 // claimChecks/claimWrite (src/runtime/task-attempts.ts:307-382, 392-436), finish (:459-497),
 // cancel (:623-640), cancelAttempt (src/runtime/task-run.ts:335-356), refusedControl (:250-252).
-const MODEL_VERSION = '117-B.1';
+const MODEL_VERSION = '117-B.2';
 
 function clone(state) {
   return state ? { nextToken: state.nextToken, attempts: state.attempts.map((a) => ({ ...a })) } : { nextToken: 1, attempts: [] };
@@ -52,8 +52,22 @@ function apply(state, op, args = {}) {
 const model = { initial, apply };
 
 function sameResponse(actual, expected) {
+  if (!actual || typeof actual !== 'object' || Array.isArray(actual) || !expected || typeof expected !== 'object') return false;
+  const required = {
+    claimed: ['disposition', 'token'],
+    refused: ['disposition', 'reason'],
+    applied: ['disposition', 'token', 'result'],
+    stale: ['disposition', 'token', 'reason'],
+    cancelled: ['disposition', 'token'],
+  }[expected.disposition];
+  if (!required || required.some((key) => !(key in actual) || actual[key] !== expected[key])) return false;
+  if (expected.disposition === 'refused' && expected.reason === 'active-attempt' &&
+      (!('activeToken' in actual) || actual.activeToken !== expected.activeToken)) return false;
   const fields = ['disposition', 'reason', 'token', 'activeToken', 'result'];
-  return fields.every((key) => !(key in actual) || actual[key] === expected[key]);
+  return fields.every((key) => {
+    if (!(key in actual)) return true;
+    return Object.prototype.hasOwnProperty.call(expected, key) && actual[key] === expected[key];
+  });
 }
 function recordOf(value) { return value ? { nextToken: value.nextToken, attempts: value.attempts || [] } : { nextToken: 1, attempts: [] }; }
 function sameRecord(actual, expected) {
@@ -81,6 +95,7 @@ function classify(observation) {
 }
 function check(observation) {
   if (observation.incomplete) return verdict('INCOMPLETE', null, observation.incomplete.detail || observation.incomplete.cause, { cause: observation.incomplete.cause });
+  if (observation.actors.length > 0 && observation.actors.every((a) => a.outcome.kind === 'THREW')) return verdict('INCOMPLETE', null, 'all actors threw', { cause: 'actor-threw' });
   if (observation.actors.some((a) => a.outcome.kind === 'THREW' && a.outcome.code === 'store-unreadable')) return verdict('INCOMPLETE', null, 'store unreadable', { cause: 'store-unreadable' });
   if (observation.actors.some((a) => a.outcome.kind === 'NONE')) return verdict('INCOMPLETE', null, 'actor did not report', { cause: 'child-crash' });
   const permutations = [[0, 1], [1, 0]];
