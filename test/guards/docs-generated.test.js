@@ -174,7 +174,10 @@ function checkCommandVerbs(root, help) {
 
 function checkValidation(root) {
   const lines = read(root, 'mkdocs.yml').split(/\r?\n/);
-  const validationLines = lines.map((line, index) => ({ line, index })).filter(({ line }) => /^validation:/.test(line));
+  // PyYAML keeps the last of two duplicate keys, and a quoted or spaced key ("validation":,
+  // validation :) is the same key, so any top-level spelling of it other than the one block is a
+  // second validation key that can override the first.
+  const validationLines = lines.map((line, index) => ({ line, index })).filter(({ line }) => /^["']?validation["']?\s*:/.test(line));
   const expected = ['omitted_files', 'absolute_links', 'unrecognized_links', 'anchors'];
   const problems = [];
   if (validationLines.length !== 1 || validationLines[0].line !== 'validation:') {
@@ -312,6 +315,10 @@ test('G61.b generated markers on every docs page are registered to that page, pa
     const findings = checkMarkers(COPY);
     assert.ok(findings.some((finding) => finding.page.includes('specs/operating-modes.md') && finding.id === 'settings-keys'), JSON.stringify(findings));
   });
+  withSeededFile(COPY, 'docs/guide.md', (original) => `${original}\n  <!-- BEGIN GENERATED:nosuch -->\n| stale | table |\n<!-- END GENERATED:nosuch --> \n`, () => {
+    const findings = checkMarkers(COPY);
+    assert.ok(findings.some((finding) => finding.page.includes('guide.md') && finding.id === 'nosuch'), `an indented or trailing-space marker is still a marker: ${JSON.stringify(findings)}`);
+  });
   withSeededFile(COPY, 'docs/capability-map.md', (original) => original.replace(/(<!-- BEGIN GENERATED:[^\s>]+ -->)/, '$1\n<!-- BEGIN GENERATED:settings-keys -->'), () => {
     const findings = checkMarkers(COPY);
     assert.ok(findings.some((finding) => finding.page.includes('capability-map.md')), JSON.stringify(findings));
@@ -362,6 +369,14 @@ test('G61.e MkDocs validation is one block with exactly the four keys at warn', 
   });
   withSeededFile(COPY, 'mkdocs.yml', (original) => original.replace(/validation:\n(?:  .*\n)+/, 'validation: {omitted_files: warn, absolute_links: warn, unrecognized_links: warn, anchors: warn}\n'), () => {
     assert.ok(checkValidation(COPY).length > 0, checkValidation(COPY).join('\n'));
+  });
+  withSeededFile(COPY, 'mkdocs.yml', (original) => `${original.replace(/\n*$/, '\n')}"validation": {links: {anchors: info}}\n`, () => {
+    withSeededFile(COPY, 'docs/guide.md', (guide) => `${guide}\nSee [a dead anchor](setup.md#no-such-heading).\n`, () => {
+      assert.ok(checkValidation(COPY).some((problem) => problem.includes('one block-form validation')), checkValidation(COPY).join('\n'));
+    });
+  });
+  withSeededFile(COPY, 'mkdocs.yml', (original) => `${original.replace(/\n*$/, '\n')}validation : {anchors: info}\n`, () => {
+    assert.ok(checkValidation(COPY).some((problem) => problem.includes('one block-form validation')), checkValidation(COPY).join('\n'));
   });
   withSeededFile(COPY, 'mkdocs.yml', (original) => original.replace('  anchors: warn', "  anchors: 'warn'"), () => {
     assert.ok(checkValidation(COPY).some((problem) => problem.includes('validation.anchors')), checkValidation(COPY).join('\n'));

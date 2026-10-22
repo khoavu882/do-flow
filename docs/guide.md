@@ -396,7 +396,8 @@ fast-search is done with C2 unmet: caching is out of scope
 ## Drive the roadmap one step at a time
 
 `doflow roadmap` advances a list of features (the roadmap) one step per call. It is for the person or
-the orchestrating session that owns the roadmap; no skill calls it for you. It is local only, it ships
+the orchestrating session that owns the roadmap; no skill advances it for you (the `do` skill's
+program mode may run `roadmap seed --action check` to validate new rows, which changes nothing). It is local only, it ships
 off, and the tests drive it against fixture repositories, so treat the flow as new. The exact flags,
 outcomes and exit codes are in [Reference](reference.md).
 
