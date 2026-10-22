@@ -601,10 +601,35 @@ bash test/code-review-fixtures.sh          # do-code-review's analyzer fixtures,
 pip install -r requirements.txt            # docs deps, once per environment — see note below
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
 d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" -mindepth 1 -maxdepth 1 -name 'doflow-*'; rm -rf "$d"   # test debris check, outside npm test
+node test/explore/ledger-sampler.js --help   # opt-in sequence sampler, outside npm test
+node --test test/explore/ledger-controls.js  # the sampler's slow controls, outside npm test
 ```
 
 The debris check prints nothing when the suite left no temporary folder behind. It is not part of
 `npm test`, because a test cannot observe the whole run it belongs to.
+
+The sequence sampler (`test/explore/ledger-sampler.js`) runs two real child processes against the
+task-attempt ledger, grants their store, lock and temp-file fs calls one at a time in a seeded
+order, and judges each schedule against a hand-written sequential model of claim, finish and
+cancel. It exits 0 when every schedule completed and none showed a violation, 1 when one did (with
+a replay string for `--replay`), 2 on a usage error and 3 when exploration was incomplete: any
+incomplete schedule, a kill switch, an interrupt (SIGINT, SIGTERM or SIGHUP, after which it kills
+its actors and prints the partial record), a report it could not write, or a sampling run judged
+by an oracle swapped in through `DOFLOW_SAMPLER_ORACLE` (`--replay` always uses the real one). 3 is never a pass, and 0 means "no violation within
+these bounds", not a proof of safety or liveness. The gate holds the seven synchronous fs methods
+the ledger calls on the store, its lock directory (and any path inside it) and its temp file; any
+other `node:fs` or `fs.promises` call that reaches those paths (also through another spelling of
+the path, or a descriptor from `open`) makes the schedule incomplete. Outside the model: overlap inside one fs call, network
+filesystems, process death, win32, worker threads, child processes, native addons, and a hard
+link or symlink to the store under another name. The regressions pinned in
+`test/state/ledger-lock-race.test.js`, which `npm test` runs, came from the sampler (R-claim) and
+from review (R-nested and the two-process trace R-two-process); each reproduces the stale-lock
+defect FU-8acds5 under its fault assumption: a lock holder paused for longer than the 10 s stale
+age, or a forward clock jump of that size. The defect was reproduced on the runtime of develop
+`46df3b6c` (`src/runtime/task-state.ts` unchanged since `e76352b0`), also without the gate, by
+stopping a real lock holder with SIGSTOP past the stale age (the review record's `realpause.js`
+reproduction, kept with the 117 feature records). Slow controls run only on demand from
+`test/explore/ledger-controls.js`.
 
 The docs build needs `mkdocs`, the Dracula theme and `pymdown-extensions` (the `mermaid` fence in
 `mkdocs.yml` is a `pymdownx.superfences` custom fence), which `requirements.txt` pins, which the docs
