@@ -89,11 +89,13 @@ function sleep(ms: number): void {
 //     removing it.
 //   - Contention: two entries mean two processes reached the lock. The one whose entry name sorts
 //     first waits for the other to leave (it holds next); the other removes its entry and waits. A
-//     process that removes its entry and finds the lock emptied enters it again (once, after checking
-//     it is the same directory) instead of leaving an empty lock everyone would wait 10 s on.
-//   - Release removes the holder's own entry, then the directory. A holder whose entry is gone (its
-//     lock was reclaimed) removes nothing; a waiting process's entry keeps the directory, and that
-//     process holds next.
+//     process that removes its entry and finds the lock emptied enters it again (once, under a fresh
+//     name, after checking it is the same directory) instead of leaving an empty lock everyone would
+//     wait 10 s on.
+//   - Release notes the lock's identity while its entry is in it, removes the entry, then removes the
+//     directory only if it is still that one (an older runtime may have made a new, empty lock there
+//     if the release stalled). A holder whose entry is gone (its lock was reclaimed) removes nothing;
+//     a waiting process's entry keeps the directory, and that process holds next.
 //   - `updateTaskState` checks the holder's entry is still in the lock (`release.held()`) after
 //     writing its tmp file and before the rename: a holder that was paused past LOCK_STALE_MS and
 //     reclaimed writes nothing.
@@ -119,9 +121,12 @@ function sameDir(a: any, b: any): boolean {
   return a.dev === b.dev && a.ino === b.ino && (!a.birthtimeMs || !b.birthtimeMs || a.birthtimeMs === b.birthtimeMs);
 }
 
+/** This attempt's entry name; `leave` gives it a fresh one when it re-enters an emptied lock. */
+type Entry = { name: string };
+
 /** Removes this process's entry; gone already is fine (a reclaimer removed it). */
-function withdraw(fsImpl: any, lockDir: string, token: string): void {
-  try { fsImpl.rmdirSync(path.join(lockDir, token)); } catch { /* not there: nothing of ours is left */ }
+function withdraw(fsImpl: any, lockDir: string, me: Entry): void {
+  try { fsImpl.rmdirSync(path.join(lockDir, me.name)); } catch { /* not there: nothing of ours is left */ }
 }
 
 /**
@@ -130,57 +135,59 @@ function withdraw(fsImpl: any, lockDir: string, token: string): void {
  * when leaving found everyone else gone). `again` when our entry is gone (the lock was reclaimed from
  * us). With `rejoin` false (an entry that came back to an emptied lock) it never queues or comes back.
  */
-function elect(fsImpl: any, lockDir: string, token: string, rejoin = true): LockStep {
+function elect(fsImpl: any, lockDir: string, me: Entry, rejoin = true): LockStep {
   let entries: string[];
   let pinned: any;
   try {
     entries = fsImpl.readdirSync(lockDir);
-    if (!entries.includes(token)) return 'again';
+    if (!entries.includes(me.name)) return 'again';
     if (entries.length === 1) return 'held';
-    if (rejoin && entries.every((name: string) => name === token || token < name)) return 'queued';
-    pinned = pinnedDir(fsImpl, lockDir, token);
+    if (rejoin && entries.every((name: string) => name === me.name || me.name < name)) return 'queued';
+    pinned = pinnedDir(fsImpl, lockDir, me);
   } catch { pinned = null; }
-  if (!pinned) { withdraw(fsImpl, lockDir, token); return 'again'; }
-  if (!rejoin) { withdraw(fsImpl, lockDir, token); return 'busy'; }
-  return leave(fsImpl, lockDir, token, pinned);
+  if (!pinned) { withdraw(fsImpl, lockDir, me); return 'again'; }
+  if (!rejoin) { withdraw(fsImpl, lockDir, me); return 'busy'; }
+  return leave(fsImpl, lockDir, me, pinned);
 }
 
 /** The stat of the lock while our entry is in it (so it is the directory holding our entry), or null. */
-function pinnedDir(fsImpl: any, lockDir: string, token: string): any {
+function pinnedDir(fsImpl: any, lockDir: string, me: Entry): any {
   try {
     const stat = fsImpl.statSync(lockDir);
-    return fsImpl.existsSync(path.join(lockDir, token)) ? stat : null;
+    return fsImpl.existsSync(path.join(lockDir, me.name)) ? stat : null;
   } catch { return null; }
 }
 
 /**
  * Removes our entry from the lock `pinned` (its stat taken while our entry was in it). If that left
  * it empty, everyone else left after we looked, and an empty lock would block every process until it
- * is stale: we enter it again, once, and hold it if we are alone. Never removes the directory.
+ * is stale: we enter it again, once, under a fresh name (a reclaimer that listed the old name removes
+ * names it listed), and hold it if we are alone. Never removes the directory.
  */
-function leave(fsImpl: any, lockDir: string, token: string, pinned: any): LockStep {
-  withdraw(fsImpl, lockDir, token);
+function leave(fsImpl: any, lockDir: string, me: Entry, pinned: any): LockStep {
+  withdraw(fsImpl, lockDir, me);
   try {
     if (fsImpl.readdirSync(lockDir).length > 0) return 'busy';
-    fsImpl.mkdirSync(path.join(lockDir, token));
+    me.name = newToken();
+    fsImpl.mkdirSync(path.join(lockDir, me.name));
   } catch (error: any) { return error.code === 'ENOENT' ? 'again' : 'busy'; }
   let same = false;
   try { same = sameDir(pinned, fsImpl.statSync(lockDir)); } catch { /* treat it as changed */ }
-  if (!same) { withdraw(fsImpl, lockDir, token); return 'again'; }
-  return elect(fsImpl, lockDir, token, false);
+  if (!same) { withdraw(fsImpl, lockDir, me); return 'again'; }
+  return elect(fsImpl, lockDir, me, false);
 }
 
 /** A queued attempt that stops waiting: leave the lock (or hold it, when the other left meanwhile). */
-function giveUp(fsImpl: any, lockDir: string, token: string): LockStep {
-  const step = elect(fsImpl, lockDir, token);
+function giveUp(fsImpl: any, lockDir: string, me: Entry): LockStep {
+  const step = elect(fsImpl, lockDir, me);
   if (step !== 'queued') return step;
-  const pinned = pinnedDir(fsImpl, lockDir, token);
-  if (!pinned) { withdraw(fsImpl, lockDir, token); return 'again'; }
-  return leave(fsImpl, lockDir, token, pinned);
+  const pinned = pinnedDir(fsImpl, lockDir, me);
+  if (!pinned) { withdraw(fsImpl, lockDir, me); return 'again'; }
+  return leave(fsImpl, lockDir, me, pinned);
 }
 
 /** Reclaims the lock at `lockDir` in place when it is stale. `again` means look again now. */
-function reclaimIfStale(fsImpl: any, lockDir: string, token: string): LockStep {
+function reclaimIfStale(fsImpl: any, lockDir: string, me: Entry): LockStep {
   const missing = (error: any): LockStep => (error.code === 'ENOENT' ? 'again' : 'busy');
   let judged: any;
   let entries: string[];
@@ -191,35 +198,35 @@ function reclaimIfStale(fsImpl: any, lockDir: string, token: string): LockStep {
     const listed = fsImpl.statSync(lockDir);
     if (!sameDir(judged, listed) || listed.mtimeMs !== judged.mtimeMs) return 'again';
   } catch (error: any) { return missing(error); }
-  try { fsImpl.mkdirSync(path.join(lockDir, token)); } catch (error: any) { return missing(error); }
+  try { fsImpl.mkdirSync(path.join(lockDir, me.name)); } catch (error: any) { return missing(error); }
   // Our entry pins the directory it landed in; it must be the one judged stale.
   let same = false;
   try { same = sameDir(judged, fsImpl.statSync(lockDir)); } catch { /* treat it as changed */ }
   if (!same) {
-    withdraw(fsImpl, lockDir, token);
+    withdraw(fsImpl, lockDir, me);
     return 'again';
   }
   for (const name of entries) {
     try { fsImpl.rmdirSync(path.join(lockDir, name)); } catch (error: any) {
       if (error.code === 'ENOENT') continue; // another reclaimer, or its released holder, removed it
-      withdraw(fsImpl, lockDir, token); // not an entry this protocol makes: leave the lock alone
+      withdraw(fsImpl, lockDir, me); // not an entry this protocol makes: leave the lock alone
       return 'busy';
     }
   }
-  return elect(fsImpl, lockDir, token);
+  return elect(fsImpl, lockDir, me);
 }
 
-/** One step towards holding the lock under `token`: held, queued (our entry waits in it), busy, or again. */
-function attemptLock(fsImpl: any, lockDir: string, token: string): LockStep {
+/** One step towards holding the lock under `me`: held, queued (our entry waits in it), busy, or again. */
+function attemptLock(fsImpl: any, lockDir: string, me: Entry): LockStep {
   const started = Date.now();
   try {
     fsImpl.mkdirSync(lockDir);
   } catch (error: any) {
     if (error.code !== 'EEXIST') throw error;
-    return reclaimIfStale(fsImpl, lockDir, token);
+    return reclaimIfStale(fsImpl, lockDir, me);
   }
   try {
-    fsImpl.mkdirSync(path.join(lockDir, token));
+    fsImpl.mkdirSync(path.join(lockDir, me.name));
   } catch (error: any) {
     if (error.code === 'ENOENT') return 'again'; // removed before it was marked: an older runtime's release or stale break
     throw error;
@@ -227,22 +234,29 @@ function attemptLock(fsImpl: any, lockDir: string, token: string): LockStep {
   if (Date.now() - started >= PUBLISH_BOUND_MS) {
     // Paused long enough for the new directory to be judged stale and replaced: the entry may sit in
     // another process's lock. Leave it; the directory (ours or not) is left as found.
-    withdraw(fsImpl, lockDir, token);
+    withdraw(fsImpl, lockDir, me);
     return 'again';
   }
-  return elect(fsImpl, lockDir, token);
+  return elect(fsImpl, lockDir, me);
 }
 
 /** The release function of a held lock; `release.held()` re-checks ownership before a write. */
-function ownedRelease(fsImpl: any, lockDir: string, token: string): any {
+function ownedRelease(fsImpl: any, lockDir: string, me: Entry): any {
+  const entry = path.join(lockDir, me.name);
   let released = false;
   const release: any = () => {
     if (released) return;
     released = true;
-    try { fsImpl.rmdirSync(path.join(lockDir, token)); } catch { return; } // reclaimed: the lock is not ours to remove
-    try { fsImpl.rmdirSync(lockDir); } catch { /* a waiting process's entry is in it; that process holds next */ }
+    const mine = pinnedDir(fsImpl, lockDir, me); // the directory we hold, while our entry pins it
+    try { fsImpl.rmdirSync(entry); } catch { return; } // reclaimed: the lock is not ours to remove
+    // Removed only if it is still that directory: a release stalled here past LOCK_STALE_MS may find
+    // an older runtime's new (empty) lock at the path. What stays is the gap between this stat and the
+    // rmdir (docs/architecture.md, "The task-state lock", bound 3).
+    try {
+      if (mine && sameDir(mine, fsImpl.statSync(lockDir))) fsImpl.rmdirSync(lockDir);
+    } catch { /* a waiting process's entry is in it; that process holds next */ }
   };
-  release.held = () => !released && fsImpl.existsSync(path.join(lockDir, token));
+  release.held = () => !released && fsImpl.existsSync(entry);
   return release;
 }
 
@@ -261,14 +275,14 @@ function tryAcquireLock(fsImpl: any, file: string): (() => void) | null {
   const lockDir = `${file}.lock`;
   const deadline = Date.now() + CONTEND_MS;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const token = newToken();
-    let step = attemptLock(fsImpl, lockDir, token);
+    const me = { name: newToken() };
+    let step = attemptLock(fsImpl, lockDir, me);
     while (step === 'queued' && Date.now() < deadline) {
       sleep(CONTEND_WAIT_MS);
-      step = elect(fsImpl, lockDir, token);
+      step = elect(fsImpl, lockDir, me);
     }
-    if (step === 'queued') step = giveUp(fsImpl, lockDir, token);
-    if (step === 'held') return ownedRelease(fsImpl, lockDir, token);
+    if (step === 'queued') step = giveUp(fsImpl, lockDir, me);
+    if (step === 'held') return ownedRelease(fsImpl, lockDir, me);
     if (step === 'busy') return null;
   }
   return null;
@@ -288,19 +302,29 @@ function acquireLock(fsImpl: any, file: string): () => void {
   // real time, counting attempts alone would outlive a live holder's staleness window.
   const deadline = Date.now() + LOCK_RETRIES * LOCK_WAIT_MS;
   let step: LockStep = 'again';
-  let token = '';
+  let me: Entry = { name: '' };
   for (let attempt = 0; attempt < LOCK_RETRIES && (attempt === 0 || Date.now() < deadline); attempt += 1) {
-    if (step === 'queued') step = elect(fsImpl, lockDir, token);
+    if (step === 'queued') step = elect(fsImpl, lockDir, me);
     else {
-      token = newToken(); // a fresh entry name per attempt: an earlier one's name never comes back
-      step = attemptLock(fsImpl, lockDir, token);
+      me = { name: newToken() }; // a fresh entry name per attempt: an earlier one's name never comes back
+      step = attemptLock(fsImpl, lockDir, me);
     }
-    if (step === 'held') return ownedRelease(fsImpl, lockDir, token);
+    if (step === 'held') return ownedRelease(fsImpl, lockDir, me);
     if (step === 'busy' || step === 'queued') sleep(LOCK_WAIT_MS);
   }
-  if (step === 'queued' && giveUp(fsImpl, lockDir, token) === 'held') return ownedRelease(fsImpl, lockDir, token);
+  if (step === 'queued' && giveUp(fsImpl, lockDir, me) === 'held') return ownedRelease(fsImpl, lockDir, me);
   throw new Error(`Could not lock '${file}' after ${(LOCK_RETRIES * LOCK_WAIT_MS) / 1000}s — another writer holds '${lockDir}'. `
-    + `If no other DoFlow process is running, the lock is left from a crash and is reclaimed once it is ${LOCK_STALE_MS / 1000}s old; retry then.`);
+    + `If no other DoFlow process is running, the lock is left from a crash and is reclaimed once it is ${LOCK_STALE_MS / 1000}s old; retry then.`
+    + strayEntries(fsImpl, lockDir));
+}
+
+/** Names a non-directory entry in the lock (no DoFlow runtime makes one; it blocks the lock until removed). */
+function strayEntries(fsImpl: any, lockDir: string): string {
+  let stray: string[] = [];
+  try { stray = fsImpl.readdirSync(lockDir, { withFileTypes: true }).filter((d: any) => !d.isDirectory()).map((d: any) => d.name); } catch { return ''; }
+  if (stray.length === 0) return '';
+  return ` It holds ${stray.map((name) => `'${name}'`).join(', ')}, which no DoFlow runtime makes and which keeps it locked: `
+    + `remove ${stray.length > 1 ? 'them' : 'it'} once no DoFlow process is running.`;
 }
 
 /**

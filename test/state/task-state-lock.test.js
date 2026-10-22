@@ -259,7 +259,7 @@ test('contention: two reclaimers of one stale lock; the one that finished first 
 // C-2: an attempt that does not hold leaves nothing of its own and no empty lock; tryAcquireLock does
 // not wait on a holder. B reclaims a stale lock and finds another reclaimer's entry H in it; B's entry
 // sorts first, so B waits for H to leave.
-function contended(t, { onElect, onWithdraw }) {
+function contended(t, { onElect, onWithdraw, capture }) {
   const file = storeFile(t);
   fs.mkdirSync(path.join(lockOf(file), DEAD), { recursive: true });
   age(file);
@@ -274,7 +274,15 @@ function contended(t, { onElect, onWithdraw }) {
       return out;
     },
     readdirSync: (target, ...rest) => { listed += 1; if (onElect) onElect(listed, file, H); return fs.readdirSync(target, ...rest); },
-    rmdirSync: (target, ...rest) => { const out = fs.rmdirSync(target, ...rest); if (onWithdraw && path.basename(target).startsWith('owner-') && path.basename(target) !== H && path.basename(target) !== DEAD) onWithdraw(file, H); return out; },
+    rmdirSync: (target, ...rest) => {
+      const out = fs.rmdirSync(target, ...rest);
+      const name = path.basename(target);
+      if (name.startsWith('owner-') && name !== H && name !== DEAD) {
+        if (capture) capture(name);
+        if (onWithdraw) onWithdraw(file, H);
+      }
+      return out;
+    },
   };
   const started = performance.now();
   const mine = tryAcquireLock(fsB, file);
@@ -303,6 +311,117 @@ test('C-2: an attempt that gives up just as the other left takes the emptied loc
   assert.ok(boundedAcquire(fs, file), 'the store is acquirable at once');
 });
 
+// N-3: an attempt that comes back to an emptied lock comes back under a FRESH entry name. A reclaimer
+// that listed the old name (when it was stale) removes names it listed; it must not remove the entry
+// the attempt holds by now.
+test('rejoin: an attempt that re-enters an emptied lock does so under a fresh name, so a stale listing cannot remove it', (t) => {
+  let withdrawn = null;
+  const { file, mine } = contended(t, { onWithdraw: (f, H) => {
+    if (fs.existsSync(path.join(lockOf(f), H))) fs.rmdirSync(path.join(lockOf(f), H));
+  } , capture: (name) => { if (!withdrawn) withdrawn = name; } });
+  assert.ok(mine && mine.held(), 'it re-entered the emptied lock and holds it');
+  assert.ok(withdrawn, 'its first entry was withdrawn');
+  // What a reclaimer whose listing included the first entry does with it: rmdir it by name.
+  try { fs.rmdirSync(path.join(lockOf(file), withdrawn)); } catch { /* not there */ }
+  assert.equal(mine.held(), true, 'the re-entered entry is not the withdrawn name');
+  mine();
+});
+
+// N-4: the identity check on re-entry. Between B's empty listing and its re-entry the other process
+// releases (the lock is removed) and an older runtime makes and holds a new, empty lock.
+test('rejoin: an attempt does not re-enter a lock an older runtime made after the emptied one was removed', (t) => {
+  const file = storeFile(t);
+  fs.mkdirSync(path.join(lockOf(file), DEAD), { recursive: true });
+  age(file);
+  const H = 'owner-0-first000000'; // sorts first: B does not queue, it leaves
+  let madeH = false; let old = null; let leaving = false;
+  const fsB = {
+    ...fs,
+    mkdirSync: (target, ...rest) => {
+      const out = fs.mkdirSync(target, ...rest);
+      if (!madeH && path.dirname(target) === lockOf(file)) { madeH = true; fs.mkdirSync(path.join(lockOf(file), H)); }
+      return out;
+    },
+    rmdirSync: (target, ...rest) => {
+      const out = fs.rmdirSync(target, ...rest);
+      const name = path.basename(target);
+      if (madeH && name.startsWith('owner-') && name !== H && name !== DEAD) leaving = true;
+      return out;
+    },
+    readdirSync: (target, ...rest) => {
+      if (leaving && !old) { fs.rmdirSync(path.join(lockOf(file), H)); fs.rmdirSync(lockOf(file)); old = legacy.tryAcquireLock(fs, file); }
+      return fs.readdirSync(target, ...rest);
+    },
+  };
+  const mine = tryAcquireLock(fsB, file);
+  assert.ok(old, 'the older runtime holds the new lock');
+  assert.ok(!(mine && mine.held()), 'B did not join it');
+  assert.deepEqual(entries(file), [], 'the older runtime\'s lock is as it made it');
+  old();
+});
+
+// N-4: the listing re-check of a reclaim. After R judged the lock stale (its first stat) another
+// reclaimer takes it; R's listing then holds that reclaimer's fresh entry, which R must not remove.
+test('reclaim: a lock taken by another reclaimer between our stale stat and our listing is left to it', (t) => {
+  const file = storeFile(t);
+  fs.mkdirSync(path.join(lockOf(file), DEAD), { recursive: true });
+  age(file);
+  let other = null; let stats = 0;
+  const fsR = { ...fs, statSync: (target, ...rest) => {
+    const out = fs.statSync(target, ...rest);
+    stats += 1;
+    if (stats === 1 && target === lockOf(file)) other = tryAcquireLock(fs, file);
+    return out;
+  } };
+  const mine = tryAcquireLock(fsR, file);
+  assert.ok(other, 'the other reclaimer took the lock');
+  assert.equal(other.held(), true, 'and still holds it');
+  assert.equal(mine, null);
+  other();
+});
+
+// N-1: a release that removed its entry and then stalled past the stale age finds an older runtime's
+// new lock at the path; it must not remove it (the narrowed window: the directory's identity is checked
+// before the final rmdir).
+test('release: a release stalled between its two rmdirs leaves an older runtime\'s new lock alone', (t) => {
+  const file = storeFile(t);
+  let old = null; let paused = false;
+  const fsP = { ...fs, rmdirSync: (target, ...rest) => {
+    const out = fs.rmdirSync(target, ...rest);
+    if (!paused && path.dirname(target) === lockOf(file)) { paused = true; age(file); old = legacy.tryAcquireLock(fs, file); }
+    return out;
+  } };
+  const release = acquireLock(fsP, file);
+  release();
+  assert.ok(old, 'the older runtime broke the emptied stale lock and holds a new one');
+  assert.equal(fs.existsSync(lockOf(file)), true, 'the release did not remove it');
+  assert.equal(tryAcquireLock(fs, file), null, 'so no new runtime takes it while the older one holds');
+  old();
+});
+
+// The window that stays (bound 3): the older runtime's lock appears after the release's identity check
+// and before its rmdir. This pins the documented outcome, it does not approve it.
+test('release, bound 3: an older runtime\'s lock made between the identity check and the rmdir is removed', (t) => {
+  const file = storeFile(t);
+  let old = null; let removed = false; let stats = 0;
+  const fsP = {
+    ...fs,
+    rmdirSync: (target, ...rest) => { const out = fs.rmdirSync(target, ...rest); if (path.dirname(target) === lockOf(file)) removed = true; return out; },
+    statSync: (target, ...rest) => {
+      const out = fs.statSync(target, ...rest);
+      if (removed && target === lockOf(file) && (stats += 1) === 1) {
+        // just after the check: the stale empty lock is broken by an older runtime, which holds a new one
+        fs.rmdirSync(lockOf(file)); old = legacy.tryAcquireLock(fs, file);
+      }
+      return out;
+    },
+  };
+  const release = acquireLock(fsP, file);
+  release();
+  assert.ok(old);
+  assert.equal(fs.existsSync(lockOf(file)), false, 'documented bound 3: the older runtime\'s lock was removed');
+});
+
 test('C-2: tryAcquireLock returns at once on a held lock and leaves nothing', (t) => {
   const file = storeFile(t);
   const holder = acquireLock(fs, file);
@@ -312,6 +431,20 @@ test('C-2: tryAcquireLock returns at once on a held lock and leaves nothing', (t
   assert.ok(performance.now() - started < 20, 'a live holder is not waited on');
   assert.deepEqual(entries(file), held);
   holder();
+});
+
+// N-5: a file in the lock (no DoFlow runtime makes one; e.g. a Finder .DS_Store) blocks it, as at
+// e003dc0d; the error names it and says to remove it.
+test('a stray file in a stale lock is refused, and the error names it', (t) => {
+  const file = storeFile(t);
+  fs.mkdirSync(lockOf(file));
+  fs.writeFileSync(path.join(lockOf(file), '.DS_Store'), '');
+  age(file);
+  assert.equal(tryAcquireLock(fs, file), null);
+  fastClock(t);
+  assert.throws(() => acquireLock(fs, file), (error) => /It holds '\.DS_Store', which no DoFlow runtime makes/.test(error.message));
+  t.mock.restoreAll();
+  assert.deepEqual(entries(file), ['.DS_Store'], 'the refused attempts left nothing');
 });
 
 // ── against the lock of runtimes from before 117 Phase C ────────────────────────────────────────

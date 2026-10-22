@@ -21,9 +21,11 @@ const REPLAYS = 20;
 // A runs to its end first. S1: B's cancel then finds no active attempt; S2: B's claim finds A's
 // active attempt. Either way B refuses without writing, so B has no write or rename. Each actor makes
 // the lock and its owner entry (mkdir mkdir) and lists the lock (readdir: it is alone, so it holds);
-// A checks its entry is still there (exists) before its rename.
-const A_FIRST = 'A.mkdir A.mkdir A.readdir A.exists A.readFile A.writeFile A.exists A.rename A.rmdir A.rmdir '
-  + 'B.mkdir B.mkdir B.readdir B.exists B.readFile B.rmdir B.rmdir';
+// A checks its entry is still there (exists) before its rename. A release notes the lock's identity
+// while its entry is in it (stat exists), removes the entry, and removes the lock only if it is still
+// that directory (stat rmdir).
+const A_FIRST = 'A.mkdir A.mkdir A.readdir A.exists A.readFile A.writeFile A.exists A.rename A.stat A.exists A.rmdir A.stat A.rmdir '
+  + 'B.mkdir B.mkdir B.readdir B.exists B.readFile B.stat B.exists B.rmdir B.stat B.rmdir';
 
 const aFirst = (parked) => (parked.includes('A') ? 'A' : 'B');
 // The run key and the (exec) worktree name the per-schedule temp dir, so they are left out of the comparison.
