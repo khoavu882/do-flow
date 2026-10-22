@@ -31,8 +31,8 @@ async function batch(n, make, width = 10) {
   return out;
 }
 
-// Measured over 200 release-mode replays of INTERLEAVED (117 Phase C lock): 146 completed with one
-// outcome, 54 replay-divergence, so 40 identical replays by chance has probability below 1e-5.
+// Measured over 200 release-mode replays of INTERLEAVED (117 Phase C lock, fix round): 115 completed
+// with one outcome, 85 replay-divergence, so 40 identical replays by chance has probability below 1e-5.
 test('negative control: granting on release instead of on re-park breaks the replay determinism', async () => {
   const runs = await batch(REPLAYS, () => ({ scenario: 'S1', init: 'none', replay: INTERLEAVED, grantOn: 'release' }));
   const keys = new Set(runs.map(outcomeKey));

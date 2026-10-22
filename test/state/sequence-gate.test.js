@@ -20,10 +20,10 @@ const GATE = path.join(__dirname, '../helper/sequence-gate.js');
 const REPLAYS = 20;
 // A runs to its end first. S1: B's cancel then finds no active attempt; S2: B's claim finds A's
 // active attempt. Either way B refuses without writing, so B has no write or rename. Each actor makes
-// the lock and its owner entry (mkdir mkdir), checks for a reclaim claim and its entry (exists exists),
-// and A checks both again before its rename.
-const A_FIRST = 'A.mkdir A.mkdir A.exists A.exists A.exists A.readFile A.writeFile A.exists A.exists A.rename A.rmdir A.rmdir '
-  + 'B.mkdir B.mkdir B.exists B.exists B.exists B.readFile B.rmdir B.rmdir';
+// the lock and its owner entry (mkdir mkdir) and lists the lock (readdir: it is alone, so it holds);
+// A checks its entry is still there (exists) before its rename.
+const A_FIRST = 'A.mkdir A.mkdir A.readdir A.exists A.readFile A.writeFile A.exists A.rename A.rmdir A.rmdir '
+  + 'B.mkdir B.mkdir B.readdir B.exists B.readFile B.rmdir B.rmdir';
 
 const aFirst = (parked) => (parked.includes('A') ? 'A' : 'B');
 // The run key and the (exec) worktree name the per-schedule temp dir, so they are left out of the comparison.
@@ -100,17 +100,21 @@ test('faults: init stale seeds a 60 s old lock; age-lock@k lets B reclaim the lo
   });
   assert.ok(lockAgeMs >= 59_000 && lockAgeMs < 70_000, `lock age ${lockAgeMs}`);
 
-  // A takes the lock (mkdir, owner entry, settle), then B makes eight calls in a row: on the aged lock
-  // they list it, claim it and move it aside; on a fresh one B only retries.
+  // A takes the lock (mkdir, owner entry, list), then B makes eight calls in a row: on the aged lock
+  // they list it, enter it, check it is the same directory, remove A's entry and list it again; on a
+  // fresh one B only retries. Then the two alternate, so neither waits on the other forever.
   const script = ['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'B', 'B', 'B', 'B'];
-  const chooser = (parked, step) => script[step] ?? aFirst(parked);
+  const chooser = (parked, step) => {
+    const want = script[step] ?? (step % 2 ? 'B' : 'A');
+    return parked.includes(want) ? want : parked[0];
+  };
   const aged = await runSchedule({ scenario: 'S1', init: 'none', fault: { kind: 'age-lock', at: 4 }, chooser });
-  assert.ok(aged.trace.startsWith('A.mkdir A.mkdir A.exists A.exists age-lock@4 B.mkdir B.stat B.readdir B.stat B.mkdir B.readdir B.stat B.rename'), aged.trace);
+  assert.ok(aged.trace.startsWith('A.mkdir A.mkdir A.readdir A.exists age-lock@4 B.mkdir B.stat B.readdir B.stat B.mkdir B.stat B.rmdir B.readdir'), aged.trace);
   assert.deepEqual(aged.fault, { kind: 'age-lock', at: 4 });
   assert.equal(aged.faultApplied, true);
   assert.equal(aged.incomplete, null);
   const fresh = await runSchedule({ scenario: 'S1', init: 'none', chooser });
-  assert.ok(fresh.trace.startsWith('A.mkdir A.mkdir A.exists A.exists B.mkdir B.stat B.mkdir B.stat'), fresh.trace);
+  assert.ok(fresh.trace.startsWith('A.mkdir A.mkdir A.readdir A.exists B.mkdir B.stat B.mkdir B.stat'), fresh.trace);
   assert.equal(fresh.fault, null);
   assert.equal(fresh.faultApplied, null);
   // The fault survives a replay round trip.

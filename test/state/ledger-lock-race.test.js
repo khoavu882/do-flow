@@ -3,14 +3,17 @@
 // Feature 117 B.1 (IC-005): in-suite regressions for the task-attempt ledger's stale-lock defect.
 // Up to e003dc0d the lock in src/runtime/task-state.ts broke a lock older than LOCK_STALE_MS without
 // checking its holder and released unconditionally, so a paused holder and a breaker both "owned" the
-// lock. 117 Phase C (FU-8acds5, FU-vgkrvd) gave the lock an owner entry, an exclusive reclaim and a
+// lock. 117 Phase C (FU-8acds5, FU-vgkrvd) gave the lock an owner entry, an in-place reclaim and a
 // pre-write ownership check; these regressions now run required:
 //
 //   R-nested       one process: finish stalls inside its store read, the lock ages, cancel runs nested
-//   R-two-process  S1 from a stale lock: both judge it stale, B reclaims and takes it, A's reclaim claim
-//                  lands inside B's live lock and B waits for A to withdraw it before reading
-//   R-claim        S2 from a stale lock: both judge it stale, A reclaims and takes it, B's claim lands
-//                  inside A's live lock and is withdrawn; B is refused after A's claim
+//   R-two-process  S1 from a stale lock: both actors judge it stale before either acts on it; A acts
+//                  first and reaches its store read, then B acts on its judgement
+//   R-claim        S2 from a stale lock: the same rule with B acting first, then A
+//
+// R-two-process and R-claim are chooser rules over the parked calls, not replay strings, so they hold
+// for any lock implementation: on develop up to e003dc0d each ends in an oracle VIOLATION (the second
+// actor's stale break removes the first one's live lock, a lost acknowledgement or a double grant).
 //
 // Every regression asserts the correct behaviour (the oracle's PASS). A known open defect's PASS test
 // is `todo`: KNOWN_DEFECTS below is the marker list, and a fix removes its entries in the same commit,
@@ -41,24 +44,37 @@ const REQUIRED_REGRESSIONS = ['R-nested', 'R-two-process', 'R-claim'];
 // and earlier). It no longer replays: the fixed lock makes other fs calls. Kept as the oracle control below.
 const P1 = 'B.mkdir A.mkdir B.stat A.stat B.rmdir B.mkdir B.exists A.rmdir A.mkdir A.exists B.readFile B.writeFile '
   + 'A.readFile A.writeFile A.rename B.rename A.rmdir B.rmdir';
-// The pre-fix double-grant (C.1: the sampler's shortest S2 trace, seed 117, N 200, ca53f2e8) was
-// 'A.mkdir B.mkdir A.stat B.stat A.rmdir A.mkdir B.rmdir A.exists A.readFile B.mkdir B.exists B.readFile
-// A.writeFile A.rename A.rmdir B.writeFile B.rename B.rmdir': A broke the stale lock and took it, B broke
-// A's live lock. The traces below are the same race on the fixed lock (117 Phase C, pinned on darwin and
-// replayed 10/10 PASS): both actors judge the stale lock before either reclaims it, and the loser's
-// reclaim claim lands inside the winner's live lock.
-// S1: B reclaims and takes the lock; A's claim lands after B's owner entry, B's settle waits on it
-// (B.exists B.exists) until A withdraws it (A.rmdir); then B cancels and A's finish answers stale.
-const R_TWO_PROCESS = 'B.mkdir A.mkdir B.stat A.stat A.readdir A.stat B.readdir B.stat B.mkdir B.readdir B.stat B.rename '
-  + 'B.rm B.mkdir B.mkdir A.mkdir B.exists B.exists A.readdir A.stat A.rmdir B.exists A.mkdir B.exists A.stat B.exists '
-  + 'A.mkdir B.readFile A.stat B.writeFile A.mkdir B.exists A.stat B.exists A.mkdir B.rename A.stat B.rmdir A.mkdir '
-  + 'B.rmdir A.stat A.mkdir A.mkdir A.exists A.exists A.exists A.readFile A.rmdir A.rmdir';
-// S2: A reclaims and takes the lock; B's claim lands inside it and is withdrawn; A claims token 1 and
-// B, taking the lock after A's release, is refused.
-const R_CLAIM = 'A.mkdir B.mkdir A.stat B.stat B.readdir B.stat A.readdir A.stat A.mkdir A.readdir A.stat A.rename A.rm '
-  + 'A.mkdir A.mkdir A.exists B.mkdir B.readdir B.stat B.rmdir A.exists B.mkdir A.exists B.stat A.readFile B.mkdir '
-  + 'A.writeFile B.stat A.exists B.mkdir A.exists B.stat A.rename B.mkdir A.rmdir B.stat A.rmdir B.mkdir B.mkdir '
-  + 'B.exists B.exists B.exists B.readFile B.rmdir B.rmdir';
+
+/**
+ * The chooser rule of R-two-process and R-claim: "both judge the stale lock before either acts on it".
+ * Both actors run to their first stat of the lock (each judges it stale); then `first` runs until it
+ * is parked on its store read (it holds the lock); then the other runs on its judgement, up to 12 calls
+ * or until it too is parked on its store read; then the two alternate, `first` first, to the end.
+ */
+function bothJudgeFirst(first) {
+  const second = first === 'A' ? 'B' : 'A';
+  let phase = 'judge';
+  let secondCalls = 0;
+  let turn = 0;
+  return (parked, step, { methods, trace }) => {
+    const has = (name) => parked.includes(name);
+    if (phase === 'judge') {
+      for (const name of ['A', 'B']) if (has(name) && !trace.includes(`${name}.stat`)) return name;
+      phase = 'first';
+    }
+    if (phase === 'first') {
+      if (has(first) && methods[first] !== 'readFile') return first;
+      phase = 'second';
+    }
+    if (phase === 'second') {
+      if (has(second) && methods[second] !== 'readFile' && secondCalls < 12) { secondCalls += 1; return second; }
+      phase = 'alternate';
+    }
+    turn += 1;
+    const want = turn % 2 ? first : second;
+    return has(want) ? want : parked[0];
+  };
+}
 const R_NESTED_TRACE = 'A.finish(readFile store) age-lock B.cancel(nested, to its end) A.finish(continues)';
 
 const aFirst = (parked) => (parked.includes('A') ? 'A' : 'B');
@@ -109,8 +125,8 @@ function runNested() {
 
 const REGRESSIONS = [
   { id: 'R-nested', run: async () => runNested() },
-  { id: 'R-two-process', run: () => runSchedule({ scenario: 'S1', init: 'stale', replay: R_TWO_PROCESS }) },
-  { id: 'R-claim', run: () => runSchedule({ scenario: 'S2', init: 'stale', replay: R_CLAIM }) },
+  { id: 'R-two-process', run: () => runSchedule({ scenario: 'S1', init: 'stale', chooser: bothJudgeFirst('A') }) },
+  { id: 'R-claim', run: () => runSchedule({ scenario: 'S2', init: 'stale', chooser: bothJudgeFirst('B') }) },
 ];
 const SELF_TESTS = ['S1', 'S2'];
 

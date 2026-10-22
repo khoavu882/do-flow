@@ -15,7 +15,7 @@
 //   - a per-file lock (`<file>.lock` directory — mkdirSync is atomic on every platform) makes the
 //     read-merge-write below a critical section across processes on this machine; the holder
 //     marks the directory with its own `owner-*` entry, so release and the pre-write check act on
-//     that holder's lock only, and a stale lock is reclaimed by exactly one process (see the
+//     that holder's lock only, and a stale lock is reclaimed in place by one process (see the
 //     protocol above `attemptLock`);
 //   - inside the lock, the writer re-reads the file and MERGES what is on disk into its own view
 //     before writing, so an overlapping writer's items survive;
@@ -58,65 +58,129 @@ function sleep(ms: number): void {
 
 // ── The lock protocol (117 Phase C; FU-8acds5, FU-vgkrvd) ───────────────────────────────────────────
 //
-// The lock is still the `<file>.lock` directory, created with mkdirSync. What changed is who may
-// remove it. Before, any process that found it older than LOCK_STALE_MS removed it by name, and
-// every release removed it by name: two waiters that judged the same stale lock could both take it,
-// and each one's release could delete the other's.
+// The lock is the `<file>.lock` directory, created with mkdirSync. A holder marks it with its own
+// `owner-<pid>-<random>` entry. Before this protocol any process that found the lock older than
+// LOCK_STALE_MS removed it by name and every release removed it by name, so two waiters that judged
+// one stale lock could both take it and each one's release could delete the other's. Three facts
+// carry the protocol (the safety argument, one interleaving at a time, is in the 117 feature records:
+// research/phase-c-protocol.md):
 //
-//   - Acquire: mkdir `<file>.lock`, then mkdir `<file>.lock/owner-<pid>-<random>` (the holder's own
-//     entry). The lock is held while that entry is in the directory at `<file>.lock`.
+//   - Pinned: no DoFlow runtime renames a lock directory and rmdir removes only an empty one, so a
+//     directory with an entry in it stays at `<file>.lock` until it is empty. A process whose entry
+//     is in the lock knows the directory at that path is the one holding its entry.
+//   - Released: this runtime removes a lock directory only in its release, after removing its own
+//     entry from the lock it held; it reclaims a stale lock in place. Older runtimes remove one by
+//     name in their release, or after judging a lock stale.
+//   - Alone: a process holds the lock when its entry is the only entry in it. Two processes whose
+//     entries are in one directory cannot both have been alone in it.
+//
+//   - Acquire: note the time, mkdir `<file>.lock`, mkdir its entry inside, read the time again. Under
+//     PUBLISH_BOUND_MS, no process can have judged the new directory stale before the entry landed,
+//     so the entry is in this process's own directory. Over it, the entry may have landed in a
+//     directory another process made after reclaiming this one (an older runtime's empty lock looks
+//     exactly like a new one), so the process removes its entry and starts over. Then it lists the
+//     lock: alone, it holds.
+//   - Reclaim (the lock is older than LOCK_STALE_MS): stat, list, stat again (the same directory,
+//     unchanged, so every entry listed has been there that long); mkdir its own entry; stat again:
+//     not the same directory means the judged one was removed and the entry landed in a newer lock,
+//     so it removes its entry and starts over. Then it removes the judged entries by name (names are
+//     unique, so a later holder's entry is never among them) and lists the lock: alone, it holds. The
+//     directory never empties on the way, so an older runtime's rmdir of a stale lock fails instead of
+//     removing it.
+//   - Contention: two entries mean two processes reached the lock. The one whose entry name sorts
+//     first waits for the other to leave (it holds next); the other removes its entry and waits. A
+//     process that removes its entry and finds the lock emptied enters it again (once, after checking
+//     it is the same directory) instead of leaving an empty lock everyone would wait 10 s on.
 //   - Release removes the holder's own entry, then the directory. A holder whose entry is gone (its
-//     lock was reclaimed) removes nothing, so it can never delete a newer holder's lock.
-//   - Reclaim (a lock older than LOCK_STALE_MS): list the directory, confirm it is still the same
-//     directory, then mkdir `<file>.lock/reclaim` (exclusive: one reclaimer wins). A non-empty
-//     directory cannot be removed by rmdir, so from that moment only the claimant can move it. The
-//     claimant lists it again: the same directory with no entry it lacked when judged (its holder may
-//     have released meanwhile) means it is the lock that was judged stale, and the claimant renames it
-//     aside and deletes it; anything else (a new lock appeared in between) and the claimant removes
-//     its claim and starts over.
-//   - A new holder checks for a `reclaim` entry after writing its own (`settle`): a claim placed
-//     before the holder's entry existed may still move the directory, so the holder waits until
-//     the claim is withdrawn (it holds the lock) or its own entry has gone (it does not).
-//   - `updateTaskState` makes the same check (`release.held()`) after writing its tmp file and
-//     before the rename: a holder that was paused past LOCK_STALE_MS and reclaimed writes nothing.
+//     lock was reclaimed) removes nothing; a waiting process's entry keeps the directory, and that
+//     process holds next.
+//   - `updateTaskState` checks the holder's entry is still in the lock (`release.held()`) after
+//     writing its tmp file and before the rename: a holder that was paused past LOCK_STALE_MS and
+//     reclaimed writes nothing.
 //
 // Runtimes from before this protocol see a directory they did not create: they wait on a fresh one,
 // and on a stale one their rmdir fails (it is not empty), so they fail closed ("Could not lock",
-// `store-locked`) instead of taking it; their release of a lock that was reclaimed from them fails
-// the same way and leaves the new holder's lock in place. Bounds, not covered: a holder paused past
-// LOCK_STALE_MS between `held()` and its rename; an older runtime and a new one reclaiming the same
-// stale lock at the same moment (the older one still breaks by name); a reclaimer that dies holding
-// its claim leaves the lock in place until someone removes `<file>.lock` (the error names it).
+// `store-locked`) instead of taking it; their release of a lock reclaimed from them fails the same
+// way. Whatever a process leaves when it dies is reclaimed once LOCK_STALE_MS old. The bounds (what
+// this does not cover) are listed once, in docs/architecture.md under "The task-state lock".
 const OWNER_PREFIX = 'owner-';
-const RECLAIM_ENTRY = 'reclaim';
-// How long a new holder waits for a concurrent reclaimer to decide; it decides in a few fs calls.
-const SETTLE_MS = 1000;
-const SETTLE_WAIT_MS = 2;
-const IMMEDIATE_ATTEMPTS = 3;
+// The longest a fresh acquire may take from its mkdir to its entry and still trust the directory is
+// its own: half the stale age, so a process that judged it stale cannot have done so before the
+// entry landed, with room for coarse file timestamps.
+const PUBLISH_BOUND_MS = LOCK_STALE_MS / 2;
+// How long tryAcquireLock waits for a process that reached the lock at the same moment to leave.
+const CONTEND_MS = 40;
+const CONTEND_WAIT_MS = 2;
 
-type LockStep = 'held' | 'busy' | 'again';
+type LockStep = 'held' | 'busy' | 'again' | 'queued';
 
 /** Same directory: same device and inode, and the same birth time where the platform reports one. */
 function sameDir(a: any, b: any): boolean {
   return a.dev === b.dev && a.ino === b.ino && (!a.birthtimeMs || !b.birthtimeMs || a.birthtimeMs === b.birthtimeMs);
 }
 
-/** True while `token` is this holder's entry in the lock and no reclaimer's claim is deciding. */
-function settle(fsImpl: any, lockDir: string, token: string): boolean {
-  const deadline = Date.now() + SETTLE_MS;
-  for (;;) {
-    // The claim is checked first: a claimant that moves the directory between the two checks takes
-    // the owner entry with it, and the second check then sees it gone.
-    const claimed = fsImpl.existsSync(path.join(lockDir, RECLAIM_ENTRY));
-    if (!fsImpl.existsSync(path.join(lockDir, token))) return false;
-    if (!claimed) return true;
-    if (Date.now() >= deadline) return false;
-    sleep(SETTLE_WAIT_MS);
-  }
+/** Removes this process's entry; gone already is fine (a reclaimer removed it). */
+function withdraw(fsImpl: any, lockDir: string, token: string): void {
+  try { fsImpl.rmdirSync(path.join(lockDir, token)); } catch { /* not there: nothing of ours is left */ }
 }
 
-/** Reclaims the lock at `lockDir` when it is stale; never takes it. `again` means look again now. */
-function reclaimIfStale(fsImpl: any, lockDir: string): LockStep {
+/**
+ * With this process's entry in the lock: `held` when it is the only entry; `queued` when another
+ * entry is there and ours sorts first (we hold once it leaves); otherwise we leave (`busy`, or `held`
+ * when leaving found everyone else gone). `again` when our entry is gone (the lock was reclaimed from
+ * us). With `rejoin` false (an entry that came back to an emptied lock) it never queues or comes back.
+ */
+function elect(fsImpl: any, lockDir: string, token: string, rejoin = true): LockStep {
+  let entries: string[];
+  let pinned: any;
+  try {
+    entries = fsImpl.readdirSync(lockDir);
+    if (!entries.includes(token)) return 'again';
+    if (entries.length === 1) return 'held';
+    if (rejoin && entries.every((name: string) => name === token || token < name)) return 'queued';
+    pinned = pinnedDir(fsImpl, lockDir, token);
+  } catch { pinned = null; }
+  if (!pinned) { withdraw(fsImpl, lockDir, token); return 'again'; }
+  if (!rejoin) { withdraw(fsImpl, lockDir, token); return 'busy'; }
+  return leave(fsImpl, lockDir, token, pinned);
+}
+
+/** The stat of the lock while our entry is in it (so it is the directory holding our entry), or null. */
+function pinnedDir(fsImpl: any, lockDir: string, token: string): any {
+  try {
+    const stat = fsImpl.statSync(lockDir);
+    return fsImpl.existsSync(path.join(lockDir, token)) ? stat : null;
+  } catch { return null; }
+}
+
+/**
+ * Removes our entry from the lock `pinned` (its stat taken while our entry was in it). If that left
+ * it empty, everyone else left after we looked, and an empty lock would block every process until it
+ * is stale: we enter it again, once, and hold it if we are alone. Never removes the directory.
+ */
+function leave(fsImpl: any, lockDir: string, token: string, pinned: any): LockStep {
+  withdraw(fsImpl, lockDir, token);
+  try {
+    if (fsImpl.readdirSync(lockDir).length > 0) return 'busy';
+    fsImpl.mkdirSync(path.join(lockDir, token));
+  } catch (error: any) { return error.code === 'ENOENT' ? 'again' : 'busy'; }
+  let same = false;
+  try { same = sameDir(pinned, fsImpl.statSync(lockDir)); } catch { /* treat it as changed */ }
+  if (!same) { withdraw(fsImpl, lockDir, token); return 'again'; }
+  return elect(fsImpl, lockDir, token, false);
+}
+
+/** A queued attempt that stops waiting: leave the lock (or hold it, when the other left meanwhile). */
+function giveUp(fsImpl: any, lockDir: string, token: string): LockStep {
+  const step = elect(fsImpl, lockDir, token);
+  if (step !== 'queued') return step;
+  const pinned = pinnedDir(fsImpl, lockDir, token);
+  if (!pinned) { withdraw(fsImpl, lockDir, token); return 'again'; }
+  return leave(fsImpl, lockDir, token, pinned);
+}
+
+/** Reclaims the lock at `lockDir` in place when it is stale. `again` means look again now. */
+function reclaimIfStale(fsImpl: any, lockDir: string, token: string): LockStep {
   const missing = (error: any): LockStep => (error.code === 'ENOENT' ? 'again' : 'busy');
   let judged: any;
   let entries: string[];
@@ -124,51 +188,49 @@ function reclaimIfStale(fsImpl: any, lockDir: string): LockStep {
     judged = fsImpl.statSync(lockDir);
     if (Date.now() - judged.mtimeMs <= LOCK_STALE_MS) return 'busy';
     entries = fsImpl.readdirSync(lockDir);
-    if (entries.includes(RECLAIM_ENTRY)) return 'busy';
     const listed = fsImpl.statSync(lockDir);
     if (!sameDir(judged, listed) || listed.mtimeMs !== judged.mtimeMs) return 'again';
   } catch (error: any) { return missing(error); }
-  const claim = path.join(lockDir, RECLAIM_ENTRY);
-  try { fsImpl.mkdirSync(claim); } catch (error: any) { return error.code === 'EEXIST' ? 'busy' : missing(error); }
-  // Only this claimant can move or remove the directory now; it is the judged lock or a newer one.
+  try { fsImpl.mkdirSync(path.join(lockDir, token)); } catch (error: any) { return missing(error); }
+  // Our entry pins the directory it landed in; it must be the one judged stale.
   let same = false;
-  try {
-    // An entry can only have gone (its holder released), never come, while it is the judged lock.
-    const now = fsImpl.readdirSync(lockDir).filter((name: string) => name !== RECLAIM_ENTRY);
-    same = sameDir(judged, fsImpl.statSync(lockDir)) && now.every((name: string) => entries.includes(name));
-  } catch { /* unreadable: treat it as changed */ }
-  if (same) {
-    const aside = `${lockDir}.reclaimed-${randomBytes(6).toString('hex')}`;
-    try {
-      fsImpl.renameSync(lockDir, aside);
-    } catch {
-      same = false;
-    }
-    if (same) {
-      try { fsImpl.rmSync(aside, { recursive: true, force: true }); } catch { /* an orphan aside dir holds no lock */ }
-      return 'again';
+  try { same = sameDir(judged, fsImpl.statSync(lockDir)); } catch { /* treat it as changed */ }
+  if (!same) {
+    withdraw(fsImpl, lockDir, token);
+    return 'again';
+  }
+  for (const name of entries) {
+    try { fsImpl.rmdirSync(path.join(lockDir, name)); } catch (error: any) {
+      if (error.code === 'ENOENT') continue; // another reclaimer, or its released holder, removed it
+      withdraw(fsImpl, lockDir, token); // not an entry this protocol makes: leave the lock alone
+      return 'busy';
     }
   }
-  try { fsImpl.rmdirSync(claim); } catch { /* the claim stays; the lock then needs removing by hand (see acquireLock) */ }
-  return 'again';
+  return elect(fsImpl, lockDir, token);
 }
 
-/** One step towards holding the lock under `token`: held, busy (wait), or again (retry now). */
+/** One step towards holding the lock under `token`: held, queued (our entry waits in it), busy, or again. */
 function attemptLock(fsImpl: any, lockDir: string, token: string): LockStep {
+  const started = Date.now();
   try {
     fsImpl.mkdirSync(lockDir);
   } catch (error: any) {
     if (error.code !== 'EEXIST') throw error;
-    return reclaimIfStale(fsImpl, lockDir);
+    return reclaimIfStale(fsImpl, lockDir, token);
   }
   try {
     fsImpl.mkdirSync(path.join(lockDir, token));
   } catch (error: any) {
-    if (error.code === 'ENOENT') return 'again'; // removed before it was marked: an older runtime's release or a reclaim
-    try { fsImpl.rmdirSync(lockDir); } catch { /* left for the stale rule */ }
+    if (error.code === 'ENOENT') return 'again'; // removed before it was marked: an older runtime's release or stale break
     throw error;
   }
-  return settle(fsImpl, lockDir, token) ? 'held' : 'again';
+  if (Date.now() - started >= PUBLISH_BOUND_MS) {
+    // Paused long enough for the new directory to be judged stale and replaced: the entry may sit in
+    // another process's lock. Leave it; the directory (ours or not) is left as found.
+    withdraw(fsImpl, lockDir, token);
+    return 'again';
+  }
+  return elect(fsImpl, lockDir, token);
 }
 
 /** The release function of a held lock; `release.held()` re-checks ownership before a write. */
@@ -178,26 +240,34 @@ function ownedRelease(fsImpl: any, lockDir: string, token: string): any {
     if (released) return;
     released = true;
     try { fsImpl.rmdirSync(path.join(lockDir, token)); } catch { return; } // reclaimed: the lock is not ours to remove
-    try { fsImpl.rmdirSync(lockDir); } catch { /* a reclaimer's claim is deciding; it moves or frees the directory */ }
+    try { fsImpl.rmdirSync(lockDir); } catch { /* a waiting process's entry is in it; that process holds next */ }
   };
-  release.held = () => !released && settle(fsImpl, lockDir, token);
+  release.held = () => !released && fsImpl.existsSync(path.join(lockDir, token));
   return release;
 }
 
 const newToken = () => `${OWNER_PREFIX}${process.pid}-${randomBytes(6).toString('hex')}`;
 
 /**
- * Makes one non-waiting attempt to take the cross-process lock for a state file. A lock older than
- * LOCK_STALE_MS may be reclaimed; a live holder is never waited on. Returns a release function or null.
+ * Makes one attempt to take the cross-process lock for a state file, without waiting on a holder:
+ * a lock older than LOCK_STALE_MS is reclaimed, a live holder is never waited on. It waits only when
+ * another process reached the lock at the same moment, for at most CONTEND_MS (40 ms) for that
+ * process to leave. Returns a release function or null.
  * @param {Object} fsImpl
  * @param {string} file
  * @returns {(() => void)|null}
  */
 function tryAcquireLock(fsImpl: any, file: string): (() => void) | null {
   const lockDir = `${file}.lock`;
-  const token = newToken();
-  for (let attempt = 0; attempt < IMMEDIATE_ATTEMPTS; attempt += 1) {
-    const step = attemptLock(fsImpl, lockDir, token);
+  const deadline = Date.now() + CONTEND_MS;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const token = newToken();
+    let step = attemptLock(fsImpl, lockDir, token);
+    while (step === 'queued' && Date.now() < deadline) {
+      sleep(CONTEND_WAIT_MS);
+      step = elect(fsImpl, lockDir, token);
+    }
+    if (step === 'queued') step = giveUp(fsImpl, lockDir, token);
     if (step === 'held') return ownedRelease(fsImpl, lockDir, token);
     if (step === 'busy') return null;
   }
@@ -205,31 +275,38 @@ function tryAcquireLock(fsImpl: any, file: string): (() => void) | null {
 }
 
 /**
- * Takes the cross-process lock for one state file, retrying for the existing bounded wait interval.
- * A stale lock is reclaimed because its holder died or stalled; the rename-based write keeps the file whole.
+ * Takes the cross-process lock for one state file, waiting up to LOCK_RETRIES * LOCK_WAIT_MS (5 s).
+ * A lock older than LOCK_STALE_MS is reclaimed: its holder died or stalled, and the rename-based write
+ * keeps the file whole.
  * @param {Object} fsImpl
  * @param {string} file
  * @returns {() => void}
  */
 function acquireLock(fsImpl: any, file: string): () => void {
   const lockDir = `${file}.lock`;
-  const token = newToken();
   // The stale rule below is wall-clock, so the wait must be too: on a host where each attempt costs
   // real time, counting attempts alone would outlive a live holder's staleness window.
   const deadline = Date.now() + LOCK_RETRIES * LOCK_WAIT_MS;
+  let step: LockStep = 'again';
+  let token = '';
   for (let attempt = 0; attempt < LOCK_RETRIES && (attempt === 0 || Date.now() < deadline); attempt += 1) {
-    const step = attemptLock(fsImpl, lockDir, token);
+    if (step === 'queued') step = elect(fsImpl, lockDir, token);
+    else {
+      token = newToken(); // a fresh entry name per attempt: an earlier one's name never comes back
+      step = attemptLock(fsImpl, lockDir, token);
+    }
     if (step === 'held') return ownedRelease(fsImpl, lockDir, token);
-    if (step === 'busy') sleep(LOCK_WAIT_MS);
+    if (step === 'busy' || step === 'queued') sleep(LOCK_WAIT_MS);
   }
+  if (step === 'queued' && giveUp(fsImpl, lockDir, token) === 'held') return ownedRelease(fsImpl, lockDir, token);
   throw new Error(`Could not lock '${file}' after ${(LOCK_RETRIES * LOCK_WAIT_MS) / 1000}s — another writer holds '${lockDir}'. `
-    + 'If no other session is running, the lock is leftover from a crash younger than its stale timeout; retry shortly. '
-    + `If it holds a '${RECLAIM_ENTRY}' entry older than that, a process died reclaiming it: remove '${lockDir}' once no DoFlow process is running.`);
+    + `If no other DoFlow process is running, the lock is left from a crash and is reclaimed once it is ${LOCK_STALE_MS / 1000}s old; retry then.`);
 }
 
 /**
  * Takes the cross-process lock for one state file with a bounded wait.
- * Makes 1 try plus `retries` retries (default 3) separated by `waitMs` (default 5).
+ * Makes 1 try plus `retries` retries (default 3) separated by `waitMs` (default 5); each try is one
+ * tryAcquireLock, which waits at most 40 ms, and only on a process that reached the lock at the same moment.
  * Throws an Error('store-locked') after one try plus retries.
  * @param {Object} fsImpl
  * @param {string} file
@@ -341,9 +418,10 @@ function updateTaskState({
       fsImpl.writeFileSync(tmp, JSON.stringify(payload, null, 2), 'utf8');
       // A writer paused past LOCK_STALE_MS may have been reclaimed; its read is then stale.
       if (typeof release.held === 'function' && !release.held()) {
+        try { fsImpl.rmSync(tmp, { force: true }); } catch { /* stale-temp pruning removes it later */ }
         if (attempt < lostLockRetries) continue;
         const lost: any = new Error(`Lost the lock on '${file}' to another writer before writing (this writer stalled past `
-          + `${LOCK_STALE_MS / 1000}s). Nothing was written; retry.`);
+          + `${LOCK_STALE_MS / 1000}s${lostLockRetries ? `, ${lostLockRetries + 1} times` : ''}). Nothing was written; run the command again.`);
         lost.code = 'lock-lost';
         throw lost;
       }
