@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { BLOCKS, LLMS_CAP, checkAll, captureHelp, readNav } = require('../../src/release/docs-blocks.ts');
+const { LLMS_CAP, checkAll, captureHelp, markerFindings, readNav } = require('../../src/release/docs-blocks.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const COPY_PATHS = [
@@ -26,6 +26,17 @@ function read(root, rel) {
 
 function write(root, rel, text) {
   fs.writeFileSync(path.join(root, rel), text);
+}
+
+function withSeededFile(root, rel, seed, check) {
+  const file = path.join(root, rel);
+  const original = fs.readFileSync(file, 'utf8');
+  try {
+    fs.writeFileSync(file, seed(original));
+    return check(original);
+  } finally {
+    fs.writeFileSync(file, original);
+  }
 }
 
 function copyGuardInputs(source, destination) {
@@ -43,7 +54,7 @@ function docsMarkdown(root) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (path.relative(path.join(root, 'docs'), full).split(path.sep)[0] !== 'javascripts') walk(full);
+        walk(full);
       } else if (entry.name.endsWith('.md')) {
         pages.push(path.relative(path.join(root, 'docs'), full).split(path.sep).join('/'));
       }
@@ -163,21 +174,32 @@ function checkCommandVerbs(root, help) {
 
 function checkValidation(root) {
   const lines = read(root, 'mkdocs.yml').split(/\r?\n/);
-  const start = lines.findIndex((line) => /^validation:\s*$/.test(line));
-  if (start < 0) return ['mkdocs.yml is missing validation:'];
-  const block = [];
-  for (const line of lines.slice(start + 1)) {
-    if (/^\S/.test(line)) break;
-    const match = line.match(/^\s+([A-Za-z_][\w-]*):\s*(\S+)\s*$/);
-    if (match) block.push([match[1], match[2]]);
-  }
+  const validationLines = lines.map((line, index) => ({ line, index })).filter(({ line }) => /^validation:/.test(line));
   const expected = ['omitted_files', 'absolute_links', 'unrecognized_links', 'anchors'];
   const problems = [];
-  for (const key of expected) {
-    const values = block.filter(([name]) => name === key).map(([, value]) => value);
-    if (values.length !== 1 || values[0] !== 'warn') problems.push(`mkdocs.yml validation.${key} must be exactly warn`);
+  if (validationLines.length !== 1 || validationLines[0].line !== 'validation:') {
+    return ['mkdocs.yml must contain one block-form validation: key'];
   }
-  for (const [key] of block) {
+  const block = [];
+  for (const line of lines.slice(validationLines[0].index + 1)) {
+    if (/^\S/.test(line)) break;
+    if (line.trim() !== '') block.push(line);
+  }
+  if (block.some((line) => /[{}\[\]]/.test(line))) problems.push('mkdocs.yml validation block cannot use flow syntax');
+  const indent = block[0]?.match(/^(\s+)/)?.[1];
+  const actual = [];
+  for (const line of block) {
+    const match = line.match(/^(\s+)([A-Za-z_][\w-]*): warn$/);
+    if (!match || match[1] !== indent) {
+      problems.push(`mkdocs.yml validation has invalid or nested line ${line.trim()}`);
+      continue;
+    }
+    actual.push(match[2]);
+  }
+  for (const key of expected) {
+    if (actual.filter((name) => name === key).length !== 1) problems.push(`mkdocs.yml validation.${key} must be exactly warn`);
+  }
+  for (const key of actual) {
     if (!expected.includes(key)) problems.push(`mkdocs.yml validation has unexpected key ${key}`);
   }
   return problems;
@@ -208,6 +230,17 @@ function checkWorkflowMajors(root) {
   const docs = workflowActions(root, 'docs.yml');
   const others = workflowFiles(root).filter((file) => file !== 'docs.yml').flatMap((file) => workflowActions(root, file));
   const problems = [];
+  const floors = { checkout: 7, 'setup-python': 7, 'configure-pages': 6, 'upload-pages-artifact': 5, 'deploy-pages': 5 };
+  for (const [name, floor] of Object.entries(floors)) {
+    const matches = docs.filter((action) => action.name === name);
+    if (matches.length === 0) {
+      problems.push(`.github/workflows/docs.yml: ${name} is missing (minimum v${floor})`);
+      continue;
+    }
+    for (const action of matches) {
+      if (action.major === null || action.major < floor) problems.push(`.github/workflows/docs.yml:${action.line}: ${name} is below v${floor}`);
+    }
+  }
   for (const action of docs) {
     if (action.major === null) {
       problems.push(`.github/workflows/docs.yml:${action.line}: ${action.name} has no recognizable major`);
@@ -251,28 +284,38 @@ test('G61.a generated blocks match their sources', () => {
   }
 });
 
-test('G61.b generated markers are registered, paired and complete', () => {
+test('G61.b generated markers on every docs page are registered to that page, paired, not nested and complete', () => {
   const checkMarkers = (root) => {
-    const findings = checkAll(root).filter((finding) => ['orphan', 'missing'].includes(finding.kind));
-    const registered = new Set(BLOCKS.map((block) => block.id));
-    const reported = new Set(findings.map((finding) => `${finding.page}:${finding.id}`));
+    const findings = checkAll(root).filter((finding) => finding.kind === 'missing');
     for (const page of docsMarkdown(root)) {
       const text = read(root, `docs/${page}`);
-      for (const match of text.matchAll(/<!-- BEGIN GENERATED:([^\s>]+) -->/g)) {
-        const key = `${page}:${match[1]}`;
-        if (!registered.has(match[1]) && !reported.has(key)) findings.push({ page: `docs/${page}`, id: match[1], kind: 'orphan' });
-      }
+      findings.push(...markerFindings(page, text));
     }
     return findings;
   };
   assert.deepEqual(checkMarkers(REPO), [], JSON.stringify(checkMarkers(REPO)));
   assert.deepEqual(checkMarkers(COPY), [], JSON.stringify(checkMarkers(COPY)));
-  const file = path.join(COPY, 'docs/guide.md');
-  const original = fs.readFileSync(file, 'utf8');
-  write(COPY, 'docs/guide.md', `${original}\n<!-- BEGIN GENERATED:nosuch -->\n<!-- END GENERATED:nosuch -->\n`);
-  const findings = checkMarkers(COPY);
-  assert.ok(findings.some((finding) => finding.page.includes('guide.md') && finding.id === 'nosuch'), JSON.stringify(findings));
-  write(COPY, 'docs/guide.md', original);
+  withSeededFile(COPY, 'docs/guide.md', (original) => `${original}\n<!-- BEGIN GENERATED:nosuch -->\n<!-- END GENERATED:nosuch -->\n`, () => {
+    const findings = checkMarkers(COPY);
+    assert.ok(findings.some((finding) => finding.page.includes('guide.md') && finding.id === 'nosuch'), JSON.stringify(findings));
+  });
+  const settingsPair = read(COPY, 'docs/settings.md').match(/<!-- BEGIN GENERATED:settings-keys -->[\s\S]*?<!-- END GENERATED:settings-keys -->/)[0];
+  withSeededFile(COPY, 'docs/guide.md', (original) => `${original}\n${settingsPair}\n`, () => {
+    const findings = checkMarkers(COPY);
+    assert.ok(findings.some((finding) => finding.page.includes('guide.md') && finding.id === 'settings-keys'), JSON.stringify(findings));
+  });
+  withSeededFile(COPY, 'docs/guide.md', (original) => `${original}\n<!-- END GENERATED:task-classes -->\n`, () => {
+    const findings = checkMarkers(COPY);
+    assert.ok(findings.some((finding) => finding.page.includes('guide.md') && finding.id === 'task-classes'), JSON.stringify(findings));
+  });
+  withSeededFile(COPY, 'docs/specs/operating-modes.md', (original) => `${original}\n${settingsPair}\n`, () => {
+    const findings = checkMarkers(COPY);
+    assert.ok(findings.some((finding) => finding.page.includes('specs/operating-modes.md') && finding.id === 'settings-keys'), JSON.stringify(findings));
+  });
+  withSeededFile(COPY, 'docs/capability-map.md', (original) => original.replace(/(<!-- BEGIN GENERATED:[^\s>]+ -->)/, '$1\n<!-- BEGIN GENERATED:settings-keys -->'), () => {
+    const findings = checkMarkers(COPY);
+    assert.ok(findings.some((finding) => finding.page.includes('capability-map.md')), JSON.stringify(findings));
+  });
 });
 
 test('G61.c every docs page is in nav or a valid moved-page stub', () => {
@@ -302,26 +345,51 @@ test('G61.d documented command verbs exist in CLI help', () => {
   assert.deepEqual(copyHits, [], `copy command hits (page:line: word):\n${copyHits.join('\n')}`);
 });
 
-test('G61.e MkDocs validation contains exactly four warn settings', () => {
+test('G61.e MkDocs validation is one block with exactly the four keys at warn', () => {
   assert.deepEqual(checkValidation(REPO), []);
   assert.deepEqual(checkValidation(COPY), []);
-  const original = read(COPY, 'mkdocs.yml');
-  write(COPY, 'mkdocs.yml', original.replace(/^  anchors: warn\n/m, ''));
-  assert.ok(checkValidation(COPY).some((problem) => problem.includes('validation.anchors')), checkValidation(COPY).join('\n'));
-  write(COPY, 'mkdocs.yml', original.replace(/^  anchors: warn\n/m, '  anchors: info\n'));
-  assert.ok(checkValidation(COPY).some((problem) => problem.includes('validation.anchors')), checkValidation(COPY).join('\n'));
-  write(COPY, 'mkdocs.yml', original);
+  withSeededFile(COPY, 'mkdocs.yml', (original) => original.replace(/^  anchors: warn\n/m, ''), () => {
+    assert.ok(checkValidation(COPY).some((problem) => problem.includes('validation.anchors')), checkValidation(COPY).join('\n'));
+  });
+  withSeededFile(COPY, 'mkdocs.yml', (original) => original.replace(/^  anchors: warn\n/m, '  anchors: info\n'), () => {
+    assert.ok(checkValidation(COPY).some((problem) => problem.includes('validation.anchors')), checkValidation(COPY).join('\n'));
+  });
+  withSeededFile(COPY, 'mkdocs.yml', (original) => original.replace('  anchors: warn', '  links: {anchors: info}\n  anchors: warn'), () => {
+    assert.ok(checkValidation(COPY).length > 0, checkValidation(COPY).join('\n'));
+  });
+  withSeededFile(COPY, 'mkdocs.yml', (original) => original.replace('  anchors: warn', '  links:\n    anchors: info\n  anchors: warn'), () => {
+    assert.ok(checkValidation(COPY).length > 0, checkValidation(COPY).join('\n'));
+  });
+  withSeededFile(COPY, 'mkdocs.yml', (original) => original.replace(/validation:\n(?:  .*\n)+/, 'validation: {omitted_files: warn, absolute_links: warn, unrecognized_links: warn, anchors: warn}\n'), () => {
+    assert.ok(checkValidation(COPY).length > 0, checkValidation(COPY).join('\n'));
+  });
+  withSeededFile(COPY, 'mkdocs.yml', (original) => original.replace('  anchors: warn', "  anchors: 'warn'"), () => {
+    assert.ok(checkValidation(COPY).some((problem) => problem.includes('validation.anchors')), checkValidation(COPY).join('\n'));
+  });
 });
 
-test('G61.f docs workflow action majors are current against other workflows', () => {
+test('G61.f docs workflow actions are at or above their floors and not below the same action in another workflow', () => {
   assert.deepEqual(checkWorkflowMajors(REPO), [], JSON.stringify(checkWorkflowMajors(REPO)));
   assert.deepEqual(checkWorkflowMajors(COPY), []);
-  const file = path.join(COPY, '.github/workflows/docs.yml');
-  const original = fs.readFileSync(file, 'utf8');
-  write(COPY, '.github/workflows/docs.yml', original.replace('actions/checkout@v7', 'actions/checkout@v4'));
-  const problems = checkWorkflowMajors(COPY);
-  assert.ok(problems.some((problem) => problem.includes('checkout')), problems.join('\n'));
-  write(COPY, '.github/workflows/docs.yml', original);
+  withSeededFile(COPY, '.github/workflows/docs.yml', (original) => original.replace('actions/checkout@v7', 'actions/checkout@v4'), () => {
+    const problems = checkWorkflowMajors(COPY);
+    assert.ok(problems.some((problem) => problem.includes('checkout')), problems.join('\n'));
+  });
+  for (const [name, current, old] of [
+    ['deploy-pages', 'actions/deploy-pages@v5', 'actions/deploy-pages@v1'],
+    ['setup-python', 'actions/setup-python@v7', 'actions/setup-python@v1'],
+    ['upload-pages-artifact', 'actions/upload-pages-artifact@v5', 'actions/upload-pages-artifact@v1'],
+    ['configure-pages', 'actions/configure-pages@v6', 'actions/configure-pages@v1'],
+  ]) {
+    withSeededFile(COPY, '.github/workflows/docs.yml', (original) => original.replace(current, old), () => {
+      const problems = checkWorkflowMajors(COPY);
+      assert.ok(problems.some((problem) => problem.includes(name)), problems.join('\n'));
+    });
+  }
+  withSeededFile(COPY, '.github/workflows/docs.yml', (original) => original.replace('        uses: actions/deploy-pages@v5\n', ''), () => {
+    const problems = checkWorkflowMajors(COPY);
+    assert.ok(problems.some((problem) => problem.includes('deploy-pages')), problems.join('\n'));
+  });
 });
 
 test('G61.g llms.txt is within its byte cap', () => {
