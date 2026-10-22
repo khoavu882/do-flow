@@ -20,6 +20,7 @@ Delivery modes operate per item within a context pack rather than across entire 
 - **delta**: State diff relative to `--since <digest>` (dormant in 075 per IC-015; mandatory items remain inline).
 - **pointer**: Self-loadable optional material referenced by pointer id (`ptr:<path>:<start>-<end>`, IC-016). Mandatory items are never pointers.
 - **bare**: Narrow mode emitting header, objective, and end-of-pack line only (`mode=bare`, IC-001/IC-009).
+- **expand**: `--expand <pointer id> --since <digest> --reason <text>` returns one pointer's current slice from a recorded pack (`mode=expand`) and records a `pointer-followed` expansion.
 
 Rules:
 - Item-level granularity replaces all-or-nothing edge modes for context delivery.
@@ -59,9 +60,10 @@ No field outside this table can be emitted (FR-011).
 
 When optional items cannot be included, they are grouped in the omission records per IC-008:
 - `not-fresh`: Evidence items with freshness `STALE` or `UNKNOWN` (omitted regardless of budget; never treated as empty or absent evidence).
+- `superseded`: Evidence items whose ledger status is `superseded` (omitted regardless of budget; grouped after `not-fresh`).
 - `mandatory-overflow`: Optional items omitted because mandatory content exceeds the budget.
 - `budget`: Optional items omitted because available budget was exhausted during linear fit.
-- `item-cap`: Optional items omitted due to per-field capacity ceilings (`relevantFiles: 15`, `claims: 20`, `evidenceSummary: 25`, `researchRequests: 20`).
+- `item-cap`: Optional items omitted due to per-field capacity ceilings (`relevantFiles: 15`, `claims.supported: 20`, `claims.hypotheses: 20`, `evidenceSummary: 25`, `researchRequests (others): 20`, `structuralContext: 5`).
 - `unchanged`: Optional items unchanged since the `--since` pack digest in delta mode.
 
 ## 4. Budget resolution
@@ -101,8 +103,8 @@ This replaces and retires the earlier proposal of downgrading context modes acro
 ## 6. Delivery state, delta and retention
 
 - **Delivery store**: Defined in IC-014 under `.doflow/state/delivery/<feature-ns>/<taskId>.json`.
-- **Locking**: Acquired using bounded acquire option (`boundedAcquire`: 1 try + 3 retries 5ms apart) in `src/runtime/task-state.ts:56-60`. If the lock is held, `recorded: false` with `reason: "store-locked"` is returned without changing the exit code.
-- **Retention**: At most 5 delivery entries are kept per task; oldest entries are evicted. The first writer of a pack digest stands.
+- **Locking**: Acquired using bounded acquire option (`boundedAcquire`: 1 try + 3 retries 5ms apart) in `src/runtime/task-state.ts:131-155`. If the lock is held, `recorded: false` with `reason: "store-locked"` is returned without changing the exit code.
+- **Retention**: At most 5 delivery entries are kept per task; oldest entries are evicted. The first writer of a delivery key (pack digest, form and harness) stands.
 - **Delta conditions (IC-015)**: A delta pack requires `--since <digest>` matching a recorded entry, matching source hashes, and harness profile `retention: "supported"`. In 075, profile retention is unverified across all 8 harnesses, so delta is dormant (`deltaRefused: "retention-unproven"` or `"harness-unstated"`).
 
 ## 7. Telemetry and silence
@@ -129,7 +131,7 @@ Status of each section in this specification, cited with code locations and prov
 
 - **Section 1 (Purpose and authority)**: Governed by ADR 3.4/3.11 and feature 075 contracts
   (`agent-docs/doflow/075-context-delivery/design/specs.md`, IC-001 through IC-024).
-- **Section 2 (Delivery modes)**: Implemented by `handleContextPack` in
+- **Section 2 (Delivery modes)**: Implemented by `handleContextPackCommand` in
   `src/runtime/context-pack.ts`; verified by `test/runtime/context-pack-forms.test.js`.
 - **Section 3 (Mandatory and optional)**: Implemented by `FIELD_CLASSES` and `linearFit` in
   `src/runtime/context/compose.ts`; verified by `test/runtime/context-pack-compose.test.js` and
@@ -138,18 +140,18 @@ Status of each section in this specification, cited with code locations and prov
   `src/runtime/context/budget.ts`; verified by `test/runtime/context-budget-resolve.test.js` and
   `test/runtime/context-pack-cap.test.js`.
 - **Section 5 (Overflow handling)**: Implemented by `EXIT.OVERFLOW` in `src/runtime/cli-result.ts`,
-  `linearFit` in `src/runtime/context/compose.ts`, and `handleContextPack` in
+  `linearFit` in `src/runtime/context/compose.ts`, and `handleContextPackCommand` in
   `src/runtime/context-pack.ts`; verified by `test/runtime/context-pack-overflow.test.js`.
 - **Section 6 (Delivery state, delta and retention)**: Bounded locking and atomic writes are
   implemented by `boundedAcquire` and `updateTaskState` in `src/runtime/task-state.ts`; verified by
   `test/runtime/task-state-concurrency.test.js` and `test/runtime/task-state-acquire.test.js`.
   Delta rules are specified by IC-015 (dormant in 075).
-- **Section 7 (Telemetry and silence)**: Implemented by `handleContextPack` in
+- **Section 7 (Telemetry and silence)**: Implemented by `handleContextPackCommand` in
   `src/runtime/context-pack.ts`; the always-loaded budget is guarded by
   `test/guards/context-budget.test.js`.
 - **Section 8 (Edge modes, event bus, harness narrowing)**:
   - Stage 1 (Modes as data): not scheduled; no owning feature
-  - Stage 2 (Budget downgrade): superseded by 075 item-level overflow in `handleContextPack`
+  - Stage 2 (Budget downgrade): superseded by 075 item-level overflow in `handleContextPackCommand`
     (`src/runtime/context-pack.ts`).
   - Stage 3 (Handoff events): not scheduled; no owning feature
   - Stage 4 (Harness narrowing): not scheduled; no owning feature

@@ -9,8 +9,9 @@ registry is right, and `test/guards/telemetry-contract.test.js` (G45) is what
 notices.
 
 Telemetry here means local metadata about DoFlow's own runs: how long a hook took, which tier of a
-verify run ran and how it ended. It is never content, it never leaves the machine, and it never
-changes what a command prints, returns or decides.
+verify run ran and how it ended. It is never content, it leaves the machine only when someone runs
+`doflow trace export --otlp-http` (see Export), which sends the filtered span projection to the
+configured collector, and it never changes what a command prints, returns or decides.
 
 ## What a line is
 
@@ -82,7 +83,7 @@ paired perf run measures: `pre-bash-guard` on claude, codex, gemini, kiro, antig
 | `role` | `enum:role` or null | T2 | P2 | `DOFLOW_SESSION_ROLE` (`main` or `worker` exactly; else null) |
 | `worker_run` | `token` or null | T0 | P2 | worker run identifier from `DOFLOW_WORKER_RUN` |
 | `test_class` | `enum:test_class` or null | T2 | P3 | command class on post-shell-observe or classified via `envelope.jq`, else null |
-| `emit_reason` | `enum:emit_reason` or null | T2 | P6 | on `user-prompt-submit`, the emission adapter's `DF_EMIT_REASON` (`policies/emission.sh`); null on other hook lines, with no emit record, or when any of the three emit values fails its pattern |
+| `emit_reason` | `enum:emit_reason` or null | T2 | P6 | on `user-prompt-submit`, the emission adapter's `DF_EMIT_REASON` (`policies/emission.sh`); null on other bridge hook lines, with no emit record, or when any of the three emit values fails its pattern; absent from `post-shell-observe` lines, as are `emit_bytes` and `emit_digest` |
 | `emit_bytes` | `uint` or null | T1 | P6 | the byte length of the response the policy printed, for `emit` and `refused:*`; 0 for `silent:*` and `fault:*`; null as for `emit_reason` |
 | `emit_digest` | `token` or null | T0 | P6 | 8 lowercase hex of h = (h*31 + c) mod 2^32 over the code points of exactly the printed response (without its trailing newline), computed in the `emission.jq` render process for `emit` and `refused:*` and only with telemetry on; else null. It keys duplicate emissions and is never exported |
 
@@ -163,8 +164,10 @@ faulted. The lines go to `DOFLOW_CONFIG_DIR` when set; otherwise, the walk selec
 `state/runs` and now also over one inside another `.doflow` (a dispatch worktree's) to continue to
 the project's store; before this change, the worktree `.doflow` hid that store after a worker verb
 created `state/runs` in it.
-A failing check leaves a `.doflow/state/verification/logs` fragment in the working directory, and
-the walk passes over it. With no project store nothing is written; there is no global fallback.
+The verify verb writes failing checks' logs under the resolved store's `state/verification/logs`;
+only when no `DOFLOW_CONFIG_DIR`, project, install or `~/.doflow` store exists do they land in a
+`.doflow` at the working directory's project root, which has no `state/runs`, so the walk passes
+over it. With no project store nothing is written; there is no global fallback.
 
 Exit code, durations, executed-check count, check key and sharing are declared with phase P3. `level` is declared with phase P5.1; `v0` is declared with phase P5.2; `failed_first` is declared with phase P5.3; `shared_ref` and leader/follower sharing are declared with phase P5.4. Followers and reused checks are excluded from `checks_run`.
 
@@ -266,7 +269,7 @@ Configured in `core/registry/telemetry.json` under `analysis`. All four must be 
 
 Three detectors run per scope:
 
-1. **`latency-hotspots`**: Groups spans with integer `durationMs` by `(kind, name)`. A span whose `shared` is set to anything other than `none` or `leader` (`in-run`, `follower`, `reused`) is left out of every group: its `durationMs` is a lookup or a wait, not a run of the check (the same executed-check rule as `redundant-verification`). A group with at least `minSamples` durations is a finding when `p95 >= tailRatio * p50` and `p95 - p50 >= minTailMs`. Reported spans are those with `durationMs > p50`, ordered by descending duration then `spanId`, capped at 20 (`measures.spanCount` reports the uncapped count). Percentiles use nearest-rank `percentile` from `views.ts`. State: `FINDING` if any group qualifies; `CLEAR` if at least one group has `minSamples` durations and none qualifies; `NOT_DETERMINED` ("no span name has <minSamples> durations") otherwise. A `verify.tier` hotspot whose scope also has a `verify.check` hotspot carries `derivedFrom: verify.check` and is left out of `--emit followups` (one slow check is one proposal; FU-b4nbjn). The `test` group spans a whole session, so its hotspots mix unrelated commands (FU-xz9h35).
+1. **`latency-hotspots`**: Groups spans with integer `durationMs` by `(kind, name)`. A span whose `shared` is set to anything other than `none` or `leader` (`in-run`, `follower`, `reused`) is left out of every group: its `durationMs` is a lookup or a wait, not a run of the check (the same executed-check rule as `redundant-verification`). A group with at least `minSamples` durations is a finding when `p95 >= tailRatio * p50` and `p95 - p50 >= minTailMs`. Reported spans are those with `durationMs > p50`; the 20 slowest (descending duration, then `spanId`) are kept and listed by start then `spanId` (`measures.spanCount` reports the uncapped count). Percentiles use nearest-rank `percentile` from `views.ts`. State: `FINDING` if any group qualifies; `CLEAR` if at least one group has `minSamples` durations and none qualifies; `NOT_DETERMINED` ("no span name has <minSamples> durations") otherwise. A `verify.tier` hotspot whose scope also has a `verify.check` hotspot carries `derivedFrom: verify.check` and is left out of `--emit followups` (one slow check is one proposal; FU-b4nbjn). The `test` group spans a whole session, so its hotspots mix unrelated commands (FU-xz9h35).
 2. **`redundant-verification`**: Evaluates executed `verify.check` spans with a non-null `attrs.check_key`. A key observed on two or more executed `PASS` checks with no `FAIL` check of the same key between first and last is a finding; measures `{checkKey, passes, tier}`. State: `FINDING` if any key qualifies; `CLEAR` if at least one executed keyed check exists and none qualifies; `NOT_DETERMINED` ("no executed verify.check carries a check_key") otherwise. The check key is local-only (T0) and is never exported.
 3. **`retry-loops`**: Groups `verify.run` spans sorted by start then `spanId` by `attrs.task` (a null task groups by scope). The failure class of a `FAIL` run is the sorted set of failing `verify.tier` names under it (`attrs.verify_id` matching), or `exit:<exit_code>` when it has no tier spans. Runs with status neither `PASS` nor `FAIL` (null, `UNRESOLVED`) neither extend nor break a sequence. A maximal sequence of at least `retryRun` consecutive `FAIL` runs with an identical failure class and no `PASS` between is a finding; measures `{task, runs, failureClass, grouping}` (`grouping` is `"task"` or `"scope"`). State: `FINDING` if any group qualifies; `CLEAR` if at least one `verify.run` carries a non-null status and none qualifies; `NOT_DETERMINED` ("no verify.run carries a status") otherwise.
 
@@ -351,7 +354,7 @@ The export pins semantic conventions in `export.semconv`:
 
 ### Span mapping
 
-Spans are exported with `kind: 1` (INTERNAL). `parentSpanId` is omitted on root spans. Exported span ids are not the local view's ids. At export time each span id is remapped to `sha16` of values already in the payload (trace id, exported span name, start and end times, exported attributes and status, the remapped parent id, and an ordinal among spans with identical values, ordered by the exported content of their subtrees), so no local identifier (slug, task id, locator, run key or path hash) is an input. `parentSpanId` and links are remapped the same way inside one export; a parent that is not exported is dropped. Two dry runs are byte-identical. A re-export after a span's end changes yields a new id (the collector sees a duplicate). Spans in each request are ordered by start time then exported id. Span names map according to `export.spans`:
+Spans are exported with `kind: 1` (INTERNAL). `parentSpanId` is omitted on root spans. Exported span ids are not the local view's ids. At export time each span id is remapped to `sha16` of values already in the payload (trace id, exported span name, start and end times, exported attributes and status, the remapped parent id, and an ordinal among spans with identical values, ordered by the exported content of their subtrees), so no local identifier (slug, task id, locator, run key or path hash) is an input. `parentSpanId` and links are remapped the same way inside one export; a parent that is not exported is dropped. Two dry runs are byte-identical. A re-export after a span's end changes yields a new id (the collector sees a duplicate). Spans are grouped by trace in view order and, within each trace, ordered by start time then exported id; each request is the next 512-span slice of that list. Span names map according to `export.spans`:
 
 | Local Kind | Export Span Name | Operation (`gen_ai.operation.name`) |
 |---|---|---|
