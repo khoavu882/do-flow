@@ -8,8 +8,10 @@ and recovery procedures, continue to [Setup](setup.md).
 
 ## 1. Install
 
-DoFlow needs Node.js `^22.18.0 || >=24.3.0` (the `engines.node` range in `package.json`), because the
-runtime is TypeScript run directly by Node's type-stripping with no build step. Git, `bash` and
+DoFlow needs Node.js `^22.18.0 || >=24.3.0` (the `engines.node` range in `package.json`). A source
+checkout runs its TypeScript directly through Node's type stripping; the npm package ships
+JavaScript built by `npm run build:package`, and its `bin/doflow.js` still checks for type-stripping
+support, so the same Node range applies. Git, `bash` and
 `jq` are also needed for the hook scripts; [Setup](setup.md#prerequisites) lists every prerequisite.
 
 DoFlow installs into eight tools: Claude Code, Codex, Gemini CLI, OpenCode, Pi, GitHub Copilot CLI,

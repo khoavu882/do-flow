@@ -9,15 +9,15 @@ bottom does the same for the `doflow` CLI's verb-local flags, which come from th
 from any skill's frontmatter. This complements, rather than duplicates, two other references:
 
 - [`reference.md`](./reference.md)'s "Full Skill Reference" table is organized **by skill** — one
-  row per skill, its full `argument-hint` verbatim — and is kept in sync with each skill's
-  frontmatter by `test/guards/reachability.test.js` (G8).
+  row per skill, its full `argument-hint` verbatim; `test/guards/reachability.test.js` (G8) fails
+  when it documents a flag that the skill's `argument-hint` does not declare.
 - `core/shared/guidance/FLAGS.md` (in the repository, not on this site) is the always-loaded statement of what the runtime
-  now does unconditionally. The only flag it still documents is `--focus`, the one flag that is not
-  skill-local; it deliberately excludes the rest, like `--depth` or `--type` (see its guard,
-  `test/guards/flags.test.js`, "G4", and that guard's `NOT_FRAMEWORK_FLAGS` map).
+  now does unconditionally. It names the shared flags `--depth` and `--type` (G4 in
+  `test/guards/flags.test.js` requires that line to list every flag declared by two or more
+  skills), and documents `--focus`.
 
 This file owns exactly the gap between the two: every skill-local flag, organized **by flag**
-rather than by skill, so a reader can see every place a given flag name is used without reading 13
+rather than by skill, so a reader can see every place a given flag name is used without reading 12
 separate `argument-hint` strings — and so that inconsistent reuse of the same flag name (different
 allowed values across skills) is visible side by side instead of hidden in separate rows of
 `reference.md`. A mismatch surfaced here is a content judgment to resolve in a later remediation

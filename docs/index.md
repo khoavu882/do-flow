@@ -92,8 +92,8 @@ DoFlow separates always-needed instructions from material that is only useful fo
 
 ```mermaid
 flowchart LR
-    Always[Always loaded\nprinciples + core rules] --> Session[Current session]
-    OnDemand[On demand\nmodes, MCP notes, references] --> Session
+    Always[Always loaded\nprinciples, flags, core rules,\nMCP notes for selected servers] --> Session[Current session]
+    OnDemand[On demand\nmodes, references] --> Session
     Session --> Output[Task result]
 ```
 
