@@ -32,6 +32,19 @@ const SCENARIOS = {
 };
 const INITS = ['none', 'stale'];
 
+// Two S1 traces from lock `none` on the 117 Phase C lock, shared by the instrument's own tests.
+// INTERLEAVED: the actors alternate from the first call; A takes the lock and finishes, B waits on it,
+// then cancels nothing (refused). Replayed it gives one outcome; granted on release it does not.
+const INTERLEAVED = 'A.mkdir B.mkdir A.mkdir B.stat A.exists B.mkdir A.exists B.stat A.exists B.mkdir A.readFile B.stat '
+  + 'A.writeFile B.mkdir A.exists B.stat A.exists B.mkdir A.rename B.stat A.rmdir B.mkdir A.rmdir B.stat B.mkdir B.mkdir '
+  + 'B.exists B.exists B.exists B.readFile B.rmdir B.rmdir';
+// LOST_ACK: the lock's documented bound. A passes its ownership check (A.exists A.exists after its tmp
+// write), the lock then ages past LOCK_STALE_MS (age-lock@9), B reclaims it and reads before A's rename
+// lands, and B's write replaces A's: finish `applied`, cancel `cancelled`, final `cancelled`.
+const LOST_ACK = 'A.mkdir A.mkdir A.exists A.exists A.exists A.readFile A.writeFile A.exists A.exists age-lock@9 '
+  + 'B.mkdir B.stat B.readdir B.stat B.mkdir B.readdir B.stat B.rename B.rm B.mkdir B.mkdir B.exists B.exists B.exists '
+  + 'B.readFile A.rename B.writeFile B.exists B.exists B.rename B.rmdir B.rmdir A.rmdir';
+
 const ledger = (repo) => require(path.join(repo, 'src/runtime/task-attempts.ts'));
 
 /** The whole environment an actor sees: a fixed identity rooted in the fixture dir. */
@@ -84,4 +97,4 @@ function actorCall({ repo = DEFAULT_REPO, fixture, op, args, fsImpl }) {
   return ledger(repo)[op]({ file, fsImpl, roots, slug, env, cwd, now: NOW, ...args });
 }
 
-module.exports = { SCENARIOS, INITS, NOW, DEFAULT_REPO, buildFixture, actorCall, ageLock };
+module.exports = { SCENARIOS, INITS, NOW, DEFAULT_REPO, INTERLEAVED, LOST_ACK, buildFixture, actorCall, ageLock };

@@ -35,7 +35,7 @@ const { SCENARIOS, INITS, DEFAULT_REPO, buildFixture, actorCall, ageLock } = req
 
 const ACTOR_FLAG = '--gate-actor';
 const GRANT_FD = 3;
-const GATED_METHODS = ['existsSync', 'mkdirSync', 'readFileSync', 'renameSync', 'rmdirSync', 'statSync', 'writeFileSync'];
+const GATED_METHODS = ['existsSync', 'mkdirSync', 'readFileSync', 'readdirSync', 'renameSync', 'rmSync', 'rmdirSync', 'statSync', 'writeFileSync'];
 const SHORT = new Map(GATED_METHODS.map((m) => [m.replace(/Sync$/, ''), m]));
 const GRANT_MODES = ['park', 'release'];
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);

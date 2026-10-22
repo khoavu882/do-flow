@@ -179,6 +179,8 @@ function mutate({ file, fsImpl, apply }: any) {
   try {
     updateTaskState({
       fsImpl, file,
+      // `apply` decides from the store alone, so a reclaimed writer re-runs it on the fresh store.
+      lostLockRetries: 2,
       build: (disk: any) => {
         const store = normalizeStore(disk, file);
         store.revision = (Number.isInteger(store.revision) ? store.revision : 0) + 1;
