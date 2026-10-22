@@ -6,13 +6,13 @@
 // ungated store calls, cleanup when the parent dies), not the ledger's correctness, which is the
 // oracle's job (A.2).
 
-const { test } = require('node:test');
+const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
 const { tempDir, removeTree } = require('../helper/tmp.js');
-const { runSchedule, GATED_METHODS, parseTrace, formatTrace } = require('../helper/sequence-gate.js');
+const { runSchedule, GATED_METHODS, parseTrace, formatTrace, WATCHDOG_MARGIN_MS } = require('../helper/sequence-gate.js');
 
 const GATE = path.join(__dirname, '../helper/sequence-gate.js');
 
@@ -53,6 +53,10 @@ async function until(check, ms) {
   for (const end = Date.now() + ms; !check() && Date.now() < end;) await sleep(25);
   return check();
 }
+/** Live pids among `pids`, a zombie counted dead (a blocked parent cannot reap its killed children). */
+const running = (pids) => {
+  try { return execFileSync('ps', ['-o', 'stat=', '-p', pids.join(',')], { encoding: 'utf8' }).split('\n').filter((s) => s.trim() && !s.trim().startsWith('Z')).length; } catch { return 0; }
+};
 const psOf = (pids) => {
   try { return execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-p', pids.join(',')], { encoding: 'utf8' }).trim(); } catch { return '(none)'; }
 };
@@ -163,22 +167,36 @@ test('ungated store call: a store path through an ungated fs method ends INCOMPL
 
 test('ungated store call: node:fs, fs.promises, a re-spelled path and a descriptor end INCOMPLETE ungated-store-call', async (t) => {
   // Each stub first parks once through the gate, so only the ungated call can end it INCOMPLETE.
+  // The store spelled through a symlink to its directory: only the dirname's realpath matches it (N-3).
+  const link = path.join(tempDir(t, 'doflow-seqgate-link-'), 'dir');
   const cases = [
     ['promises.writeFile', "fsImpl.promises.writeFile(fixture.file, '{}').catch(() => {});"],
     ['renameSync', "require('node:fs').renameSync(fixture.file, fixture.file);"], // the direct-node:fs shape
     ['appendFileSync', "fsImpl.appendFileSync(fixture.file.replace('/task-attempts/', '/task-attempts/./'), '');"],
     ['openSync', "require('node:fs').closeSync(require('node:fs').openSync(fixture.file, 'r'));"],
+    ['appendFileSync', `fsImpl.appendFileSync(require('node:path').join(${JSON.stringify(link)}, require('node:path').basename(fixture.file)), '');`,
+      (fixture) => fs.symlinkSync(path.dirname(fixture.file), link)],
   ];
   if (process.platform === 'darwin' || process.platform === 'win32') {
     cases.push(['appendFileSync', "fsImpl.appendFileSync(fixture.file.replace(/feat-race\\.json$/, 'FEAT-RACE.json'), '');"]);
   }
-  const runs = await Promise.all(cases.map(([, call]) => runSchedule({
-    scenario: 'S1', init: 'none', chooser: aFirst, actorModule: stub(t, `fsImpl.existsSync(fixture.file);\n${call}\nreturn { ok: true };`),
+  const runs = await Promise.all(cases.map(([, call, onFixture]) => runSchedule({
+    scenario: 'S1', init: 'none', chooser: aFirst, onFixture, actorModule: stub(t, `fsImpl.existsSync(fixture.file);\n${call}\nreturn { ok: true };`),
   })));
   runs.forEach((o, i) => {
     assert.equal(o.incomplete?.cause, 'ungated-store-call', `${cases[i][1]}: ${JSON.stringify(o.incomplete)}`);
     assert.match(o.incomplete.detail, new RegExp(`called ${cases[i][0].replace('.', '\\.')} on`), cases[i][1]);
   });
+});
+
+test('lock directory: a path under <store>.lock is lock-class, gated by a gated method and detected by any other', async (t) => {
+  // An owner record inside the lock dir (N-1): the writeFileSync parks and is traced; rmSync is ungated.
+  const actorModule = stub(t, "const lock = fixture.file + '.lock';\nfsImpl.mkdirSync(lock);\n"
+    + "fsImpl.writeFileSync(lock + '/owner', String(process.pid));\nfsImpl.rmSync(lock + '/owner');\nfsImpl.rmdirSync(lock);\nreturn { ok: true };");
+  const o = await runSchedule({ scenario: 'S1', init: 'none', chooser: aFirst, actorModule });
+  assert.match(o.trace, /^A\.mkdir A\.writeFile\b/, o.trace);
+  assert.equal(o.incomplete?.cause, 'ungated-store-call', JSON.stringify(o.incomplete));
+  assert.match(o.incomplete.detail, /called rmSync on/);
 });
 
 test('vacuous schedules: no gated call, or an unreadable final store, end INCOMPLETE', async (t) => {
@@ -198,10 +216,13 @@ test('vacuous schedules: no gated call, or an unreadable final store, end INCOMP
 
 /**
  * Starts a driver process that runs one schedule whose actors hang outside waitGrant (Atomics.wait
- * before any fs call), waits until both actors run, then sends `signal` to the driver alone.
- * Resolves `{ pids, dir, driver, gone, lines, ms }` once the actors are dead and the dir is gone, or `waitMs` passed.
+ * before any fs call), waits until both actors run, then sends `signal` to the driver alone. With
+ * `blockMs` instead of a signal, the driver blocks its own event loop for `blockMs` once both actors
+ * run, before its deadline (`BLOCK`, else `LATE`): only the watchdog's timer can then end them.
+ * Resolves `{ pids, dir, driverExit, driverAlive, gone, out, ms }` once the actors are dead and the
+ * dir is gone, or `waitMs` passed; `ms` counts from the signal, or from `BLOCK`.
  */
-async function orphanCase(t, signal, deadlineMs, waitMs) {
+async function orphanCase(t, { signal = null, blockMs = 0, deadlineMs, waitMs }) {
   const work = tempDir(t, 'doflow-seqgate-driver-');
   const pidsFile = path.join(work, 'pids');
   const actorModule = stub(t, `require('node:fs').appendFileSync(${JSON.stringify(pidsFile)}, process.pid + '\\n');\n`
@@ -215,8 +236,20 @@ for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => {
   fs.writeSync(1, 'ABORT ' + JSON.stringify([first, abortAll()]) + '\\n');
   process.exit(3);
 });
+const start = Date.now();
 runSchedule({ scenario: 'S1', init: 'none', chooser: (p) => p[0], deadlineMs: ${deadlineMs}, actorModule: ${JSON.stringify(actorModule)},
   onFixture: (f) => fs.writeSync(1, 'DIR ' + f.cwd + '\\n') });
+if (${blockMs} > 0) {
+  const poll = setInterval(() => {
+    let n = 0;
+    try { n = fs.readFileSync(${JSON.stringify(pidsFile)}, 'utf8').trim().split('\\n').length; } catch { return; }
+    if (n < 2) return;
+    clearInterval(poll);
+    if (Date.now() - start >= ${deadlineMs}) { fs.writeSync(1, 'LATE\\n'); return; }
+    fs.writeSync(1, 'BLOCK\\n');
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${blockMs});
+  }, 10);
+}
 `);
   const t0 = Date.now();
   const driver = spawn(process.execPath, [driverFile], { stdio: ['ignore', 'pipe', 'inherit'] });
@@ -237,28 +270,51 @@ runSchedule({ scenario: 'S1', init: 'none', chooser: (p) => p[0], deadlineMs: ${
   assert.ok(await until(() => pidsOf().length === 2 && /^DIR /m.test(out), 5000), `actors never started: ${out}`);
   dir = /^DIR (.+)$/m.exec(out)[1];
   const pids = pidsOf();
+  if (blockMs > 0) {
+    assert.ok(await until(() => /^(BLOCK|LATE)$/m.test(out), 5000), `the driver never blocked: ${out}`);
+    assert.match(out, /^BLOCK$/m, 'the driver blocked before its own deadline could act');
+    const blocked = Date.now();
+    const gone = await until(() => !fs.existsSync(dir) && running(pids) === 0, waitMs);
+    return { pids, dir, driverExit: null, driverAlive: isAlive(driver.pid), gone, out, ms: Date.now() - blocked };
+  }
   assert.ok(pids.every(isAlive) && Date.now() - t0 < deadlineMs, 'the actors hang and the driver deadline has not passed');
   const signalled = Date.now();
   driver.kill(signal);
   const driverExit = await exited;
   const gone = await until(() => !pids.some(isAlive) && !fs.existsSync(dir), waitMs);
-  return { pids, dir, driverExit, gone, out, ms: Date.now() - signalled };
+  return { pids, dir, driverExit, driverAlive: false, gone, out, ms: Date.now() - signalled };
 }
+
+// The watchdog's timer path waits deadline + WATCHDOG_MARGIN_MS, so it starts with the file and its
+// wait overlaps the tests above; the parent-death test below collects it. Cleanup runs in after().
+const cleanups = [];
+const fileContext = { after: (fn) => cleanups.push(fn) };
+let timerPath;
+before(() => {
+  timerPath = orphanCase(fileContext, { blockMs: 6000, deadlineMs: 800, waitMs: 800 + WATCHDOG_MARGIN_MS + 1000 });
+  timerPath.catch(() => { /* reported by the test that awaits it */ });
+});
+after(() => { for (const fn of cleanups.reverse()) fn(); });
 
 test('parent death: a hung actor outside waitGrant does not outlive its parent, nor its fixture dir', { concurrency: true }, async (t) => {
   await Promise.all([
     t.test('SIGTERM to the parent alone: abortAll() in its handler kills the actors and removes the dir', async (t2) => {
-      const r = await orphanCase(t2, 'SIGTERM', 20000, 2000);
+      const r = await orphanCase(t2, { signal: 'SIGTERM', deadlineMs: 20000, waitMs: 2000 });
       assert.ok(r.gone, `after ${r.ms} ms; dir left: ${fs.existsSync(r.dir)}; live: ${psOf(r.pids)}`);
       assert.equal(r.driverExit, 3);
       // Two actors and the watchdog killed, one dir removed; a second call finds nothing.
       assert.match(r.out, /^ABORT \[\{"killed":3,"removed":1\},\{"killed":0,"removed":0\}\]$/m);
     }),
-    t.test('SIGKILL to the parent (no handler runs): the watchdog kills the actors and removes the dir', async (t2) => {
-      const deadlineMs = 2000;
-      const r = await orphanCase(t2, 'SIGKILL', deadlineMs, deadlineMs + 1500); // the watchdog's 1000 ms margin + slack
+    t.test('SIGKILL to the parent (no handler runs): the watchdog sees stdin close and cleans up long before its timer', async (t2) => {
+      // The watchdog's timer is 21 s away: only the stdin-EOF path can end the actors within 1.5 s.
+      const r = await orphanCase(t2, { signal: 'SIGKILL', deadlineMs: 20000, waitMs: 1500 });
       assert.ok(r.gone, `after ${r.ms} ms; dir left: ${fs.existsSync(r.dir)}; live: ${psOf(r.pids)}`);
       assert.equal(r.driverExit, 'SIGKILL');
+    }),
+    t.test('a parent alive but blocked (no handler, no stdin EOF): the watchdog timer cleans up by deadline + margin', async () => {
+      const r = await timerPath;
+      assert.ok(r.gone, `after ${r.ms} ms; dir left: ${fs.existsSync(r.dir)}; live: ${psOf(r.pids)}`);
+      assert.ok(r.driverAlive, 'the driver was still alive (blocked) when the actors died');
     }),
   ]);
 });

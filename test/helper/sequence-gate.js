@@ -2,16 +2,16 @@
 
 // Feature 117 A.1 (IC-001): an actor gate over real child processes. Each actor is a Node child that
 // loads the real task-attempt ledger from the checkout under test and calls it with a gated fsImpl:
-// before every fs call on the store file, `<store>.lock` or `<store>.<pid>.tmp` it writes
-// `OP <seq> <method> <store|lock|tmp>` to stdout and blocks on a 1-byte read from fd 3 (the grant
-// pipe; stdin stays free). It ends with `DONE <json>` or `THREW <code> <message>`. Before the
+// before every fs call on the store file, `<store>.lock` or any path under it, or `<store>.<pid>.tmp`
+// it writes `OP <seq> <method> <store|lock|tmp>` to stdout and blocks on a 1-byte read from fd 3 (the
+// grant pipe; stdin stays free). It ends with `DONE <json>` or `THREW <code> <message>`. Before the
 // ledger loads, the actor also patches the real `node:fs` module object and `fs.promises`: any call
 // that reaches a store path other than through a gated fsImpl method (an ungated fsImpl method,
 // `fsImpl.promises`, `require('node:fs')` directly, an fd from `open`) reports `UNGATED <method>`,
 // so a new fs call in the implementation ends the schedule INCOMPLETE instead of slipping past the
-// gate. Paths are compared after `path.resolve`, the dirname's realpath, and case folding on darwin
-// and win32. Not seen: worker threads, child processes, native addons, a hard link or file symlink
-// under another name, and removal of a parent directory.
+// gate. Paths are compared after `path.resolve`, the realpath of the nearest existing ancestor dir,
+// and case folding on darwin and win32. Not seen: worker threads, child processes, native addons, a
+// hard link or file symlink under another name, and removal of a parent directory.
 //
 // Each schedule also spawns a watchdog process that SIGKILLs the actors and removes the fixture dir
 // when the parent dies (its stdin pipe closes) or deadline + WATCHDOG_MARGIN_MS passes, so a child
@@ -108,24 +108,35 @@ const asPath = (p) => {
   return null;
 };
 
-/** `arg -> 'store' | 'lock' | 'tmp' | null` for `file`, after resolve, dirname realpath and case folding. */
+/**
+ * `arg -> 'store' | 'lock' | 'tmp' | null` for `file`, after resolve, the realpath of the nearest
+ * existing ancestor dir, and case folding. `lock` is `<store>.lock` and any path under it.
+ */
 function storeClassifier(file) {
   const fold = process.platform === 'darwin' || process.platform === 'win32' ? (p) => p.toLowerCase() : (p) => p;
   const norm = (abs) => {
     let dir = path.dirname(abs);
-    try { dir = realpathSync(dir); } catch { /* a dir that does not exist yet: as resolved */ }
-    return fold(path.join(dir, path.basename(abs)));
+    let rest = path.basename(abs);
+    for (;;) {
+      try { return fold(path.join(realpathSync(dir), rest)); } catch { /* not there (yet): one level up */ }
+      const up = path.dirname(dir);
+      if (up === dir) return fold(abs);
+      rest = path.join(path.basename(dir), rest);
+      dir = up;
+    }
   };
   const store = norm(path.resolve(file));
   const base = fold(path.basename(file));
+  const lock = `${store}.lock`;
   return (arg) => {
     const p = asPath(arg);
     if (p === null) return null;
     const abs = path.resolve(p);
-    if (!fold(path.basename(abs)).startsWith(base)) return null; // the cheap filter before a realpath
+    // The cheap filter before a realpath: the store's own name, or a name under a `<store>.lock` dir.
+    if (!fold(path.basename(abs)).startsWith(base) && !fold(abs).includes(`${base}.lock${path.sep}`)) return null;
     const n = norm(abs);
     if (n === store) return 'store';
-    if (n === `${store}.lock`) return 'lock';
+    if (n === lock || n.startsWith(`${lock}${path.sep}`)) return 'lock';
     return n.startsWith(`${store}.`) ? 'tmp' : null;
   };
 }

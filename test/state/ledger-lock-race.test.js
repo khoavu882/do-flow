@@ -291,14 +291,23 @@ test('todo safeguard: the required regression ids are all present and every mark
   for (const entry of KNOWN_DEFECTS) assert.ok(REQUIRED_REGRESSIONS.includes(entry.id), `${entry.id} is not a required regression`);
 });
 
-test('todo safeguard: no todo marker outlives its settled followup', (t) => {
-  const root = followupRoot(DEFAULT_REPO);
+/** The live safeguard over the followup store under `root`; an absent store is a visible skip. */
+function checkNoStaleMarker(t, root) {
   if (!storeExists(root)) {
     t.skip('UNREACHED: followup store absent');
     return;
   }
   const stale = staleMarkers(KNOWN_DEFECTS, settledFollowupIds(root, { markers: KNOWN_DEFECTS }));
   assert.deepEqual(stale, [], `settled followups still marked todo: ${stale.map((s) => `${s.id} (${s.followup})`).join(', ')}; remove the markers`);
+}
+
+test('todo safeguard: no todo marker outlives its settled followup', (t) => checkNoStaleMarker(t, followupRoot(DEFAULT_REPO)));
+
+test('todo safeguard: an absent followup store skips the live check visibly, and does nothing else', (t) => {
+  const calls = [];
+  const recorder = new Proxy({}, { get: (_, name) => (...args) => { calls.push([name, ...args]); } });
+  checkNoStaleMarker(recorder, tempDir(t, 'doflow-ledger-nostore-'));
+  assert.deepEqual(calls, [['skip', 'UNREACHED: followup store absent']]);
 });
 
 // ── the store read against a main checkout and a linked worktree (C-3) ────────────────────────────
