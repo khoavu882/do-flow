@@ -1,3 +1,6 @@
+---
+description: A flag-first index of every skill option and CLI verb flag.
+---
 # Flag Index
 
 A flag-first index of every flag declared in a skill's `argument-hint`, one row per (skill, flag)

@@ -1,3 +1,6 @@
+---
+description: The declared execution procedure, the nine task classes, gates, and readiness contracts.
+---
 # How DoFlow works
 
 DoFlow gives an AI coding agent a **declared procedure** for a piece of work, instead of letting it
@@ -35,6 +38,7 @@ refused for a class that is perfectly correct, because that class does not route
 Declared in `core/registry/workflows.json`. Stages name skills that already exist; the registry adds
 none.
 
+<!-- BEGIN GENERATED:task-classes -->
 | Class | Stages | Gates | Readiness |
 |---|---|---|---|
 | `feature` | discovery → design → planning → implementation → verification → review | 3 | `feature` |
@@ -46,6 +50,7 @@ none.
 | `operations` | state-check → preflight → execution → record | — | — |
 | `review` | verification → review | — | — |
 | `research` | scoping → synthesis | — | — |
+<!-- END GENERATED:task-classes -->
 
 The differences between them are the point. `feature` is the only class with a discovery stage, and
 the only one that demands three artifacts before an edit. `refactor` has no discovery stage at all —

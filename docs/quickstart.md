@@ -1,3 +1,6 @@
+---
+description: The shortest path from a clean machine to a verified installation and a first workflow.
+---
 # Quickstart
 
 Use this page to reach a working installation quickly. For all flags, scopes, MCP configuration,
@@ -53,4 +56,4 @@ Or let DoFlow advance the phase sequence with approval gates:
 
 - [Setup](setup.md) for installation details and rollback.
 - [Guide](guide.md) for task-based workflows.
-- [Overview](overview.md) for the component and lifecycle diagrams.
+- [Home](index.md#the-component-model) for the component and lifecycle diagrams.

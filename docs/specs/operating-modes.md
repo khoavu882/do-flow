@@ -1,3 +1,6 @@
+---
+description: Operating modes, task states, control boundaries, and transition rules between assisted and autonomous work.
+---
 # Spec: operating modes and task states
 
 Contract document for feature 074 (P0). It states the two operating modes DoFlow aims at, who owns

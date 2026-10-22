@@ -1,3 +1,6 @@
+---
+description: Which governance controls DoFlow installs and which only an organization can enforce.
+---
 # Enterprise governance: what DoFlow installs, and what only your organization can enforce
 
 DoFlow installs guidance, skills, hooks and settings into eight AI coding harnesses. Some governance

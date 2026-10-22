@@ -1,3 +1,6 @@
+---
+description: Prerequisites, install modes and scopes, updates, backup, rollback, MCP servers, and per-tool mapping.
+---
 # Setup
 
 This is the canonical installation and lifecycle guide for DoFlow. The [Quickstart](quickstart.md)

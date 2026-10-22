@@ -1,3 +1,6 @@
+---
+description: Research record on Copilot plugin manifests and Pi packages.
+---
 # Distribution notes: Copilot plugin manifest and Pi package (issue #23)
 
 Research record and close rationale for issue #23 (distribution packages). It answers the two

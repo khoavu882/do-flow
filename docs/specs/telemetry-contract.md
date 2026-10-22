@@ -1,3 +1,6 @@
+---
+description: Contract and schema for machine-local telemetry lines, event kinds, emission boundaries, and storage.
+---
 # Spec: telemetry contract v1
 
 Contract document for feature 088 (IC-001, IC-002, IC-003, IC-004, IC-006, IC-018). The machine-readable

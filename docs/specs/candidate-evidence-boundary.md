@@ -1,3 +1,6 @@
+---
+description: Contract separating retrieval candidates with ranks or scores from verified evidence bound to tasks.
+---
 # Spec: the candidate and evidence boundary
 
 Contract document for feature 074 (P0). It separates a retrieval candidate, which may carry a rank

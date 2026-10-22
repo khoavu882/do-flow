@@ -4,13 +4,15 @@ const { REF_META } = require('../../src/runtime/settings/refs.ts');
 
 function docsRows(text) {
   const lines = text.split('\n');
-  const heading = lines.indexOf('### Settings keys');
-  if (heading < 0) return { error: '### Settings keys heading is missing', rows: new Map() };
+  const heading = lines.indexOf('## Settings keys');
+  if (heading < 0) return { error: '## Settings keys heading is missing', rows: new Map() };
   let header = heading + 1;
   while (header < lines.length && !lines[header].startsWith('|')) header++;
   if (header === lines.length) return { error: 'settings table is missing', rows: new Map() };
-  const split = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim().replace(/^`(.*)`$/, '$1'));
-  const wanted = ['Key', 'Type', 'Default', 'Scope', 'Env', 'Legacy file'];
+  const split = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/^`(.*)`$/, '$1'));
+  // docs/settings.md (087b): the generated settings-keys block adds Description after the six
+  // columns this guard compares; the header must be exactly these seven.
+  const wanted = ['Key', 'Type', 'Default', 'Scope', 'Env', 'Legacy file', 'Description'];
   const headings = split(lines[header]);
   if (headings.length !== wanted.length || headings.some((value, i) => value !== wanted[i])) {
     return { error: `settings table columns are [${headings.join(', ')}]`, rows: new Map() };
@@ -20,9 +22,9 @@ function docsRows(text) {
     if (/^\|\s*[-:| ]+\s*\|$/.test(lines[i])) continue;
     const cells = split(lines[i]);
     if (cells.length !== wanted.length) continue;
-    const [key, type, defaultValue, scope, env, legacy] = cells;
+    const [key, type, defaultValue, scope, env, legacy, description] = cells;
     if (rows.has(key)) rows.set(key, { duplicate: true, line: i + 1 });
-    else rows.set(key, { type, defaultValue, scope, env, legacy, line: i + 1 });
+    else rows.set(key, { type, defaultValue, scope, env, legacy, description, line: i + 1 });
   }
   return { error: null, rows };
 }
@@ -49,14 +51,14 @@ function displayDefault(value) {
 
 function renderSettingsRow(key, spec, registry) {
   const legacy = [...new Set((spec.legacy || []).map((entry) => entry.path))].join(', ') || '—';
-  return `| \`${key}\` | ${spec.type} | \`${displayDefault(resolvedDefault(key, spec, registry))}\` | ${spec.scope} | ${spec.env?.name || '—'} | \`${legacy}\` |`;
+  return `| \`${key}\` | ${spec.type} | \`${displayDefault(resolvedDefault(key, spec, registry))}\` | ${spec.scope} | ${spec.env?.name || '—'} | \`${legacy}\` | ${String(spec.description || '—').replace(/\|/g, '\\|')} |`;
 }
 
 function renderSettingsTable(raw, registry, { omitKey = null } = {}) {
   const lines = [
-    '### Settings keys', '',
-    '| Key | Type | Default | Scope | Env | Legacy file |',
-    '|---|---|---|---|---|---|',
+    '## Settings keys', '',
+    '| Key | Type | Default | Scope | Env | Legacy file | Description |',
+    '|---|---|---|---|---|---|---|',
   ];
   for (const [key, spec] of Object.entries(raw.keys)) {
     if (key === omitKey) continue;
@@ -80,6 +82,7 @@ function checkSettingsDocs(raw, text, registry) {
       ['scope', row.scope, spec.scope],
       ['env', row.env, spec.env?.name || '—'],
       ['legacy file', row.legacy, [...new Set((spec.legacy || []).map((entry) => entry.path))].join(', ') || '—'],
+      ['description', row.description, String(spec.description || '—').replace(/\|/g, '\\|')],
     ];
     for (const [field, actual, wanted] of expected) {
       if (actual !== wanted) errors.push(`${key} ${field} is '${actual}', expected '${wanted}'`);

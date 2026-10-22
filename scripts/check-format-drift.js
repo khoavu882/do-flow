@@ -1,6 +1,6 @@
 'use strict';
 
-// Stage 5 (docs/refactor-plan.md) — upstream format-drift watcher.
+// Upstream format-drift watcher (docs/architecture.md).
 //
 // Registry evidence URLs record where each capability fact came from, but nothing noticed when
 // those pages moved; two drifts were caught manually this cycle (antigravity hooks, copilot

@@ -1,3 +1,6 @@
+---
+description: The design contract for orchestrator context delivery modes.
+---
 # Spec: orchestrator context modes and context delivery
 
 Design document for orchestrator context delivery (issue #9, feature 075-context-delivery).

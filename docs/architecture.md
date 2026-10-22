@@ -1,6 +1,9 @@
+---
+description: Repository structure, the registry/adapter/lifecycle/runtime boundary, and the guard suite, for contributors.
+---
 # Architecture
 
-This guide is for contributors changing DoFlow itself. For the user-facing model, see [Overview](overview.md).
+This guide is for contributors changing DoFlow itself. For the user-facing model, see [Home](index.md#the-component-model).
 
 ## Design in one picture
 

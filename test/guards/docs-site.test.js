@@ -34,16 +34,30 @@ function markdownPages(root) {
   return out.sort();
 }
 
+function notInNavPages(mkdocs) {
+  const lines = mkdocs.split('\n');
+  const start = lines.findIndex((line) => /^not_in_nav:\s*(\|\s*)?$/.test(line));
+  const pages = new Set();
+  if (start < 0) return pages;
+  for (const line of lines.slice(start + 1)) {
+    if (/^\S/.test(line)) break;
+    const match = line.match(/^\s*(?:-\s+)?\/?(\S+\.md)\s*$/);
+    if (match) pages.add(match[1].replace(/^\//, ''));
+  }
+  return pages;
+}
+
 /** The `Title: page.md` entries under `nav:`, as page paths relative to docs/. */
 function navPages(mkdocs) {
   const lines = mkdocs.split('\n');
   const start = lines.findIndex((line) => /^nav:\s*$/.test(line));
   const pages = [];
   if (start < 0) return pages;
+  const excluded = notInNavPages(mkdocs);
   for (const line of lines.slice(start + 1)) {
     if (/^\S/.test(line)) break;
-    const match = line.match(/^\s*-\s+[^:]+:\s*(\S+\.md)\s*$/);
-    if (match) pages.push(match[1]);
+    const match = line.match(/^\s*-\s+.*:\s*(\S+\.md)\s*$/);
+    if (match && !excluded.has(match[1])) pages.push(match[1]);
   }
   return pages;
 }
@@ -256,11 +270,11 @@ test('G49.c: no page claims a Node 18 or 20 floor', () => {
 
 test('G49.c negative control: re-seeded 18 and 20 floor claims are reported, a history clause is not', (t) => {
   const seeded = copySite(t);
-  edit(seeded, 'docs/quickstart.md', (s) => `${s}\nDoFlow requires Node.js 18 or newer.\n`);
-  edit(seeded, 'docs/overview.md', (s) => `${s}\nSupported: node >=20.\n`);
+  edit(seeded, 'docs/setup.md', (s) => `${s}\nDoFlow requires Node.js 18 or newer.\n`);
+  edit(seeded, 'docs/quickstart.md', (s) => `${s}\nSupported: node >=20.\n`);
   const problems = checkStaleNodeFloor(seeded);
+  assert.ok(problems.some((p) => /^docs\/setup\.md:\d+ /.test(p)));
   assert.ok(problems.some((p) => /^docs\/quickstart\.md:\d+ /.test(p)));
-  assert.ok(problems.some((p) => /^docs\/overview\.md:\d+ /.test(p)));
 
   // Each form an earlier pattern let through.
   for (const claim of ['Install with node@20 or newer.', 'Needs Node 18.19 or later.', 'Node versions: 18 and 20.', 'Runs on Node 20.x.', 'Requires 18+.']) {
@@ -275,7 +289,7 @@ test('G49.c negative control: re-seeded 18 and 20 floor claims are reported, a h
   assert.ok(checkStaleNodeFloor(sameLine).some((p) => /^docs\/guide\.md:\d+ /.test(p)));
   const row = copySite(t);
   edit(row, 'docs/setup.md', (s) => s.replace('| Node.js 22.18+ / 24.3+ |', '| Node.js 20+ |'));
-  assert.ok(checkStaleNodeFloor(row).some((p) => /^docs\/setup\.md:12 /.test(p)));
+  assert.ok(checkStaleNodeFloor(row).some((p) => /^docs\/setup\.md:15 /.test(p)));
   assert.deepEqual(checkNodeFloor(row), [], 'the range cell is unchanged, so only this check can see the header');
 
   const history = copySite(t);

@@ -1,3 +1,6 @@
+---
+description: Task-based workflows for features, bugs, quality, research, and documentation.
+---
 # Guide
 
 Use this page to choose a workflow. Use [Reference](reference.md) when you need an exact command or capability.
@@ -207,7 +210,7 @@ Use documentation work as a focused task, then build the site when repository do
 mkdocs build --strict
 ```
 
-For this repository, keep one canonical home for each topic: installation in [Setup](setup.md), workflows here, complete lookup material in [Reference](reference.md), and system concepts in [Overview](overview.md).
+For this repository, keep one canonical home for each topic: installation in [Setup](setup.md), workflows here, complete lookup material in [Reference](reference.md), and system concepts in [Home](index.md#the-component-model).
 
 ## Keep track of what is left
 

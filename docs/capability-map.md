@@ -1,7 +1,9 @@
+---
+description: What each of the eight harnesses supports and where they differ.
+---
 # Multi-harness capability map
 
-This map is generated in intent from `core/registry/harnesses.json`: it records the capability
-contract that adapters must honor. A `supported` row means the native harness has a documented
+The tables between `BEGIN GENERATED` markers are written by `node src/release/docs-blocks.ts --write` from the registries and checked by `npm run docs:blocks`. A `supported` row means the native harness has a documented
 surface; it does **not** mean a file copy has activated it. Each installation still needs the
 listed verification and any prerequisite.
 
