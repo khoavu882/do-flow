@@ -627,13 +627,63 @@ from review (R-nested and the two-process trace R-two-process); each reproduced 
 defect FU-8acds5 under its fault assumption (a lock holder paused for longer than the 10 s stale
 age, or a forward clock jump of that size) on develop up to `e003dc0d`, also without the gate, by
 stopping a real lock holder with SIGSTOP past the stale age (the review record's `realpause.js`
-reproduction, kept with the 117 feature records). 117 Phase C fixed the lock: a holder's own
-`owner-*` entry inside `<file>.lock`, an exclusive `reclaim` entry that pins a stale lock to one
-reclaimer, release of the holder's own lock only, and an ownership check before the rename in
-`updateTaskState`. The regressions are now required, and `test/state/task-state-lock.test.js`
-covers the protocol and a lock written by runtimes from before it. One bound stays: a holder paused
-past the stale age exactly between that check and its rename (the `LOST_ACK` trace). Slow controls
-run only on demand from `test/explore/ledger-controls.js`.
+reproduction, kept with the 117 feature records). 117 Phase C fixed the lock (next section); the
+regressions are now required, and `test/state/task-state-lock.test.js` covers the protocol, a process
+paused at every step of an acquire or a reclaim, and a lock written by runtimes from before it. Slow
+controls run only on demand from `test/explore/ledger-controls.js`.
+
+### The task-state lock
+
+Every task-state store writes through one per-file lock, the `<file>.lock` directory
+(`src/runtime/task-state.ts`). The path and the directory are what runtimes before 117 Phase C used;
+what is new is what goes inside it and who may remove it.
+
+- A holder marks the lock with its own `owner-<pid>-<random>` entry and holds it while that entry is
+  the only one in it. Release removes the entry, then the directory.
+- A lock older than 10 s (its directory unchanged that long) is reclaimed in place: the reclaimer
+  enters it, checks it is the directory it judged stale, removes the entries it judged by name, and
+  holds it once it is alone. No runtime moves a lock directory, and a directory with an entry in it
+  cannot be removed, so the directory an entry is in stays at `<file>.lock`.
+- A fresh acquire whose `mkdir` of the lock and of its entry are more than 5 s apart cannot tell
+  whose directory its entry landed in (an older runtime's lock is an empty directory), so it removes
+  the entry and starts over.
+- Two processes that enter one lock at the same moment: the entry that sorts first waits, the other
+  leaves; one that leaves and finds the lock emptied enters it again rather than leave it empty.
+- `updateTaskState` checks the holder's entry is still there after writing its temp file and before
+  its rename; when it is not, it removes the temp file and writes nothing (`lock-lost`). The
+  task-attempt ledger runs its decision again on the fresh store up to twice, then reports
+  `lock-lost` (exit 2, like `store-unreadable`, but the store is intact: run the command again);
+  context-pack records it as `delivery.reason: lock-lost`. Callers of `boundedAcquire` still get
+  `store-locked` when the lock stays held.
+- Recovery: whatever a process left when it died (an empty lock, its entry, entries of an attempt in
+  progress, a `reclaim` entry of a pre-release build of this fix) is reclaimed 10 s after the lock
+  last changed, as before 117 Phase C. Nothing needs removing by hand.
+- Runtimes from before 117 Phase C see a directory they did not create: they wait on a fresh one and,
+  on a stale one, their `rmdir` fails because it is not empty, so they fail closed (`Could not lock`,
+  `store-locked`) instead of taking it. They cannot clear a crashed new holder's lock, and their
+  message ("retry shortly") does not say so: any current DoFlow verb on that store reclaims it, or
+  remove `<file>.lock` when no DoFlow process runs.
+
+Bounds, not covered (the argument for each step is in the 117 feature records,
+`research/phase-c-protocol.md`):
+
+1. A holder paused past 10 s exactly between that pre-write check and its rename (the `LOST_ACK`
+   replay in `test/helper/ledger-scenarios.js`).
+2. Any holder that runs past 10 s loses the lock to a reclaimer. A current holder learns it at its
+   pre-write check (bound 1 aside); an older runtime's holder, storage pruning's record lock (whose
+   by-name `rmdir` then fails and the candidate is recorded as failed while the pass continues), and
+   the stores that hold the lock around writes of their own (the decision register, the lifecycle
+   event store and its upkeep, research-request runs, state-root moves) do not.
+3. Two older runtimes breaking one stale lock at the same moment can remove each other's lock, and,
+   in the first two calls of a current runtime's fresh acquire, its lock too, after which it may join
+   an older runtime's empty lock.
+4. On a filesystem without birth times, an inode reused between a reclaimer's judgement and its entry.
+5. The clock stepped back during a fresh acquire, or file times coarser than 5 s.
+6. Liveness only: a lock left empty (a fresh acquire paused 5 s or more, three processes leaving one
+   lock at once, an entry `mkdir` failing with another error) is waited on until it is 10 s old.
+
+Measured on macOS only; Linux and win32 were not run. Locks with their own code are unchanged: the
+slot queue (`src/runtime/slots.ts`), storage pruning's record lock and upkeep's pass lock.
 
 The docs build needs `mkdocs`, the Dracula theme and `pymdown-extensions` (the `mermaid` fence in
 `mkdocs.yml` is a `pymdownx.superfences` custom fence), which `requirements.txt` pins, which the docs

@@ -940,7 +940,7 @@
       "rule": "existing",
       "bound": {
         "value": 10000,
-        "text": "removed on release; stale locks are broken"
+        "text": "removed on release; a stale lock is reclaimed in place"
       },
       "protect": null,
       "moments": [],

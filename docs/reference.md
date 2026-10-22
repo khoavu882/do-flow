@@ -484,7 +484,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `install-ledger-user-state` | `~/.doflow/state/ledger.json` | one file, overwritten |
 | `install-ledger-project-state` | `.doflow/state/ledger.json` | one file, overwritten |
 | `lifecycle-control` | `.doflow/state/lifecycle` | self-cleaning |
-| `task-locks-project-state` | `.doflow/state/<store>/<file>.lock` | removed on release; stale locks are broken |
+| `task-locks-project-state` | `.doflow/state/<store>/<file>.lock` | removed on release; a stale lock is reclaimed in place |
 | `install-projections-user-doflow` | `~/.doflow/{scripts,runtime,guidance,shared,templates,.install-manifest.json,doflow.lock}` | owned by the install ledger |
 | `install-projections-project-doflow` | `.doflow/{scripts,runtime,guidance,shared,templates,.install-manifest.json,doflow.lock}` | owned by the install ledger |
 | `knowledge-index-user-doflow` | `~/.doflow/index` | rewritten atomically, sha-keyed |
