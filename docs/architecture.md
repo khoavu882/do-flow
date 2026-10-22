@@ -611,14 +611,22 @@ The debris check prints nothing when the suite left no temporary folder behind. 
 The sequence sampler (`test/explore/ledger-sampler.js`) runs two real child processes against the
 task-attempt ledger, grants their store, lock and temp-file fs calls one at a time in a seeded
 order, and judges each schedule against a hand-written sequential model of claim, finish and
-cancel. It exits 0 when no violation was found within the bounds, 1 when one was (with a replay
-string for `--replay`), 2 on a usage error and 3 when exploration was incomplete (a kill switch, or
-more than 5 % of schedules incomplete); 3 is never a pass. Its limits: fs calls are serialized per
-call, so overlap inside one call, network filesystems, process death and win32 are outside the
-model, and a bounded sample is not a proof. The fixed regressions it found are in
-`test/state/ledger-lock-race.test.js`, which `npm test` runs. Two slow controls run only on demand
-from `test/explore/ledger-controls.js`: granting a step before the actor parks again must break replay
-determinism, and one seed must give the same schedules twice.
+cancel. It exits 0 when every schedule completed and none showed a violation, 1 when one did (with
+a replay string for `--replay`), 2 on a usage error and 3 when exploration was incomplete: any
+incomplete schedule, a kill switch, an interrupt (SIGINT, SIGTERM or SIGHUP, after which it kills
+its actors and prints the partial record), a report it could not write, or a sampling run judged
+by an oracle swapped in through `DOFLOW_SAMPLER_ORACLE` (`--replay` always uses the real one). 3 is never a pass, and 0 means "no violation within
+these bounds", not a proof of safety or liveness. The gate holds the seven synchronous fs methods
+the ledger calls on the store, its lock and its temp file; any other `node:fs` or `fs.promises`
+call that reaches those paths (also through another spelling of the path, or a descriptor from
+`open`) makes the schedule incomplete. Outside the model: overlap inside one fs call, network
+filesystems, process death, win32, worker threads, child processes, native addons, and a hard
+link or symlink to the store under another name. The regressions pinned in
+`test/state/ledger-lock-race.test.js`, which `npm test` runs, came from the sampler (R-claim) and
+from review (R-nested and the two-process trace R-two-process); each reproduces the stale-lock
+defect FU-8acds5 under its fault assumption: a lock holder paused for longer than the 10 s stale
+age, or a forward clock jump of that size. Slow controls run only on demand from
+`test/explore/ledger-controls.js`.
 
 The docs build needs `mkdocs`, the Dracula theme and `pymdown-extensions` (the `mermaid` fence in
 `mkdocs.yml` is a `pymdownx.superfences` custom fence), which `requirements.txt` pins, which the docs
