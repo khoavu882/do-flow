@@ -47,7 +47,7 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 ### Command index
 
 <!-- BEGIN GENERATED:command-index -->
-| `doflow` command | Summary |
+| Command (doflow) | Summary |
 |---|---|
 | `install` | Install configs to target tools (use --dry-run to preview) |
 | `update` | Incremental update of changed files only |
@@ -96,13 +96,13 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `lifecycle` | Open follow-ups, feature tracking, releases and status for the project (--action overview\|init\|release\|status\|merged) |
 | `goal` | Add, check, link, list or close a goal and its checklist (--action add\|item\|check\|link\|list\|done) |
 | `failure` | List, settle or switch off the failures DoFlow captured on this machine (--action list\|settle\|capture) |
-| `roadmap` | Session-driven autopilot runner (--action render\|status\|next\|audit [--check] [--row <id>] [--run <id>]); |
-| `plan-check` | Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json] |
+| `roadmap` | Session-driven autopilot runner (--action render\|status\|next\|audit [--check] [--row &lt;id&gt;] [--run &lt;id&gt;]); |
+| `plan-check` | Check a plan's task lines the way the task-attempt ledger reads them: plan-check &lt;plan path&gt; [--json] |
 | `review` | Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage): |
 | `slot` | Named machine-wide queue, one holder at a time (--action run\|list\|release); |
 | `leak-scan` | Report DoFlow-internal identifiers in shipped files (--path, repeatable) |
 
-| `doflow-run` verb | Group | Summary |
+| Verb (doflow-run) | Group | Summary |
 |---|---|---|
 | `paths` | Artifact and repository state | resolve repo root, branch, feature slug, artifact paths |
 | `validate` | Artifact and repository state | artifact index/detail consistency check |

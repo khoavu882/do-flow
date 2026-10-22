@@ -1,6 +1,9 @@
 'use strict';
 
 const { REF_META } = require('../../src/runtime/settings/refs.ts');
+// The Description cell is written by the docs generator's text() (Markdown and HTML made inert),
+// so the guard expects the same escaping.
+const { text: cellText } = require('../../src/release/docs-blocks.ts');
 
 function docsRows(text) {
   const lines = text.split('\n');
@@ -51,7 +54,7 @@ function displayDefault(value) {
 
 function renderSettingsRow(key, spec, registry) {
   const legacy = [...new Set((spec.legacy || []).map((entry) => entry.path))].join(', ') || '—';
-  return `| \`${key}\` | ${spec.type} | \`${displayDefault(resolvedDefault(key, spec, registry))}\` | ${spec.scope} | ${spec.env?.name || '—'} | \`${legacy}\` | ${String(spec.description || '—').replace(/\|/g, '\\|')} |`;
+  return `| \`${key}\` | ${spec.type} | \`${displayDefault(resolvedDefault(key, spec, registry))}\` | ${spec.scope} | ${spec.env?.name || '—'} | \`${legacy}\` | ${cellText(spec.description)} |`;
 }
 
 function renderSettingsTable(raw, registry, { omitKey = null } = {}) {
@@ -82,7 +85,7 @@ function checkSettingsDocs(raw, text, registry) {
       ['scope', row.scope, spec.scope],
       ['env', row.env, spec.env?.name || '—'],
       ['legacy file', row.legacy, [...new Set((spec.legacy || []).map((entry) => entry.path))].join(', ') || '—'],
-      ['description', row.description, String(spec.description || '—').replace(/\|/g, '\\|')],
+      ['description', row.description, cellText(spec.description)],
     ];
     for (const [field, actual, wanted] of expected) {
       if (actual !== wanted) errors.push(`${key} ${field} is '${actual}', expected '${wanted}'`);

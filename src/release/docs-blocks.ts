@@ -31,8 +31,7 @@ const USAGE = 'usage: node src/release/docs-blocks.ts --write|--check\n';
 const DOFLOW_BIN = 'bin/doflow.js';
 const DOFLOW_RUN_BIN = 'core/shared/scripts/doflow/bin/doflow-run';
 
-// The llms.txt summary is prose, not registry data, so it is kept here verbatim (IC-009).
-const LLMS_SUMMARY = '> DoFlow is a registry-driven installer (`npx @khoavu882/doflow`) that projects one source of engineering guidance, skills, specialist agents, hooks, and MCP configuration into eight AI coding tools: Claude Code, Codex, Gemini CLI, OpenCode, Pi, GitHub Copilot CLI, Kiro, and Antigravity. It needs Node.js ^22.18.0 || >=24.3.0; the runtime is TypeScript run by Node\'s type-stripping, with no build step.';
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
 
 // Display labels for capability keys; a key without a label is shown capitalized, so a capability
 // added to the registry still gets its row.
@@ -41,23 +40,62 @@ const CAPABILITY_LABELS: Record<string, string> = {
   modes: 'Modes', settings: 'Settings', hooks: 'Hooks', mcp: 'MCP', plugin: 'Plugin / extension',
 };
 
-type Finding = { page: string; id: string; kind: 'stale' | 'orphan' | 'missing' | 'source-unreadable' | 'over-cap' };
+type Finding = { page: string; id: string; kind: 'stale' | 'orphan' | 'missing' | 'source-unreadable' | 'over-cap'; detail?: string };
 type Block = { id: string; page: string; sources: string[]; render: (root: string) => string };
 
 function readJson(root: string, rel: string): any {
   return JSON.parse(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
-function cell(value: unknown): string {
-  return String(value ?? '—').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+// ── Cell text ─────────────────────────────────────────────────────────────────────────────────────
+//
+// Every value that reaches a table comes from a registry or a help text, so it is made inert before
+// it lands in Markdown: a newline would end the row, a pipe would split it, `<`, `>` and `&` would be
+// read as HTML (a `<plan path>` operand vanishes from the built page, a `<script>` runs), and a
+// backtick would open a code span. `text()` escapes all of them; `code()` wraps a value in a code
+// span only when it holds no pipe, backtick or line break, and otherwise falls back to `text()`.
+// A marker line can never appear inside a cell: a cell is part of a `|` row and markers are whole
+// lines.
+
+function oneLine(value: unknown): string {
+  return String(value ?? '').replace(/\r?\n|\r/g, ' ');
 }
 
-function table(headers: string[], rows: unknown[][]): string {
+/** Plain cell text with Markdown and HTML made inert; empty is shown as an em dash. */
+function text(value: unknown): string {
+  const raw = oneLine(value);
+  if (raw === '') return '—';
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\\/g, '\\\\')
+    .replace(/`/g, '\\`')
+    .replace(/\|/g, '\\|');
+}
+
+/** A value as a code span; one holding a pipe, backtick or line break is shown as plain text. */
+function code(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  const raw = String(value);
+  return /[|`\r\n]/.test(raw) ? text(raw) : `\`${raw}\``;
+}
+
+/** Headers go through `text()`; row cells are already formatted by `text()` or `code()`. */
+function table(headers: string[], rows: string[][]): string {
   return [
-    `| ${headers.join(' | ')} |`,
+    `| ${headers.map(text).join(' | ')} |`,
     `|${headers.map(() => '---').join('|')}|`,
-    ...rows.map((row) => `| ${row.map(cell).join(' | ')} |`),
+    ...rows.map((row) => `| ${row.join(' | ')} |`),
   ].join('\n');
+}
+
+/** A copy of registry data with every string made inert, for renderers that format cells themselves. */
+function inert(value: any): any {
+  if (typeof value === 'string') return value === '' ? value : text(value);
+  if (Array.isArray(value)) return value.map(inert);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, inert(entry)]));
+  return value;
 }
 
 function capitalize(text: string): string {
@@ -75,12 +113,12 @@ function renderCapabilityMatrix(root: string): string {
     const value = harness.capabilities?.[key]?.status;
     if (typeof value !== 'string' || !value) return '—';
     const target = harness.nativeTargets?.[key];
-    const label = capitalize(value);
-    return target && (value === 'supported' || value === 'different') ? `${label} — \`${target}\`` : label;
+    const label = text(capitalize(value));
+    return target && (value === 'supported' || value === 'different') ? `${label} — ${code(target)}` : label;
   };
   return table(
-    ['Capability', ...harnesses.map((harness: any) => harness.displayName)],
-    keys.map((key) => [CAPABILITY_LABELS[key] || capitalize(key), ...harnesses.map((harness: any) => status(harness, key))]),
+    ['Capability', ...harnesses.map((harness: any) => oneLine(harness.displayName))],
+    keys.map((key) => [text(CAPABILITY_LABELS[key] || capitalize(key)), ...harnesses.map((harness: any) => status(harness, key))]),
   );
 }
 
@@ -92,10 +130,10 @@ function renderTaskClasses(root: string): string {
     const gates = Array.isArray(workflow.gates) ? workflow.gates.length : 0;
     const template = workflow.stages.find((stage: any) => stage.readinessTemplate)?.readinessTemplate;
     return [
-      `\`${id}\``,
-      workflow.stages.map((stage: any) => stage.id).join(' → '),
-      gates || '—',
-      templates.has(template) ? `\`${template}\`` : '—',
+      code(id),
+      text(workflow.stages.map((stage: any) => stage.id).join(' → ')),
+      gates ? String(gates) : '—',
+      templates.has(template) ? code(template) : '—',
     ];
   }));
 }
@@ -123,15 +161,14 @@ function renderSettingsKeys(root: string): string {
   const loaded = loadSettingsRegistry({ repoRoot: root, fsImpl: fs, verifyRefs: true });
   if (!loaded.ok) throw new Error(loaded.detail);
   const raw = readJson(root, 'core/registry/settings.json');
-  const code = (value: unknown) => (value === null || value === undefined || value === '' ? '—' : `\`${value}\``);
   return table(['Key', 'Type', 'Default', 'Scope', 'Env', 'Legacy file', 'Description'], Object.entries(raw.keys).map(([key, spec]: [string, any]) => [
-    `\`${key}\``,
-    spec.type,
+    code(key),
+    text(spec.type),
     code(resolvedDefault(key, spec, loaded.registry)),
-    spec.scope,
+    text(spec.scope),
     code(spec.env?.name),
     code([...new Set((spec.legacy || []).map((entry: any) => entry.path).filter(Boolean))].join(', ')),
-    spec.description || '—',
+    text(spec.description),
   ]));
 }
 
@@ -139,20 +176,32 @@ function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
-// A command line in both help texts is two spaces, the verb, then two or more spaces before the
-// summary; `doflow` may put an argument hint such as `[path]` between the verb and the gap.
-// Continuation lines are indented further and are not read.
+// A command row in both help texts is exactly two spaces, the verb, then two or more spaces before
+// the summary; `doflow` may put an argument hint such as `[path]` between the verb and the gap. A
+// line indented further continues the row above it and is not read. Any other line in a command
+// section that is not blank (a verb with no summary, a single-space gap, a tab, a one-space
+// sub-header, an example line naming `doflow` or `doflow-run`) is refused, so a help layout the
+// parser does not understand fails loudly instead of dropping a verb from the index.
 const HELP_ROW = /^ {2}([a-z][a-z0-9-]*)(?: [^ ].*?)? {2,}(\S.*?)\s*$/;
+const NOT_A_VERB = new Set(['doflow', 'doflow-run']);
+
+function helpRow(line: string, source: string): { verb: string; summary: string } | null {
+  if (line.trim() === '') return null;
+  if (/^ {3,}\S/.test(line)) return null;
+  const match = line.match(HELP_ROW);
+  if (!match || NOT_A_VERB.has(match[1])) throw new Error(`${source} --help: cannot read the line ${JSON.stringify(line)}`);
+  return { verb: match[1], summary: match[2] };
+}
 
 function parseDoflowHelp(text: string): { verb: string; summary: string }[] {
   const rows: { verb: string; summary: string }[] = [];
   let inCommands = false;
   for (const line of stripAnsi(text).split(/\r?\n/)) {
-    if (line.trim() === 'Commands:') { inCommands = true; continue; }
+    if (line.trim() === 'Commands:' && /^\S/.test(line)) { inCommands = true; continue; }
     if (!inCommands) continue;
     if (/^\S/.test(line)) break;
-    const match = line.match(HELP_ROW);
-    if (match) rows.push({ verb: match[1], summary: match[2] });
+    const row = helpRow(line, DOFLOW_BIN);
+    if (row) rows.push(row);
   }
   return rows;
 }
@@ -163,24 +212,30 @@ function parseDoflowRunHelp(text: string): { verb: string; group: string; summar
   for (const line of stripAnsi(text).split(/\r?\n/)) {
     if (/^\S.*:$/.test(line)) { group = line.slice(0, -1); continue; }
     if (!group) continue;
-    const match = line.match(HELP_ROW);
-    if (match) rows.push({ verb: match[1], group, summary: match[2] });
+    if (/^\S/.test(line)) { group = ''; continue; }
+    const row = helpRow(line, DOFLOW_RUN_BIN);
+    if (row) rows.push({ ...row, group });
   }
   return rows;
 }
 
-/** Both help texts, captured in a pinned environment; a parse that yields no verb throws. */
+function helpFailure(source: string, run: any): string {
+  const stderr = String(run.stderr || '').trim().split(/\r?\n/).slice(0, 3).join(' / ');
+  const why = run.error ? run.error.message : `exit ${run.status === null ? `signal ${run.signal}` : run.status}`;
+  return `${source} --help failed (${why})${stderr ? `: ${stderr}` : ''}`;
+}
+
+/** Both help texts, captured in a pinned environment; a failed run, an unreadable line or no verb throws. */
 function captureHelp(root: string): { doflow: { verb: string; summary: string }[]; doflowRun: { verb: string; group: string; summary: string }[] } {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-docs-blocks-home-'));
   try {
     const env = { PATH: process.env.PATH || '', HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), NO_COLOR: '1', COLUMNS: '200', LANG: 'C', LC_ALL: 'C', TZ: 'UTC' };
     const run = (command: string, args: string[]) => spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: 60_000 });
     const doflow = run(process.execPath, [path.join(root, DOFLOW_BIN), '--help']);
+    if (doflow.error || doflow.status !== 0) throw new Error(helpFailure(DOFLOW_BIN, doflow));
     const doflowRun = run('bash', [path.join(root, DOFLOW_RUN_BIN), '--help']);
-    const result = {
-      doflow: doflow.status === 0 ? parseDoflowHelp(doflow.stdout) : [],
-      doflowRun: doflowRun.status === 0 ? parseDoflowRunHelp(doflowRun.stdout) : [],
-    };
+    if (doflowRun.error || doflowRun.status !== 0) throw new Error(helpFailure(DOFLOW_RUN_BIN, doflowRun));
+    const result = { doflow: parseDoflowHelp(doflow.stdout), doflowRun: parseDoflowRunHelp(doflowRun.stdout) };
     if (result.doflow.length === 0) throw new Error(`${DOFLOW_BIN} --help yielded no command`);
     if (result.doflowRun.length === 0) throw new Error(`${DOFLOW_RUN_BIN} --help yielded no verb`);
     return result;
@@ -195,16 +250,16 @@ function captureHelp(root: string): { doflow: { verb: string; summary: string }[
 function renderCommandIndex(root: string): string {
   const help = captureHelp(root);
   return [
-    table(['`doflow` command', 'Summary'], help.doflow.map((row) => [`\`${row.verb}\``, row.summary])),
+    table(['Command (doflow)', 'Summary'], help.doflow.map((row) => [code(row.verb), text(row.summary)])),
     '',
-    table(['`doflow-run` verb', 'Group', 'Summary'], help.doflowRun.map((row) => [`\`${row.verb}\``, row.group, row.summary])),
+    table(['Verb (doflow-run)', 'Group', 'Summary'], help.doflowRun.map((row) => [code(row.verb), text(row.group), text(row.summary)])),
   ].join('\n');
 }
 
 const BLOCKS: readonly Block[] = Object.freeze([
   { id: 'capability-matrix', page: 'capability-map.md', sources: ['core/registry/harnesses.json'], render: renderCapabilityMatrix },
-  { id: 'enforcement-matrix', page: 'capability-map.md', sources: ['core/registry/lifecycle.json'], render: (root: string) => renderEnforcementMatrix(readJson(root, 'core/registry/lifecycle.json').coverage) },
-  { id: 'context-behaviour-matrix', page: 'capability-map.md', sources: ['core/registry/lifecycle.json'], render: (root: string) => renderBehaviourMatrix(readJson(root, 'core/registry/lifecycle.json').coverage) },
+  { id: 'enforcement-matrix', page: 'capability-map.md', sources: ['core/registry/lifecycle.json'], render: (root: string) => renderEnforcementMatrix(inert(readJson(root, 'core/registry/lifecycle.json').coverage)) },
+  { id: 'context-behaviour-matrix', page: 'capability-map.md', sources: ['core/registry/lifecycle.json'], render: (root: string) => renderBehaviourMatrix(inert(readJson(root, 'core/registry/lifecycle.json').coverage)) },
   { id: 'task-classes', page: 'how-doflow-work.md', sources: ['core/registry/workflows.json', 'core/registry/readiness-templates.json'], render: renderTaskClasses },
   { id: 'settings-keys', page: 'settings.md', sources: ['core/registry/settings.json'], render: renderSettingsKeys },
   { id: 'command-index', page: 'reference.md', sources: [DOFLOW_BIN, DOFLOW_RUN_BIN], render: renderCommandIndex },
@@ -257,6 +312,21 @@ function pageDescription(text: string): string | null {
   return value || null;
 }
 
+/**
+ * The llms.txt summary line: the prose is fixed, the facts in it come from their sources (harness
+ * names from harnesses.json, the package name and Node range from package.json), so a renamed
+ * harness or a new Node floor makes llms.txt stale instead of silently wrong.
+ */
+function llmsSummary(root: string): string {
+  const pkg = readJson(root, 'package.json');
+  const names = (readJson(root, 'core/registry/harnesses.json').harnesses || []).map((harness: any) => oneLine(harness.displayName)).filter(Boolean);
+  const range = pkg?.engines?.node;
+  if (!pkg?.name || names.length === 0 || typeof range !== 'string') throw new Error('package.json name or engines.node, or the harness list, is missing');
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}` : names[0];
+  const count = NUMBER_WORDS[names.length] || String(names.length);
+  return `> DoFlow is a registry-driven installer (\`npx ${pkg.name}\`) that projects one source of engineering guidance, skills, specialist agents, hooks, and MCP configuration into ${count} AI coding tools: ${list}. It needs Node.js ${range}; a source checkout runs its TypeScript through Node's type stripping, and the npm package ships JavaScript built by \`npm run build:package\`.`;
+}
+
 function renderLlms(root: string): string {
   const base = siteUrl(root);
   const sections = new Map<string, string[]>();
@@ -267,39 +337,53 @@ function renderLlms(root: string): string {
     if (!sections.has(page.section)) sections.set(page.section, []);
     sections.get(page.section)!.push(`- [${page.title}](${url}): ${description}`);
   }
-  const lines = ['# DoFlow', '', LLMS_SUMMARY, ''];
+  const lines = ['# DoFlow', '', llmsSummary(root), ''];
   for (const [section, entries] of sections) lines.push(`## ${section}`, '', ...entries, '');
   return `${lines.join('\n').replace(/\n+$/, '')}\n`;
 }
 
 // ── Check and write ──────────────────────────────────────────────────────────────────────────────
 
-/** Marker findings for one page: ids that are malformed, unregistered, unpaired, out of order or doubled. */
+/**
+ * Marker findings for one page: a marker id that is malformed, not registered for this page, unpaired
+ * (a lone BEGIN or END, an END before its BEGIN, a doubled pair) or nested inside another span is an
+ * orphan. Markers are whole lines only, so marker-shaped text inside a table row is never one.
+ */
 function markerFindings(page: string, text: string): Finding[] {
-  const counts = new Map<string, { begin: number[]; end: number[] }>();
-  for (const match of text.matchAll(MARKER_LINE)) {
-    const entry = counts.get(match[2]) || { begin: [], end: [] };
-    entry[match[1] === 'BEGIN' ? 'begin' : 'end'].push(match.index ?? 0);
-    counts.set(match[2], entry);
+  const markers = [...text.matchAll(MARKER_LINE)].map((match) => ({ kind: match[1], id: match[2], index: match.index ?? 0 }));
+  const bad = new Set<string>();
+  const counts = new Map<string, { begin: number; end: number }>();
+  let open: string | null = null;
+  for (const marker of markers) {
+    const entry = counts.get(marker.id) || { begin: 0, end: 0 };
+    if (marker.kind === 'BEGIN') {
+      entry.begin += 1;
+      if (open !== null) { bad.add(open); bad.add(marker.id); }
+      open = marker.id;
+    } else {
+      entry.end += 1;
+      if (open !== marker.id) bad.add(marker.id);
+      if (open === marker.id) open = null;
+    }
+    counts.set(marker.id, entry);
   }
+  if (open !== null) bad.add(open);
   const findings: Finding[] = [];
   for (const [id, { begin, end }] of counts) {
     const registered = MARKER_ID.test(id) && BLOCKS.some((block) => block.id === id && block.page === page);
-    const paired = begin.length === 1 && end.length === 1 && end[0] > begin[0];
-    if (!registered || !paired) findings.push({ page, id, kind: 'orphan' });
+    if (!registered || begin !== 1 || end !== 1 || bad.has(id)) findings.push({ page, id, kind: 'orphan' });
   }
   return findings;
 }
 
 /** The text between a block's marker lines, or null when the pair is absent or malformed. */
-function spanOf(text: string, id: string): { start: number; end: number } | null {
-  const begin = `<!-- BEGIN GENERATED:${id} -->\n`;
-  const end = `<!-- END GENERATED:${id} -->`;
-  const a = text.indexOf(begin);
-  if (a < 0 || text.indexOf(begin, a + 1) >= 0) return null;
-  const b = text.indexOf(end, a + begin.length);
-  if (b < 0 || (b > 0 && text[b - 1] !== '\n' && b !== a + begin.length)) return null;
-  return { start: a + begin.length, end: b };
+function spanOf(body: string, id: string): { start: number; end: number } | null {
+  // Markers count only as whole lines (MARKER_LINE), never as text inside a line.
+  const lines = [...body.matchAll(MARKER_LINE)].filter((match) => match[2] === id);
+  if (lines.length !== 2 || lines[0][1] !== 'BEGIN' || lines[1][1] !== 'END') return null;
+  const start = (lines[0].index ?? 0) + lines[0][0].length + 1;
+  const end = lines[1].index ?? 0;
+  return end >= start ? { start, end } : null;
 }
 
 function readDoc(root: string, page: string): string | null {
@@ -323,12 +407,12 @@ function checkAll(root: string): Finding[] {
       continue;
     }
     let expected: string;
-    try { expected = block.render(root); } catch { findings.push({ page: block.page, id: block.id, kind: 'source-unreadable' }); continue; }
+    try { expected = block.render(root); } catch (error: any) { findings.push({ page: block.page, id: block.id, kind: 'source-unreadable', detail: error?.message }); continue; }
     if ((text as string).slice(span.start, span.end) !== `${expected}\n`) findings.push({ page: block.page, id: block.id, kind: 'stale' });
   }
   const committed = readDoc(root, 'llms.txt');
   let expected: string | null = null;
-  try { expected = renderLlms(root); } catch { findings.push({ page: 'llms.txt', id: 'llms.txt', kind: 'source-unreadable' }); }
+  try { expected = renderLlms(root); } catch (error: any) { findings.push({ page: 'llms.txt', id: 'llms.txt', kind: 'source-unreadable', detail: error?.message }); }
   if (committed === null) findings.push({ page: 'llms.txt', id: 'llms.txt', kind: 'missing' });
   else {
     if (expected !== null && committed !== expected) findings.push({ page: 'llms.txt', id: 'llms.txt', kind: 'stale' });
@@ -367,11 +451,11 @@ function main(argv: string[], root: string = REPO_ROOT): number {
     return 2;
   }
   const findings = argv[0] === '--write' ? writeAll(root) : checkAll(root);
-  for (const finding of findings) process.stderr.write(`docs-blocks: ${finding.page}: ${finding.id}: ${finding.kind}\n`);
+  for (const finding of findings) process.stderr.write(`docs-blocks: ${finding.page}: ${finding.id}: ${finding.kind}${finding.detail ? ` (${oneLine(finding.detail)})` : ''}\n`);
   if (findings.length && argv[0] === '--check') process.stderr.write('docs-blocks: run node src/release/docs-blocks.ts --write, then review the diff\n');
   return findings.length ? 1 : 0;
 }
 
-module.exports = { BLOCKS, LLMS_CAP, MARKER_ID, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll, main };
+module.exports = { BLOCKS, LLMS_CAP, MARKER_ID, markerFindings, text, code, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll, main };
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
