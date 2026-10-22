@@ -192,6 +192,8 @@ function mutate({ file, fsImpl, apply }: any) {
   } catch (error: any) {
     if (error instanceof NoWrite) return outcome.result;
     if (error instanceof TaskAttemptError) throw error;
+    // Contention, not damage: the store is intact and a later run decides afresh.
+    if (error?.code === 'lock-lost') throw new TaskAttemptError('lock-lost', error.message);
     throw unreadable(file, error.message);
   }
   return outcome.result;
