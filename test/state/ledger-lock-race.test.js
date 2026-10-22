@@ -36,11 +36,11 @@ const FOLLOWUP_ID = /^FU-[a-z0-9]{6}$/;
 // Round 3's P1 trace (S1, init stale; A = finish, B = cancel).
 const P1 = 'B.mkdir A.mkdir B.stat A.stat B.rmdir B.mkdir B.exists A.rmdir A.mkdir A.exists B.readFile B.writeFile '
   + 'A.readFile A.writeFile A.rename B.rename A.rmdir B.rmdir';
-// pinned: derived by hand; C.1 replaces it with the sampler's shortest trace.
-// S2, init stale: both mkdirs fail, both stats see the stale lock, A breaks it and takes it, B breaks
-// A's live lock and takes it, both read the empty task before either writes: both answer `claimed` token 1.
-const R_CLAIM = 'A.mkdir B.mkdir A.stat B.stat A.rmdir A.mkdir B.rmdir B.mkdir A.exists B.exists A.readFile B.readFile '
-  + 'A.writeFile A.rename B.writeFile B.rename A.rmdir B.rmdir';
+// pinned by C.1: the sampler's shortest S2 double-grant trace (seed 117, N 200, init stale, ca53f2e8;
+// 12/200 double-grant on Node 26.8.1 and 22.23.2; 10/10 replays double-grant). A breaks the stale lock
+// and takes it, B breaks A's live lock, both read the empty task before either writes: both `claimed` token 1.
+const R_CLAIM = 'A.mkdir B.mkdir A.stat B.stat A.rmdir A.mkdir B.rmdir A.exists A.readFile B.mkdir B.exists B.readFile '
+  + 'A.writeFile A.rename A.rmdir B.writeFile B.rename B.rmdir';
 const R_NESTED_TRACE = 'A.finish(readFile store) age-lock B.cancel(nested, to its end) A.finish(continues)';
 
 const aFirst = (parked) => (parked.includes('A') ? 'A' : 'B');
