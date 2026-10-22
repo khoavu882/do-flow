@@ -9,6 +9,9 @@ const { spawnSync } = require('node:child_process');
 const { REPO, loadCorpus, parseRecords, runPolicy, encodeEnvelope } = require('../helper/hook-fixtures');
 const { tempDir } = require('../helper/tmp');
 const { rowsDigest, renderEnforcementMatrix, NEVER_BLOCKING_EVENTS } = require('../../src/lifecycle/coverage.ts');
+// The docs block renders the registry through the docs generator's inert() (Markdown and HTML in a
+// registry value are escaped), so the shipped block is compared with that rendering.
+const { inert } = require('../../src/release/docs-blocks.ts');
 const { hookReachabilityFindings, runnerHeaderFindings, dependencyTargets } = require('../helper/hook-reachability');
 
 const POLICY_DIR = path.join(REPO, 'core/harnesses/shared/hooks/policies');
@@ -364,7 +367,7 @@ function matrixDocFindings(text, coverage) {
   const a = text.indexOf(start), b = text.indexOf(end);
   if (a < 0 || b < a) return ['enforcement matrix markers missing'];
   const actual = text.slice(a + start.length, b).trim();
-  return actual === renderEnforcementMatrix(coverage) ? [] : ['enforcement matrix differs from renderer'];
+  return actual === renderEnforcementMatrix(inert(coverage)) ? [] : ['enforcement matrix differs from renderer'];
 }
 function parityEnumeratesCorpus(files) {
   const parityFiles = fs.readdirSync(path.join(REPO, 'test/hooks')).filter(f => /^(bridge-parity(?:-[^.]+)?|pi-bridge)\.test\.js$/.test(f));

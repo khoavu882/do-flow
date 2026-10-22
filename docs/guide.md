@@ -1,3 +1,6 @@
+---
+description: Task-based workflows for features, bugs, quality, research, and documentation.
+---
 # Guide
 
 Use this page to choose a workflow. Use [Reference](reference.md) when you need an exact command or capability.
@@ -58,7 +61,6 @@ Use this as the normal path for a new feature:
 /do-brainstorm "add team invitations"
 /do-design "team invitation flow"
 /do-plan
-/do-execute-plan --dry-run
 /do-execute-plan --scope next
 /do-test
 /do-code-review
@@ -93,7 +95,6 @@ When `/do-execute-plan` dispatches a task to a subagent, the brief it writes als
 The plan and its checklist are the source of truth once planning is complete. `state.md` records progress so a later session can resume without reconstructing the work from chat history.
 
 ```bash
-/do-execute-plan --dry-run
 /do-execute-plan --scope resume
 /do-execute-plan --scope phase:2
 ```
@@ -148,7 +149,8 @@ retrieval when Semble is unavailable or the index is stale.
 
 Prepare the optional provider before invoking it: install Semble 0.7.0 and its required Python
 dependencies in the environment of the `semble` launcher (found on PATH, then in `~/.local/bin`),
-and keep a compatible model already present on disk. Set `SEMBLE_MODEL_PATH` to that absolute model directory, or pass `--model-path`.
+and keep a compatible model already present on disk. A conceptual hybrid query reads the absolute model directory from `--model-path` or `SEMBLE_MODEL_PATH`;
+`--index-action build|refresh` needs `--model-path` and exits 2 with `model-path-required` without it.
 DoFlow does not download models or install Python packages. Provider calls set the model libraries'
 offline flags and redirect their caches and temporary statistics into a bounded, project-local
 temporary directory.
@@ -207,7 +209,7 @@ Use documentation work as a focused task, then build the site when repository do
 mkdocs build --strict
 ```
 
-For this repository, keep one canonical home for each topic: installation in [Setup](setup.md), workflows here, complete lookup material in [Reference](reference.md), and system concepts in [Overview](overview.md).
+For this repository, keep one canonical home for each topic: installation in [Setup](setup.md), workflows here, complete lookup material in [Reference](reference.md), and system concepts in [Home](index.md#the-component-model).
 
 ## Keep track of what is left
 
@@ -253,11 +255,11 @@ DoFlow bounds everything it writes. Logs, per-task records, run history, recover
 
 ### Failure capture and its off switch
 
-When a DoFlow command ends in an internal error, or the dispatcher or a guard hook crashes, DoFlow appends one masked line to a file on this machine. A bad flag, a refusal, a hook that denies a command, a missing `jq` and a missing `bash` are not recorded. Some environment errors, such as a permission error on a folder or a missing program, are recorded because they look like internal errors; `/do maintain` lets you settle them as noise. Capture never changes a command's output or exit status. Turn it off with:
+When a DoFlow command ends in an internal error, or the dispatcher or a guard hook crashes, DoFlow appends one masked line to a file on this machine. A bad flag, a refusal, a hook that denies a command and a missing `bash` are not recorded; a missing `jq` in a guard hook is recorded as `dependency-missing:jq`. Some environment errors, such as a permission error on a folder or a missing program, are recorded because they look like internal errors; `/do maintain` lets you settle them as noise. Capture never changes a command's output or exit status. Turn it off with:
 
 ```bash
-doflow failure --action capture --set off      # creates the file `off` in the failures folder
-doflow failure --action capture --set on       # removes it
+doflow failure --action capture --set off      # writes failure.capture off to <config home>/settings.json
+doflow failure --action capture --set on       # writes it back on; an existing failures/off file still turns capture off
 DOFLOW_FAILURE_CAPTURE=off doflow ...          # off for one command or shell; cannot turn capture on over the file
 ```
 
@@ -394,14 +396,15 @@ fast-search is done with C2 unmet: caching is out of scope
 ## Drive the roadmap one step at a time
 
 `doflow roadmap` advances a list of features (the roadmap) one step per call. It is for the person or
-the orchestrating session that owns the roadmap; no skill calls it for you. It is local only, it ships
+the orchestrating session that owns the roadmap; no skill advances it for you (the `do` skill's
+program mode may run `roadmap seed --action check` to validate new rows, which changes nothing). It is local only, it ships
 off, and the tests drive it against fixture repositories, so treat the flow as new. The exact flags,
 outcomes and exit codes are in [Reference](reference.md).
 
 **The seed.** `agent-docs/roadmap/rows.json` in the main checkout declares the rows; `agent-docs/` is
 gitignored in this repository, so the file is yours. Each row has `id` (three digits, optionally a
-lowercase letter or `-` and a capital, as in `085a` or `107-A`), `slug` (starts with `<id>-`), `title`, `class` (only `feature` rows are picked) and
-`needs` (row ids that must be merged first), and optionally `writeSet` (repo-relative paths; a trailing
+lowercase letter or `-` and a capital, as in `085a` or `107-A`), `slug` (starts with `<id>-`), `title` and `class` (only `feature` rows are picked), and optionally
+`needs` (row ids that must be merged first), `writeSet` (repo-relative paths; a trailing
 `/` means the subtree), `requires` (capability ids that must have a healthy provider), `mergeCommit` (a
 merge from before the loop existed) and `hold` (one line, at most 120 characters: the row is skipped
 until you remove it). `layout.worktree` may set where a row's worktree goes; it must be a sibling of
@@ -467,7 +470,8 @@ deny. An open merge intent is in `.doflow/state/roadmap/intents/<row>.json`, and
 it. A tripwire stop is in `annotations.tripwire` and `.doflow/state/roadmap/tripwire/events.json`.
 `blocked: budget` means the run used its step cap (`loop.maxSteps` in `core/registry/gates.json`).
 The feature's decision register and orchestration journal live in its worktree and are removed with it
-by cleanup. `roadmap --action audit` prints the decisions. The run record's log keeps only its last 500
+by cleanup; `roadmap --action audit` prints the loop's logged steps, including its gate and merge
+decisions, not that register. The run record's log keeps only its last 500
 entries, and run records are pruned 30 days after their work finishes, so the run record log is not the
 durable audit; `.doflow/state/roadmap/audit.jsonl` is: it keeps the last 10000 gate, merge, render and
 cleanup entries with the locator and sha256 of every input they read.

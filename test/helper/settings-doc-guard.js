@@ -1,16 +1,30 @@
 'use strict';
 
 const { REF_META } = require('../../src/runtime/settings/refs.ts');
+// Every cell is written by the docs generator's text() or code() (Markdown and HTML made inert), so
+// the guard formats each expected value the same way and strips one surrounding code span, as
+// docsRows does, before comparing.
+const { text: cellText, code: cellCode } = require('../../src/release/docs-blocks.ts');
+
+function codeCell(value) {
+  return cellCode(value).replace(/^`(.*)`$/, '$1');
+}
+
+function legacyPaths(spec) {
+  return [...new Set((spec.legacy || []).map((entry) => entry.path).filter(Boolean))].join(', ');
+}
 
 function docsRows(text) {
   const lines = text.split('\n');
-  const heading = lines.indexOf('### Settings keys');
-  if (heading < 0) return { error: '### Settings keys heading is missing', rows: new Map() };
+  const heading = lines.indexOf('## Settings keys');
+  if (heading < 0) return { error: '## Settings keys heading is missing', rows: new Map() };
   let header = heading + 1;
   while (header < lines.length && !lines[header].startsWith('|')) header++;
   if (header === lines.length) return { error: 'settings table is missing', rows: new Map() };
-  const split = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim().replace(/^`(.*)`$/, '$1'));
-  const wanted = ['Key', 'Type', 'Default', 'Scope', 'Env', 'Legacy file'];
+  const split = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/^`(.*)`$/, '$1'));
+  // docs/settings.md (087b): the generated settings-keys block adds Description after the six
+  // columns this guard compares; the header must be exactly these seven.
+  const wanted = ['Key', 'Type', 'Default', 'Scope', 'Env', 'Legacy file', 'Description'];
   const headings = split(lines[header]);
   if (headings.length !== wanted.length || headings.some((value, i) => value !== wanted[i])) {
     return { error: `settings table columns are [${headings.join(', ')}]`, rows: new Map() };
@@ -20,9 +34,9 @@ function docsRows(text) {
     if (/^\|\s*[-:| ]+\s*\|$/.test(lines[i])) continue;
     const cells = split(lines[i]);
     if (cells.length !== wanted.length) continue;
-    const [key, type, defaultValue, scope, env, legacy] = cells;
+    const [key, type, defaultValue, scope, env, legacy, description] = cells;
     if (rows.has(key)) rows.set(key, { duplicate: true, line: i + 1 });
-    else rows.set(key, { type, defaultValue, scope, env, legacy, line: i + 1 });
+    else rows.set(key, { type, defaultValue, scope, env, legacy, description, line: i + 1 });
   }
   return { error: null, rows };
 }
@@ -43,20 +57,15 @@ function resolvedDefault(key, spec, registry, resolving = new Set()) {
   return registry.resolveRef(spec.defaultRef, deps);
 }
 
-function displayDefault(value) {
-  return value === null || value === undefined ? '—' : String(value);
-}
-
 function renderSettingsRow(key, spec, registry) {
-  const legacy = [...new Set((spec.legacy || []).map((entry) => entry.path))].join(', ') || '—';
-  return `| \`${key}\` | ${spec.type} | \`${displayDefault(resolvedDefault(key, spec, registry))}\` | ${spec.scope} | ${spec.env?.name || '—'} | \`${legacy}\` |`;
+  return `| ${cellCode(key)} | ${cellText(spec.type)} | ${cellCode(resolvedDefault(key, spec, registry))} | ${cellText(spec.scope)} | ${cellCode(spec.env?.name)} | ${cellCode(legacyPaths(spec))} | ${cellText(spec.description)} |`;
 }
 
 function renderSettingsTable(raw, registry, { omitKey = null } = {}) {
   const lines = [
-    '### Settings keys', '',
-    '| Key | Type | Default | Scope | Env | Legacy file |',
-    '|---|---|---|---|---|---|',
+    '## Settings keys', '',
+    '| Key | Type | Default | Scope | Env | Legacy file | Description |',
+    '|---|---|---|---|---|---|---|',
   ];
   for (const [key, spec] of Object.entries(raw.keys)) {
     if (key === omitKey) continue;
@@ -71,21 +80,23 @@ function checkSettingsDocs(raw, text, registry) {
   const errors = [];
   if (/<config home>\/doflow\//.test(text)) errors.push('config home path duplicates the doflow segment');
   for (const [key, spec] of Object.entries(raw.keys)) {
-    const row = rows.get(key);
+    const row = rows.get(codeCell(key));
     if (!row) { errors.push(`settings table is missing ${key}`); continue; }
     if (row.duplicate) { errors.push(`settings table duplicates ${key} at line ${row.line}`); continue; }
     const expected = [
-      ['type', row.type, spec.type],
-      ['default', row.defaultValue, displayDefault(resolvedDefault(key, spec, registry))],
-      ['scope', row.scope, spec.scope],
-      ['env', row.env, spec.env?.name || '—'],
-      ['legacy file', row.legacy, [...new Set((spec.legacy || []).map((entry) => entry.path))].join(', ') || '—'],
+      ['type', row.type, cellText(spec.type)],
+      ['default', row.defaultValue, codeCell(resolvedDefault(key, spec, registry))],
+      ['scope', row.scope, cellText(spec.scope)],
+      ['env', row.env, codeCell(spec.env?.name)],
+      ['legacy file', row.legacy, codeCell(legacyPaths(spec))],
+      ['description', row.description, cellText(spec.description)],
     ];
     for (const [field, actual, wanted] of expected) {
       if (actual !== wanted) errors.push(`${key} ${field} is '${actual}', expected '${wanted}'`);
     }
   }
-  for (const key of rows.keys()) if (!Object.hasOwn(raw.keys, key)) errors.push(`settings table has undeclared key ${key}`);
+  const declared = new Set(Object.keys(raw.keys).map(codeCell));
+  for (const key of rows.keys()) if (!declared.has(key)) errors.push(`settings table has undeclared key ${key}`);
   return errors;
 }
 

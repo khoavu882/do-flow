@@ -1,7 +1,9 @@
+---
+description: What each of the eight harnesses supports and where they differ.
+---
 # Multi-harness capability map
 
-This map is generated in intent from `core/registry/harnesses.json`: it records the capability
-contract that adapters must honor. A `supported` row means the native harness has a documented
+The tables between `BEGIN GENERATED` markers are written by `node src/release/docs-blocks.ts --write` from the registries and checked by `npm run docs:blocks`. A `supported` row means the native harness has a documented
 surface; it does **not** mean a file copy has activated it. Each installation still needs the
 listed verification and any prerequisite.
 
@@ -34,10 +36,11 @@ for a capability, it is shown inline.
 the target's own file format and verification process. “Unavailable” means DoFlow records the
 gap and offers guidance instead of installing a non-functional approximation.
 
-For OpenCode and Pi, several rows read “Different” because those harnesses expect **registration**
-rather than projection: DoFlow points OpenCode's settings at its existing skills directory instead
-of copying a second tree (Pi's skills are copied into `.pi/skills/` or `~/.pi/agent/skills/`;
-`settings.json` is Pi's supported settings surface, but DoFlow writes no key in it). Pi's installed
+For OpenCode, the rows reading “Different” are Modes, Hooks and Plugin / extension. OpenCode gets its
+own copy of DoFlow's skills tree (`.opencode/skills/` or `~/.config/opencode/skills/`); what DoFlow
+registers rather than copies is `AGENTS.md` in `opencode.json`'s `instructions[]` and its MCP entries.
+Pi's skills are copied into `.pi/skills/` or `~/.pi/agent/skills/`; `settings.json` is Pi's supported
+settings surface, but DoFlow writes no key in it. Pi's installed
 user- and project-scope extensions register `tool_call` and invoke the shared lifecycle bridge;
 project-scope installs require project trust.
 
@@ -108,20 +111,23 @@ capability reads Different: a full native surface is documented upstream, but Do
 it yet because its shipped scripts are Claude-payload-coupled — its cells record that status per
 event rather than hiding it behind a dash, and each note names the payload caveat blocking
 projection. Kiro's `hooks` capability is Supported — DoFlow projects a real `.kiro/hooks/*.json`
-file wiring `SessionStart`, three `PreToolUse` hooks, and `Stop` — but the registry does not yet break
-that support down into a per-event map beyond `UserPromptSubmit` (Different: a native trigger DoFlow
-does not wire), so Kiro's other cells here are dashes pending that data;
-see the `hooks` capability note in `core/registry/harnesses.json` and the verification row below for
+file wiring `SessionStart`, three `PreToolUse` hooks, and `Stop`. The registry's per-event map for Kiro
+has four events: `SessionStart` and `PreToolUse` Supported, `UserPromptSubmit` (a native trigger DoFlow
+does not wire) and `Stop` (DoFlow uses Stop where Kiro documents AgentStop) Different; the other cells
+are dashes; see the `hooks` capability note in `core/registry/harnesses.json` and the verification row below for
 Kiro's actual wired events instead of this table. Kiro CLI V3 loads standalone `.kiro/hooks/*.json` for every agent, so `doflow.json` also runs there, and its Stop hook
 returns a JSON block instead of exit 2. Kiro's hooks are not in Kiro v3's
 untrusted-workspace exclusion list (custom agents, steering, MCP configuration, skills, workflows);
 an untrusted workspace asks before every shell command, and whether that covers hook commands is
 undocumented. Antigravity's hooks are supported with a documented
-native contract; its column shows the one event DoFlow wires today (PreToolUse) as Supported and
-the other four documented events as the Different statuses recorded in the registry, and
+native contract; its column shows the two events DoFlow wires today (`PreToolUse`, `Stop`) as Supported,
+the other three documented events (`PostToolUse`, `PreInvocation`, `PostInvocation`) as Different, and
 `UserPromptSubmit` as Unavailable because no documented event fires on a prompt submission.
 
-<!-- BEGIN GENERATED:hook-event-matrix -->
+This table is kept by hand, not generated: several of its cells and notes have no field in the
+registries yet (follow-up FU-gx7grh), so compare it with `core/registry/harnesses.json` when a hook
+changes.
+
 | Event | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro | Antigravity CLI | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `AfterTool` | — | — | Supported | — | — | — | — | — |  |
@@ -144,7 +150,6 @@ the other four documented events as the Different statuses recorded in the regis
 | `SubagentStart` | Supported | Supported | Unavailable | Unavailable | Unavailable | Different | — | — | **Gemini CLI:** BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. **GitHub Copilot CLI:** Native subagentStart/subagentStop exist. |
 | `SubagentStop` | Supported | Supported | Unavailable | Unavailable | Unavailable | Different | — | — | **Gemini CLI:** BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. **GitHub Copilot CLI:** Native subagentStart/subagentStop exist. |
 | `UserPromptSubmit` | Supported | Supported | Unavailable | Unavailable | Different | Different | Different | Unavailable | **Claude Code:** DoFlow's once-per-session `/do` suggestion is delivered by this per-prompt hook. **Codex:** DoFlow's once-per-session `/do` suggestion is delivered by this per-prompt hook. **Gemini CLI:** No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context — not a per-prompt pre-submission gate. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **OpenCode:** OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **Pi Coding Agent:** DoFlow does not project a prompt hook; its separate code extension guards `tool_call`. Native equivalent: input, which fires before skill expansion. DoFlow's once-per-session `/do` suggestion reaches this harness through skill descriptions only. **GitHub Copilot CLI:** Natives are userPromptSubmitted and userPromptTransformed; pre-submission gating semantics unverified. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **Kiro:** Kiro documents a native UserPromptSubmit trigger that is blockable via a non-zero exit code and exposes the prompt as the USER_PROMPT environment variable; DoFlow wires no hook to it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. **Antigravity CLI:** Antigravity documents no event that fires when a user submits a prompt; the nearest point, PreInvocation, fires before every model call and no DoFlow policy uses it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only. |
-<!-- END GENERATED:hook-event-matrix -->
 
 <!-- BEGIN GENERATED:enforcement-matrix -->
 Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead86c3a5533c328
@@ -153,15 +158,15 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 | pre-implementation-gate | claude | PreToolUse | any | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | codex | PreToolUse | any | blocking | verified | hook-review | writes via shell commands |
 | pre-implementation-gate | gemini | BeforeTool | any | blocking | verified |  | writes via shell commands |
-| pre-implementation-gate | opencode | * | any | unsupported | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | * | no-extensions | unsupported | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | cli-extension | blocking | verified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | project-headless | unknown | unverified | project-trust | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | project-interactive | unknown | unverified | project-trust | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | user-headless | unknown | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | user-interactive | unknown | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_execution_start | cli-extension | observation | unverified |  | writes via shell commands |
-| pre-implementation-gate | copilot | * | any | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | opencode | \* | any | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | \* | no-extensions | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | cli-extension | blocking | verified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | project-headless | unknown | unverified | project-trust | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | project-interactive | unknown | unverified | project-trust | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | user-headless | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | user-interactive | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool\_execution\_start | cli-extension | observation | unverified |  | writes via shell commands |
+| pre-implementation-gate | copilot | \* | any | unsupported | unverified |  | writes via shell commands |
 | pre-implementation-gate | copilot | PreToolUse | any | unknown | unverified |  | writes via shell commands |
 | pre-implementation-gate | kiro | PreToolUse | cli-2x-agent | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | kiro | PreToolUse | cli-v3 | blocking | verified |  | writes via shell commands |
@@ -171,26 +176,26 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 | pre-bash-guard | claude | PreToolUse | any | blocking | verified |  |  |
 | pre-bash-guard | codex | PreToolUse | any | blocking | verified | hook-review |  |
 | pre-bash-guard | gemini | BeforeTool | any | blocking | verified |  |  |
-| pre-bash-guard | opencode | * | any | unsupported | unverified |  |  |
-| pre-bash-guard | pi | * | no-extensions | unsupported | unverified |  |  |
-| pre-bash-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
-| pre-bash-guard | pi | tool_call | project-headless | unknown | unverified | project-trust |  |
-| pre-bash-guard | pi | tool_call | project-interactive | unknown | unverified | project-trust |  |
-| pre-bash-guard | pi | tool_call | user-headless | unknown | unverified |  |  |
-| pre-bash-guard | pi | tool_call | user-interactive | unknown | unverified |  |  |
-| pre-bash-guard | pi | tool_execution_start | cli-extension | observation | unverified |  |  |
-| pre-bash-guard | copilot | * | any | unsupported | unverified |  |  |
+| pre-bash-guard | opencode | \* | any | unsupported | unverified |  |  |
+| pre-bash-guard | pi | \* | no-extensions | unsupported | unverified |  |  |
+| pre-bash-guard | pi | tool\_call | cli-extension | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool\_call | project-headless | unknown | unverified | project-trust |  |
+| pre-bash-guard | pi | tool\_call | project-interactive | unknown | unverified | project-trust |  |
+| pre-bash-guard | pi | tool\_call | user-headless | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool\_call | user-interactive | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool\_execution\_start | cli-extension | observation | unverified |  |  |
+| pre-bash-guard | copilot | \* | any | unsupported | unverified |  |  |
 | pre-bash-guard | kiro | PreToolUse | cli-2x-agent | blocking | verified |  |  |
 | pre-bash-guard | kiro | PreToolUse | cli-v3 | blocking | verified |  |  |
 | pre-bash-guard | kiro | PreToolUse | cli-v3-agent | blocking | verified |  |  |
 | pre-bash-guard | kiro | PreToolUse | ide | blocking | verified |  |  |
-| pre-bash-guard | antigravity | * | any | unsupported | unverified |  |  |
+| pre-bash-guard | antigravity | \* | any | unsupported | unverified |  |  |
 | session-context | claude | SessionStart | any | unknown | unverified |  |  |
 | session-context | codex | SessionStart | any | unknown | unverified | hook-review |  |
 | session-context | gemini | SessionStart | any | unknown | unverified |  |  |
-| session-context | opencode | * | any | unsupported | unverified |  |  |
-| session-context | pi | * | any | unsupported | unverified |  |  |
-| session-context | copilot | * | any | unsupported | unverified |  |  |
+| session-context | opencode | \* | any | unsupported | unverified |  |  |
+| session-context | pi | \* | any | unsupported | unverified |  |  |
+| session-context | copilot | \* | any | unsupported | unverified |  |  |
 | session-context | copilot | PreCompact | any | unknown | unverified |  |  |
 | session-context | copilot | SessionEnd | any | unknown | unverified |  |  |
 | session-context | copilot | SessionStart | any | unknown | unverified |  |  |
@@ -199,19 +204,19 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 | session-context | copilot | UserPromptSubmit | any | unknown | unverified |  |  |
 | session-context | kiro | SessionStart | any | advisory | unverified |  |  |
 | session-context | kiro | SessionStart | cli-v3-agent | advisory | unverified |  |  |
-| session-context | antigravity | * | any | unsupported | unverified |  |  |
+| session-context | antigravity | \* | any | unsupported | unverified |  |  |
 | mcp-tool-guard | claude | PreToolUse | any | blocking | verified |  |  |
 | mcp-tool-guard | codex | PreToolUse | any | blocking | verified | hook-review |  |
 | mcp-tool-guard | gemini | BeforeTool | any | blocking | verified |  |  |
-| mcp-tool-guard | opencode | * | any | unsupported | unverified |  |  |
-| mcp-tool-guard | pi | * | no-extensions | unsupported | unverified |  |  |
-| mcp-tool-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
-| mcp-tool-guard | pi | tool_call | project-headless | unknown | unverified | project-trust |  |
-| mcp-tool-guard | pi | tool_call | project-interactive | unknown | unverified | project-trust |  |
-| mcp-tool-guard | pi | tool_call | user-headless | unknown | unverified |  |  |
-| mcp-tool-guard | pi | tool_call | user-interactive | unknown | unverified |  |  |
-| mcp-tool-guard | pi | tool_execution_start | cli-extension | observation | unverified |  |  |
-| mcp-tool-guard | copilot | * | any | unsupported | unverified |  |  |
+| mcp-tool-guard | opencode | \* | any | unsupported | unverified |  |  |
+| mcp-tool-guard | pi | \* | no-extensions | unsupported | unverified |  |  |
+| mcp-tool-guard | pi | tool\_call | cli-extension | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool\_call | project-headless | unknown | unverified | project-trust |  |
+| mcp-tool-guard | pi | tool\_call | project-interactive | unknown | unverified | project-trust |  |
+| mcp-tool-guard | pi | tool\_call | user-headless | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool\_call | user-interactive | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool\_execution\_start | cli-extension | observation | unverified |  |  |
+| mcp-tool-guard | copilot | \* | any | unsupported | unverified |  |  |
 | mcp-tool-guard | copilot | PermissionDenied | any | unknown | unverified |  |  |
 | mcp-tool-guard | copilot | PostToolUse | any | unknown | unverified |  |  |
 | mcp-tool-guard | copilot | PostToolUseFailure | any | unknown | unverified |  |  |
@@ -219,13 +224,13 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 | mcp-tool-guard | kiro | PreToolUse | cli-v3 | blocking | verified |  |  |
 | mcp-tool-guard | kiro | PreToolUse | cli-v3-agent | blocking | verified |  |  |
 | mcp-tool-guard | kiro | PreToolUse | ide | blocking | verified |  |  |
-| mcp-tool-guard | antigravity | * | any | unsupported | unverified |  |  |
+| mcp-tool-guard | antigravity | \* | any | unsupported | unverified |  |  |
 | stop-check | claude | Stop | any | blocking | verified |  |  |
 | stop-check | codex | Stop | any | blocking | verified | hook-review |  |
-| stop-check | gemini | * | any | unsupported | unverified |  |  |
-| stop-check | opencode | * | any | unsupported | unverified |  |  |
-| stop-check | pi | * | any | unsupported | unverified |  |  |
-| stop-check | copilot | * | any | unsupported | unverified |  |  |
+| stop-check | gemini | \* | any | unsupported | unverified |  |  |
+| stop-check | opencode | \* | any | unsupported | unverified |  |  |
+| stop-check | pi | \* | any | unsupported | unverified |  |  |
+| stop-check | copilot | \* | any | unsupported | unverified |  |  |
 | stop-check | copilot | Stop | any | unknown | unverified |  |  |
 | stop-check | kiro | stop | cli-2x-agent | observation | verified |  |  |
 | stop-check | kiro | Stop | cli-v3 | unknown | unverified |  |  |
@@ -242,7 +247,7 @@ Schema 1; revision 3
 | context-authority | codex | enforced | test/hooks/context-authority.test.js |
 | context-authority | gemini | limitation | no prompt hook wired; only PreCompress instructions, through the table |
 | context-authority | opencode | limitation | no DoFlow hook bridge |
-| context-authority | pi | limitation | extension handles tool_call only |
+| context-authority | pi | limitation | extension handles tool\_call only |
 | context-authority | copilot | limitation | no DoFlow hook bridge |
 | context-authority | kiro | limitation | no prompt hook wired; SessionStart emits no context |
 | context-authority | antigravity | limitation | only PreToolUse and Stop wired |
@@ -270,14 +275,14 @@ Schema 1; revision 3
 | summary-grant | copilot | limitation | no DoFlow hook bridge |
 | summary-grant | kiro | limitation | no prompt hook to deliver |
 | summary-grant | antigravity | limitation | no prompt hook to deliver |
-| identity | claude | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
-| identity | codex | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
-| identity | gemini | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | claude | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
+| identity | codex | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
+| identity | gemini | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
 | identity | opencode | limitation | no DoFlow hook bridge |
-| identity | pi | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | pi | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
 | identity | copilot | limitation | no DoFlow hook bridge |
-| identity | kiro | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
-| identity | antigravity | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | kiro | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
+| identity | antigravity | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
 | check-freshness | claude | enforced | test/hooks/check-freshness.test.js |
 | check-freshness | codex | enforced | test/hooks/check-freshness.test.js |
 | check-freshness | gemini | enforced | test/hooks/check-freshness.test.js |
@@ -347,7 +352,7 @@ require a user action or a trusted project before it takes effect.
 | Project and personal configuration | Claude settings and hooks are currently installed for Claude. | `~/.codex/config.toml` supplies user defaults; trusted `.codex/config.toml` layers supply project overrides. CLI flags and `--config` are one-off overrides. | **Different** | Project config, hooks, and local rules are ignored until the project is trusted. Reconcile only named DoFlow keys; never replace the whole file. | Inspect the expected user/project file, then start Codex in a trusted project and confirm the intended setting is effective. | [Config basics: precedence](https://learn.chatgpt.com/docs/config-file/config-basic#configuration-precedence), [Advanced config: project files](https://learn.chatgpt.com/docs/config-file/config-advanced#project-config-files-codexconfigtoml) |
 | Durable multi-agent defaults | Claude has its own agent execution conventions. | `[agents]` in `config.toml` configures enablement, concurrency, default model, reasoning effort, and interruption messages. | **Supported** | Treat model, permissions, and concurrent-thread limits as user/project policy; do not silently weaken them. | Inspect the active config layer and run a deliberate delegated task. | [Subagents: global settings](https://learn.chatgpt.com/docs/agent-configuration/subagents#global-settings) |
 | Hook event equivalence | Claude exposes product-specific hook semantics. | Codex event names and payloads differ; map only equivalent intent (for example `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop`). Matching hooks across sources run concurrently. | **Different** | Do not claim order-dependent or unsupported handler behavior. `prompt` and `agent` handlers are parsed but not run; hook trust is not bypassed by installation. | Compare each managed mapping with Codex's event/input contract and perform an event-specific manual test. | [Hooks: event list and behavior](https://learn.chatgpt.com/docs/hooks#hooks), [Hooks: configuration limitations](https://learn.chatgpt.com/docs/hooks#config-shape) |
-| Unmapped Claude guardrails | Claude-only hooks currently cover all installed guardrails. | No exact Codex mapping is asserted where event semantics or handler behavior do not match. Preserve the policy as `AGENTS.md`/skill guidance or record it as a gap. | **Unavailable** | Never simulate enforcement with undocumented configuration or silently represent guidance as a hook. | Capability review shows a row-level gap and the relevant guidance location. | [Hooks](https://learn.chatgpt.com/docs/hooks), [Customization overview](https://learn.chatgpt.com/docs/customization/overview) |
+| Unmapped Claude guardrails | DoFlow installs Codex hooks for the events whose semantics match (`src/adapters/codex/hooks.ts`); a guardrail without an equivalent Codex event stays Claude-only. | No exact Codex mapping is asserted where event semantics or handler behavior do not match. Preserve the policy as `AGENTS.md`/skill guidance or record it as a gap. | **Unavailable** | Never simulate enforcement with undocumented configuration or silently represent guidance as a hook. | Capability review shows a row-level gap and the relevant guidance location. | [Hooks](https://learn.chatgpt.com/docs/hooks), [Customization overview](https://learn.chatgpt.com/docs/customization/overview) |
 | Custom slash commands | Claude commands are supplied by its command model. | Markdown custom prompts under `~/.codex/prompts/` are available in Codex CLI and IDE, but this feature is documented as deprecated in favor of skills. | **Different** | Do not use custom prompts as the primary DoFlow workflow distribution surface. | Restart/reload the client and confirm the `/prompts:<name>` entry appears. | [Custom prompts](https://learn.chatgpt.com/docs/customization/custom-prompts) |
 | Automations / scheduled tasks | Claude-oriented automation assets may exist as hooks or workflow guidance. | Scheduled tasks are a host-managed capability: available in ChatGPT web/desktop when enabled; Codex CLI and IDE do not provide the management interface. They can use skills/plugins where available. | **Unavailable** to the direct installer | No local installer-owned automation file or schedule is created. Users/workspaces create and manage schedules in supported hosts, subject to availability and permission policy. | In an eligible web/desktop workspace, create and inspect a scheduled task; CLI/IDE verification is intentionally N/A. | [Scheduled tasks](https://learn.chatgpt.com/docs/automations) |
 | CLI, desktop app, and IDE workflow | DoFlow supports its selected Claude workflow surfaces. | Codex CLI, desktop app, and IDE share configuration layers; skills are available across them. Availability of plugins, scheduled tasks, and management UIs is surface-dependent. | **Different** | Verify the selected host rather than inferring support from another host. | CLI: inspect config and `/mcp`/`/hooks`; desktop/IDE: confirm the corresponding project and settings UI recognizes the installed assets. | [Config basics](https://learn.chatgpt.com/docs/config-file/config-basic), [Customization: skills](https://learn.chatgpt.com/docs/customization/overview#skills), [Scheduled tasks](https://learn.chatgpt.com/docs/automations) |

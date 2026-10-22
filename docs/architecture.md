@@ -1,6 +1,9 @@
+---
+description: Repository structure, the registry/adapter/lifecycle/runtime boundary, and the guard suite, for contributors.
+---
 # Architecture
 
-This guide is for contributors changing DoFlow itself. For the user-facing model, see [Overview](overview.md).
+This guide is for contributors changing DoFlow itself. For the user-facing model, see [Home](index.md#the-component-model).
 
 ## Design in one picture
 
@@ -39,16 +42,16 @@ are reported rather than imitated.
 |---|---|
 | `core/shared/` | The single physical source for cross-harness content: guidance, skills, agent specifications, scripts, and templates. Stable IDs and projections, no duplicated bytes |
 | `core/registry/` | Two registry families in one directory: installation (harness capabilities, assets, neutral MCP catalog, lifecycle policy) and runtime (capabilities, routes, workflows, verification, readiness templates, external tools) |
-| `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro` — plus `core/harnesses/shared/locator`, the one file projected into all eight. Antigravity has no native directory here by design: its adapter projects into Gemini-compatible paths (`.agents/`, `~/.gemini/config/`) rather than owning a distinct surface |
+| `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro`, the two hook shims under `antigravity/hooks/`, and the `pi/extensions/doflow-guard.js` extension — plus `core/harnesses/shared/` (the hook bridge, the policies, and `locator/`, the one file projected into all eight). The Antigravity adapter still projects into Gemini-compatible paths (`.agents/`, `~/.gemini/config/`) rather than owning a distinct surface |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
 | `core/.plugin/` | GitHub Copilot CLI plugin manifest (skills-only); first in Copilot's documented manifest check order |
 | `bin/doflow.js` | The thin CLI entry point (exposed as the `doflow` command) — a forwarder into `src/cli`; it defines no handlers and no parser, so the binary path and the dispatcher seam (`doflow-run`) keep resolving here |
-| `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.ts`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.ts`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.ts`) — including `buildAdapterRegistry()`, the single construction of the adapter registry that install/update/remove/reconcile use. Fully TypeScript; `bin/doflow.js` stays `.js` as the shebang entry and requires `../src/cli/index.ts` explicitly |
+| `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.ts`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.ts`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.ts`) — including `buildAdapterRegistry()`, which builds the adapter registry the install/update/remove/reconcile apply paths and some runtime verbs use; `registryLifecycleView` in `src/lifecycle/view.ts` keeps a second, literal construction (mirroring it) for the plan views those commands and `status` print. Fully TypeScript; `bin/doflow.js` stays `.js` as the shebang entry and requires `../src/cli/index.ts` explicitly |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
 | `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.ts` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.ts` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic; `src/adapters/mcp-entries.ts` holds the MCP entry ownership rules the Claude, Kiro, OpenCode, Copilot and Antigravity adapters share |
-| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.ts`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.ts` with `src/adapters/codex/config.ts` instead of depending on that adapter |
-| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, the per-feature decision register and History compaction (`decision-register.ts`, `history-compactor.ts`), and provider health; `src/runtime/cli-result.ts` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.ts` dispatches to, and deliberately depends on nothing else in the tree |
+| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; reads Gemini hook trust through `hookTrustFor`, exported by `src/adapters/gemini/index.ts`, and does not plan Gemini hooks itself; `src/lifecycle/view.ts` parses TOML through `src/helper/toml.ts` (shared with `src/adapters/codex/config.ts`) and also imports every adapter's factory, Codex included, to build its adapter registry |
+| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, the per-feature decision register and History compaction (`decision-register.ts`, `history-compactor.ts`), and provider health; `src/runtime/cli-result.ts` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`, `captureCaught`) shared by the verb handlers `src/cli/runtime-commands.ts` dispatches to; it requires nothing from `src/runtime/` at load time, and `captureCaught` lazily requires `failure/capture.ts` |
 | `src/runtime/config-home.ts` | Resolves the one absolute XDG-or-HOME config home shared by Node and shell readers |
 | `src/runtime/settings/files.ts` | Reads and validates project and user settings files |
 | `src/runtime/settings/legacy.ts` | Reads legacy settings files into resolver candidates |
@@ -62,13 +65,13 @@ are reported rather than imitated.
 | `src/runtime/settings/refs.ts` | Resolves registry `defaultRef` and `valuesRef` declarations |
 | `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.ts`, `roots.ts`), the one definition of finished work (`work-status.ts`), the bounded pass and its rules (`engine.ts`, `rules.ts`), the silent cleanup moments (`upkeep.ts`) and the `storage` verb (`cli.ts`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
-| `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
+| `src/registry/` | Loads and validates the installation registry files (`harnesses`, `assets`, `mcp`, `lifecycle`, `contracts`, `external-tools`, `models`) plus the provider descriptors in `capabilities.json` into the in-memory registry object (the other runtime registries are loaded by their own runtime modules) every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
 | `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.ts`), managed-section merging (`marker-merge.ts`), interactive prompts (`prompt.ts`), `settings.json` merging (`settings-merge.ts`, `settings-scope.ts`), generic TOML parsing (`toml.ts`), destructive-command blocklist derivation (`guardrails.ts`), bash-helper resolution (`bash-helper.ts`), declared native path resolution (`harness-paths.ts`), and the single computation of the package root (`repo-root.ts`), which every layer shares and no layer should re-derive from its own depth. Like the rest of `src/`, it is TypeScript run by Node's native type-stripping, with no build step |
 | `src/install/` | Installer-domain operations: backup set (`backup-set.ts`), backup, restore, retention and listing (`backup.ts`), scope and target resolution (`context.ts`, `targets.ts`), manifest read/write (`manifest.ts`), external-tool detection and install (`tool-lifecycle.ts`), path resolution (`paths.ts`), and MCP server selection (`mcp.ts`). Fully TypeScript |
-| `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `test/guards/` for structural invariants about this repo's content |
+| `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `hooks/`, `release/`, `settings/`, `bench/` and `fixtures/`, and `test/guards/` for structural invariants about this repo's content |
 | `bench/` | Skill-evaluation corpus, TRACKED so the baseline is reproducible from a clean clone; only `bench/runs/` and `bench/reports/` are ignored. Outside the default test command, whose dispatch step makes paid model calls |
 | `docs/` | User-facing and contributor documentation site |
-| `docs/capability-map.md` | Cross-harness capability contract, evidence, and verification criteria (hand-maintained since the generator script was removed) |
+| `docs/capability-map.md` | Cross-harness capability contract, evidence, and verification criteria. Its capability matrix and the two coverage matrices (enforcement and context behaviour) are generated by `src/release/docs-blocks.ts`, which also writes the task classes (`how-doflow-work.md`), settings keys (`settings.md`) and command index (`reference.md`) blocks and `docs/llms.txt`; the hook-event matrix is kept by hand (FU-gx7grh) |
 
 ## Installation data flow
 
@@ -101,7 +104,7 @@ how a shared asset projects onto it:
 | `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.ts`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence. A harness's `capabilities.mcp` may carry `toolName`, a template holding `{server}` and `{tool}` (only `claude` has one: `mcp__{server}__{tool}`); the brief block uses it to show a provider's MCP tool name |
 | `core/registry/assets.json` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
 | `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
-| `core/registry/lifecycle.json` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check), each harness's support status or fallback, and the versioned `coverage` block with evidence-backed enforcement rows |
+| `core/registry/lifecycle.json` | Five hook-based lifecycle policies (pre-implementation gate, pre-bash guard, session-context capture, MCP tool guard, stop check), each harness's support status or fallback, and the versioned `coverage` block with evidence-backed enforcement rows |
 | `core/registry/mcp.json` | The neutral MCP server catalog every harness's adapter selects from. Each server also carries a required `trigger` (one sentence, 20 to 300 characters: the generic condition under which a stage consults it) and `steps` (the skill files that name it, each `{skill, file}` and optionally `expectedWhen: "research-request"`); adapters ignore both. `src/registry/index.ts` fails the load on a server missing either |
 
 ## Lifecycle bridges
@@ -113,7 +116,7 @@ execution adapter has a fourth:
 |---|---|---|
 | Install adapter | Projects, verifies and removes harness files with ledger ownership (`src/adapters/<harness>/` and `core/registry/assets.json`) | Decide a policy outcome |
 | Lifecycle bridge | Decodes one native hook input into envelope v1, calls one canonical policy and encodes its decision as the native response (`core/harnesses/shared/hooks/bridge/`, shell front doors, Antigravity runner delegation and Pi extension) | Hold policy rules, replan, spawn an agent or inject context beyond what hooks inject today |
-| Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it: `src/runtime/worker/` and `doflow-run worker` (discover, probe, describe, select, run, status, cancel) of a one-shot read-only worker on an 080 claim; 082 amends it three ways: an optional `isolatedEdit` worker capability with an `isolated-edit` eligibility requirement (IC-013), `worker run --edit` for an editing run in a leased attempt worktree (IC-014), and `worker run --child-of` for a granted read-only child run (IC-015) | 077 assigns it no implementation obligation; claim, finish or count budget on an attempt, or read credentials |
+| Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it: `src/runtime/worker/` and `doflow-run worker` (discover, probe, describe, select, run, status, cancel, evidence) of a one-shot read-only worker on an 080 claim; 082 amends it three ways: an optional `isolatedEdit` worker capability with an `isolated-edit` eligibility requirement (IC-013), `worker run --edit` for an editing run in a leased attempt worktree (IC-014), and `worker run --child-of` for a granted read-only child run (IC-015) | 077 assigns it no implementation obligation; claim, finish or count budget on an attempt, or read credentials |
 | Dispatch and integration loop | Runs a feature's task graph through admission, worker dispatch, verification and integration; 082 defines and builds it: `src/runtime/dispatch/` and `doflow-run dispatch` (start, step, run, submit, spawn, pause, inspect, cancel, takeover, resume) | Write the user's checkout or branches, merge, push, edit `plan.md`, or signal a worker tree except through 081 `cancelRun` |
 
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
@@ -151,7 +154,8 @@ Four properties are load-bearing, and each has a guard because each has already 
 by a `src/cli` command, so a verb can move between the two without any caller changing. Skills
 never name a helper. `test/guards/runtime-unification.test.js` checks that every shell verb resolves
 to a helper that exists, that every Node verb has a CLI command and every CLI runtime command has a
-verb, and that no verb has two implementations.
+verb. A verb named on both arms would be served by its shell helper, since the dispatcher tries
+the shell arm first; no guard checks for that overlap.
 
 **Skills resolve the dispatcher by walking up, not by a relative path.** A relative path in a shell
 command resolves against the working directory — the user's project root — not against the skill's
@@ -178,7 +182,7 @@ in, and `test/guards/runtime-unification.test.js` asserts the records carry meta
 source content, no secrets. When telemetry is turned off (`DOFLOW_TELEMETRY=off`), writers emit
 nothing and create no telemetry files.
 
-**Verification observability flow.** During verification execution (`src/runtime/verification/engine.ts` and `src/runtime/verification/contract-runner.ts`), `emitVerifyTelemetry` writes structured metadata lines (`verify.run`, `verify.tier`, `verify.check`) to `.doflow/state/runs/telemetry/YYYY-MM-DD.jsonl`. Verification metrics are tracked in-process via WeakMap on the contract runner instance and flushed to telemetry. When `DOFLOW_VERIFY_V0` is enabled, failed-first test ordering and in-flight deduplication run over coordination state in `verification-v0` (`.doflow/state/verification/v0`). Offline, `trace spans` and `bench verify-baseline` correlate these telemetry events with run ledger entries and task attempts to project spans and compute baseline statistics without modifying production execution or calling external models.
+**Verification observability flow.** During verification execution (`src/runtime/verification/engine.ts` and `src/runtime/verification/contract-runner.ts`), `emitVerifyTelemetry` writes structured metadata lines (`verify.run`, `verify.tier`, `verify.check`) to `.doflow/state/runs/telemetry/YYYY-MM-DD.jsonl`. Verification metrics are tracked in-process via WeakMap on the contract runner instance and flushed to telemetry. V0 (failed-first test ordering and in-flight deduplication over coordination state in `verification-v0`, `.doflow/state/verification/v0`) is on by default; `DOFLOW_VERIFY_V0=off` or a `verify-v0.off` file in the config home turns it off. Offline, `trace spans` and `bench verify-baseline` correlate these telemetry events with run ledger entries and task attempts to project spans and compute baseline statistics without modifying production execution or calling external models.
 
 Offline, `trace spans` projects spans from existing ledger, telemetry, attempt, orchestration, and
 worker records without a dedicated span store. Trace segments are scoped to task-attempt slugs rather
@@ -246,7 +250,7 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 
 | File | Declares |
 |---|---|
-| `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist, with its readiness template and gates, plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one. It also carries the `promptNudge` object, the rules and message for the once-per-session `/do` suggestion; only the prompt hook and G25 read it, not the workflow engine or the classifier |
+| `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist, and a `readinessNote` (only `feature` lists any gates, and five classes, `feature`, `bug`, `refactor`, `dependency-change` and `trivial-edit`, have a readiness template in `readiness-templates.json`), plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one. It also carries the `promptNudge` object, the rules and message for the once-per-session `/do` suggestion; only the prompt hook and G25 read it, not the workflow engine or the classifier |
 | `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound |
 | `core/registry/readiness-templates.json` | Per-class readiness requirements and the evidence kinds that satisfy each one |
 | `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. Every provider declares `sourceMode` (`live` or `index`) and may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
@@ -268,12 +272,14 @@ number of recovery attempts allowed are both derived from the risk level, not ch
 One verb, `doflow-run roadmap` (feature 108), advances the feature roadmap one step per call. A
 session drives it by calling `next` again after each step; nothing resident holds a lock while a model
 works. Status is derived from git, not typed: a row is merged when a first-parent two-parent merge of
-develop carries a `DoFlow-Row: <id>` trailer (or a seeded `mergeCommit` names such a merge), so the
-lifecycle status in `src/runtime/lifecycle/status.ts` and the roadmap answer "merged?" the same way.
+develop carries a `DoFlow-Row: <id>` trailer (or a seeded `mergeCommit` names such a merge). The
+lifecycle status in `src/runtime/lifecycle/status.ts` also reads first-parent merges and their
+`DoFlow-Row` trailers, but it accepts the merge subject and branch name as evidence too, while the
+roadmap uses the trailer or a seeded `mergeCommit` only.
 Gate approvals are data: `core/registry/gates.json` lists, per class and gate, the predicates that
 must pass, the protected paths, the loop limits and the closed `denyReasons` list, and
-`orchestrate --action decide-gate --policy` evaluates it. The code is five modules under
-`src/runtime/roadmap/`, plus the verb's table entry in `src/cli/runtime-commands.ts`. The kill switch is read by `readKillSwitch` in `src/runtime/settings/autopilot.ts`, which the loop and `orchestrate --action decide-gate --policy` share, so the orchestrator never imports the loop; the `roadmap seed` verb reads its own fail-closed `readSeedSwitch` from the same file. The rows-only `check()` defaults make the dependents of an invalid row read `need-unmerged` (intended):
+`orchestrate --action decide-gate --policy` evaluates it. The code is six modules under
+`src/runtime/roadmap/` (the five in the table plus `seed.ts`, the `roadmap seed` verb), plus the verb's table entry in `src/cli/runtime-commands.ts`. The kill switch is read by `readKillSwitch` in `src/runtime/settings/autopilot.ts`, which the loop and `orchestrate --action decide-gate --policy` share, so the orchestrator never imports the loop; the `roadmap seed` verb reads its own fail-closed `readSeedSwitch` from the same file. The rows-only `check()` defaults make the dependents of an invalid row read `need-unmerged` (intended):
 
 | Module | Does | Must not |
 |---|---|---|
@@ -315,7 +321,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 |---|---|
 | `src/runtime/mask.ts` | Best-effort masking and failure-message normalisation, in two profiles (line and body). Used by the follow-up service, the report store and the failure writer |
 | `src/runtime/review/` | `review/findings.ts`: review record validator, vocabularies, counts and advisories (pure); `review/command.ts`: the `review --action check` verb handler |
-| `src/runtime/lifecycle/root.ts` | The project root a store is keyed by: the first real working tree in `git worktree list`, else the current worktree's root, else the working directory |
+| `src/runtime/lifecycle/root.ts` | The project root a store is keyed by: the first entry of `git worktree list` when that entry is a real working tree, else the current worktree's root (`--show-toplevel`), else the working directory |
 | `src/runtime/lifecycle/event-store.ts` | Write-once event files under `.doflow/state/lifecycle/events/`, local to the machine: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
 | `src/runtime/lifecycle/store-upkeep.ts` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
 | `src/runtime/lifecycle/retention.ts` | The retention window and the pure selection of settled units |
@@ -370,30 +376,32 @@ feature finishes when a release record names it, or when its merge is contained 
 The Node runtime finds `do-git-state.sh` inside the package, else in the `bash` folder of the scripts
 installed beside its runtime (DEC-048), and reports `git-state-helper-missing` when neither exists. The
 runtime that is installed carries only `bin/`, `src/` and `core/registry/`, so a path under
-`core/shared/` does not exist there. `scope-bound.ts` and `feature-resolve.ts` still use the older
-pattern; that is recorded as a follow-up, not fixed here.
+`core/shared/` does not exist there. `src/runtime/verification/scope-bound.ts` and
+`src/runtime/feature-resolve.ts` resolve their helpers through the same `resolveBashHelper`.
 
 ### Failure capture
 
 Capture is a side channel that must not be noticed by the command it observes: it writes no byte to
 stdout or stderr, never throws, takes no lock and never changes an exit status. Every writer
 appends one JSON line to `events.jsonl` under `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/failures/`,
-and is a no-op when no absolute home resolves or the switch is off (the `off` file, or
-`DOFLOW_FAILURE_CAPTURE` set to `off`, `0`, `false` or `no`). Only Node rotates the file.
+and is a no-op when no absolute home resolves or the switch is off (the `off` file,
+`DOFLOW_FAILURE_CAPTURE` set to `off`, `0`, `false` or `no`, or a `failure.capture` value other than
+`on` in `<config home>/settings.json`). Only Node rotates the file.
 
 | Capture point | Records | Is not recorded |
 |---|---|---|
-| `main()` catch in `src/cli/index.ts`, the usage-error catch sites in `src/runtime/cli.ts` and the three exit-1 catch-and-convert sites | An error the classifier calls a programming error: `TypeError`, `RangeError`, `ReferenceError`, an assertion, `MODULE_NOT_FOUND`, a Node system error with a code | A bad flag, a refusal or finding, `EPIPE`, a plain `Error`, a `SyntaxError`, an `AggregateError`, an error class a verb defines and catches |
+| `main()` catch in `src/cli/index.ts`, every usage-error catch site that passes its error to `usageError` (`src/runtime/cli.ts` and several verb modules), and the six exit-1 catch-and-convert sites that call `captureCaught` | An error the classifier calls a programming error: `TypeError`, `RangeError`, `ReferenceError`, an assertion, `MODULE_NOT_FOUND`, a Node system error with a code | A bad flag, a refusal or finding, `EPIPE`, a plain `Error`, a `SyntaxError`, an `AggregateError`, an error class a verb defines and catches |
 | `uncaughtExceptionMonitor`, registered in `bin/doflow.js` before the CLI loads | The same classes, as `uncaught:<kind>` | The same exclusions |
-| Dispatcher: `helper-missing`, `helpers-not-found`, a symlink loop, a verb status outside 0, 1 and 2 | The reason or `exit-<n>`; no message | 127, 130, 141, 143, status 3 from `task-brief`, caller mistakes (`no-verb`, `unknown-verb`, `node-not-found`, `cli-not-found`, `unlinked-checkout`, `stale-runtime`), a missing `jq` |
-| Hook helper `capture-failure.sh`, called by `pre-bash-guard.sh` (`patterns-missing`) and `mcp-tool-guard.sh` (`policy-file-missing`) | A guard that fails open because its own install is broken | A deny, a missing `jq` |
-| `stream-hook-runner.js`: `runner-exception`, `policy-exec-fault:<signal>` | A runner crash; a policy killed by a signal other than `SIGINT`, `SIGTERM` or `SIGPIPE` | A missing `bash`, a permission error |
+| Dispatcher: `helper-missing`, `helpers-not-found`, a symlink loop, a verb status outside 0, 1 and 2 | The reason or `exit-<n>`; no message | 127, 130, 141, 143, status 3 from `task-brief`, `context-pack`, `context-emit` or `context-grant`, caller mistakes (`no-verb`, `unknown-verb`, `node-not-found`, `cli-not-found`, `unlinked-checkout`, `stale-runtime`), a missing `jq` |
+| Hook helper `capture-failure.sh`, called by every shared guard policy (`pre-bash-guard`, `mcp-tool-guard`, `pre-implementation-gate`, `session-context`, `stop-check`, `subagent-audit`, `user-prompt-submit`) | A policy whose own install is broken (`contract-missing`, `envelope-missing`, `unsupported:envelope-version`, `dependency-missing:jq`, `patterns-missing`, `policy-file-missing` and similar) | An ordinary deny |
+| `stream-hook-runner.js`: `runner-exception`, `runner-event-missing`, `bridge-missing`, `bridge-timeout`, `bridge-answer-invalid`, `fault-profile-unknown`, `bridge-exec-fault:<signal>` | A runner crash; a missing, timed-out or malformed bridge; an unknown fault profile; a bridge killed by a signal other than `SIGINT`, `SIGTERM` or `SIGPIPE` | A missing `bash`, a permission error |
 
 An environment error such as `EACCES` on the project store matches the system-error rule and is
 recorded; `/do maintain` settles it as noise. The hook runner carries its own copy of the writer and
 of the classifier, because hook files are installed without the runtime library, and a test requires
-the two classifiers to agree. A policy calls the helper only inside a subshell and a branch where it
-already fails open, so no option or variable of the helper reaches the policy. A bash line is kept at
+the two classifiers to agree. A policy calls the helper only inside a subshell with all output discarded, so no option or
+variable of the helper reaches the policy; some calls sit in deny branches (`contract-missing`,
+`envelope-missing`), the rest where the policy fails open. A bash line is kept at
 or under 1000 bytes and a Node line at or under 2048, so concurrent appends do not interleave.
 Fingerprints are computed by the reader, never by a writer, and `failure --action settle` is the only
 writer of `settlements.jsonl`.
@@ -429,18 +437,18 @@ command does.
 - **G4** (`flags.test.js`): `--stage` and `--statement` are the runtime `followup` verb's own
   arguments, quoted in `WORKFLOW_HANDOFF.md`, so they are on the `NOT_FRAMEWORK_FLAGS` list with that
   reason. A new runtime-verb flag quoted in guidance goes on the same list; do not add it to `FLAGS.md`.
-- **G13** (`context-budget.test.js`): the loaded-context rails of the `feature` class (224,000 to
-  225,000 bytes) and the `documentation` class (56,000 to 57,000) were raised for the lifecycle
-  lines in `do-brainstorm` and the follow-up line in `WORKFLOW_HANDOFF.md` (the `documentation` rail
-  only for the second, which `do-test` and `do-code-review` load). When a rail fails, measure
+- **G13** (`context-budget.test.js`): the loaded-context rails of the `feature` and `documentation`
+  classes were raised for the lifecycle lines in `do-brainstorm` and the follow-up line in
+  `WORKFLOW_HANDOFF.md` (the `documentation` rail only for the second, which `do-test` and
+  `do-code-review` load); `TASK_CONTEXT_RAILS` in that file holds the current rails. When a rail fails, measure
   it, record the measured value and the reason beside the rail, and raise it deliberately in its own
   commit; do not trim an unrelated file to fit. The `dependency-change` rail has little headroom.
 - **G16** (`module-reachability.test.js`): every module in `src/runtime/lifecycle/`, `src/runtime/failure/`
   and `mask.ts` must be reached by a static `require()` literal. The failure modules are required
   lazily (in `bin/doflow.js` inside a `try`, in `runtime-commands.ts` inside a function), so the CLI runs
   without them; keep the `require('<literal path>')` form when you add one.
-- **G17** (`verb-reachability.test.js`): each of the four verbs must be spelled `doflow-run <verb>` in
-  a skill file; the `do` skill line does it, so no allowlist entry exists. Spell a new verb in a skill
+- **G17** (`verb-reachability.test.js`): each of the four verbs must be invoked in a skill file as
+  `doflow-run <verb>`, `"$DOFLOW" <verb>` or `doflow <verb>`, or carry an allowlist entry with a reason; the `do` skill line does it, so no allowlist entry exists. Spell a new verb in a skill
   or the guard fails.
 
 When one of these fails, the stale side is almost always a skill line, a flag list or a rail, not the
@@ -460,8 +468,8 @@ This division prevents a false parity claim: an installed file is not evidence t
 activated a plugin, trusted a hook, connected an MCP server, or made an automation available. The
 lifecycle verifier must report those prerequisites.
 
-One consequence is worth stating explicitly because the shared runtime tree made it sharper: three
-harnesses project the same shared `.doflow/scripts` target, so ownership of that tree is shared
+One consequence is worth stating explicitly because the shared runtime tree made it sharper: all eight
+harnesses project the same shared `.doflow/scripts` target (and `.doflow/runtime`), so ownership of those trees is shared
 rather than per-harness. Removing one harness must reclaim only what no other installed harness
 still claims.
 
@@ -483,7 +491,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 > and breaks them without any error. `test/adapters/copy-tree.test.js` and `test/install/mcp-index.test.js` resolve
 > both sets of paths against the real tree to keep that anchor enforced rather than assumed.
 | `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
-| Native hooks, settings, and native agent definitions per harness | `core/harnesses/{claude,codex,gemini,kiro}/` | Copied or reconciled as native configuration only where the harness has such a surface |
+| Native hooks, settings, and native agent definitions per harness | `core/harnesses/{claude,codex,gemini,kiro,antigravity,pi}/` | Copied or reconciled as native configuration only where the harness has such a surface |
 | The runtime locator shim | `core/harnesses/shared/locator/` | Byte-identical on every harness; only the native path it is written to differs |
 | MCP server catalog | `core/registry/mcp.json` | Single neutral source every harness's adapter selects from |
 
@@ -525,7 +533,7 @@ so hook and ledger lines can split across two stores. Read-only workers on claim
 the project still have no route to the project store (follow-up). Lifecycle commands no longer anchor
 metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
 A task's records (evidence, claims, readiness, research requests, outcome, delivery, retrieval plan and the orchestration run) have one root, `taskStateRoot` in `src/runtime/state-root.ts`: a linked, non-sandbox worktree always uses the main checkout's `.doflow/state`, and a sandbox checkout or `-g` keeps its own. Every task id other than its feature's slug is kept under `<store>/<slug>/` whenever a slug resolves (`--slug`, else the checkout's feature), with a read-through to a flat record of the same feature or of none. Every redirected call first runs one locked sweep that moves the records the worktree already holds to the main checkout, and a file present in both with different bytes, or reached through a link, refuses the call with `store-conflict`; the swept stores are the ones `core/registry/storage.json` names with that module as a writer. Source files, and so the freshness hash of a relative evidence locator, stay in the checkout the verb runs in, and `doflow-run paths --json` reports the checkout holding the feature folder as `feature_root`. The machine-wide `slot` queue is the one store outside the project: `slots-user` under `~/.doflow/state/slots`, one file per slot name.
-Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the runtime prune (`pruneRetiredRuntimeFiles`): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. The same directory holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
+Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the runtime prune (`pruneRetiredRuntimeFiles`): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. `.doflow/state/` holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
 
 Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
 route the CLI through lifecycle planning, then retire a compatibility path only after idempotency,
@@ -547,7 +555,7 @@ Examples:
 
 - Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
 - Change a client destination or add a supported asset: edit `core/registry/assets.json`, then cover it in tests.
-- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.ts`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter via `buildAdapterRegistry()` in `src/cli/shared.ts`, the one construction of the adapter registry. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
+- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.ts`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter in both `createAdapterRegistry(...)` constructions: `buildAdapterRegistry()` in `src/cli/shared.ts` and `registryLifecycleView` in `src/lifecycle/view.ts`. `test/guards/registry.test.js` (G5) checks every such call site, and the three registry files and the implementation against each other.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Add or change a runtime verb: edit the dispatcher's own table alongside the implementation — it is the single place the verb namespace is written down — then run the guards, which cross-check that table against the shell helpers and the CLI commands in both directions.
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.
@@ -568,7 +576,8 @@ Examples:
 ### Storage and retention
 
 Every file DoFlow writes belongs to a store declared in `core/registry/storage.json`, and the bound
-lives there and nowhere else.
+is declared there; where code keeps its own copy, the store's `source` entry names the file and
+pattern, and G26 checks the two agree.
 
 - **Add a writer.** Declare the file in the `writers` of the store it writes, or add a store with its
   root, `match`, `bound` and rule. A new store also needs a step in G26's sandbox scenario that
@@ -610,12 +619,13 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-67 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-60 entries across 56 test files and carries 58 distinct G-numbers.
+68 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+61 entries across 57 test files and carries 59 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
-entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G60 is the highest number in use, so a new guard takes the next
-one above it instead of adding a fourth collision. The list is not the whole directory. The eleven
+entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
+files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
+historical rather than a convention; G61 is the highest number in use, so a new guard takes the next
+one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
 of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
@@ -633,14 +643,17 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   how an orphaned pointer shipped to five harnesses while naming a directory the install had
   flattened away.
 - **G4** (`flags.test.js`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`. It also verifies flag ownership against skill frontmatter: the backticked `--flag` tokens on `FLAGS.md`'s shared-flags line equal the flags declared in at least two skills' `argument-hint`, and for every `**--flag ...**` entry, the backticked skill names after "Consumed by" equal exactly the skills whose `argument-hint` declares that flag.
-- **G5** (`registry.test.js`) — the only guard that reads `src/` and `core/harnesses/` as data;
-  checks registry claims against what's actually implemented.
+- **G5** (`registry.test.js`) — checks registry claims against what is actually implemented under
+  `src/` and `core/harnesses/`.
 - **G6** (`docs.test.js`) — documented inventories match reality: the skill list in
   `docs/reference.md`, and every skill/agent count quoted in `README.md`.
-- **G7** (`package.test.js`) — the published npm tarball matches the source of truth.
+- **G7** (`package.test.js`) — no backup, editor or bytecode file sits under the `files` trees that
+  ship, `package.json` carries the npm page metadata and public publish access, and `LICENSE`
+  matches the declared MIT license.
 - **G8** (`reachability.test.js`) — every shipped script/CLI command/doc-referenced path is
   reachable from something, where a script reached *through a dispatcher verb* counts as reached;
-  `docs/reference.md`'s per-skill flags match each skill's own `argument-hint`; and every
+  every flag `docs/reference.md` documents for a skill is declared in that skill's `argument-hint`
+  (one direction; `docs/flags.md` is checked both ways by G10); and every
   documented runtime-resolution snippet is actually executed with CWD at a project root.
 - **G9** (`dispatch.test.js`) — a skill that names any `core/shared/agent-specs/` archetype by
   name must reference `references/MODEL_SELECTION.md` for model-tier selection.
@@ -657,13 +670,15 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   committed corpus: a case missing from the baseline is reported as pending, awaiting a paid
   capture, and does not fail, while a removed, renamed or kind-changed case does, and so does a
   baseline entry recorded twice, and so does a case moved to the other side when its baseline result recorded `split` (the committed baseline
-  records none, so that comparison starts applying per case once a re-captured baseline does);
+  records a side for every case, so moving a case to the other side fails today);
   `coverage` alone cannot see any of these. It also holds the boundary that keeps the corpus
   cheap: `npm test` scopes discovery to `test/` with a quoted `test/**/*.test.js` glob that Node itself
   expands (Node 22.18 and 24 do not recurse a directory argument), so an unscoped
   `node --test` cannot execute captured artifacts under `bench/runs/`; the harness keeps its own
   `bench` script; and `npm test` never invokes the harness, whose dispatch step makes paid model
-  calls. Only `bench/runs/` and `bench/reports/` stay ignored. G11b, in the same file, holds skill
+  calls. The only bench-specific ignore rules are `bench/runs/` and `bench/reports/`; the perf
+  fixtures under `bench/perf/fixtures/` match the generic `.doflow` and `agent-docs/` rules and are
+  tracked explicitly. G11b, in the same file, holds skill
   provenance: a run is told to load its skill from the sandbox by path, and a run that cannot prove
   which `SKILL.md` it read is never graded as if it could; a without-skill run withholds the skill
   and is graded `withheld`, `leaked` or `unrecorded` the same way.
@@ -736,8 +751,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   rationale rests on, and becomes removable if the registry ever declares load semantics per
   projection.
 - **G22** (`skill-caps.test.js`) — every `SKILL.md` stays inside the host's skill limits: listing text
-  (`description` plus `when_to_use`) at most 1,536 characters, the file at most 20,000 bytes with
-  `## Boundaries` starting inside them (the post-compaction window), and each task class's workflow
+  (`description` plus `when_to_use`) at most 1,536 characters, the file at most 20,000 bytes, with
+  `## Boundaries` starting by byte 19,000 (inside the post-compaction window), and each task class's workflow
   skills at most 100,000 bytes together. The listing text summed over every skill also stays within
   8,000 characters, the figure Codex applies when the model's context window is unknown.
 - **G23** (`hidden-unicode.test.js`) — shipped prose and code are read by models and by reviewers, and
@@ -772,7 +787,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   shape and ranges, that its message names `/do` and no other skill, stays within 300 characters and
   names no model or provider, that `pathPattern` compiles in `jq`, and that the decision program
   (`prompt-nudge.jq`) runs against the shipped rules on a probe payload. The workflow engine does not
-  read this key, so nothing else validates it.
+  read this key, so no runtime code validates it; the hook tests
+  (`test/hooks/prompt-nudge*.test.js`) also run the shipped rules.
 - **G26** (`storage-declarations.test.js`) — every store DoFlow writes is declared with its retention
   in `core/registry/storage.json`. The registry's shape loads; every static write call under `src/`,
   `bin/`, `core/shared/scripts/` and `core/harnesses/` is scanned and must sit in a declared writer
@@ -807,8 +823,10 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   table in `MODEL_SELECTION.md`, so an off-policy tier edit to `models.json` is caught. Every
   harness `capabilities.mcp.toolName` holds `{server}` and `{tool}` and no other braces.
 - **G30** (`advice.test.js`) — hook, dependency, import and provider-route boundaries for advisory
-  model calls: hooks cannot invoke advice, the project adds no package dependencies, only the
-  permitted advice modules can import network/DNS modules, and providers cannot use model-pull,
+  model calls: hooks cannot invoke advice, the project adds no package dependencies, within
+  `src/runtime/advice/` only `client` and provider modules may require `http`/`https`, only
+  `endpoint-guard` may require `dns`, and no module may require `net` or `child_process` (the
+  repo-wide network check is G45.3), and providers cannot use model-pull,
   push, create, copy or delete routes or start Ollama.
 - **G31** (`advice.test.js`) — advice cases cover every registered advice kind, and the `tier`
   criteria keys/order and their `Work` text stay synchronized with `models.json` and
@@ -843,7 +861,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   inventory joins, digest, generated matrix, and shell-write exclusions (G36.1–G36.7).
 - **G37** (`lifecycle-bridges.test.js`) — wired events have parity fixtures and matching template
   sources; shipped hook files equal the reachable closure plus declared documentation; every
-  shipped file belongs to a registry asset; Kiro Stop claims retain their evidence (G37.1–G37.4).
+  shipped file belongs to a registry asset; Kiro Stop claims retain their evidence; and deny and error fixtures pin valid visible-byte ceilings and Pi result sizes (G37.1–G37.5).
 
 - **G34** (`lifecycle-bridges.test.js`) — bridge files contain no policy rules, agent spawns, context
   injection, bash-to-Node calls or Pi input mutation (G34.1); the lifecycle architecture names the
@@ -906,8 +924,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G45** (`telemetry-contract.test.js`) — `core/registry/telemetry.json` is well
   formed and its keys per kind equal the keys the `TelemetryWriter`, the bridge and observer `printf`
   formats and the fixture lines carry, with `harness`, `status` and `risk` equal to their owning
-  registries (G45.1); no `node` process starts on a shell hook path, and the node files there are the
-  pinned three (G45.2); no network module or `fetch` under `src/runtime` outside the pinned advice
+  registries (G45.1); no `node` process starts on a shell hook path except the two pinned Antigravity
+  doors' hand-off to `stream-hook-runner.js`, and the node files there are the pinned three (G45.2); no network module or `fetch` under `src/runtime` outside the pinned advice
   client and export sender, a static source check and not a sandbox (G45.3); no skill, guidance or
   agent spec names `trace spans`, `trace export`, `trace analyze` or `verify-baseline` (G45.4); the
   package has no dependency map of any of the four kinds (`dependencies`, `optionalDependencies`,
@@ -936,16 +954,51 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G51** (`release-workflow.test.js`) — the committed release workflow (`.github/workflows/release.yml`) satisfies the IC-004 workflow rules and IC-005 job graph. Each check has a negative control: string mutations re-seed faults on workflow copies (leaving the committed file untouched) to verify that violations of rules R1 (empty top-level permissions), R3 (`id-token: write` restricted to `publish`), R5 (40-hex SHA pinning for external actions), R6 (`preflight` having no dependencies), R7 (`publish-release` dependency on `promote`), and R9 (`publish` publishing to `${channel}-candidate`) are detected and reported by their respective rules.
 - **G52** (`verification-levels.test.js`) — verification levels are data over tiers: L0 tiers exist and lead every risk level's `requiredTiers`; each risk level is in exactly one of L1..L3; L3 includes HIGH and CRITICAL; `policy.v0.levels` is a subset of {L1, L2}. Each check has a negative control.
 - **G53** (`roadmap-git-verbs.test.js`) — every git argument vector in `src/runtime/roadmap/**` is on the allow-list: the read verbs, `merge-tree --write-tree`, `commit-tree`, `merge --ff-only`, `worktree add -b`, `worktree remove` without force, `branch -d`, and the repair-only `read-tree`, three-argument `update-ref`, `checkout-index -a` and `update-index -q --refresh`. `push`, `fetch`, `pull`, `tag`, `remote`, `reset`, `stash`, `checkout`, `switch`, `restore`, `clean`, `rebase`, `-D`, `--force` and `-f` fail it, as does an argument vector that cannot be read statically (computed or spread arguments). Controls: scratch sources with `push`, `branch -D`, `worktree remove --force` and a computed argv turn it red; config reads pass and config writes fail; it passes on an empty tree and reports module count 0.
-- **G54** (`roadmap-imports.test.js`) — no module under `src/runtime/roadmap/**` imports `worker/launch`, `worker/supervisor`, `dispatch/loop`, `model-router` or a model client, and none spawns a binary other than `git`, in any invocation form, static or dynamic. Person-only clause (feature 113): `src/runtime/roadmap/seed.ts` is required only by `src/cli/runtime-commands.ts`, `core/registry/gates.json` names no `seed` predicate, and, over the comment-stripped whole files of every `src/**` module except `seed.ts` and `runtime-commands.ts`, the guard is red on an array literal (single or multi-line) holding `'seed'` beside `'roadmap'`, `--action` or `--draft` (with or without `=value`), on a `skill: 'seed'` field, on a literal `'seed'` argument of `envelopeFor(...)`, and, under `src/runtime/roadmap/**`, on a binding whose value is exactly `'seed'`; over `core/shared/**` and `core/registry/**` it is red on `seed --action apply|amend`. Controls: a scratch `require('../worker/launch.ts')`, a scratch `spawn('node')` and a scratch `require('./seed.ts')` in `loop.ts` each turn it red; controls mutate the real `loop.ts` text in memory (single-line, multi-line, `=` and constant forms), a scratch `rows.ts` copy and a scratch SKILL.md; the unmodified tree stays green (`loop.ts` `Unreadable(['seed'], ...)` and the `rehearse.ts` stage list); the clause passes on an empty tree and reports module count 0.
+- **G54** (`roadmap-imports.test.js`) — no module under `src/runtime/roadmap/**` imports `worker/launch`, `worker/supervisor`, `dispatch/loop`, `model-router` or a model client, and none spawns a binary other than `git`, in any invocation form, static or dynamic. Person-only clause (feature 113): `src/runtime/roadmap/seed.ts` is required only by `src/cli/runtime-commands.ts`, `core/registry/gates.json` names no `seed` predicate, and, over the comment-stripped whole files of every `src/**` module except `seed.ts` and `runtime-commands.ts`, the guard is red on an array literal (single or multi-line) holding `'seed'` beside `'roadmap'`, `--action` or `--draft` (with or without `=value`), on a `skill: 'seed'` field, on a literal `'seed'` argument of `envelopeFor(...)`, and, under `src/runtime/roadmap/**`, on a binding whose value is exactly `'seed'`; over `core/shared/**` and `core/registry/**` it is red on `seed --action apply|amend`. Controls: a scratch `require('../worker/launch.ts')`, a scratch `spawn('node')` and a scratch `require('./seed.ts')` in `loop.ts` each turn it red; controls mutate the real `loop.ts` text in memory (single-line, multi-line, `=` and constant forms), a scratch `rows.ts` copy and a scratch SKILL.md; the unmodified tree stays green (`loop.ts` `Unreadable(['seed'], ...)` and the `rehearse.ts` stage list); the import and spawn check passes on an empty tree and reports module count 0.
 - **G55** (`gate-vocabulary.test.js`) — the gate ids in `core/registry/gates.json` equal those of `core/registry/workflows.json` per class; every reason code emitted by `src/runtime/roadmap/**` and by the decide-gate path in `workflow-orchestrator.ts` is in `denyReasons` (a `:<x>` suffix is a parameter, not a new reason; row outcomes that are not denies are named in the guard); every `denyReasons` entry appears in a test expectation, with an `ALLOWED_GAPS` list that is empty today and may only shrink. The scan reads reason sites only, never every string. Controls: a scratch emitter of a made-up reason, a row outcome moved into `denyReasons`, differing gate ids and an unmentioned listed reason each turn it red.
 - **G56** (`decider-channels.test.js`) — the decision register's channel-to-decider map and the lifecycle event store's map are equal, including `resolution` (`agent`) and `policy` (`autopilot`); the `decision`, `followup`, `lifecycle` and `goal` CLIs refuse `--channel policy` with `channel-reserved` (exit 2) before any write, and a decision batch cannot smuggle the reserved channel past whitespace.
 - **G57** (`roadmap-render-check.test.js`) — `roadmap --action render --check` reports each integrity finding on a fixture: `render-drift`, `duplicate-merge`, `trailer-unknown-row`, `commit-claimed-twice`, `trailered-and-seeded`, `pointer-not-merge`, `needs-unresolved`, `duplicate-id`, `slug-id-mismatch` and `seed-typed-status`, plus the store rules `class-unknown` (an unregistered class), `needs-cycle` (reported once, `rowIds` in path order) and `seed-unknown-key` (an extra row key) on their own fixtures, with a clean acyclic fixture passing; a clean fixture passes with no findings, and a held seed row keeps the rendered bytes. A doc clause matches each `SEED_RULES` code as a backticked whole token in `docs/reference.md`; every emitted `rule:` literal in `seed.ts` and `rows.ts` must be a `SEED_RULES` code or a 108 check code, and every `SEED_RULES` code must be emitted. Controls: a check without the `commit-claimed-twice` rule turns it red; a reference copy without `` `seed-invalid` `` (with `` `seed-invalid-json` `` still present), an unlisted emitted rule and a listed but unemitted code each turn the doc and emission clauses red.
 - **G58** (`worker-billing.test.js`) — every worker block in `core/registry/harnesses.json` declares `billing`, and `validateWorker` accepts exactly `free`, `metered` and `unknown` and rejects a missing, `null`, object or other value. Every shipped descriptor must read `unknown` today, so recording a harness as `free` is a deliberate change to this guard.
 - **G59** (`review-findings-contract.test.js`) — `core/shared/skills/do-code-review/SKILL.md` names the `review/findings.json` schema 1 output contract (path, schema, `reviewedHead`, seats, converged dispositions, `converged.md` staying prose). `validateFindings` lives in `src/runtime/review/findings.ts` and is re-exported by `gates.ts`; the shipped fixture `test/fixtures/roadmap/findings/schema-1.json` passes it. The SKILL text must also name `rounds`, every optional convergence field and vocabulary value, the round cap 3, and `review --action check`, as read from `src/runtime/review/findings.ts`; `test/fixtures/roadmap/findings/schema-1-convergence.json` carries every optional field, passes validation and has non-zero counts. Controls: a scratch SKILL copy without the contract, without `verification`, or a `user-accepted` entry without its decision turns it red.
 - **G60** (`eval-noise.test.js`) — every tracked `bench-decision` JSON under `bench/` or `test/` (top level or nested in a report) passes `validateDecision` and recomputes from its recorded inputs, cases, noise, thresholds and seed through `bench/noise.js`; model mismatch and unusable-artifact preconditions follow those inputs, and source `none` requires null noise and `no-noise-band` in every scope. Every tracked `bench-noise` JSON node passes `validateNoiseArtifact`, which recomputes its scope statistics and verdict from its cases and thresholds. No other tracked JSON under `bench/` or `test/` carries `gain-above-noise` or `merge-candidate`; the README vocabulary table equals the `bench/noise.js` vocabulary exports, including `EXCLUSION_MARKS`, in order; and no other tracked bench JS file holds an array literal of two or more words of one vocabulary. G60 carries its own comment masker. It scans `test/` as well as `bench/` so committed test fixtures containing forged or stale decision records receive the same consistency check. Controls: a gain inside the band stored as `gain-above-noise`, tampered `ci95`, `n` or gain, forged preconditions and noise stats, a stray verdict value in another JSON, README value/order faults, and a scratch bench JS vocabulary list turn it red; a decision nested in a report is validated, not flagged.
+- **G61** (`docs-generated.test.js`) — the generated docs stay true to their sources: every
+  `BEGIN GENERATED` span and `docs/llms.txt` equal what `src/release/docs-blocks.ts` renders from the
+  registries, the two help texts and the nav (a); the markers on every docs page are registered to that
+  page, paired and not nested (b); every
+  `docs/**/*.md` is a nav page or a `not_in_nav` redirect stub of the fixed shape (c); every
+  `doflow <verb>` and `doflow-run <verb>` a nav page names in a code span or code fence is a verb in
+  that command's help (d); `mkdocs.yml` keeps its `validation` block in block style with the four keys
+  at `warn` (e); each action in `docs.yml` is at or above its floor (checkout v7, setup-python v7,
+  configure-pages v6, upload-pages-artifact v5, deploy-pages v5) and not below the same action in
+  another workflow (f); `docs/llms.txt` stays within 4,096 bytes (g).
+  Each clause re-seeds its fault in a copy. Run `node src/release/docs-blocks.ts --write` after a
+  registry, help or nav change, then review the diff.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
+
+### Boundary ratchets
+
+Two unlisted guard files pin structural boundaries. `test/guards/boundaries.test.js` holds G-B1,
+the dependency direction rule: no file under `core/` requires from `src/`, `bin/` or `test/`, so
+the content stays usable without the tool that installs it. It also holds G-B2, the inventory
+ratchets: `core/registry/` holds exactly 17 JSON files and `src/adapters/` exactly 8 harness
+directories. A ratchet does not forbid a change; it makes the change edit the guard in the same
+commit, so each structural shift is a reviewed decision. `test/guards/cli-boundary.test.js` keeps
+`bin/doflow.js` a thin forwarder with no command handler and no argument parser, and requires the
+`COMMANDS` table in `src/cli/index.ts` and the files in `src/cli/commands/` to name exactly the
+nine installer commands.
+
+### Upstream format-drift watcher
+
+The registries cite vendor pages as evidence for capability facts, and those pages change on
+their own schedule. `scripts/check-format-drift.js` (`npm run drift`) derives the watch list from
+the registries, fingerprints each cited page, and compares the fingerprints with
+`scripts/drift/baseline.json`; it exits 0 clean, 1 when a page drifted, 3 when a previously
+fingerprinted page is unreachable, and 2 on a usage or configuration error.
+`.github/workflows/drift.yml` runs it every Monday (and on manual `workflow_dispatch`); on drift it
+opens a tracking issue, or comments on the open one, and fails that run. It is not a pull-request
+gate. After a change is confirmed intentional, `npm run drift -- --update` refreshes the baseline.
 
 ## Contributor guardrails
 

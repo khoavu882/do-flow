@@ -30,16 +30,33 @@ extra_javascript:
 
 nav:
   - Home: index.md
-  - Overview: overview.md
-  - How DoFlow works: how-doflow-work.md
-  - Quickstart: quickstart.md
-  - Setup: setup.md
-  - Guide: guide.md
-  - Reference: reference.md
-  - Flags: flags.md
-  - Capability Map: capability-map.md
-  - Enterprise governance: enterprise-governance.md
-  - Distribution notes: distribution-notes.md
-  - Architecture: architecture.md
-  - Refactor plan: refactor-plan.md
-  - Orchestrator spec: specs/orchestrator-context-modes.md
+  - Get started:
+      - Quickstart: quickstart.md
+      - Setup: setup.md
+  - Use DoFlow:
+      - Guide: guide.md
+      - How DoFlow works: how-doflow-work.md
+      - Harnesses: capability-map.md
+      - Governance: enterprise-governance.md
+  - Reference:
+      - Commands and skills: reference.md
+      - Settings: settings.md
+      - Flags: flags.md
+  - Contributing:
+      - Architecture: architecture.md
+      - Distribution notes: distribution-notes.md
+      - Specs:
+          - Orchestrator context modes: specs/orchestrator-context-modes.md
+          - Operating modes: specs/operating-modes.md
+          - Candidate evidence boundary: specs/candidate-evidence-boundary.md
+          - Telemetry contract: specs/telemetry-contract.md
+
+not_in_nav: |
+  /overview.md
+  /refactor-plan.md
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn

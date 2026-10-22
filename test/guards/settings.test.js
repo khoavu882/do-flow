@@ -283,7 +283,7 @@ test('G44 S2: the settings keys table matches registry types, defaults, scopes, 
   const raw = readJson(SETTINGS_FILE);
   const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
   assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
-  const docs = fs.readFileSync(path.join(REPO, 'docs/reference.md'), 'utf8');
+  const docs = fs.readFileSync(path.join(REPO, 'docs/settings.md'), 'utf8');
   assert.deepEqual(checkSettingsDocs(raw, docs, loaded.registry), []);
 });
 
@@ -292,7 +292,7 @@ test('G44 S2 control: a scratch settings table missing storage.prune is rejected
   const raw = readJson(SETTINGS_FILE);
   const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
   assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
-  const fixture = path.join(dir, 'docs', 'reference.md');
+  const fixture = path.join(dir, 'docs', 'settings.md');
   fs.mkdirSync(path.dirname(fixture), { recursive: true });
   fs.writeFileSync(fixture, renderSettingsTable(raw, loaded.registry, { omitKey: 'storage.prune' }));
   const errors = checkSettingsDocs(raw, fs.readFileSync(fixture, 'utf8'), loaded.registry);
@@ -303,8 +303,8 @@ test('G44 S2 control: doubled config-home paths are rejected', () => {
   const raw = readJson(SETTINGS_FILE);
   const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
   assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
-  const docs = fs.readFileSync(path.join(REPO, 'docs/reference.md'), 'utf8');
-  const planted = docs.replace('### Settings keys', '<config home>/doflow/settings.json\n### Settings keys');
+  const docs = fs.readFileSync(path.join(REPO, 'docs/settings.md'), 'utf8');
+  const planted = docs.replace('## Settings keys', '<config home>/doflow/settings.json\n## Settings keys');
   const errors = checkSettingsDocs(raw, planted, loaded.registry);
   assert.ok(errors.some((message) => message.includes('config home path')), errors.join('\n'));
 });
