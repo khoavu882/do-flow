@@ -189,12 +189,15 @@ function captureHelp(root: string): { doflow: { verb: string; summary: string }[
   }
 }
 
+// Cells hold the bare verb under a header naming the command, so no index row starts with
+// "| `doflow <verb>" and a reader that finds a verb's full reference row by that prefix still lands
+// on the hand-written row below the index.
 function renderCommandIndex(root: string): string {
   const help = captureHelp(root);
   return [
-    table(['Command', 'Summary'], help.doflow.map((row) => [`\`doflow ${row.verb}\``, row.summary])),
+    table(['`doflow` command', 'Summary'], help.doflow.map((row) => [`\`${row.verb}\``, row.summary])),
     '',
-    table(['Verb', 'Group', 'Summary'], help.doflowRun.map((row) => [`\`doflow-run ${row.verb}\``, row.group, row.summary])),
+    table(['`doflow-run` verb', 'Group', 'Summary'], help.doflowRun.map((row) => [`\`${row.verb}\``, row.group, row.summary])),
   ].join('\n');
 }
 

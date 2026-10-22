@@ -219,6 +219,13 @@ test('IC-003: help capture finds the doflow commands and doflow-run verbs with t
   assert.ok(help.doflow.every((row) => row.summary && !row.summary.startsWith(' ')));
 });
 
+test('IC-003: no command-index row starts like a full reference row (`| \`doflow <verb>`)', (t) => {
+  const root = fixture(t);
+  const index = renderBlock('command-index', root);
+  assert.ok(index.includes('| `install` |') && index.includes('| `paths` | Artifact and repository state |'));
+  assert.ok(!index.split('\n').some((line) => /^\| `doflow(-run)? /.test(line)), 'a row starting "| `doflow <verb>" would shadow the reference row');
+});
+
 test('IC-003: the coverage blocks are the coverage renderers unchanged', (t) => {
   const root = fixture(t);
   const coverage = JSON.parse(fs.readFileSync(path.join(root, 'core/registry/lifecycle.json'), 'utf8')).coverage;
