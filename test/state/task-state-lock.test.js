@@ -132,6 +132,29 @@ for (const [point, calls] of [['judged', 1], ['listed', 2], ['re-checked', 3]]) 
   });
 }
 
+// A stalled holder that releases while a reclaimer's claim sits in its lock cannot remove the directory
+// (it is not empty). The reclaimer must take it then, not withdraw and leave an empty lock that every
+// process waits LOCK_STALE_MS on.
+test('a holder that releases under a reclaimer\'s claim leaves the lock to the reclaimer, not orphaned', (t) => {
+  const file = storeFile(t);
+  const stalled = acquireLock(fs, file);
+  age(file);
+  const fsImpl = {
+    ...fs,
+    mkdirSync: (target, ...rest) => {
+      const out = fs.mkdirSync(target, ...rest);
+      if (target === path.join(lockOf(file), 'reclaim')) stalled(); // removes its entry; its rmdir of the lock fails
+      return out;
+    },
+  };
+  const release = tryAcquireLock(fsImpl, file);
+  assert.ok(release, 'the reclaimer took the released lock');
+  assert.equal(release.held(), true);
+  assert.deepEqual(siblings(file), [path.basename(lockOf(file))]);
+  release();
+  assert.equal(fs.existsSync(lockOf(file)), false);
+});
+
 // A holder that stalled past LOCK_STALE_MS after its tmp write (age-lock@7) checks ownership while B's
 // reclaim claim sits in its lock: it must wait for B to decide, not write. Chooser: A to its tmp write,
 // B judges, lists and claims, A checks for a claim and for its entry (both there), B takes the lock and

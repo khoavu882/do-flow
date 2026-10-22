@@ -70,9 +70,10 @@ function sleep(ms: number): void {
 //   - Reclaim (a lock older than LOCK_STALE_MS): list the directory, confirm it is still the same
 //     directory, then mkdir `<file>.lock/reclaim` (exclusive: one reclaimer wins). A non-empty
 //     directory cannot be removed by rmdir, so from that moment only the claimant can move it. The
-//     claimant lists it again: the same directory with the same entries means it is the lock that
-//     was judged stale, and the claimant renames it aside and deletes it; anything else (a new lock
-//     appeared in between) and the claimant removes its claim and starts over.
+//     claimant lists it again: the same directory with no entry it lacked when judged (its holder may
+//     have released meanwhile) means it is the lock that was judged stale, and the claimant renames it
+//     aside and deletes it; anything else (a new lock appeared in between) and the claimant removes
+//     its claim and starts over.
 //   - A new holder checks for a `reclaim` entry after writing its own (`settle`): a claim placed
 //     before the holder's entry existed may still move the directory, so the holder waits until
 //     the claim is withdrawn (it holds the lock) or its own entry has gone (it does not).
@@ -132,8 +133,9 @@ function reclaimIfStale(fsImpl: any, lockDir: string): LockStep {
   // Only this claimant can move or remove the directory now; it is the judged lock or a newer one.
   let same = false;
   try {
-    const now = fsImpl.readdirSync(lockDir).filter((name: string) => name !== RECLAIM_ENTRY).sort();
-    same = sameDir(judged, fsImpl.statSync(lockDir)) && isDeepStrictEqual(now, [...entries].sort());
+    // An entry can only have gone (its holder released), never come, while it is the judged lock.
+    const now = fsImpl.readdirSync(lockDir).filter((name: string) => name !== RECLAIM_ENTRY);
+    same = sameDir(judged, fsImpl.statSync(lockDir)) && now.every((name: string) => entries.includes(name));
   } catch { /* unreadable: treat it as changed */ }
   if (same) {
     const aside = `${lockDir}.reclaimed-${randomBytes(6).toString('hex')}`;
