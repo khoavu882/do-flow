@@ -50,7 +50,7 @@ function writeFixtureRepo(root, raw) {
 
 function addVerifyDocsRow(text, raw, registry) {
   const lines = text.split('\n');
-  const heading = lines.indexOf('### Settings keys');
+  const heading = lines.indexOf('## Settings keys');
   assert.notEqual(heading, -1, 'settings docs table exists');
   let end = heading + 1;
   while (end < lines.length && !lines[end].startsWith('|')) end++;
@@ -95,8 +95,8 @@ test('IC-016: verify.v0 registers through the existing consumer and config list 
   assert.equal(defaultView.get('verify.v0').value, 'on');
   assert.equal(defaultView.get('verify.v0').origin.layer, 'default');
 
-  const shippedDocs = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
-  const fixtureDocsFile = path.join(fixture.dir, 'docs', 'reference.md');
+  const shippedDocs = fs.readFileSync(path.join(REPO, 'docs', 'settings.md'), 'utf8');
+  const fixtureDocsFile = path.join(fixture.dir, 'docs', 'settings.md');
   fs.mkdirSync(path.dirname(fixtureDocsFile), { recursive: true });
   fs.writeFileSync(fixtureDocsFile, shippedDocs);
   const missingRow = checkSettingsDocs(raw, shippedDocs, loaded.registry);
