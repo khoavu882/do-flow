@@ -20,6 +20,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { renderBehaviourMatrix, BEHAVIOUR_ORDER, HARNESS_ORDER } = require('../../src/lifecycle/coverage.ts');
+// The docs block renders the registry through the docs generator's inert() (Markdown and HTML in a
+// registry value are escaped), so the shipped block is compared with that rendering.
+const { inert } = require('../../src/release/docs-blocks.ts');
 
 const NEVER_END_OF_TURN = new Set(['SessionEnd', 'SubagentStop', 'PreCompact', 'PreCompress', 'PostToolUse',
   'AfterTool', 'tool_execution_start', 'SessionStart', 'agentSpawn']);
@@ -113,7 +116,7 @@ function g393({ coverage, doc }) {
   const a = doc.indexOf(START), b = doc.indexOf(END);
   if (a < 0 || b < a) return ['G39.3 behaviour matrix markers missing'];
   const shipped = doc.slice(a + START.length, b).trim().split('\n');
-  const rendered = renderBehaviourMatrix(coverage).split('\n');
+  const rendered = renderBehaviourMatrix(inert(coverage)).split('\n');
   const findings = [];
   for (let i = 0; i < Math.max(shipped.length, rendered.length); i++) {
     if (shipped[i] !== rendered[i]) findings.push(`G39.3 rendered row ${i} differs from renderBehaviourMatrix()`);

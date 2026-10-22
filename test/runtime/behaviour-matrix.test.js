@@ -6,6 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { renderBehaviourMatrix, BEHAVIOUR_ORDER, HARNESS_ORDER } = require('../../src/lifecycle/coverage.ts');
+// The shipped block is written by the docs generator from an inert copy of the registry (Markdown and
+// HTML in a value escaped), so the shipped rows are compared with that rendering.
+const { inert } = require('../../src/release/docs-blocks.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const coverage = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/lifecycle.json'), 'utf8')).coverage;
@@ -50,7 +53,7 @@ test('enforced rows list tests; limitation rows carry the limitation', () => {
 test('every row of the shipped block equals the renderer output', () => {
   const { block } = shippedBlock();
   const shipped = block.split('\n');
-  const rendered = renderBehaviourMatrix(coverage).split('\n');
+  const rendered = renderBehaviourMatrix(inert(coverage)).split('\n');
   assert.equal(shipped.length, rendered.length, 'row count');
   rendered.forEach((line, index) => assert.equal(shipped[index], line, `row ${index}`));
 });

@@ -1,3 +1,6 @@
+---
+description: Prerequisites, install modes and scopes, updates, backup, rollback, MCP servers, and per-tool mapping.
+---
 # Setup
 
 This is the canonical installation and lifecycle guide for DoFlow. The [Quickstart](quickstart.md)
@@ -9,7 +12,7 @@ contains only the shortest path to a working installation.
 
 | Requirement | Needed for | Notes |
 |---|---|---|
-| Node.js 22.18+ / 24.3+ | The `doflow` installer and runtime, and `npx` for the bundled MCP servers | `package.json` declares `engines.node` as `^22.18.0 \|\| >=24.3.0`. The runtime ships TypeScript (`src/**/*.ts`) run directly through Node's native type-stripping (`process.features.typescript`), which has no build step. Type-stripping is on by default only from Node 22.18.0 and 23.6.0, but Node 23.6 to 24.2 print an `ExperimentalWarning: Type Stripping is an experimental feature` to stderr on every `.ts` load, so the floor skips them (Node 23 is end-of-life); Node 22.6 to 22.17 and 23.0 to 23.5 need `--experimental-strip-types`, which DoFlow does not pass, and `require('./x.ts')` there fails with a SyntaxError. Stripping disabled with `--no-experimental-strip-types` (for example through `NODE_OPTIONS`) is refused the same way. Node 18/20 are no longer supported as of the TypeScript migration (semver-major). |
+| Node.js 22.18+ / 24.3+ | The `doflow` installer and runtime, and `npx` for the bundled MCP servers | `package.json` declares `engines.node` as `^22.18.0 \|\| >=24.3.0`. A source checkout runs `src/**/*.ts` directly through Node's native type-stripping (`process.features.typescript`); the npm package ships JavaScript built by `npm run build:package`, and its `bin/doflow.js` still requires type-stripping support. Type-stripping is on by default only from Node 22.18.0 and 23.6.0, but Node 23.6 to 24.2 print an `ExperimentalWarning: Type Stripping is an experimental feature` to stderr on every `.ts` load, so the floor skips them (Node 23 is end-of-life); Node 22.6 to 22.17 and 23.0 to 23.5 need `--experimental-strip-types`, which DoFlow does not pass, and `require('./x.ts')` there fails with a SyntaxError. Stripping disabled with `--no-experimental-strip-types` (for example through `NODE_OPTIONS`) is refused the same way. Node 18/20 are no longer supported as of the TypeScript migration (semver-major). |
 | Git | Cloning, `self-update`, and the git context hooks | |
 | `bash` | Hook scripts, on any harness that supports hooks | POSIX bash, Git Bash/MSYS2, and WSL bash all qualify. DoFlow runs `bash --version` rather than a PATH check, so a same-named unrelated binary will not satisfy it. Installs that carry no hooks do not need it. |
 | `jq` | The DoFlow shell scripts and hook payload parsing | Preinstalled on GitHub-hosted runners. The prompt nudge also needs a `jq` built with regex support (Oniguruma) and stays silent without it |
@@ -26,7 +29,7 @@ one. All eight are fully declared, adapted, and installable via `--target <id>`.
 | [Codex](https://learn.chatgpt.com/docs/customization/overview) | `codex` | `AGENTS.md` (project root, or `~/.codex/AGENTS.md` globally), skills at `.agents/skills/` (the only tree Codex scans), scripts and templates in the shared `.doflow/` tree, agents (`.codex/agents/*.toml`), hooks (`.codex/hooks.json`), MCP via `config.toml` |
 | [Gemini CLI](https://geminicli.com/) / [Antigravity](https://antigravity.google/) | `gemini` | `GEMINI.md`, guidance, skills, agents (`<projectRoot>/.gemini/agents/<name>.md` project, `~/.gemini/agents/<name>.md` global), and hooks merged into `settings.json` |
 | [OpenCode](https://opencode.ai/) | `opencode` | Managed `AGENTS.md` section (registered via `opencode.json`'s `instructions[]`), skills discovered natively at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `opencode.json`'s `mcp` key |
-| [Pi](https://pi.dev/) | `pi` | Managed `AGENTS.md` section, skills copied into `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), with `settings.json` left untouched, the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `.pi/mcp.json` (project; Pi reads it only after you trust the project) or `~/.pi/agent/mcp.json` (global, or `$PI_CODING_AGENT_DIR/mcp.json`; Pi moves its whole agent dir with that variable, but DoFlow moves only `mcp.json`, so skills and `AGENTS.md` stay in `~/.pi/agent/`); the [capability map](capability-map.md) states the Pi version floor and the `pi-mcp-adapter` case |
+| [Pi](https://pi.dev/) | `pi` | Managed `AGENTS.md` section, skills copied into `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), with `settings.json` left untouched, the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `.pi/mcp.json` (project; Pi reads it only after you trust the project) or `~/.pi/agent/mcp.json` (global, or `$PI_CODING_AGENT_DIR/mcp.json`; Pi moves its whole agent dir with that variable; DoFlow moves `mcp.json` there, and the guard extension when it installs one, so skills and `AGENTS.md` stay in `~/.pi/agent/`); the [capability map](capability-map.md) states the Pi version floor and the `pi-mcp-adapter` case |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli) | `copilot` | `.github/copilot-instructions.md` (DoFlow writes project scope only; a personal `~/.copilot/copilot-instructions.md` also exists upstream but receives nothing), the core guidance set as `*.instructions.md` under `.github/instructions/` (project) or `~/.copilot/instructions/` (global), skills at `.agents/skills/` (project) or `~/.agents/skills/` (global), agents at `.github/agents/` (project) or `~/.copilot/agents/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP merged into `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global) |
 | [Kiro](https://kiro.dev/) | `kiro` | The core guidance set (the `DOFLOW_CORE.md` import walk) projected as steering files under `.kiro/steering/` (project) or `~/.kiro/steering/` (global), skills at `.kiro/skills/`, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree, agents rendered as `.kiro/agents/<name>.json` (the five specialists plus a `doflow` main agent, each carrying DoFlow's guard hooks), hooks at `.kiro/hooks/` (not in Kiro's untrusted-workspace exclusion list; whether its shell-command prompt covers hooks is undocumented), and MCP via `.kiro/settings/mcp.json` |
 | [Antigravity CLI](https://antigravity.google/) (`agy`) | `antigravity` | Managed `AGENTS.md` section (project), the core guidance set flat in `.agents/rules/` (project, each file under `trigger: always_on` front-matter), skills at `.agents/skills/` (project) or `~/.gemini/config/skills/` (global), shared agents at `.agents/agents/` (project) or `~/.gemini/config/agents/` (global), the runtime locator, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree (both scopes), and MCP merged into `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` (remote servers project to `serverUrl`). The `AGENTS.md` section and the rules are project scope only; the global instructions file (`~/.gemini/GEMINI.md`) is shared with Gemini CLI and is not written by this harness |
@@ -48,7 +51,7 @@ hook commands is undocumented. Copilot CLI now documents hooks (`.github/hooks/`
 none of them yet, so its Copilot adapter stops at instructions, skills, agents, and MCP. OpenCode
 uses code modules rather than the shell commands DoFlow ships, so no OpenCode hook is installed.
 Pi now has a `tool_call` guard extension at user and project scope; the project extension runs only
-after the project is trusted. Their `opencode.json` / `settings.json` settings merges remain supported.
+after the project is trusted. OpenCode's `opencode.json` merge remains supported; DoFlow does not write Pi's `settings.json`.
 Antigravity and Gemini CLI share `~/.gemini/GEMINI.md`, so a global `--target gemini` install
 affects both; see [what gets installed](#what-gets-installed).
 
@@ -68,8 +71,9 @@ command, and `--force` is intentionally rejected.
 `doflow tools --tool rtk --action update` always reports **skipped**: no upstream update command has
 been verified, and DoFlow will not guess one. Reinstall instead.
 
-Each tool backs a capability the router resolves. When one is absent the router falls back — Semble
-and Graphify degrade to Ripgrep — so DoFlow stays functional without any of them. Run `doflow
+Each tool backs a capability the router resolves. When one is absent the router falls back where a
+fallback exists: Semble falls back to Ripgrep, and so does Graphify for `code.relationships`;
+`code.impact-analysis` (Graphify) and `command.compress` (RTK) have no fallback provider. Run `doflow
 capabilities` to see which provider is actually active on your machine, and `doflow doctor` for a
 health check across all three.
 
@@ -88,8 +92,9 @@ for which stage names which server and how to add one.
 ### Decision model (optional)
 
 To enable advisory decision picks, run `doflow advise --action configure --model <decision-capable-model>`.
-This writes the user setting to `$XDG_CONFIG_HOME/doflow/decision-model.json`, or to
-`~/.config/doflow/decision-model.json` when `XDG_CONFIG_HOME` is unset. A project may override that
+This writes the user setting to `$XDG_CONFIG_HOME/doflow/settings.json`, or to
+`~/.config/doflow/settings.json` when `XDG_CONFIG_HOME` is unset; an existing `decision-model.json`
+there is still read. A project may override that
 user setting only after the user enables it: project configuration can disable advice or choose a
 model, but cannot enable advice or select an endpoint or provider. Decision-model endpoints must
 resolve only to loopback addresses; DoFlow rejects non-loopback endpoints. DoFlow never pulls a
@@ -135,19 +140,20 @@ doflow install ../my-project --target codex
 ### What gets installed
 
 `doflow` always writes to the real per-tool directory below — never to `core/`, which is only the
-source tree this repo ships. `doflow status` (see below) prints the exact resolved paths for any
-given invocation, so treat it as the source of truth over this table for a specific run:
+source tree this repo ships. `doflow status` (see below) prints the resolved paths for a given
+invocation, so treat it as the source of truth over this table for a specific run. For Antigravity
+it currently prints `antigravity-> undefined`; use the table below for that target:
 
 | Target | Global (`-g`) | Project (default) |
 |---|---|---|
-| Claude Code | `~/.claude/` | `<projectRoot>/.claude/` |
-| Codex | `~/.codex/` | `<projectRoot>/.codex/` |
+| Claude Code | `~/.claude/` | `<projectRoot>/.claude/` **and** `<projectRoot>/.mcp.json` |
+| Codex | `~/.codex/` **and** `~/.agents/` | `<projectRoot>/.codex/`, `<projectRoot>/.agents/`, **and** `<projectRoot>/AGENTS.md` |
 | Gemini CLI | `~/.gemini/` | `<projectRoot>/.agents/` **and** `<projectRoot>/.gemini/` — see below |
-| OpenCode | `~/.config/opencode/` | `<projectRoot>/.opencode/` |
-| Pi | `~/.pi/agent/` | `<projectRoot>/.pi/` |
+| OpenCode | `~/.config/opencode/` | `<projectRoot>/.opencode/`, `<projectRoot>/AGENTS.md`, **and** `<projectRoot>/opencode.json` |
+| Pi | `~/.pi/agent/` | `<projectRoot>/.pi/` **and** `<projectRoot>/AGENTS.md` |
 | GitHub Copilot CLI | `~/.copilot/` **and** `~/.agents/` | `<projectRoot>/.github/`, `<projectRoot>/.agents/`, **and** `<projectRoot>/.mcp.json` — see below |
 | Kiro | `~/.kiro/` | `<projectRoot>/.kiro/` |
-| Antigravity | `~/.gemini/config/` **and** `~/.agents/` | `<projectRoot>/.agents/` **and** `<projectRoot>/AGENTS.md` — see below |
+| Antigravity | `~/.gemini/config/` | `<projectRoot>/.agents/` **and** `<projectRoot>/AGENTS.md` — see below |
 
 OpenCode's global config lives at `~/.config/opencode/`, **not** `~/.opencode/` — a path DoFlow's
 own docs asserted incorrectly for several releases. `~/.opencode/` is a plausible guess that
@@ -296,11 +302,11 @@ For the harnesses the lock pins:
 | Component | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro | Antigravity |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Instructions | `CLAUDE.md` | Managed `AGENTS.md` | `GEMINI.md` | Managed `AGENTS.md` | Managed `AGENTS.md` | `.github/copilot-instructions.md` (project only) | Steering files (`.kiro/steering/`) | Managed `AGENTS.md` (project only) |
-| Rules, agents, references | ✓ | ✓ | ✓ | Different — agent guidance via instructions, no native agent directory | Different — agent guidance via instructions, no native agent directory | ✓ | ✓ | ✓
+| Rules, agents, references | ✓ | ✓ | ✓ | ✓ (`.opencode/agents/` / `~/.config/opencode/agents/`) | Different — agent guidance via instructions, no native agent directory | ✓ | ✓ | ✓
 | Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
-| Scripts and templates | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
+| Scripts and templates | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Scripts ✓; templates through skill bundles
 | Modes | ✓ | Native mode unavailable | Guidance projection | Guidance projection | Guidance projection | Guidance projection | Guidance projection (steering) | Guidance projection
-| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | No hook projection (extension module required); settings supported via `settings.json` | Hooks documented upstream but not projected (Claude-payload coupling); settings supported via named-key merge into `.github/copilot/settings.json` | Hooks supported via `.kiro/hooks/`, not in Kiro's untrusted-workspace exclusion list; no general settings file beyond MCP | Unavailable — projects into Gemini-compatible surfaces instead |
+| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | `tool_call` guard extension (project scope needs trust); `settings.json` not written | Hooks documented upstream but not projected (Claude-payload coupling); no settings file is written | Hooks supported via `.kiro/hooks/`, not in Kiro's untrusted-workspace exclusion list; no general settings file beyond MCP | Hooks via `.agents/hooks.json` (pre-implementation gate, stop check; project only); no settings tier |
 | MCP registration | ✓ | ✓ | Native registration differs | ✓ (`opencode.json`) | ✓ (`.pi/mcp.json` / `~/.pi/agent/mcp.json`) | ✓ (`.mcp.json` / `mcp-config.json`) | ✓ (`.kiro/settings/mcp.json`) | ✓ (`.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json`) |
 
 This is a capability contract, not a statement that every native surface is active after copying
@@ -476,7 +482,8 @@ Verified ownership and recovery records, lifecycle backups, and install metadata
 independently of the harness: `<project>/.doflow/` for project scope and `~/.doflow/` for user
 scope. Backups live under `.doflow/backups/`, and the lifecycle manifest is
 `.doflow/.install-manifest.json`. Lifecycle commands use these scope-neutral paths exclusively;
-the explicit neutral-state importer is the only code that still reads historical `.claude` metadata.
+the explicit neutral-state importer still reads historical `.claude` metadata, and `list-backups` and
+`rollback` also read the legacy `.claude/backups` root, read-only.
 
 If a configuration update is wrong, restore the named backup with `doflow rollback`. Rollback
 restores the files the backup holds, leaves in place the files the run created and lists them, and

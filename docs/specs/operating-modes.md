@@ -1,3 +1,6 @@
+---
+description: Operating modes, task states, control boundaries, and transition rules between assisted and autonomous work.
+---
 # Spec: operating modes and task states
 
 Contract document for feature 074 (P0). It states the two operating modes DoFlow aims at, who owns
@@ -20,8 +23,10 @@ mandatory information, insufficient authorization or an exhausted budget produce
 incomplete outcome; the system does not expand scope to report success.
 
 The attempt ledger already records which way a task was run: its `MODES` are `manual`,
-`sequential` and `subagent` (`src/runtime/task-attempts.ts#MODES`). The autonomous workflow of
-the table above is `target`; no code reads an objective and coordinates subagents today.
+`sequential` and `subagent` (`src/runtime/task-attempts.ts#MODES`). The dispatch loop
+(`src/runtime/dispatch/loop.ts`, feature 082) launches and coordinates one-shot workers for the
+tasks of an existing plan; no code yet takes a bare objective and decomposes it, so the autonomous
+workflow of the table above stays `target` as a whole.
 
 ## Ownership
 

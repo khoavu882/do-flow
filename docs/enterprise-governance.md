@@ -1,3 +1,6 @@
+---
+description: Which governance controls DoFlow installs and which only an organization can enforce.
+---
 # Enterprise governance: what DoFlow installs, and what only your organization can enforce
 
 DoFlow installs guidance, skills, hooks and settings into eight AI coding harnesses. Some governance
@@ -15,20 +18,22 @@ path its registry declares is one or the other:
 
 | Harness | What DoFlow writes |
 |---|---|
-| Claude Code | `<repo>/.claude/settings.json` |
-| Codex | `<repo>/.codex/config.toml` |
-| Gemini | `<repo>/.gemini/settings.json` |
+| Claude Code | `.claude/settings.json` (project), `~/.claude/settings.json` (user) |
+| Codex | `.codex/config.toml` (project), `~/.codex/config.toml` (user) |
+| Gemini | `.gemini/settings.json` (project), `~/.gemini/settings.json` (user) |
 | OpenCode | `opencode.json` (project), `~/.config/opencode/opencode.json` (user) |
-| Pi | `.pi/settings.json` (project), `.pi/agent/settings.json` (user) |
-| GitHub Copilot CLI | no settings or config path declared |
-| Kiro | no settings or config path declared |
-| Antigravity | no settings or config path declared |
+| Pi | nothing: the registry declares `.pi/settings.json` (project) and `~/.pi/agent/settings.json` (user), but the adapter leaves both untouched |
+| GitHub Copilot CLI | no settings file; only MCP config: `.mcp.json` (project), `~/.copilot/mcp-config.json` (user) |
+| Kiro | no settings file; only MCP config, `.kiro/settings/mcp.json` (project and user) |
+| Antigravity | no settings file; only MCP config, `.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json` (user), and `.agents/hooks.json` (project) |
 
-For the last three DoFlow projects no settings file at all, so there is nothing there for a settings
-policy to reach in either direction — what it installs for them is instructions, skills and hooks.
+For the last three DoFlow writes no harness settings file, so there is nothing there for a settings
+policy to reach in either direction — what it installs for them is instructions, skills, agents and
+MCP config, plus hooks for Kiro and Antigravity.
 
 Two rows share one surface: Gemini and Antigravity have the same config directory, `.agents` in the
-project and `~/.gemini/config` for the user, and differ only in their instruction file. A policy you
+project and `~/.gemini/config` for the user, but differ in their instruction file, their settings
+file, and where their MCP and hook config is written. A policy you
 write against that directory therefore governs both, and a count of "seven tools" that merges them is
 counting products where this table counts adapters.
 

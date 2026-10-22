@@ -1,11 +1,15 @@
+---
+description: Contract separating retrieval candidates with ranks or scores from verified evidence bound to tasks.
+---
 # Spec: the candidate and evidence boundary
 
 Contract document for feature 074 (P0). It separates a retrieval candidate, which may carry a rank
 or score, from evidence, which never does, and it states what an empty or unreached answer may and
 may not be taken to prove. It changes no runtime behaviour. The score refusal it describes is
-enforced today by `assertNoScoreFields` (`src/runtime/cli.ts:244-250`) over the names in
-`EVIDENCE_SCORE_FIELDS` (`src/runtime/cli.ts:229-232`); the binding of evidence to a query or
-attempt is a `target` that the current ledger only partly meets (see Evidence).
+enforced today by `assertNoScoreFields` (`src/runtime/evidence-fields.ts:26-33`) over the names in
+`EVIDENCE_SCORE_FIELDS` (`src/runtime/evidence-fields.ts:11-14`); evidence is bound to a query
+(`source.queryRef`) and, when a task attempt is active, to that attempt (`source.attemptRef`)
+(see Evidence).
 
 ## Candidate
 
@@ -15,9 +19,13 @@ A candidate is a possible answer a provider returned for one query. It is a poin
 |---|---|
 | `locator` | Where the candidate is: file and line, or a URI |
 | `provider` | The provider id that returned it |
-| `queryRef` or `attemptRef` | The query, or the task attempt, that produced it |
+| `capability` | The capability the provider was asked for |
+| `need` | The declared intent the search answered |
 | `sourceVersion` | The version of what was searched: a commit, a file hash or an index build |
 | `rank` or `score` | How the provider ordered it |
+
+A candidate does not carry `queryRef` or `attemptRef`: the runtime stamps `queryRef` from the need
+and `attemptRef` from the active task attempt when the candidate becomes evidence.
 
 The rank or score exists only on a candidate. It is a property of one search, not of the thing found,
 so it is dropped when a candidate is turned into evidence. An illustration of one candidate, which the
@@ -27,7 +35,8 @@ evidence of the first example below was recorded from:
 {
   "locator": { "file": "src/runtime/retrieval-plan.ts", "line": 251 },
   "provider": "ripgrep",
-  "queryRef": "plan-074#need-2",
+  "capability": "code.exact-search",
+  "need": "need-2",
   "sourceVersion": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
   "rank": 1
 }
@@ -73,12 +82,12 @@ without a `planId` keep provider matching for compatibility.
 One empty provider response does not establish repository-wide absence. A provider that answered
 empty has searched one index or one tree, with one query, at one version.
 
-- The vocabulary is preserved from `src/runtime/retrieval-plan.ts:65 and :74`: results `RETRIEVED`,
+- The vocabulary is preserved from `src/runtime/retrieval-plan.ts:64 and :73`: results `RETRIEVED`,
   `EMPTY`, `UNREACHED` and `UNVERIFIED`; freshness `FRESH`, `STALE`, `UNKNOWN` and
   `NOT_APPLICABLE`. This document adds no word.
 - `UNREACHED` means the provider was never asked. It is not `EMPTY`.
 - An empty answer from an index whose freshness is `UNKNOWN` becomes `UNVERIFIED`; one from a `STALE`
-  index stays `EMPTY` with the staleness marked beside it (`src/runtime/retrieval-plan.ts:87-92`).
+  index stays `EMPTY` with the staleness marked beside it (`src/runtime/retrieval-plan.ts:98-103`).
 - `STALE` and `UNKNOWN` may suggest locators to check and cannot prove absence. A claim that something
   does not exist needs a fresh answer from a provider that was reached, or a direct read of the source.
 
