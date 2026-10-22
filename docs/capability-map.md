@@ -158,15 +158,15 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 | pre-implementation-gate | claude | PreToolUse | any | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | codex | PreToolUse | any | blocking | verified | hook-review | writes via shell commands |
 | pre-implementation-gate | gemini | BeforeTool | any | blocking | verified |  | writes via shell commands |
-| pre-implementation-gate | opencode | * | any | unsupported | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | * | no-extensions | unsupported | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | cli-extension | blocking | verified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | project-headless | unknown | unverified | project-trust | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | project-interactive | unknown | unverified | project-trust | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | user-headless | unknown | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_call | user-interactive | unknown | unverified |  | writes via shell commands |
-| pre-implementation-gate | pi | tool_execution_start | cli-extension | observation | unverified |  | writes via shell commands |
-| pre-implementation-gate | copilot | * | any | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | opencode | \* | any | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | \* | no-extensions | unsupported | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | cli-extension | blocking | verified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | project-headless | unknown | unverified | project-trust | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | project-interactive | unknown | unverified | project-trust | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | user-headless | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool\_call | user-interactive | unknown | unverified |  | writes via shell commands |
+| pre-implementation-gate | pi | tool\_execution\_start | cli-extension | observation | unverified |  | writes via shell commands |
+| pre-implementation-gate | copilot | \* | any | unsupported | unverified |  | writes via shell commands |
 | pre-implementation-gate | copilot | PreToolUse | any | unknown | unverified |  | writes via shell commands |
 | pre-implementation-gate | kiro | PreToolUse | cli-2x-agent | blocking | verified |  | writes via shell commands |
 | pre-implementation-gate | kiro | PreToolUse | cli-v3 | blocking | verified |  | writes via shell commands |
@@ -176,26 +176,26 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 | pre-bash-guard | claude | PreToolUse | any | blocking | verified |  |  |
 | pre-bash-guard | codex | PreToolUse | any | blocking | verified | hook-review |  |
 | pre-bash-guard | gemini | BeforeTool | any | blocking | verified |  |  |
-| pre-bash-guard | opencode | * | any | unsupported | unverified |  |  |
-| pre-bash-guard | pi | * | no-extensions | unsupported | unverified |  |  |
-| pre-bash-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
-| pre-bash-guard | pi | tool_call | project-headless | unknown | unverified | project-trust |  |
-| pre-bash-guard | pi | tool_call | project-interactive | unknown | unverified | project-trust |  |
-| pre-bash-guard | pi | tool_call | user-headless | unknown | unverified |  |  |
-| pre-bash-guard | pi | tool_call | user-interactive | unknown | unverified |  |  |
-| pre-bash-guard | pi | tool_execution_start | cli-extension | observation | unverified |  |  |
-| pre-bash-guard | copilot | * | any | unsupported | unverified |  |  |
+| pre-bash-guard | opencode | \* | any | unsupported | unverified |  |  |
+| pre-bash-guard | pi | \* | no-extensions | unsupported | unverified |  |  |
+| pre-bash-guard | pi | tool\_call | cli-extension | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool\_call | project-headless | unknown | unverified | project-trust |  |
+| pre-bash-guard | pi | tool\_call | project-interactive | unknown | unverified | project-trust |  |
+| pre-bash-guard | pi | tool\_call | user-headless | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool\_call | user-interactive | unknown | unverified |  |  |
+| pre-bash-guard | pi | tool\_execution\_start | cli-extension | observation | unverified |  |  |
+| pre-bash-guard | copilot | \* | any | unsupported | unverified |  |  |
 | pre-bash-guard | kiro | PreToolUse | cli-2x-agent | blocking | verified |  |  |
 | pre-bash-guard | kiro | PreToolUse | cli-v3 | blocking | verified |  |  |
 | pre-bash-guard | kiro | PreToolUse | cli-v3-agent | blocking | verified |  |  |
 | pre-bash-guard | kiro | PreToolUse | ide | blocking | verified |  |  |
-| pre-bash-guard | antigravity | * | any | unsupported | unverified |  |  |
+| pre-bash-guard | antigravity | \* | any | unsupported | unverified |  |  |
 | session-context | claude | SessionStart | any | unknown | unverified |  |  |
 | session-context | codex | SessionStart | any | unknown | unverified | hook-review |  |
 | session-context | gemini | SessionStart | any | unknown | unverified |  |  |
-| session-context | opencode | * | any | unsupported | unverified |  |  |
-| session-context | pi | * | any | unsupported | unverified |  |  |
-| session-context | copilot | * | any | unsupported | unverified |  |  |
+| session-context | opencode | \* | any | unsupported | unverified |  |  |
+| session-context | pi | \* | any | unsupported | unverified |  |  |
+| session-context | copilot | \* | any | unsupported | unverified |  |  |
 | session-context | copilot | PreCompact | any | unknown | unverified |  |  |
 | session-context | copilot | SessionEnd | any | unknown | unverified |  |  |
 | session-context | copilot | SessionStart | any | unknown | unverified |  |  |
@@ -204,19 +204,19 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 | session-context | copilot | UserPromptSubmit | any | unknown | unverified |  |  |
 | session-context | kiro | SessionStart | any | advisory | unverified |  |  |
 | session-context | kiro | SessionStart | cli-v3-agent | advisory | unverified |  |  |
-| session-context | antigravity | * | any | unsupported | unverified |  |  |
+| session-context | antigravity | \* | any | unsupported | unverified |  |  |
 | mcp-tool-guard | claude | PreToolUse | any | blocking | verified |  |  |
 | mcp-tool-guard | codex | PreToolUse | any | blocking | verified | hook-review |  |
 | mcp-tool-guard | gemini | BeforeTool | any | blocking | verified |  |  |
-| mcp-tool-guard | opencode | * | any | unsupported | unverified |  |  |
-| mcp-tool-guard | pi | * | no-extensions | unsupported | unverified |  |  |
-| mcp-tool-guard | pi | tool_call | cli-extension | unknown | unverified |  |  |
-| mcp-tool-guard | pi | tool_call | project-headless | unknown | unverified | project-trust |  |
-| mcp-tool-guard | pi | tool_call | project-interactive | unknown | unverified | project-trust |  |
-| mcp-tool-guard | pi | tool_call | user-headless | unknown | unverified |  |  |
-| mcp-tool-guard | pi | tool_call | user-interactive | unknown | unverified |  |  |
-| mcp-tool-guard | pi | tool_execution_start | cli-extension | observation | unverified |  |  |
-| mcp-tool-guard | copilot | * | any | unsupported | unverified |  |  |
+| mcp-tool-guard | opencode | \* | any | unsupported | unverified |  |  |
+| mcp-tool-guard | pi | \* | no-extensions | unsupported | unverified |  |  |
+| mcp-tool-guard | pi | tool\_call | cli-extension | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool\_call | project-headless | unknown | unverified | project-trust |  |
+| mcp-tool-guard | pi | tool\_call | project-interactive | unknown | unverified | project-trust |  |
+| mcp-tool-guard | pi | tool\_call | user-headless | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool\_call | user-interactive | unknown | unverified |  |  |
+| mcp-tool-guard | pi | tool\_execution\_start | cli-extension | observation | unverified |  |  |
+| mcp-tool-guard | copilot | \* | any | unsupported | unverified |  |  |
 | mcp-tool-guard | copilot | PermissionDenied | any | unknown | unverified |  |  |
 | mcp-tool-guard | copilot | PostToolUse | any | unknown | unverified |  |  |
 | mcp-tool-guard | copilot | PostToolUseFailure | any | unknown | unverified |  |  |
@@ -224,13 +224,13 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 | mcp-tool-guard | kiro | PreToolUse | cli-v3 | blocking | verified |  |  |
 | mcp-tool-guard | kiro | PreToolUse | cli-v3-agent | blocking | verified |  |  |
 | mcp-tool-guard | kiro | PreToolUse | ide | blocking | verified |  |  |
-| mcp-tool-guard | antigravity | * | any | unsupported | unverified |  |  |
+| mcp-tool-guard | antigravity | \* | any | unsupported | unverified |  |  |
 | stop-check | claude | Stop | any | blocking | verified |  |  |
 | stop-check | codex | Stop | any | blocking | verified | hook-review |  |
-| stop-check | gemini | * | any | unsupported | unverified |  |  |
-| stop-check | opencode | * | any | unsupported | unverified |  |  |
-| stop-check | pi | * | any | unsupported | unverified |  |  |
-| stop-check | copilot | * | any | unsupported | unverified |  |  |
+| stop-check | gemini | \* | any | unsupported | unverified |  |  |
+| stop-check | opencode | \* | any | unsupported | unverified |  |  |
+| stop-check | pi | \* | any | unsupported | unverified |  |  |
+| stop-check | copilot | \* | any | unsupported | unverified |  |  |
 | stop-check | copilot | Stop | any | unknown | unverified |  |  |
 | stop-check | kiro | stop | cli-2x-agent | observation | verified |  |  |
 | stop-check | kiro | Stop | cli-v3 | unknown | unverified |  |  |
@@ -247,7 +247,7 @@ Schema 1; revision 3
 | context-authority | codex | enforced | test/hooks/context-authority.test.js |
 | context-authority | gemini | limitation | no prompt hook wired; only PreCompress instructions, through the table |
 | context-authority | opencode | limitation | no DoFlow hook bridge |
-| context-authority | pi | limitation | extension handles tool_call only |
+| context-authority | pi | limitation | extension handles tool\_call only |
 | context-authority | copilot | limitation | no DoFlow hook bridge |
 | context-authority | kiro | limitation | no prompt hook wired; SessionStart emits no context |
 | context-authority | antigravity | limitation | only PreToolUse and Stop wired |
@@ -275,14 +275,14 @@ Schema 1; revision 3
 | summary-grant | copilot | limitation | no DoFlow hook bridge |
 | summary-grant | kiro | limitation | no prompt hook to deliver |
 | summary-grant | antigravity | limitation | no prompt hook to deliver |
-| identity | claude | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
-| identity | codex | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
-| identity | gemini | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | claude | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
+| identity | codex | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
+| identity | gemini | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
 | identity | opencode | limitation | no DoFlow hook bridge |
-| identity | pi | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | pi | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
 | identity | copilot | limitation | no DoFlow hook bridge |
-| identity | kiro | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
-| identity | antigravity | limitation | launcher environment forwarding into hook processes is unverified until 081 (DEC-004) |
+| identity | kiro | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
+| identity | antigravity | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
 | check-freshness | claude | enforced | test/hooks/check-freshness.test.js |
 | check-freshness | codex | enforced | test/hooks/check-freshness.test.js |
 | check-freshness | gemini | enforced | test/hooks/check-freshness.test.js |

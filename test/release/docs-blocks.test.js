@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { BLOCKS, LLMS_CAP, markerFindings, text, code, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll } = require('../../src/release/docs-blocks.ts');
+const { BLOCKS, LLMS_CAP, markerFindings, text, code, inert, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll } = require('../../src/release/docs-blocks.ts');
 const { renderEnforcementMatrix, renderBehaviourMatrix } = require('../../src/lifecycle/coverage.ts');
 const { loadSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
 const { checkSettingsDocs } = require('../helper/settings-doc-guard');
@@ -228,11 +228,11 @@ test('IC-003: no command-index row starts like a full reference row (`| \`doflow
   assert.ok(!index.split('\n').some((line) => /^\| `doflow(-run)? /.test(line)), 'a row starting "| `doflow <verb>" would shadow the reference row');
 });
 
-test('IC-003: the coverage blocks are the coverage renderers unchanged', (t) => {
+test('IC-003: the coverage blocks are the coverage renderers unchanged, fed the inert copy of the registry', (t) => {
   const root = fixture(t);
   const coverage = JSON.parse(fs.readFileSync(path.join(root, 'core/registry/lifecycle.json'), 'utf8')).coverage;
-  assert.equal(renderBlock('enforcement-matrix', root), renderEnforcementMatrix(coverage));
-  assert.equal(renderBlock('context-behaviour-matrix', root), renderBehaviourMatrix(coverage));
+  assert.equal(renderBlock('enforcement-matrix', root), renderEnforcementMatrix(inert(coverage)));
+  assert.equal(renderBlock('context-behaviour-matrix', root), renderBehaviourMatrix(inert(coverage)));
 });
 
 test('IC-003: the settings-keys block passes the G44 S2 column check and carries each description', (t) => {
@@ -268,8 +268,8 @@ function writeHelp(root, doflowText, runText) {
 }
 
 test('C-2: text() keeps operands and placeholders visible: <, >, & become entities; pipes, backticks and newlines are inert', () => {
-  assert.equal(text('plan-check <plan path> [--json]'), 'plan-check &lt;plan path&gt; [--json]');
-  assert.equal(text('[--row <id>] [--run <id>]'), '[--row &lt;id&gt;] [--run &lt;id&gt;]');
+  assert.equal(text('plan-check <plan path> [--json]'), 'plan-check &lt;plan path&gt; \\[--json\\]');
+  assert.equal(text('[--row <id>] [--run <id>]'), '\\[--row &lt;id&gt;\\] \\[--run &lt;id&gt;\\]');
   assert.equal(text('a & b'), 'a &amp; b');
   assert.equal(text('a | b\nc `d`'), 'a \\| b c \\`d\\`');
   assert.equal(text(''), '—');
@@ -283,7 +283,7 @@ test('C-2: the command index shows the plan-check operand and the roadmap flag v
   const index = renderBlock('command-index', fixture(t));
   const planCheck = index.split('\n').find((line) => line.startsWith('| `plan-check` |'));
   assert.ok(planCheck, 'plan-check row');
-  assert.match(planCheck, /plan-check &lt;plan path&gt; \[--json\]/);
+  assert.match(planCheck, /plan-check &lt;plan path&gt; \\\[--json\\\]/);
   assert.ok(!/<[a-z][^>]*>/i.test(index), 'no raw tag-shaped text in the generated index');
 });
 
@@ -304,8 +304,8 @@ test('C-6: a registry value with pipes, a newline, HTML and backticks leaves the
     assert.ok(lines.every((line) => columns(line) === columns(lines[0])), `${id}: every row has the header's column count`);
     assert.ok(!/<(script|img)/i.test(block), `${id}: no raw HTML`);
   }
-  assert.match(renderBlock('capability-matrix', root), /A \\\| B &lt;script&gt;alert\(2\)&lt;\/script&gt;/);
-  assert.match(renderBlock('settings-keys', root), /x &lt;img src=x onerror=alert\(1\)&gt; \\\| y \\`z\\`/);
+  assert.match(renderBlock('capability-matrix', root), /A \\\| B &lt;script&gt;alert\\\(2\\\)&lt;\/script&gt;/);
+  assert.match(renderBlock('settings-keys', root), /x &lt;img src=x onerror=alert\\\(1\\\)&gt; \\\| y \\`z\\`/);
 });
 
 test('C-6: coverage rows render from inert data, so a pipe or tag in lifecycle.json cannot split or inject a row', (t) => {
@@ -379,4 +379,58 @@ test('C-9: the llms.txt summary takes the harness names and the Node range from 
   writeAll(root);
   editJson(path.join(root, 'package.json'), (raw) => { raw.engines.node = '>=26'; });
   assert.deepEqual(checkAll(root), [{ page: 'llms.txt', id: 'llms.txt', kind: 'stale' }], 'a new Node range makes llms.txt stale');
+});
+
+// ── Final round (R-2, N-1, N-2, N-3) ─────────────────────────────────────────────────────────────
+
+test('R-2: Markdown link, image and emphasis syntax from a registry value is escaped, so no live link, image or emphasis can render', (t) => {
+  assert.equal(text('[click](javascript:alert(1))'), '\\[click\\]\\(javascript:alert\\(1\\)\\)');
+  assert.equal(text('![img](http://evil.example/t.png)'), '\\!\\[img\\]\\(http://evil.example/t.png\\)');
+  assert.equal(text('*em* **b** _u_'), '\\*em\\* \\*\\*b\\*\\* \\_u\\_');
+  const root = fixture(t);
+  editJson(path.join(root, 'core/registry/settings.json'), (raw) => {
+    raw.keys['advice.enabled'].description = '[click](javascript:alert(1)) ![img](http://evil.example/t.png) *em* **b**';
+  });
+  editJson(path.join(root, 'core/registry/harnesses.json'), (raw) => { raw.harnesses[6].displayName = '[k](javascript:alert(2))'; });
+  const settings = renderBlock('settings-keys', root);
+  assert.ok(settings.includes('\\[click\\]\\(javascript:alert\\(1\\)\\) \\!\\[img\\]\\(http://evil.example/t.png\\) \\*em\\* \\*\\*b\\*\\*'), settings);
+  assert.ok(!settings.includes('[click](') && !settings.includes('![img]('), 'no live link or image syntax');
+  const matrix = renderBlock('capability-matrix', root);
+  assert.ok(matrix.includes('| \\[k\\]\\(javascript:alert\\(2\\)\\) |') && !matrix.includes('[k]('), 'the header is escaped too');
+});
+
+test('N-1: an unindented heading inside Commands:, a doflow-run group without a colon, a verb before any group and a hint-only row all fail capture', (t) => {
+  const run = 'Intro\n\nGroup A:\n  paths            resolve paths\n';
+  const doflowOk = 'Commands:\n  install [path]       Install configs\n\n  status               Show status\n\nOptions:\n  --json  x\n';
+  const root = fixture(t);
+  writeHelp(root, doflowOk, run);
+  assert.deepEqual(captureHelp(root).doflow.map((row) => row.verb), ['install', 'status'], 'a blank line inside Commands: does not end it; a blank line then a heading does');
+  writeHelp(root, 'Commands:\n  install [path]       Install configs\nAdvanced commands:\n  hidden               x\n', run);
+  assert.throws(() => captureHelp(root), /cannot read the line "Advanced commands:"/);
+  writeHelp(root, 'Commands:\n  install  [path]\n', run);
+  assert.throws(() => captureHelp(root), /cannot read the line "  install  \[path\]"/);
+  writeHelp(root, doflowOk, 'Intro\n\nGroup A:\n  paths            resolve\nGroup B (new)\n  gamma            dropped\n');
+  assert.throws(() => captureHelp(root), /cannot read the line "Group B \(new\)"/);
+  writeHelp(root, doflowOk, 'Intro\n  zeta             before any group\n\nGroup A:\n  paths            resolve\n');
+  assert.throws(() => captureHelp(root), /cannot read the line "  zeta/);
+});
+
+test('N-2: the G44 checker formats every expected cell as the generator does (a legacy path with a pipe and angle brackets passes)', (t) => {
+  const root = fixture(t);
+  editJson(path.join(root, 'core/registry/settings.json'), (raw) => {
+    raw.keys['storage.prune'].legacy[0].path = 'x|y<z>.json';
+    raw.keys['storage.prune'].legacy[1].path = 'x|y<z>.json';
+  });
+  const raw = JSON.parse(fs.readFileSync(path.join(root, 'core/registry/settings.json'), 'utf8'));
+  const loaded = loadSettingsRegistry({ repoRoot: root, fsImpl: fs, verifyRefs: true });
+  assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
+  const block = renderBlock('settings-keys', root);
+  assert.match(block, /x\\\|y&lt;z&gt;\.json/);
+  assert.deepEqual(checkSettingsDocs(raw, `## Settings keys\n\n${block}\n`, loaded.registry), []);
+});
+
+test('N-3: a marker with indentation, trailing white space or a CR is still recognised, and reported', () => {
+  assert.deepEqual(markerFindings('guide.md', '  <!-- BEGIN GENERATED:nosuch -->\n| t |\n<!-- END GENERATED:nosuch -->\n'), [{ page: 'guide.md', id: 'nosuch', kind: 'orphan' }]);
+  assert.deepEqual(markerFindings('settings.md', '<!-- BEGIN GENERATED:settings-keys --> \nx\n<!-- END GENERATED:settings-keys -->\n'), [{ page: 'settings.md', id: 'settings-keys', kind: 'orphan' }]);
+  assert.deepEqual(markerFindings('settings.md', '<!-- BEGIN GENERATED:settings-keys -->\r\nx\r\n<!-- END GENERATED:settings-keys -->\r\n'), [{ page: 'settings.md', id: 'settings-keys', kind: 'orphan' }]);
 });

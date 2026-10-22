@@ -26,7 +26,10 @@ const { REF_META } = require('../runtime/settings/refs.ts');
 
 const LLMS_CAP = 4096;
 const MARKER_ID = /^[a-z][a-z0-9-]*$/;
+// A marker is a whole line in exactly this form. MARKER_LIKE also finds one with indentation or
+// trailing white space (or a CR), so markerFindings can report a mangled marker instead of passing it.
 const MARKER_LINE = /^<!-- (BEGIN|END) GENERATED:(\S+) -->$/gm;
+const MARKER_LIKE = /^[ \t]*<!-- (BEGIN|END) GENERATED:(\S+) -->[ \t\r]*$/gm;
 const USAGE = 'usage: node src/release/docs-blocks.ts --write|--check\n';
 const DOFLOW_BIN = 'bin/doflow.js';
 const DOFLOW_RUN_BIN = 'core/shared/scripts/doflow/bin/doflow-run';
@@ -49,13 +52,15 @@ function readJson(root: string, rel: string): any {
 
 // ── Cell text ─────────────────────────────────────────────────────────────────────────────────────
 //
-// Every value that reaches a table comes from a registry or a help text, so it is made inert before
-// it lands in Markdown: a newline would end the row, a pipe would split it, `<`, `>` and `&` would be
-// read as HTML (a `<plan path>` operand vanishes from the built page, a `<script>` runs), and a
-// backtick would open a code span. `text()` escapes all of them; `code()` wraps a value in a code
-// span only when it holds no pipe, backtick or line break, and otherwise falls back to `text()`.
-// A marker line can never appear inside a cell: a cell is part of a `|` row and markers are whole
-// lines.
+// Every value that reaches a table comes from a registry or a help text. `text()` turns it into
+// literal cell text: line breaks become spaces (a newline would end the row); `&`, `<` and `>` become
+// entities (else a `<plan path>` operand vanishes as a tag and a `<script>` runs); and a backslash goes
+// before `\`, a backtick, `|`, `[`, `]`, `(`, `)`, `!`, `*` and `_` (else a pipe splits the row, a
+// backtick opens a code span, and `[x](y)`, `![x](y)`, `*x*` or `_x_` render as a live link, an image
+// or emphasis). Python-Markdown and GitHub both read those backslash escapes as the literal character.
+// `code()` wraps a value in a code span only when it holds no pipe, backtick or line break (inside a
+// code span nothing is interpreted), and otherwise falls back to `text()`. A marker line can never
+// appear inside a cell: a cell is part of a `|` row and markers are whole lines.
 
 function oneLine(value: unknown): string {
   return String(value ?? '').replace(/\r?\n|\r/g, ' ');
@@ -70,8 +75,7 @@ function text(value: unknown): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\|/g, '\\|');
+    .replace(/[`|[\]()!*_]/g, (character) => `\\${character}`);
 }
 
 /** A value as a code span; one holding a pipe, backtick or line break is shown as plain text. */
@@ -185,34 +189,56 @@ function stripAnsi(text: string): string {
 const HELP_ROW = /^ {2}([a-z][a-z0-9-]*)(?: [^ ].*?)? {2,}(\S.*?)\s*$/;
 const NOT_A_VERB = new Set(['doflow', 'doflow-run']);
 
+function unreadable(source: string, line: string): Error {
+  return new Error(`${source} --help: cannot read the line ${JSON.stringify(line)}`);
+}
+
 function helpRow(line: string, source: string): { verb: string; summary: string } | null {
   if (line.trim() === '') return null;
   if (/^ {3,}\S/.test(line)) return null;
   const match = line.match(HELP_ROW);
-  if (!match || NOT_A_VERB.has(match[1])) throw new Error(`${source} --help: cannot read the line ${JSON.stringify(line)}`);
+  // A summary that starts like an argument hint (`  install  [path]`) means the description is missing.
+  if (!match || NOT_A_VERB.has(match[1]) || /^[[<]/.test(match[2])) throw unreadable(source, line);
   return { verb: match[1], summary: match[2] };
 }
 
+// `Commands:` ends at a blank line followed by an unindented heading; an unindented line straight
+// after a command row is a heading inside the section, which this parser does not read, so it fails.
 function parseDoflowHelp(text: string): { verb: string; summary: string }[] {
   const rows: { verb: string; summary: string }[] = [];
   let inCommands = false;
+  let afterBlank = false;
   for (const line of stripAnsi(text).split(/\r?\n/)) {
-    if (line.trim() === 'Commands:' && /^\S/.test(line)) { inCommands = true; continue; }
-    if (!inCommands) continue;
-    if (/^\S/.test(line)) break;
+    if (!inCommands) {
+      if (line.trim() === 'Commands:' && /^\S/.test(line)) inCommands = true;
+      continue;
+    }
+    if (line.trim() === '') { afterBlank = true; continue; }
+    if (/^\S/.test(line)) {
+      if (afterBlank) break;
+      throw unreadable(DOFLOW_BIN, line);
+    }
+    afterBlank = false;
     const row = helpRow(line, DOFLOW_BIN);
     if (row) rows.push(row);
   }
   return rows;
 }
 
+// Before the first group heading only unindented prose may appear; after it every unindented line
+// is a group heading ending in a colon, and every indented line belongs to the current group.
 function parseDoflowRunHelp(text: string): { verb: string; group: string; summary: string }[] {
   const rows: { verb: string; group: string; summary: string }[] = [];
   let group = '';
+  let seenGroup = false;
   for (const line of stripAnsi(text).split(/\r?\n/)) {
-    if (/^\S.*:$/.test(line)) { group = line.slice(0, -1); continue; }
-    if (!group) continue;
-    if (/^\S/.test(line)) { group = ''; continue; }
+    if (line.trim() === '') continue;
+    if (/^\S/.test(line)) {
+      if (/:$/.test(line)) { group = line.slice(0, -1); seenGroup = true; continue; }
+      if (seenGroup) throw unreadable(DOFLOW_RUN_BIN, line);
+      continue;
+    }
+    if (!seenGroup) throw unreadable(DOFLOW_RUN_BIN, line);
     const row = helpRow(line, DOFLOW_RUN_BIN);
     if (row) rows.push({ ...row, group });
   }
@@ -350,8 +376,8 @@ function renderLlms(root: string): string {
  * orphan. Markers are whole lines only, so marker-shaped text inside a table row is never one.
  */
 function markerFindings(page: string, text: string): Finding[] {
-  const markers = [...text.matchAll(MARKER_LINE)].map((match) => ({ kind: match[1], id: match[2], index: match.index ?? 0 }));
-  const bad = new Set<string>();
+  const markers = [...text.matchAll(MARKER_LIKE)].map((match) => ({ kind: match[1], id: match[2], index: match.index ?? 0, exact: match[0] === `<!-- ${match[1]} GENERATED:${match[2]} -->` }));
+  const bad = new Set<string>(markers.filter((marker) => !marker.exact).map((marker) => marker.id));
   const counts = new Map<string, { begin: number; end: number }>();
   let open: string | null = null;
   for (const marker of markers) {
@@ -456,6 +482,6 @@ function main(argv: string[], root: string = REPO_ROOT): number {
   return findings.length ? 1 : 0;
 }
 
-module.exports = { BLOCKS, LLMS_CAP, MARKER_ID, markerFindings, text, code, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll, main };
+module.exports = { BLOCKS, LLMS_CAP, MARKER_ID, markerFindings, text, code, inert, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll, main };
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

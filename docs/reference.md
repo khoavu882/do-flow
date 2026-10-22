@@ -47,62 +47,62 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 ### Command index
 
 <!-- BEGIN GENERATED:command-index -->
-| Command (doflow) | Summary |
+| Command \(doflow\) | Summary |
 |---|---|
-| `install` | Install configs to target tools (use --dry-run to preview) |
+| `install` | Install configs to target tools \(use --dry-run to preview\) |
 | `update` | Incremental update of changed files only |
-| `reconcile` | Converge observed state onto the doflow.lock pin (drift report + heal) |
-| `status` | Show resolved context + installed state from manifest (--json for scripting) |
-| `rollback` | Restore from a backup (interactive pick if id omitted) |
+| `reconcile` | Converge observed state onto the doflow.lock pin \(drift report + heal\) |
+| `status` | Show resolved context + installed state from manifest \(--json for scripting\) |
+| `rollback` | Restore from a backup \(interactive pick if id omitted\) |
 | `remove` | Remove only lifecycle-owned native resources |
 | `list-backups` | List available backups |
 | `self-update` | git pull + reinstall |
 | `tools` | Inspect or manage registered external tools |
 | `capabilities` | Show registered abstract capabilities and resolved providers |
-| `enforcement` | Report lifecycle policy enforcement coverage (--harness, --policy) |
+| `enforcement` | Report lifecycle policy enforcement coverage \(--harness, --policy\) |
 | `doctor` | System health and capability smoke check diagnostics |
-| `readiness` | Evaluate task readiness contract (--task-class, --task-id, both required) |
-| `evidence` | Record a stage's evidence batch, or inspect what is recorded (--task-id) |
-| `claim` | Record a claim, link evidence to it, or list them (--task-id, --action) |
-| `context-pack` | Compile a task's evidence and claims into a context block (--task-id) |
-| `context-emit` | Decide and render one launch, prompt or delta emission (--event, --cwd) |
-| `context-grant` | Grant one compacted summary to a launched run and lineage (--summary, --to-run, --to-lineage) |
+| `readiness` | Evaluate task readiness contract \(--task-class, --task-id, both required\) |
+| `evidence` | Record a stage's evidence batch, or inspect what is recorded \(--task-id\) |
+| `claim` | Record a claim, link evidence to it, or list them \(--task-id, --action\) |
+| `context-pack` | Compile a task's evidence and claims into a context block \(--task-id\) |
+| `context-emit` | Decide and render one launch, prompt or delta emission \(--event, --cwd\) |
+| `context-grant` | Grant one compacted summary to a launched run and lineage \(--summary, --to-run, --to-lineage\) |
 | `retrieval-plan` | Declare a stage's information needs, attempt retrieval, then report every declared item |
-| `outcome` | Record a task's terminal state with its basis, or show it (--task-id) |
-| `classify` | Validate a proposed task class and return its workflow (--task-class) |
+| `outcome` | Record a task's terminal state with its basis, or show it \(--task-id\) |
+| `classify` | Validate a proposed task class and return its workflow \(--task-class\) |
 | `workflow` | Resolve a task class to its stages, gates and readiness templates |
-| `orchestrate` | Start or resume a run: complete stages, decide gates (--action) |
-| `research-request` | Open, list or resolve a feature-stage research question (--task-id) |
-| `task-attempt` | Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts (--action, --slug) |
-| `worker` | Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task (--action) |
-| `dispatch` | Run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume (--action) |
-| `retrieve` | BM25 guidance search by default; use --scope code for scoped project retrieval (--query) |
-| `model-role` | Resolve a model role to ranked provider candidates (--role, --exclude-family) |
-| `advise` | Route decision questions to the configured local model (--action) |
-| `brief-tools` | Tier, tools and report-format block for a dispatch brief (--owner) |
-| `route` | Resolve an information need to a healthy provider (--intent) |
-| `verify` | Compile the verification contract and report against it (--task-id) |
-| `recover` | Classify a verification failure and plan the bounded retry (--error) |
-| `trace` | Trajectory of the current or most recent workflow (run ledger); |
+| `orchestrate` | Start or resume a run: complete stages, decide gates \(--action\) |
+| `research-request` | Open, list or resolve a feature-stage research question \(--task-id\) |
+| `task-attempt` | Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts \(--action, --slug\) |
+| `worker` | Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task \(--action\) |
+| `dispatch` | Run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume \(--action\) |
+| `retrieve` | BM25 guidance search by default; use --scope code for scoped project retrieval \(--query\) |
+| `model-role` | Resolve a model role to ranked provider candidates \(--role, --exclude-family\) |
+| `advise` | Route decision questions to the configured local model \(--action\) |
+| `brief-tools` | Tier, tools and report-format block for a dispatch brief \(--owner\) |
+| `route` | Resolve an information need to a healthy provider \(--intent\) |
+| `verify` | Compile the verification contract and report against it \(--task-id\) |
+| `recover` | Classify a verification failure and plan the bounded retry \(--error\) |
+| `trace` | Trajectory of the current or most recent workflow \(run ledger\); |
 | `stats` | Aggregate local run-ledger usage |
 | `indicators` | Per-stage and per-gate timings from the orchestration record |
 | `discover` | Missed capability opportunities in recorded runs |
 | `inventory` | Shadowed copies, drift and unmanaged files across both install scopes |
-| `storage` | Report stored data and retention bounds (--action report\|prune\|upkeep) |
-| `config` | Show each setting's effective value and where it came from (list [--show-origin] [--json]) |
+| `storage` | Report stored data and retention bounds \(--action report\|prune\|upkeep\) |
+| `config` | Show each setting's effective value and where it came from \(list \[--show-origin\] \[--json\]\) |
 | `scaffold` | Emit the reviewable code scaffold the active feature's artifacts imply |
-| `decision` | Register, list or compact the active feature's decisions (--action init\|add\|list\|compact) |
-| `followup` | Record, list, take, settle, promote or report what a feature left unfinished (--action add\|list\|take\|settle\|promote\|report) |
-| `lifecycle` | Open follow-ups, feature tracking, releases and status for the project (--action overview\|init\|release\|status\|merged) |
-| `goal` | Add, check, link, list or close a goal and its checklist (--action add\|item\|check\|link\|list\|done) |
-| `failure` | List, settle or switch off the failures DoFlow captured on this machine (--action list\|settle\|capture) |
-| `roadmap` | Session-driven autopilot runner (--action render\|status\|next\|audit [--check] [--row &lt;id&gt;] [--run &lt;id&gt;]); |
-| `plan-check` | Check a plan's task lines the way the task-attempt ledger reads them: plan-check &lt;plan path&gt; [--json] |
-| `review` | Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage): |
-| `slot` | Named machine-wide queue, one holder at a time (--action run\|list\|release); |
-| `leak-scan` | Report DoFlow-internal identifiers in shipped files (--path, repeatable) |
+| `decision` | Register, list or compact the active feature's decisions \(--action init\|add\|list\|compact\) |
+| `followup` | Record, list, take, settle, promote or report what a feature left unfinished \(--action add\|list\|take\|settle\|promote\|report\) |
+| `lifecycle` | Open follow-ups, feature tracking, releases and status for the project \(--action overview\|init\|release\|status\|merged\) |
+| `goal` | Add, check, link, list or close a goal and its checklist \(--action add\|item\|check\|link\|list\|done\) |
+| `failure` | List, settle or switch off the failures DoFlow captured on this machine \(--action list\|settle\|capture\) |
+| `roadmap` | Session-driven autopilot runner \(--action render\|status\|next\|audit \[--check\] \[--row &lt;id&gt;\] \[--run &lt;id&gt;\]\); |
+| `plan-check` | Check a plan's task lines the way the task-attempt ledger reads them: plan-check &lt;plan path&gt; \[--json\] |
+| `review` | Validate a feature's review/findings.json; print errors, advisories and counts \(exit 0 valid, 1 invalid, 2 usage\): |
+| `slot` | Named machine-wide queue, one holder at a time \(--action run\|list\|release\); |
+| `leak-scan` | Report DoFlow-internal identifiers in shipped files \(--path, repeatable\) |
 
-| Verb (doflow-run) | Group | Summary |
+| Verb \(doflow-run\) | Group | Summary |
 |---|---|---|
 | `paths` | Artifact and repository state | resolve repo root, branch, feature slug, artifact paths |
 | `validate` | Artifact and repository state | artifact index/detail consistency check |
@@ -113,10 +113,10 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `prereqs` | Artifact and repository state | stage prerequisite checks |
 | `parallel-check` | Artifact and repository state | dispatch groups and write-set collisions for one plan phase |
 | `task-brief` | Artifact and repository state | task brief extraction for execution |
-| `brief-tools` | Artifact and repository state | tier, tools and report-format block for a brief (called by task-brief) |
+| `brief-tools` | Artifact and repository state | tier, tools and report-format block for a brief \(called by task-brief\) |
 | `advise` | Artifact and repository state | local decision-model routing, outcomes and configuration |
 | `review-package` | Artifact and repository state | assemble a review payload |
-| `sync-context` | Artifact and repository state | write a marker-delimited block (stdin) into an agent context file |
+| `sync-context` | Artifact and repository state | write a marker-delimited block \(stdin\) into an agent context file |
 | `classify` | Workflow and evidence | validate a proposed task class, return its workflow |
 | `workflow` | Workflow and evidence | resolve stages, dependencies and gates for a class |
 | `orchestrate` | Workflow and evidence | start/resume a run: complete stages, skip optional ones, decide gates |
@@ -124,14 +124,14 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `task-attempt` | Workflow and evidence | claim, finish, release, start, pause, cancel, resume, inspect, reopen or report-usage on a plan's task attempts |
 | `worker` | Workflow and evidence | discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task |
 | `dispatch` | Workflow and evidence | run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume |
-| `retrieve` | Workflow and evidence | BM25 search over the installed guidance tree (auto-refreshing index) |
+| `retrieve` | Workflow and evidence | BM25 search over the installed guidance tree \(auto-refreshing index\) |
 | `model-role` | Workflow and evidence | resolve an abstract model role to ranked, availability-annotated providers |
 | `route` | Workflow and evidence | resolve an information need to a healthy provider |
 | `evidence` | Workflow and evidence | record a stage's evidence batch, or query the ledger |
 | `claim` | Workflow and evidence | record or update a claim and its support state |
 | `readiness` | Workflow and evidence | evaluate readiness; return state and missing items |
 | `context-pack` | Workflow and evidence | emit the compiled context pack for a stage |
-| `context-emit` | Workflow and evidence | decide and render one launch, prompt or delta emission (launcher entry) |
+| `context-emit` | Workflow and evidence | decide and render one launch, prompt or delta emission \(launcher entry\) |
 | `context-grant` | Workflow and evidence | grant one compacted summary to a launched run and lineage |
 | `retrieval-plan` | Workflow and evidence | declare the needs a stage will resolve, attempt each need, then report every declared item |
 | `outcome` | Workflow and evidence | record a task's terminal state with its basis, or show what was recorded |
@@ -143,7 +143,7 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `failure` | Workflow and evidence | list, settle or switch off the failures DoFlow captured on this machine |
 | `roadmap` | Workflow and evidence | session-driven autopilot runner: render or status the roadmap table |
 | `plan-check` | Workflow and evidence | check a plan's task lines the way the task-attempt ledger reads them |
-| `review` | Workflow and evidence | validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload) |
+| `review` | Workflow and evidence | validate a feature's review/findings.json, print counts and advisories \(review-package assembles the payload\) |
 | `slot` | Workflow and evidence | named machine-wide queue: run a command as its one holder, list or release |
 | `verify` | Verification and recovery | compile the contract, run checks, emit the report |
 | `recover` | Verification and recovery | classify a failure, return the targeted action |

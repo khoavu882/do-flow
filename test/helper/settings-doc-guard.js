@@ -1,9 +1,18 @@
 'use strict';
 
 const { REF_META } = require('../../src/runtime/settings/refs.ts');
-// The Description cell is written by the docs generator's text() (Markdown and HTML made inert),
-// so the guard expects the same escaping.
-const { text: cellText } = require('../../src/release/docs-blocks.ts');
+// Every cell is written by the docs generator's text() or code() (Markdown and HTML made inert), so
+// the guard formats each expected value the same way and strips one surrounding code span, as
+// docsRows does, before comparing.
+const { text: cellText, code: cellCode } = require('../../src/release/docs-blocks.ts');
+
+function codeCell(value) {
+  return cellCode(value).replace(/^`(.*)`$/, '$1');
+}
+
+function legacyPaths(spec) {
+  return [...new Set((spec.legacy || []).map((entry) => entry.path).filter(Boolean))].join(', ');
+}
 
 function docsRows(text) {
   const lines = text.split('\n');
@@ -48,13 +57,8 @@ function resolvedDefault(key, spec, registry, resolving = new Set()) {
   return registry.resolveRef(spec.defaultRef, deps);
 }
 
-function displayDefault(value) {
-  return value === null || value === undefined ? '—' : String(value);
-}
-
 function renderSettingsRow(key, spec, registry) {
-  const legacy = [...new Set((spec.legacy || []).map((entry) => entry.path))].join(', ') || '—';
-  return `| \`${key}\` | ${spec.type} | \`${displayDefault(resolvedDefault(key, spec, registry))}\` | ${spec.scope} | ${spec.env?.name || '—'} | \`${legacy}\` | ${cellText(spec.description)} |`;
+  return `| ${cellCode(key)} | ${cellText(spec.type)} | ${cellCode(resolvedDefault(key, spec, registry))} | ${cellText(spec.scope)} | ${cellCode(spec.env?.name)} | ${cellCode(legacyPaths(spec))} | ${cellText(spec.description)} |`;
 }
 
 function renderSettingsTable(raw, registry, { omitKey = null } = {}) {
@@ -76,22 +80,23 @@ function checkSettingsDocs(raw, text, registry) {
   const errors = [];
   if (/<config home>\/doflow\//.test(text)) errors.push('config home path duplicates the doflow segment');
   for (const [key, spec] of Object.entries(raw.keys)) {
-    const row = rows.get(key);
+    const row = rows.get(codeCell(key));
     if (!row) { errors.push(`settings table is missing ${key}`); continue; }
     if (row.duplicate) { errors.push(`settings table duplicates ${key} at line ${row.line}`); continue; }
     const expected = [
-      ['type', row.type, spec.type],
-      ['default', row.defaultValue, displayDefault(resolvedDefault(key, spec, registry))],
-      ['scope', row.scope, spec.scope],
-      ['env', row.env, spec.env?.name || '—'],
-      ['legacy file', row.legacy, [...new Set((spec.legacy || []).map((entry) => entry.path))].join(', ') || '—'],
+      ['type', row.type, cellText(spec.type)],
+      ['default', row.defaultValue, codeCell(resolvedDefault(key, spec, registry))],
+      ['scope', row.scope, cellText(spec.scope)],
+      ['env', row.env, codeCell(spec.env?.name)],
+      ['legacy file', row.legacy, codeCell(legacyPaths(spec))],
       ['description', row.description, cellText(spec.description)],
     ];
     for (const [field, actual, wanted] of expected) {
       if (actual !== wanted) errors.push(`${key} ${field} is '${actual}', expected '${wanted}'`);
     }
   }
-  for (const key of rows.keys()) if (!Object.hasOwn(raw.keys, key)) errors.push(`settings table has undeclared key ${key}`);
+  const declared = new Set(Object.keys(raw.keys).map(codeCell));
+  for (const key of rows.keys()) if (!declared.has(key)) errors.push(`settings table has undeclared key ${key}`);
   return errors;
 }
 
