@@ -601,10 +601,21 @@ bash test/code-review-fixtures.sh          # do-code-review's analyzer fixtures,
 pip install -r requirements.txt            # docs deps, once per environment — see note below
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
 d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" -mindepth 1 -maxdepth 1 -name 'doflow-*'; rm -rf "$d"   # test debris check, outside npm test
+node test/explore/ledger-sampler.js --help   # opt-in sequence sampler, outside npm test
 ```
 
 The debris check prints nothing when the suite left no temporary folder behind. It is not part of
 `npm test`, because a test cannot observe the whole run it belongs to.
+
+The sequence sampler (`test/explore/ledger-sampler.js`) runs two real child processes against the
+task-attempt ledger, grants their store, lock and temp-file fs calls one at a time in a seeded
+order, and judges each schedule against a hand-written sequential model of claim, finish and
+cancel. It exits 0 when no violation was found within the bounds, 1 when one was (with a replay
+string for `--replay`), 2 on a usage error and 3 when exploration was incomplete (a kill switch, or
+more than 5 % of schedules incomplete); 3 is never a pass. Its limits: fs calls are serialized per
+call, so overlap inside one call, network filesystems, process death and win32 are outside the
+model, and a bounded sample is not a proof. The fixed regressions it found are in
+`test/state/ledger-lock-race.test.js`, which `npm test` runs.
 
 The docs build needs `mkdocs`, the Dracula theme and `pymdown-extensions` (the `mermaid` fence in
 `mkdocs.yml` is a `pymdownx.superfences` custom fence), which `requirements.txt` pins, which the docs
