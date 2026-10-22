@@ -639,7 +639,7 @@ Every task-state store writes through one per-file lock, the `<file>.lock` direc
 what is new is what goes inside it and who may remove it.
 
 - A holder marks the lock with its own `owner-<pid>-<random>` entry and holds it while that entry is
-  the only one in it. Release removes the entry, then the directory.
+  the only one in it. Release removes the entry, then the directory if it is still the one it held.
 - A lock older than 10 s (its directory unchanged that long) is reclaimed in place: the reclaimer
   enters it, checks it is the directory it judged stale, removes the entries it judged by name, and
   holds it once it is alone. No runtime moves a lock directory, and a directory with an entry in it
@@ -648,7 +648,8 @@ what is new is what goes inside it and who may remove it.
   whose directory its entry landed in (an older runtime's lock is an empty directory), so it removes
   the entry and starts over.
 - Two processes that enter one lock at the same moment: the entry that sorts first waits, the other
-  leaves; one that leaves and finds the lock emptied enters it again rather than leave it empty.
+  leaves; one that leaves and finds the lock emptied enters it again, under a fresh entry name and
+  only if it is the same directory, rather than leave it empty.
 - `updateTaskState` checks the holder's entry is still there after writing its temp file and before
   its rename; when it is not, it removes the temp file and writes nothing (`lock-lost`). The
   task-attempt ledger runs its decision again on the fresh store up to twice, then reports
@@ -657,7 +658,7 @@ what is new is what goes inside it and who may remove it.
   `store-locked` when the lock stays held.
 - Recovery: whatever a process left when it died (an empty lock, its entry, entries of an attempt in
   progress, a `reclaim` entry of a pre-release build of this fix) is reclaimed 10 s after the lock
-  last changed, as before 117 Phase C. Nothing needs removing by hand.
+  last changed, as before 117 Phase C. Only a file inside a lock (bound 6) needs removing by hand.
 - Runtimes from before 117 Phase C see a directory they did not create: they wait on a fresh one and,
   on a stale one, their `rmdir` fails because it is not empty, so they fail closed (`Could not lock`,
   `store-locked`) instead of taking it. They cannot clear a crashed new holder's lock, and their
@@ -667,20 +668,30 @@ what is new is what goes inside it and who may remove it.
 Bounds, not covered (the argument for each step is in the 117 feature records,
 `research/phase-c-protocol.md`):
 
-1. A holder paused past 10 s exactly between that pre-write check and its rename (the `LOST_ACK`
+1. A holder whose lock has not changed for 10 s or more (it paused anywhere after making its entry,
+   also before it saw itself alone, or the clock stepped forward that far) and which is then
+   preempted between that pre-write check and its rename, long enough for a reclaimer to remove its
+   entry and read the store: its acknowledged write can replace the reclaimer's (the `LOST_ACK`
    replay in `test/helper/ledger-scenarios.js`).
 2. Any holder that runs past 10 s loses the lock to a reclaimer. A current holder learns it at its
    pre-write check (bound 1 aside); an older runtime's holder, storage pruning's record lock (whose
    by-name `rmdir` then fails and the candidate is recorded as failed while the pass continues), and
    the stores that hold the lock around writes of their own (the decision register, the lifecycle
    event store and its upkeep, research-request runs, state-root moves) do not.
-3. Two older runtimes breaking one stale lock at the same moment can remove each other's lock, and,
-   in the first two calls of a current runtime's fresh acquire, its lock too, after which it may join
-   an older runtime's empty lock.
-4. On a filesystem without birth times, an inode reused between a reclaimer's judgement and its entry.
+3. Older runtimes and empty locks. Every `rmdir` of an empty `<file>.lock` by name can meet an older
+   runtime's lock, which is an empty directory too: two older runtimes breaking one stale lock at the
+   same moment can remove each other's lock and, in the first two calls of a current runtime's fresh
+   acquire, its lock too, after which it may join an older runtime's empty lock; and a current
+   release paused past 10 s after removing its entry can remove an older runtime's new lock if that
+   lock appears between the release's identity check of the directory and its `rmdir` (a pause
+   between the two `rmdir` calls is caught by that check).
+4. On a filesystem without birth times, an inode reused between a reclaimer's judgement and its
+   entry, or between a leaving process's look and its re-entry.
 5. The clock stepped back during a fresh acquire, or file times coarser than 5 s.
 6. Liveness only: a lock left empty (a fresh acquire paused 5 s or more, three processes leaving one
-   lock at once, an entry `mkdir` failing with another error) is waited on until it is 10 s old.
+   lock at once, an entry `mkdir` failing with another error) is waited on until it is 10 s old. A
+   file inside a lock (no DoFlow runtime makes one, but a file manager may) blocks it until removed by
+   hand, as before 117 Phase C; `acquireLock`'s error names it.
 
 Measured on macOS only; Linux and win32 were not run. Locks with their own code are unchanged: the
 slot queue (`src/runtime/slots.ts`), storage pruning's record lock and upkeep's pass lock.
