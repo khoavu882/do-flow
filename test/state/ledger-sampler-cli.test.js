@@ -24,13 +24,6 @@ function run(args, options = {}) {
   return result;
 }
 
-function stableRecord(stdout) {
-  const record = JSON.parse(stdout);
-  for (const key of Object.keys(record)) if (/^(ms|.*rss)/i.test(key)) delete record[key];
-  delete record.msPerSchedule;
-  return record;
-}
-
 test('CLI usage and bounded seeded JSON record', () => {
   const help = run(['--help']);
   assert.equal(help.status, 0, help.stderr);
@@ -39,23 +32,19 @@ test('CLI usage and bounded seeded JSON record', () => {
   assert.equal(run(['--bogus']).status, 2);
   assert.equal(run(['--scenario', 'S1', '--schedules', '6000']).status, 2);
 
-  const args = ['--scenario', 'S1', '--init', 'none', '--schedules', '5', '--seed', '1', '--json'];
-  const first = run(args);
+  // One seeded schedule: the IC-006 record and a detection-power entry. Seed determinism (the same seed
+  // twice, another seed) runs on demand in test/explore/ledger-controls.js (117 D-ORCH budget option (b)).
+  const first = run(['--scenario', 'S1', '--init', 'none', '--schedules', '1', '--seed', '1', '--json']);
   assert.equal(first.status, 0, first.stderr);
   assert.equal(first.stderr, '');
   const record = JSON.parse(first.stdout);
   assert.equal(record.scenario, 'S1');
   assert.equal(record.init, 'none');
   assert.equal(record.seed, 1);
-  assert.equal(record.schedulesRun, 5);
+  assert.equal(record.schedulesRun, 1);
   assert.ok(record.commit && record.nodeVersion && record.platform && record.fsNote && record.gatedMethods.length && record.modelVersion);
-  assert.ok(record.detectionPower.some((entry) => entry.p === 0.01));
-  const second = run(args);
-  assert.equal(second.status, 0, second.stderr);
   assert.match(record.traceDigest, /^[0-9a-f]{64}$/);
-  assert.deepEqual(stableRecord(second.stdout), stableRecord(first.stdout));
-  const other = run(['--scenario', 'S1', '--init', 'none', '--schedules', '5', '--seed', '2', '--json']);
-  assert.notEqual(JSON.parse(other.stdout).traceDigest, record.traceDigest, 'another seed gives other schedules');
+  assert.ok(record.detectionPower.some((entry) => entry.p === 0.01));
 });
 
 test('replay reports the lost acknowledgment and per-run timeout is incomplete', () => {

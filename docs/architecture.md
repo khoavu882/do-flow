@@ -602,6 +602,7 @@ pip install -r requirements.txt            # docs deps, once per environment —
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
 d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" -mindepth 1 -maxdepth 1 -name 'doflow-*'; rm -rf "$d"   # test debris check, outside npm test
 node test/explore/ledger-sampler.js --help   # opt-in sequence sampler, outside npm test
+node --test test/explore/ledger-controls.js  # the sampler's slow controls, outside npm test
 ```
 
 The debris check prints nothing when the suite left no temporary folder behind. It is not part of
@@ -615,7 +616,9 @@ string for `--replay`), 2 on a usage error and 3 when exploration was incomplete
 more than 5 % of schedules incomplete); 3 is never a pass. Its limits: fs calls are serialized per
 call, so overlap inside one call, network filesystems, process death and win32 are outside the
 model, and a bounded sample is not a proof. The fixed regressions it found are in
-`test/state/ledger-lock-race.test.js`, which `npm test` runs.
+`test/state/ledger-lock-race.test.js`, which `npm test` runs. Two slow controls run only on demand
+from `test/explore/ledger-controls.js`: granting a step before the actor parks again must break replay
+determinism, and one seed must give the same schedules twice.
 
 The docs build needs `mkdocs`, the Dracula theme and `pymdown-extensions` (the `mermaid` fence in
 `mkdocs.yml` is a `pymdownx.superfences` custom fence), which `requirements.txt` pins, which the docs

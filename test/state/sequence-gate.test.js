@@ -70,13 +70,8 @@ test('completion rule: the P1 trace replayed 20 times gives one outcome', async 
   // Recorded on the unfixed lock (e76352b0): finish applied, cancel cancelled, final cancelled.
 });
 
-// Measured over 200 release-mode replays: 123 final cancelled, 57 final finished, 20 replay-divergence,
-// so 20 identical replays by chance has probability below 1e-4.
-test('negative control: granting on release instead of on re-park breaks the 20-replay determinism', async () => {
-  const runs = await batch(REPLAYS, () => ({ scenario: 'S1', init: 'stale', replay: P1, grantOn: 'release' }));
-  const keys = new Set(runs.map(outcomeKey));
-  assert.ok(keys.size > 1, `release-mode grants gave one outcome over ${runs.length} replays: ${[...keys][0]}`);
-});
+// The grant-on-release negative control (the completion rule reverted must break this determinism)
+// runs on demand in test/explore/ledger-controls.js, outside npm test (117 D-ORCH budget option (b)).
 
 test('faults: init stale seeds a 60 s old lock; age-lock@k lets B break the lock A holds', async () => {
   let lockAgeMs = null;
