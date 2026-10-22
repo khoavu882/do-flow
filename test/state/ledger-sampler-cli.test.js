@@ -6,8 +6,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, spawn } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.js');
+const { exitCodeFor, resultLine, renderText } = require('../explore/ledger-sampler.js');
 
 const REPO = path.resolve(__dirname, '../..');
 const SCRIPT = path.join(REPO, 'test/explore/ledger-sampler.js');
@@ -24,11 +25,30 @@ function run(args, options = {}) {
   return result;
 }
 
+function runAsync(args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [SCRIPT, ...args], {
+      cwd: REPO,
+      env: { ...process.env, ...options.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), 10_000);
+    child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+    child.once('error', (error) => { clearTimeout(timer); reject(error); });
+    child.once('close', (status, signal) => { clearTimeout(timer); resolve({ status, signal, stdout, stderr }); });
+  });
+}
+
 test('CLI usage and bounded seeded JSON record', () => {
   const help = run(['--help']);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /--scenario/);
   assert.match(help.stdout, /--run-timeout-ms/);
+  assert.match(help.stdout, /Exit codes: 0 .*; 1 .*; 2 .*; 3 /);
+  assert.match(help.stdout, /in-call overlap, network filesystems, process death and win32 are outside this model/);
   assert.equal(run(['--bogus']).status, 2);
   assert.equal(run(['--scenario', 'S1', '--schedules', '6000']).status, 2);
 
@@ -43,26 +63,71 @@ test('CLI usage and bounded seeded JSON record', () => {
   assert.equal(record.seed, 1);
   assert.equal(record.schedulesRun, 1);
   assert.ok(record.commit && record.nodeVersion && record.platform && record.fsNote && record.gatedMethods.length && record.modelVersion);
+  assert.equal(record.oracle, 'real');
+  assert.equal(record.faultAppliedCount, 0);
+  assert.equal(record.result, 'no violation within bounds over 1 completed schedules; not a proof of safety or liveness');
+  assert.match(renderText(record, []), /result: no violation within bounds over 1 completed schedules; not a proof of safety or liveness/);
   assert.match(record.traceDigest, /^[0-9a-f]{64}$/);
   assert.ok(record.detectionPower.some((entry) => entry.p === 0.01));
 });
 
-test('replay reports the lost acknowledgment and per-run timeout is incomplete', () => {
-  const replay = run(['--scenario', 'S1', '--init', 'stale', '--replay', P1]);
-  assert.equal(replay.status, 1, replay.stderr);
-  assert.match(replay.stdout, /lost-ack/);
-  assert.ok(replay.stdout.includes(P1));
-
-  const timeout = run(['--scenario', 'S1', '--init', 'none', '--schedules', '5', '--seed', '1', '--run-timeout-ms', '1', '--json']);
-  assert.equal(timeout.status, 3, timeout.stderr);
-  assert.equal(JSON.parse(timeout.stdout).schedulesRun, 1);
+test('exit decision fails closed for any incomplete schedule and report-write failure', () => {
+  const record = (verdictCounts) => ({ verdictCounts, timedOut: false });
+  assert.equal(exitCodeFor(record({ PASS: 199, VIOLATION: 0, INCOMPLETE: 1 })), 3);
+  assert.equal(exitCodeFor(record({ PASS: 198, VIOLATION: 1, INCOMPLETE: 1 })), 3);
+  assert.equal(exitCodeFor(record({ PASS: 199, VIOLATION: 1, INCOMPLETE: 0 })), 1);
+  assert.equal(exitCodeFor(record({ PASS: 200, VIOLATION: 0, INCOMPLETE: 0 })), 0);
+  assert.equal(exitCodeFor(record({ PASS: 1, VIOLATION: 0, INCOMPLETE: 0 }), { emitFailed: true }), 3);
+  assert.equal(exitCodeFor(record({ PASS: 1, VIOLATION: 0, INCOMPLETE: 0 }), { sourceExists: false }), 3);
+  assert.match(resultLine({ verdictCounts: { INCOMPLETE: 0 }, incompleteCauses: {}, interrupted: 'SIGTERM' }), /INCOMPLETE: 0 schedules .*SIGTERM.*exploration incomplete, not a pass/);
+  assert.equal(resultLine({ verdictCounts: { INCOMPLETE: 1 }, incompleteCauses: { 'fault-not-applied': 1 } }), 'INCOMPLETE: 1 schedules ({"fault-not-applied":1}); exploration incomplete, not a pass');
+  assert.equal(resultLine({ verdictCounts: { INCOMPLETE: 0, VIOLATION: 1 }, incompleteCauses: {}, violationCounts: { 'lost-ack': 1 } }), 'violation: {"lost-ack":1}; replay strings above');
 });
 
-test('negative control: replay uses the real oracle after a sampler oracle stub says PASS', (t) => {
+test('sampling oracle, unapplied fault, and output failures fail closed', async (t) => {
+  const dir = tempDir(t, 'doflow-sampler-');
+  const stub = path.join(dir, 'oracle.js');
+  const invalidStub = path.join(dir, 'invalid-oracle.js');
+  fs.writeFileSync(stub, "'use strict'; module.exports = { check: () => ({ verdict: 'PASS' }) };\n");
+  fs.writeFileSync(invalidStub, "'use strict'; module.exports = { check: () => ({ verdict: 'BANANA' }) };\n");
+  const [pass, invalid, fault, output] = await Promise.all([
+    runAsync(['--scenario', 'S1', '--init', 'none', '--schedules', '2', '--seed', '1', '--json'], { env: { DOFLOW_SAMPLER_ORACLE: stub } }),
+    runAsync(['--scenario', 'S1', '--init', 'none', '--schedules', '1', '--seed', '1', '--json'], { env: { DOFLOW_SAMPLER_ORACLE: invalidStub } }),
+    runAsync(['--age-at', '999', '--scenario', 'S1', '--init', 'none', '--schedules', '2', '--seed', '1', '--json']),
+    runAsync(['--scenario', 'S1', '--init', 'none', '--schedules', '1', '--out', path.join(dir, 'no-such-dir', 'x', 'r.json')]),
+  ]);
+  assert.equal(pass.status, 3, pass.stderr);
+  const passRecord = JSON.parse(pass.stdout);
+  assert.equal(passRecord.oracle, path.resolve(stub));
+  assert.match(passRecord.result, /INCOMPLETE: 0 schedules .*oracle override is untrusted.*not a pass/i);
+
+  assert.equal(invalid.status, 3, invalid.stderr);
+  const invalidRecord = JSON.parse(invalid.stdout);
+  assert.equal(invalidRecord.verdictCounts.INCOMPLETE, 1);
+  assert.equal(invalidRecord.incompleteCauses['oracle-invalid-verdict'], 1);
+
+  assert.equal(fault.status, 3, fault.stderr);
+  const record = JSON.parse(fault.stdout);
+  assert.equal(record.faultAppliedCount, 0);
+  assert.equal(record.verdictCounts.INCOMPLETE, 2);
+  assert.equal(record.incompleteCauses['fault-not-applied'], 2);
+  assert.equal(output.status, 3);
+  assert.match(output.stderr, /cannot write --out/);
+});
+
+test('replay reports lost acknowledgment through the real oracle under an override; timeout is incomplete', (t) => {
   const dir = tempDir(t, 'doflow-sampler-');
   const stub = path.join(dir, 'oracle.js');
   fs.writeFileSync(stub, "'use strict'; module.exports = { check: () => ({ verdict: 'PASS', class: null, detail: 'stub' }) };\n");
   const replay = run(['--scenario', 'S1', '--init', 'stale', '--replay', P1], { env: { DOFLOW_SAMPLER_ORACLE: stub } });
   assert.equal(replay.status, 1, replay.stderr);
   assert.match(replay.stdout, /lost-ack/);
+  assert.ok(replay.stdout.includes(P1));
+  // --replay ignores the override and judges with the real oracle, so the record names it.
+  assert.ok(replay.stdout.includes('oracle: real'));
+  assert.match(replay.stdout, /result: violation/);
+
+  const timeout = run(['--scenario', 'S1', '--init', 'none', '--schedules', '5', '--seed', '1', '--run-timeout-ms', '100', '--json']);
+  assert.equal(timeout.status, 3, timeout.stderr);
+  assert.equal(JSON.parse(timeout.stdout).schedulesRun, 1);
 });

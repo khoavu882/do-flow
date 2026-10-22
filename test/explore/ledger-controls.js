@@ -10,8 +10,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, spawn } = require('node:child_process');
+const fs = require('node:fs');
 const { runSchedule } = require('../helper/sequence-gate.js');
+const { tempDir } = require('../helper/tmp.js');
 
 const REPO = path.resolve(__dirname, '../..');
 const SAMPLER = path.join(REPO, 'test/explore/ledger-sampler.js');
@@ -51,4 +53,66 @@ test('sampler seed determinism: one seed twice gives the same record, another se
   const first = sample(1);
   assert.deepEqual(sample(1), first);
   assert.notEqual(sample(2).traceDigest, first.traceDigest);
+});
+
+test('sampler SIGTERM emits a partial record and removes actors and fixture dirs', async (t) => {
+  const tmpRoot = tempDir(t, 'doflow-sampler-tmp-');
+  const tracker = path.join(tmpRoot, 'track-spawns.js');
+  const spawnLog = path.join(tmpRoot, 'spawns.jsonl');
+  fs.writeFileSync(tracker, [
+    "const fs = require('node:fs');",
+    "const childProcess = require('node:child_process');",
+    'const originalSpawn = childProcess.spawn;',
+    'childProcess.spawn = function (...args) {',
+    '  const child = originalSpawn.apply(this, args);',
+    '  child.once(\'spawn\', () => fs.appendFileSync(process.env.DOFLOW_TEST_SPAWN_LOG, JSON.stringify({ pid: child.pid, argv: args[1] }) + \'\\n\'));',
+    '  return child;',
+    '};',
+  ].join('\n'));
+  const child = spawn(process.execPath, [SAMPLER, '--scenario', 'S1', '--init', 'none', '--schedules', '200', '--seed', '1', '--json'], {
+    cwd: REPO,
+    env: { ...process.env, TMPDIR: tmpRoot, DOFLOW_TEST_SPAWN_LOG: spawnLog, NODE_OPTIONS: `--require=${tracker}` },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+  const closed = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve({ code, signal }));
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal(child.exitCode, null, `sampler ended before SIGTERM: ${stderr}`);
+    child.kill('SIGTERM');
+    const result = await closed;
+    assert.equal(result.code, 3, stderr);
+    const record = JSON.parse(stdout);
+    assert.ok(record.schedulesRun >= 1, `no completed schedule in partial record: ${stdout}`);
+    assert.equal(record.interrupted, 'SIGTERM');
+    assert.match(record.result, /INCOMPLETE: .*SIGTERM.*not a pass/);
+
+    const spawned = fs.readFileSync(spawnLog, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    const actors = spawned.filter((entry) => JSON.stringify(entry.argv).includes('--gate-actor') && JSON.stringify(entry.argv).includes(REPO));
+    assert.ok(actors.length > 0, 'tracker did not observe any gate actors');
+    const liveActors = actors.filter((actor) => {
+      try { process.kill(actor.pid, 0); return true; } catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+    });
+    assert.deepEqual(liveActors, [], `orphan gate actors remain: ${JSON.stringify(liveActors)}`);
+    assert.deepEqual(fs.readdirSync(tmpRoot).filter((name) => name.startsWith('doflow-seqgate-')), [], 'sequence-gate fixture dirs remain in TMPDIR');
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      await closed.catch(() => {});
+    }
+    if (fs.existsSync(spawnLog)) {
+      for (const line of fs.readFileSync(spawnLog, 'utf8').split('\n').filter(Boolean)) {
+        try {
+          const entry = JSON.parse(line);
+          if (JSON.stringify(entry.argv).includes('--gate-actor')) process.kill(entry.pid, 'SIGKILL');
+        } catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
+    }
+  }
 });
