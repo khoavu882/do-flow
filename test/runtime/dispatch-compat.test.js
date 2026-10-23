@@ -56,7 +56,8 @@ const UNCHANGED_TREES = Object.freeze([
   // worker-eligibility.test.js: edited by 109 B.2 (codex is eligible past the static gate); no longer frozen at 0a474666
   // worker-cli, worker-command, worker-parsers tests: moved to the codex-parser and evidence-action truth by 109; no longer frozen at 0a474666
   // worker-launch, worker-secrets tests: moved to the six-variable launch env by 110; no longer frozen at 0a474666
-  { dir: 'test/runtime', match: (name) => /^worker-.*\.test\.js$/.test(name) && !/^worker-(edit-|child-run|eligibility\.|cli\.|command\.|parsers\.|launch\.|secrets\.)/.test(name) },
+  // worker-supervisor test: its user-cancel case reads the settled record, not the supervisor's snapshot (FU-4jhpjj); no longer frozen at 0a474666
+  { dir: 'test/runtime', match: (name) => /^worker-.*\.test\.js$/.test(name) && !/^worker-(edit-|child-run|eligibility\.|cli\.|command\.|parsers\.|launch\.|secrets\.|supervisor\.)/.test(name) },
 ]);
 
 const GIT = resolveTool('git');

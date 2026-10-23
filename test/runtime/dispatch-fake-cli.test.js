@@ -7,7 +7,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.js');
 const { IDENTITY_VARS } = require('../helper/fake-harness-cli.js');
 const {
@@ -84,6 +84,37 @@ test('printRepeat prints the text the given number of times', POSIX_ONLY, (t) =>
   assert.equal(lines.pop(), '');
   assert.equal(lines.length, 250);
   assert.ok(lines.every((line) => line === 'transcript line'));
+});
+
+test('waitFor holds the worker until its file exists, then runs the next steps; a relative path exits 97', POSIX_ONLY, async (t) => {
+  const gate = path.join(tempDir(t, 'doflow-fake-gate-'), 'open');
+  const box = makeDispatchSandbox(t, { scenario: { run: [{ print: 'before' }, { waitFor: gate }, { print: 'after' }] } });
+  const child = spawn('fake-claude', ['run', 'p'], { cwd: box.root, env: box.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  let stdout = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  const until = Date.now() + 30000;
+  while (!stdout.includes('before') && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(stdout, 'before\n');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(child.exitCode, null, 'the worker is still held with the gate closed');
+  assert.equal(stdout, 'before\n', 'nothing after the gate ran');
+  fs.writeFileSync(gate, '');
+  assert.equal(await exited, 0);
+  assert.equal(stdout, 'before\nafter\n');
+
+  const relative = makeDispatchSandbox(t, { scenario: { run: [{ waitFor: 'rel/gate' }] } });
+  const r = run(relative, 'fake-claude', ['run', 'p']);
+  assert.equal(r.status, 97);
+  assert.match(r.stderr, /waitFor needs an absolute path/);
+
+  const never = path.join(tempDir(t, 'doflow-fake-gate-'), 'never');
+  const closed = makeDispatchSandbox(t, { scenario: { run: [{ waitFor: never }, { print: 'after' }] } });
+  const hung = run(closed, 'fake-claude', ['run', 'p'], { extra: { FAKE_HARNESS_GATE_MS: '300' } });
+  assert.equal(hung.status, 94, 'a gate that never opens ends the worker with the hang-guard code');
+  assert.equal(hung.stdout, '');
+  assert.match(hung.stderr, /waitFor gate never opened/);
 });
 
 test('edit descriptors: claude has a supported isolatedEdit and every block passes validateWorker', () => {

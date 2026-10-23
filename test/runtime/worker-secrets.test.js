@@ -36,6 +36,7 @@ const SRC = path.join(REPO, 'src', 'runtime');
 const { discover, probe } = require(path.join(SRC, 'worker', 'readiness.ts'));
 const { superviseRun } = require(path.join(SRC, 'worker', 'supervisor.ts'));
 const { cancelRun } = require(path.join(SRC, 'worker', 'cancel.ts'));
+const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const { ENV_SET, launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
@@ -248,7 +249,8 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
     version: [{ print: 'fake 1.0' }],
     runnable: [{ print: `runnable ${KNOWN}` }, { exit: 0 }],
     guidance: [{ print: DESCRIPTORS.claude.guidanceProbe.marker }],
-    byBinary: { 'fake-slow': { run: [{ print: `waiting with ${KNOWN}` }, { sleep: 30000 }] } },
+    // The 400 ms start delay is a loaded machine's slow worker: the cancel below waits for the print, never for time.
+    byBinary: { 'fake-slow': { run: [{ sleep: 400 }, { print: `waiting with ${KNOWN}` }, { sleep: 30000 }] } },
     run: printing,
   };
   const a = project(t, base, 'project-a', scenario);
@@ -273,11 +275,30 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
     supervised = await superviseRun({ file: a.store, runId: supervisedId, env: a.env, cwd: a.dir });
 
     const running = superviseRun({ file: b.store, runId: cancelledId, env: b.env, cwd: b.dir });
-    const until = Date.now() + 15000;
+    const until = Date.now() + 60000;
     while (!(b.run(cancelledId).phase === 'running' && b.run(cancelledId).worker) && Date.now() < until) await sleep(50);
     t.after(() => { try { process.kill(-b.run(cancelledId).worker.pid, 'SIGKILL'); } catch { /* ended */ } });
-    cancelled = await cancelRun({ file: b.store, runId: cancelledId, by: 'main', reason: 'stop the review', env: b.env, cwd: b.dir });
-    afterCancel = await running;
+    // The worker has logged its start and printed the secret only once its masked line is in the sink's file.
+    const printed = () => {
+      try { return fs.readFileSync(path.join(b.dir, '.doflow', 'state', 'worker-output', `${cancelledId}.out.log`), 'utf8').includes('waiting with'); } catch { return false; }
+    };
+    while (!printed() && Date.now() < until) await sleep(50);
+    assert.equal(printed(), true, 'the worker printed before it was cancelled');
+    // The canceller's end is written only once the supervisor is done, the order a loaded machine
+    // produces at random; the wait is for that event, not for a time.
+    let supervisorDone = false;
+    const markDone = () => { supervisorDone = true; };
+    running.then(markDone, markDone);
+    const holdEnd = async (options) => {
+      const outcome = await tree.escalate(options);
+      while (!supervisorDone && Date.now() < until + 60000) await sleep(10);
+      return outcome;
+    };
+    cancelled = await cancelRun({ file: b.store, runId: cancelledId, by: 'main', reason: 'stop the review', env: b.env, cwd: b.dir, escalate: holdEnd });
+    // The supervisor resolves its record as it stood when it was done; the user cancel's end is the
+    // canceller's write, so the settled record is read from the store.
+    await running;
+    afterCancel = b.run(cancelledId);
   } finally {
     spy.restore();
   }
@@ -285,7 +306,7 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
   // The flow ran as intended, so the obligations below are about real calls.
   assert.equal(found.harnesses[0].present, true);
   assert.equal(probed.disposition, 'probed');
-  assert.equal(supervised.end.state, 'exited', JSON.stringify(supervised.process));
+  assert.equal(supervised.end.state, 'exited', JSON.stringify(supervised.process ?? null));
   assert.equal(supervised.report.status, 'success');
   assert.equal(cancelled.disposition, 'cancelled', JSON.stringify(cancelled));
   assert.equal(afterCancel.phase, 'ended');
@@ -317,7 +338,7 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
     for (const file of filesUnder(home)) assert.equal(fs.readFileSync(file, 'utf8').includes(KNOWN), false, file);
     const outA = fs.readFileSync(path.join(a.dir, '.doflow', 'state', supervised.output.stdout.path), 'utf8');
     assert.match(outA, /using key <masked>/);
-    // A cancelled run's record carries no output summary; the sink's file is at its fixed path (IC-018).
+    // The cancelled run's sink file is read at its fixed path (IC-018).
     const outB = fs.readFileSync(path.join(b.dir, '.doflow', 'state', 'worker-output', `${cancelledId}.out.log`), 'utf8');
     assert.match(outB, /waiting with <masked>/);
     assert.match(supervised.report.summary, /reviewed with <masked>/);
