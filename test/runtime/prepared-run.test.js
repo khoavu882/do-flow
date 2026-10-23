@@ -114,6 +114,37 @@ test('presets.review looser than the file\'s own settings["review.preset"] is no
   assert.match(entry.message, /review-deep/, entry.message);
 });
 
+test('C-3: a project .doflow/settings.json review.preset stricter than presets.review is not-narrower', (t) => {
+  const { f, validate } = setup(t);
+  f.writeProjectSettings({ schema: 1, 'review.preset': 'review-deep' });
+  const entry = entryFor(validate({ schema: 1, taskClass: 'bug', presets: { review: 'review-single' } }), 'presets.review');
+  assert.equal(entry.code, 'not-narrower');
+  assert.match(entry.message, /review\.preset/, entry.message);
+  assert.match(entry.message, /review-deep/, entry.message);
+  assert.match(entry.message, /project/, entry.message);
+});
+
+test('C-3: a user settings debate.preset stricter than presets.debate is not-narrower, also with no taskClass', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'debate.preset': 'debate-3' });
+  const entry = entryFor(validate({ schema: 1, taskClass: 'bug', presets: { debate: 'debate-2' } }), 'presets.debate');
+  assert.equal(entry.code, 'not-narrower');
+  assert.match(entry.message, /debate\.preset/, entry.message);
+  assert.match(entry.message, /debate-3/, entry.message);
+  assert.match(entry.message, /user/, entry.message);
+  const noClass = validate({ schema: 1, presets: { debate: 'debate-2' } });
+  assert.equal(noClass.status, 1, `${noClass.stdout}${noClass.stderr}`);
+  assert.equal(noClass.json.errors.filter((e) => e.key === 'presets.debate').length, 1, JSON.stringify(noClass.json.errors));
+});
+
+test('C-3: presets equal to or stricter than the effective settings pass', (t) => {
+  const { f, validate } = setup(t);
+  f.writeProjectSettings({ schema: 1, 'review.preset': 'review-deep' });
+  f.writeUserSettings({ schema: 1, 'debate.preset': 'debate-3' });
+  const result = validate({ schema: 1, taskClass: 'bug', presets: { review: 'review-deep', debate: 'debate-3' } });
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
 test('presets.review that is not a review preset, and presets.debate that is not a debate preset, are enum', (t) => {
   const { validate } = setup(t);
   const result = validate({ ...VALID(), presets: { review: 'debate-3', debate: 'review-deep' } });

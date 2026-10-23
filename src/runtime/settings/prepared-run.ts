@@ -17,7 +17,7 @@ const nodeFs = require('node:fs');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { keyEntry, layerFile, layerEntry } = require('./config-write.ts');
 const { loadProtocols, presetIds } = require('../review/protocols.ts');
-const { gateMinSeats } = require('../review/resolve-protocol.ts');
+const { gateMinSeats, settingsPick } = require('../review/resolve-protocol.ts');
 
 /** Top-level names kept for a later release (IC-010): refused now, with their own message. */
 const RESERVED = new Set(['primary', 'workers']);
@@ -70,6 +70,8 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
 
   const presets: Record<string, any> = isObject(doc.presets) ? doc.presets : {};
   if (Object.hasOwn(doc, 'presets') && !isObject(doc.presets)) errors.push(entry('presets', null, 'type', 'presets must be an object with review and debate preset ids'));
+  let loaded: any = null; // the start verb's inputs, loaded once and only when a preset is checked
+  const inputs = (): any => (loaded ??= ctx.inputs(taskClass));
   for (const kind of ['review', 'debate']) {
     if (!Object.hasOwn(presets, kind)) continue;
     const order: string[] = presetIds(protocols, kind);
@@ -79,14 +81,22 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
       errors.push(entry(key, null, 'enum', `${typeof id === 'string' ? id : JSON.stringify(id)} is not a ${kind} preset`, order));
       continue;
     }
-    if (kind !== 'review') continue;
-    const own = settings['review.preset'];
-    if (typeof own === 'string' && own !== 'auto' && order.includes(own) && order.indexOf(id) > order.indexOf(own)) {
-      errors.push(entry(key, null, 'not-narrower', `${id} is looser than this file's settings["review.preset"] ${own}`));
+    // The effective preset setting (C-3): the user/project/local layers `review --action start` reads, with this
+    // file's own entry as the project layer, applied by the resolver's rule (settingsPick) to the loosest preset.
+    const settingKey = `${kind}.preset`;
+    const view: Record<string, any> = { ...inputs().settingsView };
+    const current = view[settingKey];
+    if (typeof settings[settingKey] === 'string' && (!current || ['default', 'user', 'project'].includes(current.layer))) {
+      view[settingKey] = { value: settings[settingKey], layer: 'project' };
+    }
+    const pick = settingsPick({ kind, pick: { id: order[order.length - 1], origin: 'registry' }, settingsView: view, registry: protocols });
+    if (order.indexOf(id) > order.indexOf(pick.id)) {
+      errors.push(entry(key, null, 'not-narrower', `${id} is looser than settings["${settingKey}"] ${pick.id} (${pick.origin} layer)`));
       continue;
     }
+    if (kind !== 'review') continue;
     if (taskClass === null) continue;
-    const floor: number = gateMinSeats(ctx.gatePolicy(taskClass), taskClass);
+    const floor: number = gateMinSeats(inputs().gatePolicy, taskClass);
     const seats: number = protocols.presets[id].seats.length;
     if (seats < floor) { // the seat floor (L-E1); the E.1-control-floor mutation targets this line
       errors.push(entry(key, null, 'not-narrower', `${id} has ${seats} seat${seats === 1 ? '' : 's'}; the gate-b floor for ${taskClass} is ${floor} seats`));
@@ -122,11 +132,11 @@ function handlePreparedRun({ file, json, registry, repoRoot, projectRoot, env, f
     const root = path.resolve(projectRoot);
     const ctx = {
       registry, protocols: protocols.registry, classes: taskClasses(repoRoot, fsImpl), env, projectRoot: root, fsImpl,
-      // the gate policy as `review --action start` builds it: gates.json narrowed by the project's override
-      gatePolicy: (taskClass: string): any => {
+      // what `review --action start` loads: the protocol settings view and gates.json narrowed by the project's override
+      inputs: (taskClass: string | null): any => {
         const inputs = require('../review/start.ts').loadProtocolInputs(taskClass, root, env);
         if ('error' in inputs) throw Object.assign(new Error(inputs.message), { usage: true });
-        return inputs.gatePolicy;
+        return inputs;
       },
     };
     return report(file, validatePrepared(doc, ctx), json);

@@ -59,6 +59,23 @@ function setBy(settingsView: any, key: string): { value: any; layer: Origin } | 
 }
 
 /**
+ * IC-003 step 2, shared with the prepared-run check (119 C-3): the preset setting applied to a `pick`
+ * (`{ id, origin }`). `auto`, the default and an unknown id leave the pick; a stricter id is taken with its layer
+ * as origin; an equal one changes nothing; a looser one is ignored and returned as `disagreement`. Pure.
+ */
+function settingsPick({ kind, pick, settingsView, registry }: { kind: string; pick: { id: string; origin: Origin }; settingsView: any; registry: any }):
+  { id: string; origin: Origin; disagreement?: any } {
+  const order: string[] = presetIds(registry, kind);
+  const preset = setBy(settingsView, kind === 'review' ? 'review.preset' : 'debate.preset');
+  if (!preset || typeof preset.value !== 'string' || preset.value === 'auto' || !order.includes(preset.value)) return { ...pick };
+  const at = order.indexOf(preset.value);
+  const from = order.indexOf(pick.id);
+  if (at < from) return { id: preset.value, origin: preset.layer };
+  if (at > from) return { ...pick, disagreement: { field: 'id', by: preset.layer, value: preset.value, reason: 'looser' } };
+  return { ...pick };
+}
+
+/**
  * IC-003, in this order: (1) the risk rule, (2) the preset setting, (3) the run preset (Q-A1: compared with the
  * pick of steps 1-2; advice raises only when there is no run preset), (4) advice, (5) the seat floor, (6) the knobs
  * of a review. A setting is never a refusal: a looser preset setting is ignored and listed in `disagreements`.
@@ -79,16 +96,11 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
   } else id = DEBATE_DEFAULT;
   if (id === undefined || !order.includes(id)) return { ok: false, reason: 'registry-incomplete', field: 'registry' };
 
-  // Step 2: the preset setting. `auto` and the default leave the pick; a stricter id is taken with its layer as
-  // origin; an equal one changes nothing; a looser one is ignored and shown as a disagreement.
-  const preset = setBy(settingsView, kind === 'review' ? 'review.preset' : 'debate.preset');
-  if (preset && typeof preset.value === 'string' && preset.value !== 'auto' && order.includes(preset.value)) {
-    const at = order.indexOf(preset.value);
-    if (at < order.indexOf(id)) {
-      id = preset.value;
-      idOrigin = preset.layer;
-    } else if (at > order.indexOf(id)) disagreements.push({ field: 'id', by: preset.layer, value: preset.value, reason: 'looser' });
-  }
+  // Step 2: the preset setting (settingsPick).
+  const picked = settingsPick({ kind, pick: { id, origin: idOrigin }, settingsView, registry });
+  id = picked.id;
+  idOrigin = picked.origin;
+  if (picked.disagreement) disagreements.push(picked.disagreement);
 
   // Advice only raises: a deep pick over a single pick gives deep.
   const adviceId: string | undefined = kind === 'review' && advicePick === 'deep' && registry.presets[id].depth === 'single'
@@ -233,4 +245,4 @@ function protocolLines(protocol: any): string[] {
   ];
 }
 
-module.exports = { resolveProtocol, protocolLines, protocolDigest, pathScope, gateMinSeats };
+module.exports = { resolveProtocol, settingsPick, protocolLines, protocolDigest, pathScope, gateMinSeats };
