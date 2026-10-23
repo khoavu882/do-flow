@@ -777,8 +777,10 @@ unverified until a live check records them. The docs check (reported by the seco
 and FU-v4p417 stays open for the live check only; the Gemini and Copilot names also read correct in the
 docs. The Kiro `tools` categories `read`, `shell` and `web` are the Kiro CLI V3 vocabulary
 (https://kiro.dev/docs/cli/v3/agent-config/); CLI 2.x named its tools `fs_read`, `execute_bash` and so on,
-so on a 2.x CLI the projected `reviewer` `tools` list may not be recognised (inference from the two
-documentation pages). Open followups, all the user's live checks: FU-cqmhg8, FU-v4p417 and FU-q2pwes.
+and Kiro's migration table lists `read` and `shell` as names a 2.x CLI also accepts, so only `web` is a
+V3-only tag: on a 2.x CLI the projected `reviewer` `tools` list may be only partly recognised (`web`), not
+wholly unrecognised (inference from the two documentation pages). Open followups, all the user's live
+checks: FU-cqmhg8, FU-v4p417 and FU-q2pwes.
 
 Two limits are recorded and not enforced. The `delivery-lead` rule "no product code" and the `quality-guardian`
 rule "tests only" are stated in their specs; both agents are `access: write`, which cannot express a path
@@ -787,11 +789,14 @@ limit, so the rules hold by discipline. Because the four non-reviewer specs (`sp
 deny for them and their Codex TOMLs carry no `sandbox_mode`; only `reviewer` is limited.
 
 **MCP tools on the read-only agent.** The `reviewer` `tools` allowlist on Gemini, Copilot and Kiro names
-built-in tools only, so the reviewer runs there without MCP tools (context7, semble). DoFlow adds no MCP
-selector: the only selectors the vendors document are a global wildcard, which would also open the
-write-capable tools of any MCP server, or a per-server name, which DoFlow cannot know. A user who knows a
-server is read-only can extend the projected `reviewer` file by hand with the vendor's selector: Gemini
-`mcp_*` (all MCP servers) or `mcp_<server>_*`
+built-in tools only, so the reviewer runs there without MCP tools (context7, semble). DoFlow projects no MCP
+selector in 118. The vendors document per-server selectors: Gemini `mcp_<server>_*`, Copilot `<server>/*`
+and Kiro `@<server>` (read from the Kiro CLI migration guide; not run live). The
+servers DoFlow installs itself are listed in `core/registry/mcp.json` (`context7`, `sequential-thinking`), so
+their names are known. They are not projected because the global wildcards (Gemini `mcp_*`, Kiro `@mcp`) would
+also open the write-capable tools of any MCP server; restoring per-server selectors for DoFlow's own servers
+is followup FU-83yxjr. A user who knows a server is read-only can extend the projected `reviewer` file by
+hand with the vendor's selector: Gemini `mcp_*` (all MCP servers) or `mcp_<server>_*`
 (https://geminicli.com/docs/core/subagents); Copilot `<server>/*` or `<server>/<tool>`
 (https://docs.github.com/en/copilot/reference/custom-agents-configuration); Kiro `@mcp`
 (https://kiro.dev/docs/cli/v3/agent-config/).
