@@ -238,6 +238,15 @@ function defaultIsAlive(pid: number): boolean {
   }
 }
 
+/**
+ * The pid a rename-aside folder (`.tmp-del-<id>-<pid>-<8 hex>`) names as its owner, or null when the
+ * name does not carry one. Ids contain `-`, so the pid is read from the end.
+ */
+function removingOwnerPid(name: string): number | null {
+  const m = /-([0-9]+)-[0-9a-f]{8}$/.exec(name);
+  return m ? Number(m[1]) : null;
+}
+
 function isStaleTemp(dir: string, { now, fsImpl, isAlive, hostname }: any): boolean {
   let owner = null;
   try { owner = JSON.parse(fsImpl.readFileSync(path.join(dir, OWNER_FILE), 'utf8')); } catch { /* no owner */ }
@@ -251,6 +260,10 @@ function isStaleTemp(dir: string, { now, fsImpl, isAlive, hostname }: any): bool
 /**
  * Remove `.tmp-*` directories left in `backupRoot` by runs that died: the owner process is gone on
  * this host, or the temp is older than 24 hours. Returns how many were removed.
+ *
+ * A `.tmp-del-*` rename-aside is a backup a retention pass is deleting, so age says nothing about it
+ * (it keeps the backup's own, possibly old, mtime and may be rolled back if the delete fails). It is
+ * removed only when the pid in its name is not alive; one whose name carries no pid is left alone.
  */
 function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname() }: any = {}): number {
   assertMutableBackupRoot(backupRoot, 'clean up backups');
@@ -259,7 +272,10 @@ function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, is
   for (const e of fsImpl.readdirSync(backupRoot, { withFileTypes: true })) {
     if (!e.isDirectory() || !e.name.startsWith(TEMP_PREFIX)) continue;
     const dir = path.join(backupRoot, e.name);
-    if (!isStaleTemp(dir, { now, fsImpl, isAlive, hostname })) continue;
+    if (e.name.startsWith(REMOVING_PREFIX)) {
+      const pid = removingOwnerPid(e.name);
+      if (pid === null || isAlive(pid)) continue;
+    } else if (!isStaleTemp(dir, { now, fsImpl, isAlive, hostname })) continue;
     try {
       fsImpl.rmSync(dir, { recursive: true, force: true });
       removed += 1;
@@ -705,13 +721,10 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
     return result;
   }
 
+  // Also deletes what an earlier pass renamed aside and died before deleting (a `.tmp-del-*` whose pid
+  // is dead): already out of every listing, so it goes at once. One whose pid is alive belongs to a
+  // pass that may still roll it back, so it is never touched here, whatever its age.
   result.sweptTemps = sweepStaleTemps(backupRoot, { now, fsImpl });
-  // What an earlier pass renamed aside and died before deleting: already out of every listing, so it
-  // goes at once rather than after the 24 hour temp age. A pass still deleting its own loses nothing.
-  for (const e of entries) {
-    if (!e.isDirectory() || !e.name.startsWith(REMOVING_PREFIX)) continue;
-    try { fsImpl.rmSync(path.join(backupRoot, e.name), { recursive: true, force: true }); } catch { /* the next pass tries again */ }
-  }
   for (const id of removal) {
     const dir = path.join(backupRoot, id);
     // Another run's retention pass may have removed it already.

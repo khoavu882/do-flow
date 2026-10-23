@@ -5,9 +5,10 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { applyRetention, backupSize, listBackups } = require('../../src/install/backup.ts');
+const { applyRetention, backupSize, listBackups, sweepStaleTemps } = require('../../src/install/backup.ts');
 const { plantFullBackup } = require('../helper/backup-v1-fixture');
 const { IS_WIN } = require('../helper-platform');
 
@@ -109,10 +110,14 @@ test('a backup whose rename aside fails is reported and left whole', () => {
   assert.ok(fs.existsSync(path.join(root, ids[1], '.manifest.json')), 'untouched');
 });
 
+/** The pid of a process that has already exited, so no live pass can own it. */
+function deadPid() { return spawnSync(process.execPath, ['-e', '0']).pid; }
+const HOURS = 60 * 60 * 1000;
+
 test('a .tmp-del-* left by a crashed removal is cleaned on the next pass and is never listed as a backup', () => {
   const root = backupRootOf(scratchDir());
   const ids = plantFive(root);
-  const left = path.join(root, `.tmp-del-${ids[0]}-4242-abcd1234`);
+  const left = path.join(root, `.tmp-del-${ids[0]}-${deadPid()}-abcd1234`);
   fs.renameSync(path.join(root, ids[0]), left);
   assert.deepStrictEqual(listBackups(root).map((r) => r.id).sort(), ids.slice(1), 'not a backup');
   assert.ok(!applyRetention({ backupRoot: root, keep: 9, dryRun: true }).wouldRemove.length);
@@ -120,6 +125,44 @@ test('a .tmp-del-* left by a crashed removal is cleaned on the next pass and is 
   applyRetention({ backupRoot: root, keep: 9 });
   assert.ok(!fs.existsSync(left), 'removed by the next pass, long before the 24 hour temp age');
   assert.deepStrictEqual(remaining(root), ids.slice(1));
+});
+
+test('a concurrent pass leaves a live pass\'s rename-aside alone, so its failed delete rolls back whole (C-1)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  let inner = null;
+  const racing = {
+    ...fs,
+    rmSync(target, options) {
+      if (path.basename(target).startsWith('.tmp-del-') && inner === null) {
+        // The aside is this process's (a live pid) and is hours old by mtime; another run prunes now.
+        const old = new Date(Date.now() - 30 * HOURS);
+        fs.utimesSync(target, old, old);
+        inner = applyRetention({ backupRoot: root, keep: 9 });
+        throw Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' });
+      }
+      return fs.rmSync(target, options);
+    },
+  };
+  const result = applyRetention({ backupRoot: root, keep: 4, protect: [ids[4]], fsImpl: racing });
+  assert.strictEqual(result.failed.length, 1);
+  assert.ok(fs.existsSync(path.join(root, result.failed[0].id, '.manifest.json')), 'the backup is back under its id, whole');
+  assert.strictEqual(remaining(root).length, 5, 'the one removal failed, so all five remain');
+  assert.deepStrictEqual(fs.readdirSync(root).filter((n) => n.startsWith('.tmp-del-')), []);
+});
+
+test('sweepStaleTemps never removes a .tmp-del-* by age: only when the pid in its name is dead (C-1)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const live = path.join(root, `.tmp-del-${ids[0]}-${process.pid}-abcd1234`);
+  const dead = path.join(root, `.tmp-del-${ids[1]}-${deadPid()}-abcd1234`);
+  const odd = path.join(root, '.tmp-del-no-pid-here');
+  for (const [name, dir] of [[ids[0], live], [ids[1], dead]]) fs.renameSync(path.join(root, name), dir);
+  fs.mkdirSync(odd);
+  const old = new Date(Date.now() - 48 * HOURS);
+  for (const dir of [live, dead, odd]) fs.utimesSync(dir, old, old);
+  assert.strictEqual(sweepStaleTemps(root), 1);
+  assert.deepStrictEqual([live, dead, odd].map((d) => fs.existsSync(d)), [true, false, true], 'live pid and an unparseable name stay however old');
 });
 
 test('keep 0 removes nothing and reports every backup as kept', () => {
