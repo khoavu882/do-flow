@@ -9,6 +9,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const {
   releaseWorkflowFindings,
+  workflowNodePins,
   RELEASE_WORKFLOW_RULE_IDS,
 } = require('../../src/release/release-workflow.ts');
 
@@ -166,4 +167,43 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
         'alias seed must use the specified finding text');
     }
   }
+});
+
+// One source for the Node floor: package.json engines.node. Every Node pin in every workflow, the
+// rehearsal command in docs/reference.md and the rehearsal's own floor must be that version, so a
+// floor change that misses one place fails here instead of in a release run.
+const engineFloor = String(JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).engines.node).match(/\d+\.\d+\.\d+/)[0];
+const workflowDir = path.join(REPO, '.github', 'workflows');
+
+test('G51: every Node pin in every workflow equals the engines floor', () => {
+  const files = fs.readdirSync(workflowDir).filter((name) => /\.ya?ml$/.test(name));
+  assert.ok(files.includes('release.yml') && files.includes('cross-os-tests.yml') && files.includes('drift.yml'));
+  const wrong = [];
+  let pinned = 0;
+  for (const file of files) {
+    for (const pin of workflowNodePins(fs.readFileSync(path.join(workflowDir, file), 'utf8'))) {
+      pinned++;
+      if (pin.value !== engineFloor) wrong.push(`${file}:${pin.line} pins Node "${pin.value}", engines floor is ${engineFloor}`);
+    }
+  }
+  assert.ok(pinned >= 8, `expected the workflows to pin Node in several places, found ${pinned}`);
+  assert.deepEqual(wrong, []);
+});
+
+test('G51: the rehearsal command in docs/reference.md names the engines floor', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  const named = [...reference.matchAll(/node@(\d+\.\d+\.\d+)/g)].map((match) => match[1]);
+  assert.ok(named.length >= 1, 'reference.md must name the floor Node for the rehearsal');
+  assert.deepEqual(named.filter((version) => version !== engineFloor), []);
+});
+
+test('G51: the rehearsal takes its floor from engines.node (no copy of its own)', () => {
+  const source = fs.readFileSync(path.join(REPO, 'src', 'release', 'rehearse.ts'), 'utf8');
+  assert.match(source, /pkg\.engines\.node/);
+  assert.doesNotMatch(source, /['"`]\d+\.\d+\.\d+['"`]/, 'rehearse.ts must not hold a literal Node version');
+});
+
+test('G51 negative control: a workflow pin that is not the floor is reported', () => {
+  const drift = fs.readFileSync(path.join(workflowDir, 'drift.yml'), 'utf8').replace(`node-version: "${engineFloor}"`, 'node-version: "24"');
+  assert.deepEqual(workflowNodePins(drift).map((pin) => pin.value), ['24']);
 });

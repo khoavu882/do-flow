@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   parseWorkflow,
   releaseWorkflowFindings,
+  workflowNodePins,
   RELEASE_WORKFLOW_RULE_IDS,
 } = require('../../src/release/release-workflow.ts');
 
@@ -69,6 +70,37 @@ test('each R1-R14 fault mutation reports only its rule', () => {
     assert.equal(findings.length, 1, rule + ' should produce one isolated finding: ' + findings.join('; '));
     assert.match(findings[0], new RegExp('^' + rule + ' '));
   }
+});
+
+test('R11: every Node pin must equal the engines floor, not only the verify-registry matrix', () => {
+  const pins = workflowNodePins(workflow);
+  assert.ok(pins.length >= 4, 'the fixture pins Node in several places');
+  assert.ok(pins.every((pin) => pin.value === '24.22.1'), JSON.stringify(pins));
+  const mutations = [
+    ['a setup-node pin of 24', workflow.replace('node-version: 24.22.1', 'node-version: 24')],
+    ['the macOS matrix pin of 24', workflow.replace('os: macos-latest\n            node: "24.22.1"', 'os: macos-latest\n            node: "24"')],
+  ];
+  for (const [name, mutated] of mutations) {
+    assert.notEqual(mutated, workflow, name + ' must change the fixture');
+    const findings = releaseWorkflowFindings(mutated);
+    assert.equal(findings.length, 1, name + ': ' + findings.join('; '));
+    assert.match(findings[0], /^R11 /);
+  }
+  assert.deepEqual(releaseWorkflowFindings(workflow, { nodeFloor: '24.22.1' }), []);
+  for (const nodeFloor of ['24.23.0', null]) {
+    const findings = releaseWorkflowFindings(workflow, { nodeFloor });
+    assert.equal(findings.length, 1, String(nodeFloor) + ': ' + findings.join('; '));
+    assert.match(findings[0], /^R11 /);
+  }
+});
+
+test('workflowNodePins reads scalar, quoted, matrix-list and commented pins and skips expressions', () => {
+  const text = [
+    'a:', '  with:', '    node-version: 24', '    node-version: "24.22.1"', "    node-version: '24.22.1'",
+    '    node-version: ${{ matrix.node }}', '  strategy:', '    matrix:', '      node: ["24.22.1", "24"]',
+    '      - os: x', '        node: 24.22.1  # floor', '# node-version: 20', '      run: node -e "require(\'node:fs\')"',
+  ].join('\n');
+  assert.deepEqual(workflowNodePins(text).map((pin) => pin.value), ['24', '24.22.1', '24.22.1', '24.22.1', '24', '24.22.1']);
 });
 
 test('comments do not satisfy R6, R8, or R9 requirements', () => {

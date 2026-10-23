@@ -337,7 +337,8 @@ function runPreflight({
 
   try {
     const workflow = fsImpl.readFileSync(path.join(repoRoot, '.github/workflows/release.yml'), 'utf8');
-    const findings = releaseWorkflowFindings(workflow);
+    const nodeFloor = String(packageJson?.engines?.node ?? '').match(/\d+\.\d+\.\d+/)?.[0] ?? null;
+    const findings = releaseWorkflowFindings(workflow, { nodeFloor });
     addCheck(checks, 'release-workflow', findings.length === 0,
       findings.length ? findings.join('; ') : 'release workflow satisfies R1-R14');
   } catch (error: any) {

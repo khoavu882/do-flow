@@ -331,7 +331,43 @@ function hasOnlyVersionTagPush(text: string): boolean {
     && /^ {6}-\s*["']?v\*["']?\s*(?:#.*)?$/.test(tagValues[0]);
 }
 
-function releaseWorkflowFindings(text: string): string[] {
+const fs = require('node:fs');
+const path = require('node:path');
+
+/** The first x.y.z in this checkout's package.json engines.node: the floor every Node pin must equal. */
+function enginesNodeFloor(): string | null {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
+    return String(pkg.engines.node).match(/\d+\.\d+\.\d+/)?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every literal Node version a workflow pins: a `node-version:` or matrix `node:` key at the start of
+ * a line, with a scalar, quoted or `[a, b]` list value. Expressions (`${{ matrix.node }}`) pin
+ * nothing and are skipped; comments are ignored.
+ */
+function workflowNodePins(text: string): { line: number, value: string }[] {
+  const pins: { line: number, value: string }[] = [];
+  stripYamlComments(text).split('\n').forEach((line, index) => {
+    const match = /^\s*(?:-\s*)?(?:node-version|node):\s*(.+)$/.exec(line);
+    if (!match || match[1].includes('${{')) return;
+    for (const item of match[1].trim().replace(/^\[|\]$/g, '').split(',')) {
+      const value = item.trim().replace(/^["']|["']$/g, '');
+      if (value) pins.push({ line: index + 1, value });
+    }
+  });
+  return pins;
+}
+
+/**
+ * `nodeFloor` is the engines floor the Node pins must equal: undefined reads this checkout's
+ * package.json, null means the caller could not derive one (R11 then reports it).
+ */
+function releaseWorkflowFindings(text: string, { nodeFloor }: { nodeFloor?: string | null } = {}): string[] {
+  const floor = nodeFloor === undefined ? enginesNodeFloor() : nodeFloor;
   const cleanText = stripYamlComments(text);
   const { topPermissions, jobs } = parseWorkflow(cleanText);
   const findings: string[] = [];
@@ -457,9 +493,11 @@ function releaseWorkflowFindings(text: string): string[] {
 
   const verifyRegistry = jobs.get('verify-registry');
   const matrix = verifyRegistry?.text || '';
-  const matrixValid = /matrix\s*:/.test(matrix)
-    && /-\s*os:\s*["']?ubuntu-latest["']?\s*\r?\n\s*node:\s*["']?24\.22\.1["']?/.test(matrix)
-    && /-\s*os:\s*["']?macos-latest["']?\s*\r?\n\s*node:\s*["']?24["']?/.test(matrix);
+  const floorPattern = floor ? floor.replace(/\./g, '\\.') : null;
+  const matrixValid = floorPattern !== null && /matrix\s*:/.test(matrix)
+    && new RegExp('-\\s*os:\\s*["\']?ubuntu-latest["\']?\\s*\\r?\\n\\s*node:\\s*["\']?' + floorPattern + '["\']?(?:\\s|$)').test(matrix)
+    && new RegExp('-\\s*os:\\s*["\']?macos-latest["\']?\\s*\\r?\\n\\s*node:\\s*["\']?' + floorPattern + '["\']?(?:\\s|$)').test(matrix);
+  const unpinnedNode = workflowNodePins(cleanText).filter((pin) => pin.value !== floor);
   const installValid = /\bVER\s*=\s*["']?\$\{GITHUB_REF_NAME#v\}["']?/.test(matrix)
     && /npm\s+install\b[^\r\n]*@khoavu882\/doflow@\$VER\b/.test(matrix);
   const noPackageCheckout = verifyRegistry
@@ -467,7 +505,11 @@ function releaseWorkflowFindings(text: string): string[] {
     && !/\.pack\b/.test(matrix);
   if (!verifyRegistry || !matrixValid || !installValid || !noPackageCheckout) {
     report('R11', verifyRegistry ? 'verify-registry' : 'workflow',
-      'registry verification must install the tag version on the required Node and OS matrix without checkout or .pack');
+      'registry verification must install the tag version on the engines floor Node (' + (floor || 'unreadable')
+      + ') on the required OS matrix without checkout or .pack');
+  } else if (unpinnedNode.length) {
+    report('R11', 'workflow', 'every Node pin must equal the engines floor ' + floor + ': '
+      + unpinnedNode.map((pin) => 'line ' + pin.line + ' pins ' + pin.value).join(', '));
   }
 
   if (!hasOnlyVersionTagPush(cleanText)) {
@@ -501,4 +543,4 @@ function releaseWorkflowFindings(text: string): string[] {
   return findings;
 }
 
-module.exports = { RELEASE_WORKFLOW_RULE_IDS, parseWorkflow, releaseWorkflowFindings };
+module.exports = { RELEASE_WORKFLOW_RULE_IDS, parseWorkflow, releaseWorkflowFindings, workflowNodePins };

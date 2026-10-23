@@ -23,7 +23,7 @@ function fixture(t, options = {}) {
   const version = options.version || VERSION;
   const tag = options.tag || 'v' + version;
   const root = tempDir(t, 'doflow-preflight-');
-  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version }, null, 2));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version, engines: { node: options.engines || '>=24.22.1' } }, null, 2));
   const changelog = options.changelog === undefined
     ? '# Changelog\n\n## [' + version + '] - 2026-10-18\n\n### Added\n- Release notes.\n'
     : options.changelog;
@@ -301,4 +301,14 @@ test('CLI arguments accept tag, offline, tag-pushed, and allow-stable flags', ()
   });
   assert.throws(() => parseArgs(['--tag']), /usage:/);
   assert.throws(() => parseArgs(['--unknown']), /usage:/);
+});
+
+test('release-workflow takes the Node floor from the checkout engines.node, so a pin that differs fails R11', (t) => {
+  const { result } = fixture(t, { engines: '>=24.23.0' });
+  const releaseWorkflow = check(result, 'release-workflow');
+  assert.equal(releaseWorkflow.ok, false);
+  assert.match(releaseWorkflow.message, /R11 .*24\.23\.0/);
+  const none = check(fixture(t, { engines: 'latest' }).result, 'release-workflow');
+  assert.equal(none.ok, false);
+  assert.match(none.message, /R11 /);
 });
