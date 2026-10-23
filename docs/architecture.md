@@ -1152,14 +1152,21 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G63** (`adopted-stores.test.js`) — the stores a linked worktree's records are adopted from
   (`core/registry/storage.json` stores with `root: project-state` that name `src/runtime/state-root.ts`
   in `writers`, read through `adoptedStores`) are the stores that source files address through
-  `taskRecord`, `taskStoreDir`, `recordIn` or `resolveTaskScope`. A file addresses a store by a
-  `store: '<path>'` property or a literal `'.doflow', 'state', '<path>'` path in the same file as a
-  helper call (comments and `src/runtime/task-scope.ts` itself are not read). Every addressed store must
+  `taskRecord`, `taskStoreDir`, `recordIn` or `resolveTaskScope`. Each helper call is tied to its own
+  argument: `taskRecord` and `taskStoreDir` by a string-literal `store: '<path>'` property, `recordIn` by
+  a `base:` that is a literal `'.doflow', 'state', '<path>'` path or built from `runStoreDir` or
+  `RUN_STORE_REL` (the orchestration run store), followed through a same-file variable or `this.<field>`
+  assignment when `base` is a name; `resolveTaskScope` takes no store argument, so a file that calls it addresses the `'.doflow', 'state', '<path>'` stores it names (it builds the record path itself). A call whose store cannot be
+  resolved (a variable `store:`, no `store:`, an unresolvable `base:`) is reported with its file and
+  line, not skipped. Comments and `src/runtime/task-scope.ts` itself are not read. Every addressed store must
   be adopted (else a worktree's records of it are never swept into the main checkout), and every adopted
-  store must be addressed by at least one file (else the declaration is stale). Controls on synthetic
+  store must be addressed by at least one call (else the declaration is stale). Controls on synthetic
   registries and sources: a consistent pair reports nothing; a helper user of an undeclared store and an
   adopted store with no user are each named; a store named only in a comment, in the helper module or
-  beside no helper call is not a user; and against the shipped sources, removing the adopter from
+  beside no helper call is not a user; an unrelated `store:` literal outside a helper call, or nested in
+  its arguments, is not attributed to it; a helper call with a variable or missing store is reported;
+  `workflow-orchestrator.ts` is an orchestration user through `runStoreDir()` even when
+  `research-request.ts` no longer names that store; and against the shipped sources, removing the adopter from
   `task-evidence` or adding it to `task-attempts` turns it red.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
