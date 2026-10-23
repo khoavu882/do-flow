@@ -251,7 +251,7 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 | File | Declares |
 |---|---|
 | `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist, and a `readinessNote` (only `feature` lists any gates, and five classes, `feature`, `bug`, `refactor`, `dependency-change` and `trivial-edit`, have a readiness template in `readiness-templates.json`), plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one. It also carries the `promptNudge` object, the rules and message for the once-per-session `/do` suggestion; only the prompt hook and G25 read it, not the workflow engine or the classifier |
-| `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound |
+| `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound. Its `reviewDepth` block is the one source of review depth: the seat count of `single` and `deep`, the risk levels that may take `single`, and the light paths (`docs/`, `README.md`, `CHANGELOG.md`); `loadVerificationRegistry` rejects an invalid block, and `review --action start` applies it |
 | `core/registry/readiness-templates.json` | Per-class readiness requirements and the evidence kinds that satisfy each one |
 | `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. Every provider declares `sourceMode` (`live` or `index`) and may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
@@ -320,7 +320,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | Path | Owns |
 |---|---|
 | `src/runtime/mask.ts` | Best-effort masking and failure-message normalisation, in two profiles (line and body). Used by the follow-up service, the report store and the failure writer |
-| `src/runtime/review/` | `review/findings.ts`: review record validator, vocabularies, counts and advisories (pure); `review/command.ts`: the `review --action check` verb handler |
+| `src/runtime/review/` | `review/findings.ts`: review record validator, vocabularies, counts and advisories (pure); `review/command.ts`: the `review --action check` and `--action start` verb handler; `review/start.ts`: the `review --action start` precondition (the gate-b verify rule plus a clean tree) and `decideDepth`, the pure depth rule over `reviewDepth` |
 | `src/runtime/lifecycle/root.ts` | The project root a store is keyed by: the first entry of `git worktree list` when that entry is a real working tree, else the current worktree's root (`--show-toplevel`), else the working directory |
 | `src/runtime/lifecycle/event-store.ts` | Write-once event files under `.doflow/state/lifecycle/events/`, local to the machine: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
 | `src/runtime/lifecycle/store-upkeep.ts` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
@@ -709,12 +709,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-68 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-61 entries across 57 test files and carries 59 distinct G-numbers.
+69 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+62 entries across 58 test files and carries 60 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
 files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
-historical rather than a convention; G61 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G62 is the highest number in use, so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -1063,6 +1063,13 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   another workflow (f); `docs/llms.txt` stays within 4,096 bytes (g).
   Each clause re-seeds its fault in a copy. Run `node src/release/docs-blocks.ts --write` after a
   registry, help or nav change, then review the diff.
+- **G62** (`review-depth-source.test.js`) — review depth has one source, the `reviewDepth` block of
+  `core/registry/verification.json`: `core/shared/skills/do-code-review/SKILL.md` names
+  `review --action start`, and no file under `core/shared/` states a single-depth rule, meaning the
+  word `single` (not preceded by `a`) within 80 characters of a risk level name or of a
+  `reviewDepth.lightPaths` entry. Controls: the detector flags `single seat when LOW` and
+  `single reviewer for edits to docs/ only` and passes plain prose and `a single tier`; the known
+  ceiling is that `a single seat when LOW` is not caught.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

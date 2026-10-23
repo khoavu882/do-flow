@@ -9,6 +9,7 @@ messages and reports task outcomes and usage separately; the by-path skill bench
 a different surface.
 For the agentic retrieval baseline (does the `retrieve` command help a coding agent find files; paid
 stages, verdict-to-action mapping), use [`agentic/README.md`](agentic/README.md).
+For the review-miss suite (does a reviewer re-find defects that earlier reviews found and later fixes confirmed; offline verbs, no model call), use [`review-miss/README.md`](review-miss/README.md).
 
 Measures whether the shipped skills **trigger** on the right requests and **behave** correctly once
 triggered. Built for plan `008-doflow-runtime-unification`, whose Phase A captures a baseline of
@@ -114,6 +115,7 @@ runner.js baseline / report
 | `report --iteration a[,b..] [--noise F] [--decision-out F]` | Per-case delta of a run (or candidate repeats) against the baseline, evaluated against the noise band with a decision block (`corpus`, `train`, `heldout`), pending rows, usage, ceiling check, and per-skill delta when without-skill runs exist. `--decision-out` writes standalone decision JSON | no |
 | `noise --iterations a,b[,c..] [--out F] [--json]` | Measure eval noise floor over k baseline repeats. Validates model, commit and case set, re-runs programmatic grading twice in memory for grader stability, and computes per-repeat means, noise, baseline mean, headroom and a noise-check verdict. `--out` writes the noise artifact | no |
 | `impact-replay [--rev <ref>] [--commits <n>] [--json] [--out F]` | Offline replay of the last `--commits` non-merge commits reachable from `--rev`: each is exported to a scratch directory (`git archive`), its co-changed tests are run, the changed non-test files are restored to their parent versions and the tests run again to find the detecting set (a lower bound), which is compared with `src/runtime/verification/impact.ts`'s selection. No model call. Prints `insufficient-data`, `keep-off` or `selection-candidate`; the verdict enables nothing, because `verify` does not use the selector. Defaults come from the `impactReplay` block of `config.json`; the report goes to `runs/impact-replay/<UTC stamp>.json` unless `--out` is given | no |
+| `review-miss <corpus\|lint\|grade\|noise\|report> [flags]` | The review-miss suite: `corpus` generates cases from the fixed findings of the review records, `lint` checks a corpus file, `grade` scores one iteration's findings, `noise` and `report` build the A/A band and a decision over `bench/noise.js`. Verbs, flags and exit codes: [`review-miss/README.md`](review-miss/README.md). Routed to `bench/review-miss/runner.js`, as `agentic` is | no |
 
 `--split` is accepted by `plan`, `list`, and `advice`; `--arm` by `plan` only. Any other command refuses
 either flag with exit 2, as it does an unknown option.
