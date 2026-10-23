@@ -11,7 +11,9 @@
 //       needed to meet it);
 //   (d) a preset whose `rounds.default` exceeds `hardRoundCap`;
 //   (e) no invariants, or an invariant with an empty `enforcedBy`;
-//   (g) a review preset seat whose agent has no spec with `access: read-only` (a review seat is read-only).
+//   (g) a review preset seat whose agent has no spec with `access: read-only` (a review seat is read-only);
+//   (i) an adjacent pair of `order.review` or `order.debate` where the stricter preset does not
+//       `dominates` the next one (122 IC-014; the tiers are models.json `dispatchTiers.tiers`).
 // Two checks read the shipped file directly: (a) preset ids are unique in the raw text (parsed JSON
 // hides a duplicate key; `loadProtocols` scans the text, so the check does not depend on formatting), and (f) the shipped file passes `validateProtocols` with zero errors.
 //
@@ -27,6 +29,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { validateProtocols, loadProtocols } = require(path.join(REPO, 'src', 'runtime', 'review', 'protocols.ts'));
+const { dominates } = require(path.join(REPO, 'src', 'runtime', 'review', 'dominance.ts'));
 const { suiteTempDir } = require('../helper/tmp');
 const { loadSettingsRegistry } = require(path.join(REPO, 'src', 'runtime', 'settings', 'registry.ts'));
 const { derivedVocabularies } = require(path.join(REPO, 'src', 'runtime', 'trace', 'telemetry.ts'));
@@ -34,6 +37,7 @@ const { derivedVocabularies } = require(path.join(REPO, 'src', 'runtime', 'trace
 const PROTOCOLS_TEXT = fs.readFileSync(path.join(REPO, 'core', 'registry', 'protocols.json'), 'utf8');
 const protocols = JSON.parse(PROTOCOLS_TEXT);
 const gates = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'gates.json'), 'utf8'));
+const TIERS = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'models.json'), 'utf8')).dispatchTiers.tiers;
 
 const PROTOCOLS_FILE = path.join(REPO, 'core', 'registry', 'protocols.json');
 
@@ -84,6 +88,16 @@ function checkProtocols(p, g) {
   for (const id of p.order?.review ?? []) {
     const seats = (p.presets?.[id]?.seats ?? []).length;
     if (seats > deepSeats) offenders.push(`${id} has ${seats} seats, more than the strictest review preset's ${deepSeats}`);
+  }
+
+  // (i) each adjacent pair of the authored order dominates (strictest first).
+  for (const kind of ['review', 'debate']) {
+    const list = p.order?.[kind] ?? [];
+    for (let i = 0; i + 1 < list.length; i++) {
+      if (!dominates(p.presets?.[list[i]], p.presets?.[list[i + 1]], { tiers: TIERS, synthesizerStrength: p.synthesizerStrength })) {
+        offenders.push(`order.${kind}: '${list[i]}' does not dominate '${list[i + 1]}'`);
+      }
+    }
   }
 
   if (!Array.isArray(p.invariants) || p.invariants.length === 0) offenders.push('invariants is empty');
@@ -215,6 +229,18 @@ test('G66 control: a strictest review preset that is not review-deep is red', ()
   const bad = clone();
   bad.order.review = ['review-single', 'review-deep'];
   assert.ok(checkProtocols(bad, gates).some((o) => /strictest review preset is 'review-single'/.test(o)));
+});
+
+test('G66 control: an adjacent order pair that does not dominate is red', () => {
+  const review = clone();
+  review.presets['review-deep'].seats[1].lenses = ['correctness', 'boundaries'];
+  assert.deepEqual(checkProtocols(review, gates), ["order.review: 'review-deep' does not dominate 'review-single'"]);
+  const debate = clone();
+  debate.order.debate = ['debate-2', 'debate-3'];
+  assert.deepEqual(checkProtocols(debate, gates), ["order.debate: 'debate-2' does not dominate 'debate-3'"]);
+  const lattice = clone(); // the lattice is read from the registry: verifier below none breaks debate-3 over debate-2
+  lattice.synthesizerStrength = { separate: 2, verifier: 0, seat: 1, none: 1 };
+  assert.deepEqual(checkProtocols(lattice, gates), ["order.debate: 'debate-3' does not dominate 'debate-2'"]);
 });
 
 test('G66 control: a duplicate preset id in the raw text is red, whatever the formatting', () => {

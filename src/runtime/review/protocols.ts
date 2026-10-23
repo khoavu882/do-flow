@@ -8,8 +8,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { dominates } = require('./dominance.ts');
 
 const PROTOCOLS_FILE = 'core/registry/protocols.json';
+const MODELS_FILE = 'core/registry/models.json';
 const KINDS = ['review', 'debate'];
 const FAMILIES = ['any', 'different-from-author'];
 const SYNTHESIZERS = ['separate', 'seat', 'none', 'verifier'];
@@ -17,7 +19,7 @@ const DECIDERS = ['gate', 'orchestrator'];
 const PRESET_ID = /^[a-z][a-z0-9-]*$/;
 const INVARIANT_ID = /^INV-\d+$/;
 
-const TOP_KEYS = ['schema', 'description', 'hardRoundCap', 'lenses', 'presets', 'order', 'invariants'];
+const TOP_KEYS = ['schema', 'description', 'hardRoundCap', 'lenses', 'synthesizerStrength', 'presets', 'order', 'invariants'];
 const LENS_KEYS = ['id', 'description'];
 const PRESET_KEYS = ['kind', 'depth', 'seats', 'rounds', 'crossAnswer', 'synthesizer', 'decider'];
 const SEAT_KEYS = ['id', 'agent', 'lenses', 'model'];
@@ -37,6 +39,97 @@ function checkKeys(errors: string[], where: string, value: any, allowed: string[
   for (const key of Object.keys(value)) {
     if (!allowed.includes(key)) errors.push(`${where} has unknown key '${key}'`);
   }
+}
+
+/** The ordered core model tiers (models.json `dispatchTiers.tiers`, loosest first) of the runtime install; null when unreadable. */
+let coreTierCache: string[] | null | undefined;
+function coreTiers(): string[] | null {
+  if (coreTierCache === undefined) {
+    try {
+      const tiers = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, MODELS_FILE), 'utf8'))?.dispatchTiers?.tiers;
+      coreTierCache = Array.isArray(tiers) && tiers.length > 0 && tiers.every(isNonEmptyString) ? tiers : null;
+    } catch {
+      coreTierCache = null;
+    }
+  }
+  return coreTierCache;
+}
+
+/**
+ * The entry shape of one preset (122 IC-014): the one validator for core presets and, later, for a
+ * package's contributed ones. `context` carries what the check reads beside the preset: `lensIds` (the
+ * lens catalogue), `hardRoundCap` and `tiers` (default: the core tiers of models.json). Package-mode
+ * rules (`context.mode`) belong to their callers. Cross-preset rules (unique depth, `order`) stay in
+ * `validateProtocols`. Returns the errors; never throws.
+ */
+function validatePreset(id: string, preset: any, context: any = {}): string[] {
+  const errors: string[] = [];
+  const lensIdSet = new Set<string>(context.lensIds ?? []);
+  const cap = context.hardRoundCap;
+  const tiers: string[] | null = Object.hasOwn(context, 'tiers') ? context.tiers : coreTiers();
+  const where = `presets.${id}`;
+  if (!PRESET_ID.test(id)) errors.push(`${where} id must match ${PRESET_ID}`);
+  if (!isObject(preset)) { errors.push(`${where} must be an object`); return errors; }
+  checkKeys(errors, where, preset, PRESET_KEYS);
+
+  if (!KINDS.includes(preset.kind)) errors.push(`${where}.kind must be one of ${KINDS.join(', ')}`);
+  if (preset.kind === 'review') {
+    if (!isNonEmptyString(preset.depth)) errors.push(`${where}.depth is required on a review preset`);
+  } else if (preset.kind === 'debate' && 'depth' in preset) {
+    errors.push(`${where}.depth is not allowed on a debate preset`);
+  }
+
+  const seatIds = new Set<string>();
+  if (!Array.isArray(preset.seats) || preset.seats.length === 0) {
+    errors.push(`${where}.seats must be a non-empty array`);
+  } else {
+    preset.seats.forEach((seat: any, i: number) => {
+      const sw = `${where}.seats[${i}]`;
+      if (!isObject(seat)) { errors.push(`${sw} must be an object`); return; }
+      checkKeys(errors, sw, seat, SEAT_KEYS);
+      if (!isNonEmptyString(seat.id)) errors.push(`${sw}.id must be a non-empty string`);
+      else if (seatIds.has(seat.id)) errors.push(`${where} seat id '${seat.id}' is duplicated`);
+      else seatIds.add(seat.id);
+      if (!isNonEmptyString(seat.agent)) errors.push(`${sw}.agent must be a non-empty string`);
+      if ('lenses' in seat) {
+        if (!Array.isArray(seat.lenses)) errors.push(`${sw}.lenses must be an array`);
+        else for (const lens of seat.lenses) {
+          if (!lensIdSet.has(lens)) errors.push(`${sw}.lenses names unknown lens '${lens}'`);
+        }
+      }
+      if (!isObject(seat.model)) errors.push(`${sw}.model must be an object`);
+      else {
+        checkKeys(errors, `${sw}.model`, seat.model, MODEL_KEYS);
+        if (!isNonEmptyString(seat.model.tier)) errors.push(`${sw}.model.tier must be a non-empty string`);
+        else if (!Array.isArray(tiers)) errors.push(`${sw}.model.tier cannot be checked: ${MODELS_FILE} dispatchTiers.tiers is unreadable`);
+        else if (!tiers.includes(seat.model.tier)) errors.push(`${sw}.model.tier '${seat.model.tier}' must be one of ${tiers.join(', ')}`);
+        if ('family' in seat.model && !FAMILIES.includes(seat.model.family)) {
+          errors.push(`${sw}.model.family must be one of ${FAMILIES.join(', ')}`);
+        }
+      }
+    });
+  }
+
+  const rounds = preset.rounds;
+  if (!isObject(rounds)) errors.push(`${where}.rounds must be an object`);
+  else {
+    checkKeys(errors, `${where}.rounds`, rounds, ROUNDS_KEYS);
+    for (const field of ROUNDS_KEYS) {
+      if (!isPositiveInt(rounds[field])) errors.push(`${where}.rounds.${field} must be a positive integer`);
+    }
+    if (isPositiveInt(rounds.default) && isPositiveInt(rounds.min)) {
+      if (rounds.min > rounds.default) errors.push(`${where}.rounds.min must not exceed rounds.default`);
+      if (isPositiveInt(cap) && rounds.default > cap) errors.push(`${where}.rounds.default must not exceed hardRoundCap`);
+    }
+  }
+
+  if (typeof preset.crossAnswer !== 'boolean') errors.push(`${where}.crossAnswer must be a boolean`);
+  if (!SYNTHESIZERS.includes(preset.synthesizer)) errors.push(`${where}.synthesizer must be one of ${SYNTHESIZERS.join(', ')}`);
+  else if (preset.synthesizer === 'seat' && !(Array.isArray(preset.seats) && preset.seats.length === 1)) {
+    errors.push(`${where}.synthesizer 'seat' is only valid on a one-seat preset`);
+  }
+  if (!DECIDERS.includes(preset.decider)) errors.push(`${where}.decider must be one of ${DECIDERS.join(', ')}`);
+  return errors;
 }
 
 function validateProtocols(data: any): { ok: boolean; errors: string[] } {
@@ -64,76 +157,37 @@ function validateProtocols(data: any): { ok: boolean; errors: string[] } {
     });
   }
 
+  // The synthesizer lattice `dominates` reads: one non-negative integer per synthesizer, higher is stronger.
+  const strength = data.synthesizerStrength;
+  let strengthOk = isObject(strength);
+  if (!strengthOk) errors.push('synthesizerStrength must be an object');
+  else {
+    const before = errors.length;
+    checkKeys(errors, 'synthesizerStrength', strength, SYNTHESIZERS);
+    for (const name of SYNTHESIZERS) {
+      if (!Object.hasOwn(strength, name)) errors.push(`synthesizerStrength omits synthesizer '${name}'`);
+      else if (!Number.isInteger(strength[name]) || strength[name] < 0) errors.push(`synthesizerStrength.${name} must be a non-negative integer`);
+    }
+    strengthOk = errors.length === before;
+  }
+
   const kindOf: Record<string, string> = {};
+  const validIds = new Set<string>(); // presets with no entry error: the only ones the order's dominance check compares
   const depths = new Map<string, string>();
   if (!isObject(data.presets) || Object.keys(data.presets).length === 0) {
     errors.push('presets must be a non-empty object');
   } else {
+    const context = { lensIds: lensIdSet, hardRoundCap: cap, tiers: coreTiers() };
     for (const [id, preset] of Object.entries<any>(data.presets)) {
-      const where = `presets.${id}`;
-      if (!PRESET_ID.test(id)) errors.push(`${where} id must match ${PRESET_ID}`);
-      if (!isObject(preset)) { errors.push(`${where} must be an object`); continue; }
-      checkKeys(errors, where, preset, PRESET_KEYS);
-
-      if (!KINDS.includes(preset.kind)) errors.push(`${where}.kind must be one of ${KINDS.join(', ')}`);
-      else kindOf[id] = preset.kind;
-
-      if (preset.kind === 'review') {
-        if (!isNonEmptyString(preset.depth)) errors.push(`${where}.depth is required on a review preset`);
-        else if (depths.has(preset.depth)) errors.push(`${where}.depth '${preset.depth}' duplicates presets.${depths.get(preset.depth)}.depth`);
+      const presetErrors = validatePreset(id, preset, context);
+      errors.push(...presetErrors);
+      if (presetErrors.length === 0) validIds.add(id);
+      if (!isObject(preset) || !KINDS.includes(preset.kind)) continue;
+      kindOf[id] = preset.kind;
+      if (preset.kind === 'review' && isNonEmptyString(preset.depth)) {
+        if (depths.has(preset.depth)) errors.push(`presets.${id}.depth '${preset.depth}' duplicates presets.${depths.get(preset.depth)}.depth`);
         else depths.set(preset.depth, id);
-      } else if (preset.kind === 'debate' && 'depth' in preset) {
-        errors.push(`${where}.depth is not allowed on a debate preset`);
       }
-
-      const seatIds = new Set<string>();
-      if (!Array.isArray(preset.seats) || preset.seats.length === 0) {
-        errors.push(`${where}.seats must be a non-empty array`);
-      } else {
-        preset.seats.forEach((seat: any, i: number) => {
-          const sw = `${where}.seats[${i}]`;
-          if (!isObject(seat)) { errors.push(`${sw} must be an object`); return; }
-          checkKeys(errors, sw, seat, SEAT_KEYS);
-          if (!isNonEmptyString(seat.id)) errors.push(`${sw}.id must be a non-empty string`);
-          else if (seatIds.has(seat.id)) errors.push(`${where} seat id '${seat.id}' is duplicated`);
-          else seatIds.add(seat.id);
-          if (!isNonEmptyString(seat.agent)) errors.push(`${sw}.agent must be a non-empty string`);
-          if ('lenses' in seat) {
-            if (!Array.isArray(seat.lenses)) errors.push(`${sw}.lenses must be an array`);
-            else for (const lens of seat.lenses) {
-              if (!lensIdSet.has(lens)) errors.push(`${sw}.lenses names unknown lens '${lens}'`);
-            }
-          }
-          if (!isObject(seat.model)) errors.push(`${sw}.model must be an object`);
-          else {
-            checkKeys(errors, `${sw}.model`, seat.model, MODEL_KEYS);
-            if (!isNonEmptyString(seat.model.tier)) errors.push(`${sw}.model.tier must be a non-empty string`);
-            if ('family' in seat.model && !FAMILIES.includes(seat.model.family)) {
-              errors.push(`${sw}.model.family must be one of ${FAMILIES.join(', ')}`);
-            }
-          }
-        });
-      }
-
-      const rounds = preset.rounds;
-      if (!isObject(rounds)) errors.push(`${where}.rounds must be an object`);
-      else {
-        checkKeys(errors, `${where}.rounds`, rounds, ROUNDS_KEYS);
-        for (const field of ROUNDS_KEYS) {
-          if (!isPositiveInt(rounds[field])) errors.push(`${where}.rounds.${field} must be a positive integer`);
-        }
-        if (isPositiveInt(rounds.default) && isPositiveInt(rounds.min)) {
-          if (rounds.min > rounds.default) errors.push(`${where}.rounds.min must not exceed rounds.default`);
-          if (isPositiveInt(cap) && rounds.default > cap) errors.push(`${where}.rounds.default must not exceed hardRoundCap`);
-        }
-      }
-
-      if (typeof preset.crossAnswer !== 'boolean') errors.push(`${where}.crossAnswer must be a boolean`);
-      if (!SYNTHESIZERS.includes(preset.synthesizer)) errors.push(`${where}.synthesizer must be one of ${SYNTHESIZERS.join(', ')}`);
-      else if (preset.synthesizer === 'seat' && !(Array.isArray(preset.seats) && preset.seats.length === 1)) {
-        errors.push(`${where}.synthesizer 'seat' is only valid on a one-seat preset`);
-      }
-      if (!DECIDERS.includes(preset.decider)) errors.push(`${where}.decider must be one of ${DECIDERS.join(', ')}`);
     }
   }
 
@@ -149,6 +203,17 @@ function validateProtocols(data: any): { ok: boolean; errors: string[] } {
         const count = list.filter((entry: any) => entry === id).length;
         if (count === 0) errors.push(`order.${kind} omits preset '${id}'`);
         else if (count > 1) errors.push(`order.${kind} lists preset '${id}' more than once`);
+      }
+      // 122 IC-014: the authored order is strictest first, so each preset dominates the next one. A pair
+      // with an invalid preset or lattice is not compared: its own error is already reported.
+      const tiers = coreTiers();
+      if (!strengthOk || !tiers) continue;
+      for (let i = 0; i + 1 < list.length; i++) {
+        const [stricter, looser] = [list[i], list[i + 1]];
+        if (kindOf[stricter] !== kind || kindOf[looser] !== kind || !validIds.has(stricter) || !validIds.has(looser)) continue;
+        if (!dominates(data.presets[stricter], data.presets[looser], { tiers, synthesizerStrength: strength })) {
+          errors.push(`order.${kind}: '${stricter}' does not dominate '${looser}'`);
+        }
       }
     }
   }
@@ -233,4 +298,4 @@ function lensIds(registry: any): string[] {
   return (registry.lenses ?? []).map((lens: any) => lens.id);
 }
 
-module.exports = { loadProtocols, validateProtocols, presetIds, lensIds, PROTOCOLS_FILE };
+module.exports = { loadProtocols, validateProtocols, validatePreset, presetIds, lensIds, PROTOCOLS_FILE };

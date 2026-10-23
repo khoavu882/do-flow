@@ -5,7 +5,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadProtocols, validateProtocols, presetIds, lensIds } = require('../../src/runtime/review/protocols.ts');
+const { loadProtocols, validateProtocols, validatePreset, presetIds, lensIds } = require('../../src/runtime/review/protocols.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const FILE = path.join(REPO, 'core', 'registry', 'protocols.json');
@@ -110,6 +110,38 @@ test('protocols: unknown keys are refused at every level', () => {
   refuses((d) => { d.invariants[0].extra = 1; }, /invariants\[0\] has unknown key 'extra'/);
 });
 
+// ── 122 IC-014: core tiers, the synthesizer lattice and the dominance order ────────────────────
+
+test('protocols: a seat tier outside the ordered core tiers of models.json is refused', () => {
+  refuses((d) => { d.presets['review-deep'].seats[0].model.tier = 'ultra'; }, /presets\.review-deep\.seats\[0\]\.model\.tier 'ultra' must be one of light, standard, frontier/);
+  refuses((d) => { d.presets['debate-2'].seats[1].model.tier = 'Frontier'; }, /presets\.debate-2\.seats\[1\]\.model\.tier 'Frontier' must be one of/);
+});
+
+test('protocols: an order whose adjacent pair does not dominate is refused', () => {
+  refuses((d) => { d.order.review = ['review-single', 'review-deep']; }, /order\.review: 'review-single' does not dominate 'review-deep'/);
+  refuses((d) => { d.order.debate = ['debate-2', 'debate-3']; }, /order\.debate: 'debate-2' does not dominate 'debate-3'/);
+  refuses((d) => { d.presets['review-deep'].seats[1].lenses = ['correctness', 'boundaries']; }, /order\.review: 'review-deep' does not dominate 'review-single'/);
+});
+
+test('protocols: synthesizerStrength is required and closed over the synthesizers', () => {
+  refuses((d) => { delete d.synthesizerStrength; }, /synthesizerStrength must be an object/);
+  refuses((d) => { delete d.synthesizerStrength.verifier; }, /synthesizerStrength omits synthesizer 'verifier'/);
+  refuses((d) => { d.synthesizerStrength.oracle = 3; }, /synthesizerStrength has unknown key 'oracle'/);
+  refuses((d) => { d.synthesizerStrength.seat = -1; }, /synthesizerStrength\.seat must be a non-negative integer/);
+});
+
+test('protocols: validatePreset is exported and is the per-preset check validateProtocols runs', () => {
+  const data = shipped();
+  const context = { lensIds: new Set(lensIds(data)), hardRoundCap: data.hardRoundCap };
+  assert.deepEqual(validatePreset('review-deep', data.presets['review-deep'], context), []);
+  const bad = structuredClone(data.presets['review-deep']);
+  bad.seats[0].model.tier = 'ultra';
+  bad.rounds.default = 4;
+  const errors = validatePreset('review-deep', bad, context);
+  assert.ok(errors.some((e) => /model\.tier 'ultra'/.test(e)), errors.join('\n'));
+  assert.ok(errors.some((e) => /rounds\.default must not exceed hardRoundCap/.test(e)), errors.join('\n'));
+});
+
 test('protocols: schema must be 1 and a non-object is refused', () => {
   refuses((d) => { d.schema = 2; }, /schema must be 1/);
   assert.equal(validateProtocols(null).ok, false);
@@ -145,9 +177,9 @@ const reviewLine = (root, record) => {
 test('C-9: review-triple added to protocols.json alone loads, is a review.preset value ranked strictest, and is a telemetry protocol', () => {
   const root = scratchRegistry((file) => {
     const data = shipped();
-    const seat = (id) => ({ id, agent: 'reviewer', lenses: ['correctness', 'test-honesty', 'boundaries'], model: { tier: 'frontier', family: 'any' } });
-    data.presets['review-triple'] = {
-      kind: 'review', depth: 'triple', seats: [seat('seat-a'), seat('seat-b'), seat('seat-c')],
+    const seat = (id, family = 'any') => ({ id, agent: 'reviewer', lenses: ['correctness', 'test-honesty', 'boundaries'], model: { tier: 'frontier', family } });
+    data.presets['review-triple'] = { // dominates review-deep, so it may sit first in order.review (IC-014)
+      kind: 'review', depth: 'triple', seats: [seat('seat-a', 'different-from-author'), seat('seat-b'), seat('seat-c')],
       rounds: { default: 2, min: 2 }, crossAnswer: true, synthesizer: 'separate', decider: 'gate',
     };
     data.order.review.unshift('review-triple');
