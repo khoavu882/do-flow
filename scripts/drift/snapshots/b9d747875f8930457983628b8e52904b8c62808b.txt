@@ -1,0 +1,5 @@
+Redirecting to: /docs/plugins?tab=cli
+Redirecting from
+/docs/cli/plugins/
+to
+/docs/plugins?tab=cli

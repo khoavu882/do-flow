@@ -1,0 +1,5 @@
+Redirecting to: /docs/settings?tab=cli
+Redirecting from
+/docs/cli/settings/
+to
+/docs/settings?tab=cli

@@ -1,0 +1,487 @@
+Hook triggers - Hooks - Features - Docs - Kiro
+Loading image...
+Product
+About Kiro
+Agents
+IDE
+CLI
+Web
+Mobile
+Crew
+Pricing
+Downloads
+For
+Enterprise
+Startups
+Students
+Community
+Overview
+Ambassadors
+Case studies
+Discord
+Events
+Powers
+Shop
+Showcase
+Resources
+Docs
+Blog
+Changelog
+FAQs
+Videos
+Report a bug
+Suggest an idea
+Billing support
+Social
+English
+Site Terms
+License
+Responsible AI Policy
+Legal
+Privacy Policy
+Cookie Preferences
+English
+Loading image...
+Agents
+Apps
+Enterprise
+Pricing
+Docs
+Community
+Resources
+SIGN IN
+DOWNLOADS
+Loading image...
+Get Started
+Installation
+Authentication
+Your first project
+Models
+Overview
+Available models
+Reasoning effort
+AWS GovCloud (US) models
+Features
+How Kiro works
+Local command sandbox
+ACP integrations
+Specs
+Steering
+Hooks
+Hook triggers
+Hook actions
+Examples
+Management
+Best practices
+Troubleshooting
+MCP
+Permissions
+Custom agents
+Workflows
+Agent Skills
+Powers
+Cloud sessions
+Memory
+Compaction
+Kiroignore
+Checkpoints and rewind
+Built-in tools
+Configuration scopes
+IDE 1.x
+What&#x27;s new in 1.0
+Setup & First Run
+Editor
+Chat
+Experimental
+Troubleshooting
+0.x reference
+CLI
+What&#x27;s new in V3
+Setup & First Run
+Terminal UI
+Chat
+Fullscreen mode
+Voice mode
+Headless mode
+ACP
+Auto complete
+Experimental
+2.x reference
+Crew
+Quick start
+Installation
+Running 24/7
+Chat
+Agent Capabilities
+Features
+Interfaces
+Apps
+System & storage
+Configuration
+Security
+Troubleshooting
+Web
+Setup & First Run
+Identity Center
+Connect your repositories
+Working with the agent
+Autonomous mode
+Schedule
+Configuration Sync
+Sandbox
+Mobile - Preview
+Overview
+Commands and Reference
+CLI commands
+Slash commands
+Built-in tools
+Exit codes
+Settings
+Billing
+Overview
+Managing your subscription
+Upgrading your plan
+Downgrading your plan
+Cancelling your plan
+Purchasing add-on credits
+Managing your payments
+Managing usage notifications
+Managing your taxes
+Contacting billing support
+Deleting your account
+Related questions
+Enterprise
+Concepts
+Onboarding quickstart
+Connecting your identity provider
+Deployment options
+Subscribe your team
+Manage subscriptions
+Governance
+Monitor and track
+Settings
+Managed updates
+Billing
+IAM
+Supported regions
+AWS GovCloud (US)
+Privacy and Security
+Overview
+Data protection
+Code references
+Compliance validation
+Infrastructure security
+IAM permissions
+Firewalls, proxies, and data perimeters
+VPC endpoints (AWS PrivateLink)
+Guides
+Overview
+Running Kiro in the cloud
+Language support
+Learn by playing
+Migration
+Migrating from Q Developer
+Migrating from VSCode
+Upgrading from Q CLI
+Docs
+Features
+Hooks
+Hook triggers
+Copy page
+View as Markdown
+Hook types
+Copy page
+View as Markdown
+Agent hooks support various trigger types, each designed for specific automation scenarios. Understanding these types helps you choose the right approach for your workflow needs.
+Availability by surface
+This page describes standalone Hook definitions stored in
+.kiro/hooks/*.json
+. Inline profile Hooks have separate current and legacy forms; see the
+agent configuration reference
+.
+File and task triggers are available in the IDE and CLI V3. Web can store Hook configuration for later local use, but Web sessions do not run these triggers. The table below shows what&#x27;s supported where.
+Trigger
+IDE
+CLI
+Web
+Prompt Submit
+✓
+✓
+—
+Agent Stop
+✓
+✓
+—
+Session Start
+✓
+V3
+—
+Agent Spawn
+—
+2.x / V3 alias
+—
+Session End
+—
+V3
+—
+Pre Tool Use
+✓
+✓
+—
+Post Tool Use
+✓
+✓
+—
+File Create
+✓
+V3
+—
+File Save
+✓
+V3
+—
+File Delete
+✓
+V3
+—
+Pre Task Execution
+✓
+V3
+—
+Post Task Execution
+✓
+V3
+—
+Manual
+—
+Listed in V3
+—
+Legacy Manual Hook
+Legacy only
+—
+—
+Prompt Submit
+Triggers when the user submits a prompt.
+IDE
+CLI
+When using the shell command action, the user prompt can be accessed via the
+USER_PROMPT
+environment variable.
+Use Cases:
+Provide additional context to the agent relevant to the prompt
+Block certain prompts based on their content (IDE only; CLI Prompt Submit Hooks cannot block)
+Log all user prompts to a central location
+Agent Stop
+Triggers when the agent has completed its turn and finished responding to the user.
+IDE
+CLI
+This is useful for running post-processing tasks like code compilation, testing, formatting, or cleanup after the agent&#x27;s response.
+Use Cases:
+Compile code and report any failures to the agent
+Format or review any agent-generated code
+Review changes made by agent and provide additional instructions
+Session Start
+Triggers when a new chat session starts in the IDE or CLI V3.
+Info
+CLI 2.x embedded Hooks used
+agentSpawn
+. CLI V3 uses
+SessionStart
+as the canonical trigger and accepts
+AgentSpawn
+and
+agentSpawn
+as compatibility spellings. See
+Hooks migration
+for the complete mapping.
+Use Cases:
+Inject workspace-specific instructions into the agent&#x27;s context
+Run environment checks (verify dependencies, validate credentials)
+Load project-specific configuration at session start
+Agent Spawn (CLI 2.x and V3 alias)
+CLI 2.x used
+agentSpawn
+when the agent was first activated. CLI V3 uses
+SessionStart
+as the canonical trigger but accepts
+AgentSpawn
+and
+agentSpawn
+for compatibility. The event provides no tool context.
+json
+{
+"hook_event_name"
+:
+"agentSpawn"
+,
+"cwd"
+:
+"/current/working/directory"
+,
+"session_id"
+:
+"abc123-def456-789"
+}
+Exit Code Behavior:
+0
+: Hook succeeded, STDOUT is added to agent&#x27;s context
+Other
+: Show STDERR warning to user
+Use Cases:
+Set up environment context when a session starts
+Load project-specific configuration
+Initialize logging or auditing systems
+Session End (CLI V3 only)
+The
+SessionEnd
+trigger fires when a CLI V3 session is torn down.
+Pre Tool Use
+Triggers when the agent is about to invoke a tool. Can validate and block tool usage.
+IDE
+CLI
+In the
+Tool name pattern
+field, provide an exact tool ID, a built-in category, a source selector, or a regular expression. You can specify multiple entries. The following built-in categories are supported:
+read
+- all built-in file read tools
+write
+- all built-in file write tools
+shell
+- all built-in shell command-related tools
+web
+- all built-in web tools
+spec
+- all built-in spec tools
+You can also use source selectors:
+@mcp
+- all MCP tools
+@powers
+- all Powers tools
+@builtin
+- all built-in tools
+@<server>
+- all tools from one MCP server, for example
+@postgres
+@<server>/<tool>
+- one tool from one MCP server, for example
+@postgres/query
+The editor checks each entry as a regular expression matched against tool IDs. A plain name such as
+read
+can therefore match any tool ID containing that text. Leave the field blank to match every tool.
+Hook JSON files also accept wildcard patterns. Use
+*
+to match any number of characters and
+?
+to match a single character. Edit the Hook JSON file directly to use these patterns because the IDE editor rejects them as invalid regular expressions.
+You can ask Kiro for the names of the available tools.
+Use Cases:
+Block certain tool invocations
+Validate tool inputs before execution
+Provide additional instructions to the agent before it invokes a tool
+Post Tool Use
+Triggers after the agent has invoked a tool, with access to tool results.
+IDE
+CLI
+For details on the
+Tool name
+field, refer to the
+Pre Tool Use
+section above.
+Use Cases:
+Log tool invocations for auditing purposes
+Format or review any updated files after a "write" tool call
+Provide additional instructions to the agent on top of the tool response
+File Create
+Triggers when the agent creates new files matching specific patterns in your workspace.
+Info
+File triggers respond only to changes made by the agent. Manual editor changes do not trigger File Create, File Save, or File Delete hooks.
+Use Cases:
+Generate boilerplate code for new components
+Add license headers to new files
+Set up test files when creating implementation files
+File Save
+Triggers when the agent saves or modifies files matching specific patterns.
+Use Cases:
+Run linting and formatting
+Update related files
+Generate documentation
+Run tests for changed files
+File Delete
+Triggers when the agent deletes files matching specific patterns.
+Use Cases:
+Clean up related files
+Update import references in other files
+Maintain project integrity
+Pre Task Execution
+Triggers before a spec task begins execution.
+Use Cases:
+Run setup scripts or environment preparation before task execution
+Validate prerequisites are met before a task starts
+Log task start events for tracking
+Post Task Execution
+Triggers after a spec task completes execution.
+Use Cases:
+Run tests after a task completes to verify correctness
+Run linting or formatting on changed files
+Generate documentation for completed work
+Notify external systems of task completion
+Manual (CLI V3)
+CLI V3 recognizes and lists
+Manual
+Hook definitions, but
+/hooks
+doesn&#x27;t provide an action to invoke them.
+Legacy manual Hooks (IDE only)
+Manual Hooks created in IDE 0.x continue to appear in the Agent Hooks panel with a
+legacy
+label. Enabled legacy manual Hooks remain runnable using the play button next to the Hook name or
+Start Hook
+in the Hook view.
+IDE 0.x
+userTriggered
+Hooks don&#x27;t have a v1 IDE trigger equivalent, and you can&#x27;t create a new Manual-trigger Hook in the IDE. For a new IDE on-demand workflow, create a
+manually included Steering file
+; it runs as a
+/<filename>
+slash command.
+MCP tool hooks
+For MCP tools, V3 Hook events use the sanitized internal tool ID
+mcp_<server>_<tool>
+, not the
+@server/tool
+display name:
+json
+{
+"hook_event_name"
+:
+"PreToolUse"
+,
+"cwd"
+:
+"/current/working/directory"
+,
+"session_id"
+:
+"abc123-def456-789"
+,
+"tool_name"
+:
+"mcp_postgres_query"
+,
+"tool_input"
+:
+{
+"sql"
+:
+"SELECT * FROM orders LIMIT 10;"
+}
+}
+This applies to both Pre Tool Use and Post Tool Use Hooks when targeting MCP server tools. In the Hook&#x27;s
+matcher
+, use either the
+@<server>
+or
+@<server>/<tool>
+selector or a regex against the internal ID.
+Hooks
+Hook actions

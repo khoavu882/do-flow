@@ -1,0 +1,690 @@
+MCP servers with Gemini CLI
+Copy as Markdown
+Copied!
+This document provides a guide to configuring and using Model Context Protocol
+(MCP) servers with Gemini CLI.
+What is an MCP server?
+Section titled “What is an MCP server?”
+An MCP server is an application that exposes tools and resources to the Gemini
+CLI through the Model Context Protocol, allowing it to interact with external
+systems and data sources. MCP servers act as a bridge between the Gemini model
+and your local environment or other services like APIs.
+An MCP server enables Gemini CLI to:
+Discover tools:
+List available tools, their descriptions, and parameters
+through standardized schema definitions.
+Execute tools:
+Call specific tools with defined arguments and receive
+structured responses.
+Access resources:
+Read data from specific resources that the server
+exposes (files, API payloads, reports, etc.).
+With an MCP server, you can extend Gemini CLI’s capabilities to perform actions
+beyond its built-in features, such as interacting with databases, APIs, custom
+scripts, or specialized workflows.
+Core integration architecture
+Section titled “Core integration architecture”
+Gemini CLI integrates with MCP servers through a sophisticated discovery and
+execution system built into the core package (
+packages/core/src/tools/
+):
+Discovery Layer (
+mcp-client.ts
+)
+Section titled “Discovery Layer (mcp-client.ts)”
+The discovery process is orchestrated by
+discoverMcpTools()
+, which:
+Iterates through configured servers
+from your
+settings.json
+mcpServers
+configuration
+Establishes connections
+using appropriate transport mechanisms (Stdio,
+SSE, or Streamable HTTP)
+Fetches tool definitions
+from each server using the MCP protocol
+Sanitizes and validates
+tool schemas for compatibility with the Gemini
+API
+Registers tools
+in the global tool registry with conflict resolution
+Fetches and registers resources
+if the server exposes any
+Execution layer (
+mcp-tool.ts
+)
+Section titled “Execution layer (mcp-tool.ts)”
+Each discovered MCP tool is wrapped in a
+DiscoveredMCPTool
+instance that:
+Handles confirmation logic
+based on server trust settings and user
+preferences
+Manages tool execution
+by calling the MCP server with proper parameters
+Processes responses
+for both the LLM context and user display
+Maintains connection state
+and handles timeouts
+Transport mechanisms
+Section titled “Transport mechanisms”
+Gemini CLI supports three MCP transport types:
+Stdio Transport:
+Spawns a subprocess and communicates via stdin/stdout
+SSE Transport:
+Connects to Server-Sent Events endpoints
+Streamable HTTP Transport:
+Uses HTTP streaming for communication
+Working with MCP resources
+Section titled “Working with MCP resources”
+Some MCP servers expose contextual “resources” in addition to the tools and
+prompts. Gemini CLI discovers these automatically and gives you the possibility
+to reference them in the chat. For more information on the tools used to
+interact with these resources, see
+MCP resource tools
+.
+Discovery and listing
+Section titled “Discovery and listing”
+When discovery runs, the CLI fetches each server’s
+resources/list
+results.
+The
+/mcp
+command displays a Resources section alongside Tools and Prompts
+for every connected server.
+This returns a concise, plain-text list of URIs plus metadata.
+Referencing resources in a conversation
+Section titled “Referencing resources in a conversation”
+You can use the same
+@
+syntax already known for referencing local files:
+@server://resource/path
+Resource URIs appear in the completion menu together with filesystem paths. When
+you submit the message, the CLI calls
+resources/read
+and injects the content
+in the conversation.
+How to set up your MCP server
+Section titled “How to set up your MCP server”
+Gemini CLI uses the
+mcpServers
+configuration in your
+settings.json
+file to
+locate and connect to MCP servers. This configuration supports multiple servers
+with different transport mechanisms.
+Configure the MCP server in settings.json
+Section titled “Configure the MCP server in settings.json”
+You can configure MCP servers in your
+settings.json
+file in two main ways:
+through the top-level
+mcpServers
+object for specific server definitions, and
+through the
+mcp
+object for global settings that control server discovery and
+execution.
+Global MCP settings (
+mcp
+)
+Section titled “Global MCP settings (mcp)”
+The
+mcp
+object in your
+settings.json
+lets you define global rules for all
+MCP servers.
+mcp.serverCommand
+(string): A global command to start an MCP server.
+mcp.allowed
+(array of strings): A list of MCP server names to allow. If
+this is set, only servers from this list (matching the keys in the
+mcpServers
+object) will be connected to.
+mcp.excluded
+(array of strings): A list of MCP server names to exclude.
+Servers in this list will not be connected to.
+Example:
+{
+"mcp"
+: {
+"allowed"
+: [
+"my-trusted-server"
+],
+"excluded"
+: [
+"experimental-server"
+]
+}
+}
+Server-specific configuration (
+mcpServers
+)
+Section titled “Server-specific configuration (mcpServers)”
+The
+mcpServers
+object is where you define each individual MCP server you want
+the CLI to connect to.
+Configuration structure
+Section titled “Configuration structure”
+Add an
+mcpServers
+object to your
+settings.json
+file:
+{
+...file
+contains
+other
+config
+objects
+"mcpServers"
+: {
+"serverName"
+: {
+"command"
+:
+"path/to/server"
+,
+"args"
+: [
+"--arg1"
+,
+"value1"
+],
+"env"
+: {
+"API_KEY"
+:
+"$MY_API_TOKEN"
+},
+"cwd"
+:
+"./server-directory"
+,
+"timeout"
+:
+30000
+,
+"trust"
+:
+false
+}
+}
+}
+Configuration properties
+Section titled “Configuration properties”
+Each server configuration supports the following properties:
+Required (one of the following)
+Section titled “Required (one of the following)”
+command
+(string): Path to the executable for Stdio transport
+url
+(string): SSE endpoint URL (for example,
+"http://localhost:8080/sse"
+)
+httpUrl
+(string): HTTP streaming endpoint URL
+Optional
+Section titled “Optional”
+args
+(string[]): Command-line arguments for Stdio transport
+headers
+(object): Custom HTTP headers when using
+url
+or
+httpUrl
+env
+(object): Environment variables for the server process. Values can
+reference environment variables using
+$VAR_NAME
+or
+${VAR_NAME}
+syntax (all
+platforms), or
+%VAR_NAME%
+(Windows only).
+cwd
+(string): Working directory for Stdio transport
+timeout
+(number): Request timeout in milliseconds (default: 600,000ms =
+10 minutes)
+trust
+(boolean): When
+true
+, bypasses all tool call confirmations for
+this server (default:
+false
+)
+includeTools
+(string[]): List of tool names to include from this MCP
+server. When specified, only the tools listed here will be available from this
+server (allowlist behavior). If not specified, all tools from the server are
+enabled by default.
+excludeTools
+(string[]): List of tool names to exclude from this MCP
+server. Tools listed here will not be available to the model, even if they are
+exposed by the server.
+excludeTools
+takes precedence over
+includeTools
+. If
+a tool is in both lists, it will be excluded.
+targetAudience
+(string): The OAuth Client ID allowlisted on the
+IAP-protected application you are trying to access. Used with
+authProviderType: 'service_account_impersonation'
+.
+targetServiceAccount
+(string): The email address of the Google Cloud
+Service Account to impersonate. Used with
+authProviderType: 'service_account_impersonation'
+.
+Environment variable expansion
+Section titled “Environment variable expansion”
+Gemini CLI automatically expands environment variables in the
+env
+block of
+your MCP server configuration. This lets you securely reference variables
+defined in your shell or environment without hardcoding sensitive information
+directly in your
+settings.json
+file.
+The expansion utility supports:
+POSIX/Bash syntax:
+$VARIABLE_NAME
+or
+${VARIABLE_NAME}
+(supported on
+all platforms)
+Windows syntax:
+%VARIABLE_NAME%
+(supported only when running on Windows)
+If a variable is not defined in the current environment, it resolves to an empty
+string.
+Example:
+"env"
+: {
+"API_KEY"
+:
+"$MY_EXTERNAL_TOKEN"
+,
+"LOG_LEVEL"
+:
+"$LOG_LEVEL"
+,
+"TEMP_DIR"
+:
+"%TEMP%"
+}
+Security and environment sanitization
+Section titled “Security and environment sanitization”
+To protect your credentials, Gemini CLI performs environment sanitization when
+spawning MCP server processes.
+Automatic redaction
+Section titled “Automatic redaction”
+By default, the CLI redacts sensitive environment variables from the base
+environment (inherited from the host process). This prevents the accidental
+leakage of sensitive host environment variables (like AWS keys or GitHub tokens)
+to arbitrary third-party MCP servers that might execute malicious code or log
+your environment. This includes:
+Core project keys:
+GEMINI_API_KEY
+,
+GOOGLE_API_KEY
+, etc.
+Variables matching sensitive patterns:
+*TOKEN*
+,
+*SECRET*
+,
+*PASSWORD*
+,
+*KEY*
+,
+*AUTH*
+,
+*CREDENTIAL*
+.
+Certificates and private key patterns.
+Explicit overrides
+Section titled “Explicit overrides”
+If an environment variable must be passed to an MCP server, you must explicitly
+state it in the
+env
+property of the server configuration in
+settings.json
+(or
+mcp_config.json
+if configuring standard MCP clients or remote skills).
+Explicitly defined variables (including those from extensions) are trusted and
+are
+not
+subjected to the automatic redaction process.
+This follows the security principle that if a variable is explicitly configured
+by the user for a specific server, it constitutes informed consent to share that
+specific data with that server.
+Note
+Even when explicitly defined, you should avoid hardcoding secrets.
+Instead, use environment variable expansion
+(for example,
+"MY_KEY": "$MY_KEY"
+) to securely pull the value from your host
+environment at runtime.
+Example: Passing a GitHub Token securely to the
+official GitHub MCP server
+via
+mcp_config.json
+{
+"mcpServers"
+: {
+"github"
+: {
+"command"
+:
+"npx"
+,
+"args"
+: [
+"-y"
+,
+"@github/github-mcp-server"
+],
+"env"
+: {
+"GITHUB_PERSONAL_ACCESS_TOKEN"
+:
+"$GITHUB_PERSONAL_ACCESS_TOKEN"
+}
+}
+}
+}
+OAuth support for remote MCP servers
+Section titled “OAuth support for remote MCP servers”
+Gemini CLI supports OAuth 2.0 authentication for remote MCP servers using SSE or
+HTTP transports. This enables secure access to MCP servers that require
+authentication.
+Automatic OAuth discovery
+Section titled “Automatic OAuth discovery”
+For servers that support OAuth discovery, you can omit the OAuth configuration
+and let the CLI discover it automatically:
+{
+"mcpServers"
+: {
+"discoveredServer"
+: {
+"url"
+:
+"https://api.example.com/sse"
+}
+}
+}
+The CLI will automatically:
+Detect when a server requires OAuth authentication (401 responses)
+Discover OAuth endpoints from server metadata
+Perform dynamic client registration if supported
+Handle the OAuth flow and token management
+Authentication flow
+Section titled “Authentication flow”
+When connecting to an OAuth-enabled server:
+Initial connection attempt
+fails with 401 Unauthorized
+OAuth discovery
+finds authorization and token endpoints
+Browser opens
+for user authentication (requires local browser access)
+Authorization code
+is exchanged for access tokens
+Tokens are stored
+securely for future use
+Connection retry
+succeeds with valid tokens
+Browser redirect requirements
+Section titled “Browser redirect requirements”
+Caution
+OAuth authentication requires that your local machine can:
+Open a web browser for authentication
+Receive redirects on
+http://localhost:&#x3C;random-port>/oauth/callback
+(or a specific port if configured via
+redirectUri
+)
+This feature will not work in:
+Headless environments without browser access
+Remote SSH sessions without X11 forwarding
+Containerized environments without browser support
+Authorization server requirements (RFC 9207)
+Section titled “Authorization server requirements (RFC 9207)”
+Caution
+Gemini CLI validates the
+iss
+(issuer) parameter in OAuth authorization
+responses per
+RFC 9207
+and the MCP
+specification:
+Whenever the
+iss
+parameter is present in the callback redirect and an
+expected
+issuer
+is discovered or configured,
+iss
+must
+match the
+expected issuer URL.
+When the authorization server metadata sets
+authorization_response_iss_parameter_supported: true
+, the callback
+redirect
+must
+include the
+iss
+parameter.
+When the discovered authorization server metadata omits
+authorization_response_iss_parameter_supported
+or sets it to
+false
+(for
+example, providers that do not declare RFC 9207 support), callbacks without
+iss
+are accepted.
+When you configure
+issuer
+explicitly in
+settings.json
+and Gemini CLI
+doesn’t discover authorization server metadata, the callback redirect
+must
+include the
+iss
+parameter. To accept callbacks without
+iss
+for
+such a server, set
+authorizationResponseIssParameterSupported
+to
+false
+in the
+oauth
+configuration.
+Expected authorization callback example
+Section titled “Expected authorization callback example”
+When the authorization server declares
+authorization_response_iss_parameter_supported: true
+, the redirect URI must
+include the
+iss
+parameter:
+HTTP
+/
+1.1
+302
+Found
+Location
+:
+http://localhost:&#x3C;port>/oauth/callback?code=AUTH_CODE&#x26;state=STATE&#x26;iss=https%3A%2F%2Fauth.example.com
+/oauth/callback?code=AUTH_CODE&#x26;state=STATE&#x26;iss=https%3A%2F%2Fauth.example.com">
+Valid response (accepted):
+iss
+matches the configured or discovered
+issuer (
+https://auth.example.com
+), or
+iss
+is omitted when the discovered
+metadata doesn’t set
+authorization_response_iss_parameter_supported
+to
+true
+.
+Missing
+iss
+when required (rejected):
+http://localhost:&#x3C;port>/oauth/callback?code=AUTH_CODE&#x26;state=STATE
+when
+authorization_response_iss_parameter_supported
+is
+true
+, or when
+issuer
+is configured explicitly without discovered metadata (fails with HTTP 400:
+Missing issuer parameter in response
+).
+Mismatched
+iss
+(rejected):
+iss
+points to a different domain or
+includes userinfo (fails with HTTP 400:
+Issuer mismatch
+).
+Configuration example with explicit issuer
+Section titled “Configuration example with explicit issuer”
+If your remote MCP server uses an authorization server with a known issuer URL:
+{
+"mcpServers"
+: {
+"secureRemoteServer"
+: {
+"url"
+:
+"https://mcp.example.com/sse"
+,
+"oauth"
+: {
+"enabled"
+:
+true
+,
+"issuer"
+:
+"https://auth.example.com"
+,
+"authorizationUrl"
+:
+"https://auth.example.com/oauth/authorize"
+,
+"tokenUrl"
+:
+"https://auth.example.com/oauth/token"
+,
+"clientId"
+:
+"gemini-cli-client"
+,
+"scopes"
+: [
+"mcp:read"
+,
+"mcp:write"
+]
+}
+}
+}
+}
+With this configuration, Gemini CLI requires the
+iss
+parameter in the
+authorization callback. If the authorization server doesn’t return
+iss
+in its
+redirects, add
+"authorizationResponseIssParameterSupported": false
+to the
+oauth
+block. Gemini CLI then accepts callbacks without
+iss
+while still
+rejecting any
+iss
+value that doesn’t match the configured
+issuer
+.
+Managing OAuth authentication
+Section titled “Managing OAuth authentication”
+Use the
+/mcp auth
+command to manage OAuth authentication:
+Terminal window
+# List servers requiring authentication
+/mcp
+auth
+# Authenticate with a specific server
+/mcp
+auth
+serverName
+# Re-authenticate if tokens expire
+/mcp
+auth
+serverName
+OAuth configuration properties
+Section titled “OAuth configuration properties”
+enabled
+(boolean): Enable OAuth for this server
+clientId
+(string): OAuth client identifier (optional with dynamic
+registration)
+clientSecret
+(string): OAuth client secret (optional for public clients)
+authorizationUrl
+(string): OAuth authorization endpoint (auto-discovered
+if omitted)
+issuer
+(string): Authorization server issuer URL (auto-discovered if
+omitted; validated per RFC 9207)
+authorizationResponseIssParameterSupported
+(boolean): Whether the
+authorization server returns the
+iss
+parameter in authorization responses
+(RFC 9207). Auto-discovered from the authorization server metadata; defaults
+to
+true
+when
+issuer
+is configured explicitly without discovered metadata.
+Set to
+false
+to accept callbacks without
+iss
+for such a server.
+tokenUrl
+(string): OAuth token endpoint (auto-discovered if omitted)
+scopes
+(string[]): Required OAuth scopes
+redirectUri
+(string): Custom redirect URI (defaults to an OS-assigned
+random port, e.g.,
+http://localhost:&#x3C;random-port>/oauth/callback
+)
+tokenParamName
+(string): Query parameter name for tokens in SSE URLs
+audiences
+(string[]): Audiences the token is valid for
+Token management
+[snapshot truncated]

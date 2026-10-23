@@ -1,0 +1,5 @@
+Redirecting to: /docs/rules
+Redirecting from
+/docs/rules-workflows/
+to
+/docs/rules
