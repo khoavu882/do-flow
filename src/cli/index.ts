@@ -16,6 +16,7 @@ const { pkg } = require('./shared.ts');
 const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets.ts');
 const { dispatchRuntimeCommand } = require('./runtime-commands.ts');
 const { usageError } = require('../runtime/cli-result.ts');
+const { printSafe } = require('../runtime/mask.ts');
 
 const cmdInstall = require('./commands/install.ts');
 const cmdUpdate = require('./commands/update.ts');
@@ -81,7 +82,7 @@ function parseArgs(argv: string[]): any {
       case '--':
         if (o.cmd === 'slot') { o.slotCommand = argv.slice(i + 1); i = argv.length; break; }
         if (o.cmd === 'plan-check') break;
-        console.error(`doflow: unknown flag '${a}'`); process.exit(1);
+        console.error(unknownFlagMessage(a)); process.exit(1);
         break;
       // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
       case '--edit': o.edit = true; break;
@@ -219,7 +220,7 @@ function parseArgs(argv: string[]): any {
         if (runtime !== null) { i = runtime; break; }
         // slot reports an unknown flag as its own usage error (exit 2, 115 IC-008).
         if (a.startsWith('-') && o.cmd === 'slot') (o.extraFlags = o.extraFlags || []).push(a);
-        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(`doflow: unknown flag '${a}'`); process.exit(1); }
+        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
       }
@@ -229,11 +230,25 @@ function parseArgs(argv: string[]): any {
   return o;
 }
 
+/** Longest part of an unrecognised argument echoed back; the rest is cut and marked. */
+const UNKNOWN_FLAG_ECHO_CHARS = 80;
+
+/** The unknown-flag error: the argument is untrusted text, so it is made print-safe (no control
+ * characters, one line) and cut to a bounded length (FU-8eqytg). */
+function unknownFlagMessage(arg: string): string {
+  const safe = printSafe(String(arg));
+  const shown = safe.length > UNKNOWN_FLAG_ECHO_CHARS ? `${safe.slice(0, UNKNOWN_FLAG_ECHO_CHARS)}...` : safe;
+  return `doflow: unknown flag '${shown}'`;
+}
+
 /** Single-value arguments of the runtime verbs → the option key each one writes. */
 const RUNTIME_STRING_FLAGS = new Map([
   // `scaffold`. The resolver's own ambiguous-feature error tells the caller to "re-run with
   // --slug=<chosen>"; without this flag that hint would name an argument this CLI rejects.
   ['--slug', 'slug'],
+  // `--reason <text>` is parsed by its own case above; this entry is the `--reason=<text>` spelling
+  // of the same flag (FU-8eqytg), so the two forms mean the same on every verb that accepts it.
+  ['--reason', 'reason'],
   ['--rationale', 'rationale'],        // classify: why this class was proposed · decision --action add: why it was decided
   ['--request', 'request'],            // classify: request text for an advisory second opinion
   ['--request-file', 'requestFile'],   // classify: request text read from a file

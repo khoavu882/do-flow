@@ -350,6 +350,11 @@ function takeFollowups({ root, ids, slug, channel, now = new Date(), fsImpl = no
   if (!slug) throw new FollowupUsageError('--slug is required for --action take');
   const bad = invalidSlugRefusal(slug);
   if (bad) throw new FollowupUsageError(bad.message);
+  // `list` shows a taken item whose feature finished as `done`, but the fold still holds it `taken`: say what the user was shown.
+  const shown = loadFollowups(root, { fsImpl, now }).followups.find((item: any) => item.derived && list.includes(item.id));
+  if (shown) {
+    return refusal('take', 'illegal-transition', `${shown.id} is done because feature ${shown.takenBy} finished (derived from git and the release records, not recorded on the item); only an open item can be taken. Nothing was written.`);
+  }
   const out = appendEvents(root, [{ type: 'followup.taken', by: channelBy(channel), data: { ids: list, feature: slug } }], { now, fsImpl });
   if (!out.ok) return refusalFrom('take', out);
   return { ok: true, action: 'take', ids: list, feature: slug, events: out.written.map((w: any) => w.file), next: [] };

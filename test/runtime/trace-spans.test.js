@@ -530,6 +530,17 @@ test('D.1-fix: a completed orchestration run closes the trace; a hook line after
   assert.deepEqual([root.end, root.durationMs], [ms('12:10:00.000'), 600000 - 302]);
 });
 
+test('FU-c2ddw2: a run namespaced under its feature slug closes the trace and carries its namespaced locator; a flat seed is not a second run', (t) => {
+  const body = { ...orchD('F-6', 'complete'), featureSlug: 'feat-ns' };
+  const v = seedD(t, { orchestration: { 'feat-ns/F-6': body, 'F-6': body }, telemetry: [hookD(ms('12:13:00.000'))] });
+  assert.deepEqual(traceOf(v, ID4).window, { from: ms('12:00:00.302'), to: ms('12:10:00.000') });
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:unmatched'], 'after the namespaced run completed');
+  for (const n of [0, 1, 2, 3]) assert.deepEqual(where(v, `orchestration/feat-ns/F-6.json#${KEY_D}/${n}`), [`trace:${ID4}`], `entry ${n}`);
+  assert.deepEqual(where(v, `orchestration/F-6.json#${KEY_D}/0`), [], 'the flat seed of a namespaced run is not read twice');
+  const lockDir = seedD(t, { orchestration: { 'F-6.json.lock/F-6': body }, telemetry: [hookD(ms('12:13:00.000'))] });
+  assert.equal(traceOf(lockDir, ID4).window.to, null, 'a lock directory is no namespace');
+});
+
 test('D.1-fix: a rejected gate ends the orchestration run and closes the trace too', (t) => {
   const v = seedD(t, { orchestration: { 'F-6': orchD('F-6', 'reject') }, telemetry: [hookD(ms('12:13:00.000'))] });
   assert.equal(traceOf(v, ID4).window.to, ms('12:10:00.000'));

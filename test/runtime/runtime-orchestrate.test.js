@@ -470,7 +470,13 @@ test('a run with the same id for another feature in another worktree neither blo
   assert.ok(!fs.existsSync(runFileOf(w1, 'A.1')), 'nothing in the worktree');
   const theirs = fs.readFileSync(theirsFile);
 
-  const missing = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1']);
+  // FU-wrnnaq: status, which only reads, opens the one run list shows for the id; an action that
+  // changes a run does not take another feature's run for this checkout's task.
+  const seen = json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1']);
+  assert.equal(seen.status, 0, seen.stderr);
+  assert.equal(seen.data.taskId, 'A.1');
+  assert.deepEqual(fs.readFileSync(theirsFile), theirs, 'status changed nothing');
+  const missing = run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 'A.1', '--node', 'reproduction', '--note', 'n']);
   assert.equal(missing.status, 1, 'the other feature\'s run is not this checkout\'s task');
   assert.match(missing.stderr, /No workflow run for task 'A\.1'/);
 
@@ -516,4 +522,120 @@ test('C-10: a run\'s brief records are read from the checkout the verb runs in, 
   const { briefRecords, repoRoot } = orchestrator.readBriefRecords('950-brief');
   assert.deepEqual(briefRecords, [{ runTaskId: '950-brief', stage: 'discovery', tier: 'sonnet' }]);
   assert.equal(repoRoot, fs.realpathSync(wt), 'report paths resolve in the checkout that holds the folder');
+});
+
+// ─────────────────────────────── FU-16c2wz / FU-wrnnaq / FU-mtjqt9 C-13: what `status` reads
+
+const storeOf = (cwd) => path.join(cwd, '.doflow', 'state', 'orchestration');
+/** `status` with a time limit, so a read that blocks fails the test instead of hanging the file. */
+function statusWithin(cwd, args, timeout = 20000) {
+  const res = spawnSync('node', [DOFLOW, 'orchestrate', '--action', 'status', ...args], {
+    cwd, env: { ...process.env, HOME: cwd }, encoding: 'utf8', timeout, killSignal: 'SIGKILL',
+  });
+  return { status: res.status, signal: res.signal, error: res.error, stdout: res.stdout, stderr: res.stderr };
+}
+
+test('FU-16c2wz: a FIFO as the run file makes status fail fast, naming the file, not hang', (t) => {
+  const cwd = project(t);
+  fs.mkdirSync(storeOf(cwd), { recursive: true });
+  const fifo = path.join(storeOf(cwd), 'ZZ.json');
+  assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+  const res = statusWithin(cwd, ['--task-id', 'ZZ']);
+  assert.equal(res.error, undefined, 'status did not return in time');
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /\[ERROR\] orchestrate: .*not a regular file/);
+  assert.ok(res.stderr.includes(fifo), res.stderr);
+});
+
+test('FU-16c2wz: a FIFO as a namespaced run file makes status fail fast too', (t) => {
+  const cwd = project(t);
+  fs.mkdirSync(path.join(storeOf(cwd), 'feat-a'), { recursive: true });
+  assert.equal(spawnSync('mkfifo', [path.join(storeOf(cwd), 'feat-a', 'ZZ.json')]).status, 0);
+  const res = statusWithin(cwd, ['--task-id', 'ZZ', '--slug', 'feat-a']);
+  assert.equal(res.error, undefined, 'status did not return in time');
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /not a regular file/);
+});
+
+test('FU-16c2wz: a run file that links outside the store is refused and its target is not read', (t) => {
+  const cwd = project(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'real', '--task-class', 'bug']);
+  const outside = path.join(cwd, 'outside-run.json');
+  fs.renameSync(path.join(storeOf(cwd), 'real.json'), outside);
+  fs.symlinkSync(outside, path.join(storeOf(cwd), 'L1.json'));
+  const res = statusWithin(cwd, ['--task-id', 'L1']);
+  assert.equal(res.status, 1, res.stdout);
+  assert.match(res.stderr, /\[ERROR\] orchestrate: .*not a regular file/);
+  assert.equal(res.stdout, '', 'nothing of the linked record is printed');
+});
+
+test('FU-16c2wz: a namespace folder that links outside the store is refused too', (t) => {
+  const cwd = project(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.1', '--task-class', 'bug', '--slug', 'feat-b']);
+  const outside = path.join(cwd, 'outside-ns');
+  fs.renameSync(path.join(storeOf(cwd), 'feat-b'), outside);
+  fs.symlinkSync(outside, path.join(storeOf(cwd), 'feat-b'));
+  const res = statusWithin(cwd, ['--task-id', 'T.1', '--slug', 'feat-b']);
+  assert.equal(res.status, 1, res.stdout);
+  assert.match(res.stderr, /not a regular file/);
+  assert.equal(res.stdout, '');
+});
+
+test('FU-16c2wz: an ordinary run file is still read by status', (t) => {
+  const cwd = project(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'plain', '--task-class', 'bug']);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.2', '--task-class', 'bug', '--slug', 'feat-c']);
+  assert.equal(statusWithin(cwd, ['--task-id', 'plain']).status, 0);
+  assert.equal(statusWithin(cwd, ['--task-id', 'T.2', '--slug', 'feat-c']).status, 0);
+});
+
+test('FU-wrnnaq: status without --slug opens the single namespaced run that list shows', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.5', '--task-class', 'bug', '--slug', 'aaa']);
+  const listed = json(cwd, ['orchestrate', '--action', 'list']);
+  assert.deepEqual(listed.data.runs.map((r) => [r.featureSlug, r.taskId]), [['aaa', 'T.5']]);
+  const res = json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.data.taskId, 'T.5');
+  assert.equal(res.data.current.id, 'reproduction');
+  // C-9: the text form says whose run it opened, since the run may belong to another feature.
+  const text = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /^Workflow T\.5 \[bug\] — RUNNING\nFeature: aaa$/m);
+});
+
+test('FU-wrnnaq: status without --slug refuses when two features hold the id, naming both', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  for (const slug of ['aaa', 'bbb']) json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.5', '--task-class', 'bug', '--slug', slug]);
+  const res = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5']);
+  assert.equal(res.status, 1);
+  assert.ok(res.stderr.includes(path.join(storeOf(cwd), 'aaa', 'T.5.json')), res.stderr);
+  assert.ok(res.stderr.includes(path.join(storeOf(cwd), 'bbb', 'T.5.json')), res.stderr);
+  // Naming the feature still opens the one asked for.
+  assert.equal(json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5', '--slug', 'bbb']).status, 0);
+});
+
+test('FU-wrnnaq: only status looks across namespaces; a write action without --slug still finds no run', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.5', '--task-class', 'bug', '--slug', 'aaa']);
+  const before = fs.readFileSync(path.join(storeOf(cwd), 'aaa', 'T.5.json'));
+  const res = run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 'T.5', '--node', 'reproduction', '--note', 'n']);
+  assert.equal(res.status, 1);
+  assert.deepEqual(fs.readFileSync(path.join(storeOf(cwd), 'aaa', 'T.5.json')), before);
+});
+
+test('FU-mtjqt9 C-13: status on a corrupt run journal reveals none of its bytes', (t) => {
+  const cwd = project(t);
+  fs.mkdirSync(storeOf(cwd), { recursive: true });
+  const secret = 'SECRET-PAYLOAD-4f9a';
+  fs.writeFileSync(path.join(storeOf(cwd), 'C13.json'), `${secret} not json`);
+  const res = statusWithin(cwd, ['--task-id', 'C13']);
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /Failed to load state file/);
+  assert.match(res.stderr, /C13\.json/);
+  assert.equal(res.stderr.includes(secret), false, res.stderr);
+  assert.equal(res.stderr.includes('SECRET'), false, res.stderr);
 });

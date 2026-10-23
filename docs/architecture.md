@@ -785,12 +785,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-71 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-64 entries across 60 test files and carries 62 distinct G-numbers.
+72 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+65 entries across 61 test files and carries 63 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
 files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
-historical rather than a convention; G64 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G65 is the highest number in use, so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -1166,6 +1166,25 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   hook line that lets a stage brief override the spec. Controls: an eighth spec, a 161-character
   description, a 1,001-character sum and a planted `doflow-run` are red. Raising a cap is a deliberate
   edit to the guard.
+- **G65** (`adopted-stores.test.js`) — the stores a linked worktree's records are adopted from
+  (`core/registry/storage.json` stores with `root: project-state` that name `src/runtime/state-root.ts`
+  in `writers`, read through `adoptedStores`) are the stores that source files address through
+  `taskRecord`, `taskStoreDir`, `recordIn` or `resolveTaskScope`. Each helper call is tied to its own
+  argument: `taskRecord` and `taskStoreDir` by a string-literal `store: '<path>'` property, `recordIn` by
+  a `base:` that is a literal `'.doflow', 'state', '<path>'` path or built from `runStoreDir` or
+  `RUN_STORE_REL` (the orchestration run store), followed through a same-file variable or `this.<field>`
+  assignment when `base` is a name; `resolveTaskScope` takes no store argument, so a file that calls it addresses the `'.doflow', 'state', '<path>'` stores it names (it builds the record path itself). A call whose store cannot be
+  resolved (a variable `store:`, no `store:`, an unresolvable `base:`) is reported with its file and
+  line, not skipped. Comments and `src/runtime/task-scope.ts` itself are not read. Every addressed store must
+  be adopted (else a worktree's records of it are never swept into the main checkout), and every adopted
+  store must be addressed by at least one call (else the declaration is stale). Controls on synthetic
+  registries and sources: a consistent pair reports nothing; a helper user of an undeclared store and an
+  adopted store with no user are each named; a store named only in a comment, in the helper module or
+  beside no helper call is not a user; an unrelated `store:` literal outside a helper call, or nested in
+  its arguments, is not attributed to it; a helper call with a variable or missing store is reported;
+  `workflow-orchestrator.ts` is an orchestration user through `runStoreDir()` even when
+  `research-request.ts` no longer names that store; and against the shipped sources, removing the adopter from
+  `task-evidence` or adding it to `task-attempts` turns it red.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

@@ -247,3 +247,17 @@ test('runs of one feature in two other checkouts: verify names the run files and
   assert.equal(check.message, `doflow gate readiness-before-implementation: task 'T-7' has runs in more than one other checkout (${files.join(', ')}). `
     + 'Next: run verify from the checkout that holds the run you mean. Nothing was changed.');
 });
+
+// ── FU-mtjqt9 C-14: one place names the run store ───────────────────────────────────────────────
+
+test('FU-mtjqt9 C-14: the run store folder is named once, and the orchestrator and the list action read it from there', () => {
+  const root = dir();
+  const expected = path.join(root, '.doflow', 'state', 'orchestration');
+  assert.equal(typeof gate.runStoreDir, 'function');
+  assert.equal(gate.runStoreDir(root), expected);
+  assert.equal(new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root }).stateDir, expected);
+  const joined = /'\.doflow',\s*'state',\s*'orchestration'/g;
+  const count = (rel) => (fs.readFileSync(path.join(REPO, rel), 'utf8').match(joined) || []).length;
+  assert.equal(count('src/runtime/implementation-gate.ts'), 1, 'implementation-gate.ts joins the store path once, in its definition');
+  assert.equal(count('src/runtime/workflow-orchestrator.ts'), 0, 'workflow-orchestrator.ts takes it from implementation-gate.ts');
+});

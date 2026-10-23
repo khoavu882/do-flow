@@ -8,7 +8,7 @@
  * the project store. Masking only narrows what a statement or an excerpt can carry.
  *
  * Two profiles. The line profile is for one-line statements and failure messages; the body profile
- * is for report bodies and excerpts and runs every line rule plus the body-only rules 7 to 9.
+ * is for report bodies and excerpts and runs every line rule plus the body-only rules 7 to 9 and 14 to 17.
  * Rules run in the table's order. Normalisation (rules 10 to 13) is a separate step applied to
  * failure messages only, after masking.
  *
@@ -53,6 +53,100 @@ const IPV4 = /(?<![0-9.])(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.){3}(?:25[0-5
 const KEY_VALUE_BODY = new RegExp(`(${KEY_NAME}["']?[ \\t]*[=:][ \\t]*)("[^"\\r\\n]*"|'[^'\\r\\n]*'|[^\\s,;&"'\`)\\]}]+)`, 'gi');
 const AUTH_HEADER = /((?:Proxy-)?Authorization:)[ \t]*([^\r\n]*)/gi;
 const SECRET_FLAG = /(--(?:password|passwd|token|secret|api-key|client-secret)(?:=|[ \t]+))("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi;
+
+// Rules 14 to 17 (body profile only, FU-ht8b3r). Command shapes that carry a secret without a key
+// word: `curl -u user:pw` (also glued, `-uuser:pw`), `mysql -psecret` (value glued to the flag; a bare
+// `-p` prompts and carries none), and the phrase `password hunter2`. The flags are masked by one
+// left-to-right scan (rules 14 and 15, `maskCommandFlags`) that knows which command it is in, so every
+// flag of a command is masked and `sort -u`, `git push -u` and `mysql -P 3306` stay as written.
+// A command word counts only at command position (see `maskCommandFlags`), and quoted text is scanned,
+// not skipped. Alternatives, in order: a quote, a command break (`|`, `;`, `&`, parentheses, a
+// backtick, a line end), curl's `--user` and `-u` (the short one may be glued to its value), mysql's
+// `-p` glued to its value, any other word.
+const COMMAND_SCAN = /(?<quote>["'])|(?<brk>[|;&()`\r\n])|(?<=[ \t])(?:(?<long>--user)(?:=|[ \t]+)|(?<short>-u)(?:=|[ \t]*)(?=[^\s|;&]))|(?<=[ \t])(?<pass>-p)(?=[^\s|;&-])|(?<word>[^\s|;&()`"']+)/g;
+// The closing quote of a quoted span, on the same line.
+const QUOTE_CLOSE: Record<string, RegExp> = { '"': /[^"\r\n]*"/y, "'": /[^'\r\n]*'/y };
+// A word that is the command: bare or as a path (never a URL, which holds `:`).
+const COMMAND_WORD = /^(?:(?:\.{0,2}|~)?\/(?:[^\s:]*\/)?)?(?:(curl)|(mysql(?:dump|admin|pump|import)?))$/;
+// Words after which the next word is the command: wrappers, remote and container runners, shell keywords.
+const WRAPPER_WORDS = new Set(['sudo', 'doas', 'su', 'env', 'exec', 'nohup', 'time', 'timeout', 'nice', 'ionice', 'xargs', 'watch',
+  'command', 'builtin', 'eval', 'setsid', 'stdbuf', 'flock', 'chroot', 'ssh', 'docker', 'podman', 'kubectl', 'sh', 'bash', 'zsh', 'dash', 'ksh',
+  'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{']);
+// A first word that does not use up the command position: a prompt mark, a variable assignment or a
+// label such as `Running:`.
+const PROMPT_OR_ASSIGNMENT = /^(?:[$#%>+]+|[A-Za-z_][A-Za-z0-9_]*=[^=]*|[A-Za-z][A-Za-z0-9_-]*:)$/;
+// A flag value: quoted, or unquoted up to a space, quote or command break.
+const COMMAND_FLAG_VALUE = /"[^"\r\n]*"|'[^'\r\n]*'|[^\s"'|;&]+/y;
+// The value after the phrase must hold a non-letter, as in rule 4, so ordinary prose ("the password is
+// required") survives; a plain-letter value after a bare `password ` is a known gap, and so is a
+// password of one to three digits (`reset password 2 times` is prose).
+const PASSWORD_PHRASE = /(?<![A-Za-z0-9_.-])((?:password|passwd)[ \t]+)(?!<masked>|[=:])([^\s,;&"'`)\]}]+)/gi;
+// Another user's home directory (the running user's is rule 0). `Shared` is not a person and `runner`
+// is the CI runner account (`/Users/runner/work/...`), so neither is masked.
+const OTHER_USER_HOME = /(?<![A-Za-z0-9_.-])\/Users\/(?!(?:Shared|runner)(?![^/\s"'`<>:;,()[\]{}])|<)[^/\s"'`<>:;,()[\]{}]+/g;
+
+/**
+ * Rules 14 and 15. Scans left to right and masks the value of every `-u`/`--user` of a curl command
+ * and every `-p<value>` of a mysql command. A command word (`curl`, `mysql*`) is the command of its
+ * segment only at command position: the first word of the text, of a line or of a segment after a
+ * break (`|`, `;`, `&`, a parenthesis, a backtick), of a quoted span, or after a wrapper word
+ * (`sudo`, `env`, `ssh`, `docker`, `sh`, `bash`, ...) at the start of the segment. A word that holds `:`
+ * (a URL) or is followed by more of its token (`mysql-8`) is not the command. A segment has one
+ * command. Quoted text is scanned: its start is a command position, and a break inside it ends only
+ * the command inside it, so `curl -H "a|b" -u x:y` keeps its command. One pass; every step consumes
+ * at least one character and a closing quote is searched on its own line, so the cost is linear.
+ */
+function maskCommandFlags(text: string): string {
+  let out = '';
+  let copied = 0;
+  let command: 'curl' | 'mysql' | null = null;
+  let atStart = true;       // the next word is the first of its segment
+  let wrapped = false;      // the segment began with a wrapper word
+  const spans: Array<{ quote: string; command: 'curl' | 'mysql' | null; atStart: boolean; wrapped: boolean }> = [];
+  COMMAND_SCAN.lastIndex = 0;
+  let found: RegExpExecArray | null;
+  while ((found = COMMAND_SCAN.exec(text)) !== null) {
+    const groups = found.groups || {};
+    const end = found.index + found[0].length;
+    if (groups.quote) {
+      const top = spans[spans.length - 1];
+      if (top && top.quote === groups.quote) {
+        spans.pop();
+        ({ command, atStart, wrapped } = top);
+        atStart = false;
+      } else {
+        const close = QUOTE_CLOSE[groups.quote];
+        close.lastIndex = end;
+        if (close.test(text)) {
+          spans.push({ quote: groups.quote, command, atStart, wrapped });
+          command = null; atStart = true; wrapped = false;
+        }
+      }
+    } else if (groups.brk) {
+      if (!(groups.brk === '&' && /[<>]/.test(text[found.index - 1] || ''))) { command = null; atStart = true; wrapped = false; }
+    } else if (groups.word) {
+      const word = groups.word;
+      if (atStart && PROMPT_OR_ASSIGNMENT.test(word)) continue;
+      const named = COMMAND_WORD.exec(word);
+      if (command === null && (atStart || wrapped) && named) command = named[1] ? 'curl' : 'mysql';
+      else if (atStart) wrapped = WRAPPER_WORDS.has(word.slice(word.lastIndexOf('/') + 1));
+      atStart = false;
+    } else if (((groups.long || groups.short) && command === 'curl') || (groups.pass && command === 'mysql')) {
+      atStart = false;
+      COMMAND_FLAG_VALUE.lastIndex = end;
+      const value = COMMAND_FLAG_VALUE.exec(text);
+      if (value && !isMasked(value[0]) && !(command === 'mysql' && value[0].startsWith(MASKED))) {
+        out += text.slice(copied, end) + MASKED;
+        copied = end + value[0].length;
+        COMMAND_SCAN.lastIndex = copied;
+      }
+    } else {
+      atStart = false;                // another command's flag: rescan what follows it
+      COMMAND_SCAN.lastIndex = end;
+    }
+  }
+  return out + text.slice(copied);
+}
 
 function escapeRegExp(text: string): string { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -140,6 +234,12 @@ function mask(text: any, profile: 'line' | 'body', options: any = {}): { text: s
     out = out.replace(AUTH_HEADER, (match: string, name: string, rest: string) => (rest === '' || rest === MASKED ? match : `${name} ${MASKED}`));
     // 9. Secret-bearing command-line flags.
     out = out.replace(SECRET_FLAG, (match: string, flag: string, value: string) => (isMasked(value) ? match : `${flag}${MASKED}`));
+    // 14 and 15. `curl -u user:pw`, `curl --user user:pw`, `curl -uuser:pw` and `mysql -psecret`, every flag of a command.
+    out = maskCommandFlags(out);
+    // 16. `password hunter2`: the key word, a space and a value with a non-letter in it.
+    out = out.replace(PASSWORD_PHRASE, (match: string, head: string, value: string) => (/[^A-Za-z]/.test(value) && !/^[0-9]{1,3}$/.test(value) ? `${head}${MASKED}` : match));
+    // 17. Another user's home directory: `/Users/<name>` becomes `/Users/<masked>`.
+    out = out.replace(OTHER_USER_HOME, `/Users/${MASKED}`);
   }
 
   const masked = Math.max(0, [MASKED, EMAIL, IP].reduce((sum, token) => sum + count(out, token) - count(input, token), 0));

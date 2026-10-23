@@ -68,11 +68,21 @@ const GOLDEN = [
   {"step":"--action finish --task A.5 --token 1 --result COMPLETED","exit":0,"result":{"disposition":"applied","taskId":"A.5","token":1,"result":"COMPLETED","revision":26},"complete":false,"revision":27,"tasks":{"A.1":["done",null,1,null],"A.2":["done",null,1,null],"A.3":["done",null,1,null],"A.4":["blocked",null,null,null],"A.5":["done",null,1,null]},"unclaimedChecked":"A.4 B.1 C.1 C.2 C.3 D.1 D.2 E.1 E.2 F.1 F.2 F.3 G.1 VX.1 VX.2 VX.3 VX.4 VX.5 VX.6 VX.7 V.1 V.2","completion":["incomplete","076-evidence-attempts","A.4 B.1 C.1 C.2 C.3 D.1 D.2 E.1 E.2 F.1 F.2 F.3 G.1 VX.1 VX.2 VX.3 VX.4 VX.5 VX.6 VX.7 V.1 V.2"]},
 ];
 
+// Revision is the one recorded value that is deliberately not replayed as recorded. The 8ce5ad7
+// CLI advanced the stored revision by two per write (FU-08tzhg) and reported the value in between;
+// a write now advances it by one and reports the stored value. GOLDEN keeps what 8ce5ad7 recorded,
+// and these two maps turn it into what the fixed counter gives, from the fixture's own revision:
+// a status revision r is REVISION_0 + (r - REVISION_0) / 2, and a write result's revision r (the
+// recorded status before the write, plus one) is that of its predecessor, plus one.
+const REVISION_0 = JSON.parse(fs.readFileSync(LEDGER, 'utf8')).revision;
+const oneBumpPerWrite = (recorded) => REVISION_0 + (recorded - REVISION_0) / 2;
+const expectedResult = (result) => (Number.isInteger(result.revision) ? { ...result, revision: oneBumpPerWrite(result.revision - 1) + 1 } : result);
+
 /** One GOLDEN snapshot → the 8ce5ad7 `status --json` object. */
 function expandStatus(snapshot) {
   return {
     complete: snapshot.complete,
-    revision: snapshot.revision,
+    revision: oneBumpPerWrite(snapshot.revision),
     tasks: ORDER.map(([id, phase]) => {
       const [derived, activeToken, doneToken, active] = snapshot.tasks[id] || ['pending', null, null, null];
       return {
@@ -199,7 +209,7 @@ test('every step answers as 8ce5ad7 did, and status and checkCompletion agree af
     const result = { ...run.data };
     if (result.startedAt) result.startedAt = normalTime(result.startedAt);
     // Exact equality: a legacy claim, finish or release keeps 8ce5ad7's key set, nothing added.
-    assert.deepEqual(result, golden.result, `${label} result`);
+    assert.deepEqual(result, expectedResult(golden.result), `${label} result`);
     const status = p.ta(['--action', 'status']);
     assert.equal(status.status, 0, `${label} status: ${status.stderr}`);
     assert.deepEqual(legacyStatus(status.data), expandStatus(golden), `${label} status`);

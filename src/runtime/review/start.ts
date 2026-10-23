@@ -118,7 +118,7 @@ const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 
 /**
  * A runtime-owned file's text through a bounded, non-blocking read (the pattern of
- * implementation-gate.ts `readRunFileText`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK`, `fstat` on the
+ * task-scope.ts `readRegularFileText`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK`, `fstat` on the
  * descriptor and a size cap. `missing` for ENOENT; any non-regular target (link, FIFO, device, folder)
  * or oversized file is an error, never a blocking read.
  */

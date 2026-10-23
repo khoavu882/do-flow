@@ -435,7 +435,9 @@ function readTaskState(fsImpl: any, file: string): any {
   try {
     data = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
   } catch (error: any) {
-    const failure: any = new Error(`Failed to load state file '${file}': ${error.message}. The write path is atomic `
+    // The parser's own message quotes the first bytes of the file; a state file can hold text the
+    // reader should not echo, so only the error's class is named.
+    const failure: any = new Error(`Failed to load state file '${file}': its content is not valid JSON (${error?.name || 'Error'}). The write path is atomic `
       + '(tmp + rename), so a torn file means outside interference; recover it from version control '
       + 'or move it aside and re-record the task\'s items.');
     failure.code = 'store-unreadable';

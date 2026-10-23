@@ -32,6 +32,7 @@ const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile, orchestrationRuns, selectRunEntries,
+  RUN_STORE_REL, runStoreDir, readRunRecord,
 } = require('./implementation-gate.ts');
 
 /** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
@@ -160,11 +161,11 @@ class WorkflowOrchestrator {
   constructor({ repoRoot = REPO_ROOT, projectRoot, sourceRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null, env = process.env, cwd = process.cwd() }: any = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
-    this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
+    this.projectRoot = projectRoot || (stateDir?.endsWith(RUN_STORE_REL)
       ? path.resolve(stateDir, '../../..') : repoRoot);
     this.sourceRoot = sourceRoot || this.projectRoot;
     this.engine = engine || new WorkflowEngine({ repoRoot });
-    this.stateDir = stateDir || path.join(this.projectRoot, '.doflow', 'state', 'orchestration');
+    this.stateDir = stateDir || runStoreDir(this.projectRoot);
     this.readinessEvaluate = readinessEvaluate || null;
     this.taskAttemptCheck = taskAttemptCheck || null;
     this.featureSlug = featureSlug;
@@ -179,7 +180,7 @@ class WorkflowOrchestrator {
   runRecord(taskId: any) {
     const id = assertSafeId(taskId, 'taskId');
     const namespace = isSafeSlug(this.featureSlug) && this.featureSlug !== id ? this.featureSlug : null;
-    return recordIn({ base: this.stateDir, namespace, name: `${id}.json`, fsImpl: this.fsImpl });
+    return recordIn({ base: this.stateDir, namespace, name: `${id}.json`, fsImpl: this.fsImpl, refuseUnsafeFlat: true });
   }
 
   runFile(taskId: any) {
@@ -187,9 +188,7 @@ class WorkflowOrchestrator {
   }
 
   readRun(taskId: any) {
-    const file = this.runRecord(taskId).read;
-    if (!this.fsImpl.existsSync(file)) return null;
-    return readTaskState(this.fsImpl, file);
+    return readRunRecord(this.fsImpl, this.runRecord(taskId).read, this.stateDir);
   }
 
   writeRun(run: any, now: any, beforeWrite?: any) {
@@ -996,12 +995,11 @@ function listRuns({ taskId, taskClass, gate, decision, policy, forced, note, rea
 
   const runs: any[] = [];
   const unreadable: any[] = [];
-  const storePath = path.join('.doflow', 'state', 'orchestration');
   const textCompare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
   const slugCompare = (a: string|null, b: string|null) => a === null ? (b === null ? 0 : -1)
     : b === null ? 1 : textCompare(a, b);
   const addUnreadable = (entry: any, reason: string) => {
-    const relative = path.relative(path.join(entry.root, storePath), entry.file);
+    const relative = path.relative(runStoreDir(entry.root), entry.file);
     const parts = relative.split(path.sep);
     unreadable.push({
       taskId: path.basename(entry.file, '.json'),
@@ -1028,7 +1026,7 @@ function listRuns({ taskId, taskClass, gate, decision, policy, forced, note, rea
       addUnreadable(entry, 'schema-version');
       continue;
     }
-    const relative = path.relative(path.join(entry.root, storePath), entry.file);
+    const relative = path.relative(runStoreDir(entry.root), entry.file);
     const parts = relative.split(path.sep);
     const folderSlug = parts.length > 1 ? parts[0] : null;
     const stem = path.basename(entry.file, '.json');
@@ -1120,22 +1118,29 @@ function handleOrchestrateCommand({
   // The feature this task belongs to: recorded on a run this command starts, the namespace its run
   // and readiness record live under (115 C-1), and matched against a run found in another checkout.
   // The dispatcher passes the call's record slug, computed once for every store the call touches.
-  const featureSlug = recordSlug !== undefined ? recordSlug : safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
+  let featureSlug = recordSlug !== undefined ? recordSlug : safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
   // A run started in another checkout of this repository for the same feature is read and updated
   // where it is. `start` is always local: an unrelated run with the same id elsewhere neither
   // refuses nor satisfies it.
   let runRoot = state;
   if (safeId && action !== 'start') {
-    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug });
+    // `status` with no --slug opens the one run the list action shows for the id, whichever feature
+    // namespace holds it (FU-wrnnaq); more than one is refused until --slug names the feature.
+    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: action === 'status' && !slug });
     if (found.status === 'ambiguous') {
-      console.error(`[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
+      console.error(found.byFeature
+        ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean. Nothing was changed.`
+        : `[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
       return finishRuntime(1);
     }
-    if (found.status === 'found') runRoot = found.root;
+    if (found.status === 'found') {
+      runRoot = found.root;
+      if (found.slug !== undefined) featureSlug = found.slug;
+    }
   }
   const orchestrator = new WorkflowOrchestrator({
     repoRoot: root, projectRoot: runRoot, sourceRoot: source,
-    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
+    stateDir: runStoreDir(runRoot),
     featureSlug, buildAdapters,
   });
   orchestrator.readinessEvaluate = (node: any, run: any) => {
@@ -1237,6 +1242,8 @@ function handleOrchestrateCommand({
     }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);
+    // `status` with no --slug opens the one run of the id under any feature (FU-wrnnaq): say whose it is.
+    if (action === 'status' && featureSlug) console.log(`Feature: ${featureSlug}`);
     if (snapshot.disposition === 'standalone') console.log(`Handoff: standalone (${snapshot.reason})`);
     else if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
     if (snapshot.compaction) console.log(`Compaction: ${snapshot.compaction.status}${snapshot.compaction.reason ? ` — ${snapshot.compaction.reason}` : ''}`);

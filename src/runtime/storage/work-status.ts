@@ -42,6 +42,7 @@ function createWorkCache({ projectRoot, fsImpl = fs }: { projectRoot: string; fs
     recordStorePaths: recordStorePaths(fsImpl),
     recordExtensions: recordStoreExtensions(fsImpl),
     runNames: null,
+    runLocations: null,
     runListError: false,
     featureNames: null,
     featureListError: false,
@@ -56,7 +57,7 @@ function createWorkCache({ projectRoot, fsImpl = fs }: { projectRoot: string; fs
  * taken at selection. A run reopened or a plan task unchecked after selection keeps the record.
  */
 function refreshedWorkCache(cache: any): any {
-  return { ...cache, runNames: null, runListError: false, featureNames: null, featureListError: false,
+  return { ...cache, runNames: null, runLocations: null, runListError: false, featureNames: null, featureListError: false,
     runs: new Map(), plans: new Map() };
 }
 
@@ -75,6 +76,16 @@ function safeSegment(value: any): boolean {
   return typeof value === 'string' && SAFE_SEGMENT.test(value) && !value.includes('..');
 }
 
+/** Whether `name` can be a run namespace directory (a feature slug), not a `<file>.lock` directory. */
+function isRunNamespaceDir(name: string): boolean {
+  return safeSegment(name) && !name.endsWith('.lock');
+}
+
+/**
+ * Every run id the orchestration store holds, flat or under a `<slug>/` namespace (115 C-1: a task id
+ * other than its feature's slug lives in `orchestration/<slug>/`). `cache.runLocations` maps each id
+ * to the directories that hold it ('' is the flat store), namespaces sorted, flat last.
+ */
 function listRunNames(cache: any, shouldStop?: () => boolean): { names: string[]; incomplete: boolean } {
   if (shouldStop?.()) return { names: [], incomplete: true };
   if (cache.runNames !== null) return { names: cache.runNames, incomplete: false };
@@ -83,33 +94,113 @@ function listRunNames(cache: any, shouldStop?: () => boolean): { names: string[]
   try { entries = cache.fsImpl.readdirSync(dir, { withFileTypes: true }); }
   catch (error: any) {
     if (error?.code === 'ENOENT') entries = [];
-    else { cache.runNames = []; cache.runListError = true; return { names: cache.runNames, incomplete: false }; }
+    else { cache.runNames = []; cache.runLocations = new Map(); cache.runListError = true; return { names: cache.runNames, incomplete: false }; }
   }
   if (shouldStop?.()) return { names: [], incomplete: true };
-  const names: string[] = [];
+  const locations = new Map<string, string[]>();
+  const add = (id: string, where: string): void => {
+    if (!locations.has(id)) locations.set(id, []);
+    (locations.get(id) as string[]).push(where);
+  };
+  const namespaces: string[] = [];
   for (const entry of entries) {
     if (shouldStop?.()) return { names: [], incomplete: true };
-    if (entry.name.endsWith('.json')) names.push(entry.name.slice(0, -5));
+    if (entry.name.endsWith('.json')) add(entry.name.slice(0, -5), '');
+    else if (entry.isDirectory() && isRunNamespaceDir(entry.name)) namespaces.push(entry.name);
+  }
+  for (const namespace of namespaces.sort()) {
+    let inner: any[];
+    try { inner = cache.fsImpl.readdirSync(path.join(dir, namespace), { withFileTypes: true }); }
+    catch (error: any) {
+      if (error?.code === 'ENOENT') continue;
+      cache.runNames = []; cache.runLocations = new Map(); cache.runListError = true;
+      return { names: cache.runNames, incomplete: false };
+    }
+    for (const file of inner) {
+      if (shouldStop?.()) return { names: [], incomplete: true };
+      if (file.name.endsWith('.json')) add(file.name.slice(0, -5), namespace);
+    }
   }
   if (shouldStop?.()) return { names: [], incomplete: true };
-  cache.runNames = names;
-  return { names, incomplete: false };
+  // Namespaces come first in the order listed; the flat copy (a legacy or seed source) is last.
+  for (const where of locations.values()) where.sort((x, y) => (x === '' ? 1 : y === '' ? -1 : x < y ? -1 : x > y ? 1 : 0));
+  cache.runNames = [...locations.keys()];
+  cache.runLocations = locations;
+  return { names: cache.runNames, incomplete: false };
 }
 
-function readRun(cache: any, runId: string): any {
-  if (cache.runs.has(runId)) return cache.runs.get(runId);
-  const file = path.join(stateRoot(cache.projectRoot), 'orchestration', `${runId}.json`);
+function readRunAt(cache: any, runId: string, where: string): any {
+  // The flat copy keeps its bare id as the key: the pruner reads that snapshot back by run id.
+  const key = where ? `${where}/${runId}` : runId;
+  if (cache.runs.has(key)) return cache.runs.get(key);
+  const file = path.join(stateRoot(cache.projectRoot), 'orchestration', ...(where ? [where] : []), `${runId}.json`);
   let result: any;
   try {
-    const value = JSON.parse(cache.fsImpl.readFileSync(file, 'utf8'));
+    // A namespaced copy is a file base never read (N-4): a link, a FIFO or a device there reads as
+    // unreadable (the record is kept) and never blocks. The flat copy keeps its plain read (FU-d88kp0).
+    const text = where && typeof cache.fsImpl.lstatSync === 'function' && typeof cache.fsImpl.openSync === 'function'
+      ? require('../task-scope.ts').readRegularFileText(file, cache.fsImpl) : cache.fsImpl.readFileSync(file, 'utf8');
+    if (text === null) throw new Error('not a regular file');
+    const value = JSON.parse(text);
     result = value && typeof value === 'object' && !Array.isArray(value) && RUN_STATES.has(value.state)
-      ? { ok: true, value }
-      : { ok: false };
+      ? { ok: true, value, where }
+      : { ok: false, where };
   } catch {
-    result = { ok: false };
+    result = { ok: false, where };
   }
-  cache.runs.set(runId, result);
+  cache.runs.set(key, result);
   return result;
+}
+
+/**
+ * Whether a namespaced copy of a run keeps the record open (C-1, N-1). A namespaced copy may only
+ * keep a record: a record is judged as 135ce230 judged it, by the flat run copy alone, and a
+ * namespaced copy never makes a record finished. The copies a record owns are its own namespace's
+ * (a namespaced record) or the namespace named by its own `featureSlug`/`slug` (a flat record); it
+ * never owns another feature's copy. The run is chosen as a flat run is: the exact id, the record's
+ * namespace, then the longest delimited prefix. An owned copy that is RUNNING or AWAITING_GATE
+ * holds the record open and one that cannot be read keeps it undecidable. A flat record that names
+ * no namespace of its own and could be claimed by two or more namespaced copies is undecidable (fail
+ * closed), not guessed.
+ */
+function namespacedHold(cache: any, taskId: string, namespace: any, recordValue: any, shouldStop?: () => boolean): any {
+  const recordNs: string | null = safeSegment(namespace) ? namespace : null;
+  const named = recordNs ? null : (stringField(recordValue, 'featureSlug') || stringField(recordValue, 'slug'));
+  const own: string | null = recordNs || (named !== null && isRunNamespaceDir(named) ? named : null);
+  const locations: Map<string, string[]> = cache.runLocations || new Map();
+  const choose = (accept: (where: string) => boolean): string | null | undefined => {
+    let exact = false, byNamespace = false, prefix: string | null = null;
+    for (const [candidate, held] of locations) {
+      if (shouldStop?.()) return undefined;
+      if (!held.some((w: string) => w !== '' && accept(w))) continue;
+      if (candidate === taskId) exact = true;
+      else if (recordNs && candidate === recordNs) byNamespace = true;
+      else if ((taskId.startsWith(`${candidate}-`) || taskId.startsWith(`${candidate}.`))
+        && (!prefix || candidate.length > prefix.length || (candidate.length === prefix.length && candidate < prefix))) prefix = candidate;
+    }
+    return exact ? taskId : byNamespace ? recordNs : prefix;
+  };
+  if (own) {
+    const id = choose((w: string) => w === own);
+    if (id === undefined || shouldStop?.()) return { incomplete: true };
+    if (id) {
+      const read = readRunAt(cache, id, own);
+      if (shouldStop?.()) return { incomplete: true };
+      if (!read.ok) return { unreadable: true, id };
+      if (RUN_OPEN_STATES.includes(read.value.state)) return { open: true, id };
+    }
+  }
+  if (!recordNs && !own) {
+    const id = choose(() => true);
+    if (id === undefined || shouldStop?.()) return { incomplete: true };
+    if (id && (locations.get(id) || []).filter((w: string) => w !== '').length > 1) return { unreadable: true, id };
+  }
+  return {};
+}
+
+/** The flat run copy `runId`, the only copy a record is judged by (135ce230). */
+function readRun(cache: any, runId: string): any {
+  return readRunAt(cache, runId, '');
 }
 
 function resolveRun(cache: any, taskId: string, namespace: any, shouldStop?: () => boolean): any {
@@ -119,6 +210,7 @@ function resolveRun(cache: any, taskId: string, namespace: any, shouldStop?: () 
   let exact = false, namespaced = false, prefix: string | null = null;
   for (const candidate of listed.names) {
     if (shouldStop?.()) return { id: null, unreadable: false, incomplete: true };
+    if (!(cache.runLocations.get(candidate) || []).includes('')) continue;
     if (candidate === taskId) exact = true;
     else if (safeSegment(namespace) && candidate === namespace) namespaced = true;
     else if ((taskId.startsWith(`${candidate}-`) || taskId.startsWith(`${candidate}.`))
@@ -386,6 +478,12 @@ function workStatus({
   if (run && RUN_OPEN_STATES.includes(run.state)) {
     return answer('open', 'run-open', resolvedRun.id, null);
   }
+
+  // N-1: a namespaced copy of a run may keep the record open or undecidable, never finished.
+  const hold = namespacedHold(pass, workId, namespace, record.value, shouldStop);
+  if (hold.incomplete || shouldStop?.()) return incompleteAnswer(resolvedRun.id);
+  if (hold.open) return answer('open', 'run-open', hold.id, null);
+  if (hold.unreadable) return answer('undecidable', 'run-unreadable', hold.id, null);
 
   // IC-028: a task-attempts ledger stays open while any attempt is active or cancelled and not cleared
   // by a resume, or any run is not `running`, so a paused or cancelled run whose boxes are all ticked

@@ -397,6 +397,28 @@ test('settle: an item shown done because its feature finished is refused as done
   assert.equal(eventCount(root), before, 'nothing was written');
 });
 
+test('take: an item shown done because its feature finished is refused with that reason, not "is taken"', () => {
+  const { root, id, slug } = derivedDoneItem('shipped, taken again');
+  const before = eventCount(root);
+  const out = takeFollowups({ root, ids: id, slug });
+  assert.equal(out.ok, false);
+  assert.equal(out.finding, 'illegal-transition');
+  assert.match(out.message, new RegExp(`^${id} is done because feature ${slug} finished`));
+  assert.doesNotMatch(out.message, /is taken/);
+  assert.match(out.message, /only an open item can be taken\. Nothing was written\.$/);
+  assert.equal(eventCount(root), before, 'nothing was written');
+});
+
+test('take: an ordinary taken item keeps the fold wording', () => {
+  const plain = plainRoot();
+  const a = add(plain, 'a').created[0].id;
+  track(plain, '050-demo');
+  assert.equal(takeFollowups({ root: plain, ids: a, slug: '050-demo' }).ok, true);
+  const out = takeFollowups({ root: plain, ids: a, slug: '050-demo' });
+  assert.equal(out.ok, false);
+  assert.match(out.message, new RegExp(`^${a} is taken; only an open item can be taken`));
+});
+
 test('settle: --as kept on an item shown done is allowed by IC-003 and the confirmation says what the user was shown', () => {
   const { root, id, slug } = derivedDoneItem('shipped, kept');
   const out = settleFollowups({ root, ids: id, as: 'kept', reason: 'the fix did not cover this' });

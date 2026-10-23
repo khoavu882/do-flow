@@ -93,11 +93,18 @@ function classify(bodyLines: string[], kinds: string[], canonicalPointer: string
   return { comments, moved, pointer };
 }
 
-function writeAtomic(fsImpl: any, file: string, content: string): void {
+function writeAtomic(fsImpl: any, file: string, content: string, unchangedSince?: string): void {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   try {
     fsImpl.writeFileSync(tmp, content, 'utf8');
+    // The text `content` was built from is compared with the file just before the rename, so an edit
+    // made since it was read is kept instead of replaced (FU-1jbmm3). This narrows the window to the
+    // gap between this read and the rename; it cannot close it, which would take a lock on the
+    // artifact itself that its editors would also have to take.
+    if (unchangedSince !== undefined && fsImpl.readFileSync(file, 'utf8') !== unchangedSince) {
+      throw new Error(`${path.basename(file)} changed while it was being compacted`);
+    }
     fsImpl.renameSync(tmp, file);
   } catch (error: any) {
     try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
@@ -189,7 +196,7 @@ function compactArtifact({ fsImpl, featureDir, file, date }: { fsImpl: any; feat
   const body = [blank];
   for (const c of comments) body.push(...c, blank);
   body.push(pointerLine, end === lines.length ? '' : blank);
-  writeAtomic(fsImpl, file, [...lines.slice(0, start + 1), ...body, ...lines.slice(end)].join('\n'));
+  writeAtomic(fsImpl, file, [...lines.slice(0, start + 1), ...body, ...lines.slice(end)].join('\n'), text);
   return { artifact: name, path: rel, archive: archiveRel, lines: moved.length };
 }
 
@@ -204,7 +211,10 @@ function compactArtifact({ fsImpl, featureDir, file, date }: { fsImpl: any; feat
  * @param {string} [options.date] YYYY-MM-DD stamped on the archive chunk; defaults to today (UTC)
  * @param {Object} [options.fsImpl] fs implementation (tests substitute one)
  *
- * Not locked: concurrent callers can interleave archive appends. Call it through
+ * Not locked: concurrent callers can interleave archive appends, and an artifact edited between its
+ * read and its rewrite is detected just before the rename and left as the editor wrote it (the
+ * artifact is reported in `failed`; the moved block is already in the archive and a later run does
+ * not copy it twice), but an edit landing in the last instant before the rename is not. Call it through
  * `compactDecisions` / `runDecision` in decision-register.js, which hold the register lock.
  *
  * Every artifact is attempted. One that cannot be compacted is left as it was and reported in

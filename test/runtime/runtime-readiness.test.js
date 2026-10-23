@@ -974,3 +974,101 @@ test('107-B N-b control: a task with no supported claim keeps the plain reason a
   assert.equal(rootCause.reasonCode, null);
   assert.equal(rootCause.reason, "Requires at least one claim with status 'supported' and role 'root-cause'.");
 });
+
+// ── FU-afkns5: an unmet scope/invariants action names the flag that supplies it ──────────────
+//
+// `scope_clear`, `scope_verified` and `invariants_captured` are satisfied only by what the caller
+// states (`--scope`, `--invariants`), yet their recommended action fell to the generic "Gather
+// evidence", which names no flag a caller could pass.
+
+function unmetAction(taskClass, reqId, profile = {}) {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  const report = engine.evaluateReadiness({ taskId: `t-afkns5-${reqId}`, taskClass, ...profile }, ledger, claims);
+  const requirement = report.requirements.find((item) => item.id === reqId);
+  assert.equal(requirement.satisfied, false);
+  return requirement.recommendedAction;
+}
+
+test('FU-afkns5: an unmet scope_clear action names --scope', () => {
+  const action = unmetAction('feature', 'scope_clear', { verificationPlan: 'npm test' });
+  assert.match(action.action, /--scope\b/);
+  assert.doesNotMatch(action.action, /--invariants\b/);
+});
+
+test('FU-afkns5: an unmet scope_verified action names --scope', () => {
+  assert.match(unmetAction('trivial-edit', 'scope_verified').action, /--scope\b/);
+});
+
+test('FU-afkns5: an unmet invariants_captured action names --invariants', () => {
+  const action = unmetAction('refactor', 'invariants_captured');
+  assert.match(action.action, /--invariants\b/);
+  assert.doesNotMatch(action.action, /--scope\b/);
+});
+
+test('FU-afkns5 control: a requirement with no stated-input flag keeps the generic action', () => {
+  const action = unmetAction('refactor', 'architecture_mapped');
+  assert.doesNotMatch(action.action, /--scope\b|--invariants\b/);
+});
+
+// ── FU-tgrfdv: a relative locator resolves in the checkout the verb runs in ──────────────────
+//
+// In a linked worktree the records live in the main checkout (projectRoot) and the files live in
+// the worktree (sourceRoot). The unresolvable check resolved a relative locator against
+// projectRoot only, so evidence for a branch-only file was reported as `file-missing`.
+
+function stateAndSource(t) {
+  const state = tempDir(t, 'doflow-readiness-state-');
+  const source = tempDir(t, 'doflow-readiness-source-');
+  fs.mkdirSync(path.join(source, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(source, 'src', 'branch-only.ts'), 'export const x = 1;\n');
+  return { state, source };
+}
+
+test('FU-tgrfdv: the engine resolves a relative locator against sourceRoot', (t) => {
+  const { state, source } = stateAndSource(t);
+  const taskId = 't-tgrfdv-engine';
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: state, sourceRoot: source });
+  const ledger = new EvidenceLedger({ repoRoot: state });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  ledger.addEvidence({ taskId, kind: 'structural', provenance: 'extracted', establishes: ['affected_components'],
+    locator: { file: 'src/branch-only.ts', line: 1 }, content: 'recorded in the worktree', freshness: { status: 'FRESH' } });
+  const report = engine.evaluateReadiness({ taskId, taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' }, ledger, claims);
+  assert.deepEqual(report.unresolvableEvidence, []);
+  assert.equal(report.state, 'READY');
+});
+
+test('FU-tgrfdv control: a locator missing from sourceRoot is still unresolvable', (t) => {
+  const { state, source } = stateAndSource(t);
+  fs.mkdirSync(path.join(state, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(state, 'src', 'state-only.ts'), 'export const y = 2;\n');
+  const taskId = 't-tgrfdv-control';
+  const engine = new ReadinessEngine({ repoRoot: REPO, projectRoot: state, sourceRoot: source });
+  const ledger = new EvidenceLedger({ repoRoot: state });
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  ledger.addEvidence({ taskId, kind: 'structural', provenance: 'extracted', establishes: ['affected_components'],
+    locator: { file: 'src/state-only.ts', line: 1 }, content: 'only in the store checkout', freshness: { status: 'FRESH' } });
+  const report = engine.evaluateReadiness({ taskId, taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' }, ledger, claims);
+  assert.equal(report.unresolvableEvidence.length, 1);
+  assert.equal(report.unresolvableEvidence[0].reason, 'file-missing');
+  assert.equal(report.state, 'NEEDS_EVIDENCE');
+});
+
+test('FU-tgrfdv: evaluateTaskReadiness passes sourceRoot to the engine', (t) => {
+  const { evaluateTaskReadiness } = require('../../src/runtime/readiness.ts');
+  const { state, source } = stateAndSource(t);
+  const taskId = 't-tgrfdv-wiring';
+  const ledger = new EvidenceLedger({ repoRoot: state });
+  ledger.addEvidence({ taskId, kind: 'structural', provenance: 'extracted', establishes: ['affected_components'],
+    locator: { file: 'src/branch-only.ts', line: 1 }, content: 'recorded in the worktree',
+    freshness: { status: 'FRESH', fileHash: require('../../src/runtime/freshness.ts').measureFreshness(source, { file: 'src/branch-only.ts', line: 1 }, null, source).fileHash } });
+  ledger.save(taskId);
+  const report = evaluateTaskReadiness({
+    taskProfile: { taskId, taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' },
+    repoRoot: REPO, projectRoot: state, treeRoot: source, sourceRoot: source,
+  });
+  assert.deepEqual(report.unresolvableEvidence, []);
+  assert.deepEqual(report.staleEvidence, []);
+  assert.equal(report.state, 'READY');
+});

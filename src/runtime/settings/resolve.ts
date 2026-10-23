@@ -42,7 +42,7 @@ function maskUrl(value: string): string {
   return require('./shared.ts').maskUrl(value);
 }
 
-type Layer = 'flag' | 'env' | 'local' | 'project' | 'user' | 'default';
+type Layer = 'env' | 'local' | 'project' | 'user' | 'default';
 type ViewName = 'project' | 'global';
 type Checkout = 'own' | 'main' | null;
 type Status = 'decided' | 'overridden' | 'shadowed' | 'redundant' | 'ignored-scope' | 'not-narrower' | 'no-effect' | 'invalid';
@@ -367,7 +367,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
       };
       candidates.push(c);
       const projectLayer = c.layer === 'project' || c.layer === 'local';
-      const bound = c.layer === 'env' || c.layer === 'flag';
+      const bound = c.layer === 'env';
       if (!projectLayer && spec.scope === 'project-only') {
         Object.assign(c, { status: 'ignored-scope', value: null, reason: 'project-only: only a project can set it' });
         continue;

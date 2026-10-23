@@ -8,7 +8,7 @@ const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readi
 const { listCheckouts } = require('./checkouts.ts');
 const { readTaskState } = require('./task-state.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
-const { isSafeSlug, flatRecordIsOurs } = require('./task-scope.ts');
+const { isSafeSlug, flatRecordIsOurs, readRegularFileText, MAX_RECORD_FILE_BYTES } = require('./task-scope.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // The implementation gate: which stage of a workflow needs a READY readiness record before it is
@@ -21,6 +21,13 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 const GATE = 'doflow gate readiness-before-implementation';
 const RUN_RECORD_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
 const RUN_NAMESPACE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** Where a checkout keeps its run records, relative to the checkout; the one place the path is named. */
+const RUN_STORE_REL = path.join('.doflow', 'state', 'orchestration');
+
+/** The run store of the checkout at `root`. */
+function runStoreDir(root: string): string {
+  return path.join(root, RUN_STORE_REL);
+}
 
 /** What clears a record a newer DoFlow wrote; `readiness` here refuses to overwrite it. */
 const NEWER_NEXT = 'run this command with the DoFlow that wrote the record, or upgrade DoFlow here.';
@@ -184,7 +191,7 @@ function isRunNamespaceDir(name: string): boolean {
  * kept with `linked: true` so it can be reported as unreadable, and a linked namespace directory is
  * not entered, so nothing outside the store root is read or named. */
 function runFilesAt(root: string, { listing = false }: { listing?: boolean } = {}): Array<{ file: string; namespace: string|null; linked: boolean }> {
-  const store = path.join(root, '.doflow', 'state', 'orchestration');
+  const store = runStoreDir(root);
   const files: Array<{ file: string; namespace: string|null; linked: boolean }> = [];
   const take = (entry: any) => entry.isFile() || entry.isSymbolicLink();
   let entries: any[];
@@ -205,33 +212,56 @@ function runFilesAt(root: string, { listing = false }: { listing?: boolean } = {
   return files.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
 }
 
-/** The largest run file the list action reads; a bigger one is reported as `io` (a journal is a few KiB). */
-const MAX_RUN_FILE_BYTES = 1024 * 1024;
+/** The largest run file the list action and `readRunRecord` read; a bigger one is reported as `io` /
+ * refused (a journal is a few KiB). */
+const MAX_RUN_FILE_BYTES = MAX_RECORD_FILE_BYTES;
 
-/** A run file's text, or null when it must not be read: not a regular file (a link, a FIFO, a
- * device, a folder), larger than `MAX_RUN_FILE_BYTES`, or any read error. The lifecycle reader's pattern (event-store.ts
- * `readEventFile`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK` so neither a link nor a FIFO swapped in
- * after the `lstat` is followed or blocks, then `fstat` on the descriptor before reading. */
-function readRunFileText(file: string): string|null {
-  const flags = fs.constants;
-  let fd: number|undefined;
-  try {
-    if (!fs.lstatSync(file).isFile()) return null;
-    fd = fs.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
-    const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > MAX_RUN_FILE_BYTES) return null;
-    // Read at most one byte past the cap, so a file that grew after the fstat is still refused.
-    const buffer = Buffer.alloc(MAX_RUN_FILE_BYTES + 1);
-    let length = 0;
-    for (let n = -1; n !== 0 && length <= MAX_RUN_FILE_BYTES; length += n) {
-      n = fs.readSync(fd, buffer, length, buffer.length - length, null);
+/**
+ * One run's record, read the way the list action reads it (FU-16c2wz): no link is followed on the
+ * way from the store folder `storeDir` to the file or at the file, and the file must be a regular
+ * file of at most `MAX_RUN_FILE_BYTES`, so a FIFO or a device cannot block the read and a link
+ * cannot make it read outside the store. A run file that is not there is `null`; one that must not
+ * be read throws `store-unreadable` naming the file, and nothing of it is read.
+ * @param {Object} fsImpl
+ * @param {string} file the run file, under `storeDir`
+ * @param {string} storeDir the run store folder it belongs to
+ * @returns {Object|null} the parsed record
+ */
+function readRunRecord(fsImpl: any, file: string, storeDir: string): any {
+  if (typeof fsImpl.lstatSync !== 'function' || typeof fsImpl.openSync !== 'function') return readTaskState(fsImpl, file);
+  const text = readRunText(fsImpl, file, storeDir);
+  return text === null ? null : readTaskState({ existsSync: () => true, readFileSync: () => text }, file);
+}
+
+/** `readRunRecord`'s guarded read without the parse: the run file's text, `null` when it is not
+ * there, `store-unreadable` when it must not be read. */
+function readRunText(fsImpl: any, file: string, storeDir: string): string|null {
+  const relative = path.relative(storeDir, file);
+  const parts = relative === '' || relative.startsWith('..') || path.isAbsolute(relative) ? [] : relative.split(path.sep);
+  const refuse = (): never => {
+    const failure: any = new Error(`Run file '${file}' is not a regular file inside the run store (a link, FIFO, device or folder, or larger than ${MAX_RUN_FILE_BYTES} bytes). Nothing was read.`);
+    failure.code = 'store-unreadable';
+    throw failure;
+  };
+  let at = storeDir;
+  for (const part of parts.slice(0, -1)) {
+    at = path.join(at, part);
+    let stat: any;
+    try { stat = fsImpl.lstatSync(at); } catch (error: any) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+      throw error;
     }
-    return length > MAX_RUN_FILE_BYTES ? null : buffer.subarray(0, length).toString('utf8');
-  } catch {
-    return null;
-  } finally {
-    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* the read is done */ } }
+    if (stat.isSymbolicLink()) refuse();
   }
+  let stat: any;
+  try { stat = fsImpl.lstatSync(file); } catch (error: any) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+    throw error;
+  }
+  if (!stat.isFile()) refuse();
+  const text = readRegularFileText(file, fsImpl);
+  if (text === null) refuse();
+  return text;
 }
 
 /** The run files under one checkout's store, read, with each malformed or unreadable file isolated. */
@@ -239,7 +269,7 @@ function runEntriesAt(root: string, origin: 'current'|'other'): any[] {
   return runFilesAt(root, { listing: true }).map(({ file, namespace, linked }) => {
     let record: any = null;
     let error: string|null = null;
-    const bytes = linked ? null : readRunFileText(file);
+    const bytes = linked ? null : readRegularFileText(file);
     if (bytes === null) error = 'io';
     else {
       try { record = JSON.parse(bytes); } catch { error = 'unparseable'; }
@@ -287,7 +317,7 @@ function namesNoFeature(record: any): boolean {
  * A flat file that names no feature, or that cannot be read or is a link, is keyed as `findRunFile`
  * would first read it, the id as its slug, and stays its own entry. Across stores, the current
  * store's copy of a key wins over every other checkout's; a current flat file `status` reads for
- * any feature without a namespaced copy here (one naming no feature, or a link it would follow)
+ * any feature without a namespaced copy here (one naming no feature, or a link, which status refuses)
  * also shadows the other checkouts' copies of that id. With no current copy, each other checkout
  * that holds one keeps its entry (more than one is the case `status` refuses as ambiguous). A
  * losing copy is dropped: `status` never reads it for this run.
@@ -297,7 +327,7 @@ function namesNoFeature(record: any): boolean {
 function selectRunEntries(entries: any[]): any[] {
   const stem = (entry: any) => path.basename(entry.file, '.json');
   const namespaceOf = (entry: any) => {
-    const parts = path.relative(path.join(entry.root, '.doflow', 'state', 'orchestration'), entry.file).split(path.sep);
+    const parts = path.relative(runStoreDir(entry.root), entry.file).split(path.sep);
     return parts.length > 1 ? parts[0] : null;
   };
   const named = (entry: any) => entry.record && !namesNoFeature(entry.record) && !entry.error;
@@ -353,8 +383,39 @@ function selectRunEntries(entries: any[]): any[] {
  * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>}}
  */
-function findRunFile({ stateRoot, taskId, slug, exec }: any) {
-  const store = path.join('.doflow', 'state', 'orchestration');
+function findRunFile({ stateRoot, taskId, slug, exec, anyNamespace = false }: any) {
+  const found = findRunFileFor({ stateRoot, taskId, slug, exec });
+  return anyNamespace && found.status === 'missing' ? findNamespacedRun({ stateRoot, taskId, exec }) : found;
+}
+
+/**
+ * FU-wrnnaq: the run of `taskId` under whichever feature namespace holds it, for a caller that has
+ * no feature to name (`status` run from another branch). This is the run the list action shows for
+ * the id: this checkout's namespaced run first, else the other checkouts'; exactly one is the run,
+ * more than one is `ambiguous` (the feature must then be named), none is `missing`. `slug` is the
+ * namespace the run is in, for the caller to read it by.
+ * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
+ *   origin: 'current'|'other'|null, candidates: Array<string>, slug?: string, byFeature?: true}}
+ */
+function findNamespacedRun({ stateRoot, taskId, exec }: any) {
+  const name = `${taskId}.json`;
+  const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
+  const inRoot = (root: string) => runFilesAt(root).filter((entry) => entry.namespace !== null && path.basename(entry.file) === name);
+  const settle = (entries: Array<{ file: string; namespace: string|null }>, root: string, origin: 'current'|'other') => (
+    entries.length === 1
+      ? { status: 'found', file: entries[0].file, root, origin, candidates: [], slug: entries[0].namespace as string }
+      : { ...missing, status: 'ambiguous', byFeature: true, candidates: entries.map((entry) => entry.file) });
+  const here = inRoot(stateRoot);
+  if (here.length > 0) return settle(here, stateRoot, 'current');
+  const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
+  if (!checkouts.ok || checkouts.sandbox) return missing;
+  const matches = checkouts.others.flatMap((root: string) => inRoot(root).map((entry) => ({ ...entry, root })));
+  if (matches.length === 0) return missing;
+  return settle(matches, matches[0].root, 'other');
+}
+
+function findRunFileFor({ stateRoot, taskId, slug, exec }: any) {
+  const store = RUN_STORE_REL;
   const flat = path.join(store, `${taskId}.json`);
   const namespaced = slug && slug !== taskId ? path.join(store, slug, `${taskId}.json`) : null;
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
@@ -362,7 +423,7 @@ function findRunFile({ stateRoot, taskId, slug, exec }: any) {
   const localNamespaced = namespaced && here.find((entry) => path.relative(stateRoot, entry.file) === namespaced);
   const localFlat = here.find((entry) => path.relative(stateRoot, entry.file) === flat);
   if (localNamespaced) return { status: 'found', file: localNamespaced.file, root: stateRoot, origin: 'current', candidates: [] };
-  if (localFlat && (!namespaced || flatRecordIsOurs(localFlat.file, slug))) {
+  if (localFlat && (!namespaced || flatRecordIsOurs(localFlat.file, slug, fs, true))) {
     return { status: 'found', file: localFlat.file, root: stateRoot, origin: 'current', candidates: [] };
   }
   if (!slug) return missing;
@@ -373,7 +434,9 @@ function findRunFile({ stateRoot, taskId, slug, exec }: any) {
     const files = runFilesAt(root);
     const found = [namespaced, flat].filter(Boolean).map((rel: any) => files.find((entry) => path.relative(root, entry.file) === rel)).find((entry: any) => {
       if (!entry) return false;
-      try { return runSlugOf(JSON.parse(fs.readFileSync(entry.file, 'utf8')), root) === slug; } catch { return false; }
+      // The same safe read as every other run read: a linked run or namespace folder, a FIFO or a
+      // device in another checkout is never opened, and is not a match.
+      try { return runSlugOf(JSON.parse(readRunText(fs, entry.file, runStoreDir(root)) as string), root) === slug; } catch { return false; }
     });
     if (found) matches.push({ file: found.file, root });
   }
@@ -468,7 +531,9 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
     };
   }
   if (found.status === 'missing') return { applies: false, reason: 'no-run' };
-  const run = readTaskState(fs, found.file);
+  // Reads only through the run store's safe reader; a run file that must not be read is refused by name.
+  const run = readRunRecord(fs, found.file, runStoreDir(found.root));
+  if (!run) return { applies: false, reason: 'no-run' };
   if (run.state === 'COMPLETED' || run.state === 'REJECTED') return { applies: false, reason: 'run-finished' };
   const stageNodes = (run.program || []).filter((n: any) => n.type === 'stage');
   const stage = gatedStage(stageNodes);
@@ -504,4 +569,7 @@ module.exports = {
   orchestrationRuns,
   selectRunEntries,
   findRunFile,
+  RUN_STORE_REL,
+  runStoreDir,
+  readRunRecord,
 };

@@ -420,11 +420,16 @@ test('S-1: a current flat copy status would read first shadows every other check
     assert.deepEqual(unreadable.filter(([id]) => id === 'run-f'), [['run-f', 'current', 'io']]);
   }
   // The copies status reads are the ones list keeps.
-  for (const [taskId, slug, revision] of [['run-h', 'feat-a', 1], ['run-k', 'feat-a', 3], ['run-f', 'feat-a', 5]]) {
-    if (taskId === 'run-f' && process.platform === 'win32') continue;
+  for (const [taskId, slug, revision] of [['run-h', 'feat-a', 1], ['run-k', 'feat-a', 3]]) {
     const status = orchestrate(main, { action: 'status', taskId, slug, recordSlug: slug, json: true });
     assert.equal(status.status, 0, `${taskId}: ${status.stderr}`);
     assert.equal(JSON.parse(status.stdout).revision, revision, `${taskId}: list and status disagree`);
+  }
+  // A linked flat copy is still the one status stops at, and (FU-16c2wz) it refuses it as list reports it.
+  if (process.platform !== 'win32') {
+    const status = orchestrate(main, { action: 'status', taskId: 'run-f', slug: 'feat-a', recordSlug: 'feat-a', json: true });
+    assert.equal(status.status, 1, status.stdout);
+    assert.match(status.stderr, /not a regular file/);
   }
 });
 
