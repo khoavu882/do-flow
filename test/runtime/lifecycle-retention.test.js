@@ -14,7 +14,7 @@ const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { parseWindow, retentionWindow, selectExpired } = require('../../src/runtime/lifecycle/retention.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
-const { prepareStore, retainLocked, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
+const { prepareStore, retainLocked, removedLine, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';
@@ -87,6 +87,12 @@ test('parseWindow: unset and empty are off; a positive whole number is on; anyth
   for (const raw of ['0', '-5', 'soon', ' 24', '24 ', '1.5', '007', '1e3', '9007199254740993']) {
     assert.deepEqual(parseWindow({ DOFLOW_RETENTION_HOURS: raw }), { state: 'invalid', raw }, raw);
   }
+});
+
+test('the count line says "1 event file" for one file and "N event files" otherwise (FU-rs5177)', () => {
+  assert.equal(removedLine(1, 24), 'retention: removed 1 event file older than 24 h');
+  assert.equal(removedLine(2, 24), 'retention: removed 2 event files older than 24 h');
+  assert.equal(removedLine(0, 1), 'retention: removed 0 event files older than 1 h');
 });
 
 test('unset or empty with prune off keeps everything and prints no line', () => {

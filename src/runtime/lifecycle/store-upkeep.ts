@@ -36,7 +36,7 @@ const LEGACY_EVENTS_REL = path.join(LEGACY_LIFECYCLE_REL, 'events');
 const MARKER_REL = path.join(LIFECYCLE_REL, 'migrated.json');
 const MIGRATING_PREFIX = 'events.migrating-';
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
-const removedLine = (count: any, hours: any) => `retention: removed ${count} event files older than ${hours} h`;
+const removedLine = (count: any, hours: any) => `retention: removed ${count} event ${count === 1 ? 'file' : 'files'} older than ${hours} h`;
 const invalidLine = (raw: any) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours; ignored, nothing removed`;
 /** Bounds one pass, so its journal stays far below the reader's cap and its lock is held briefly. */
 const MAX_PASS_FILES = 20000;
@@ -401,4 +401,4 @@ function prepareStore(root: string, { env = process.env, now = new Date(), fsImp
   }
 }
 
-module.exports = { prepareStore, retainLocked, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };
+module.exports = { prepareStore, retainLocked, removedLine, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };
