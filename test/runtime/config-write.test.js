@@ -487,22 +487,33 @@ test('a write between the check and the write is seen: the set is checked again 
   assert.deepEqual(readJson(file), { schema: 1, 'review.rounds': 3, 'storage.prune': 'off' });
 });
 
-test('a held lock makes set refuse with code locked after a bounded wait; a crashed holder\'s stale lock is removed', (t) => {
+test('a held lock of any age makes set refuse with code locked, naming the lock and its age; it is never removed (N-1); with no lock set writes', (t) => {
   const f = createSettingsEnv(t);
   const file = f.projectFile('settings.json');
   f.writeProjectSettings({ schema: 1, 'storage.prune': 'off' });
   const before = fs.readFileSync(file, 'utf8');
-  fs.writeFileSync(`${file}.lock`, 'held by a live writer\n');
+  fs.writeFileSync(`${file}.lock`, 'held by a writer\n');
   const started = Date.now();
   const held = refusal(f.run(['config', 'set', 'review.rounds', '3', '--layer', 'project', '--json']), 'review.rounds');
   assert.equal(held.code, 'locked');
-  assert.match(held.message, /settings\.json\.lock/);
+  assert.match(held.message, /settings\.json\.lock \(\d+ s old\)/);
+  assert.match(held.message, /remove that lock file/);
   assert.ok(Date.now() - started < 10000, 'the wait is bounded');
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'nothing was written');
-  assert.equal(fs.readFileSync(`${file}.lock`, 'utf8'), 'held by a live writer\n', 'another writer\'s lock is left alone');
 
   const old = new Date(Date.now() - 60000);
   fs.utimesSync(`${file}.lock`, old, old);
+  for (const args of [['set', 'review.rounds', '3'], ['unset', 'storage.prune']]) {
+    const aged = f.run(['config', ...args, '--layer', 'project', '--json']);
+    assert.equal(aged.status, 1, `${args[0]}: ${aged.stdout}${aged.stderr}`);
+    const entry = refusal(aged, args[1]);
+    assert.equal(entry.code, 'locked');
+    assert.match(entry.message, /settings\.json\.lock \((6\d|[7-9]\d) s old\)/, 'the aged lock is named with its age');
+    assert.equal(fs.readFileSync(file, 'utf8'), before, `${args[0]}: the file is unchanged`);
+    assert.equal(fs.readFileSync(`${file}.lock`, 'utf8'), 'held by a writer\n', `${args[0]}: the aged lock is left alone`);
+  }
+
+  fs.rmSync(`${file}.lock`);
   const result = f.run(['config', 'set', 'review.rounds', '3', '--layer', 'project', '--json']);
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
   assert.deepEqual(readJson(file), { schema: 1, 'storage.prune': 'off', 'review.rounds': 3 });

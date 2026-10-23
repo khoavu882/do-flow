@@ -1109,7 +1109,7 @@
       "match": "^settings(?:\\.local)?\\.json\\.(?:lock|config\\.bak)$",
       "rule": "existing",
       "bound": {
-        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write"
+        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock is never removed automatically: a held lock of any age refuses the write, and a person removes the lock file when no writer is running; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write"
       },
       "protect": null,
       "moments": [],
@@ -1129,7 +1129,7 @@
       "match": "^settings\\.json\\.(?:lock|config\\.bak)$",
       "rule": "existing",
       "bound": {
-        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write"
+        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock is never removed automatically: a held lock of any age refuses the write, and a person removes the lock file when no writer is running; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write"
       },
       "protect": null,
       "moments": [],

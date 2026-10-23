@@ -97,17 +97,16 @@ function replaceBackup(file: string, fsImpl: any): any {
   }
 }
 
-/** How long a writer waits for another writer's lock, and the age at which a lock is a crashed holder's. */
+/** How long a writer waits for another writer's lock. */
 const LOCK_WAIT_MS = 2000;
-const LOCK_STALE_MS = 10000;
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 
 /**
  * Take `<file>.lock` (created exclusively, holding a token) so one read-merge-rename of a layer runs at a
- * time across processes. A held lock is waited on for LOCK_WAIT_MS, then refused with code `locked`. A
- * lock older than LOCK_STALE_MS is a crashed holder's (a holder keeps it for one read and one write) and
- * is removed if its token is still the one judged stale. Ceiling: that re-read and the removal are not
- * one step, so a lock taken in between can still be removed; a live holder is never near the stale age.
+ * time across processes. A held lock is waited on for LOCK_WAIT_MS, then refused with code `locked`, naming
+ * the lock and its age. A lock is never removed automatically, whatever its age: a writer stalled in its
+ * critical section would otherwise lose its write silently, and a lock left by a crashed writer is one
+ * file the person removes.
  */
 function acquireLock(file: string, fsImpl: any): any {
   const lock = `${file}.lock`;
@@ -120,19 +119,14 @@ function acquireLock(file: string, fsImpl: any): any {
     } catch (error: any) {
       if (error?.code !== 'EEXIST') return invalid(file, `could not be locked: ${error?.message || 'lock not created'}`, 'locked');
     }
-    try {
-      const seen = fsImpl.readFileSync(lock, 'utf8');
-      if (Date.now() - fsImpl.statSync(lock).mtimeMs > LOCK_STALE_MS) {
-        // Remove only the lock judged stale: a writer that removed it first and took its own has a new
-        // token. Residual: a lock taken between this re-read and the removal is still removed.
-        if (fsImpl.readFileSync(lock, 'utf8') === seen) fsImpl.rmSync(lock, { force: true });
-        continue;
-      }
-    } catch (error: any) {
+    let age: number;
+    try { age = Math.round((Date.now() - fsImpl.statSync(lock).mtimeMs) / 1000); } catch (error: any) {
       if (error?.code === 'ENOENT') continue;
+      age = NaN;
     }
     if (Date.now() >= deadline) {
-      return invalid(file, `is being written by another process (${lock} is held); nothing was written, run it again`, 'locked');
+      const aged = Number.isFinite(age) ? `${Math.max(age, 0)} s old` : 'age unknown';
+      return invalid(file, `is held by the lock ${lock} (${aged}); nothing was written; if no writer is running, remove that lock file and run it again`, 'locked');
     }
     Atomics.wait(PAUSE, 0, 0, 20);
   }
