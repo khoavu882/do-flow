@@ -5,11 +5,11 @@
 # flattens only HookUniversalOutputWire (continue/stopReason/suppressOutput/systemMessage) and
 # rejects unknown fields — there is no additionalContext-style field for PreCompact, and the
 # output MUST be valid JSON, unlike Claude's PreCompact hook, whose plain stdout was observed in
-# Claude Code 2.1.304 to be read as custom_instructions, undocumented (FU-w563w2). This script
+# Claude Code 2.1.304 and 2.1.308 to be read as custom_instructions, undocumented (FU-w563w2). This script
 # gathers the same git-state context Claude's pre-compact.sh does, but emits it as a JSON
 # systemMessage instead — the closest available field, though systemMessage's exact downstream
 # effect on compaction content is not confirmed (that Claude's custom_instructions reach the
-# compaction LLM call is observed in Claude Code 2.1.304, undocumented (FU-w563w2); Codex's docs
+# compaction LLM call is observed in Claude Code 2.1.304 and 2.1.308, undocumented (FU-w563w2); Codex's docs
 # do not state that systemMessage receives the same treatment). Treat this as best-effort context
 # surfacing, not a guaranteed compaction-summary injection, until verified against a live Codex
 # session.
