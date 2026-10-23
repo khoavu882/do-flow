@@ -32,6 +32,7 @@ const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile, orchestrationRuns, selectRunEntries,
+  RUN_STORE_REL, runStoreDir,
 } = require('./implementation-gate.ts');
 
 /** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
@@ -159,11 +160,11 @@ class WorkflowOrchestrator {
   constructor({ repoRoot = REPO_ROOT, projectRoot, sourceRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null, env = process.env, cwd = process.cwd() }: any = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
-    this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
+    this.projectRoot = projectRoot || (stateDir?.endsWith(RUN_STORE_REL)
       ? path.resolve(stateDir, '../../..') : repoRoot);
     this.sourceRoot = sourceRoot || this.projectRoot;
     this.engine = engine || new WorkflowEngine({ repoRoot });
-    this.stateDir = stateDir || path.join(this.projectRoot, '.doflow', 'state', 'orchestration');
+    this.stateDir = stateDir || runStoreDir(this.projectRoot);
     this.readinessEvaluate = readinessEvaluate || null;
     this.taskAttemptCheck = taskAttemptCheck || null;
     this.featureSlug = featureSlug;
@@ -995,12 +996,11 @@ function listRuns({ taskId, taskClass, gate, decision, policy, forced, note, rea
 
   const runs: any[] = [];
   const unreadable: any[] = [];
-  const storePath = path.join('.doflow', 'state', 'orchestration');
   const textCompare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
   const slugCompare = (a: string|null, b: string|null) => a === null ? (b === null ? 0 : -1)
     : b === null ? 1 : textCompare(a, b);
   const addUnreadable = (entry: any, reason: string) => {
-    const relative = path.relative(path.join(entry.root, storePath), entry.file);
+    const relative = path.relative(runStoreDir(entry.root), entry.file);
     const parts = relative.split(path.sep);
     unreadable.push({
       taskId: path.basename(entry.file, '.json'),
@@ -1027,7 +1027,7 @@ function listRuns({ taskId, taskClass, gate, decision, policy, forced, note, rea
       addUnreadable(entry, 'schema-version');
       continue;
     }
-    const relative = path.relative(path.join(entry.root, storePath), entry.file);
+    const relative = path.relative(runStoreDir(entry.root), entry.file);
     const parts = relative.split(path.sep);
     const folderSlug = parts.length > 1 ? parts[0] : null;
     const stem = path.basename(entry.file, '.json');
@@ -1134,7 +1134,7 @@ function handleOrchestrateCommand({
   }
   const orchestrator = new WorkflowOrchestrator({
     repoRoot: root, projectRoot: runRoot, sourceRoot: source,
-    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
+    stateDir: runStoreDir(runRoot),
     featureSlug, buildAdapters,
   });
   orchestrator.readinessEvaluate = (node: any, run: any) => {

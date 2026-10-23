@@ -21,6 +21,13 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 const GATE = 'doflow gate readiness-before-implementation';
 const RUN_RECORD_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
 const RUN_NAMESPACE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** Where a checkout keeps its run records, relative to the checkout; the one place the path is named. */
+const RUN_STORE_REL = path.join('.doflow', 'state', 'orchestration');
+
+/** The run store of the checkout at `root`. */
+function runStoreDir(root: string): string {
+  return path.join(root, RUN_STORE_REL);
+}
 
 /** What clears a record a newer DoFlow wrote; `readiness` here refuses to overwrite it. */
 const NEWER_NEXT = 'run this command with the DoFlow that wrote the record, or upgrade DoFlow here.';
@@ -184,7 +191,7 @@ function isRunNamespaceDir(name: string): boolean {
  * kept with `linked: true` so it can be reported as unreadable, and a linked namespace directory is
  * not entered, so nothing outside the store root is read or named. */
 function runFilesAt(root: string, { listing = false }: { listing?: boolean } = {}): Array<{ file: string; namespace: string|null; linked: boolean }> {
-  const store = path.join(root, '.doflow', 'state', 'orchestration');
+  const store = runStoreDir(root);
   const files: Array<{ file: string; namespace: string|null; linked: boolean }> = [];
   const take = (entry: any) => entry.isFile() || entry.isSymbolicLink();
   let entries: any[];
@@ -297,7 +304,7 @@ function namesNoFeature(record: any): boolean {
 function selectRunEntries(entries: any[]): any[] {
   const stem = (entry: any) => path.basename(entry.file, '.json');
   const namespaceOf = (entry: any) => {
-    const parts = path.relative(path.join(entry.root, '.doflow', 'state', 'orchestration'), entry.file).split(path.sep);
+    const parts = path.relative(runStoreDir(entry.root), entry.file).split(path.sep);
     return parts.length > 1 ? parts[0] : null;
   };
   const named = (entry: any) => entry.record && !namesNoFeature(entry.record) && !entry.error;
@@ -354,7 +361,7 @@ function selectRunEntries(entries: any[]): any[] {
  *   origin: 'current'|'other'|null, candidates: Array<string>}}
  */
 function findRunFile({ stateRoot, taskId, slug, exec }: any) {
-  const store = path.join('.doflow', 'state', 'orchestration');
+  const store = RUN_STORE_REL;
   const flat = path.join(store, `${taskId}.json`);
   const namespaced = slug && slug !== taskId ? path.join(store, slug, `${taskId}.json`) : null;
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
@@ -504,4 +511,6 @@ module.exports = {
   orchestrationRuns,
   selectRunEntries,
   findRunFile,
+  RUN_STORE_REL,
+  runStoreDir,
 };
