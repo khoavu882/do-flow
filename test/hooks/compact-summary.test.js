@@ -545,6 +545,44 @@ test('PreCompact cap keeps preserve line first and later git context', () => {
   assert.ok(text.includes('\n- uncommitted files: 0\n'), text);
 });
 
+// FU-tsq77m / FU-zg76ce: the 490 cap counts bytes in every locale and never ends inside a multi-byte
+// character. Under LC_ALL=C the old character cut split a character before Codex's jq --arg rewrote the
+// tail to U+FFFD, and under a UTF-8 locale it counted characters, not bytes.
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
+
+function preCompactBytes(harness, cwd, env) {
+  const r = spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', 'pre-compact.sh')], {
+    input: JSON.stringify({ session_id: 'PRECOMPACT', cwd }), env: scratch.env(env), cwd: scratch.dir,
+  });
+  assert.equal(r.status, 0, String(r.stderr));
+  return r.stdout;
+}
+
+const CUT_LOCALES = ['C', 'en_US.UTF-8'];
+const CUT_CHARACTERS = [['U+00E9 (2 bytes)', 'é'], ['U+20AC (3 bytes)', '€'], ['U+1F600 (4 bytes)', '\u{1F600}']];
+
+test('PreCompact cut never splits a multi-byte character and holds 490 bytes in every locale', () => {
+  const cwd = project('topic');
+  commitFile(cwd, 'first.txt', 'first');
+  for (const locale of CUT_LOCALES) {
+    for (const [label, character] of CUT_CHARACTERS) {
+      // Prefixes of 0 to 3 ASCII bytes move the cut across every offset inside the character.
+      for (let prefix = 0; prefix < 4; prefix += 1) {
+        gitOutput(cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--amend', '--allow-empty', '-qm',
+          `${'x'.repeat(prefix)}${character.repeat(300)}`);
+        const env = { LC_ALL: locale };
+        const claude = preCompactBytes('claude', cwd, env);
+        const where = `${locale} ${label} prefix ${prefix}`;
+        assert.ok(claude.length <= 490, `${where}: ${claude.length} bytes`);
+        const text = strictUtf8.decode(claude);
+        assert.equal(text.split('\n')[0], PRESERVE_LINE, where);
+        assert.ok(text.includes('\n- recent commits: '), `${where}: the git context line survives`);
+        assert.equal(JSON.parse(preCompactBytes('codex', cwd, env).toString('utf8')).systemMessage, text, `${where}: Codex parity`);
+      }
+    }
+  }
+});
+
 test('PreCompact Claude and Codex stay byte-identical with one JSON key across contract cases and roles', () => {
   const cases = [knownGitProject(), project(), undefined, '', twoCommitProject(), longGitProject(), noCommitProject(), detachedProject()];
   for (const [, env] of ROLES) for (const cwd of cases) assertCompactParity(cwd, env);
