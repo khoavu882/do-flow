@@ -324,7 +324,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         if (spec.env.parse === 'positive-int') {
           // 2.0 parseWindow (lifecycle/retention.ts)
           const ok = /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw));
-          out.push({ ...base0, value: ok ? Number(raw) : null, fault: ok ? null : { code: 'type', reason: 'must be a positive whole number', offset: null } });
+          out.push({ ...base0, value: ok ? Number(raw) : null, fault: ok ? null : { code: 'type', reason: /^0[0-9]+$/.test(raw) ? 'must be a positive whole number (no leading zeros)' : 'must be a positive whole number', offset: null } });
         } else if (isOffWord(raw)) {
           // 2.0 envSetting + OFF_VALUES (failure/home.ts): only an off word has an effect
           out.push({ ...base0, value: 'off', fault: null });

@@ -211,6 +211,17 @@ test('an invalid window warns once, removes nothing, and the verb completes', ()
   assert.deepEqual(eventFiles(dir), files.sort());
 });
 
+test('a window with leading zeros stays invalid and the warning says why (FU-k5g213)', () => {
+  const dir = project('leading-zero');
+  const files = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 1000));
+  for (const raw of ['024', '007', '00']) {
+    const r = run(dir, ['followup', '--action', 'list', '--state', 'all', '--json'], raw);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(retentionLines(r.stderr), [`doflow followup: warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours (no leading zeros); ignored, nothing removed`], raw);
+  }
+  assert.deepEqual(eventFiles(dir), files.sort());
+});
+
 // ── what is removed and what is kept ───────────────────────────────────────────────────────────
 
 test('a done goal whose newest event is 48 h old is removed with a 24 h window, with one count line', () => {

@@ -37,7 +37,8 @@ const MARKER_REL = path.join(LIFECYCLE_REL, 'migrated.json');
 const MIGRATING_PREFIX = 'events.migrating-';
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
 const removedLine = (count: any, hours: any) => `retention: removed ${count} event ${count === 1 ? 'file' : 'files'} older than ${hours} h`;
-const invalidLine = (raw: any) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours; ignored, nothing removed`;
+// A leading zero is rejected on purpose (`024` could be read as octal); the warning names it.
+const invalidLine = (raw: any) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours${/^0[0-9]+$/.test(String(raw)) ? ' (no leading zeros)' : ''}; ignored, nothing removed`;
 /**
  * What `writeAtomic` leaves behind when a verb dies between creating its temp file and renaming it:
  * `.retention-<pid>-<chars>.tmp` (the journal) and `.migrated-<pid>-<chars>.tmp` (the marker), in the
