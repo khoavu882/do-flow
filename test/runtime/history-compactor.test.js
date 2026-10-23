@@ -425,3 +425,61 @@ test('an unclosed construct that opens before History, swallowing its heading, i
   assert.match(result.failed[0].message, /comment/);
   assert.ok(fs.readFileSync(file).equals(before));
 });
+
+// ── an artifact edited while it is being compacted (FU-1jbmm3) ─────────────────────────────────
+
+/** An fs whose `writeFileSync` to a path ending in `suffix` first edits `file`, as a concurrent editor would. */
+function editingDuring(suffix, file, edit, atTop = false) {
+  let done = false;
+  return {
+    ...fs,
+    writeFileSync(p, data, enc) {
+      if (!done && String(p).includes(suffix)) {
+        done = true;
+        if (atTop) fs.writeFileSync(file, edit + fs.readFileSync(file, 'utf8'));
+        else fs.appendFileSync(file, edit);
+      }
+      return fs.writeFileSync(p, data, enc);
+    },
+  };
+}
+
+test('an artifact edited after it was read and before the archive is written is not overwritten', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  const edit = '\nconcurrent edit by someone else\n';
+  const result = compactHistory({ ...f, date: DATE, fsImpl: editingDuring(`${path.sep}history${path.sep}`, file, edit) });
+  assert.equal(result.status, 'partial');
+  assert.equal(result.failed.length, 1);
+  assert.equal(result.failed[0].artifact, 'plan.md');
+  assert.match(result.failed[0].message, /changed while it was being compacted/);
+  assert.ok(read(file).endsWith(edit), 'the concurrent edit is still there');
+  assert.ok(!read(file).includes('Earlier entries:'), 'the artifact was not rewritten');
+  assert.deepEqual(fs.readdirSync(f.featureDir).filter((n) => n.endsWith('.tmp')), [], 'no temp file is left');
+});
+
+test('an artifact edited between the temp write and the rename is not overwritten', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  const edit = '\nlate edit\n';
+  const result = compactHistory({ ...f, date: DATE, fsImpl: editingDuring(`plan.md.${process.pid}.tmp`, file, edit) });
+  assert.equal(result.failed.length, 1);
+  assert.match(result.failed[0].message, /changed while it was being compacted/);
+  assert.ok(read(file).endsWith(edit));
+  assert.ok(!read(file).includes('Earlier entries:'));
+  assert.deepEqual(fs.readdirSync(f.featureDir).filter((n) => n.endsWith('.tmp')), []);
+});
+
+test('after a refused overwrite the next run compacts the edited artifact once', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  const archive = path.join(f.featureDir, 'decisions', 'history', 'plan.md');
+  // The edit is above the History section, so the block to move is the one already archived.
+  compactHistory({ ...f, date: DATE, fsImpl: editingDuring(`${path.sep}history${path.sep}`, file, 'top edit\n\n', true) });
+  assert.ok(read(file).startsWith('top edit\n'));
+  const result = compactHistory({ ...f, date: DATE });
+  assert.equal(result.status, 'compacted');
+  assert.equal(read(archive).match(/^## Compacted /gm).length, 1);
+  assert.ok(read(file).includes('Earlier entries:'));
+  assert.ok(read(file).startsWith('top edit\n'));
+});
