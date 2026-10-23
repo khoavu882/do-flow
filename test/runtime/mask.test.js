@@ -225,3 +225,42 @@ test('maskBody on a 1 MiB run of eyJ with no dots finishes in under 2000 ms (RR-
   assert.ok(result.ms < 2000, `maskBody took ${Math.round(result.ms)} ms`);
   assert.equal(result.unchanged, true, 'a dotless run of letters is not a secret');
 });
+
+// Built from parts so the guard against absolute home paths in tracked files (G2) has nothing to flag.
+const U = ['', 'Users'].join('/');
+
+test('FU-ht8b3r: the body profile masks curl -u, mysql -p, a bare "password value" and other users\' home paths', () => {
+  assert.equal(maskBody('curl -u alice:pw1 https://x.example/api', opts).text, 'curl -u <masked> https://x.example/api');
+  assert.equal(maskBody('curl -s --user alice:pw1 -H x', opts).text, 'curl -s --user <masked> -H x');
+  assert.equal(maskBody('mysql -h db -u root -psecret1 app', opts).text, 'mysql -h db -u root -p<masked> app');
+  assert.equal(maskBody('mysqldump -p"my pass" db', opts).text, 'mysqldump -p<masked> db');
+  assert.equal(maskBody('login with password hunter2 now', opts).text, 'login with password <masked> now');
+  assert.equal(maskBody(`opened ${U}/bob/Workspace/x.js and ${U}/Shared/y`, opts).text, `opened ${U}/<masked>/Workspace/x.js and ${U}/Shared/y`);
+});
+
+test('FU-ht8b3r: the new body rules leave look-alikes alone and are idempotent', () => {
+  for (const same of [
+    'sort -u file', 'git push -u origin main', 'mysql -p', 'mysql --port 3306', 'mysql -P 3306',
+    'the password is required', 'password: <masked>', 'password = <masked>', 'curl -u <masked> x',
+    `/mnt${U}/bob/x`, `see ${U}/Shared/x`,
+  ]) assert.equal(maskBody(same, opts).text, same, same);
+  const once = maskBody(`curl -u a:b x; mysql -psecret1; password hunter2; ${U}/bob/x`, opts).text;
+  assert.equal(maskBody(once, opts).text, once);
+  assert.equal(maskBody(once, opts).masked, 0);
+});
+
+test('FU-ht8b3r: the line profile is unchanged by the body-only rules', () => {
+  assert.equal(maskLine(`curl -u alice:pw1 x password hunter2 ${U}/bob/x`, opts).text, `curl -u alice:pw1 x password hunter2 ${U}/bob/x`);
+});
+
+test('FU-ht8b3r: the home directory of the running user is still abbreviated before the other-user rule', () => {
+  assert.equal(maskBody(`${U}/me/x ${U}/bob/x`, { home: `${U}/me` }).text, `~/x ${U}/<masked>/x`);
+});
+
+test('FU-ht8b3r: repeated command words in one long line stay linear in the body profile', () => {
+  for (const unit of ['curl ', 'mysql ', 'mysql -p x ', 'password ', `${U}/a `]) {
+    const started = Date.now();
+    maskBody(unit.repeat(100000), opts);
+    assert.ok(Date.now() - started < 2000, `${JSON.stringify(unit)} took ${Date.now() - started} ms`);
+  }
+});

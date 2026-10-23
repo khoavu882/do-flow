@@ -8,7 +8,7 @@
  * the project store. Masking only narrows what a statement or an excerpt can carry.
  *
  * Two profiles. The line profile is for one-line statements and failure messages; the body profile
- * is for report bodies and excerpts and runs every line rule plus the body-only rules 7 to 9.
+ * is for report bodies and excerpts and runs every line rule plus the body-only rules 7 to 9 and 14 to 17.
  * Rules run in the table's order. Normalisation (rules 10 to 13) is a separate step applied to
  * failure messages only, after masking.
  *
@@ -53,6 +53,18 @@ const IPV4 = /(?<![0-9.])(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.){3}(?:25[0-5
 const KEY_VALUE_BODY = new RegExp(`(${KEY_NAME}["']?[ \\t]*[=:][ \\t]*)("[^"\\r\\n]*"|'[^'\\r\\n]*'|[^\\s,;&"'\`)\\]}]+)`, 'gi');
 const AUTH_HEADER = /((?:Proxy-)?Authorization:)[ \t]*([^\r\n]*)/gi;
 const SECRET_FLAG = /(--(?:password|passwd|token|secret|api-key|client-secret)(?:=|[ \t]+))("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi;
+
+// Rules 14 to 17 (body profile only, FU-ht8b3r). Command shapes that carry a secret without a key
+// word: `curl -u user:pw`, `mysql -psecret` (value glued to the flag; a bare `-p` prompts and carries
+// none), and the phrase `password hunter2`. They are scoped to the command (or to the key word) so
+// `sort -u`, `git push -u` and `mysql -P 3306` stay as written.
+const CURL_USER_FLAG = /(\bcurl\b[^\r\n|;&]{0,200}?[ \t](?:-u|--user)(?:=|[ \t]+))("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/g;
+const MYSQL_PASSWORD_FLAG = /(\bmysql(?:dump|admin|pump|import)?\b[^\r\n|;&]{0,200}?[ \t]-p)("[^"\r\n]*"|'[^'\r\n]*'|[^\s"'-][^\s"']*)/g;
+// The value after the phrase must hold a non-letter, as in rule 4, so ordinary prose ("the password is
+// required") survives; a plain-letter value after a bare `password ` is a known gap.
+const PASSWORD_PHRASE = /(?<![A-Za-z0-9_.-])((?:password|passwd)[ \t]+)(?!<masked>|[=:])([^\s,;&"'`)\]}]+)/gi;
+// Another user's home directory (the running user's is rule 0). `Shared` is not a person.
+const OTHER_USER_HOME = /(?<![A-Za-z0-9_.-])\/Users\/(?!Shared(?![^/\s"'`<>:;,()[\]{}])|<)[^/\s"'`<>:;,()[\]{}]+/g;
 
 function escapeRegExp(text: string): string { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -140,6 +152,14 @@ function mask(text: any, profile: 'line' | 'body', options: any = {}): { text: s
     out = out.replace(AUTH_HEADER, (match: string, name: string, rest: string) => (rest === '' || rest === MASKED ? match : `${name} ${MASKED}`));
     // 9. Secret-bearing command-line flags.
     out = out.replace(SECRET_FLAG, (match: string, flag: string, value: string) => (isMasked(value) ? match : `${flag}${MASKED}`));
+    // 14. `curl -u user:pw` and `curl --user user:pw`.
+    out = out.replace(CURL_USER_FLAG, (match: string, flag: string, value: string) => (isMasked(value) ? match : `${flag}${MASKED}`));
+    // 15. `mysql -psecret`: the password glued to -p.
+    out = out.replace(MYSQL_PASSWORD_FLAG, (match: string, flag: string, value: string) => (isMasked(value) || value.startsWith(MASKED) ? match : `${flag}${MASKED}`));
+    // 16. `password hunter2`: the key word, a space and a value with a non-letter in it.
+    out = out.replace(PASSWORD_PHRASE, (match: string, head: string, value: string) => (/[^A-Za-z]/.test(value) ? `${head}${MASKED}` : match));
+    // 17. Another user's home directory: `/Users/<name>` becomes `/Users/<masked>`.
+    out = out.replace(OTHER_USER_HOME, `/Users/${MASKED}`);
   }
 
   const masked = Math.max(0, [MASKED, EMAIL, IP].reduce((sum, token) => sum + count(out, token) - count(input, token), 0));
