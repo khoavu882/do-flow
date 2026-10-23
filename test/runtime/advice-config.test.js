@@ -184,7 +184,8 @@ test('C4: decision-model JSON failures report offsets without file contents', (t
   result = resolve(paths);
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'config-invalid');
-  assert.match(result.notes[0], /ignored: not valid JSON(?: at offset \d+)?/);
+  assert.match(result.notes[0], new RegExp(`^project setting at .+ is invalid: not valid JSON(?: at offset \\d+)?; advice is off$`));
+  assert.doesNotMatch(result.notes.join('\n'), /ignored:/, 'a project file that turned advice off is not "ignored"');
   assert.doesNotMatch(result.notes.join('\n'), new RegExp(projectSecret));
 });
 

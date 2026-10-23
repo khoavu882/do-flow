@@ -14,6 +14,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadProtocols } = require('../../src/runtime/review/protocols.ts');
 const { resolveProtocol, protocolDigest, protocolLines } = require('../../src/runtime/review/resolve-protocol.ts');
 const { loadProtocolInputs } = require('../../src/runtime/review/start.ts');
+const { handleProtocolCommand } = require('../../src/runtime/review/protocol-command.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
 const { loadPolicy } = require('../../src/runtime/roadmap/gates.ts');
 
@@ -267,4 +268,22 @@ test('settings: with no settings files every key is the default layer and the pr
     'review.extraLenses', 'review.blockerClauses', 'debate.preset']);
   for (const entry of Object.values(inputs.settingsView)) assert.equal(entry.layer, 'default');
   assert.deepEqual(run(inputs), run({ ...inputs, settingsView: {} }));
+});
+
+test('settings: a settings view that cannot load is a settings-unavailable refusal, not a silent default', (t) => {
+  const f = createSettingsEnv(t);
+  const resolverModule = require('../../src/runtime/settings/resolve.ts');
+  const original = resolverModule.loadSettings;
+  const priorExit = process.exitCode;
+  t.after(() => { resolverModule.loadSettings = original; process.exitCode = priorExit; });
+  resolverModule.loadSettings = () => { throw new Error('settings registry exploded'); };
+
+  assert.deepEqual(loadProtocolInputs('feature', f.project, f.env()),
+    { error: 'settings-unavailable', message: 'settings registry exploded' });
+
+  // The protocol verb reaches the same branch without git and shows it as a refusal.
+  const lines = [];
+  const code = handleProtocolCommand({ action: 'resolve', kind: 'review', json: true, cwd: f.project, out: (line) => lines.push(line) });
+  assert.equal(code, 1);
+  assert.deepEqual(JSON.parse(lines.join('\n')), { ok: false, error: 'settings-unavailable', message: 'settings registry exploded' });
 });
