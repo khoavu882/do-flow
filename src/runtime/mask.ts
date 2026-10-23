@@ -72,8 +72,9 @@ const COMMAND_WORD = /^(?:(?:\.{0,2}|~)?\/(?:[^\s:]*\/)?)?(?:(curl)|(mysql(?:dum
 const WRAPPER_WORDS = new Set(['sudo', 'doas', 'su', 'env', 'exec', 'nohup', 'time', 'timeout', 'nice', 'ionice', 'xargs', 'watch',
   'command', 'builtin', 'eval', 'setsid', 'stdbuf', 'flock', 'chroot', 'ssh', 'docker', 'podman', 'kubectl', 'sh', 'bash', 'zsh', 'dash', 'ksh',
   'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{']);
-// A first word that does not use up the command position: a prompt mark, or a variable assignment.
-const PROMPT_OR_ASSIGNMENT = /^(?:[$#%>+]+|[A-Za-z_][A-Za-z0-9_]*=[^=]*)$/;
+// A first word that does not use up the command position: a prompt mark, a variable assignment or a
+// label such as `Running:`.
+const PROMPT_OR_ASSIGNMENT = /^(?:[$#%>+]+|[A-Za-z_][A-Za-z0-9_]*=[^=]*|[A-Za-z][A-Za-z0-9_-]*:)$/;
 // A flag value: quoted, or unquoted up to a space, quote or command break.
 const COMMAND_FLAG_VALUE = /"[^"\r\n]*"|'[^'\r\n]*'|[^\s"'|;&]+/y;
 // The value after the phrase must hold a non-letter, as in rule 4, so ordinary prose ("the password is

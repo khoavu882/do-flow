@@ -332,6 +332,7 @@ test('FU-ht8b3r N-2: credential flags of a command inside quotes or behind a wra
     ['sudo -u bob curl -u a:b x', 'sudo -u bob curl -u <masked> x'],
     ['FOO=1 /usr/bin/curl -u a:b x', 'FOO=1 /usr/bin/curl -u <masked> x'],
     ['$ curl -u a:b x', '$ curl -u <masked> x'],
+    ['Running: curl -u a:b x', 'Running: curl -u <masked> x'],
     ['echo "curl -u a:b"', 'echo "curl -u <masked>"'],
     ['echo $(curl -u a:b x)|cat', 'echo $(curl -u <masked> x)|cat'],
   ]) {
