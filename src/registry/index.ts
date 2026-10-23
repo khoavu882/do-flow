@@ -25,7 +25,8 @@ const COPY_TREE_SELECT_RENDERERS = new Set(['copy-tree', 'copilot-rule-instructi
 /** The orchestration block's own status vocabulary (074 IC-026): whether a harness exposes a
  * primitive, kept apart from CAPABILITY_STATUS because "unknown" is a recorded state here, not a gap. */
 const ORCHESTRATION_STATUS = new Set(['supported', 'unsupported', 'unknown']);
-const ORCHESTRATION_OPS = ['spawn', 'wait', 'status', 'cancel', 'resume'];
+// `nest` (118 IC-004): a subagent can start a subagent.
+const ORCHESTRATION_OPS = ['spawn', 'wait', 'status', 'cancel', 'resume', 'nest'];
 const ORCHESTRATION_FALLBACK = new Set(['sequential', 'manual']);
 // 'core' = must be supported/different (never unavailable) on every currently-integrated harness;
 // 'enhanced' = best-effort, wired wherever a harness's native surface allows. Optional field —
@@ -436,6 +437,46 @@ function validateOrchestration(value: any, location: string, errors: string[]): 
   }
 }
 
+/** The `agentLimits.readOnly` status vocabulary (118 IC-003): `native` = the harness enforces the
+ * limit from keys DoFlow writes into the agent file; `unenforced` = it does not, and says why. */
+const AGENT_LIMIT_STATUS = new Set(['native', 'unenforced']);
+const AGENT_LIMIT_KEYS = ['readOnly'];
+const AGENT_LIMIT_ENTRY_KEYS = new Set(['status', 'apply', 'evidence', 'checked', 'verifiedOn', 'reason']);
+
+/** Validates one harness's `agentLimits` block (118 IC-003): how a `read-only` agent spec is limited
+ * on that harness. Declared, never inferred; the adapters read `apply` and nothing else. */
+function validateAgentLimits(value: any, location: string, errors: string[]): void {
+  if (!object(value)) { issue(errors, location, 'agentLimits block is required and must be an object'); return; }
+  for (const key of AGENT_LIMIT_KEYS) {
+    if (!Object.hasOwn(value, key)) issue(errors, location, `agentLimits is missing '${key}'`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!AGENT_LIMIT_KEYS.includes(key)) issue(errors, location, `agentLimits has unknown key '${key}'`);
+  }
+  if (!Object.hasOwn(value, 'readOnly')) return;
+  const at = `${location} agentLimits readOnly`;
+  const entry = value.readOnly;
+  if (!object(entry)) { issue(errors, at, 'must be an object'); return; }
+  for (const key of Object.keys(entry)) {
+    if (!AGENT_LIMIT_ENTRY_KEYS.has(key)) issue(errors, at, `has unknown key '${key}'`);
+  }
+  if (!AGENT_LIMIT_STATUS.has(entry.status)) { issue(errors, at, 'status must be native or unenforced'); return; }
+  const evidenceOk = Array.isArray(entry.evidence) && entry.evidence.every((item: any) => typeof item === 'string');
+  if (!evidenceOk) issue(errors, at, 'evidence must be an array of strings');
+  if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) issue(errors, at, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
+  if (entry.status === 'native') {
+    if (!object(entry.apply) || Object.keys(entry.apply).length === 0) issue(errors, at, 'native requires apply as a non-empty object');
+    if (evidenceOk && entry.evidence.length === 0) issue(errors, at, 'native requires non-empty evidence');
+    if (entry.checked !== 'docs' && entry.checked !== 'live') issue(errors, at, 'native requires checked as docs or live');
+    return;
+  }
+  if (entry.apply !== undefined) issue(errors, at, 'unenforced must not carry apply');
+  if (typeof entry.reason !== 'string' || !entry.reason.trim()) { issue(errors, at, 'unenforced requires a reason'); return; }
+  if (evidenceOk && entry.evidence.length === 0 && entry.reason.trim().toLowerCase() !== 'no agent surface') {
+    issue(errors, at, 'unenforced requires non-empty evidence unless the reason is "no agent surface"');
+  }
+}
+
 /** Keys of a harness's `worker` block (081 IC-001) and the recipe fields each capability entry may
  * carry when, and only when, its status is `supported`. `required` lists the fields a `supported`
  * entry must carry. The last three are declared, not implemented, so they take no recipe field. */
@@ -740,6 +781,7 @@ function validateRegistry(
       validateCapability(declaration, `${at} capability '${capability}'`, errors);
     }
     validateOrchestration(harness.orchestration, at, errors);
+    validateAgentLimits(harness.agentLimits, at, errors);
     validateWorker(harness.worker, at, errors);
     const quota = harness.worker?.structuredOutput?.quotaSignals;
     if (object(quota) && quota.basis === 'transcript' && Array.isArray(quota.evidence) && typeof repoRoot === 'string') {
@@ -1003,7 +1045,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
+  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry, registrySourceMode,
   harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };
