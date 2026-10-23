@@ -1,5 +1,0 @@
-Redirecting to: /docs/mcp?tab=cli
-Redirecting from
-/docs/cli/mcp/
-to
-/docs/mcp?tab=cli

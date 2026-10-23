@@ -1,0 +1,637 @@
+Settings
+2-0
+Antigravity App
+Features
+Settings Antigravity App Features
+Antigravity App
+Antigravity CLI
+Antigravity IDE
+Features
+Learn
+Settings
+Overview
+Markdown
+Copy Markdown
+View Markdown
+Available on:
+Antigravity App
+Antigravity CLI
+Antigravity IDE
+Settings
+Section titled “Settings”
+Configure preferences, execution boundaries, command permissions, and tool telemetry across Antigravity surfaces.
+Antigravity App
+Antigravity CLI
+Antigravity IDE
+Antigravity App
+Section titled “Antigravity App”
+Settings architecture
+Section titled “Settings architecture”
+Antigravity features a hierarchical settings architecture designed to give you
+granular control over your development environment. Settings are split between
+global application preferences and isolated project-level boundaries to ensure
+robust security and flexible workspace configurations.
+Accessing settings
+Section titled “Accessing settings”
+You can open the Settings panel using any of the following methods:
+Keyboard shortcut
+: Press
+Cmd
++
+,
+on any active
+surface inside the application.
+Sidebar navigation
+: Click
+Settings
+at the bottom of the left sidebar.
+Project settings
+: Click the gear icon located next to a specific project.
+Note
+By default, if you have an active project open, clicking
+Settings
+automatically opens configurations for that specific project. Otherwise, it
+opens the global settings.
+The four settings categories
+Section titled “The four settings categories”
+Settings are organized into four distinct scopes to keep configurations clean
+and isolated:
+Global settings
+Section titled “Global settings”
+Global settings apply across all workspaces:
+Account settings
+: Manage authentication sessions and toggle telemetry
+(enable or disable sharing interaction logs to improve models).
+Global permissions
+: Centralized default tool boundaries that apply to all
+conversations:
+Permission Preset
+: Choose
+Request Review
+,
+Default
+,
+Auto (Preview)
+(
+v2.23.0+
+), or
+Turbo
+. You can also choose a preset
+from the permissions picker in the message box composer (
+v2.23.0+
+), which
+changes your global preset, or the project’s preset if the project
+overrides it. To remove a project override, choose
+Use Global Settings
+.
+Fine-grained allow, ask, and deny rules (refer to
+Agent permissions
+).
+Appearance
+: Customize visual themes and panel layouts.
+Browser integration
+: Configure how the agent interacts with web surfaces.
+Model usage
+: Choose and configure default reasoning models.
+Customizations
+: Manage Model Context Protocol (MCP) servers, custom
+skills, and plugins.
+Note
+Business and enterprise accounts, including
+Antigravity in Gemini Enterprise
+, use the
+previous permission settings
+instead of the
+Permission Preset
+.
+Project settings
+Section titled “Project settings”
+Project settings apply exclusively within the scope of a specific project:
+Folders
+: Define the list of local folders associated with the project.
+Antigravity automatically detects Git configurations for these folders to
+handle conversation targets:
+Local
+: Select this in the new conversation view to work directly in the
+existing folders.
+Worktree
+: Select this to start a new worktree in the folders. If a
+folder does not have Git, the existing local folder is used instead.
+Agent settings
+: Configure project-specific agent behaviors:
+Permission settings
+(updated permission system): Choose the project’s
+Permission Preset
+—
+Inherit Global
+,
+Request Review
+,
+Default
+,
+Auto (Preview)
+(
+v2.23.0+
+), or
+Turbo
+—controlling
+how the agent runs shell commands, accesses files, and uses the
+terminal sandbox
+(refer to
+Agent permissions
+and
+Agent settings
+).
+Terminal execution policy
+(
+previous permission settings
+):
+Control how the agent runs shell commands.
+Outside of folder file access policy
+(previous permission settings):
+Define how the agent accesses files outside the project boundary (Always
+Allow, Always Ask, or Always Deny).
+Sandbox mode
+(previous permission settings): Toggle the terminal sandbox
+container on or off within the custom security preset (refer to
+Terminal sandbox
+).
+Project-level permissions
+: Configure permissions at the project level. As
+you interact with an agent, you accumulate permission requests that can be
+automatically added to project permissions.
+Customizations
+: Derived from both global and project-specific
+customizations. You can view all skills originating from each folder added to
+the project.
+Standalone conversations
+Section titled “Standalone conversations”
+You can also start conversations outside of a project:
+Behavior
+: Standalone conversations do not have a configurable folder and
+instead run in a local scratch directory.
+Settings
+: Standalone conversations can have their own settings (such as
+terminal execution, file access policies, and permissions) similar to
+projects, but operate independently of any project structure.
+Miscellaneous
+Section titled “Miscellaneous”
+Access shortcuts and feedback tools:
+Shortcuts
+: View and customize keyboard shortcut configurations.
+Feedback
+: Access the feedback form to send reports directly to the team.
+Data collection settings
+Section titled “Data collection settings”
+The
+Enable Telemetry
+setting is located in the Settings panel under the
+Account
+section. When toggled on, Antigravity collects interactions for use
+in evaluating, developing, and improving Antigravity and models that support
+Antigravity.
+Antigravity CLI
+Section titled “Antigravity CLI”
+Configure persistent preferences, customize keyboard shortcuts, toggle
+terminal display buffers, and manage runtime CLI parameter overrides.
+Setting up preferences
+Section titled “Setting up preferences”
+Antigravity CLI stores user preferences in a minimal, forward-compatible JSON
+configuration profile.
+Configuration file location
+Section titled “Configuration file location”
+The persistent settings are saved in a plain JSON format:
+~/.gemini/antigravity-cli/settings.json
+The CLI leverages
+sparse persistence
+by writing only values to disk that
+differ from their system defaults. This keeps your configuration file clean,
+minimal, and fully forward-compatible with future updates.
+Editor autocomplete and validation
+Section titled “Editor autocomplete and validation”
+Antigravity publishes a
+JSON Schema
+for
+settings.json
+. Editors that support JSON Schema, such as VS Code and JetBrains
+IDEs, use it for autocomplete, hover descriptions, and validation. To turn it
+on, add a
+$schema
+key at the top of the file:
+{
+"$schema"
+:
+"https://antigravity.google/schemas/v1/settings.json"
+,
+"agentMode"
+:
+"accept-edits"
+,
+"colorScheme"
+:
+"tokyo night"
+,
+"notifications"
+:
+true
+}
+The CLI ignores
+$schema
+and keeps it when it saves the file.
+Other configuration files
+Section titled “Other configuration files”
+Keyboard shortcuts, hooks, MCP servers, and plugins are configured in their own
+files:
+Keyboard shortcuts
+:
+~/.gemini/antigravity-cli/keybindings.json
+.
+/keybindings
+opens the file in your editor. Refer to
+Keybindings
+configuration
+.
+Hooks
+:
+~/.gemini/config/hooks.json
+for all workspaces, or
+&#x3C;workspace>/.agents/hooks.json
+for one workspace.
+/hooks
+adds, edits, and
+turns hooks on or off, and saves new hooks to the global file. Hooks don’t go
+in
+settings.json
+: the CLI keeps a
+hooks
+key there but never loads it.
+Refer to
+Hooks
+.
+MCP servers
+:
+~/.gemini/config/mcp_config.json
+for all workspaces, which
+you can manage with
+/mcp
+, or
+&#x3C;workspace>/.agents/mcp_config.json
+for one
+workspace. Use names that differ from your global servers: when two files use
+the same name, the server that is already running keeps it. Refer to
+MCP
+.
+Plugins
+: Installed in
+~/.gemini/config/plugins/&#x3C;plugin>/
+, or in
+&#x3C;workspace>/.agents/plugins/&#x3C;plugin>/
+for one workspace. Each plugin can
+have a
+plugin.json
+manifest, described by the
+plugin manifest
+schema
+. Refer to
+Plugins
+.
+How the CLI reads and saves settings.json
+Section titled “How the CLI reads and saves settings.json”
+Only non-default values are saved.
+When you change a setting with
+/config
+,
+/model
+,
+/effort
+,
+/statusline
+,
+/title
+, or
+/permissions
+, or
+choose to always allow or deny an action at a permission prompt, the CLI saves
+only the keys whose values differ from the defaults. Setting an option back to
+its default removes its key. The CLI replaces the file in one step and makes
+it readable only by your user (
+0600
+).
+The file is normalized at startup.
+When the CLI starts with a valid file,
+it rewrites the file in its own format, which also removes keys that are set
+to their default values.
+Unknown keys are kept.
+The CLI ignores keys it doesn’t recognize, such as
+$schema
+or a setting from a newer version, and keeps them when it saves the
+file.
+Problems are reported before your session starts.
+If a key has the wrong
+type or an unrecognized value, or the file isn’t valid JSON, the CLI opens a
+Settings
+Error
+screen that names the file and the problem. The file isn’t changed
+until you choose what to do.
+For example, an unrecognized
+colorScheme
+value opens this screen:
+The screen offers three choices:
+Exit and fix manually
+: Quits the CLI so you can edit the file.
+Continue with defaults this session
+: Starts the session without changing
+the file. For an invalid value, the CLI uses the default for that key and
+applies the rest of your settings, and the next time it saves a setting, it
+drops the invalid value. If the file isn’t valid JSON, the CLI uses all
+defaults and doesn’t save any setting changes until you fix the file.
+Overwrite the file with defaults
+: After you confirm, saves a copy of the
+file next to it as
+settings.json.corrupted.&#x3C;timestamp>
+and resets every
+setting to its default, including the permission rules in the file.
+The interactive settings panel
+Section titled “The interactive settings panel”
+To edit settings directly inside your active terminal session without opening
+raw JSON files:
+Type
+/config
+(or its alias
+/settings
+) inside the prompt panel and press
+Enter
+. The
+Settings
+panel opens below the prompt and lists each
+setting with its current value:
+Navigate between available options using
+↑
+/
+↓
+, or start
+typing to filter the list in
+Search
+.
+Press
+←
+/
+→
+to change the highlighted setting, or press
+Enter
+to open its options, highlight a value, and press
+Enter
+to save. Changes are saved right away.
+Press
+Esc
+to close the panel. If you’ve typed in
+Search
+, the
+first
+Esc
+clears it. In an open option list,
+Esc
+cancels.
+Command-line overrides
+Section titled “Command-line overrides”
+You can temporarily override persistent preferences for individual terminal
+sessions using CLI command flags:
+agy
+--sandbox
+--model=
+"Gemini 3.8 Flash"
+When a flag overrides a setting,
+/config
+names the flag after that setting’s
+value. For example, with
+--sandbox
+:
+Sandbox Mode on (overridden by --sandbox)
+Flag overrides apply only to the current session and aren’t saved to
+settings.json
+.
+Visual rendering modes
+Section titled “Visual rendering modes”
+The TUI renders in one of two visual modes, set by the
+Rendering Mode
+(
+altScreenMode
+) option in
+/config
+.
+Alt-screen mode (
+always
+)
+Section titled “Alt-screen mode (always)”
+This mode opens a dedicated display screen using the terminal’s alternate
+buffer, creating an immersive, standalone app interface:
+Key features
+: Integrated scrollback, mouse-wheel scrolling support,
+custom rendered scrollbar, and clean terminal state restoration on exit.
+Best used for
+: Standard local development sessions in advanced terminal
+emulators (such as iTerm2, Ghostty, or WezTerm).
+Inline mode (
+never
+)
+Section titled “Inline mode (never)”
+This mode renders output sequentially directly within your terminal’s standard
+stdout pipeline:
+Key features
+: Preserves entire session history inside your emulator’s
+native scrollback buffer, does not capture mouse inputs, and works seamlessly
+alongside standard command outputs.
+Best used for
+: Remote SSH terminals, terminal multiplexers such as
+tmux
+or
+screen
+, and low-bandwidth remote sessions.
+Note
+Default rendering
+: With Rendering Mode set to
+default
+(
+native terminal
+(inline)
+in
+/config
+), the conversation renders inline, and full-screen views
+such as the diff viewer, the artifact viewer, and
+/help
+open in the alternate
+screen. Setting
+altScreenMode
+to
+never
+in
+settings.json
+keeps those views
+inline too. If your terminal doesn’t support the alternate screen, the CLI
+always renders inline.
+Configuration options reference
+Section titled “Configuration options reference”
+The interactive settings panel (
+/config
+) and
+settings.json
+allow you to
+customize the CLI’s behavior across several categories. Each option lists its
+settings.json
+key in parentheses. For one table of every key with its type and
+default, refer to the
+CLI
+reference
+.
+Safety and permissions
+Section titled “Safety and permissions”
+Manage how the agent interacts with your system and codebase:
+Agent Mode (
+agentMode
+)
+: Controls the session execution mode for file
+edits, command evaluation, and planning (can also be set per session with
+--mode
+or cycled with
+Shift
++
+Tab
+; refer to
+Choose an execution mode
+):
+default
+(the default; leave
+agentMode
+unset): Prompts for interactive diff
+review before modifying or creating files.
+accept-edits
+: Automatically approves workspace file edits and creations.
+auto
+(Preview): Automatically approves
+workspace file edits, runs terminal commands inside the
+terminal sandbox
+by default, and automatically evaluates
+commands that need to run outside the sandbox so safe, reversible commands
+run without prompting while risky or irreversible commands pause for
+approval (shown as
+auto
+in the bottom-right status bar and
+Auto mode: edits &#x26; safe commands auto-approved (shift+tab to cycle)
+in the
+prompt input box).
+plan
+: Prepends
+/plan
+so the agent analyzes the codebase and outlines a
+plan before making edits.
+Tool Permission (
+toolPermission
+)
+: Controls when the agent asks for your
+approval before it uses a tool, such as running a terminal command. Deny rules
+in your
+permissions
+block an action in every mode:
+request-review
+(default): Prompts for your approval before running write,
+bash, web, or MCP tools, unless an allow rule covers the action.
+proceed-in-sandbox
+: Runs terminal commands without prompting when Sandbox
+Mode is on and the command runs inside the terminal sandbox; otherwise
+prompts for review.
+strict
+: Prompts before every tool action, including file reads, even when
+an allow rule matches (overrides
+auto
+mode).
+always-proceed
+: Runs terminal commands, web requests, and MCP tools
+without prompting, except actions that match an ask or deny rule (highest
+risk, use with caution; overrides
+auto
+mode).
+Artifact Review (
+artifactReviewPolicy
+)
+: Controls whether the agent stops
+for your review when it asks for feedback on an artifact, such as an
+implementation plan, before it continues. It doesn’t affect file edits, which
+Agent Mode controls:
+asks-for-review
+(default;
+asks for review
+in
+/config
+): The agent
+always waits for your review.
+agent-decides
+(
+agent decides
+): Currently works the same as
+asks-for-review
+.
+always-proceed
+(
+always proceeds
+): The agent continues without waiting
+for your review.
+Sandbox Mode (
+enableTerminalSandbox
+)
+: When enabled (
+on
+), restricts
+all agent-initiated terminal commands to a secure OS container. When
+agentMode
+is set to
+auto
+, the terminal sandbox is enabled automatically and
+only commands that need to run outside the sandbox are evaluated for automatic
+approval.
+Non-Workspace Access (
+allowNonWorkspaceAccess
+)
+: When enabled (
+on
+),
+lets the agent read and edit files outside your workspace folders, subject to
+your Tool Permission, Agent Mode, and permission rules. Set to
+off
+by
+default for safety.
+Note
+auto
+mode is available in
+v1.3.5+
+on
+macOS and Linux
+and
+v1.4.4+
+on
+Windows
+, except for business and enterprise accounts. If
+agentMode
+is set
+to
+auto
+where
+auto
+isn’t available, the CLI starts in
+default
+mode.
+Starting in
+v1.4.4
+, if the sandbox isn’t available on your machine (for
+example, on Windows 10, earlier Windows 11 builds, or Linux hosts and some
+containers that block unprivileged user namespaces), Sandbox Mode has no effect,
+/config
+hides it along with
+proceed-in-sandbox
+and
+auto
+, and a saved
+proceed-in-sandbox
+behaves like
+request-review
+.
+[snapshot truncated]

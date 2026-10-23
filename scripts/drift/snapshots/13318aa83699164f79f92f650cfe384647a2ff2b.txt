@@ -1,5 +1,0 @@
-Redirecting to: /docs/subagents?tab=cli
-Redirecting from
-/docs/cli/subagents/
-to
-/docs/subagents?tab=cli
