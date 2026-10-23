@@ -19,6 +19,8 @@
  *   3. a narrowing comparison (project layers of a `narrow-only` key, any layer of a `combine:
  *      narrowest` key, env with `direction: narrow`) applies only a narrower value; an equal one is
  *      `redundant` and never takes the origin (C6), a wider one is `not-narrower`;
+ *   3b. a `combine: union` key (a string-list) adds each valid candidate's items that are not yet present, in
+ *      fold order; every contributor stays `decided`, a candidate adding nothing is `redundant`;
  *   4. anything else overrides, an equal value included (so the deciding file is the highest one that
  *      sets it, as `doflow storage` names it today, OI-3).
  * After the fold: a key named as `{gate}` by another key's fail-safe takes its own fail-safe when one
@@ -352,8 +354,8 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
     let holder: Candidate | null = null;
     let tripped: Candidate | null = null;
     const candidates: Candidate[] = [];
-    const take = (c: Candidate, via: Via): void => {
-      if (holder && holder.status === 'decided') {
+    const take = (c: Candidate, via: Via, keepHolder = false): void => {
+      if (!keepHolder && holder && holder.status === 'decided') {
         holder.status = holder.layer === c.layer && holder.legacy && !c.legacy ? 'shadowed' : 'overridden';
       }
       origin = { layer: c.layer, source: c.source, legacy: c.legacy, checkout: c.checkout, via };
@@ -402,10 +404,23 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         }
         continue;
       }
+      if (spec.combine === 'union') {
+        const added = (c.value as string[]).filter((item) => !(value as string[]).includes(item));
+        if (added.length === 0) {
+          Object.assign(c, { status: 'redundant', reason: 'every item is already present' });
+          continue;
+        }
+        take(c, null, true);                               // both the earlier contributor and this one apply
+        value = [...(value as string[]), ...added];
+        state = 'ok';
+        tripped = null;
+        continue;
+      }
       const narrowing = (projectLayer && spec.scope === 'narrow-only') || spec.combine === 'narrowest'
         || (bound && spec.env?.direction === 'narrow');
       if (narrowing) {
-        const delta = rank(spec, c.value) - rank(spec, value);
+        // an unset value (null) is the widest, so any valid candidate narrows it
+        const delta = value === null ? -1 : rank(spec, c.value) - rank(spec, value);
         if (delta === 0) {
           Object.assign(c, { status: 'redundant', reason: 'equal to the value below' });
           continue;
@@ -459,7 +474,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
       key, view: viewName, value, state, explicit: origin.layer !== 'default', origin, candidates,
       meta: {
         type: spec.type,
-        values: spec.type === 'enum' ? registry.enumValues(key) : null,
+        values: registry.enumValues(key),
         order: spec.order ?? null,
         default: fallback,
         scope: spec.scope, combine: spec.combine, securityRelevant: spec.securityRelevant,

@@ -71,7 +71,7 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
     const spec = registry.keys.get(key);
     if (!spec) return invalid(file, `unknown owned key '${key}'`);
     if (unsetKeys.has(key)) return invalid(file, `key '${key}' cannot be both set and unset`);
-    const fault = validateValue(spec, value, spec.type === 'enum' ? registry.enumValues(key) : null);
+    const fault = validateValue(spec, value, registry.enumValues(key));
     if (fault) return invalid(file, `'${key}' ${fault.reason}`);
   }
   for (const key of unsetKeys) {

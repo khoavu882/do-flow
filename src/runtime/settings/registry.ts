@@ -25,9 +25,9 @@ const { jsonFailure, validateValue } = require('./files.ts');
 const REGISTRY_FILE = 'core/registry/settings.json';
 
 const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const TYPES = ['boolean', 'enum', 'integer', 'string', 'url', 'worker-billing'];
+const TYPES = ['boolean', 'enum', 'integer', 'string', 'string-list', 'url', 'worker-billing'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
-const COMBINES = ['override', 'narrowest'];
+const COMBINES = ['override', 'narrowest', 'union'];
 const PARSES = ['positive-int', 'off-words'];
 const DIRECTIONS = ['any', 'narrow'];
 const LEGACY_LAYERS = ['user', 'project'];
@@ -36,7 +36,7 @@ const VIEWS = ['project', 'global'];
 const SHELL_READS = [null, 'lexical-v1'];
 const TOP_FIELDS = ['version', 'description', 'keys'];
 const SPEC_FIELDS = [
-  'type', 'values', 'valuesRef', 'min', 'order', 'default', 'defaultRef', 'scope', 'combine', 'views',
+  'type', 'values', 'valuesRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'default', 'defaultRef', 'scope', 'combine', 'views',
   'securityRelevant', 'failSafe', 'requires', 'env', 'flag', 'shellRead', 'needsConfigHome', 'legacy',
   'consumers', 'description',
 ];
@@ -105,9 +105,9 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
   const enumLists = new Map<string, string[] | null>();
   for (const name of names) {
     const spec = specs[name];
-    if (!isObject(spec) || spec.type !== 'enum') continue;
+    if (!isObject(spec) || (spec.type !== 'enum' && spec.type !== 'string-list')) continue;
     let list: string[] | null = null;
-    if (Array.isArray(spec.values) && spec.values.every((v: unknown) => typeof v === 'string')) list = spec.values;
+    if (spec.type === 'enum' && Array.isArray(spec.values) && spec.values.every((v: unknown) => typeof v === 'string')) list = spec.values;
     else if (typeof spec.valuesRef === 'string' && refs.resolve && refMeta(spec.valuesRef)?.kind === 'values') {
       try {
         const resolved = refs.resolve(spec.valuesRef);
@@ -134,9 +134,10 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
 
     const type: string = spec.type;
     const list = enumLists.get(name) ?? null;
-    /** A fault text for a value of this key, or null. An enum whose list is unresolved accepts any string. */
+    /** A fault text for a value of this key, or null. A list-bound key whose list is unresolved checks only the rest. */
     const faultOf = (value: unknown): string | null => {
       if (type === 'enum' && list === null) return typeof value === 'string' ? null : 'must be a string';
+      if (type === 'string-list' && list === null) return validateValue({ ...spec, valuesRef: undefined }, value)?.reason ?? null;
       return validateValue(spec, value, list)?.reason ?? null;
     };
 
@@ -150,13 +151,25 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         err("values must be a non-empty list of distinct non-empty strings");
       }
       if (hasRef && refMeta(spec.valuesRef)?.kind !== 'values') err(`valuesRef '${String(spec.valuesRef)}' is not a known values ref`);
+    } else if (type === 'string-list') {
+      if (has(spec, 'values')) err("'values' is not allowed for a string-list key (use 'valuesRef')");
+      if (has(spec, 'valuesRef') && refMeta(spec.valuesRef)?.kind !== 'values') err(`valuesRef '${String(spec.valuesRef)}' is not a known values ref`);
     } else {
       if (has(spec, 'values')) err("'values' is only for enum keys");
-      if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum keys");
+      if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum and string-list keys");
     }
     if (has(spec, 'min')) {
       if (type !== 'integer') err("'min' is only for integer keys");
       else if (!Number.isSafeInteger(spec.min)) err('min must be an integer');
+    }
+    if (has(spec, 'max')) {
+      if (type !== 'integer') err("'max' is only for integer keys");
+      else if (!Number.isSafeInteger(spec.max)) err('max must be an integer');
+      else if (Number.isSafeInteger(spec.min) && spec.max < spec.min) err('max must not be below min');
+    }
+    for (const bound of ['maxItems', 'maxLength']) {
+      if (type !== 'string-list') { if (has(spec, bound)) err(`'${bound}' is only for string-list keys`); }
+      else if (!has(spec, bound) || !Number.isSafeInteger(spec[bound]) || spec[bound] < 1) err(`${bound} must be a positive integer`);
     }
 
     // scope / combine / order
@@ -165,12 +178,15 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const free = type === 'string' || type === 'url';
     // worker-billing is a structured record: no order ranks two records, only an override is defined.
     const record = type === 'worker-billing';
-    if (spec.scope === 'narrow-only' && (free || record)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
+    // string-list is a set of items: no order ranks two lists, only a union is defined.
+    const multi = type === 'string-list';
+    if (spec.scope === 'narrow-only' && (free || record || multi)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
     if (record && spec.combine !== 'override') err("a worker-billing key must combine by 'override'");
+    if (multi !== (spec.combine === 'union')) err(multi ? "a string-list key must combine by 'union'" : "combine 'union' is only for string-list keys");
     const needsOrder = spec.scope === 'narrow-only' || spec.combine === 'narrowest';
     if (has(spec, 'order')) {
       const order = spec.order;
-      if (free || record) err(`order is refused for a ${type} key`);
+      if (free || record || multi) err(`order is refused for a ${type} key`);
       else if (order === 'ascending' || order === 'descending') {
         if (type !== 'integer') err("'ascending'/'descending' order is only for integer keys");
       } else if (!Array.isArray(order) || order.length === 0 || new Set(order).size !== order.length) {
@@ -190,7 +206,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const hasDefaultRef = has(spec, 'defaultRef');
     if (hasDefault === hasDefaultRef) err("needs exactly one of 'default' or 'defaultRef'");
     if (record && (!hasDefault || spec.default !== null)) err('a worker-billing key must default to null');
-    if (hasDefault && !(spec.default === null && (free || record))) {
+    if (hasDefault && !(spec.default === null && (free || record || type === 'integer'))) {
       const fault = faultOf(spec.default);
       if (fault) err(`default is not valid: ${fault}`);
     }
@@ -365,7 +381,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
 interface SettingsRegistry {
   version: 1;
   keys: Map<string, any>;
-  /** The allowed values of an enum key (its list or its resolved ref); null when unavailable. */
+  /** The allowed values of an enum key, or of a string-list key with a valuesRef (its list or its resolved ref); null when unavailable or not list-bound. */
   enumValues(key: string): string[] | null;
   /** The value of a named ref, lazily read from advice.json or storage.json. Throws when unreadable. */
   resolveRef(name: string, deps?: Record<string, unknown>): unknown;
@@ -415,7 +431,7 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
       if (lists.has(key)) return lists.get(key)!;
       const spec = keys.get(key);
       let list: string[] | null = null;
-      if (spec?.type === 'enum') {
+      if (spec?.type === 'enum' || (spec?.type === 'string-list' && spec.valuesRef)) {
         if (Array.isArray(spec.values)) list = spec.values;
         else {
           try { list = refs.resolve(spec.valuesRef) as string[]; } catch { list = null; }

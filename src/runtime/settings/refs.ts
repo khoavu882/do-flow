@@ -11,6 +11,9 @@
  *   advice.providerIds                    core/registry/advice.json  providers[].id
  *   advice.providerDefaultEndpoint        core/registry/advice.json  providers[id = advice.provider].defaultEndpoint
  *   storage.lifecycleEventsDefaultHours   core/registry/storage.json stores[lifecycle-events].bound.defaultHours
+ *   protocols.reviewPresetIds             core/registry/protocols.json 'auto', then order.review
+ *   protocols.debatePresetIds             core/registry/protocols.json order.debate
+ *   protocols.lensIds                     core/registry/protocols.json lenses[].id
  *
  * Sources are read on first use and cached for the life of the returned resolver. A failure throws an
  * Error that names the file and the field and never carries file text.
@@ -28,12 +31,16 @@ type Source = (name: string) => any;
 
 const ADVICE_FILE = 'core/registry/advice.json';
 const STORAGE_FILE = 'core/registry/storage.json';
+const PROTOCOLS_FILE = 'core/registry/protocols.json';
 
 /** What each ref is and which keys' values it needs, so the loader can detect a cycle without resolving. */
 const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
   'advice.providerIds': { kind: 'values', dependsOn: [] },
   'advice.providerDefaultEndpoint': { kind: 'default', dependsOn: ['advice.provider'] },
   'storage.lifecycleEventsDefaultHours': { kind: 'default', dependsOn: [] },
+  'protocols.reviewPresetIds': { kind: 'values', dependsOn: [] },
+  'protocols.debatePresetIds': { kind: 'values', dependsOn: [] },
+  'protocols.lensIds': { kind: 'values', dependsOn: [] },
 });
 
 function providers(source: Source): any[] {
@@ -64,10 +71,35 @@ function storageLifecycleEventsDefaultHours(source: Source): number {
   return hours;
 }
 
+/** A non-empty list of non-empty strings, or an Error naming the file and `field`. */
+function idList(list: unknown, field: string): string[] {
+  if (!Array.isArray(list) || list.length === 0 || list.some((id: unknown) => typeof id !== 'string' || !id)) {
+    throw new Error(`${PROTOCOLS_FILE} ${field} must be a non-empty list of non-empty strings`);
+  }
+  return list;
+}
+
+/** `review.preset` may be `auto` or any review preset id (IC-006). */
+function protocolsReviewPresetIds(source: Source): string[] {
+  return ['auto', ...idList(source(PROTOCOLS_FILE)?.order?.review, 'order.review')];
+}
+
+function protocolsDebatePresetIds(source: Source): string[] {
+  return idList(source(PROTOCOLS_FILE)?.order?.debate, 'order.debate');
+}
+
+function protocolsLensIds(source: Source): string[] {
+  const lenses = source(PROTOCOLS_FILE)?.lenses;
+  return idList(Array.isArray(lenses) ? lenses.map((l: any) => l?.id) : null, 'lenses[].id');
+}
+
 const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown>> = Object.freeze({
   'advice.providerIds': adviceProviderIds,
   'advice.providerDefaultEndpoint': adviceProviderDefaultEndpoint,
   'storage.lifecycleEventsDefaultHours': storageLifecycleEventsDefaultHours,
+  'protocols.reviewPresetIds': protocolsReviewPresetIds,
+  'protocols.debatePresetIds': protocolsDebatePresetIds,
+  'protocols.lensIds': protocolsLensIds,
 });
 
 interface Refs {

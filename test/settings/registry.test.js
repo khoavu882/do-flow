@@ -175,7 +175,7 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), storage.stores.find((s) => s.id === 'lifecycle-events').bound.defaultHours);
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), 4320);
   assert.deepEqual(refs.resolve('advice.providerIds'), advice.providers.map((p) => p.id));
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'storage.lifecycleEventsDefaultHours']);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'storage.lifecycleEventsDefaultHours']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
