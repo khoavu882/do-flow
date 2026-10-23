@@ -25,7 +25,7 @@ const { jsonFailure, validateValue } = require('./files.ts');
 const REGISTRY_FILE = 'core/registry/settings.json';
 
 const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const TYPES = ['boolean', 'enum', 'integer', 'string', 'url'];
+const TYPES = ['boolean', 'enum', 'integer', 'string', 'url', 'worker-billing'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
 const COMBINES = ['override', 'narrowest'];
 const PARSES = ['positive-int', 'off-words'];
@@ -163,11 +163,14 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     if (!SCOPES.includes(spec.scope)) err(`scope must be one of ${SCOPES.join(', ')}`);
     if (!COMBINES.includes(spec.combine)) err(`combine must be one of ${COMBINES.join(', ')}`);
     const free = type === 'string' || type === 'url';
-    if (spec.scope === 'narrow-only' && free) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
+    // worker-billing is a structured record: no order ranks two records, only an override is defined.
+    const record = type === 'worker-billing';
+    if (spec.scope === 'narrow-only' && (free || record)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
+    if (record && spec.combine !== 'override') err("a worker-billing key must combine by 'override'");
     const needsOrder = spec.scope === 'narrow-only' || spec.combine === 'narrowest';
     if (has(spec, 'order')) {
       const order = spec.order;
-      if (free) err(`order is refused for a ${type} key`);
+      if (free || record) err(`order is refused for a ${type} key`);
       else if (order === 'ascending' || order === 'descending') {
         if (type !== 'integer') err("'ascending'/'descending' order is only for integer keys");
       } else if (!Array.isArray(order) || order.length === 0 || new Set(order).size !== order.length) {
@@ -186,7 +189,8 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const hasDefault = has(spec, 'default');
     const hasDefaultRef = has(spec, 'defaultRef');
     if (hasDefault === hasDefaultRef) err("needs exactly one of 'default' or 'defaultRef'");
-    if (hasDefault && !(spec.default === null && free)) {
+    if (record && (!hasDefault || spec.default !== null)) err('a worker-billing key must default to null');
+    if (hasDefault && !(spec.default === null && (free || record))) {
       const fault = faultOf(spec.default);
       if (fault) err(`default is not valid: ${fault}`);
     }
@@ -211,9 +215,14 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         if (fault) err(`failSafe is not valid: ${fault}`);
       }
     }
+    if (record && !(isObject(spec.failSafe) && sameList(Object.keys(spec.failSafe), ['state']) && spec.failSafe.state === 'invalid')) {
+      err("a worker-billing key needs failSafe {state: 'invalid'}");
+    }
     if (spec.securityRelevant === true) {
       const safe = spec.failSafe;
-      if (!has(spec, 'failSafe') || (isObject(safe) && !has(safe, 'gate'))) err('is securityRelevant and needs a failSafe value or {gate}');
+      // A record has no plain fail-safe value; its invalid state is the fail-safe (this type only).
+      const stateSafe = record && isObject(safe) && safe.state === 'invalid';
+      if (!stateSafe && (!has(spec, 'failSafe') || (isObject(safe) && !has(safe, 'gate')))) err('is securityRelevant and needs a failSafe value or {gate}');
     }
 
     // requires

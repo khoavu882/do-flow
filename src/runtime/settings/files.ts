@@ -60,6 +60,48 @@ function jsonFailure(error: any, text: string, bomBytes = 0): { offset: number |
   return { offset, reason: `not valid JSON at offset ${offset}` };
 }
 
+const WORKER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+/** The two billing values a person may record (the registry's `unknown` is not a claim). */
+const RECORDED_BILLING = ['free', 'metered'];
+const BILLING_ENTRY_FIELDS = ['billing', 'asserted', 'basis'];
+const BILLING_MAX_ENTRIES = 16;
+const BILLING_BASIS_MAX = 120;
+
+/** `YYYY-MM-DD` naming a real calendar date. */
+function isCalendarDate(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const at = new Date(Date.UTC(year, month - 1, day));
+  return at.getUTCFullYear() === year && at.getUTCMonth() === month - 1 && at.getUTCDate() === day;
+}
+
+/**
+ * The `workers.billing` record: an object of 1..16 entries keyed by worker id, each exactly
+ * `{billing, asserted[, basis]}`. The first fault wins and invalidates the whole key; a reason
+ * names the entry (when its id is well formed) and the field, never the value.
+ */
+function validateWorkerBilling(value: unknown): ValueFault | null {
+  if (!isObject(value)) return { code: 'type', reason: 'must be an object keyed by worker id' };
+  const ids = Object.keys(value);
+  if (ids.length < 1 || ids.length > BILLING_MAX_ENTRIES) return { code: 'range', reason: `must hold 1 to ${BILLING_MAX_ENTRIES} worker entries` };
+  for (const id of ids) {
+    if (!WORKER_ID_RE.test(id)) return { code: 'type', reason: 'has an entry key that is not a worker id (lowercase letters, digits and hyphens)' };
+    const entry = value[id];
+    const at = `entry '${id}'`;
+    if (!isObject(entry)) return { code: 'type', reason: `${at} must be an object` };
+    if (Object.keys(entry).some((field) => !BILLING_ENTRY_FIELDS.includes(field))) return { code: 'type', reason: `${at} has a field other than billing, asserted and basis` };
+    if (typeof entry.billing !== 'string') return { code: 'type', reason: `${at} field 'billing' must be a string` };
+    if (!RECORDED_BILLING.includes(entry.billing)) return { code: 'enum', reason: `${at} field 'billing' must be one of: ${RECORDED_BILLING.join(', ')}` };
+    if (!isCalendarDate(entry.asserted)) return { code: 'range', reason: `${at} field 'asserted' must be a real YYYY-MM-DD date` };
+    if (Object.hasOwn(entry, 'basis')) {
+      const basis = entry.basis;
+      if (typeof basis !== 'string') return { code: 'type', reason: `${at} field 'basis' must be a string` };
+      if (/[\r\n\u0085\u2028\u2029]/.test(basis) || basis.length < 1 || basis.length > BILLING_BASIS_MAX) return { code: 'range', reason: `${at} field 'basis' must be one line of 1 to ${BILLING_BASIS_MAX} characters` };
+    }
+  }
+  return null;
+}
+
 /**
  * Whether a JSON value is acceptable for a key (data-model §2 encodings). The reason never echoes the
  * value. `enumValues` is the allowed list for an enum key.
@@ -80,6 +122,8 @@ function validateValue(spec: any, value: unknown, enumValues: readonly string[] 
     case 'url':
       if (typeof value !== 'string' || !value.trim()) return { code: 'type', reason: 'must be a URL string' };
       try { new URL(value); return null; } catch { return { code: 'url', reason: 'must be a URL string' }; }
+    case 'worker-billing':
+      return validateWorkerBilling(value);
     default:
       return { code: 'type', reason: 'has an unknown type' };
   }

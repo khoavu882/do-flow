@@ -86,6 +86,12 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/dispatch/command.ts'],
     description: 'Quota fallback ladder default for dispatch runs: ask holds and proposes, off holds without a proposal; auto exists only per run via --fallback.' },
+  // The person-written billing record per headless worker id; a state failSafe is its fail-safe.
+  'workers.billing': { type: 'worker-billing', default: null,
+    scope: 'global-only', combine: 'override', securityRelevant: true, failSafe: { state: 'invalid' },
+    env: null, flag: null, shellRead: null, needsConfigHome: true, legacy: [],
+    consumers: ['src/runtime/settings/worker-billing.ts'],
+    description: 'Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -133,11 +139,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch and the 106 dispatch.fallback default, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 11);
+  assert.equal(Object.keys(SHIPPED.keys).length, 12);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -390,6 +396,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'autopilot.enabled': 'off',
     'verify.reuse': 'off',
     'dispatch.fallback': 'off',
+    'workers.billing': { state: 'invalid' },
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';

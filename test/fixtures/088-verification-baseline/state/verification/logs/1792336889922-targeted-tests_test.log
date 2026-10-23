@@ -1,0 +1,41 @@
+# check: targeted-tests:test
+# command: npm test
+--- stdout ---
+
+> calc-project@1.0.0 test
+> node --test
+
+[32m✔ add numbers [90m(0.37ms)[39m[39m
+[31m✖ multiply numbers [90m(0.64975ms)[39m[39m
+[34mℹ tests 2[39m
+[34mℹ suites 0[39m
+[34mℹ pass 1[39m
+[34mℹ fail 1[39m
+[34mℹ cancelled 0[39m
+[34mℹ skipped 0[39m
+[34mℹ todo 0[39m
+[34mℹ duration_ms 47.738041[39m
+
+[31m✖ failing tests:[39m
+
+test at test/calc.test.js:5:1
+[31m✖ multiply numbers [90m(0.64975ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  5 !== 6
+  
+      at TestContext.<anonymous> [90m(<scratch>/run-proj/[39mtest/calc.test.js:6:10[90m)[39m
+  [90m    at Test.runInAsyncScope (node:async_hooks:226:14)[39m
+  [90m    at Test.run (node:internal/test_runner/test:1402:25)[39m
+  [90m    at Test.start (node:internal/test_runner/test:1262:17)[39m
+  [90m    at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)[39m {
+    generatedMessage: [33mtrue[39m,
+    code: [32m'ERR_ASSERTION'[39m,
+    actual: [33m5[39m,
+    expected: [33m6[39m,
+    operator: [32m'strictEqual'[39m,
+    diff: [32m'simple'[39m
+  }
+
+--- stderr ---
+

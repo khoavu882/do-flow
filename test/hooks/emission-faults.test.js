@@ -11,12 +11,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
+const { spawnBash } = require('../helper/home-less-bash');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = process.env.EM_POLICIES || path.join(REPO, 'core/harnesses/shared/hooks/policies');
-const BASH = '/bin/bash';
 const GRANT_ID = 's-20261014T100000Z-Ab12Cd';
 const GIT = { is_git_repo: true, branch: 'topic', sha: 'abc1234', commits: ['one'], uncommitted_count: 0, stash_count: 0 };
 const GIT_TEXT = 'Git context — branch: topic | abc1234\nLast commits: one\nUncommitted files: 0';
@@ -59,7 +58,7 @@ function world(t) {
 }
 
 function run(w, sid, env = {}) {
-  const r = spawnSync(BASH, [w.driver, POLICIES], {
+  const r = spawnBash([w.driver, POLICIES], {
     encoding: 'utf8',
     cwd: w.cwd,
     env: {

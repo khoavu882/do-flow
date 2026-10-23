@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
+const { findOnPath } = require('../../src/runtime/worker/readiness.ts');
 const dispatcher = require('../../bench/retrieval/lib/adapters.js');
 const adaptersC = require('../../bench/retrieval/lib/adapters-c.js');
 const run = require('../../bench/retrieval/lib/verbs/run.js');
@@ -20,6 +21,9 @@ const snap = require('../../bench/retrieval/lib/snapshot.js');
 const report = require('../../bench/retrieval/lib/report.js');
 
 const PASS = 'a sufficiently long test-only passphrase';
+// FU-w5wv06: H1's control retrieves through native.rg, which spawns `rg` by name; without it the test cannot run.
+// findOnPath is a PATH lookup that starts no process (the same helper test/e2e/dispatch-loop.e2e.test.js loads).
+const RG_SKIP = findOnPath('rg', process.env) ? false : 'ripgrep (rg) not on PATH: native.rg cannot serve the control';
 const git = (root, ...args) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.test', '-C', root, ...args], { encoding: 'utf8' }).trim();
 const approved = { status: 'approved', approvedOn: '2026-10-16' };
 const thresholds = { minN: { ranking: 10, outcome: 3, ...approved }, thresholds: [{ id: 'T-001', ...approved }],
@@ -494,7 +498,7 @@ test('R6 one-shot: an adapter fault mid-evaluation also closes every slot, and a
 });
 
 // H1 (review X1): C's delegated paths honour an injected fault exactly as the configuration they run as.
-test('H1: a code unavailable-provider task with native.rg disabled is unreached for C exactly as for B; servedBy names each route', (t) => {
+test('H1: a code unavailable-provider task with native.rg disabled is unreached for C exactly as for B; servedBy names each route', { skip: RG_SKIP }, (t) => {
   const root = tempDir(t, 'doflow-hybrid-c-disable-');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src/a.ts'), 'const thing = 1; // where is thing\n');
