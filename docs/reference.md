@@ -739,6 +739,7 @@ Every rollback command is the user's:
 | unrecorded | v2.0.0-beta.4 | unrecorded | none | unrecorded |
 | unrecorded | v2.0.0-beta.5 | unrecorded | none | latest: 2.0.0-beta.4, beta: 2.0.0-beta.5 |
 | unrecorded | v2.0.0-beta.6 | unrecorded | unclassified | unpublished (latest: 2.0.0-beta.4, beta: 2.0.0-beta.5) |
+| unrecorded | v2.0.0-beta.7 | unrecorded | pending | unpublished (cut prepared 2026-10-24, not yet tagged; outcome recorded after the Release run) |
 
 ## Full Skill List
 
