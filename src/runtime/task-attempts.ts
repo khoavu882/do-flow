@@ -182,7 +182,9 @@ function mutate({ file, fsImpl, apply }: any) {
       // `apply` decides from the store alone, so a reclaimed writer re-runs it on the fresh store.
       lostLockRetries: 2,
       build: (disk: any) => {
-        const store = normalizeStore(disk, file);
+        // A copy of the top level: `updateTaskState` stamps `disk.revision + 1` on what this returns, so
+        // bumping the disk object itself would make every write advance the revision by two.
+        const store = { ...normalizeStore(disk, file) };
         store.revision = (Number.isInteger(store.revision) ? store.revision : 0) + 1;
         outcome = apply(store);
         if (!outcome.write) throw new NoWrite();

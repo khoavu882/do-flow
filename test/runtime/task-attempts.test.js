@@ -89,6 +89,21 @@ test('claim grants a token and a second claim of the same task is refused (FR-00
   assert.equal(unknown.data.reason, 'unknown-task');
 });
 
+test('every write advances the stored revision by exactly one, and the result reports that revision (FU-08tzhg)', (t) => {
+  const p = project(t);
+  const stored = () => JSON.parse(fs.readFileSync(p.store, 'utf8')).revision;
+  const first = p.claim('A.1');
+  assert.deepEqual([first.data.revision, stored()], [1, 1]);
+  const second = p.claim('A.2');
+  assert.deepEqual([second.data.revision, stored()], [2, 2], 'a second write adds one, not two');
+  const refused = p.claim('A.1');
+  assert.equal(refused.data.disposition, 'refused');
+  assert.equal(stored(), 2, 'a refusal writes nothing and leaves the revision alone');
+  const released = p.release('A.2', 1);
+  assert.deepEqual([released.data.revision, stored()], [3, 3]);
+  assert.equal(p.ta('status').data.revision, 3, 'status reads the stored revision');
+});
+
 test('concurrent claims from two processes yield exactly one claimed (FR-001)', async (t) => {
   const p = project(t);
   const launch = (owner) => new Promise((resolve) => {
