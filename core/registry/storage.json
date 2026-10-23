@@ -1102,6 +1102,46 @@
       }
     },
     {
+      "id": "settings-writer-project-doflow",
+      "root": "project-doflow",
+      "path": "",
+      "entry": "file",
+      "match": "^settings(?:\\.local)?\\.json\\.lock$",
+      "rule": "existing",
+      "bound": {
+        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/settings/write.ts"
+      ],
+      "source": {
+        "file": "src/runtime/settings/write.ts",
+        "pattern": ".lock"
+      }
+    },
+    {
+      "id": "settings-writer-config-home",
+      "root": "config-home",
+      "path": "",
+      "entry": "file",
+      "match": "^settings\\.json\\.lock$",
+      "rule": "existing",
+      "bound": {
+        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/settings/write.ts"
+      ],
+      "source": {
+        "file": "src/runtime/settings/write.ts",
+        "pattern": ".lock"
+      }
+    },
+    {
       "id": "state-ignore-project-state",
       "root": "project-state",
       "path": ".gitignore",

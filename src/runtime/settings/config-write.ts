@@ -29,6 +29,10 @@ const { loadProtocols, presetIds } = require('../review/protocols.ts');
 
 const LAYERS = ['user', 'project', 'local'];
 const LAYER_FILE: Record<string, string> = { user: 'settings.json', project: 'settings.json', local: 'settings.local.json' };
+/** A write that finds the layer changed since it was checked is checked again, this many times in all. */
+const WRITE_ATTEMPTS = 3;
+/** `writeLayer` refusals reported under their own code; any other write fault is `write-failed`. */
+const WRITER_CODES = new Set(['locked', 'changed']);
 /** The codes whose entry carries the key's `allowed` values (IC-009). */
 const VALUE_CODES = new Set(['type', 'enum', 'range', 'items', 'length', 'url']);
 
@@ -101,10 +105,11 @@ function layerFile(layer: string, env: any, projectRoot: string, fsImpl: any): W
 /**
  * The layer-dependent verdict for `value` at `layer` in `file`: the existing document plus the value,
  * served to the resolver as that file, and the key's candidate read back. Null when the write is fine.
+ * `read` is the caller's own `readLayerFile` result, so a write can require the file it then replaces
+ * to be the one judged here.
  */
 function layerEntry(registry: any, key: string, layer: string, file: string, parsed: Parsed,
-  { env, projectRoot, fsImpl }: any): Entry | null {
-  const read = readLayerFile(file, { registry, fsImpl, includeDocument: true });
+  { env, projectRoot, fsImpl, read = readLayerFile(file, { registry, fsImpl, includeDocument: true }) }: any): Entry | null {
   if (read.status === 'invalid') {
     return entryOf(registry, key, layer, 'layer-invalid', `${file} ${read.reason}; fix or remove it first`);
   }
@@ -214,31 +219,38 @@ function handleChange({ action, key, valueText, layer, json, registry, projectRo
   if ('error' in where) return usageError('config', where.error, json);
   const { file } = where;
 
-  if (action === 'unset') {
+  // The layer is read, judged and written as one unit: `expect` makes writeLayer refuse (code `changed`)
+  // when another writer replaced the file in between, and the unit then runs again on the new file.
+  for (let attempt = 1; ; attempt++) {
     const read = readLayerFile(file, { registry, fsImpl, includeDocument: true });
-    if (read.status === 'invalid') return refuse(action, [entryOf(registry, key, layer, 'layer-invalid', `${file} ${read.reason}; fix or remove it first`)], json);
-    if (read.status === 'absent' || !isObject(read.document) || !Object.hasOwn(read.document, key)) {
-      return done(json, { ok: true, key, layer, file, changed: false, errors: [] }, [`${key} is not set  (${layer}: ${file})`]);
+    const expect = read.status === 'ok' ? read.document : null;
+    let written: any;
+    if (action === 'unset') {
+      if (read.status === 'invalid') return refuse(action, [entryOf(registry, key, layer, 'layer-invalid', `${file} ${read.reason}; fix or remove it first`)], json);
+      if (read.status === 'absent' || !isObject(read.document) || !Object.hasOwn(read.document, key)) {
+        return done(json, { ok: true, key, layer, file, changed: false, errors: [] }, [`${key} is not set  (${layer}: ${file})`]);
+      }
+      written = writeLayer({ file, unset: [key], expect, fsImpl });
+    } else {
+      const fault = layerEntry(registry, key, layer, file, parsed, { env, projectRoot: root, fsImpl, read });
+      if (fault) return refuse(action, [fault], json);
+      if (action === 'validate') return done(json, { ok: true, errors: [] }, [`${key}: valid  (${layer}: ${file})`]);
+      written = writeLayer({ file, set: { [key]: parsed.value }, expect, fsImpl });
     }
-    const removed = writeLayer({ file, unset: [key], fsImpl });
-    if (!removed.ok) return refuse(action, [entryOf(registry, key, layer, 'write-failed', removed.detail)], json);
+    if (!written.ok && written.code === 'changed' && attempt < WRITE_ATTEMPTS) continue;
+    if (!written.ok) {
+      const code = WRITER_CODES.has(written.code) ? written.code : 'write-failed';
+      return refuse(action, [entryOf(registry, key, layer, code, written.detail)], json);
+    }
     clearSettingsCache();
-    return done(json, { ok: true, key, layer, file, changed: true, errors: [] }, [`${key} unset  (${layer}: ${file})`]);
+    if (action === 'unset') return done(json, { ok: true, key, layer, file, changed: true, errors: [] }, [`${key} unset  (${layer}: ${file})`]);
+    const resolution = loadSettings({ projectRoot: root, env, fsImpl, registry }).get(key);
+    const origin = { ...resolution.origin };
+    const shown = JSON.stringify(resolution.value);
+    const text = [`${key} = ${shown}  (${origin.layer}: ${origin.source})`];
+    if (origin.source !== file) text.push(`written: ${layer}: ${file}`);
+    return done(json, { ok: true, key, layer, file, value: resolution.value, origin, errors: [] }, text);
   }
-
-  const fault = layerEntry(registry, key, layer, file, parsed, { env, projectRoot: root, fsImpl });
-  if (fault) return refuse(action, [fault], json);
-  if (action === 'validate') return done(json, { ok: true, errors: [] }, [`${key}: valid  (${layer}: ${file})`]);
-
-  const written = writeLayer({ file, set: { [key]: parsed.value }, fsImpl });
-  if (!written.ok) return refuse(action, [entryOf(registry, key, layer, 'write-failed', written.detail)], json);
-  clearSettingsCache();
-  const resolution = loadSettings({ projectRoot: root, env, fsImpl, registry }).get(key);
-  const origin = { ...resolution.origin };
-  const shown = JSON.stringify(resolution.value);
-  const text = [`${key} = ${shown}  (${origin.layer}: ${origin.source})`];
-  if (origin.source !== file) text.push(`written: ${layer}: ${file}`);
-  return done(json, { ok: true, key, layer, file, value: resolution.value, origin, errors: [] }, text);
 }
 
 function handleConfigAction(options: any): number {

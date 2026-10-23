@@ -7,6 +7,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadSettingsRegistry } = require('./registry.ts');
 const { readLayerFile, validateValue } = require('./files.ts');
@@ -52,7 +53,60 @@ function backupLayerFile(file: string, fsImpl = fs): any {
   }
 }
 
-function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false, fsImpl = fs }: any = {}): any {
+/** How long a writer waits for another writer's lock, and the age at which a lock is a crashed holder's. */
+const LOCK_WAIT_MS = 2000;
+const LOCK_STALE_MS = 10000;
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * Take `<file>.lock` (created exclusively, holding a token) so one read-merge-rename of a layer runs at a
+ * time across processes. A held lock is waited on for LOCK_WAIT_MS, then refused with code `locked`. A
+ * lock older than LOCK_STALE_MS is a crashed holder's (a holder keeps it for one read and one write) and
+ * is removed if its token is still the one judged stale. Ceiling: that re-read and the removal are not
+ * one step, so a lock taken in between can still be removed; a live holder is never near the stale age.
+ */
+function acquireLock(file: string, fsImpl: any): any {
+  const lock = `${file}.lock`;
+  const token = `${process.pid} ${randomBytes(8).toString('hex')}\n`;
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      fsImpl.writeFileSync(lock, token, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      return { ok: true, lock, token };
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') return invalid(file, `could not be locked: ${error?.message || 'lock not created'}`, 'locked');
+    }
+    try {
+      const seen = fsImpl.readFileSync(lock, 'utf8');
+      if (Date.now() - fsImpl.statSync(lock).mtimeMs > LOCK_STALE_MS) {
+        // Remove only the lock judged stale: a writer that removed it first and took its own has a new
+        // token. Residual: a lock taken between this re-read and the removal is still removed.
+        if (fsImpl.readFileSync(lock, 'utf8') === seen) fsImpl.rmSync(lock, { force: true });
+        continue;
+      }
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') continue;
+    }
+    if (Date.now() >= deadline) {
+      return invalid(file, `is being written by another process (${lock} is held); nothing was written, run it again`, 'locked');
+    }
+    Atomics.wait(PAUSE, 0, 0, 20);
+  }
+}
+
+function releaseLock({ lock, token }: any, fsImpl: any): void {
+  try {
+    if (fsImpl.readFileSync(lock, 'utf8') === token) fsImpl.rmSync(lock, { force: true });
+  } catch { /* already gone; keep the primary result */ }
+}
+
+/**
+ * Write one layer. The read, merge and rename run under the layer's lock (`acquireLock`), so two
+ * writers of different keys never drop each other's key. `expect` (optional): the document the caller
+ * validated against, or null when it found no file; when the file under the lock differs, nothing is
+ * written and the result has code `changed`, so a caller's verdict always describes what it replaces.
+ */
+function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false, expect, fsImpl = fs }: any = {}): any {
   if (typeof file !== 'string' || file.length === 0) {
     return { ok: false, reason: 'config-invalid', detail: 'file is required' };
   }
@@ -81,6 +135,24 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
     if (!registry.keys.has(key) || !Object.hasOwn(set, key)) return invalid(file, `scrub key '${key}' must be a registered key also present in set`);
   }
 
+  try {
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  } catch (error: any) {
+    return invalid(file, error?.message || 'could not be written');
+  }
+  const held = acquireLock(file, fsImpl);
+  if (!held.ok) return held;
+  try {
+    return replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, fsImpl });
+  } finally {
+    releaseLock(held, fsImpl);
+  }
+}
+
+const INVALID = Symbol('invalid layer');
+
+/** The read, merge and rename of `writeLayer`, run while it holds the layer's lock. */
+function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, fsImpl }: any): any {
   let before: Record<string, unknown> | null = null;
   let existing: Record<string, unknown> = {};
   let layer: any;
@@ -100,6 +172,13 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
     if (!force) return invalid(file, 'could not be read');
     before = null;
     existing = {};
+  }
+
+  if (expect !== undefined) {
+    const current = layer?.status === 'ok' ? layer.document : layer?.status === 'absent' ? null : INVALID;
+    if (!isDeepStrictEqual(current, expect)) {
+      return invalid(file, 'changed while this write was being checked; nothing was written', 'changed');
+    }
   }
 
   const changed = layer?.status !== 'ok'
@@ -125,7 +204,6 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
   const directory = path.dirname(file);
   let temporary: string | null = null;
   try {
-    fsImpl.mkdirSync(directory, { recursive: true, mode: 0o700 });
     temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
     fsImpl.writeFileSync(temporary, `${JSON.stringify(after, null, 2)}\n`, {
       encoding: 'utf8', flag: 'wx', mode: 0o600,

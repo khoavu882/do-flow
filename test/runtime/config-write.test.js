@@ -301,6 +301,106 @@ test('unset refuses locked, unknown and security keys', (t) => {
   assert.equal(fs.readFileSync(f.userFile('settings.json'), 'utf8'), before);
 });
 
+// ── concurrent writers (C-7) ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Runs `config <action>` in this process against fixture `f` through `fsImpl`, and returns the exit
+ * code and the parsed `--json` output. process.exitCode is put back, so the test runner's is untouched.
+ */
+function runIn(f, fsImpl, action, key, valueText) {
+  const { handleConfigAction } = require('../../src/runtime/settings/config-write.ts');
+  const { loadSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
+  const { registry } = loadSettingsRegistry({ repoRoot: REPO });
+  const out = [];
+  const saved = { log: console.log, error: console.error, exitCode: process.exitCode };
+  console.log = (line) => out.push(line);
+  console.error = (line) => out.push(line);
+  try {
+    const status = handleConfigAction({
+      action, key, valueText, layer: 'project', json: true, registry, repoRoot: REPO, projectRoot: f.project, env: f.env(), fsImpl,
+    });
+    return { status, json: JSON.parse(out.join('\n')) };
+  } finally {
+    console.log = saved.log;
+    console.error = saved.error;
+    process.exitCode = saved.exitCode;
+  }
+}
+
+test('two config set calls interleaved inside the write never drop a key: the loser refuses locked and writes nothing', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.projectFile('settings.json');
+  f.writeProjectSettings({ schema: 1 });
+  let started = false;
+  let second = null;
+  const fsImpl = Object.create(fs);
+  // A has read the layer and written its temporary file; B runs to the end before A renames.
+  fsImpl.writeFileSync = (target, ...args) => {
+    const result = fs.writeFileSync(target, ...args);
+    if (!started && /^\.settings\.json\..*\.tmp$/.test(path.basename(String(target)))) {
+      started = true;
+      second = runIn(f, fsImpl, 'set', 'storage.prune', '"off"');
+    }
+    return result;
+  };
+  const first = runIn(f, fsImpl, 'set', 'review.rounds', '3');
+  assert.equal(first.status, 0, JSON.stringify(first.json));
+  assert.ok(second, 'the second writer ran inside the first write');
+  const stored = readJson(file);
+  if (second.status === 0) {
+    assert.deepEqual(stored, { schema: 1, 'review.rounds': 3, 'storage.prune': 'off' }, 'a reported write is never lost');
+  } else {
+    assert.equal(second.status, 1, JSON.stringify(second.json));
+    assert.equal(second.json.errors[0].code, 'locked');
+    assert.deepEqual(stored, { schema: 1, 'review.rounds': 3 });
+  }
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).sort(), ['settings.json'], 'no lock or temporary file is left');
+});
+
+test('a write between the check and the write is seen: the set is checked again and both keys are kept', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.projectFile('settings.json');
+  f.writeProjectSettings({ schema: 1 });
+  let started = false;
+  let second = null;
+  const fsImpl = Object.create(fs);
+  // B runs to the end right after A first reads the layer (A's check), before A takes the lock.
+  fsImpl.readFileSync = (target, ...args) => {
+    const result = fs.readFileSync(target, ...args);
+    if (!started && target === file) {
+      started = true;
+      second = runIn(f, fsImpl, 'set', 'storage.prune', '"off"');
+    }
+    return result;
+  };
+  const first = runIn(f, fsImpl, 'set', 'review.rounds', '3');
+  assert.equal(second.status, 0, JSON.stringify(second.json));
+  assert.equal(first.status, 0, JSON.stringify(first.json));
+  assert.deepEqual(readJson(file), { schema: 1, 'review.rounds': 3, 'storage.prune': 'off' });
+});
+
+test('a held lock makes set refuse with code locked after a bounded wait; a crashed holder\'s stale lock is removed', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.projectFile('settings.json');
+  f.writeProjectSettings({ schema: 1, 'storage.prune': 'off' });
+  const before = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(`${file}.lock`, 'held by a live writer\n');
+  const started = Date.now();
+  const held = refusal(f.run(['config', 'set', 'review.rounds', '3', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(held.code, 'locked');
+  assert.match(held.message, /settings\.json\.lock/);
+  assert.ok(Date.now() - started < 10000, 'the wait is bounded');
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'nothing was written');
+  assert.equal(fs.readFileSync(`${file}.lock`, 'utf8'), 'held by a live writer\n', 'another writer\'s lock is left alone');
+
+  const old = new Date(Date.now() - 60000);
+  fs.utimesSync(`${file}.lock`, old, old);
+  const result = f.run(['config', 'set', 'review.rounds', '3', '--layer', 'project', '--json']);
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  assert.deepEqual(readJson(file), { schema: 1, 'storage.prune': 'off', 'review.rounds': 3 });
+  assert.equal(fs.existsSync(`${file}.lock`), false);
+});
+
 // ── schema ────────────────────────────────────────────────────────────────────────────────────────
 
 test('schema --json lists every registry key with the IC-007 fields, and the invariants as locked', (t) => {
