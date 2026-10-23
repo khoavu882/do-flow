@@ -64,6 +64,11 @@
       "scope": "narrow-only", "combine": "override", "securityRelevant": false, "failSafe": "off",
       "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
       "consumers": ["src/runtime/dispatch/command.ts"],
-      "description": "Quota fallback ladder default for dispatch runs: ask holds and proposes, off holds without a proposal; auto exists only per run via --fallback." }
+      "description": "Quota fallback ladder default for dispatch runs: ask holds and proposes, off holds without a proposal; auto exists only per run via --fallback." },
+    "workers.billing": { "type": "worker-billing", "default": null,
+      "scope": "global-only", "combine": "override", "securityRelevant": true, "failSafe": { "state": "invalid" },
+      "env": null, "flag": null, "shellRead": null, "needsConfigHome": true, "legacy": [],
+      "consumers": ["src/runtime/settings/worker-billing.ts"],
+      "description": "Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only." }
   }
 }
