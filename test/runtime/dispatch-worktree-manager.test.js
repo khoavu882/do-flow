@@ -124,3 +124,37 @@ test('a GIT_DIR in the test process does not redirect a manager given an env wit
   assert.ok(!hasBranch(other, 'doflow-attempt/s/d-bbbbbbbbbbbb'));
   assert.equal(mgr.removeVerified('d-bbbbbbbbbbbb').verified, true);
 });
+
+test('create and remove leave an unrelated missing worktree record alone and drop only their own stale record (FU-mysatc)', () => {
+  const repo = makeRepo('prune-scope');
+  // A worktree of the user's own whose directory is gone: git lists it as prunable.
+  const elsewhere = path.join(root, 'prune-scope-elsewhere');
+  git(repo, 'worktree', 'add', '-q', '-b', 'user/side', elsewhere);
+  fs.rmSync(elsewhere, { recursive: true, force: true });
+  const listed = () => git(repo, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).map((l) => fs.realpathSync(path.dirname(path.resolve(l.slice(9)))) + path.sep + path.basename(l.slice(9)));
+  const userRecord = fs.realpathSync(path.dirname(elsewhere)) + path.sep + path.basename(elsewhere);
+  assert.ok(listed().includes(userRecord), 'setup: the missing worktree is still recorded');
+
+  const mgr = new WorktreeManager(repo, path.join(repo, 'wts'), { env: ENV });
+  // A leftover directory git does not know about: create clears it, then adds the worktree.
+  fs.mkdirSync(path.join(repo, 'wts', 'own-1'), { recursive: true });
+  const wt = mgr.create('own-1');
+  assert.ok(fs.existsSync(path.join(wt, BASE_FILE)));
+  assert.ok(listed().includes(userRecord), 'create did not prune the unrelated record');
+
+  // Its own directory deleted behind git's back: the record is stale, and remove drops it.
+  fs.rmSync(wt, { recursive: true, force: true });
+  const removal = mgr.removeVerified('own-1');
+  assert.deepEqual([removal.pathGone, removal.branchGone, removal.unregistered, removal.verified], [true, true, true, true]);
+  assert.ok(listed().includes(userRecord), 'removeVerified did not prune the unrelated record');
+  assert.ok(!mgr.isRegistered(wt), 'its own stale record is gone');
+
+  // The same through remove(), and a second remove of something absent stays a success.
+  mgr.create('own-2');
+  fs.rmSync(path.join(repo, 'wts', 'own-2'), { recursive: true, force: true });
+  mgr.remove('own-2');
+  mgr.remove('own-2');
+  assert.ok(!mgr.isRegistered(path.join(repo, 'wts', 'own-2')));
+  assert.ok(!hasBranch(repo, 'task/own-2'));
+  assert.ok(listed().includes(userRecord), 'remove did not prune the unrelated record');
+});

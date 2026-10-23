@@ -148,6 +148,46 @@ class WorktreeManager {
   }
 
   /**
+   * Drops git's administrative record for `wtPath` when its directory is gone, and no other. A
+   * blanket `git worktree prune` also forgets every unrelated worktree of the user's whose directory
+   * is merely missing (an unmounted drive, a directory deleted by hand), which is not this
+   * manager's to decide. Git has no per-path prune, so this reads `<common-dir>/worktrees/<name>/gitdir`
+   * (the file git itself reads to decide a record is prunable) and removes only the matching record.
+   * A locked record, or one whose `.git` file is still present, is left alone.
+   */
+  dropStaleRecord(wtPath: string): void {
+    const common = this.git(['rev-parse', '--git-common-dir'], this.repoRoot, { allowFailure: true });
+    if (!common.ok) return;
+    const admin = path.join(path.resolve(this.repoRoot, common.stdout.trim()), 'worktrees');
+    let names: string[];
+    try {
+      names = fs.readdirSync(admin);
+    } catch {
+      return;
+    }
+    // git writes the real path of the parent, so compare with that of the worktree's parent too.
+    const target = path.resolve(wtPath);
+    let realTarget = target;
+    try {
+      realTarget = path.join(fs.realpathSync(path.dirname(target)), path.basename(target));
+    } catch {
+      // The parent is gone as well: only the plain form can match.
+    }
+    for (const name of names) {
+      const record = path.join(admin, name);
+      try {
+        if (fs.existsSync(path.join(record, 'locked'))) continue;
+        const dotGit = path.resolve(fs.readFileSync(path.join(record, 'gitdir'), 'utf8').trim());
+        if (path.dirname(dotGit) !== target && path.dirname(dotGit) !== realTarget) continue;
+        if (fs.existsSync(dotGit)) continue;
+        fs.rmSync(record, { recursive: true, force: true });
+      } catch {
+        // An unreadable record is not ours to judge.
+      }
+    }
+  }
+
+  /**
    * Create an isolated worktree, reusing it only when git agrees it is registered. Returns the
    * absolute path.
    */
@@ -157,10 +197,10 @@ class WorktreeManager {
 
     if (this.isRegistered(wtPath)) return wtPath;
 
-    // A leftover directory that git does not know about blocks `worktree add`. Clear it, and
-    // prune git's stale administrative records, before trying.
+    // A leftover directory that git does not know about blocks `worktree add`. Clear it, and this
+    // path's stale administrative record, before trying; other worktrees' records are not touched.
     if (fs.existsSync(wtPath)) fs.rmSync(wtPath, { recursive: true, force: true });
-    this.git(['worktree', 'prune'], this.repoRoot, { allowFailure: true });
+    this.dropStaleRecord(wtPath);
 
     fs.mkdirSync(this.worktreesDir, { recursive: true });
 
@@ -308,7 +348,7 @@ class WorktreeManager {
 
     this.git(['worktree', 'remove', '--force', wtPath], this.repoRoot, { allowFailure: true });
     if (fs.existsSync(wtPath)) fs.rmSync(wtPath, { recursive: true, force: true });
-    this.git(['worktree', 'prune'], this.repoRoot, { allowFailure: true });
+    this.dropStaleRecord(wtPath);
     // Deleting the branch is what keeps repeated bench runs from accumulating one branch per case.
     this.git(['branch', '-D', branch], this.repoRoot, { allowFailure: true });
   }
@@ -338,7 +378,7 @@ class WorktreeManager {
         errors.push(String(err?.code ?? 'unknown'));
       }
     }
-    step(['worktree', 'prune']);
+    this.dropStaleRecord(wtPath);
     // `branch -D` fails harmlessly when the branch never existed; only the reading below decides.
     step(['branch', '-D', branch]);
 
